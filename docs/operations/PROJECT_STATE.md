@@ -3,63 +3,65 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated files in docs/archive/ are historical and non-authoritative.
 
-**Updated:** 2026-10-06 17:54 UTC
+**Updated:** 2026-10-06 21:28 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `9f56c35b61809069537d8c3f09c28a6e3347d8d5` (#388)
 **Internal app/API/sync source:** `3614bf6f3805479f8d13de65eeec4f0ad7871f22`
-**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
+**Current slice:** `PR-389-HALF-START-ENROLLMENT-REVIEW` — `in-progress`
 
 ## Current status and deduplication
 
 Claude is restored. Only #389 is open; #387/#388 merged, branches deleted.
-#389 head `4e7e7eb16632db849c7b806b3096489482d3eaf1` fixes P2 6020952816
-(real foreground installer and automatic worker dequeue gate bypass).
-New P2 `6021873468`: retained explicit requests cannot resume through the
-start gate; stale-worker cleanup precedes generation check; account rebind
-retains intent; active-row early return skips registration. No merge.
-Author reply `6021043095` read; do not answer it twice.
-
-Exact-head evidence complete; evidence verdict `6022166928` handled:
-- Source `37498292084` / Native `37498292248` passed.
-- Independent 130 tests, 18.573 s, OK; read-only Build80 image, no network.
-- All three ZIP digests verified; all 89 iOS/47 Watch design PNGs equal the
-  individually reviewed #387 baseline byte-for-byte.
-- Native compiled merge `83a473d2b2f164e8359821088426ce8c324979f4` has no
-  mobile/ios diff from reviewed head; real foreground/per-job XTests passed.
-- Exact source backup verified; snapshot/container/tmpfs closed.
-- Final full live run waits for corrected head; original assertion intact.
-- Review record: `docs/operations/2026-10-06-pr389-download-intent-lifetime-review.md`.
-
-Earlier heads/comments consumed; detailed proof archived:
-- #389 af7a837e: Source 37491131543 / Native 37491131642 / 130 OK /
-  136 matching PNGs. P2 6020952816 / evidence 6021181763 handled.
-- #389 87a00b3a: Source 37473708159 / Native 37473708114 / 129 OK /
-  136 matching PNGs; P2 6019848254 / evidence 6020049168 handled.
-- Author replies 6019989194/6020075979 handled. Intermediate 41857121
-  runs 37490470913/37490470917 cancelled, superseded; do not reopen.
-- #388 merge 9f56c35b, final 4a1108aa; original 9 + extended 15 tests OK.
-  P2 6018586650 / fix 6018681148 / verdict 6019983448 handled.
-- #387 merge c07114b3, final 4504b299; 130 OK/all design+Watch frames reviewed.
-  Full live 37456686597 Watch passed; iOS failed missing prep-library row.
-  RCA 6017108044 proved pre-existing race, product repair belongs to #389.
-  Comments 6015347738/6016542546/6017410544/6019856320 handled.
-  RCA supersedes 6016510080. Old review_pr376 is complete/resources closed.
+#389 new head `56022d326edf7b4cc789f9ecea818ceb6da50805` claims all four
+P2 6021873468 paths fixed; code diff confirms shared eligibility, generation
+check before cleanup, account clear and active-job intent registration.
+Author reply `6023411098` read; Source `37515958115` passed,
+Native `37515958145` passed. Independent 130 tests/8.912 s passed; snapshot/container
+closed after source backup checks. Native artifacts verified: all 89 iOS/47
+Watch design frames byte-identical to reviewed baseline; all ZIP digests pass.
+New pause/resume (0.214 s) and account-rebind (0.049 s) behavior tests passed;
+compiled feafce442 has no mobile/ios diff. P2 resolved; full live **37519627055**
+dispatched 19:31:35 UTC on exact head 56022d32, fixture=false/full/live preflight.
+P2 closure/live-dispatch comment **6023959200** posted and handled.
+Full live 37519627055 failed before starting the round: RealFlowUITests:70
+could not find `start-round-course-half-31793-back`. Repaired enrollment path
+not exercised. Inspect actual screenshots/selection/catalogue before RCA;
+prior code P2 stays resolved. No blind rerun, weakened assertion or merge.
+Live failure intake comment **6025340897** posted and handled.
+Live artifact downloader terminal **10844** completed; five ZIP digests pass,
+86 iOS/13 Watch runtime PNGs plus 136 design frames. Watch capture succeeded.
+Review-sheet terminal **32028** completed; --rm image container closed.
+Local copies `.codex-pr389-56022d32-live-review`: all 86 iOS/13 Watch frames
+reviewed; full-live designComparison confirms all 89 iOS/47 Watch equal baseline.
+Remote sheets/index are canonical; copies expire Oct 7 21:15.
+Video downloader **59206** completed success; artifact **11443055917**
+ZIP SHA256 `f4ef44ec8a2b8591c9a185f794fa19974dda40ac82ea3f5d108f65d4eb5dcbbc`.
+Verified/extracted under full-live `video-evidence`; failed selector has no PNG.
+Video shows empty Hub → empty course list/spinner → retry icon; no selection.
+Origin response gap/tunnel cancellations verified; responsible layer unproven.
+Author RCA **6025352540** read; reply **6025783925** handled, evidence boundary
+preserved. Review `2026-10-06-pr389-live-selector-failure-review.md`.
+One unchanged-head observed full live **37534118109** dispatched 21:28:19 UTC;
+original assertions/live preflight/full/fixture=false, retained Build80 backend.
+Health preflight origin HTTP 200/0.035 s; tunnel HTTP/2 200/1.165 s.
+Next start its origin/tunnel trace + existing blocking CI waiter in same turn.
+Evidence subdirectory
+`operations/pr389-56022d32-20261006/full-live-37519627055`.
+Earlier reviewed heads/comments deduplicated in dated archive
+`PROJECT_STATE-2026-10-06-pr389-live-video-intake.md`; old review_pr376 closed.
 
 Deduplicate heads, comments and run IDs. New substantive feedback/new heads
 are actionable; own comments/commits/CI/duplicates never reset quiet time.
 
 ## Unfinished work
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: resume existing same-turn
+- `PR-FEEDBACK-CONTINUOUS` — `queued`: resume existing same-turn
   feedback cursor; review exact head/tests/Native artifacts; post P1/P2/
   non-blocking verdict and merge/delete branch only when clear.
-- `PR-389-HALF-START-ENROLLMENT-REVIEW` — `blocked`: await P2 6021873468 fix.
-  Re-test manual pause/real foreground resume with gate pending; automatic
-  jobs still wait. Check stale-worker/account intent and active-row request.
-  Then exact tests/Native artifacts and one final full live on Build80:
-  fixture=false, capture_scope=full, live preflight=true; original assertion
-  unchanged. Inspect queue latency trace, 后九→前九/relaunch prep journey,
-  iOS/Watch runtime screenshots and Watch rendered marker before merging.
+- `PR-389-HALF-START-ENROLLMENT-REVIEW` — `in-progress`: await observed full
+  live 37534118109. Code P2/tests/design proof complete. Check unchanged
+  后九→前九/relaunch prep journey and queue trace before approval/merge.
+  Repeated selection failure requires origin/tunnel trace diagnosis.
 - `PR-387-IOS-JOURNEY-REGRESSION` — `blocked`: carried by #389 final live proof.
 - `IOS-STATUS-CONTRAST` — `queued`, non-blocking: existing dark iOS system
   status-bar text on dark map/review screens.
@@ -91,6 +93,15 @@ are actionable; own comments/commits/CI/duplicates never reset quiet time.
 
 ## Owned resources and waits
 
+- #389 read-only snapshot completed and closed at
+  `/dev/shm/garmin-ai-caddie-pr389-56022d32-20261006`, expires Oct 7 19:10;
+  --rm test container `codex-pr389-56022d32-tests-20261006`, no network/deps.
+  Evidence/resource manifest `operations/pr389-56022d32-20261006`.
+- Video renderer `codex-pr389-video-selection-20261006` closed automatically;
+  11 frames/two sheets/index retained, downloader 59206/extractor 80386 finished.
+- `.codex-pr389-56022d32-observed-live.py`: read-only origin/tunnel sampler
+  plus existing blocking waiter, expiry 7,200 s after start; no new service,
+  worktree/container/port/volume. Evidence `observed-live-37534118109`.
 - Build80 candidate `aicaddie-release-3614bf6f-candidate-20261006`, port 39089;
   API image `garmin-ai-caddie-api:3614bf6f3805479f8d13de65eeec4f0ad7871f22-candidate-20261006`.
   Matching full-SHA sync image retained for owner testing.
@@ -99,17 +110,28 @@ are actionable; own comments/commits/CI/duplicates never reset quiet time.
 - Source `/home/jason/codex-runs/garmin-ai-caddie-release-3614bf6f-20261006`,
   expires Oct 13; exact allow-list in release resource-manifest.md.
 - Build79 retired with verified 1,131-file backup; production volume/DB protected.
-- No implementation worktree, review snapshot, test container or verification
-  terminal active. #389 4e7e7eb1 snapshot removed 17:44:19 UTC after exact
+- Verifier terminal **82946** completed (130 OK); snapshot/container closed.
+  Native wait terminal **21614** completed success, run 37515958145; task-scoped final
+  summary `operations/pr389-56022d32-20261006/native-wait-result.txt`.
+  Artifact verifier terminal **41986** completed success, all ZIPs/136 frames.
+  Full live run **37519627055** failed; observer 94141 completed, waiter
+  3111915 ended. SSH closed 72721 and original result was reattached;
+  no duplicate waiter/run/cursor changes. No active CI waiter.
+  task-scoped final summary `operations/pr389-56022d32-20261006/full-live-wait-result.txt`.
+  No implementation worktree. Previous #389 4e7e7eb1 snapshot removed
+  17:44:19 UTC after exact
   archive/use checks; cleanup receipts retained. ZIP interruption resumed;
   final digests pass. No new service/deps/ports/tunnel/volume.
 - Six local helpers removed after exact remote backup verification; allow-list remains
   `.codex-pr389-4e7e7eb1-local-cleanup.json`. Earlier manifests/unknown
   `.codex-*` and dirty `ops/pr_feedback_monitor.sh` remain protected.
-- Capacity baseline: 67 GiB root/3.3 GiB shm/3.9 GiB available RAM.
+- Capacity baseline: 66 GiB disk/4.3 GiB available RAM.
 - Post-cleanup production and retained Build80 API health both HTTP 200.
-- No feedback waiter active during review closeout. Terminals 11381/18304
-  consumed obsolete cancelled runs. Resume existing cursor after commit.
+- Feedback waiter PID 2953236 / observer terminal 41738 completed with
+  author reply 6023411098. Lost handle 88742 was reattached, never duplicated.
+  No feedback waiter active while reviewing new head; cursor unchanged.
+  Reviewed heads/runs and own review comments all deduplicated; unchanged
+  cursor retained. Previous handles consumed; no liveness checks.
 - Deployed waiter:
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait_for_conclusion.sh`.
   SHA256 `37dd8727b1f47c09d56512b52765dc2984dafe6cf90381803d302338a6048179`.
@@ -123,9 +145,9 @@ are actionable; own comments/commits/CI/duplicates never reset quiet time.
 
 ## Next action and stop conditions
 
-Commit actual P2 review/evidence/resource closure and verbatim state archives
-(explicit git add -f for ignored docs/archive), then resume same-turn feedback
-waiter. Review author's fix; full live only when code findings clear.
+Commit selector review/visual evidence and verbatim archives, then start one
+observed-live 37534118109 waiter. Retain terminal in this turn; no CI/liveness
+checks while it waits. On terminal result inspect actual journey/trace/artifacts.
 Do not create CI-result-only bookkeeping commits.
 
 Quiet interval suspended while #389 is open. Once no PRs remain, establish
