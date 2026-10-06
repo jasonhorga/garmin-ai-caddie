@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from ai_caddie.llm.llm_providers import TextProvider, build_text_provider, redact_secret_text
+from ai_caddie.llm.llm_providers import TextProvider, build_vision_provider, redact_secret_text
 from ai_caddie.rounds.players import OWNER_ID
 from ai_caddie.core.media import (
     MediaUploadTooLarge,
@@ -50,7 +50,7 @@ def _media_root(player_id: str) -> Path:
 
 
 def build_media_vision_provider() -> TextProvider:
-    return build_text_provider()
+    return build_vision_provider()
 
 
 def _unavailable_vision_analysis(media: dict[str, object], exc: Exception) -> dict[str, object]:
