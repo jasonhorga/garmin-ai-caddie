@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.datastructures import QueryParams
 
-from ai_caddie.llm.llm_providers import ProviderConfigurationError
+from ai_caddie.llm.llm_providers import ProviderConfigurationError, StaticProvider
 from ai_caddie.llm.pin_sheet_vision import (
     PinSheetImage,
     PinSheetReadError,
@@ -137,6 +137,8 @@ class PinSheetEndpointTests(unittest.TestCase):
                 broken = self._post(client, self.ADMIN_HEADER, [JPEG])
             with patch("server_v2.pin_sheet.build_media_vision_provider", return_value=object()):
                 text_only = self._post(client, self.ADMIN_HEADER, [JPEG])
+            with patch("server_v2.pin_sheet.build_media_vision_provider", return_value=StaticProvider()):
+                static = self._post(client, self.ADMIN_HEADER, [JPEG])
             not_image = self._post(client, self.ADMIN_HEADER, [b"hello"])
             too_many = self._post(client, self.ADMIN_HEADER, [JPEG] * 4)
 
@@ -153,6 +155,9 @@ class PinSheetEndpointTests(unittest.TestCase):
         self.assertEqual(broken.status_code, 502)
         # A model that cannot read images is a deployment problem, not a bad photo.
         self.assertEqual(text_only.status_code, 503)
+        # The static fixture provider (production default) is "not configured", not a bad photo.
+        self.assertEqual(static.status_code, 503, static.text)
+        self.assertIn("static", static.json()["detail"])
         self.assertEqual(not_image.status_code, 415)
         self.assertEqual(too_many.status_code, 422)
 
