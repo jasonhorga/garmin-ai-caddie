@@ -65,7 +65,11 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
         XCTAssertTrue(openStartRound(), "home must expose the real start-round path")
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
-        _ = selectStartCourse(approvedJourneyCourseGlobalId)
+        // Selecting the course is its own step: live Native 37519627055 reported "no 后九" while
+        // the list was empty (nearby still loading), because this result was discarded.
+        let journeyCourse = selectStartCourse(approvedJourneyCourseGlobalId)
+        XCTAssertTrue(journeyCourse.exists, "the journey must find and select 北京丽宫 before choosing its 后九")
+        XCTAssertEqual(journeyCourse.value as? String, "已选择")
         let backHalf = app.buttons["start-round-course-half-\(approvedJourneyCourseGlobalId)-back"]
         XCTAssertTrue(scrollTo(backHalf, maxSwipes: 8), "an 18-hole course offers its 后九 as a start")
         backHalf.tap()
@@ -1969,6 +1973,10 @@ final class RealFlowUITests: XCTestCase {
         if scrollTo(tile, maxSwipes: 8), tile.value as? String != "已选择" {
             tile.tap()
             settle(1)
+        }
+        if !(tile.exists && tile.value as? String == "已选择") {
+            // Evidence for the caller's selection assertion: what the list showed instead.
+            save("start-course-\(globalId)-not-selected"); dump("start-course-\(globalId)-not-selected")
         }
         return tile
     }
