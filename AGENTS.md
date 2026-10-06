@@ -78,6 +78,15 @@ After compaction, follow this recovery sequence exactly:
 There must be at most one `in-progress` task in the ledger. A task is either
 `queued`, `in-progress`, `blocked`, `evidence-open`, `done`, or `cancelled`.
 
+### Cross-agent collaboration
+
+Shared collaboration guidance is available at
+https://github.com/jasonhorga/agent-collab/blob/main/AGENT-COLLAB.md. The
+gh-feedback instance for this repository is `garmin-ai-caddie`. The complete
+repository waiting and attribution rules below remain authoritative for this
+goal. A migration to the shared waiter is separate policy work; this reference
+does not schedule a switch or authorize removal of the project waiter.
+
 ### Blocking waits and feedback monitoring
 
 Do not poll CI, releases, or PR feedback from the main control thread with
