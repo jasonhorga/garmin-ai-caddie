@@ -3,7 +3,7 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated files in docs/archive/ are historical and non-authoritative.
 
-**Updated:** 2026-10-06 09:27 UTC
+**Updated:** 2026-10-06 10:38 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `3bf38b0c4ed9c7d3b6b73bf77452d25c8dbc31e4` (#386)
 **Internal app/API/sync source:** `3614bf6f3805479f8d13de65eeec4f0ad7871f22`
@@ -50,6 +50,10 @@ Own release events/comments and bookkeeping CI do not reset quiet time.
   #386 comment `6013163156`; other Watch score frames/design tests passed.
 - `IOS-STATUS-CONTRAST` — `queued`, non-blocking: existing dark system
   status-bar text on dark iOS map/review screens; raised with Native feedback.
+- `WAIT-OWN-BRANCH-CI` — `queued`: self-CI filtering is main-only, so
+  already reviewed internal Native/TestFlight runs woke feedback again.
+  Reported bounded P2 on #383 as comment **6014454163**; await a fix PR.
+  Existing waiting method/cursor retained; own report does not reset quiet.
 - `OWNER-DEVICE-BUILD80` — `evidence-open`: Jason's paired iPhone/Watch
   testing. Live Native evidence is simulator testing, not physical devices.
 
@@ -106,7 +110,11 @@ Own release events/comments and bookkeeping CI do not reset quiet time.
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait_for_conclusion.sh`.
   SHA-256 `5b3846c9ff7b4ad6a5297f5571fa162c8e0be5a50ee63da024d6ef11be038c6d`.
   Cursor `operations/blocking-waits/feedback-cursor`; never edit/delete it.
-  No pending feedback handle yet; register the handle immediately after launch.
+  Feedback 34469 consumed: duplicate known TestFlight 37438559636.
+  No active feedback handle after #383 P2 comment 6014454163. Quiet unchanged.
+  P2 comment input/evidence registered at project operations
+  `pr383-own-branch-ci-20261006` (Codex, helper input expires Oct 7).
+  Comment input remote checksum verified; local input removed.
 - Same-turn background terminal: sleep 300000 ms, then one write_stdin until
   its one-line conclusion. No idle gh run view/process/state checks, duplicate
   waiter, independent waiter tmux, or CI-only commits. Method fixed through Oct 9.
@@ -116,9 +124,9 @@ Own release events/comments and bookkeeping CI do not reset quiet time.
 
 ## Next action and stop conditions
 
-Commit this real release/cleanup state once, then launch --feedback with a
-timeout to the quiet deadline and retain its handle. Only its conclusion permits
-event processing. Skip already handled release events; do not repeat gates.
+Release/cleanup state pushed as **4acb61f0**. Commit the real #383 P2 finding
+and bounded handover state, then resume same-turn feedback waiting. Review
+Claude's fix when ready; skip handled release events and do not repeat gates.
 For a new mobile PR, require exact-head Native CI and inspect its screenshots.
 
 Fresh conservative quiet baseline: **2026-10-06 09:23 UTC**, after release;

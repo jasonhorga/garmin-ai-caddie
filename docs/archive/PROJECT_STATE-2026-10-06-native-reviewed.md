@@ -172,4 +172,3 @@ a final condition check, resource handoff and completion of the goal.
 Keep this file **≤200 lines**, current-only. Archive superseded text verbatim,
 marked HISTORICAL ARCHIVE — NON-AUTHORITATIVE. After compaction read this file,
 inspect Git/agent state, and resume this single slice without repeating work.
-
