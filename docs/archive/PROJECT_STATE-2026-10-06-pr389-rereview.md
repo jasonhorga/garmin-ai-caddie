@@ -1,9 +1,13 @@
+> HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+>
+> State preserved verbatim before #389 revised-head re-review.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated files in docs/archive/ are historical and non-authoritative.
 
-**Updated:** 2026-10-06 16:58 UTC
+**Updated:** 2026-10-06 15:55 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `9f56c35b61809069537d8c3f09c28a6e3347d8d5` (#388)
 **Internal app/API/sync source:** `3614bf6f3805479f8d13de65eeec4f0ad7871f22`
@@ -12,20 +16,10 @@
 ## Current status and deduplication
 
 Claude is restored. #387 and #388 are merged; their source branches deleted.
-#389 revised head af7a837e adds durable release/timer/queue gating and is
-rebased on 9f56c35b; Source/Native/130 tests and all 136 design frames pass.
-Re-review P2 6020952816: real foreground/direct installer and an existing
-worker bypass the first-hole gate. Await author fix, then full live proof.
+#389 is held for same-session background acquisition liveness/priority.
 No new subagents; old review_pr376 is complete and its resources closed.
 
-- #389 current head `af7a837e1a5c739dcaaa3faaef4e0a7f05b0c57c`; Source
-  `37491131543`/Native `37491131642` green. Fix/rebase replies 6019989194 /
-  6020075979 handled. Independent 130 tests and three ZIP digests pass;
-  all 89 iOS/47 Watch PNGs match reviewed baseline; compiled 75bbf446 has
-  no mobile/ios diff from this head. P2 6020952816 / evidence 6021181763
-  handled. No full live run on known-blocked head. Cancelled intermediate head
-  41857121 / run 37490470913 is superseded. Previous reviewed head
-  `87a00b3a6a0a99eeb661c30e0fd9c31b70fc70ab`:
+- #389 head `87a00b3a6a0a99eeb661c30e0fd9c31b70fc70ab`.
   Source `37473708159`, automatic Native `37473708114`, independent
   129 tests passed. Three artifact ZIP digests verified; all 89 iOS/47 Watch
   design PNGs match the individually reviewed #387 baseline byte-for-byte.
@@ -59,16 +53,12 @@ are actionable; own comments/commits/CI/duplicates never reset quiet time.
 - `PR-FEEDBACK-CONTINUOUS` — `in-progress`: resume existing cursor and
   same-turn feedback waiter. Review exact head/related tests/required Native
   artifacts, comment P1/P2/non-blocking, merge/delete branch when clear.
-- `PR-389-HALF-START-ENROLLMENT-REVIEW` — `blocked`: P2 `6020952816`.
-  Durable row fixed; previous P2 requested independent download release.
-  Revised release handles leaving first hole, 60-second fallback and stale
-  generation, with same-session/offline-turn tests. Inspect real foreground
-  path and existing worker: start-only guard may not protect first-hole work.
+- `PR-389-HALF-START-ENROLLMENT-REVIEW` — `blocked`: P2 `6019848254`.
+  Durable row is fixed, but only map+caddie completion callback releases it.
+  Cutting every hole task short can leave it queued for the entire foreground
+  round. Require bounded same-session release without relaunch/resume, first
+  map priority, no stale-round fallback, and offline-turn behavioral proof.
   Central automatic queue gating must not permanently block explicit prep.
-  New P2 6020952816 confirms real syncOnForeground directly clears gate,
-  and an already-running prep worker dequeues fresh jobs without gate.
-  Independent 130 tests and all Native artifacts now verified. Fix real
-  foreground caller and running-worker dequeue; preserve explicit prep work.
   Do not delete/weaken original journey assertion or blindly rerun old head.
 - `PR-387-IOS-JOURNEY-REGRESSION` — `blocked`: product RCA/P2 carried by
   #389; final head must pass Native and full live on existing build80 backend,
@@ -117,15 +107,7 @@ are actionable; own comments/commits/CI/duplicates never reset quiet time.
   expires Oct 13. Exact allow-list: release evidence resource-manifest.md.
 - Build79 old candidate/image tag/source retired with 1,131 files verified
   in backup. Original production volume/database protected; old tunnel absent.
-- No implementation worktree/feedback waiter active. Terminal 18304 ended
-  on superseded cancelled run 37490470913; stop waiting and review new head.
-  #389 af7a837e snapshot/test container/tmpfs closed with source backup/use
-  checks. API timeout/partial curl logs retained; fresh signed IPv4 resumes
-  completed all ZIPs. Terminal 63920 consumed; no verification terminal live.
-  Evidence/receipts: `operations/pr389-af7a837e-20261006`.
-  Six local helpers removed after exact remote checksum verification; small
-  `.codex-pr389-af7a837e-local-cleanup.json` retained with earlier allow-list.
-  No new service/deps/port/worktree; production/build80 health proof retained.
+- No implementation worktree/review snapshot or verification terminal active.
   #389 snapshot/test tmpfs/container and #388 snapshot/isolated test temp
   removed after exact source backup/use checks. Receipts retained.
   Capacity/health closeout: 67 GiB root, 3.3 GiB shm; production/build80 HTTP 200.
@@ -144,8 +126,8 @@ are actionable; own comments/commits/CI/duplicates never reset quiet time.
 - Last feedback completion:
   `wait-feedback-pr--20261006T151251Z-2468825.log`; current RCA/new heads
   processed. Buffered events may repeat reviewed #387/#388/#389 items.
-  Previous feedback terminal 18304 completed; no replacement while reviewing.
-  Buffered events can repeat fix/rebase replies and already-green CI.
+  Active feedback terminal **18304**, same-turn wait; observe its one-line
+  result after sleep 300000. Do not launch another waiter or inspect liveness.
 - Same-turn background terminal: sleep 300000 ms, then one write_stdin until
   one-line conclusion. No idle gh run view/process/state checks, duplicate
   waiter, independent waiter tmux, or CI-only commits. Fixed through Oct 9.
@@ -156,10 +138,8 @@ are actionable; own comments/commits/CI/duplicates never reset quiet time.
 ## Next action and stop conditions
 
 Review/integration/resource closure pushed as **6b2418e4**, with verbatim
-archives explicitly added despite docs/archive ignore rule (3a896d10).
-Commit/push this actual P2 re-review/resource closure with verbatim archives,
-then resume same-turn feedback waiter/cursor. Await #389 author fix; run full
-live only when code findings are resolved. No CI-only result commits.
+archives explicitly added despite docs/archive ignore rule. Await terminal
+18304 in this same turn for #389 author response/fix; no CI-only commit.
 For final changed head verify required CI/native artifacts, then full live;
 merge/delete only when blocking findings are resolved.
 
