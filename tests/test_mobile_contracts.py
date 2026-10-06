@@ -4471,10 +4471,38 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("enqueueWholeCourseTemplates(for: package)", signal)
         self.assertNotIn("startPrepCourseDownloadQueueIfNeeded()", signal)
         self.assertNotIn("beginOfflineCourseDownload(", signal)
-        release = app_swift.split("func liveHoleInitialLoadDidFinish() {", 1)[1].split("\n    }\n", 1)[0]
-        self.assertIn("beginOfflineCourseDownload(revalidatePackage: revalidatePackage)", release)
         finish = app_swift.split("private func finishRoundPreparation(_ token: UUID) {", 1)[1].split("\n    }\n", 1)[0]
         self.assertIn("if deferredOfflineCourseDownloadRevalidation == nil,", finish)
+
+    def test_the_fresh_entry_release_is_bounded_and_owned_by_the_round(self) -> None:
+        # PR #389 review: the deferred download must not wait on one cancellable view task (the
+        # first-hole callback also waits for the caddie decision). The first of the initial load,
+        # leaving the entry hole, or a fallback timer releases it; a stale fallback cannot.
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+
+        def body(signature: str) -> str:
+            return app_swift.split(signature, 1)[1].split("\n    }\n", 1)[0]
+
+        self.assertIn('releaseFreshEntry(reason: "live-initial-load-finished")', body("func liveHoleInitialLoadDidFinish() {"))
+        signal = body("private func signalFreshRoundEntry(")
+        self.assertIn("armFreshEntryRelease(entryHole: pendingLiveHole)", signal)
+        arm = body("private func armFreshEntryRelease(entryHole: Int?) {")
+        self.assertIn("try? await Task.sleep(nanoseconds: delay)", arm)
+        self.assertIn('self?.releaseFreshEntry(generation: generation, reason: "fallback")', arm)
+        release = body("private func releaseFreshEntry(generation: UUID? = nil, reason: String) {")
+        self.assertIn("if let generation, freshEntryRelease?.generation != generation { return }", release)
+        self.assertIn("liveRoundState?.roundId != gate.roundId", release)
+        self.assertIn("beginOfflineCourseDownload(revalidatePackage: revalidatePackage)", release)
+        active = body("public func setActiveHole(_ hole: Int) {")
+        self.assertIn("gate.entryHole != hole", active)
+        self.assertIn('releaseFreshEntry(reason: "left-entry-hole")', active)
+        self.assertIn("clearFreshEntryRelease()", body("private func beginRoundPreparation() -> UUID {"))
+        # One gate for automatic queue starts; the player's own 备战 actions are never held.
+        start = body("private func startPrepCourseDownloadQueueIfNeeded(userInitiated: Bool = false) {")
+        self.assertIn("guard userInitiated || deferredOfflineCourseDownloadRevalidation == nil else {", start)
+        self.assertNotIn("userInitiated: true", body("private func resumePrepCourseDownloads(retryFailed: Bool) {"))
+        self.assertIn("startPrepCourseDownloadQueueIfNeeded(userInitiated: true)", body("public func downloadPrepCourse(_ course: MobileCourseOption) {"))
+        self.assertIn("startPrepCourseDownloadQueueIfNeeded(userInitiated: true)", body("public func retryPrepCourseDownload(id: String) {"))
 
     def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:
         # 洞位图: the day's sheet places the flag; a flag the player moves still wins, and the
