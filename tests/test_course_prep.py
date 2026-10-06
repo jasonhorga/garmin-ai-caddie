@@ -667,6 +667,49 @@ class PureLogicTests(unittest.TestCase):
 
         self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "PW"])
 
+    _OWNER_LADDER = [
+        ("Driver", 197), ("3W", 170), ("3H", 158), ("5I", 142), ("6I", 132), ("7I", 128), ("8I", 121),
+        ("9I", 109), ("Pw", 107), ("Aw", 102), ("50", 84), ("54", 48), ("58", 35),
+    ]
+
+    def _assert_no_landing_in_water(self, steps, hazards) -> None:
+        for step in steps:
+            self.assertTrue(
+                cp._strategy_water_safe(step["routeOffset_m"], hazards),
+                f"{step['club']} lands at {step['routeOffset_m']} m inside {hazards['water_carry']}",
+            )
+
+    def test_lay_up_never_lands_a_second_shot_in_water(self) -> None:
+        # PR #384 review: water at 250-330 m. The 78 m lay-up (8I from 197 m) landed at 318 m;
+        # every full-wedge lay-up from 197 m is wet, so the 3W carry past the water stays.
+        hazards = {"water_carry": [[250.0, 330.0]], "bunkers": [], "details": []}
+        steps, _c, _landing, _tee = cp._strategy(4, 396, hazards, self._OWNER_LADDER)
+
+        self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "58"])
+        self._assert_no_landing_in_water(steps, hazards)
+
+    def test_lay_up_short_of_water_is_kept(self) -> None:
+        # Water at 330-360 m: 8I from 197 m stops at 318 m, short of the buffered front (322 m),
+        # while the 3W would land at 367 m, inside the buffered back edge (368 m).
+        hazards = {"water_carry": [[330.0, 360.0]], "bunkers": [], "details": []}
+        steps, _c, _landing, _tee = cp._strategy(4, 396, hazards, self._OWNER_LADDER)
+
+        self.assertEqual([step["club"] for step in steps], ["Driver", "8I", "50"])
+        self._assert_no_landing_in_water(steps, hazards)
+
+    def test_lay_up_water_check_starts_from_the_current_shot(self) -> None:
+        # Par 5: the lay-up is the third shot, played from 356 m (Driver 196 + 3W 160). 5I and 7I
+        # would land at 496 / 476 m, inside water at 480-505 m; measured from the tee they would
+        # look dry. With no water-safe full-wedge lay-up the 3W advance past the water stays.
+        ladder = [
+            ("Driver", 196), ("3W", 160), ("5I", 140), ("7I", 120), ("9I", 105), ("PW", 95), ("SW", 80),
+        ]
+        hazards = {"water_carry": [[480.0, 505.0]], "bunkers": [], "details": []}
+        steps, _c, _landing, _tee = cp._strategy(5, 566, hazards, ladder)
+
+        self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "3W", "SW"])
+        self._assert_no_landing_in_water(steps, hazards)
+
     def test_in_triangle(self) -> None:
         a, b, c = (0, 0), (10, 0), (0, 10)
         self.assertTrue(cp._in_tri((2, 2), a, b, c))

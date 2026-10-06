@@ -1580,7 +1580,7 @@ LAYUP_LEAVE_MAX_M = 115.0
 LAYUP_LEAVE_MAX_ERROR_M = 15.0
 
 
-def _layup_position_club(remaining_m: float, approach_ladder):
+def _layup_position_club(remaining_m: float, approach_ladder, *, start_m: float = 0.0, hazards=None):
     """The lay-up club when the longest approach would leave a part-swing pitch.
 
     Build 77 device review: 433 y Par 4, Driver then a maximum 3-wood left 44 y. A lay-up should
@@ -1589,6 +1589,11 @@ def _layup_position_club(remaining_m: float, approach_ladder):
     the window, pick the one whose leave is closest to it, longer club first on a tie. Returns
     ``None`` when the bag has no full wedge or no club gets within ``LAYUP_LEAVE_MAX_ERROR_M``,
     so a sparse bag keeps the longest-club advance.
+
+    ``start_m`` is this shot's cumulative route offset from the tee, the frame of
+    ``hazards["water_carry"]``. A candidate whose landing ``start_m + carry`` is not clear of every
+    water crossing (the tee shot's eight-metre buffers) is never chosen; with no water-safe lay-up
+    the caller keeps its longest-club advance (PR #384 review: 8I into water at 318 m).
     """
     wedge_carries = [
         float(distance)
@@ -1603,6 +1608,8 @@ def _layup_position_club(remaining_m: float, approach_ladder):
     for name, distance in approach_ladder:
         leave = remaining_m - float(distance)
         if leave < LAYUP_LEAVE_MIN_M:
+            continue
+        if not _strategy_water_safe(float(start_m) + float(distance), hazards):
             continue
         error = abs(leave - target_leave)
         if best_error is None or error < best_error:
@@ -1790,7 +1797,10 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
                 approach_club, approach_distance = approach_ladder[0]
                 if remaining - longest_approach < LAYUP_LEAVE_MIN_M:
                     approach_club, approach_distance = (
-                        _layup_position_club(remaining, approach_ladder) or approach_ladder[0]
+                        _layup_position_club(
+                            remaining, approach_ladder, start_m=route_offset_m, hazards=hazards,
+                        )
+                        or approach_ladder[0]
                     )
             else:
                 approach_club, approach_distance = club_for(
