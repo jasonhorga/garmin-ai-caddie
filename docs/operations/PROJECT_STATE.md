@@ -3,7 +3,7 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated files in docs/archive/ are historical and non-authoritative.
 
-**Updated:** 2026-10-06 16:58 UTC
+**Updated:** 2026-10-06 17:54 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `9f56c35b61809069537d8c3f09c28a6e3347d8d5` (#388)
 **Internal app/API/sync source:** `3614bf6f3805479f8d13de65eeec4f0ad7871f22`
@@ -11,162 +11,127 @@
 
 ## Current status and deduplication
 
-Claude is restored. #387 and #388 are merged; their source branches deleted.
-#389 revised head af7a837e adds durable release/timer/queue gating and is
-rebased on 9f56c35b; Source/Native/130 tests and all 136 design frames pass.
-Re-review P2 6020952816: real foreground/direct installer and an existing
-worker bypass the first-hole gate. Await author fix, then full live proof.
-No new subagents; old review_pr376 is complete and its resources closed.
+Claude is restored. Only #389 is open; #387/#388 merged, branches deleted.
+#389 head `4e7e7eb16632db849c7b806b3096489482d3eaf1` fixes P2 6020952816
+(real foreground installer and automatic worker dequeue gate bypass).
+New P2 `6021873468`: retained explicit requests cannot resume through the
+start gate; stale-worker cleanup precedes generation check; account rebind
+retains intent; active-row early return skips registration. No merge.
+Author reply `6021043095` read; do not answer it twice.
 
-- #389 current head `af7a837e1a5c739dcaaa3faaef4e0a7f05b0c57c`; Source
-  `37491131543`/Native `37491131642` green. Fix/rebase replies 6019989194 /
-  6020075979 handled. Independent 130 tests and three ZIP digests pass;
-  all 89 iOS/47 Watch PNGs match reviewed baseline; compiled 75bbf446 has
-  no mobile/ios diff from this head. P2 6020952816 / evidence 6021181763
-  handled. No full live run on known-blocked head. Cancelled intermediate head
-  41857121 / run 37490470913 is superseded. Previous reviewed head
-  `87a00b3a6a0a99eeb661c30e0fd9c31b70fc70ab`:
-  Source `37473708159`, automatic Native `37473708114`, independent
-  129 tests passed. Three artifact ZIP digests verified; all 89 iOS/47 Watch
-  design PNGs match the individually reviewed #387 baseline byte-for-byte.
-  Native compiled merge `359fd969…` has no mobile/ios diff from PR head.
-  New XCTest durable enrollment regression passed (0.292 s).
-  Superseded head fc8a6028 CI 37470175422/37470175346 consumed; later
-  87a00b3a already passed Native. Do not reopen the obsolete test failure.
-  P2 `6019848254` and screenshot completion `6020049168` handled.
-- #388 final head `4a1108aaa6a87b78a9032149a1fecdeff65b7827`,
-  merge `9f56c35b`; Source `37480859996` passed. Original 9 and extended
-  15 tests (including those 9) passed; bash syntax passed. Prior P2
-  `6018586650` resolved: run + summary + genuine comment returns cursor=3.
-  Claude fix reply `6018681148`, final verdict `6019983448` handled.
-  Preserve Claude/unknown provenance and explicit --run/--release outcomes.
-- #387 head `4504b2994331c93b16d5282afd9c205807680a23`,
-  merge `c07114b3`; Source `37442092046`, automatic Native
-  `37442091978`, independent 130 tests passed. Full live `37456686597`
-  Watch passes; its separate iOS journey failed missing prep-library row.
-  Progress `6015347738`, P2 `6016542546`, screenshot verdict
-  `6017410544`, integration decision `6019856320` handled.
-- RCA `6017108044` confirmed pre-existing product race; it supersedes
-  retry/options comment `6016510080`. #387 Watch has no regression.
-  Final combined live iOS/Watch verification belongs to #389.
+Exact-head evidence complete; evidence verdict `6022166928` handled:
+- Source `37498292084` / Native `37498292248` passed.
+- Independent 130 tests, 18.573 s, OK; read-only Build80 image, no network.
+- All three ZIP digests verified; all 89 iOS/47 Watch design PNGs equal the
+  individually reviewed #387 baseline byte-for-byte.
+- Native compiled merge `83a473d2b2f164e8359821088426ce8c324979f4` has no
+  mobile/ios diff from reviewed head; real foreground/per-job XTests passed.
+- Exact source backup verified; snapshot/container/tmpfs closed.
+- Final full live run waits for corrected head; original assertion intact.
+- Review record: `docs/operations/2026-10-06-pr389-download-intent-lifetime-review.md`.
 
-Deduplicate these heads/comments and the release/Native run IDs below.
-Earlier completed reviews are archived. New substantive feedback/new heads
+Earlier heads/comments consumed; detailed proof archived:
+- #389 af7a837e: Source 37491131543 / Native 37491131642 / 130 OK /
+  136 matching PNGs. P2 6020952816 / evidence 6021181763 handled.
+- #389 87a00b3a: Source 37473708159 / Native 37473708114 / 129 OK /
+  136 matching PNGs; P2 6019848254 / evidence 6020049168 handled.
+- Author replies 6019989194/6020075979 handled. Intermediate 41857121
+  runs 37490470913/37490470917 cancelled, superseded; do not reopen.
+- #388 merge 9f56c35b, final 4a1108aa; original 9 + extended 15 tests OK.
+  P2 6018586650 / fix 6018681148 / verdict 6019983448 handled.
+- #387 merge c07114b3, final 4504b299; 130 OK/all design+Watch frames reviewed.
+  Full live 37456686597 Watch passed; iOS failed missing prep-library row.
+  RCA 6017108044 proved pre-existing race, product repair belongs to #389.
+  Comments 6015347738/6016542546/6017410544/6019856320 handled.
+  RCA supersedes 6016510080. Old review_pr376 is complete/resources closed.
+
+Deduplicate heads, comments and run IDs. New substantive feedback/new heads
 are actionable; own comments/commits/CI/duplicates never reset quiet time.
 
 ## Unfinished work
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: resume existing cursor and
-  same-turn feedback waiter. Review exact head/related tests/required Native
-  artifacts, comment P1/P2/non-blocking, merge/delete branch when clear.
-- `PR-389-HALF-START-ENROLLMENT-REVIEW` — `blocked`: P2 `6020952816`.
-  Durable row fixed; previous P2 requested independent download release.
-  Revised release handles leaving first hole, 60-second fallback and stale
-  generation, with same-session/offline-turn tests. Inspect real foreground
-  path and existing worker: start-only guard may not protect first-hole work.
-  Central automatic queue gating must not permanently block explicit prep.
-  New P2 6020952816 confirms real syncOnForeground directly clears gate,
-  and an already-running prep worker dequeues fresh jobs without gate.
-  Independent 130 tests and all Native artifacts now verified. Fix real
-  foreground caller and running-worker dequeue; preserve explicit prep work.
-  Do not delete/weaken original journey assertion or blindly rerun old head.
-- `PR-387-IOS-JOURNEY-REGRESSION` — `blocked`: product RCA/P2 carried by
-  #389; final head must pass Native and full live on existing build80 backend,
-  including queue trace, 后九→前九/relaunch prep and Watch rendered-marker.
-- `IOS-STATUS-CONTRAST` — `queued`, non-blocking: existing dark system
-  status-bar text on dark iOS map/review screens; no new rendering change.
-- `OWNER-DEVICE-BUILD80` — `evidence-open`: Jason's paired iPhone/Watch
-  testing; Native proof is simulator testing, not physical-device testing.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: resume existing same-turn
+  feedback cursor; review exact head/tests/Native artifacts; post P1/P2/
+  non-blocking verdict and merge/delete branch only when clear.
+- `PR-389-HALF-START-ENROLLMENT-REVIEW` — `blocked`: await P2 6021873468 fix.
+  Re-test manual pause/real foreground resume with gate pending; automatic
+  jobs still wait. Check stale-worker/account intent and active-row request.
+  Then exact tests/Native artifacts and one final full live on Build80:
+  fixture=false, capture_scope=full, live preflight=true; original assertion
+  unchanged. Inspect queue latency trace, 后九→前九/relaunch prep journey,
+  iOS/Watch runtime screenshots and Watch rendered marker before merging.
+- `PR-387-IOS-JOURNEY-REGRESSION` — `blocked`: carried by #389 final live proof.
+- `IOS-STATUS-CONTRAST` — `queued`, non-blocking: existing dark iOS system
+  status-bar text on dark map/review screens.
+- `OWNER-DEVICE-BUILD80` — `evidence-open`: owner's paired iPhone/Watch test;
+  Native evidence is simulator evidence, not paired physical-device testing.
 
 ## Live verification baseline
 
-- **0.1.0 (80)** uploaded; Apple **VALID / IN_BETA_TESTING**, existing
-  internal group contains 80. Apple operation=list/external=false.
+- **0.1.0 (80)** available in existing internal TestFlight group; Apple
+  **VALID / IN_BETA_TESTING**, operation=list/external=false.
 - App/API/sync SHA `3614bf6f3805479f8d13de65eeec4f0ad7871f22`.
-  Text provider static; Gemini vision only. Private deployment inputs remain
-  in remote evidence; no production switch or external distribution.
-- Passed gates: Live Native `37426762320` (fixture=false/full/live preflight),
-  TestFlight `37438559636`, Apple read-only `37440770465`.
-  136 design PNGs equal approved #382; 92 iOS/13 Watch runtime frames reviewed.
-- IPA artifact `11400009027`: ZIP/provenance/backend/origin and both embedded
-  bundle versions verified. IPA SHA-256:
+  Text provider static; Gemini vision only. No production switch/external release.
+- Passed: Live Native `37426762320`, TestFlight `37438559636`,
+  Apple read-only `37440770465`; 136 design PNGs equal approved #382,
+  92 iOS/13 Watch runtime frames reviewed.
+- IPA artifact `11400009027`, ZIP/provenance/backend/origin and both bundle
+  versions verified. SHA256:
   `84ceedfbafc1ff23095e35f7a4218970377a1083e7659ae65679b25f24f07d55`.
-- Synthetic pin sheet: HTTP 200, 18.901 s, exact date/three holes/front facts.
+- Synthetic pin sheet: HTTP 200/18.901 s, exact date/3 holes/front facts.
   HTTP/2 package: 203,928 raw/~17,855 wire bytes; loopback 1.72–2.78 s,
-  four tunnel requests 2.10–2.34 s, all HTTP/2/200.
-- Origin: `https://developments-deputy-joined-logged.trycloudflare.com`.
-- Production `aicaddie-release-d7f69971-production-20260925`, port `39055`,
+  four tunnel requests 2.10–2.34 s, HTTP/2/200.
+- Live origin: `https://developments-deputy-joined-logged.trycloudflare.com`.
+- Production: `aicaddie-release-d7f69971-production-20260925`, port 39055,
   revision `d7f699712f7ac6cba41d97c420c405e090625caf`.
-- Evidence root: `/home/jason/garmin-ai-caddie-data/operations`.
-  Release: `release-main-3614bf6f-20261006`.
-  #387: `pr387-4504b299-20261006`; full live iOS remains failed, Watch passed.
-  #388: `pr388-4a1108aa-20261006`; replay/provenance/install/closure evidence.
-  #389: `pr389-87a00b3a-20261006`; exact source, 129 tests, three ZIPs,
-  per-frame hashes/native log/source provenance and cleanup receipts retained.
+- Evidence root `/home/jason/garmin-ai-caddie-data/operations`:
+  release-main-3614bf6f-20261006; pr387-4504b299-20261006;
+  pr388-4a1108aa-20261006; pr389-87a00b3a-20261006;
+  pr389-af7a837e-20261006; pr389-4e7e7eb1-20261006.
 
 ## Owned resources and waits
 
-- Build80 candidate `aicaddie-release-3614bf6f-candidate-20261006`,
-  loopback `39089`; API image
-  `garmin-ai-caddie-api:3614bf6f3805479f8d13de65eeec4f0ad7871f22-candidate-20261006`.
-  Matching full-SHA sync image remains.
-- Tunnel tmux `codex-release-http2-main-3614bf6f-20261006`, metrics `39110`.
-  Isolated DB `aicaddie_candidate_3614bf6f_20261006`; private-root/config
-  in release evidence remain for owner testing; existing key protected.
+- Build80 candidate `aicaddie-release-3614bf6f-candidate-20261006`, port 39089;
+  API image `garmin-ai-caddie-api:3614bf6f3805479f8d13de65eeec4f0ad7871f22-candidate-20261006`.
+  Matching full-SHA sync image retained for owner testing.
+- Tunnel tmux `codex-release-http2-main-3614bf6f-20261006`, metrics 39110.
+  Isolated DB `aicaddie_candidate_3614bf6f_20261006`; private config/key protected.
 - Source `/home/jason/codex-runs/garmin-ai-caddie-release-3614bf6f-20261006`,
-  expires Oct 13. Exact allow-list: release evidence resource-manifest.md.
-- Build79 old candidate/image tag/source retired with 1,131 files verified
-  in backup. Original production volume/database protected; old tunnel absent.
-- No implementation worktree/feedback waiter active. Terminal 18304 ended
-  on superseded cancelled run 37490470913; stop waiting and review new head.
-  #389 af7a837e snapshot/test container/tmpfs closed with source backup/use
-  checks. API timeout/partial curl logs retained; fresh signed IPv4 resumes
-  completed all ZIPs. Terminal 63920 consumed; no verification terminal live.
-  Evidence/receipts: `operations/pr389-af7a837e-20261006`.
-  Six local helpers removed after exact remote checksum verification; small
-  `.codex-pr389-af7a837e-local-cleanup.json` retained with earlier allow-list.
-  No new service/deps/port/worktree; production/build80 health proof retained.
-  #389 snapshot/test tmpfs/container and #388 snapshot/isolated test temp
-  removed after exact source backup/use checks. Receipts retained.
-  Capacity/health closeout: 67 GiB root, 3.3 GiB shm; production/build80 HTTP 200.
-- Fourteen local review/merge helpers removed after byte/checksum validation
-  of remote backups; allow-list retained in #388 evidence and small local
-  `.codex-pr387-388-389-local-cleanup.json`. Preserve unrelated old
-  `.codex-*` and dirty `ops/pr_feedback_monitor.sh`.
-- #389 original mount/CWD verifier errors retained; isolated tmpfs run 129 OK.
-  Initial gh artifact timeout retained; fresh signed IPv4 curl resumed it;
-  all three final ZIP digests verified. Never log credentials/signed URLs.
-- Existing deployed waiter updated from verified #388 source, old copy backed
-  up under #388 evidence. Cursor SHA unchanged; waiting method not changed.
-  Path: `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait_for_conclusion.sh`.
-  SHA-256: `37dd8727b1f47c09d56512b52765dc2984dafe6cf90381803d302338a6048179`.
-  Cursor: `operations/blocking-waits/feedback-cursor`; never edit/delete.
-- Last feedback completion:
-  `wait-feedback-pr--20261006T151251Z-2468825.log`; current RCA/new heads
-  processed. Buffered events may repeat reviewed #387/#388/#389 items.
-  Previous feedback terminal 18304 completed; no replacement while reviewing.
-  Buffered events can repeat fix/rebase replies and already-green CI.
-- Same-turn background terminal: sleep 300000 ms, then one write_stdin until
-  one-line conclusion. No idle gh run view/process/state checks, duplicate
-  waiter, independent waiter tmux, or CI-only commits. Fixed through Oct 9.
-  Shared `gh-feedback@garmin-ai-caddie.timer` unchanged.
-- Every GitHub comment/review ends `_Generated by Codex_`; commits carry
-  `Generated-by: Codex`. Own commits/CI do not wake broad waits.
+  expires Oct 13; exact allow-list in release resource-manifest.md.
+- Build79 retired with verified 1,131-file backup; production volume/DB protected.
+- No implementation worktree, review snapshot, test container or verification
+  terminal active. #389 4e7e7eb1 snapshot removed 17:44:19 UTC after exact
+  archive/use checks; cleanup receipts retained. ZIP interruption resumed;
+  final digests pass. No new service/deps/ports/tunnel/volume.
+- Six local helpers removed after exact remote backup verification; allow-list remains
+  `.codex-pr389-4e7e7eb1-local-cleanup.json`. Earlier manifests/unknown
+  `.codex-*` and dirty `ops/pr_feedback_monitor.sh` remain protected.
+- Capacity baseline: 67 GiB root/3.3 GiB shm/3.9 GiB available RAM.
+- Post-cleanup production and retained Build80 API health both HTTP 200.
+- No feedback waiter active during review closeout. Terminals 11381/18304
+  consumed obsolete cancelled runs. Resume existing cursor after commit.
+- Deployed waiter:
+  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait_for_conclusion.sh`.
+  SHA256 `37dd8727b1f47c09d56512b52765dc2984dafe6cf90381803d302338a6048179`.
+  Cursor `operations/blocking-waits/feedback-cursor`; never edit/delete.
+- Same-turn background terminal → sleep 300000 ms → one write_stdin, until
+  one-line conclusion. No idle gh run view/ps/state/liveness/log polling,
+  duplicate monitor, independent waiter tmux or CI-only commits.
+  gh-feedback timer unchanged; wait method fixed through Oct 9.
+- Every GitHub comment/review ends `_Generated by Codex_`; every Codex
+  commit has `Generated-by: Codex`. Own commits/CI ignored by broad waiter.
 
 ## Next action and stop conditions
 
-Review/integration/resource closure pushed as **6b2418e4**, with verbatim
-archives explicitly added despite docs/archive ignore rule (3a896d10).
-Commit/push this actual P2 re-review/resource closure with verbatim archives,
-then resume same-turn feedback waiter/cursor. Await #389 author fix; run full
-live only when code findings are resolved. No CI-only result commits.
-For final changed head verify required CI/native artifacts, then full live;
-merge/delete only when blocking findings are resolved.
+Commit actual P2 review/evidence/resource closure and verbatim state archives
+(explicit git add -f for ignored docs/archive), then resume same-turn feedback
+waiter. Review author's fix; full live only when code findings clear.
+Do not create CI-result-only bookkeeping commits.
 
-Quiet interval suspended while #389 is open. Once reviews close and no PRs
-remain, establish a fresh conservative baseline. End after 48 quiet hours/no
-open PRs, or absolute end **2026-10-09 23:59 UTC**, with resource handoff.
-Own commits/comments/CI and duplicates never reset the clock.
+Quiet interval suspended while #389 is open. Once no PRs remain, establish
+a fresh conservative baseline; end after 48 quiet hours/no open PRs or
+absolute **2026-10-09 23:59 UTC**, with owned-resource handoff.
+Own commits/comments/CI and duplicates never reset quiet time.
 
-Keep this file ≤200 lines/current-only. Read it after compaction, inspect
-Git/agent state and resume this slice. Archive superseded text verbatim.
+Keep this file ≤200 lines/current-only; archive superseded text verbatim.
+After compaction read this file, inspect Git/agent status, resume this slice.
