@@ -4431,6 +4431,26 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("didUpdateLocations", location_provider)
         self.assertIn("horizontalAccuracyM", location_provider)
 
+    def test_the_back_nine_journey_asserts_its_course_selection_before_the_half(self) -> None:
+        # Live Native 37519627055: the start list was empty (nearby still loading) and the journey
+        # reported "no 后九" because the selection result was discarded. Selection is its own
+        # asserted step with evidence; the original half and prep-row assertions stay.
+        real_flow = _read_required_source(
+            self, Path("mobile") / "ios" / "AICaddieUITests" / "RealFlowUITests.swift"
+        )
+        journey = real_flow.split("func testBackNineThenFrontNineJourney() throws {", 1)[1]
+        select = journey.index("let journeyCourse = selectStartCourse(approvedJourneyCourseGlobalId)")
+        selected = journey.index('XCTAssertEqual(journeyCourse.value as? String, "已选择")')
+        half = journey.index('"an 18-hole course offers its 后九 as a start"')
+        self.assertLess(select, selected)
+        self.assertLess(selected, half)
+        self.assertIn('"a one-half start must queue its whole course in the prep library"', journey)
+        helper = real_flow.split("private func selectStartCourse(_ globalId: Int) -> XCUIElement {", 1)[1].split(
+            "\n    }\n", 1
+        )[0]
+        self.assertIn('save("start-course-\\(globalId)-not-selected")', helper)
+        self.assertIn('dump("start-course-\\(globalId)-not-selected")', helper)
+
     def test_a_half_start_lists_an_already_installed_whole_course_in_the_prep_library(self) -> None:
         # The B4b-2 template acquisition must not silently skip a course that is already installed:
         # like `downloadPrepCourse`, it lists it as ready so 备战 shows it (live Native 37247820045).
