@@ -323,6 +323,34 @@ ci_head_is_self_generated() {
   fi
 }
 
+# A PR check summary (`ci_changed`) carries no head of its own, only each check's
+# Actions link. It is self-generated only when every check links to a run whose
+# head is self-generated; a check without an Actions run link, a run that cannot
+# be read, or any other agent's head keeps the event (PR #388 review).
+checks_event_is_self_generated() {
+  local event="$1" run_ids run_id run_json head_branch head_sha
+  run_ids="$(jq -r '
+    [.checks[]? | ((.link // .detailsUrl // .url // "")
+      | (capture("/actions/runs/(?<id>[0-9]+)") | .id) // "missing")]
+    | unique | .[]
+  ' <<<"$event" 2>>"$LOG_FILE")"
+  [[ -n "$run_ids" ]] || return 1
+  while IFS= read -r run_id; do
+    [[ "$run_id" =~ ^[0-9]+$ ]] || return 1
+    run_json="$LOG_FILE.checks-run-${run_id}.json"
+    if ! gh run view "$run_id" --repo "$REPO" --json headBranch,headSha >"$run_json" 2>>"$LOG_FILE"; then
+      log "unable to read check run for self-run filtering run=$run_id"
+      rm -f "$run_json"
+      return 1
+    fi
+    head_branch="$(jq -r '.headBranch // empty' "$run_json" 2>>"$LOG_FILE")"
+    head_sha="$(jq -r '.headSha // empty' "$run_json" 2>>"$LOG_FILE")"
+    rm -f "$run_json"
+    ci_head_is_self_generated "$head_branch" "$head_sha" || return 1
+  done <<<"$run_ids"
+  return 0
+}
+
 wait_for_run() {
   log "waiting mode=$MODE repo=$REPO run=$RUN_ID"
   set +e
@@ -432,6 +460,11 @@ wait_for_pr_event() {
             continue
           fi
         elif [[ "$event_kind" == "ci_changed" ]]; then
+          if checks_event_is_self_generated "$event_line"; then
+            log "ignored self-generated check summary pr=$event_pr"
+            advance_cursor "$line_no"
+            continue
+          fi
           event_failed_jobs="$(jq -r '
             [.checks[]? | select(((.state // "") | ascii_upcase) as $state |
               ($state != "SUCCESS" and $state != "SKIPPED" and $state != "NEUTRAL")) | .name]

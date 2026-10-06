@@ -168,6 +168,71 @@ class WaitForConclusionProvenanceTests(unittest.TestCase):
 
         self.assertIn("conclusion=pr_feedback:issue_comment:pr7", stdout)
 
+    # PR #388 review: the monitor emits both the Actions run event and the PR check summary
+    # (`ci_changed`, which has no head of its own — only each check's run link).
+
+    def test_feedback_skips_the_run_and_check_summary_of_codex_ci_then_returns_feedback(self) -> None:
+        self._write_events(
+            run_event("105", prs=[7]),
+            checks_event(7, "105", "FAILURE"),
+            {"kind": "issue_comment", "pr": 7, "id": 6},
+        )
+
+        line = self._feedback()
+
+        self.assertIn("conclusion=pr_feedback:issue_comment:pr7", line)
+        self.assertEqual(self.cursor.read_text(encoding="utf-8").strip(), "3")
+        log = Path(line.rsplit("log=", 1)[1]).read_text(encoding="utf-8")
+        self.assertIn("ignored self-generated check summary pr=7", log)
+
+    def test_pr_wait_skips_the_codex_check_summary_too(self) -> None:
+        self.events.write_text("", encoding="utf-8")
+        waiter = subprocess.Popen(
+            ["bash", str(WAITER), "--pr", "7", "--poll-seconds", "1", "--timeout-seconds", "10"],
+            env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        time.sleep(1.5)
+        with self.events.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(run_event("105", prs=[7])) + "\n")
+            handle.write(json.dumps(checks_event(7, "105", "FAILURE")) + "\n")
+            handle.write(json.dumps({"kind": "issue_comment", "pr": 7, "id": 7}) + "\n")
+        stdout, _stderr = waiter.communicate(timeout=30)
+
+        self.assertIn("conclusion=pr_feedback:issue_comment:pr7", stdout)
+
+    def test_check_summaries_not_proven_codex_still_wake(self) -> None:
+        cases = {
+            "claude run": checks_event(9, "102", "FAILURE"),
+            "check without an Actions link": {
+                "kind": "ci_changed", "pr": 9,
+                "checks": [{"name": "external", "state": "FAILURE", "link": "https://status.example.invalid/1"}],
+            },
+            "codex and claude runs": {
+                "kind": "ci_changed", "pr": 9,
+                "checks": checks_event(9, "105", "FAILURE")["checks"] + checks_event(9, "102", "SUCCESS")["checks"],
+            },
+        }
+        for name, summary in cases.items():
+            with self.subTest(name):
+                self._write_events(summary, {"kind": "issue_comment", "pr": 9, "id": 8})
+
+                line = self._feedback()
+
+                self.assertIn("status=completed conclusion=ci_checks_terminal", line)
+                self.assertEqual(self.cursor.read_text(encoding="utf-8").strip(), "1")
+
+
+def checks_event(pr: int, run_id: str, state: str) -> dict:
+    return {
+        "kind": "ci_changed",
+        "pr": pr,
+        "checks": [{
+            "name": "native-mobile",
+            "state": state,
+            "link": f"https://github.com/owner/repo/actions/runs/{run_id}/job/{run_id}01",
+        }],
+    }
+
 
 if __name__ == "__main__":
     unittest.main()
