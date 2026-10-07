@@ -3,17 +3,20 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-07 04:28 UTC
+**Updated:** 2026-10-07 04:34 UTC
 **Canonical branch:** `main`
-**Latest integrated code:** `469f0d5de2977985cc5ff1749a62bb2cf9b1fd5a` (#390)
-**Latest review:** exact-head 854f4e0f source/Native review and resource closure.
-**Current slice:** `PR-389-HALF-START-ENROLLMENT-REVIEW` — `evidence-open`
+**Latest integrated code:** `d679ca9029f543256b333b36cf1f998368ad04bc` (#389)
+**Latest review:** exact-head 6fea0239 source/Native/live review; merged and closed.
+**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `queued`
 
 ## Current state and deduplication
 
-Claude restored. #389 is open; #387/#388/#390 merged and branches deleted.
-#389 current head **6fea02399ab4136455cf333ebf1660388c372211**, branch
-`claude/half-start-queue-whole-course-20261006`, rebased on main/#390.
+Claude restored. No open PRs remain; #387/#388/#389/#390 are merged and their
+branches deleted. #389 exact head **6fea02399ab4136455cf333ebf1660388c372211**
+merged as **d679ca9029f543256b333b36cf1f998368ad04bc** after the exact-head
+live review and conclusion comment **6030960009**. Formal approval was refused
+by GitHub because the PR author and Codex share the same account; the review
+conclusion comment is the recorded verdict.
 Author **6030082845** read: exemption now queries AX subtree, pure bottom
 rule and partial/full White/real Start behavior test added. Code confirms
 geometric containment removed, original acceptance assertions intact.
@@ -34,34 +37,6 @@ ZIP digest `sha256:be78c68896c31d1cf9e53c7c0b86f4a8cd8d7b0d7872dbc7063e590ee0e27
 verified: 34 PNGs plus trees. White selected tree and screenshot show
 `start-round-primary-action` = `从 前九 开始 · 白 T`; the app remains on
 `开始一场` until explicit Start. No P1/P2 remains for this head.
-Prior head 854f4e0f Source/Native evidence below remains distinct.
-Author **6029824432 / 6029848118** read; superseded `666495f0` needs no review.
-Four acquisition-lifetime fixes and their behavior tests equal accepted
-`56022d32`; only new App delta is padded footer accessibility grouping.
-Original full-live **37534118109** passed back-nine→front-nine / relaunch /
-complete prep journey (**253.888 s**), main flow **1,065.894 s**.
-All **91 iOS / 13 Watch runtime PNGs** reviewed; transport samples/closure
-retained. That original enrollment proof remains accepted.
-Prior 854f4e0f exact-head independent **132 tests / 10.020 s / OK**.
-Source **37563682442** / automatic Native **37563682445** passed.
-All three Native ZIP digests pass; every **89 iOS / 47 Watch** design PNG
-equals individually reviewed #387 baseline. Compiled merge
-`d95bf0f69afdbc62d40fc89a38441b0a5ad4f615` has no mobile/ios diff from head.
-**P2 6030036864, old head:** `UITestViewport.swift:37` uses
-`frame.contains(target)` to exempt supposed footer children. A scroll row
-fully behind the footer gets the same exemption and is marked fullyVisible.
-Static counterexample: viewport bottom 818, padded footer y749.7–818,
-covered White y755.7–812. This is source logic proof, not a new simulator tap.
-Require actual AX membership/identity, partial/full occlusion behavior checks;
-preserve White-selected / white-T action / no implicit Start assertions.
-Code correction accepted in 6fea0239; live verification now in flight. Existing
-review scope includes shared RealFlow helper, edit and all TeeSelection tests.
-P2 updated in place with completed validation. No merge.
-Review: `2026-10-07-pr389-viewport-membership-review.md`.
-Prior direction reply **6027404675** answered author **6026596438**:
-separate viewport fix, not unchanged-head rerun. Both handled.
-#390 review **6027263370**, exact head `dbd23b6a…`, 129/11.478 s OK,
-Native 37534418849 / Source 37534418658; merged `469f0d5d`.
 Old heads/runs/comments deduplicated in dated archives; new substantive
 feedback/head actionable. Own events/duplicates never reset quiet time.
 When reading a waiter receipt, use its **last matched event**: it can ignore
@@ -73,10 +48,6 @@ Preserve dirty `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 - `PR-FEEDBACK-CONTINUOUS` — `queued`: resume existing feedback cursor;
   exact head/tests/Native artifacts/screenshots, P1/P2/nonblocking verdict,
   merge/delete only when clear. No second monitor.
-- `PR-389-HALF-START-ENROLLMENT-REVIEW` — `in-progress`: exact-head tests,
-  automatic Native artifacts and live White/padded-footer AX proof before merge.
-- `PR-387-IOS-JOURNEY-REGRESSION` — `blocked`: live proof accepted on #389;
-  integration waits for #389 merge.
 - `LIGHTWEIGHT-MAP-FIT-LABELS` — `queued`, nonblocking, author acknowledged:
   facts maps hug left edge / club labels overlap `洞位图`, comment 6026853016.
   Separate follow-up after #389; examples in selector review.
@@ -146,12 +117,12 @@ Preserve dirty `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 
 ## Next action and stopping
 
-Post exact-head approval with the live screenshot/tree evidence, merge #389
-with exact-head lock, delete its branch, then update this ledger with the
-merge and closed-resource receipt. Retain all live artifacts and receipts.
+Start the existing feedback cursor waiter in the same control turn. If a new
+PR event arrives, review its exact head under the CI/Native/artifact rules;
+otherwise do not poll. Retain #389 live artifacts and receipts.
 No weakened assertions or CI-result-only bookkeeping commit.
-Quiet interval suspended while #389 open. Once none remain establish a fresh
-conservative baseline; stop after **48 quiet hours/no open PRs** or absolute
+Quiet interval starts **2026-10-07 04:34 UTC** with no open PRs. Stop after
+**48 quiet hours/no open PRs** or absolute
 **2026-10-09 23:59 UTC**, with owned-resource handoff. Own events never reset it.
 Keep ledger ≤200 lines/current-only; archive superseded detail verbatim.
 After compaction read ledger, inspect Git/agent status, resume this slice.
