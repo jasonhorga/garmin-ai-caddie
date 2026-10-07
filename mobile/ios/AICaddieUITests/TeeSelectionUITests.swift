@@ -60,6 +60,45 @@ final class TeeSelectionUITests: XCTestCase {
         app.launchEnvironment["UITEST_MODE"] = "1"
     }
 
+    /// Codex review 6030036864: on an 852pt screen the pinned band (padding included) spans
+    /// y 749.7–818 and a White row scrolled behind it spans 755.7–812. Frame containment alone would
+    /// exempt that row and call it fully visible; only the band's own Start child is exempt.
+    func testViewportExemptsOnlyTheBandsOwnChildrenNotRowsScrolledBehindIt() {
+        let width: CGFloat = 393
+        let band = CGRect(x: 0, y: 749.7, width: width, height: 818 - 749.7)
+        let whiteBehindBand = CGRect(x: 16, y: 755.7, width: width - 32, height: 812 - 755.7)
+        let whitePartlyUnderBand = CGRect(x: 16, y: 730.7, width: width - 32, height: 787 - 730.7)
+        let startInBand = CGRect(x: 16, y: 759.7, width: width - 32, height: 810 - 759.7)
+        let top: CGFloat = 110
+
+        func visible(_ frame: CGRect, ownsTarget: Bool) -> Bool {
+            let bottom = UITestViewport.usableBottom(
+                windowMaxY: 852,
+                pinnedAreas: [UITestViewport.PinnedArea(frame: band, ownsTarget: ownsTarget)]
+            )
+            return CGRect(x: 8, y: top, width: width - 16, height: bottom - top).contains(frame)
+        }
+
+        XCTAssertTrue(band.contains(whiteBehindBand), "the counter-example row lies wholly inside the band")
+        XCTAssertFalse(
+            visible(whiteBehindBand, ownsTarget: false),
+            "a row scrolled completely behind the band must not be fully visible"
+        )
+        XCTAssertFalse(
+            visible(whitePartlyUnderBand, ownsTarget: false),
+            "a row partly under the band must not be fully visible"
+        )
+        XCTAssertTrue(
+            visible(startInBand, ownsTarget: true),
+            "the band's own Start child stays tappable"
+        )
+        XCTAssertEqual(
+            UITestViewport.usableBottom(windowMaxY: 852, pinnedAreas: []),
+            852 - UITestViewport.homeIndicatorLane,
+            "without a band only the home-indicator lane is excluded"
+        )
+    }
+
     func testCaptureTeeSelector() throws {
         app.launchEnvironment["UITEST_COURSE_TEES_DELAY_MS"] = "1500"
         writeDiagnostics()

@@ -4463,13 +4463,20 @@ class MobileContractTests(unittest.TestCase):
         )
         viewport = _read_required_source(self, ui / "UITestViewport.swift")
         self.assertIn('static let pinnedBottomAreas = ["start-round-pinned-actions"]', viewport)
-        self.assertIn("bottom = min(bottom, frame.minY)", viewport)
-        self.assertIn("frame.contains(target)", viewport)
+        self.assertIn("bottom = min(bottom, area.frame.minY)", viewport)
+        # Review 6030036864: the Start exemption is accessibility-subtree identity, never frame
+        # containment (a row scrolled wholly behind the band is contained in its frame).
+        self.assertNotIn("frame.contains(target)", viewport)
+        self.assertIn("!area.ownsTarget", viewport)
+        self.assertIn("area.descendants(matching: element.elementType)", viewport)
+        self.assertIn("isDescendant($0, of: area)", viewport)
         for name in ("TeeSelectionUITests.swift", "RealFlowUITests.swift"):
             source = _read_required_source(self, ui / name)
             self.assertIn("UITestViewport.usableRect(", source, name)
             self.assertNotIn("let bottom = windowFrame.maxY - 34", source, name)
         tee = _read_required_source(self, ui / "TeeSelectionUITests.swift")
+        self.assertIn("func testViewportExemptsOnlyTheBandsOwnChildrenNotRowsScrolledBehindIt()", tee)
+        self.assertIn('"a row scrolled completely behind the band must not be fully visible"', tee)
         tap = tee.index("whiteTee.tap()")
         self.assertLess(tee.index('bringIntoView(whiteTee, maxSwipes: 4)'), tap)
         self.assertLess(tap, tee.index('"tapping a tee must stay on 开始一场 (it must not hit the Start action)"'))

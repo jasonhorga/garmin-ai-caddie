@@ -14,8 +14,39 @@ enum UITestViewport {
     /// The iPhone home-indicator lane.
     static let homeIndicatorLane: CGFloat = 34
 
-    /// The tappable rect for `element`. A pinned area that contains `element` (the Start action
-    /// itself) does not exclude it.
+    /// A fixed bottom area as the viewport rule sees it. `ownsTarget` is true only when the element
+    /// being checked is a real accessibility descendant of the area (the Start action itself), never
+    /// because its frame merely lies inside the area: a row scrolled behind the band overlaps it
+    /// completely and is exactly what must be excluded (Codex review 6030036864).
+    struct PinnedArea {
+        let frame: CGRect
+        let ownsTarget: Bool
+    }
+
+    /// Bottom edge of the tappable viewport: the window above the home-indicator lane, cut at the
+    /// top of every pinned area that does not own the target.
+    static func usableBottom(windowMaxY: CGFloat, pinnedAreas: [PinnedArea]) -> CGFloat {
+        var bottom = windowMaxY - homeIndicatorLane
+        for area in pinnedAreas where !area.frame.isNull && !area.frame.isEmpty && !area.ownsTarget {
+            bottom = min(bottom, area.frame.minY)
+        }
+        return bottom
+    }
+
+    /// True only when `element` is found in `area`'s own accessibility subtree (same type, identity
+    /// and frame). A scrolling row behind the band is not in that subtree whatever its frame.
+    static func isDescendant(_ element: XCUIElement, of area: XCUIElement) -> Bool {
+        let frame = element.frame
+        guard !frame.isNull, !frame.isEmpty else { return false }
+        let identifier = element.identifier
+        let label = element.label
+        return area.descendants(matching: element.elementType).allElementsBoundByIndex.contains {
+            $0.identifier == identifier && $0.label == label && $0.frame == frame
+        }
+    }
+
+    /// The tappable rect for `element`. Only a pinned area whose accessibility subtree holds
+    /// `element` (the Start action itself) does not exclude it.
     static func usableRect(
         in app: XCUIApplication,
         for element: XCUIElement? = nil,
@@ -27,16 +58,14 @@ enum UITestViewport {
         if bar.exists {
             top = max(top, bar.frame.maxY + 8)
         }
-        var bottom = window.maxY - homeIndicatorLane
-        let target = element.map(\.frame)
+        var pinned: [PinnedArea] = []
         for identifier in pinnedBottomAreas {
             let area = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
             guard area.exists else { continue }
-            let frame = area.frame
-            guard !frame.isNull, !frame.isEmpty else { continue }
-            if let target, !target.isNull, frame.contains(target) { continue }
-            bottom = min(bottom, frame.minY)
+            let owns = element.map { $0.exists && isDescendant($0, of: area) } ?? false
+            pinned.append(PinnedArea(frame: area.frame, ownsTarget: owns))
         }
+        let bottom = usableBottom(windowMaxY: window.maxY, pinnedAreas: pinned)
         return CGRect(
             x: window.minX + 8,
             y: top,
