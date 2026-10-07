@@ -2,7 +2,7 @@ import SwiftUI
 import AICaddieDomain
 
 /// 开始一场(README §8, `pre-round.html` 第 2 屏)— 一个球场列表(附近在前带距离，其后是搜索、
-/// 最近、已下载，不分区、不写状态文字)；只选第一个 9 洞环(A / B / C 大块)；发球台是颜色圆点 +
+/// 最近、已下载，不分区；附近还在查时顶上只有一行“正在找附近球场…”；洞数写明覆盖范围：附近/搜索是整场，最近/已下载写“已下载 18 洞”或“最近打过 9 洞”)；只选第一个 9 洞环(A / B / C 大块)；发球台是颜色圆点 +
 /// 这个环的码数；按钮写明“从 B 场 开始 · 蓝 T”。第二个环在打完第一个环时选(NineLoopPlan)。
 /// 附近只有一个球场时自动选中，多个时由玩家选择；GPS 不可用时搜索照常可用。
 public struct StartRoundView: View {
@@ -40,7 +40,7 @@ public struct StartRoundView: View {
     /// Garmin 全库坐标发现。半径内完整分页，只返回轻量 metadata。
     public let onNearbyCourses: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
 
-    @StateObject private var locationProvider = LocationProvider()
+    @StateObject private var locationProvider: LocationProvider
     @State private var roundId: String
     @State private var courseGlobalIdText: String
     @State private var userPickedVenue = false
@@ -90,8 +90,25 @@ public struct StartRoundView: View {
         onConnectGarmin: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
         onSearchCourses: @escaping (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _, _ in [] },
-        onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] }
+        onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
+        // Snapshot fixtures pass a provider with a fixed fix; the app reads CoreLocation.
+        locationProvider: LocationProvider? = nil,
+        // Snapshot fixtures seed the nearby phase the discovery task would reach (the in-process
+        // host renders before that task runs, like the home's `initialHeroNearbyOptions`). The app
+        // passes nothing: the task owns these states.
+        initialNearby: InitialNearbyPhase? = nil
     ) {
+        self._locationProvider = StateObject(wrappedValue: locationProvider ?? LocationProvider())
+        switch initialNearby {
+        case .waiting:
+            self._isLoadingNearby = State(initialValue: true)
+        case .answered(let options):
+            self._nearbyCourseOptions = State(initialValue: options)
+        case .failed:
+            self._nearbyDiscoveryFailed = State(initialValue: true)
+        case nil:
+            break
+        }
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
         self.preselectedVenueOptions = preselectedVenueOptions
@@ -479,10 +496,6 @@ public struct StartRoundView: View {
                 .foregroundStyle(LiveHoleStyle.green)
                 .accessibilityLabel(nearbyStatusText ?? "重试附近球场")
                 .accessibilityIdentifier("start-round-retry-nearby")
-            } else if isLoadingNearby, courseRows.isEmpty {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 42, height: 42)
             }
         }
     }
@@ -598,8 +611,18 @@ public struct StartRoundView: View {
 
     @ViewBuilder private var courseList: some View {
         let rows = courseRows
-        if !rows.isEmpty {
+        let pending = nearbyPendingText
+        if !rows.isEmpty || pending != nil {
             VStack(spacing: 0) {
+                // Nearby is still coming: say so above the rows that are already usable (the
+                // downloaded courses), so the list growing a moment later is expected, not a jump.
+                // The watch's start page shows the same two states.
+                if let pending {
+                    nearbyPendingRow(pending)
+                    if !rows.isEmpty {
+                        Divider().padding(.leading, 60)
+                    }
+                }
                 ForEach(rows) { row in
                     courseRow(row)
                     if row.id != rows.last?.id {
@@ -616,7 +639,56 @@ public struct StartRoundView: View {
         }
     }
 
+    /// While nearby discovery is in flight (and not superseded by a manual search): waiting for the
+    /// first fix, then querying. Nil once nearby has answered, failed, or is not being looked for.
+    private var nearbyPendingText: String? {
+        Self.nearbyPendingText(
+            isLoading: isLoadingNearby,
+            failed: nearbyDiscoveryFailed,
+            manualSearchSelected: selectedCourseWasManualSearch,
+            hasNearbyRows: !nearbyCourseOptions.isEmpty,
+            hasFix: locationProvider.latestFix != nil
+        )
+    }
+
+    /// The waiting line: shown only while nearby is actually being looked for. A failure (retry
+    /// icon instead), an explicit search pick, or arrived nearby rows all end it.
+    /// A nearby discovery phase for in-process fixtures (`init(initialNearby:)`).
+    public enum InitialNearbyPhase {
+        case waiting
+        case answered([MobileCourseOption])
+        case failed
+    }
+
+    static func nearbyPendingText(
+        isLoading: Bool,
+        failed: Bool,
+        manualSearchSelected: Bool,
+        hasNearbyRows: Bool,
+        hasFix: Bool
+    ) -> String? {
+        guard isLoading, !failed, !manualSearchSelected, !hasNearbyRows else { return nil }
+        return hasFix ? "正在找附近球场…" : "正在等待定位…"
+    }
+
+    private func nearbyPendingRow(_ text: String) -> some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 36, height: 36)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("start-round-nearby-pending")
+    }
+
     /// One venue row: name + "1.2 公里 · 27 洞". Distance only for provider-nearby rows with a fix.
+    /// The hole count says what it covers (`holeCaption`).
     private func courseRow(_ row: StartCourseListRow) -> some View {
         let selected: Bool
         if let segment = selectedSegment {
@@ -679,10 +751,83 @@ public struct StartRoundView: View {
                 parts.append(distance)
             }
         }
-        if row.holes > 0 {
-            parts.append("\(row.holes) 洞")
+        if let caption = Self.holeCaption(
+            for: row,
+            downloaded: downloadedCourseOptions,
+            catalogue: courseOptions,
+            recent: recentCourseOption
+        ) {
+            parts.append(caption)
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The caption the list draws for `row`, from the screen's own inputs: the downloaded packages
+    /// as installed (`downloaded`), the catalogue used to name and group them, and the actual recent
+    /// record. This is the subtitle's whole chain; tests call it with the same inputs.
+    static func holeCaption(
+        for row: StartCourseListRow,
+        downloaded: [MobileCourseOption],
+        catalogue: [MobileCourseOption],
+        recent: MobileCourseOption?
+    ) -> String? {
+        let venue = row.segments.first
+        let downloadedHoles = venue.map {
+            downloadedCoverageHoles(atVenueOf: $0, downloaded: downloaded, catalogue: catalogue)
+        } ?? 0
+        // "最近打过" only for the recent record's own loops; a carried / catalogue row that merely
+        // shares the venue (A/B/C after playing A) is the venue's authority, not a played claim.
+        let playedRecently = recent.map { record in
+            !row.segments.isEmpty && row.segments.allSatisfy { $0.globalId == record.globalId }
+        } ?? false
+        return holeCaption(
+            source: row.source,
+            rowHoles: row.holes,
+            downloadedVenueHoles: downloadedHoles,
+            playedRecently: playedRecently
+        )
+    }
+
+    /// What a row's hole count covers. Provider rows (nearby, search) list the venue's loops, so
+    /// "27 洞" is the venue. Whatever source owns the row, holes on this phone say so ("已下载 18
+    /// 洞", the venue's installed loops). A recent-sorted row is "最近打过" only when the actual recent
+    /// record's own loops; a carried / catalogue selection sorted there lists the venue's loops
+    /// from that authority ("27 洞") and never claims the player played it.
+    static func holeCaption(
+        source: StartCourseListRow.Source,
+        rowHoles: Int,
+        downloadedVenueHoles: Int,
+        playedRecently: Bool
+    ) -> String? {
+        switch source {
+        case .nearby, .search:
+            return rowHoles > 0 ? "\(rowHoles) 洞" : nil
+        case .recent, .downloaded:
+            if downloadedVenueHoles > 0 { return "已下载 \(downloadedVenueHoles) 洞" }
+            guard rowHoles > 0 else { return nil }
+            if source == .downloaded { return "已下载 \(rowHoles) 洞" }
+            return playedRecently ? "最近打过 \(rowHoles) 洞" : "\(rowHoles) 洞"
+        }
+    }
+
+    /// Holes actually installed at `venue`'s physical venue. The catalogue only names and groups the
+    /// downloaded packages (reconciliation); each package counts its own installed template holes,
+    /// never the catalogue's whole-course count for the same id.
+    static func downloadedCoverageHoles(
+        atVenueOf venue: MobileCourseOption,
+        downloaded: [MobileCourseOption],
+        catalogue: [MobileCourseOption]
+    ) -> Int {
+        var installed: [Int: Int] = [:]
+        for option in downloaded where installed[option.globalId] == nil {
+            installed[option.globalId] = option.resolvedHoles
+        }
+        let named = reconciledCourseOptions(primary: downloaded, catalogue: catalogue, downloaded: downloaded)
+        var seen = Set<Int>()
+        return named.reduce(0) { total, option in
+            guard samePhysicalVenue(option, venue), seen.insert(option.globalId).inserted else { return total }
+            return total + (installed[option.globalId] ?? 0)
+        }
     }
 
     /// Choosing a venue selects its first loop; tapping the already-selected venue keeps the loop.

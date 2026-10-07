@@ -1064,4 +1064,112 @@ final class StartRoundDiscoveryTests: XCTestCase {
             longitude: longitude
         )
     }
+
+    /// While nearby is still coming the list says so above the usable rows (the watch shows the
+    /// same two states). A failure, an explicit search pick, or arrived nearby rows end the line.
+    func testNearbyPendingLineShowsOnlyWhileNearbyIsActuallyBeingLookedFor() {
+        func text(
+            loading: Bool = true, failed: Bool = false, manual: Bool = false,
+            nearby: Bool = false, fix: Bool
+        ) -> String? {
+            StartRoundView.nearbyPendingText(
+                isLoading: loading, failed: failed, manualSearchSelected: manual,
+                hasNearbyRows: nearby, hasFix: fix
+            )
+        }
+        XCTAssertEqual(text(fix: false), "正在等待定位…")
+        XCTAssertEqual(text(fix: true), "正在找附近球场…")
+        XCTAssertNil(text(nearby: true, fix: true), "nearby arrived")
+        XCTAssertNil(text(failed: true, fix: true), "the retry icon replaces it")
+        XCTAssertNil(text(manual: true, fix: true), "an explicit search pick ends the wait")
+        XCTAssertNil(text(loading: false, fix: false), "denied GPS: nothing is being looked for")
+    }
+
+    private func blackKnight(_ id: Int, _ loop: String) -> MobileCourseOption {
+        let venue = "北京天竺黑骑士球员俱乐部"
+        return MobileCourseOption(
+            globalId: id, name: "\(venue) ~ \(loop)", holes: 9,
+            venueName: venue, segmentLabel: loop, segmentHoles: 9
+        )
+    }
+
+    /// The captions the list draws, through the subtitle's own chain (`holeCaption(for:...)`).
+    private func captions(
+        nearby: [MobileCourseOption] = [],
+        recentRows: [MobileCourseOption] = [],
+        downloaded: [MobileCourseOption] = [],
+        catalogue: [MobileCourseOption] = [],
+        recentRecord: MobileCourseOption? = nil
+    ) -> [String?] {
+        StartRoundPresentation.mergedCourseRows(nearby: nearby, recent: recentRows, downloaded: downloaded).map {
+            StartRoundView.holeCaption(for: $0, downloaded: downloaded, catalogue: catalogue, recent: recentRecord)
+        }
+    }
+
+    /// Codex review of #392: recent 黑骑士 A wins the venue's de-duplication over downloaded A/B,
+    /// so a caption keyed on the row source showed a bare "9 洞" (neither the venue nor what is on
+    /// the phone), then nearby A/B/C showed "27 洞". The caption now says what it covers.
+    func testHoleCaptionSaysWhatTheCountCoversWhicheverSourceOwnsTheRow() {
+        let loopA = blackKnight(31794, "A"), loopB = blackKnight(31795, "B"), loopC = blackKnight(31796, "C")
+        // Before nearby: one row (recent owns it), captioned with the download coverage A+B.
+        let waiting = StartRoundPresentation.mergedCourseRows(nearby: [], recent: [loopA], downloaded: [loopA, loopB])
+        XCTAssertEqual(waiting.count, 1)
+        XCTAssertEqual(waiting.first?.source, .recent)
+        XCTAssertEqual(waiting.first?.segments.map(\.globalId), [31794], "sources' loops never mix")
+        XCTAssertEqual(
+            captions(recentRows: [loopA], downloaded: [loopA, loopB], recentRecord: loopA),
+            ["已下载 18 洞"]
+        )
+        // Nearby arrives with the whole venue.
+        XCTAssertEqual(
+            captions(nearby: [loopA, loopB, loopC], recentRows: [loopA], downloaded: [loopA, loopB], recentRecord: loopA),
+            ["27 洞"]
+        )
+        // The actual recent record with nothing downloaded: only the loops last played.
+        XCTAssertEqual(captions(recentRows: [loopA], recentRecord: loopA), ["最近打过 9 洞"])
+        // A downloaded-only row: its own loops.
+        XCTAssertEqual(captions(downloaded: [loopA]), ["已下载 9 洞"])
+    }
+
+    /// Codex review 6044451139 (1): the catalogue names and groups a downloaded package, but its
+    /// whole-course count must not replace the installed template's. Same id: downloaded 9, catalogue 18.
+    func testDownloadedCoverageCountsTheInstalledTemplateNotTheCatalogueCourse() {
+        let installed = MobileCourseOption(globalId: 40001, name: "丽宫 ~ 前九", holes: 9, segmentHoles: 9)
+        let catalogue = MobileCourseOption(
+            globalId: 40001, name: "北京丽宫体育公园高尔夫俱乐部", holes: 18,
+            venueName: "北京丽宫体育公园高尔夫俱乐部", segmentHoles: 18
+        )
+        let reconciled = StartRoundView.reconciledCourseOptions(
+            primary: [installed], catalogue: [catalogue], downloaded: [installed]
+        )
+        // The list row is built from the reconciled package, exactly as the screen does.
+        let rows = StartRoundPresentation.mergedCourseRows(nearby: [], downloaded: reconciled)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(
+            rows.map { StartRoundView.holeCaption(for: $0, downloaded: [installed], catalogue: [catalogue], recent: nil) },
+            ["已下载 9 洞"]
+        )
+    }
+
+    /// Codex review 6044451139 (2): the carried selection (home GPS card) is sorted with the recent
+    /// rows, but with no recent record and nothing downloaded it was never played: its loops come
+    /// from the catalogue/provider authority and read as the venue.
+    func testCarriedVenueWithoutRecentRecordNeverClaimsItWasPlayed() {
+        let loops = [blackKnight(31794, "A"), blackKnight(31795, "B"), blackKnight(31796, "C")]
+        let rows = StartRoundView.courseRows(
+            nearby: [], search: [], recent: [], downloaded: [],
+            selected: loops[1], selectedLoops: loops, preselectedVenue: loops
+        )
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.source, .recent, "the order is unchanged")
+        XCTAssertEqual(
+            rows.map { StartRoundView.holeCaption(for: $0, downloaded: [], catalogue: loops, recent: nil) },
+            ["27 洞"]
+        )
+        // Having last played loop A here does not make the carried A/B/C row a played 27 holes.
+        XCTAssertEqual(
+            rows.map { StartRoundView.holeCaption(for: $0, downloaded: [], catalogue: loops, recent: loops[0]) },
+            ["27 洞"]
+        )
+    }
 }
