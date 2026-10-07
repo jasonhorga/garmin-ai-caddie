@@ -92,9 +92,23 @@ public struct StartRoundView: View {
         onSearchCourses: @escaping (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _, _ in [] },
         onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
         // Snapshot fixtures pass a provider with a fixed fix; the app reads CoreLocation.
-        locationProvider: LocationProvider? = nil
+        locationProvider: LocationProvider? = nil,
+        // Snapshot fixtures seed the nearby phase the discovery task would reach (the in-process
+        // host renders before that task runs, like the home's `initialHeroNearbyOptions`). The app
+        // passes nothing: the task owns these states.
+        initialNearby: InitialNearbyPhase? = nil
     ) {
         self._locationProvider = StateObject(wrappedValue: locationProvider ?? LocationProvider())
+        switch initialNearby {
+        case .waiting:
+            self._isLoadingNearby = State(initialValue: true)
+        case .answered(let options):
+            self._nearbyCourseOptions = State(initialValue: options)
+        case .failed:
+            self._nearbyDiscoveryFailed = State(initialValue: true)
+        case nil:
+            break
+        }
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
         self.preselectedVenueOptions = preselectedVenueOptions
@@ -639,6 +653,13 @@ public struct StartRoundView: View {
 
     /// The waiting line: shown only while nearby is actually being looked for. A failure (retry
     /// icon instead), an explicit search pick, or arrived nearby rows all end it.
+    /// A nearby discovery phase for in-process fixtures (`init(initialNearby:)`).
+    public enum InitialNearbyPhase {
+        case waiting
+        case answered([MobileCourseOption])
+        case failed
+    }
+
     static func nearbyPendingText(
         isLoading: Bool,
         failed: Bool,

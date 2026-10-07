@@ -755,7 +755,9 @@ final class DesignSnapshotTests: XCTestCase {
         )
         // Owner feedback (#392): a slow nearby answer. 黑骑士 A/B are downloaded (with their provider
         // coordinates); they stay tappable under one waiting line, captioned "已下载 18 洞" (what the
-        // phone holds), and nearby's arrival replaces the line with the venue row ("27 洞").
+        // phone holds), and nearby's arrival replaces the line with the venue row ("27 洞"). The
+        // in-process host renders before the discovery task runs, so each phase is seeded with the
+        // state that task reaches; the live TeeSelection journey drives the real slow request.
         let downloadedBlackKnight = HubNearby.options(
             from: Array(nearbyBlackKnight.prefix(2)),
             catalogue: [],
@@ -771,7 +773,8 @@ final class DesignSnapshotTests: XCTestCase {
                 StartRoundView(
                     downloadedCourseOptions: downloadedBlackKnight,
                     onNearbyCourses: nearbyNeverAnswers,
-                    locationProvider: LocationProvider()
+                    locationProvider: LocationProvider(),
+                    initialNearby: .waiting
                 )
             },
             named: "full-start-nearby-waiting-gps"
@@ -782,7 +785,8 @@ final class DesignSnapshotTests: XCTestCase {
                 StartRoundView(
                     downloadedCourseOptions: downloadedBlackKnight,
                     onNearbyCourses: nearbyNeverAnswers,
-                    locationProvider: LocationProvider(fixedFix: atBlackKnight)
+                    locationProvider: LocationProvider(fixedFix: atBlackKnight),
+                    initialNearby: .waiting
                 )
             },
             named: "full-start-nearby-waiting"
@@ -796,7 +800,10 @@ final class DesignSnapshotTests: XCTestCase {
                     defaultTeeBox: "blue",
                     downloadedCourseOptions: downloadedBlackKnight,
                     onNearbyCourses: { _, _, _ in nearbyBlackKnight },
-                    locationProvider: LocationProvider(fixedFix: atBlackKnight)
+                    locationProvider: LocationProvider(fixedFix: atBlackKnight),
+                    initialNearby: .answered(
+                        HubNearby.options(from: nearbyBlackKnight, catalogue: [], downloaded: downloadedBlackKnight)
+                    )
                 )
             },
             named: "full-start-nearby-arrived"
@@ -807,7 +814,8 @@ final class DesignSnapshotTests: XCTestCase {
                 StartRoundView(
                     downloadedCourseOptions: downloadedBlackKnight,
                     onNearbyCourses: { _, _, _ in throw URLError(.notConnectedToInternet) },
-                    locationProvider: LocationProvider(fixedFix: atBlackKnight)
+                    locationProvider: LocationProvider(fixedFix: atBlackKnight),
+                    initialNearby: .failed
                 )
             },
             named: "full-start-nearby-failed"
