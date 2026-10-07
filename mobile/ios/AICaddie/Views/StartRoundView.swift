@@ -204,6 +204,10 @@ public struct StartRoundView: View {
                 .padding(.top, 10)
                 .padding(.bottom, 8)
                 .background(Self.surface)
+                // The pinned band (padding included) covers the list scrolling under it; UI tests
+                // exclude this frame from the tappable viewport (live Native 37534118109).
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("start-round-pinned-actions")
         }
         .background(Self.surface)
         .navigationTitle("开始一场")

@@ -4451,6 +4451,41 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('save("start-course-\\(globalId)-not-selected")', helper)
         self.assertIn('dump("start-course-\\(globalId)-not-selected")', helper)
 
+    def test_ui_tests_never_tap_rows_under_the_pinned_start_band(self) -> None:
+        # Live Native 37534118109: the white Tee sat under the pinned 开始一场 action band, was judged
+        # fully visible (only the home-indicator lane was excluded), and the tap started a Blue round.
+        ui = Path("mobile") / "ios" / "AICaddieUITests"
+        start_round = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
+        inset = start_round.split(".safeAreaInset(edge: .bottom, spacing: 0) {", 1)[1].split("\n        }\n", 1)[0]
+        self.assertLess(
+            inset.index(".accessibilityElement(children: .contain)"),
+            inset.index('.accessibilityIdentifier("start-round-pinned-actions")'),
+        )
+        viewport = _read_required_source(self, ui / "UITestViewport.swift")
+        self.assertIn('static let pinnedBottomAreas = ["start-round-pinned-actions"]', viewport)
+        self.assertIn("bottom = min(bottom, area.frame.minY)", viewport)
+        # Review 6030036864: the Start exemption is accessibility-subtree identity, never frame
+        # containment (a row scrolled wholly behind the band is contained in its frame).
+        self.assertNotIn("frame.contains(target)", viewport)
+        self.assertIn("!area.ownsTarget", viewport)
+        self.assertIn("area.descendants(matching: element.elementType)", viewport)
+        self.assertIn("isDescendant($0, of: area)", viewport)
+        for name in ("TeeSelectionUITests.swift", "RealFlowUITests.swift"):
+            source = _read_required_source(self, ui / name)
+            self.assertIn("UITestViewport.usableRect(", source, name)
+            self.assertNotIn("let bottom = windowFrame.maxY - 34", source, name)
+        tee = _read_required_source(self, ui / "TeeSelectionUITests.swift")
+        self.assertIn("func testViewportExemptsOnlyTheBandsOwnChildrenNotRowsScrolledBehindIt()", tee)
+        self.assertIn('"a row scrolled completely behind the band must not be fully visible"', tee)
+        tap = tee.index("whiteTee.tap()")
+        self.assertLess(tee.index('bringIntoView(whiteTee, maxSwipes: 4)'), tap)
+        self.assertLess(tap, tee.index('"tapping a tee must stay on 开始一场 (it must not hit the Start action)"'))
+        self.assertLess(
+            tee.index('"tapping a tee must stay on 开始一场 (it must not hit the Start action)"'),
+            tee.index('"the tapped tee must become selected"'),
+        )
+        self.assertIn('"the primary action must name the newly selected white Tee"', tee)
+
     def test_a_half_start_lists_an_already_installed_whole_course_in_the_prep_library(self) -> None:
         # The B4b-2 template acquisition must not silently skip a course that is already installed:
         # like `downloadPrepCourse`, it lists it as ready so 备战 shows it (live Native 37247820045).
@@ -4461,6 +4496,68 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("if let installed = readyPrepTemplate(for: candidate) {", enqueue)
         self.assertIn("ready.phase = .ready", enqueue)
         self.assertNotIn("guard readyPrepTemplate(for: candidate) == nil else { continue }", enqueue)
+
+    def test_a_half_start_queues_its_whole_course_without_waiting_for_the_first_hole(self) -> None:
+        # Live Native 37456686597 / 37247820045: `liveHoleInitialLoadDidFinish` is skipped whenever
+        # the player leaves a hole before its first load settles, so the whole-course job must be
+        # recorded when the fresh round is published — only its download waits for the first hole.
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        signal = app_swift.split("private func signalFreshRoundEntry(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("enqueueWholeCourseTemplates(for: package)", signal)
+        self.assertNotIn("startPrepCourseDownloadQueueIfNeeded()", signal)
+        self.assertNotIn("beginOfflineCourseDownload(", signal)
+        finish = app_swift.split("private func finishRoundPreparation(_ token: UUID) {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("if deferredOfflineCourseDownloadRevalidation == nil,", finish)
+
+    def test_the_fresh_entry_release_is_bounded_and_owned_by_the_round(self) -> None:
+        # PR #389 review: the deferred download must not wait on one cancellable view task (the
+        # first-hole callback also waits for the caddie decision). The first of the initial load,
+        # leaving the entry hole, or a fallback timer releases it; a stale fallback cannot.
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+
+        def body(signature: str) -> str:
+            return app_swift.split(signature, 1)[1].split("\n    }\n", 1)[0]
+
+        self.assertIn('releaseFreshEntry(reason: "live-initial-load-finished")', body("func liveHoleInitialLoadDidFinish() {"))
+        signal = body("private func signalFreshRoundEntry(")
+        self.assertIn("armFreshEntryRelease(entryHole: pendingLiveHole)", signal)
+        arm = body("private func armFreshEntryRelease(entryHole: Int?) {")
+        self.assertIn("try? await Task.sleep(nanoseconds: delay)", arm)
+        self.assertIn('self?.releaseFreshEntry(generation: generation, reason: "fallback")', arm)
+        release = body("private func releaseFreshEntry(generation: UUID? = nil, reason: String) {")
+        self.assertIn("if let generation, freshEntryRelease?.generation != generation { return }", release)
+        self.assertIn("liveRoundState?.roundId != gate.roundId", release)
+        self.assertIn("beginOfflineCourseDownload(revalidatePackage: revalidatePackage)", release)
+        active = body("public func setActiveHole(_ hole: Int) {")
+        self.assertIn("gate.entryHole != hole", active)
+        self.assertIn('releaseFreshEntry(reason: "left-entry-hole")', active)
+        self.assertIn("clearFreshEntryRelease()", body("private func beginRoundPreparation() -> UUID {"))
+        # One gate for every automatic installer start and every next job; the player's own 备战
+        # actions are never held, and the foreground hook cannot bypass it.
+        start = body("private func startPrepCourseDownloadQueueIfNeeded(userRequested id: String? = nil) {")
+        # Start and dequeue share one eligibility rule, so a paused requested job resumes.
+        self.assertIn("guard nextPrepCourseDownloadJob() != nil else {", start)
+        self.assertNotIn("userRequested:", body("private func resumePrepCourseDownloads(retryFailed: Bool) {"))
+        self.assertIn("startPrepCourseDownloadQueueIfNeeded(userRequested: id)", body("public func downloadPrepCourse(_ course: MobileCourseOption) {"))
+        self.assertIn("startPrepCourseDownloadQueueIfNeeded(userRequested: id)", body("public func retryPrepCourseDownload(id: String) {"))
+        worker = body("private func processPrepCourseDownloadQueue(generation: UUID) async {")
+        self.assertIn("let next = nextPrepCourseDownloadJob()", worker)
+        # A cancelled worker never touches the intent a restarted worker owns.
+        self.assertLess(
+            worker.index("guard prepCourseDownloadGeneration == generation else { return }"),
+            worker.index("userRequestedPrepDownloadIDs.remove(next.id)"),
+        )
+        self.assertIn("userRequestedPrepDownloadIDs.removeAll()", body("public func activateSession(_ session: AppSession, migrateLegacyData: Bool) {"))
+        download = body("public func downloadPrepCourse(_ course: MobileCourseOption) {")
+        active = download.split("if existing.id == activePrepCourseDownloadID {", 1)[1].split("return", 1)[0]
+        self.assertIn("userRequestedPrepDownloadIDs.insert(id)", active)
+        next_job = body("private func nextPrepCourseDownloadJob() -> PrepCourseDownloadRecord? {")
+        self.assertIn("!freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id)", next_job)
+        foreground = body("public func syncOnForeground() {")
+        self.assertIn(
+            "if !isPreparingRound, liveRoundState != nil, deferredOfflineCourseDownloadRevalidation == nil {",
+            foreground,
+        )
 
     def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:
         # 洞位图: the day's sheet places the flag; a flag the player moves still wins, and the

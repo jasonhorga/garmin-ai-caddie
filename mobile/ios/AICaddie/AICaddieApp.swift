@@ -378,6 +378,23 @@ public final class LiveRoundAppModel: ObservableObject {
     /// starts the all-hole cache pipeline.  `false` means fill missing assets; `true` also revalidates
     /// the package release.  Optionality distinguishes "not deferred" from the normal false mode.
     private var deferredOfflineCourseDownloadRevalidation: Bool?
+    /// Who may release `deferredOfflineCourseDownloadRevalidation`. The first hole keeps priority,
+    /// but release is bounded and belongs to the round, not to one cancellable view task: the first
+    /// of the first live hole's initial load, leaving the entry hole, or a fallback timer releases
+    /// it. The generation and round id keep a stale fallback (an earlier, finished, discarded or
+    /// replaced round) from ever releasing another round's work (PR #389 review).
+    private struct FreshEntryRelease {
+        let generation: UUID
+        let roundId: String
+        /// `nil` releases on the first hole change at all.
+        let entryHole: Int?
+    }
+    private var freshEntryRelease: FreshEntryRelease?
+    private var freshEntryReleaseTask: Task<Void, Never>?
+    private let freshEntryReleaseFallbackNanoseconds: UInt64
+    /// 备战 jobs the player asked for (download, retry, opening a ready course). Only these run
+    /// while a fresh entry is pending; every automatic job waits for the release.
+    private var userRequestedPrepDownloadIDs = Set<String>()
     private var roundPreparationToken: UUID?
     private var courseOptionsRefreshSucceeded = false
     private var boundPlayerId: String?
@@ -400,7 +417,8 @@ public final class LiveRoundAppModel: ObservableObject {
             2_000_000_000, 3_000_000_000, 5_000_000_000, 8_000_000_000,
             12_000_000_000, 20_000_000_000, 30_000_000_000, 45_000_000_000,
             60_000_000_000, 60_000_000_000,
-        ]
+        ],
+        freshEntryReleaseFallbackNanoseconds: UInt64 = 60_000_000_000
     ) {
         self.init(
             offlineStore: offlineStore,
@@ -410,7 +428,8 @@ public final class LiveRoundAppModel: ObservableObject {
             garminSessionStore: garminSessionStore,
             preferredRoundId: preferredRoundId,
             syncClient: syncClient,
-            offlineGeometryRetryDelaysNanoseconds: offlineGeometryRetryDelaysNanoseconds
+            offlineGeometryRetryDelaysNanoseconds: offlineGeometryRetryDelaysNanoseconds,
+            freshEntryReleaseFallbackNanoseconds: freshEntryReleaseFallbackNanoseconds
         )
     }
 
@@ -426,7 +445,8 @@ public final class LiveRoundAppModel: ObservableObject {
             2_000_000_000, 3_000_000_000, 5_000_000_000, 8_000_000_000,
             12_000_000_000, 20_000_000_000, 30_000_000_000, 45_000_000_000,
             60_000_000_000, 60_000_000_000,
-        ]
+        ],
+        freshEntryReleaseFallbackNanoseconds: UInt64 = 60_000_000_000
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
         let resolvedAdminToken = adminToken ?? Self.defaultAdminToken()
@@ -440,6 +460,7 @@ public final class LiveRoundAppModel: ObservableObject {
             ? requestedRoundId
             : Self.configuredLiveRoundId()
         self.offlineGeometryRetryDelaysNanoseconds = offlineGeometryRetryDelaysNanoseconds
+        self.freshEntryReleaseFallbackNanoseconds = freshEntryReleaseFallbackNanoseconds
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map {
             MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken)
@@ -532,6 +553,8 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
         pausePrepCourseDownload()
+        // Requested 备战 jobs belong to the previous player's library.
+        userRequestedPrepDownloadIDs.removeAll()
         watchFinishedRoundReconciliationTask?.cancel()
         watchFinishedRoundReconciliationTask = nil
         watchRoundStartRetryTasks.values.forEach { $0.cancel() }
@@ -545,7 +568,7 @@ public final class LiveRoundAppModel: ObservableObject {
         garminSyncPresentationLockedUntil = nil
         garminSyncPresentationWatermark = nil
         garminSyncPresentationGeneration += 1
-        deferredOfflineCourseDownloadRevalidation = nil
+        clearFreshEntryRelease()
         roundPreparationToken = nil
         isPreparingRound = false
         offlineStore.bindAccount(
@@ -895,14 +918,15 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Start owns the live-round preparation generation. A previous live course's long package
     /// request may finish after the player has chosen another course; it must neither replace the new
-    /// selection nor turn off the new request's spinner. The durable prep-library queue is independent
-    /// and continues in the background when the player leaves prep or starts a round.
+    /// selection nor turn off the new request's spinner. The durable prep-library queue keeps the job
+    /// it is running (its progress is durable), but while the new round's first hole has priority it
+    /// takes no further automatic job (`nextPrepCourseDownloadJob`).
     private func beginRoundPreparation() -> UUID {
         let token = UUID()
         roundPreparationToken = token
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
-        deferredOfflineCourseDownloadRevalidation = nil
+        clearFreshEntryRelease()
         isPreparingRound = true
         return token
     }
@@ -1136,10 +1160,21 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingLiveHole = liveRoundState?.activeHole ?? package?.holes.first?.number
         deferredOfflineCourseDownloadRevalidation =
             (cacheOfflineAssets || revalidatePackage) ? revalidatePackage : nil
+        armFreshEntryRelease(entryHole: pendingLiveHole)
         recordUITestLatency(
             "course-start.pending-published hole=\(pendingLiveHole ?? -1) "
                 + "cache=\(cacheOfflineAssets) revalidate=\(revalidatePackage)"
         )
+        // Record the whole-course template job now, durably. Only its download waits for the first
+        // live hole: `liveHoleInitialLoadDidFinish` is skipped whenever the player leaves a hole
+        // before its first load settles, and the job used to exist only after that callback — so a
+        // slow start never queued the course at all (live Native 37456686597 and 37247820045).
+        // Nothing here starts the prep queue: automatic starts wait for the fresh-entry release
+        // (`startPrepCourseDownloadQueueIfNeeded`), and `beginOfflineCourseDownload` starts it
+        // after the round's own assets.
+        if let package {
+            enqueueWholeCourseTemplates(for: package)
+        }
     }
 
     /// Start the first-hole bitmap as soon as the complete package arrives. The package already
@@ -1177,15 +1212,69 @@ public final class LiveRoundAppModel: ObservableObject {
     /// pipeline starts here so precise assets can be retained without delaying the first playable
     /// facts.
     func liveHoleInitialLoadDidFinish() {
-        guard let revalidatePackage = deferredOfflineCourseDownloadRevalidation else { return }
+        releaseFreshEntry(reason: "live-initial-load-finished")
+    }
+
+    /// Arm the bounded release for the deferral just set. A pending release from an earlier
+    /// entry is replaced (new generation), so its fallback can no longer fire for this round.
+    private func armFreshEntryRelease(entryHole: Int?) {
+        freshEntryReleaseTask?.cancel()
+        freshEntryReleaseTask = nil
+        guard deferredOfflineCourseDownloadRevalidation != nil, let roundId = package?.roundId else {
+            freshEntryRelease = nil
+            return
+        }
+        let generation = UUID()
+        freshEntryRelease = FreshEntryRelease(generation: generation, roundId: roundId, entryHole: entryHole)
+        let delay = freshEntryReleaseFallbackNanoseconds
+        freshEntryReleaseTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            self?.releaseFreshEntry(generation: generation, reason: "fallback")
+        }
+    }
+
+    private func clearFreshEntryRelease() {
         deferredOfflineCourseDownloadRevalidation = nil
-        recordUITestLatency(
-            "course-start.live-initial-load-finished-release-cache revalidate=\(revalidatePackage)"
-        )
+        freshEntryRelease = nil
+        freshEntryReleaseTask?.cancel()
+        freshEntryReleaseTask = nil
+    }
+
+    /// Release the deferred all-hole download once. `generation` is set only by the fallback
+    /// timer: a timer from a replaced entry is ignored. A deferral whose round is no longer the
+    /// live one (finished, discarded, replaced) is dropped instead of released, so the automatic
+    /// prep queue is not held behind it.
+    private func releaseFreshEntry(generation: UUID? = nil, reason: String) {
+        guard let revalidatePackage = deferredOfflineCourseDownloadRevalidation else { return }
+        if let generation, freshEntryRelease?.generation != generation { return }
+        let gate = freshEntryRelease
+        clearFreshEntryRelease()
+        if let gate, package?.roundId != gate.roundId || liveRoundState?.roundId != gate.roundId {
+            recordUITestLatency("course-start.release-dropped reason=\(reason) round=\(gate.roundId)")
+            startPrepCourseDownloadQueueIfNeeded()
+            return
+        }
+        recordUITestLatency("course-start.release reason=\(reason) revalidate=\(revalidatePackage)")
         // This pipeline downloads every topo itself. Running the server-wide prewarmer at the same
         // time makes both jobs parse/render the same 18 holes and more than doubles server work.
         beginOfflineCourseDownload(revalidatePackage: revalidatePackage)
     }
+
+    #if DEBUG
+    var freshEntryReleaseGenerationForTesting: UUID? { freshEntryRelease?.generation }
+
+    func releaseFreshEntryForTesting(generation: UUID) {
+        releaseFreshEntry(generation: generation, reason: "test")
+    }
+
+    func waitForFreshEntryReleaseFallbackForTesting() async {
+        await freshEntryReleaseTask?.value
+    }
+
+    var userRequestedPrepDownloadIDsForTesting: Set<String> { userRequestedPrepDownloadIDs }
+
+    #endif
 
     /// Keep start latency low, then make the selected course genuinely reusable without a network:
     /// retain every hole's lightweight route/hazard/F-M-B facts and its precise topo bitmap. The
@@ -1195,7 +1284,7 @@ public final class LiveRoundAppModel: ObservableObject {
         let expectedRoundId = initial.roundId
         let expectedGlobalId = initial.course.globalId
         // An explicit same-round refresh supersedes any earlier fresh-entry release still pending.
-        deferredOfflineCourseDownloadRevalidation = nil
+        clearFreshEntryRelease()
         // Queue the whole-course template(s) this round does not carry itself; the prep queue
         // starts after this round's own assets, so it never competes with the live hole.
         enqueueWholeCourseTemplates(for: initial)
@@ -2322,6 +2411,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     rememberAsRecent: true
                 )
                 deferredOfflineCourseDownloadRevalidation = true
+                armFreshEntryRelease(entryHole: nil)
                 return
             }
         } catch {
@@ -2799,6 +2889,11 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             try offlineStore.saveActiveHole(roundId: package.roundId, hole: hole)
             liveRoundState = try offlineStore.restoreLiveRoundState(roundId: package.roundId, package: package)
+            if let gate = freshEntryRelease, gate.roundId == package.roundId, gate.entryHole != hole {
+                // The player moved on before the entry hole's first load settled; that hole no
+                // longer needs priority.
+                releaseFreshEntry(reason: "left-entry-hole")
+            }
             if let watchBridge {
                 watchBridge.sendRoundSeedToWatch(
                     watchBridge.makeWatchRoundSeedPayload(package: package, activeHole: hole)
@@ -2862,8 +2957,11 @@ public final class LiveRoundAppModel: ObservableObject {
         ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
         Task { await ClubBagSyncCoordinator.shared.restoreFromServer() }
         // Retry local course asset preparation on the next foreground, but never block the event
-        // uploader on that background work.
-        if !isPreparingRound, liveRoundState != nil { beginOfflineCourseDownload() }
+        // uploader on that background work. A fresh entry still owns its release: going to the
+        // background on the first hole and back must not start the all-hole pipeline early.
+        if !isPreparingRound, liveRoundState != nil, deferredOfflineCourseDownloadRevalidation == nil {
+            beginOfflineCourseDownload()
+        }
         Task { @MainActor [weak self] in
             await self?.autoSyncGarminIfNeeded()
         }
@@ -3682,10 +3780,13 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             if existing.id == activePrepCourseDownloadID {
+                // Already running: keep its progress, but it is now the player's request, so a
+                // pause/requeue during a fresh entry does not hold it behind the gate.
+                userRequestedPrepDownloadIDs.insert(id)
                 return
             }
             if existing.phase == .queued {
-                startPrepCourseDownloadQueueIfNeeded()
+                startPrepCourseDownloadQueueIfNeeded(userRequested: id)
                 return
             }
             updatePrepCourseDownload(id: id) { record in
@@ -3708,7 +3809,7 @@ public final class LiveRoundAppModel: ObservableObject {
             persistPrepCourseDownloads()
             refreshDownloadedCourseOptions()
         }
-        startPrepCourseDownloadQueueIfNeeded()
+        startPrepCourseDownloadQueueIfNeeded(userRequested: id)
     }
 
     public func retryPrepCourseDownload(id: String) {
@@ -3719,7 +3820,7 @@ public final class LiveRoundAppModel: ObservableObject {
             record.errorText = nil
         }
         refreshDownloadedCourseOptions()
-        startPrepCourseDownloadQueueIfNeeded()
+        startPrepCourseDownloadQueueIfNeeded(userRequested: id)
     }
 
     /// Verify a locally complete prep package against the server's release-bound install journal.
@@ -3737,7 +3838,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 state.errorText = "本机地图文件不完整，正在重新下载。"
             }
             refreshDownloadedCourseOptions()
-            startPrepCourseDownloadQueueIfNeeded()
+            startPrepCourseDownloadQueueIfNeeded(userRequested: record.id)
             return false
         }
         guard let syncClient else { return true }
@@ -3790,7 +3891,7 @@ public final class LiveRoundAppModel: ObservableObject {
             state.requiredGeometryRevisions = requiredRevisions
         }
         refreshDownloadedCourseOptions()
-        startPrepCourseDownloadQueueIfNeeded()
+        startPrepCourseDownloadQueueIfNeeded(userRequested: record.id)
         return false
     }
 
@@ -3839,9 +3940,20 @@ public final class LiveRoundAppModel: ObservableObject {
         endPrepBackgroundTask()
     }
 
-    private func startPrepCourseDownloadQueueIfNeeded() {
+    /// Automatic starts (foreground resume, configuration, preparation end) wait for a pending
+    /// fresh-entry release, so a durable row queued at round start never competes with the first
+    /// live hole. A 备战 action the player takes (`userRequested`) is never held behind it; the
+    /// worker then runs only the jobs the player asked for until the release.
+    private func startPrepCourseDownloadQueueIfNeeded(userRequested id: String? = nil) {
+        if let id { userRequestedPrepDownloadIDs.insert(id) }
         guard prepCourseDownloadTask == nil, syncClient != nil,
               prepCourseDownloads.contains(where: { $0.phase == .queued }) else { return }
+        // The worker's own dequeue rule: with a fresh entry pending, only a queued job the player
+        // asked for may start it — including one paused in the background and resumed here.
+        guard nextPrepCourseDownloadJob() != nil else {
+            recordUITestLatency("prep-queue.start-deferred fresh-entry-pending")
+            return
+        }
         let generation = UUID()
         prepCourseDownloadGeneration = generation
         prepCourseDownloadTask = Task { [weak self] in
@@ -3851,19 +3963,38 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func processPrepCourseDownloadQueue(generation: UUID) async {
         while !Task.isCancelled, prepCourseDownloadGeneration == generation,
-              let next = prepCourseDownloads
-                .filter({ $0.phase == .queued })
-                .sorted(by: { $0.updatedAt > $1.updatedAt })
-                .first {
+              let next = nextPrepCourseDownloadJob() {
             activePrepCourseDownloadID = next.id
             await runPrepCourseDownload(id: next.id, generation: generation)
+            // A cancelled worker must not touch the intent a restarted worker now owns.
             guard prepCourseDownloadGeneration == generation else { return }
+            // A requested job the server is still preparing returns to `.queued`; it stays the
+            // player's until it is ready or failed.
+            if prepCourseDownloads.first(where: { $0.id == next.id })?.phase != .queued {
+                userRequestedPrepDownloadIDs.remove(next.id)
+            }
             activePrepCourseDownloadID = nil
+        }
+        if deferredOfflineCourseDownloadRevalidation != nil,
+           prepCourseDownloads.contains(where: { $0.phase == .queued }) {
+            recordUITestLatency("prep-queue.paused fresh-entry-pending")
         }
         guard prepCourseDownloadGeneration == generation else { return }
         prepCourseDownloadGeneration = nil
         prepCourseDownloadTask = nil
         endPrepBackgroundTask()
+    }
+
+    /// The next queued job the worker may take. While a fresh entry is pending only jobs the player
+    /// asked for run; the round's own durable rows and other automatic jobs wait for the release,
+    /// which restarts the worker (`beginOfflineCourseDownload` → `startPrepCourseDownloadQueueIfNeeded`).
+    private func nextPrepCourseDownloadJob() -> PrepCourseDownloadRecord? {
+        let freshEntryPending = deferredOfflineCourseDownloadRevalidation != nil
+        return prepCourseDownloads
+            .filter { $0.phase == .queued }
+            .filter { !freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id) }
+            .sorted(by: { $0.updatedAt > $1.updatedAt })
+            .first
     }
 
     /// iOS grants a bounded grace period after the app enters the background. Use it to finish the
