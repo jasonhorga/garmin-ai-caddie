@@ -1,53 +1,52 @@
+# HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Archived 2026-10-07 after the first PR392 exact-head review and cleanup.
+This intake ledger is preserved verbatim; current state is
+`docs/operations/PROJECT_STATE.md`. Verdict: comment 6043496432, two P2 items.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-07 17:47 UTC
+**Updated:** 2026-10-07 17:25 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `704812fe9c6e953f71bcc255a41bd794524fbb38` (#391)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and deduplication
 
-Claude is restored. PR #392 is open, branch
-`claude/start-round-nearby-pending-20261007`, head
-**b186552b064b77f16745667927bfc2d6b9986bfa**. Initial review completed:
-ordinary CI **37658217088**, Native **37658217297**, independent **132 / 16.963 s**
-passed. Native compiled merge **f2201251753dfdda3ab86dabd8e996a913128b82**
-has no `mobile/ios` diff from the reviewed head. All three artifact SHA256s
-verified; all **89 iOS / 47 Watch** frames match the reviewed #391 baseline.
-Inspected `full-start.png` and `full-start-selected.png`; neither depicts
-the new pending/downloaded state.
+Claude is restored. PR #391 exact head
+`d895eb3ca40beede520196409cba026d0fde0cd4` passed ordinary CI
+**37617712657**, automatic Native **37617712656**, and full live Native
+**37625844812** against backend **3614bf6f3805479f8d13de65eeec4f0ad7871f22**.
+All 89 iOS design / 47 Watch snapshots were compared; three expected partial-map
+frames changed, Watch unchanged. Full-live `09d`, `b4b2-02`, `b4b2-04` reviewed:
+the **八号铁 131** label is below `洞位图`. PASS **6040488818**; correct label
+correction **6041199587** (own event; deduplicate). Incorrect correction
+**6041162042** and formatting-error comment **6040447618** were deleted.
+#391 merged **2026-10-07 14:49 UTC** as **704812fe**; branch deleted.
+PR #392 opened **2026-10-07 17:19 UTC**, exact head
+`b186552b064b77f16745667927bfc2d6b9986bfa`, branch
+`claude/start-round-nearby-pending-20261007`; ordinary CI **37658217088** green,
+Native **37658217297** running. Current action: independent contract checks,
+exact-head source review and Native screenshot evidence. Quiet stop suspended
+while #392 is open; new external PR event resets the quiet interval.
 
-Verdict comment **6043496432**: **two P2, no merge**.
-- Count scope: a recent A/9-hole row dedupes the downloaded A/B row, so the
-  new `.downloaded`-only subtitle leaves a bare 9→27 change when nearby arrives.
-  Express the count's actual scope separately from ordering/source priority;
-  retain venue deduplication and single-source loop authority.
-- New UI evidence: deterministic pending-before-fix, pending-request-with-rows,
-  and completed screenshots; existing rows must remain selectable, late results
-  retain selection, failure/manual search must end the wait. Current new test
-  checks strings only. A bounded fixture journey is enough.
-Nonblocking: document this limited status-copy exception in README §8/B4.
-
-Wait for Claude's substantive reply/new head. Initial `pr_opened` is consumed;
-old b186552b CI/head events and own review comment are deduplicated evidence.
-PR #392 opened **2026-10-07 17:19:48 UTC**: quiet stop suspended while it is open.
-A new external PR event resets quiet; own events never do.
-#391 exact head **d895eb3c** merged **704812fe** after full live **37625844812**;
-PASS **6040488818**, label correction **6041199587** (八号铁 131), branch deleted.
-#389 merged **d679ca90**, verdict **6030960009**, live **37567463537**.
-Older runs/comments/heads, superseded preflight failure and deleted corrections
-are archived. Own main CI **37648112679** ignored. Read the **last matched event**
-in waiter receipts; earlier log entries may be ignored.
+#389 merged as **d679ca9029f543256b333b36cf1f998368ad04bc**; exact-head verdict
+**6030960009**, live **37567463537**. Older feedback/head/run details are archived.
+Consumed: #391 author's **6040089085**, own PASS, cancelled **37623923166**,
+successful **37625844812**, deleted **6041162042**. Preflight-only failed
+**37619843120** is superseded. Own main CI **37639893199 / 37641795035**
+ignored. Own events/duplicates never reopen review or reset quiet time.
+Read the **last matched event** in a waiter receipt; earlier entries may be ignored.
 Preserve dirty `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 
 ## Unfinished queue
 
 - `PR-FEEDBACK-CONTINUOUS` — `in-progress`: existing cursor, no second monitor.
-  Await #392 fixes, review each new ready head after green CI and Native
-  artifacts/screenshots, post P1/P2/nonblocking verdict, merge/delete when clear.
+  Review new ready PRs at exact head after green CI; inspect Native artifacts and
+  screenshots, post P1/P2/nonblocking verdict, merge/delete only when clear.
 - `IOS-STATUS-CONTRAST` — `queued`, nonblocking: dark status-bar text on dark
   map/review pages; await a bounded implementation PR.
 - `OWNER-DEVICE-BUILD80` — `evidence-open`: owner's paired iPhone/Watch test.
@@ -77,14 +76,11 @@ The lightweight map fit/label follow-up is complete in #391.
 ## Owned resources and blocking boundary
 
 - No implementation worktree, active review snapshot/test/render container,
-  download, observer, subagent, or feedback waiter at this update.
-- #392 snapshot `/dev/shm/garmin-ai-caddie-pr392-b186552b-20261007` removed after
-  source archive, process-reference and mount checks; temp test container ended.
-  Durable `operations/pr392-b186552b-20261007` retains source, artifacts, logs,
-  review body, manifest, `snapshot-cleanup-receipt.json` (17:45 UTC),
-  `local-cleanup-manifest.json` / `local-cleanup-receipt.json`.
-  Seven local helper/image files verified against retained copies, six exact
-  resources moved to user trash. Both services healthy; no port/volume created.
+  download, observer, subagent, or feedback waiter before starting #392.
+- #392 owned read-only snapshot `/dev/shm/garmin-ai-caddie-pr392-b186552b-20261007`,
+  evidence `operations/pr392-b186552b-20261007`, helper/manifest `.codex-pr392-*`,
+  expiry **Oct 8 17:25 UTC**. Planned temporary test container
+  `codex-pr392-b186552b-tests-20261007`; no worktree/deps/port/volume/service.
 - #391 snapshot `/dev/shm/garmin-ai-caddie-pr391-353e7288-20261007` closed after
   retained-source, process-reference and Docker-mount verification.
   Receipts in `operations/pr391-353e7288-20261007`: `snapshot-cleanup-receipt.json`
@@ -105,7 +101,7 @@ The lightweight map fit/label follow-up is complete in #391.
   isolated DB `aicaddie_candidate_3614bf6f_20261006`; private config protected.
 - Source `/home/jason/codex-runs/garmin-ai-caddie-release-3614bf6f-20261006`,
   expires Oct 13; exact release allow-list retained. Production DB/volume protected.
-- Last capacity **64 GiB disk / 3.9 GiB available RAM**.
+- Last capacity **63 GiB disk / 4.6 GiB available RAM**.
 - Deployed waiter `operations/blocking-waits/wait_for_conclusion.sh`; SHA256
   `37dd8727b1f47c09d56512b52765dc2984dafe6cf90381803d302338a6048179`.
   Cursor `blocking-waits/feedback-cursor`: never edit/delete.
