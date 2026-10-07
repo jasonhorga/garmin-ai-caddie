@@ -1787,16 +1787,19 @@ enum LivePlayMapOverlayLayout {
 
     /// The lightweight (partial) map's rest frame. Its CourseView canvas is the whole hole
     /// bounding box, so an aspect fit leaves a narrow hole hugging one edge with most of the screen
-    /// empty. Like 备战, the plan is framed instead: the tee, every landing with room for its label,
-    /// and the green sit between the live chrome (`chrome`, in hero coordinates), and the label
-    /// layout is verified against that chrome (`PrepMapLayout.fittedRestFrame`).
+    /// empty. Like 备战 (`PrepMapLayout.restFrame`), the hole is framed instead: the factual route
+    /// from tee to green, with room for a "球杆 码数" label beside every part of it, sits between
+    /// the live chrome (`chrome`, in hero coordinates), centred.
+    ///
+    /// The frame depends on the hole alone, never on the caddie plan: placing a Touch Target or
+    /// switching 打法 refreshes the plan, and a frame that followed it would move the map (and the
+    /// target) under the player's finger. Route labels still avoid the chrome when drawn.
     ///
     /// Chrome in the upper part of the hero (title, round buttons, 洞位图, green ladder) sets the top
     /// inset; chrome in the lower part (记分, 记一杆, the obstacle bar) sets the bottom inset; the side
     /// controls only constrain labels. Before the chrome is measured the header inset is used.
     static func lightweightFittedFrame(
         overlay: CoursePrepOverlay,
-        legs: [MapPlannedLeg],
         viewport: CGSize,
         chrome: [CGRect]
     ) -> CGRect? {
@@ -1811,17 +1814,19 @@ enum LivePlayMapOverlayLayout {
         let top = max(liveMapTopInset, (upper.map(\.maxY).max() ?? 0) + chromeGap)
         let bottom = lower.map(\.minY).min().map { max(viewport.height - $0 + chromeGap, 0) } ?? 0
         guard top + bottom < viewport.height else { return nil }
-        return PrepMapLayout.fittedRestFrame(
+        return PrepMapLayout.routeRestFrame(
             overlay: overlay,
-            legs: legs,
+            labelText: representativeRouteLabel,
             viewport: viewport,
             insets: PrepChromeLayout.Insets(top: top, bottom: bottom),
-            chrome: rects,
             // The lightweight canvas is one flat ground fill that the hero continues around the
-            // frame, so the plan is centred rather than pushed to keep the screen edges covered.
+            // frame, so the hole is centred rather than pushed to keep the screen edges covered.
             prefersCover: false
         )
     }
+
+    /// The room every part of the route keeps for a label: a typical "球杆 码数" pill.
+    static let representativeRouteLabel = "三号木 175"
 
     /// Room kept between the framed plan and the chrome above and below it.
     static let chromeGap: CGFloat = 8
@@ -1858,14 +1863,13 @@ extension View {
 }
 
 /// One memoized lightweight frame per input. The hero asks for the frame from every projection
-/// (bitmap, route, markers, pan clamp, hit testing) on every pass; the fit itself runs a label
-/// layout per candidate, so it is computed only when the plan, viewport or chrome change.
+/// (bitmap, route, markers, pan clamp, hit testing) on every pass, so the fit is computed only
+/// when the hole, viewport or framing chrome change.
 final class LiveMapFitMemo {
     struct Key: Equatable {
         let overlayWidth: Int
         let overlayHeight: Int
         let route: [[Double]]
-        let legs: [MapPlannedLeg]
         let viewport: CGSize
         let chrome: [CGRect]
     }

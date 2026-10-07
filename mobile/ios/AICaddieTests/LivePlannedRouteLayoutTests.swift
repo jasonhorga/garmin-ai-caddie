@@ -257,7 +257,6 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
 
         let frame = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
             overlay: overlay,
-            legs: legs,
             viewport: phone,
             chrome: liveChrome
         ))
@@ -285,7 +284,6 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
                                         route: [[60, 520, 0], [70, 240, 150]])
         let frame = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
             overlay: overlay,
-            legs: [],
             viewport: phone,
             chrome: liveChrome
         ))
@@ -304,7 +302,6 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
         let legs = map.plannedLegs()
         let frame = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
             overlay: overlay,
-            legs: legs,
             viewport: phone,
             chrome: liveChrome
         ))

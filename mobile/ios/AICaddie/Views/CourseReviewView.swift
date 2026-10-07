@@ -856,6 +856,47 @@ extension PrepMapLayout {
         return CGSize(width: pill.width / 2 + 8, height: pill.height + 14)
     }
 
+    /// A plan-independent rest frame: the factual route from tee to green, sampled densely (landings
+    /// lie between its vertices) with room for a `labelText`-sized label beside every sample, framed
+    /// between the insets. Used where the frame must not move when the plan changes (live play).
+    static func routeRestFrame(
+        overlay: CoursePrepOverlay,
+        labelText: String,
+        viewport: CGSize,
+        insets: PrepChromeLayout.Insets,
+        prefersCover: Bool = true
+    ) -> CGRect? {
+        let clearance = labelClearance(for: labelText)
+        let points: [CGPoint] = overlay.route.compactMap { row -> CGPoint? in
+            guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
+            return CGPoint(x: row[0], y: row[1])
+        }
+        let samplesPerSegment = 8
+        var anchors: [Anchor] = []
+        for (start, end) in zip(points, points.dropFirst()) {
+            for step in 0..<samplesPerSegment {
+                let t = CGFloat(step) / CGFloat(samplesPerSegment)
+                anchors.append(Anchor(
+                    point: CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t),
+                    clearance: clearance
+                ))
+            }
+        }
+        if let last = points.last {
+            anchors.append(Anchor(point: last, clearance: clearance))
+        }
+        return restFrame(
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            route: overlay.route,
+            anchors: anchors,
+            viewport: viewport,
+            topInset: insets.top,
+            bottomInset: insets.bottom,
+            prefersCover: prefersCover
+        )
+    }
+
     /// 备战's fitted frame for a plan: the largest frame (`restFrame`) at which the tee, every
     /// landing with room for its label, and the green sit between the chrome, verified against
     /// the renderer's own label layout — if any stroke's label still finds no position wholly

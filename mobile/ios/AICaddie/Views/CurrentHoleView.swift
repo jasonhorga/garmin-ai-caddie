@@ -1101,7 +1101,7 @@ public struct CurrentHoleView: View {
         global.offsetBy(dx: -liveHeroFrame.minX, dy: -liveHeroFrame.minY)
     }
 
-    /// The lightweight (partial) map frames the plan between the chrome instead of aspect-fitting
+    /// The lightweight (partial) map frames the hole between the chrome instead of aspect-fitting
     /// the CourseView canvas, which left a narrow hole against one edge with its labels under
     /// 洞位图 (`LivePlayMapOverlayLayout.lightweightFittedFrame`). The precise topo keeps its
     /// aspect fit. Every projection, the pan clamp and tap hit testing use this one frame.
@@ -1110,20 +1110,17 @@ public struct CurrentHoleView: View {
               holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame,
               LiveMapDisplayState.resolve(prep: holePrep, pending: isPreciseHoleMapPending) != .waiting,
               let overlay = holePrep.resolvedMapOverlay else { return nil }
-        let legs = liveHoleImageMap(holePrep).plannedLegs()
         let chrome = liveMapFramingChrome
         let key = LiveMapFitMemo.Key(
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
             route: overlay.route,
-            legs: legs,
             viewport: viewport,
             chrome: chrome
         )
         return liveMapFitMemo.frame(for: key) {
             LivePlayMapOverlayLayout.lightweightFittedFrame(
                 overlay: overlay,
-                legs: legs,
                 viewport: viewport,
                 chrome: chrome
             )
