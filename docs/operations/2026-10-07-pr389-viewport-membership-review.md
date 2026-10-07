@@ -39,3 +39,31 @@ service, port, tunnel or named volume was created. Six local helper/body
 copies were removed after backup/hash/open-handle checks; all originals and
 the exact cleanup allow-list/receipt remain in the persistent evidence root.
 P2 6030036864 was updated in place with the completed validation; no merge.
+
+## Final exact-head review — 6fea0239
+
+The correction was reviewed at exact head
+`6fea02399ab4136455cf333ebf1660388c372211`. Independent remote checks passed
+(132 tests / 6.398 s), Source `37565345697` and automatic Native
+`37565345670` passed; the Native design artifacts matched the reviewed #387
+baseline (89 iOS / 47 Watch PNGs).
+
+Targeted live Native `37567463537` used `capture_scope=review`,
+`fixture_mode=false`, live preflight, and backend revision
+`3614bf6f3805479f8d13de65eeec4f0ad7871f22`. The one bounded observer resumed
+after a transient GitHub TLS timeout and ended with
+`status=completed conclusion=success failed_jobs=none`. Its 114 health samples,
+API access log and closure receipt are retained under
+`/home/jason/garmin-ai-caddie-data/operations/pr389-6fea0239-20261007/`.
+
+The review-scope run executed 10 selected tests with 0 failures, including
+`testViewportExemptsOnlyTheBandsOwnChildrenNotRowsScrolledBehindIt` (pure
+behavior check) and all TeeSelection tests. Runtime artifact `real-screenshots`
+was verified by ZIP digest (`be78c688…e27d77`), with 34 PNGs and accessibility
+trees. `04-white-tee-selected.png` shows White selected; its tree reports
+`start-round-tee-white` as Selected and the actual descendant
+`start-round-primary-action` label as `从 前九 开始 · 白 T`. The footer is
+`start-round-pinned-actions` at y=749.7–852, while the Start button is its
+child at y=759.7–810.0. The run remained on `开始一场`; no implicit Start tap
+occurred. `03-tee-row` retains the pre-tap state and `04-white-tee-selected`
+provides the post-tap proof. No P1/P2 remains for this head.

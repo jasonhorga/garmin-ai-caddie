@@ -3,17 +3,38 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-07 03:11 UTC
+**Updated:** 2026-10-07 04:28 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `469f0d5de2977985cc5ff1749a62bb2cf9b1fd5a` (#390)
 **Latest review:** exact-head 854f4e0f source/Native review and resource closure.
-**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
+**Current slice:** `PR-389-HALF-START-ENROLLMENT-REVIEW` — `evidence-open`
 
 ## Current state and deduplication
 
 Claude restored. #389 is open; #387/#388/#390 merged and branches deleted.
-#389 current head **854f4e0f8fd375aef4f6900626bb5f216c362259**, branch
+#389 current head **6fea02399ab4136455cf333ebf1660388c372211**, branch
 `claude/half-start-queue-whole-course-20261006`, rebased on main/#390.
+Author **6030082845** read: exemption now queries AX subtree, pure bottom
+rule and partial/full White/real Start behavior test added. Code confirms
+geometric containment removed, original acceptance assertions intact.
+Source **37565345697** passed; independent **132 / 6.398 s / OK**.
+Snapshot/container closed. Automatic Native **37565345670** passed,
+terminal **87600** closed; all three ZIP digests/136 PNG comparison pass.
+Compiled merge `d756a6ec97e9a80b253c3b710599f66756199b56` has no mobile/ios diff.
+Live **37567463537** dispatched 03:35:35 UTC, exact head 6fea0239,
+`capture_scope=review`, fixture=false/preflight=true against retained Build80.
+White + white-T + start-page assertions intact; no full nine-loop rerun.
+Origin/tunnel preflight 200: 0.007 s / HTTP/2 1.179 s. Observer manifest backed up.
+Progress comment **6030396620** posted; posting terminal **5195** closed.
+Live Native terminal **66412** ended `status=completed conclusion=success
+failed_jobs=none` after the first observer hit a transient GitHub TLS timeout.
+Review scope executed 10 tests / 0 failures (TeeSelection 8 tests / 521.913 s),
+including the pure viewport ownership test. Live artifacts `real-screenshots`
+ZIP digest `sha256:be78c68896c31d1cf9e53c7c0b86f4a8cd8d7b0d7872dbc7063e590ee0e27d77`
+verified: 34 PNGs plus trees. White selected tree and screenshot show
+`start-round-primary-action` = `从 前九 开始 · 白 T`; the app remains on
+`开始一场` until explicit Start. No P1/P2 remains for this head.
+Prior head 854f4e0f Source/Native evidence below remains distinct.
 Author **6029824432 / 6029848118** read; superseded `666495f0` needs no review.
 Four acquisition-lifetime fixes and their behavior tests equal accepted
 `56022d32`; only new App delta is padded footer accessibility grouping.
@@ -21,19 +42,20 @@ Original full-live **37534118109** passed back-nine→front-nine / relaunch /
 complete prep journey (**253.888 s**), main flow **1,065.894 s**.
 All **91 iOS / 13 Watch runtime PNGs** reviewed; transport samples/closure
 retained. That original enrollment proof remains accepted.
-Current exact-head independent **132 tests / 10.020 s / OK**.
+Prior 854f4e0f exact-head independent **132 tests / 10.020 s / OK**.
 Source **37563682442** / automatic Native **37563682445** passed.
 All three Native ZIP digests pass; every **89 iOS / 47 Watch** design PNG
 equals individually reviewed #387 baseline. Compiled merge
 `d95bf0f69afdbc62d40fc89a38441b0a5ad4f615` has no mobile/ios diff from head.
-**P2 6030036864, open:** `UITestViewport.swift:37` uses
+**P2 6030036864, old head:** `UITestViewport.swift:37` uses
 `frame.contains(target)` to exempt supposed footer children. A scroll row
 fully behind the footer gets the same exemption and is marked fullyVisible.
 Static counterexample: viewport bottom 818, padded footer y749.7–818,
 covered White y755.7–812. This is source logic proof, not a new simulator tap.
 Require actual AX membership/identity, partial/full occlusion behavior checks;
 preserve White-selected / white-T action / no implicit Start assertions.
-No current-head full/live dispatched; await corrected head before targeted live.
+Code correction accepted in 6fea0239; live verification now in flight. Existing
+review scope includes shared RealFlow helper, edit and all TeeSelection tests.
 P2 updated in place with completed validation. No merge.
 Review: `2026-10-07-pr389-viewport-membership-review.md`.
 Prior direction reply **6027404675** answered author **6026596438**:
@@ -48,11 +70,11 @@ Preserve dirty `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: resume existing feedback cursor;
+- `PR-FEEDBACK-CONTINUOUS` — `queued`: resume existing feedback cursor;
   exact head/tests/Native artifacts/screenshots, P1/P2/nonblocking verdict,
   merge/delete only when clear. No second monitor.
-- `PR-389-HALF-START-ENROLLMENT-REVIEW` — `blocked`: author P2 6030036864
-  membership fix; review its head and targeted live White before merging.
+- `PR-389-HALF-START-ENROLLMENT-REVIEW` — `in-progress`: exact-head tests,
+  automatic Native artifacts and live White/padded-footer AX proof before merge.
 - `PR-387-IOS-JOURNEY-REGRESSION` — `blocked`: live proof accepted on #389;
   integration waits for #389 merge.
 - `LIGHTWEIGHT-MAP-FIT-LABELS` — `queued`, nonblocking, author acknowledged:
@@ -90,6 +112,14 @@ Preserve dirty `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 - No implementation worktree, active snapshot/test/render container, download
   process, observer/sampler, CI or feedback waiter at review closure.
   Native verifier **45268** and previous feedback **59022** completed.
+- 6fea0239 snapshot/container closed after source backup/use checks; Native
+  wait **87600**/artifact **57305** closed. Observer **23490** closed after
+  GitHub TLS timeout (not a CI verdict); closure receipt confirms sampler ended.
+  Same live run **37567463537** resumed in observer terminal **66412** and
+  completed; sampler/waiter closure receipt retained, no feedback waiter.
+  Helpers backed up in
+  `operations/pr389-6fea0239-20261007`, expiry Oct 8 03:22 UTC;
+  no worktree/deps/service/port/volume. Original image-copy expiry unchanged.
 - Current #389 snapshot/container closed after archive/use checks. Six local
   helper/body copies removed after verified remote backups/fuser checks;
   allow-list/receipt `pr389-854f4e0f-20261007/.codex-pr389-854f4e0f-local-cleanup.json`.
@@ -116,9 +146,10 @@ Preserve dirty `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 
 ## Next action and stopping
 
-Resume existing same-turn feedback cursor for author P2 correction / new PRs.
-Viewport review/cleanup is recorded with archives in this commit. No current-head
-full-live rerun and no CI-result-only bookkeeping commit.
+Post exact-head approval with the live screenshot/tree evidence, merge #389
+with exact-head lock, delete its branch, then update this ledger with the
+merge and closed-resource receipt. Retain all live artifacts and receipts.
+No weakened assertions or CI-result-only bookkeeping commit.
 Quiet interval suspended while #389 open. Once none remain establish a fresh
 conservative baseline; stop after **48 quiet hours/no open PRs** or absolute
 **2026-10-09 23:59 UTC**, with owned-resource handoff. Own events never reset it.
