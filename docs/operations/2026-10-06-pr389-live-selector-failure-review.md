@@ -105,3 +105,9 @@ The source snapshot and all temporary test/render containers are closed;
 the observer, sampler, artifact downloaders and CI waiter have completed.
 Persistent originals are retained on homeserver. Local review copies remain
 available for comparison until their recorded October 7 21:15 UTC expiry.
+
+Author comment 6026596438 proposed either an unchanged targeted rerun or a
+separate test fix. Codex chose the separate fix: stable coordinates alone
+do not prove that a chip is outside the fixed footer. Use the actual usable
+viewport, recheck before tapping and preserve White/start-page assertions.
+PR #390 diagnostics are merged, so the author can base that fix on main.

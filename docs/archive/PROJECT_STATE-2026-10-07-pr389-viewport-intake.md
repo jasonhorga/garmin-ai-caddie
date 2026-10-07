@@ -1,26 +1,29 @@
 # HISTORICAL ARCHIVE — NON-AUTHORITATIVE
 
-Verbatim ledger before PR #390 review/integration closure. Use the live ledger.
+Verbatim ledger before re-review of corrected/rebased PR389 head 854f4e0f.
+Use the live ledger for current work. Feedback terminal 59022 has completed.
 
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated files in docs/archive/ are historical and non-authoritative.
 
-**Updated:** 2026-10-06 23:19 UTC
+**Updated:** 2026-10-06 23:36 UTC
 **Canonical branch:** `main`
-**Latest integrated code:** `9f56c35b61809069537d8c3f09c28a6e3347d8d5` (#388)
+**Latest integrated code:** `469f0d5de2977985cc5ff1749a62bb2cf9b1fd5a` (#390)
 **Internal app/API/sync source:** `3614bf6f3805479f8d13de65eeec4f0ad7871f22`
-**Current slice:** `PR-390-SELECTION-DIAGNOSTICS-REVIEW` — `in-progress`
+**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current status and deduplication
 
-Claude is restored. #389/#390 open; #387/#388 merged, branches deleted.
-#390 event consumed; head `dbd23b6a7c9b3c463cd6dc444357416b546fa405`,
-branch `claude/start-course-selection-evidence-20261006`, independent diagnostics.
-Source `37534418658` / Native `37534418849` green; new helper checks selected
-course and saves failed-selection PNG/tree. No product/UI change or added wait.
-Source/code review in progress; exact-head tests and Native artifact checks next.
+Claude is restored. #389 open; #387/#388/#390 merged, branches deleted.
+#390 reviewed at `dbd23b6a7c9b3c463cd6dc444357416b546fa405`; independent
+**129 tests / 11.478 s / OK**. Source `37534418658` / Native `37534418849`
+green; all three ZIPs verified, 89 iOS/47 Watch PNGs equal approved baseline.
+Compiled merge `4e8d9016…` has no mobile/ios diff from head. Review comment
+**6027263370** posted; merged **23:22:49 UTC**, merge `469f0d5d…`, branch
+deleted. Snapshot/container/helpers closed; evidence retained. Failure branch
+not executed by automatic Native; #389 viewport P2 remains open.
 Queued old #389 head/runs/comments deduplicated through reply 6025783925.
 Observed review/cleanup pushed as `91eebbf1`; no CI-bookkeeping commit.
 Reviewed #389 head `56022d326edf7b4cc789f9ecea818ceb6da50805`;
@@ -50,6 +53,9 @@ immediately before tap, preserve White + white-T action assertions, ensure
 start page remains until explicit Start and save screenshot/tree on failure.
 Inspect RealFlow equivalent. No fixed sleeps, weakened assertions or unchanged
 full-live rerun. No author fix/reply fetched since posting this P2.
+Author observation/proposal **6026596438** read from resumed cursor;
+choose its second option via **6027404675**: separate viewport fix on current
+main/#390, then targeted White-selection live; never unchanged-head rerun.
 Visual follow-up **6026853016** posted: lightweight facts maps hug left edge
 and upper club labels overlap `洞位图`. Examples/expected fit and label
 avoidance recorded in `2026-10-06-pr389-live-selector-failure-review.md`.
@@ -63,11 +69,9 @@ duplicates never reset quiet time. Preserve dirty `ops/pr_feedback_monitor.sh`.
 
 ## Unfinished work
 
-- `PR-390-SELECTION-DIAGNOSTICS-REVIEW` — `in-progress`: exact-head tests,
-  Native artifacts/baseline PNG comparison, verdict then merge/delete if clear.
 - `PR-389-HALF-START-ENROLLMENT-REVIEW` — `blocked`: author viewport P2 fix;
   review corrected head/tests/Native/targeted live White before approval/merge.
-- `PR-FEEDBACK-CONTINUOUS` — `queued`: all repo PR events; required CI,
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: all repo PR events; required CI,
   source and screenshots before P1/P2/nonblocking verdict; merge/delete if clear.
 - `PR-387-IOS-JOURNEY-REGRESSION` — `blocked`: live proof passed on #389;
   integration waits for #389 approval/merge.
@@ -106,16 +110,17 @@ duplicates never reset quiet time. Preserve dirty `ops/pr_feedback_monitor.sh`.
   artifact downloader, observer, health sampler or CI waiter.
   Final observed-run terminal **94095** closed; downloads/render/copy
   **97479 / 25530 / 41033** finished. New 324 MB video not needed/downloaded.
-- #390 read-only snapshot reserved: `/dev/shm/garmin-ai-caddie-pr390-dbd23b6a-20261006`,
-  expires Oct 7 23:20 UTC; --rm test container `codex-pr390-dbd23b6a-tests-20261006`.
-  Evidence `operations/pr390-dbd23b6a-20261006`; no new worktree/deps/service/port/volume.
-  Back up source/helpers before running; close snapshot/container after review.
+- #390 snapshot/container closed **23:21:30 UTC**; all five helpers removed
+  after backup/hash/use checks. Evidence and cleanup manifest/receipts retained
+  in `operations/pr390-dbd23b6a-20261006`; no worktree/deps/service/port/volume.
 - Sixteen exact local helpers removed after byte-identical remote backup and
   fuser no-open-handle checks. Persistent allow-list/receipt:
   `pr389-56022d32-20261006/.codex-pr389-56022d32-local-cleanup.json`.
   Unrelated/older `.codex-*` files and dirty monitor script protected.
 - Local `.codex-pr389-56022d32-live-review` comparison copies retained,
   expiry **Oct 7 21:15 UTC**; persistent originals on homeserver.
+- Local `.codex-pr389-tee-direction-reply.md` is a backed-up PR body copy,
+  expiry Oct 7 23:36 UTC; no process/container/source snapshot associated.
 - Build80 candidate `aicaddie-release-3614bf6f-candidate-20261006`, port 39089;
   API image `garmin-ai-caddie-api:3614bf6f3805479f8d13de65eeec4f0ad7871f22-candidate-20261006`.
   Matching full-SHA sync image retained for owner tests.
@@ -124,8 +129,9 @@ duplicates never reset quiet time. Preserve dirty `ops/pr_feedback_monitor.sh`.
 - Source `/home/jason/codex-runs/garmin-ai-caddie-release-3614bf6f-20261006`,
   expires Oct 13; exact release allow-list retained. Production DB/volume protected.
 - Last capacity **65 GiB disk / 4.4 GiB available RAM**.
-- No feedback waiter active at review closure; next resume existing cursor.
-  Earlier handles consumed; never perform liveness checks or duplicate waits.
+- Feedback terminal **59022** pending in this same turn, started 23:41 UTC;
+  only its one-line terminal result permits new event work. Earlier handles
+  consumed; do not inspect liveness/state/logs or start a duplicate waiter.
 - Deployed waiter
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait_for_conclusion.sh`;
   SHA256 `37dd8727b1f47c09d56512b52765dc2984dafe6cf90381803d302338a6048179`.
@@ -138,8 +144,8 @@ duplicates never reset quiet time. Preserve dirty `ops/pr_feedback_monitor.sh`.
 
 ## Next action and stop conditions
 
-Review #390 source/Native evidence, then approve/merge/delete if clear.
-Resume same-turn feedback cursor for #389 viewport correction and other new PRs.
+Resume existing same-turn feedback cursor for #389 viewport correction and
+other new PRs. #390 is integrated; no new run is justified solely to merge it.
 No unchanged full-live rerun; no CI-only bookkeeping commits.
 
 Quiet interval suspended while any PR is open. Once none remain establish a fresh
@@ -147,12 +153,3 @@ conservative baseline; stop after **48 quiet hours/no open PRs** or absolute
 **2026-10-09 23:59 UTC**, with owned-resource handoff. Own events never reset it.
 Keep ledger ≤200 lines/current-only; archive superseded text verbatim.
 After compaction read ledger, inspect Git/agent status, resume this single slice.
-
-## Superseded feedback resource record (verbatim)
-
-- Feedback terminal **72890** pending in this same turn, started 23:36 UTC;
-  only its one-line terminal result permits new event work. Earlier handles
-  consumed; do not inspect liveness/state/logs or start a duplicate waiter.
-
-Closed with already-handled own comment 6027404675. Persistent receipt:
-`blocking-waits/wait-feedback-pr--20261006T233603Z-3771028.log`.
