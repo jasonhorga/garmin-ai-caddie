@@ -3,66 +3,60 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-07 20:44 UTC
+**Updated:** 2026-10-07 21:13 UTC
 **Canonical branch:** `main`
-**Latest integrated code:** `704812fe9c6e953f71bcc255a41bd794524fbb38` (#391)
+**Latest integrated code:** `0e544fa24f282c4ed06130e5db240fe583c761c4` (#392)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and deduplication
 
-Claude restored. PR **#392** open; branch
-`claude/start-round-nearby-pending-20261007`, reviewed head
-**8f316f016a60157dd3140ba57b93fb350b911840**. Original P2 findings resolved:
-- Installed coverage now counts raw downloaded templates, not catalogue holes.
-  Actual subtitle-chain test installed=9/catalogue=18 passes.
-- Carried/default A/B/C with no played record now says `27 洞`.
-- Live pending-01 is genuinely unselected; pending-02 has a real tap, while
-  waiting; pending-03 keeps Palace/front/blue and the same start action.
+Claude restored. **No open PRs** at the post-merge check.
+#392 reviewed exact **8f316f016a60157dd3140ba57b93fb350b911840**, PASS comment
+**6046883601**, merged **0e544fa2** at **Oct 7 21:08:16 UTC**; branch deleted,
+local main fast-forwarded. Merged mobile/ios/Package/workflow identical to reviewed
+head. Commit has required Codex trailer. Counts/recent claims and actual
+pending-time selection P2 resolved; do not re-review this head or its old events.
 
-Ordinary **37674411741**, automatic Native **37674411722**, independent
-**132 / 16.669 s / OK** pass. Native merge **e755122e** has no mobile/ios,
-Package.swift or workflow diff. Three artifact digests checked; **93 iOS /
-47 Watch** compared with reviewed ee379209. 91 iOS/all Watch unchanged.
-Selected subtitle inspected and correct. Zoomed image inspected: extra
-八号铁 164 label varies despite unchanged map/fixture; no control overlap;
-snapshot timing stability is nonblocking, separate from start-page behavior.
+Latest review baseline: ordinary **37674411741**, Native **37674411722**,
+independent **132 / 16.669 s / OK**. Compiled Native merge **e755122e** no relevant
+diff. Three automatic artifact digests checked; **93 iOS / 47 Watch** compared
+against reviewed predecessor, changed selected/zoomed frames inspected.
+Live **37676853476 attempt 2**, exact head, live/production/non-fixture:
+**10 / 0 failures / 1067.703 s**; TeeSelection **8 / 0 / 584.328 s**.
+Two live artifact digests checked; **37 actual App PNGs**, pending-01/02/03
+inspected with AX: unselected → real tap while pending → Palace/front/blue kept.
+RealFlow/ReviewEdit/Core Location/all-services-offline/city-search gates pass.
+This is simulator evidence; Build80 remains the owner-device baseline.
 
-**Do not merge yet**: live **37676853476 attempt 1** failed **10 / 1 failure**,
-sole failure city-search catalogue fallback could not find Palace 31793.
-RealFlow **302.452 s**, ReviewEdit **180.930 s**, downloaded/offline journey
-**157.690 s** passed; TeeSelection **8 / 702.684 s / 1 failure**.
-Two live artifacts SHA256 checked; **38 actual PNGs**, all three pending
-screens and failing search screen inspected plus AX. History timeout did not
-recur; no causal diagnosis claimed. Native simulator evidence is not a device test.
-Failure AX has 16 mounted List rows at the bottom; it does not prove the
-complete response omitted Palace. One current warm identical city search:
-**200 / 0.852 s / 51 matches**, 31793 present (index 31); not first-response proof.
-Claude reran failed job as **attempt 2 at 20:27 UTC**; reuse that run, no duplicate
-dispatch. Preserve original offline/GPS/city assertions; await terminal result.
+Dedupe: latest Claude **6046795815** (Oct 7 **21:02:51 UTC**) consumed; earlier
+**6045536908 / 6046215308** and own progress **6046490302** consumed.
+Prior #392 P2 **6043496432 / 6044451139 / 6045129506**, b186552b/69cdc9c3/ee379209
+heads/CI superseded. First live attempt failure retained; never call it PASS.
+#391/#389 finished evidence and corrections remain archived; no reopening.
+Read last matched waiter event, not earlier ignored own lines. Preserve dirty
+`ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 
-Progress verdict **6046490302** closes old P2, leaves live validation open and
-asks for actual response/search-complete/scroll evidence if failure recurs.
-Claude replies **6045536908 / 6046215308** consumed. Prior P2
-**6043496432 / 6044451139 / 6045129506**, b186552b/69cdc9c3/ee379209 heads and
-their CI are superseded/deduplicated. Own comments/CI never reopen the review.
-#391 merged **704812fe**, live **37625844812**, verdict **6040488818**,
-label correction **6041199587** (八号铁 131); branch deleted.
-#392 opened Oct 7 17:19:48 UTC; latest known external event **20:27:01 UTC**;
-quiet stop suspended while PR open. Read last matched waiter event, not earlier
-ignored own lines. Preserve dirty `ops/pr_feedback_monitor.sh`/unrelated files.
+Quiet baseline **Oct 7 21:08:16 UTC** (conservative: merge/no-open transition
+after latest external comment); earliest quiet stop **Oct 9 21:08:16 UTC**
+if no new external PR event and still no open PRs. Own merges/comments/CI/docs
+never reset quiet. Hard stop remains **Oct 9 23:59 UTC**.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #392 live attempt 2,
-  verify final artifacts; P1/P2 verdict, merge/delete after blockers clear.
-  Then existing feedback cursor, no second monitor; review new actionable heads.
-- `LIVE-CATALOGUE-FALLBACK` — `evidence-open`: first live attempt failed
-  above; rerun and evidence needed, no assertion relaxation.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: existing feedback cursor,
+  new actionable external feedback/PRs; exact-head checks and screenshot review,
+  P1/P2 verdict, merge/delete when clear. No duplicate monitor.
+- `LIVE-CATALOGUE-FALLBACK` — `queued`, nonblocking observation:
+  city-search first attempt failed, same head retry passed unchanged. Cause
+  unknown; AX mounted rows do not prove complete response counts. If recurrent,
+  preserve actual response/search completion/scroll evidence; no weakened test.
+- `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`, nonblocking: zoomed snapshot's
+  八号铁 164 label varies with unchanged map/fixture; no product regression claimed.
 - `IOS-STATUS-CONTRAST` — `queued`, nonblocking dark status text on dark maps.
 - `OWNER-DEVICE-BUILD80` — `evidence-open`: owner's paired iPhone/Watch test.
   `watch-round-seeded.png` is a waiting page, not geometry-readiness proof.
 
-## Live verification baseline
+## Live release baseline
 
 - **0.1.0 (80)** internal TestFlight, Apple **VALID / IN_BETA_TESTING**,
   operation=list/external=false. App/API/sync
@@ -70,7 +64,7 @@ ignored own lines. Preserve dirty `ops/pr_feedback_monitor.sh`/unrelated files.
 - Passed: live Native **37426762320**, TestFlight **37438559636**,
   Apple read-only **37440770465**. IPA **11400009027**, ZIP SHA256
   `84ceedfbafc1ff23095e35f7a4218970377a1083e7659ae65679b25f24f07d55`.
-  App/Watch versions, origin/backend/provenance checked; no production switch.
+  App/Watch versions, origin/backend/provenance verified; no production switch.
 - Synthetic pin sheet 200/18.901 s; exact date/three holes/front facts.
   HTTP/2 package 203,928 raw/~17,855 wire bytes; loopback 1.72–2.78 s,
   tunnel 2.10–2.34 s, HTTP/2/200.
@@ -78,39 +72,37 @@ ignored own lines. Preserve dirty `ops/pr_feedback_monitor.sh`/unrelated files.
 - Production `aicaddie-release-d7f69971-production-20260925`, port 39055,
   revision **d7f699712f7ac6cba41d97c420c405e090625caf**.
 - Durable root `/home/jason/garmin-ai-caddie-data/operations`;
-  release `release-main-3614bf6f-20261006`; #391 `pr391-353e7288-20261007`;
-  #392 `pr392-8f316f01-20261007`: source, tests, Native/live artifacts,
-  probes, review body and cleanup receipts. Prior #392 evidence also retained.
-- Current snapshot/API/sync baseline is for Build80; reviewing #392 does not
-  claim it is deployed or uploaded to TestFlight.
+  release `release-main-3614bf6f-20261006`; #392 `pr392-8f316f01-20261007`.
+  Source, both run attempts, screenshots/digests, probes, review bodies and
+  cleanup receipts retained. First failures never relabelled as successes.
+- #392 merged code has not been deployed or uploaded to TestFlight.
 
 ## Owned resources and blocking boundary
 
-- No implementation worktree, active read-only snapshot, test/render container,
-  download, observer or subagent. #392 8f316f01 snapshot closed after source
-  archive/file/process verification; receipt in its persistent evidence.
-- Local `.codex-pr392-8f316f01-*` review helpers and seven screenshot copies
-  owned; expiry **Oct 8 19:43 UTC**, manifest retained in its evidence directory.
-  Close/recoverably remove after final review, preserve permanent originals.
-- #389 56022d32 local image directory closed **Oct 7 20:44 UTC**:
-  **41 files / 13,256,841 bytes**, remote SHA256 backup verified, moved to user
-  trash. Exact allow-list/receipt retained in `pr389-56022d32-20261006`;
-  remote snapshot/container had already closed. Older unrelated files protected.
-- #389 6fea0239 local helpers/screenshots backed up in
+- No implementation worktree, active snapshot/test/render container, download,
+  observer or subagent. All #392 remote snapshots/test containers closed.
+- #392 **20 local files / 3,103,800 bytes** verified against persistent
+  `pr392-8f316f01-20261007/local-review-backup`, checked for users and moved to
+  user trash. Only local cleanup/checksum records remain; permanent evidence kept.
+- #389 56022d32 local image copy also closed: **41 files / 13,256,841 bytes**,
+  remote byte-identical backup and recoverable trash. Old unrelated files protected.
+- #389 6fea0239 local helper/screenshot copies remain, backed up in
   `operations/pr389-6fea0239-20261007`; expiry **Oct 8 03:22 UTC**.
-  Remote snapshot/container/service/volume already closed.
+  Remote snapshot/container/service/volume already closed; bind wait to expiry.
 - Build80 candidate `aicaddie-release-3614bf6f-candidate-20261006`, port 39089;
-  full-SHA candidate API + sync images retained for owner tests.
+  full-SHA API + sync images retained for owner tests.
 - Tunnel tmux `codex-release-http2-main-3614bf6f-20261006`, metrics 39110;
   isolated DB `aicaddie_candidate_3614bf6f_20261006`; private config protected.
 - Source `/home/jason/codex-runs/garmin-ai-caddie-release-3614bf6f-20261006`,
   expires Oct 13; release allow-list retained. Production DB/volume protected.
-- Latest capacity **63 GiB disk / 4.2 GiB available RAM**.
+- Both 39055/39089 health/revision checked after cleanup; unchanged.
+  Latest capacity **63 GiB disk / 4.2 GiB available RAM**.
 - Deployed waiter `operations/blocking-waits/wait_for_conclusion.sh`; SHA256
   `37dd8727b1f47c09d56512b52765dc2984dafe6cf90381803d302338a6048179`.
   Cursor `blocking-waits/feedback-cursor`: never edit/delete.
-- SSH/run-watch EOF interrupted attempt-1 waiting once; recovered without
-  redispatch. Error and final logs retained. No active waiter at this update.
+- No waiter at update; next waiter handle retained in tool store
+  `active_feedback_wait` in this same turn. Recover that handle after compaction,
+  do not inspect processes or start a replacement while pending.
 - Same turn: terminal → clock.sleep(300000) → one write_stdin until one-line
   conclusion. No idle CI/ps/state/log polling, independent waiter tmux, duplicate
   monitor or CI-only commits. Existing feedback timer unchanged.
@@ -119,10 +111,11 @@ ignored own lines. Preserve dirty `ops/pr_feedback_monitor.sh`/unrelated files.
 
 ## Next action and stopping
 
-Block on **37676853476 attempt 2** in this same turn. Resolve failed validation
-or inspect final evidence and merge #392; then existing feedback cursor bounded
-by next owned-resource expiry/stop deadline. Do not dispatch another duplicate run.
+Resume existing feedback cursor in this turn, bound wait to **Oct 8 03:22 UTC**
+resource expiry, next external event or stop deadline. Deduplicate already reviewed
+#392 heads/replies/runs without new comments/commits. On timeout close exact owned
+expired copies using retained manifest/backup, then resume same-turn waiting.
 Stop after **48 quiet hours with no open PRs** or absolute **Oct 9 23:59 UTC**;
-own events never reset quiet. Close/hand back resources at stop.
+close/hand back resources at stop. No waiting-style change before owner deadline.
 Ledger ≤200 lines/current-only; archive superseded detail verbatim.
 After compaction read ledger, inspect Git/agent status, resume this slice.
