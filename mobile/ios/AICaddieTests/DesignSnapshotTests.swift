@@ -753,6 +753,65 @@ final class DesignSnapshotTests: XCTestCase {
             },
             named: "full-start-selected"
         )
+        // Owner feedback (#392): a slow nearby answer. 黑骑士 A/B are downloaded (with their provider
+        // coordinates); they stay tappable under one waiting line, captioned "已下载 18 洞" (what the
+        // phone holds), and nearby's arrival replaces the line with the venue row ("27 洞").
+        let downloadedBlackKnight = HubNearby.options(
+            from: Array(nearbyBlackKnight.prefix(2)),
+            catalogue: [],
+            downloaded: []
+        )
+        let nearbyNeverAnswers: (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in
+            try await Task.sleep(nanoseconds: 600_000_000_000)
+            return []
+        }
+        // No fix yet: "正在等待定位…" above the downloaded rows.
+        try captureScreen(
+            NavigationStack {
+                StartRoundView(
+                    downloadedCourseOptions: downloadedBlackKnight,
+                    onNearbyCourses: nearbyNeverAnswers,
+                    locationProvider: LocationProvider()
+                )
+            },
+            named: "full-start-nearby-waiting-gps"
+        )
+        // A fix, nearby still in flight: "正在找附近球场…".
+        try captureScreen(
+            NavigationStack {
+                StartRoundView(
+                    downloadedCourseOptions: downloadedBlackKnight,
+                    onNearbyCourses: nearbyNeverAnswers,
+                    locationProvider: LocationProvider(fixedFix: atBlackKnight)
+                )
+            },
+            named: "full-start-nearby-waiting"
+        )
+        // Nearby answered: the line is gone, the venue row has its distance and 27 洞, and loop A
+        // (picked from the downloaded rows before the answer) is still the selection.
+        try captureScreen(
+            NavigationStack {
+                StartRoundView(
+                    defaultCourseGlobalId: 31794,
+                    defaultTeeBox: "blue",
+                    downloadedCourseOptions: downloadedBlackKnight,
+                    onNearbyCourses: { _, _, _ in nearbyBlackKnight },
+                    locationProvider: LocationProvider(fixedFix: atBlackKnight)
+                )
+            },
+            named: "full-start-nearby-arrived"
+        )
+        // Nearby failed: the retry icon instead of the line; the downloaded rows remain.
+        try captureScreen(
+            NavigationStack {
+                StartRoundView(
+                    downloadedCourseOptions: downloadedBlackKnight,
+                    onNearbyCourses: { _, _, _ in throw URLError(.notConnectedToInternet) },
+                    locationProvider: LocationProvider(fixedFix: atBlackKnight)
+                )
+            },
+            named: "full-start-nearby-failed"
+        )
         try captureScreen(NavigationStack { PrepCoursePickerView(courseOptions: courses, apiBaseURL: apiBaseURL, adminToken: nil) }, named: "full-prep-picker")
         // 开始一场's catalogue sheet: no positioning / download status copy (README §8).
         try captureScreen(

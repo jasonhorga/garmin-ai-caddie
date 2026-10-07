@@ -2,7 +2,7 @@ import SwiftUI
 import AICaddieDomain
 
 /// 开始一场(README §8, `pre-round.html` 第 2 屏)— 一个球场列表(附近在前带距离，其后是搜索、
-/// 最近、已下载，不分区；附近还在查时顶上只有一行“正在找附近球场…”，已下载的行写“已下载 · N 洞”)；只选第一个 9 洞环(A / B / C 大块)；发球台是颜色圆点 +
+/// 最近、已下载，不分区；附近还在查时顶上只有一行“正在找附近球场…”；洞数写明覆盖范围：附近/搜索是整场，最近/已下载写“已下载 18 洞”或“最近打过 9 洞”)；只选第一个 9 洞环(A / B / C 大块)；发球台是颜色圆点 +
 /// 这个环的码数；按钮写明“从 B 场 开始 · 蓝 T”。第二个环在打完第一个环时选(NineLoopPlan)。
 /// 附近只有一个球场时自动选中，多个时由玩家选择；GPS 不可用时搜索照常可用。
 public struct StartRoundView: View {
@@ -40,7 +40,7 @@ public struct StartRoundView: View {
     /// Garmin 全库坐标发现。半径内完整分页，只返回轻量 metadata。
     public let onNearbyCourses: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
 
-    @StateObject private var locationProvider = LocationProvider()
+    @StateObject private var locationProvider: LocationProvider
     @State private var roundId: String
     @State private var courseGlobalIdText: String
     @State private var userPickedVenue = false
@@ -90,8 +90,11 @@ public struct StartRoundView: View {
         onConnectGarmin: @escaping () -> Void = {},
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
         onSearchCourses: @escaping (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _, _ in [] },
-        onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] }
+        onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
+        // Snapshot fixtures pass a provider with a fixed fix; the app reads CoreLocation.
+        locationProvider: LocationProvider? = nil
     ) {
+        self._locationProvider = StateObject(wrappedValue: locationProvider ?? LocationProvider())
         self.defaultRoundId = defaultRoundId
         self.courseOptions = courseOptions
         self.preselectedVenueOptions = preselectedVenueOptions
@@ -625,15 +628,26 @@ public struct StartRoundView: View {
     /// While nearby discovery is in flight (and not superseded by a manual search): waiting for the
     /// first fix, then querying. Nil once nearby has answered, failed, or is not being looked for.
     private var nearbyPendingText: String? {
-        guard isLoadingNearby,
-              !nearbyDiscoveryFailed,
-              !selectedCourseWasManualSearch,
-              nearbyCourseOptions.isEmpty else { return nil }
-        return Self.nearbyPendingText(hasFix: locationProvider.latestFix != nil)
+        Self.nearbyPendingText(
+            isLoading: isLoadingNearby,
+            failed: nearbyDiscoveryFailed,
+            manualSearchSelected: selectedCourseWasManualSearch,
+            hasNearbyRows: !nearbyCourseOptions.isEmpty,
+            hasFix: locationProvider.latestFix != nil
+        )
     }
 
-    static func nearbyPendingText(hasFix: Bool) -> String {
-        hasFix ? "正在找附近球场…" : "正在等待定位…"
+    /// The waiting line: shown only while nearby is actually being looked for. A failure (retry
+    /// icon instead), an explicit search pick, or arrived nearby rows all end it.
+    static func nearbyPendingText(
+        isLoading: Bool,
+        failed: Bool,
+        manualSearchSelected: Bool,
+        hasNearbyRows: Bool,
+        hasFix: Bool
+    ) -> String? {
+        guard isLoading, !failed, !manualSearchSelected, !hasNearbyRows else { return nil }
+        return hasFix ? "正在找附近球场…" : "正在等待定位…"
     }
 
     private func nearbyPendingRow(_ text: String) -> some View {
@@ -653,8 +667,7 @@ public struct StartRoundView: View {
     }
 
     /// One venue row: name + "1.2 公里 · 27 洞". Distance only for provider-nearby rows with a fix.
-    /// A downloaded row says "已下载 · 9 洞": its count is the loops on this phone, which can be
-    /// fewer than the venue's (the nearby row that later replaces it shows the whole venue).
+    /// The hole count says what it covers (`holeCaption`).
     private func courseRow(_ row: StartCourseListRow) -> some View {
         let selected: Bool
         if let segment = selectedSegment {
@@ -717,13 +730,49 @@ public struct StartRoundView: View {
                 parts.append(distance)
             }
         }
-        if row.source == .downloaded {
-            parts.append("已下载")
-        }
-        if row.holes > 0 {
-            parts.append("\(row.holes) 洞")
+        let downloadedHoles = row.segments.first.map { venue in
+            Self.downloadedHoles(
+                atVenueOf: venue,
+                in: resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)
+            )
+        } ?? 0
+        if let caption = Self.holeCaption(
+            source: row.source,
+            rowHoles: row.holes,
+            downloadedVenueHoles: downloadedHoles
+        ) {
+            parts.append(caption)
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// What a row's hole count covers. Provider rows (nearby, search) list the venue's loops, so
+    /// "27 洞" is the venue. A recent or downloaded row only knows what this phone holds: it says how
+    /// much of the venue is downloaded ("已下载 18 洞", every downloaded loop of the venue, whichever
+    /// row source won the de-duplication), or, for a recent course with nothing downloaded, the
+    /// loops last played ("最近打过 9 洞") — never a bare count that reads like the whole venue.
+    static func holeCaption(
+        source: StartCourseListRow.Source,
+        rowHoles: Int,
+        downloadedVenueHoles: Int
+    ) -> String? {
+        switch source {
+        case .nearby, .search:
+            return rowHoles > 0 ? "\(rowHoles) 洞" : nil
+        case .recent, .downloaded:
+            if downloadedVenueHoles > 0 { return "已下载 \(downloadedVenueHoles) 洞" }
+            guard rowHoles > 0 else { return nil }
+            return source == .recent ? "最近打过 \(rowHoles) 洞" : "已下载 \(rowHoles) 洞"
+        }
+    }
+
+    /// Holes of every distinct downloaded loop at `venue`'s physical venue.
+    static func downloadedHoles(atVenueOf venue: MobileCourseOption, in downloaded: [MobileCourseOption]) -> Int {
+        var seen = Set<Int>()
+        return downloaded.reduce(0) { total, option in
+            guard samePhysicalVenue(option, venue), seen.insert(option.globalId).inserted else { return total }
+            return total + option.resolvedHoles
+        }
     }
 
     /// Choosing a venue selects its first loop; tapping the already-selected venue keeps the loop.

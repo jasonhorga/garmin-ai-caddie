@@ -591,6 +591,59 @@ final class TeeSelectionUITests: XCTestCase {
         )
         app.terminate()
 
+        // Phase 1b (owner feedback, #392): a slow nearby answer. The course downloaded above is
+        // tappable under "正在找附近球场…" before nearby lands; the pick survives the answer and the
+        // waiting line is gone once nearby rows (with distances) arrive.
+        app.launchEnvironment["UITEST_NEARBY_DELAY_MS"] = "12000"
+        launchFresh(resetActiveRound: true)
+        guard openStartRound() else {
+            XCTFail("the home must open a new round while nearby is slow")
+            return
+        }
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        let pending = app.descendants(matching: .any)["start-round-nearby-pending"]
+        XCTAssertTrue(
+            pending.waitForExistence(timeout: 5),
+            "a slow nearby request must say it is still looking"
+        )
+        XCTAssertFalse(nearbyDistanceRows().firstMatch.exists, "nothing is nearby evidence yet")
+        let waitingRow = app.buttons["start-round-venue-31793"]
+        XCTAssertTrue(
+            waitingRow.waitForExistence(timeout: 5),
+            "the downloaded course must be listed while nearby is pending"
+        )
+        XCTAssertTrue(
+            (waitingRow.label as NSString).contains("已下载"),
+            "a downloaded row says its hole count is what the phone holds: \(waitingRow.label)"
+        )
+        save("nearby-pending-01-downloaded-usable"); dump("nearby-pending-01-downloaded-usable")
+        if waitingRow.value as? String != "已选择" {
+            waitingRow.tap()
+        }
+        XCTAssertTrue(waitForValue("已选择", on: waitingRow, timeout: 5))
+        save("nearby-pending-02-picked-while-waiting")
+        let pendingGone = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: pending
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [pendingGone], timeout: 40),
+            .completed,
+            "the waiting line must disappear when nearby answers"
+        )
+        XCTAssertTrue(
+            nearbyDistanceRows().firstMatch.waitForExistence(timeout: 10),
+            "nearby rows with distances arrive after the delay"
+        )
+        let answeredRow = app.buttons["start-round-venue-31793"]
+        XCTAssertTrue(
+            waitForValue("已选择", on: answeredRow, timeout: 8),
+            "the course picked while waiting must stay selected after nearby lands"
+        )
+        save("nearby-pending-03-answered-pick-kept"); dump("nearby-pending-03-answered-pick-kept")
+        app.terminate()
+        app.launchEnvironment.removeValue(forKey: "UITEST_NEARBY_DELAY_MS")
+
         // Phase 2: disable bootstrap refresh, nearby discovery, Tee lookup, course package, per-hole
         // prep, online caddie, topo fetch, and map-upgrade polling. The only valid source now is the
         // local template and local bitmaps produced above.

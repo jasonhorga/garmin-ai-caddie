@@ -4194,6 +4194,12 @@ public final class LiveRoundAppModel: ObservableObject {
         if ProcessInfo.processInfo.environment["UITEST_FORCE_NEARBY_FAILURE"] == "1" {
             throw URLError(.notConnectedToInternet)
         }
+        // A slow nearby answer (a cold GPS / slow network on the course): the start page must keep
+        // the downloaded courses usable under its "正在找附近球场…" line until the answer lands.
+        if let delay = ProcessInfo.processInfo.environment["UITEST_NEARBY_DELAY_MS"].flatMap(UInt64.init),
+           delay > 0 {
+            try await Task.sleep(nanoseconds: delay * 1_000_000)
+        }
         #endif
         guard let syncClient else { throw URLError(.notConnectedToInternet) }
         do {
