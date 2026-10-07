@@ -202,6 +202,11 @@ public struct CurrentHoleView: View {
     @State private var pendingPhoneShot: PendingPhoneShot?
     @State private var heroMapScale: CGFloat = 1
     @State private var heroMapOffset: CGSize = .zero
+    /// Floating chrome frames (global) and the hero's own global frame: the lightweight map is
+    /// framed between that chrome and its route labels are kept clear of it.
+    @State private var liveChromeRects: [LiveChromeRect] = []
+    @State private var liveHeroFrame: CGRect = .zero
+    @State private var liveMapFitMemo = LiveMapFitMemo()
     /// Direct-manipulation offset is ordinary state, matching the Touch Target detail surface.
     /// GestureState can be coalesced behind the ancestor ScrollView and make the bitmap catch up
     /// only on finger-up on some iOS releases.
@@ -593,8 +598,10 @@ public struct CurrentHoleView: View {
             LivePlayStyle.base.ignoresSafeArea()
             heroSection
                 .ignoresSafeArea()
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { liveHeroFrame = $0 }
                 .id(Self.holeRootScrollAnchor)
             liveMapChrome
+                .onPreferenceChange(LiveChromeRectsKey.self) { liveChromeRects = $0 }
             #if DEBUG
             offlineReadyMarker
             #endif
@@ -615,10 +622,12 @@ public struct CurrentHoleView: View {
                             roundLine: liveRoundLine,
                             onBack: { dismiss() }
                         )
+                        .reportsLiveChrome()
                         LivePlayRoundButtons(
                             onOpenScorecard: { showScorecard = true },
                             onEndRound: { showRoundSummary = true }
                         )
+                        .reportsLiveChrome()
                         .padding(.leading, 52)
                         LivePlayPinSheetButton(
                             items: $pinSheetItems,
@@ -638,6 +647,7 @@ public struct CurrentHoleView: View {
                         flagYards: placedFlagYards,
                         isLive: isGreenRangeLive
                     )
+                    .reportsLiveChrome()
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 6)
@@ -657,6 +667,7 @@ public struct CurrentHoleView: View {
                     onNextPlan: selectNextPlan,
                     onRecenter: recenterHeroMap
                 )
+                .reportsLiveChrome(framesMap: false)
                 Spacer(minLength: 0)
             }
             .padding(.leading, 14)
@@ -665,6 +676,7 @@ public struct CurrentHoleView: View {
                 Spacer(minLength: 0)
                 HStack(alignment: .bottom, spacing: 10) {
                     LivePlayScoreButton(action: beginScoreConfirmation)
+                        .reportsLiveChrome()
                     Spacer(minLength: 0)
                     if let selectedLiveHazard,
                        let selectedLiveHazardIndex {
@@ -676,6 +688,7 @@ public struct CurrentHoleView: View {
                             onNext: { selectHazard(at: selectedLiveHazardIndex + 1) }
                         )
                         .frame(maxWidth: 230)
+                        .reportsLiveChrome(framesMap: false)
                         .padding(.bottom, 10)
                         Spacer(minLength: 0)
                     }
@@ -684,6 +697,7 @@ public struct CurrentHoleView: View {
                         recordedShotCount: recordedNonPuttShotCount,
                         action: recordShotLocation
                     )
+                    .reportsLiveChrome()
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
@@ -963,9 +977,7 @@ public struct CurrentHoleView: View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 ZStack {
-                    liveMapBackdrop
-                        .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
-                        .frame(width: geo.size.width, height: geo.size.height)
+                    liveMapPlacedBackdrop(in: geo.size)
                         .clipped()
                     if let player = livePlayerTarget(in: geo.size) {
                         LivePlayerPositionMarker()
@@ -993,6 +1005,10 @@ public struct CurrentHoleView: View {
                             scale: heroDisplayedMapScale,
                             offset: heroDisplayedMapOffset(in: size),
                             topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+                            fittedFrame: liveMapFittedFrame(in: size),
+                            // Labels stay wholly clear of the floating chrome (洞位图, the
+                            // ladder, the side and bottom buttons) or are omitted.
+                            exclusions: liveMapExclusions,
                             // The selected obstacle is drawn in the same pass so its 前 / 后
                             // labels share one collision layout with the route and tee labels.
                             hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) },
@@ -1025,9 +1041,7 @@ public struct CurrentHoleView: View {
                         displayedScale: heroDisplayedMapScale,
                         displayedOffset: heroDisplayedMapOffset(in: geo.size)
                     ) {
-                        liveMapBackdrop
-                            .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
-                            .frame(width: geo.size.width, height: geo.size.height)
+                        liveMapPlacedBackdrop(in: geo.size)
                     }
                     .position(LiveMapTargetMagnifierLoupe<EmptyView>.position(for: focus, in: geo.size))
                     .allowsHitTesting(false)
@@ -1052,6 +1066,70 @@ public struct CurrentHoleView: View {
         max(1, heroMapScale * heroMapPinchScale)
     }
 
+    /// The map bitmap at its rest frame in the hero: the lightweight map's plan framing when there
+    /// is one, otherwise the aspect fit below the fixed header.
+    @ViewBuilder
+    private func liveMapPlacedBackdrop(in size: CGSize) -> some View {
+        if let frame = liveMapFittedFrame(in: size) {
+            ZStack {
+                // The lightweight canvas is one flat ground fill, so the screen around a framed
+                // map continues it without a seam.
+                TopoHoleBaseImage.groundColor
+                liveMapBackdrop
+                    .frame(width: frame.width, height: frame.height)
+                    .position(x: frame.midX, y: frame.midY)
+            }
+            .frame(width: size.width, height: size.height)
+        } else {
+            liveMapBackdrop
+                .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
+                .frame(width: size.width, height: size.height)
+        }
+    }
+
+    /// The floating chrome in hero coordinates: every control (labels avoid all of it), or only
+    /// the fixed controls that frame the lightweight map.
+    private var liveMapExclusions: [CGRect] {
+        liveChromeRects.map { heroRect($0.rect) }
+    }
+
+    private var liveMapFramingChrome: [CGRect] {
+        liveChromeRects.filter(\.framesMap).map { heroRect($0.rect) }
+    }
+
+    private func heroRect(_ global: CGRect) -> CGRect {
+        global.offsetBy(dx: -liveHeroFrame.minX, dy: -liveHeroFrame.minY)
+    }
+
+    /// The lightweight (partial) map frames the plan between the chrome instead of aspect-fitting
+    /// the CourseView canvas, which left a narrow hole against one edge with its labels under
+    /// 洞位图 (`LivePlayMapOverlayLayout.lightweightFittedFrame`). The precise topo keeps its
+    /// aspect fit. Every projection, the pan clamp and tap hit testing use this one frame.
+    private func liveMapFittedFrame(in viewport: CGSize) -> CGRect? {
+        guard let holePrep,
+              holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame,
+              LiveMapDisplayState.resolve(prep: holePrep, pending: isPreciseHoleMapPending) != .waiting,
+              let overlay = holePrep.resolvedMapOverlay else { return nil }
+        let legs = liveHoleImageMap(holePrep).plannedLegs()
+        let chrome = liveMapFramingChrome
+        let key = LiveMapFitMemo.Key(
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            route: overlay.route,
+            legs: legs,
+            viewport: viewport,
+            chrome: chrome
+        )
+        return liveMapFitMemo.frame(for: key) {
+            LivePlayMapOverlayLayout.lightweightFittedFrame(
+                overlay: overlay,
+                legs: legs,
+                viewport: viewport,
+                chrome: chrome
+            )
+        }
+    }
+
     private func heroDisplayedMapOffset(in viewport: CGSize) -> CGSize {
         let proposed = CGSize(
             width: heroMapOffset.width + heroMapTransientDragOffset.width,
@@ -1062,7 +1140,8 @@ public struct CurrentHoleView: View {
                   overlayWidth: overlay.w,
                   overlayHeight: overlay.h,
                   in: viewport,
-                  topInset: LivePlayMapOverlayLayout.liveMapTopInset
+                  topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+                  fittedFrame: liveMapFittedFrame(in: viewport)
               ) else {
             return proposed
         }
@@ -1368,6 +1447,7 @@ public struct CurrentHoleView: View {
             overlayHeight: overlay.h,
             from: viewport,
             topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+            fittedFrame: liveMapFittedFrame(in: viewport),
             clampToMap: clampToMap
         ) else { return nil }
         return CGPoint(x: px[0], y: px[1])
@@ -1460,7 +1540,8 @@ public struct CurrentHoleView: View {
                   overlayWidth: overlay.w,
                   overlayHeight: overlay.h,
                   in: viewport,
-                  topInset: LivePlayMapOverlayLayout.liveMapTopInset
+                  topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+                  fittedFrame: liveMapFittedFrame(in: viewport)
               ) else {
             return proposed
         }
@@ -1938,7 +2019,8 @@ public struct CurrentHoleView: View {
                overlayWidth: overlay.w,
                overlayHeight: overlay.h,
                into: heroSize,
-               topInset: LivePlayMapOverlayLayout.liveMapTopInset
+               topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+               fittedFrame: liveMapFittedFrame(in: heroSize)
            ) {
             return point
         }
@@ -1954,7 +2036,8 @@ public struct CurrentHoleView: View {
                overlayWidth: overlay.w,
                overlayHeight: overlay.h,
                into: heroSize,
-               topInset: LivePlayMapOverlayLayout.liveMapTopInset
+               topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+               fittedFrame: liveMapFittedFrame(in: heroSize)
            ) {
             return point
         }
@@ -1964,7 +2047,8 @@ public struct CurrentHoleView: View {
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
             into: heroSize,
-            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+            fittedFrame: liveMapFittedFrame(in: heroSize)
         )
     }
 
@@ -1984,7 +2068,8 @@ public struct CurrentHoleView: View {
                       overlayWidth: overlay.w,
                       overlayHeight: overlay.h,
                       into: heroSize,
-                      topInset: LivePlayMapOverlayLayout.liveMapTopInset
+                      topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+                      fittedFrame: liveMapFittedFrame(in: heroSize)
                   ) else { return nil }
             return transformedHeroPoint(projected, in: heroSize)
         }
@@ -2004,7 +2089,8 @@ public struct CurrentHoleView: View {
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
             into: heroSize,
-            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+            fittedFrame: liveMapFittedFrame(in: heroSize)
         )
     }
 
@@ -2029,7 +2115,8 @@ public struct CurrentHoleView: View {
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
             into: heroSize,
-            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+            fittedFrame: liveMapFittedFrame(in: heroSize)
         )
     }
 

@@ -239,7 +239,8 @@ enum LiveHazardOverlayRenderer {
         row: LiveHazardDisplayItem,
         scale: CGFloat,
         offset: CGSize,
-        topInset: CGFloat = 0
+        topInset: CGFloat = 0,
+        fittedFrame: CGRect? = nil
     ) -> ScreenGeometry? {
         guard let overlay = hole.resolvedMapOverlay else { return nil }
         let baseFront = hazardPoint(
@@ -247,14 +248,16 @@ enum LiveHazardOverlayRenderer {
             routeMetres: row.frontRouteM,
             overlay: overlay,
             size: size,
-            topInset: topInset
+            topInset: topInset,
+            fittedFrame: fittedFrame
         )
         let baseBack = hazardPoint(
             pixels: row.backPx,
             routeMetres: row.backRouteM,
             overlay: overlay,
             size: size,
-            topInset: topInset
+            topInset: topInset,
+            fittedFrame: fittedFrame
         )
         let front = baseFront.flatMap { transformed($0, in: size, scale: scale, offset: offset) }
         let back = baseBack.flatMap { transformed($0, in: size, scale: scale, offset: offset) }
@@ -263,7 +266,8 @@ enum LiveHazardOverlayRenderer {
                 pixels: point,
                 overlay: overlay,
                 size: size,
-                topInset: topInset
+                topInset: topInset,
+                fittedFrame: fittedFrame
             ) else { return nil }
             return transformed(projected, in: size, scale: scale, offset: offset)
         }
@@ -343,6 +347,7 @@ enum LiveHazardOverlayRenderer {
         scale: CGFloat,
         offset: CGSize,
         topInset: CGFloat = 0,
+        fittedFrame: CGRect? = nil,
         labelRects: [CGRect?]? = nil
     ) {
         guard let geometry = screenGeometry(
@@ -351,7 +356,8 @@ enum LiveHazardOverlayRenderer {
             row: row,
             scale: scale,
             offset: offset,
-            topInset: topInset
+            topInset: topInset,
+            fittedFrame: fittedFrame
         ) else { return }
         let outline = geometry.outline
         if outline.count >= 3 {
@@ -414,13 +420,15 @@ enum LiveHazardOverlayRenderer {
         routeMetres: Double,
         overlay: CoursePrepOverlay,
         size: CGSize,
-        topInset: CGFloat
+        topInset: CGFloat,
+        fittedFrame: CGRect?
     ) -> CGPoint? {
         if let projected = projectedHazardPixelPoint(
             pixels: pixels,
             overlay: overlay,
             size: size,
-            topInset: topInset
+            topInset: topInset,
+            fittedFrame: fittedFrame
         ) {
             return projected
         }
@@ -433,7 +441,8 @@ enum LiveHazardOverlayRenderer {
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
             into: size,
-            topInset: topInset
+            topInset: topInset,
+            fittedFrame: fittedFrame
         )
     }
 
@@ -441,7 +450,8 @@ enum LiveHazardOverlayRenderer {
         pixels: [Double],
         overlay: CoursePrepOverlay,
         size: CGSize,
-        topInset: CGFloat
+        topInset: CGFloat,
+        fittedFrame: CGRect?
     ) -> CGPoint? {
         guard pixels.count >= 2,
               pixels.prefix(2).allSatisfy(\.isFinite) else { return nil }
@@ -450,7 +460,8 @@ enum LiveHazardOverlayRenderer {
             overlayWidth: overlay.w,
             overlayHeight: overlay.h,
             into: size,
-            topInset: topInset
+            topInset: topInset,
+            fittedFrame: fittedFrame
         )
     }
 }

@@ -865,7 +865,8 @@ extension PrepMapLayout {
         legs: [MapPlannedLeg],
         viewport: CGSize,
         insets: PrepChromeLayout.Insets,
-        chrome: [CGRect]
+        chrome: [CGRect],
+        prefersCover: Bool = true
     ) -> CGRect? {
         var anchors: [Anchor] = []
         if let tee = legs.first?.origin {
@@ -886,7 +887,8 @@ extension PrepMapLayout {
                 viewport: viewport,
                 topInset: insets.top,
                 bottomInset: insets.bottom,
-                shrink: shrink
+                shrink: shrink,
+                prefersCover: prefersCover
             ) else { return frame }
             frame = candidate
             let labels = LivePlannedRouteRenderer.placedRouteLabels(

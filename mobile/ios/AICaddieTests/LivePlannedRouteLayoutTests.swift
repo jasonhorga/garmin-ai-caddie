@@ -191,4 +191,193 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
         )
         XCTAssertNil(placed[1])
     }
+
+    // MARK: - Lightweight map framing (Codex review #389, 09d / b4b2-02 / b4b2-04)
+
+    /// The CourseView canvas of a lightweight hole is the whole bounding box: this par 5 runs down
+    /// its left tenth, the way the real screenshots hug the left edge.
+    private func edgeHuggingLightweightMap() throws -> HoleImageMapView {
+        let json = """
+        {"hole":1,"par":5,"par_source":"courseview","blue_yards":514,"route_len_m":470,"route":[],"steps":[],\
+        "cautions":[],"hazards":{"water_carry":[],"bunkers":[],"details":[]},\
+        "map":{"overlay":{"w":600,"h":940,"ppm":1.9,"ln":470,\
+        "route":[[50,900,0],[85,620,150],[95,380,280],[55,60,470]]}}}
+        """
+        let hole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(json.utf8))
+        return HoleImageMapView(
+            hole: hole,
+            showsCardChrome: false,
+            showsPrepClubLabel: false,
+            showsClubLabel: false,
+            plannedShots: [
+                MapPlannedShot(id: "tee", clubName: "一号木", carryM: 195, routeOffsetM: 195, role: "tee",
+                               expectedRemainingM: 275, targetsPin: false, planIndex: 0),
+                MapPlannedShot(id: "second", clubName: "三号木", carryM: 160, routeOffsetM: 355, role: "layup",
+                               expectedRemainingM: 115, targetsPin: false, planIndex: 1),
+                MapPlannedShot(id: "approach", clubName: "九号铁", carryM: 115, routeOffsetM: 470, role: "scoring",
+                               expectedRemainingM: 0, targetsPin: true, planIndex: 2),
+            ],
+            drawsPlannedRouteInMap: false
+        )
+    }
+
+    /// The live chrome on a 393 x 852 phone, in hero coordinates: title, round buttons, 洞位图 and
+    /// the green ladder on top; 记分 and 记一杆 at the bottom; 障碍 on the left edge.
+    private let liveChrome: [CGRect] = [
+        CGRect(x: 14, y: 59, width: 240, height: 56),
+        CGRect(x: 66, y: 125, width: 230, height: 36),
+        CGRect(x: 66, y: 171, width: 112, height: 36),
+        CGRect(x: 287, y: 59, width: 92, height: 132),
+        CGRect(x: 14, y: 400, width: 56, height: 72),
+        CGRect(x: 20, y: 735, width: 72, height: 90),
+        CGRect(x: 297, y: 735, width: 76, height: 90),
+    ]
+    private let phone = CGSize(width: 393, height: 852)
+
+    func testLightweightMapIsFramedOnThePlanNotTheCanvas() throws {
+        let map = try edgeHuggingLightweightMap()
+        let overlay = try XCTUnwrap(map.hole.resolvedMapOverlay)
+        let legs = map.plannedLegs()
+        XCTAssertEqual(legs.count, 3)
+        func screenRoute(_ frame: CGRect?) -> [CGPoint] {
+            overlay.route.compactMap {
+                LivePlayMapOverlayLayout.project(
+                    overlayPoint: $0,
+                    overlayWidth: overlay.w,
+                    overlayHeight: overlay.h,
+                    into: phone,
+                    topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+                    fittedFrame: frame
+                )
+            }
+        }
+        // The aspect fit reproduces the review: the whole hole in the left quarter of the screen.
+        let aspectFit = screenRoute(nil)
+        XCTAssertLessThan(try XCTUnwrap(aspectFit.map(\.x).max()), phone.width * 0.25)
+
+        let frame = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
+            overlay: overlay,
+            legs: legs,
+            viewport: phone,
+            chrome: liveChrome
+        ))
+        XCTAssertEqual(frame.width / frame.height, CGFloat(overlay.w) / CGFloat(overlay.h), accuracy: 0.001)
+        let framed = screenRoute(frame)
+        XCTAssertEqual(framed.count, overlay.route.count)
+        let xs = framed.map(\.x)
+        let middle = ((xs.min() ?? 0) + (xs.max() ?? 0)) / 2
+        XCTAssertEqual(middle, phone.width / 2, accuracy: phone.width * 0.12, "the hole is centred")
+        // Tee to green sits between the top chrome (洞位图 ends at 207) and 记分 / 记一杆 (735).
+        for point in framed {
+            XCTAssertGreaterThan(point.y, 207)
+            XCTAssertLessThan(point.y, 735)
+        }
+        // The framed hole uses the screen: taller than the aspect fit's run is not required, but
+        // it is never shrunk below half of the room between the chrome.
+        let ys = framed.map(\.y)
+        XCTAssertGreaterThan((ys.max() ?? 0) - (ys.min() ?? 0), (735 - 207) * 0.5)
+    }
+
+    func testAShortLightweightHoleAtTheCoverScaleIsStillCentred() throws {
+        // A par 3 down the canvas' left edge reaches the cover scale long before it fills the room
+        // between the chrome; keeping the screen edges covered would pin it back to the left.
+        let overlay = CoursePrepOverlay(w: 600, h: 940, ppm: 1.9, ln: 150,
+                                        route: [[60, 520, 0], [70, 240, 150]])
+        let frame = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
+            overlay: overlay,
+            legs: [],
+            viewport: phone,
+            chrome: liveChrome
+        ))
+        let tee = try XCTUnwrap(LivePlayMapOverlayLayout.project(
+            overlayPoint: [60, 520], overlayWidth: 600, overlayHeight: 940, into: phone, fittedFrame: frame
+        ))
+        let green = try XCTUnwrap(LivePlayMapOverlayLayout.project(
+            overlayPoint: [70, 240], overlayWidth: 600, overlayHeight: 940, into: phone, fittedFrame: frame
+        ))
+        XCTAssertEqual((tee.x + green.x) / 2, phone.width / 2, accuracy: 1)
+    }
+
+    func testLightweightRouteLabelsAreAllShownAndClearOfTheLiveChrome() throws {
+        let map = try edgeHuggingLightweightMap()
+        let overlay = try XCTUnwrap(map.hole.resolvedMapOverlay)
+        let legs = map.plannedLegs()
+        let frame = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
+            overlay: overlay,
+            legs: legs,
+            viewport: phone,
+            chrome: liveChrome
+        ))
+        let placed = LivePlannedRouteRenderer.placedRouteLabels(
+            size: phone,
+            legs: legs,
+            overlay: overlay,
+            scale: 1,
+            offset: .zero,
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+            fittedFrame: frame,
+            exclusions: liveChrome
+        )
+        XCTAssertEqual(placed.count, 3)
+        for label in placed {
+            let rect = try XCTUnwrap(label.rect, "\(label.text) was omitted at rest")
+            for chrome in liveChrome {
+                XCTAssertFalse(rect.intersects(chrome), "\(label.text) \(rect) is under the chrome \(chrome)")
+            }
+        }
+    }
+
+    func testFittedFrameDrivesProjectionUnprojectionAndThePanClamp() throws {
+        let frame = CGRect(x: -40, y: 120, width: 480, height: 752)
+        XCTAssertEqual(
+            LivePlayMapOverlayLayout.mapFrame(overlayWidth: 600, overlayHeight: 940, in: phone,
+                                              topInset: 80, fittedFrame: frame),
+            frame
+        )
+        let point = try XCTUnwrap(LivePlayMapOverlayLayout.project(
+            overlayPoint: [300, 470], overlayWidth: 600, overlayHeight: 940, into: phone,
+            topInset: 80, fittedFrame: frame
+        ))
+        XCTAssertEqual(point.x, frame.midX, accuracy: 0.001)
+        XCTAssertEqual(point.y, frame.midY, accuracy: 0.001)
+        let back = try XCTUnwrap(LivePlayMapOverlayLayout.unproject(
+            screenPoint: point, overlayWidth: 600, overlayHeight: 940, from: phone,
+            topInset: 80, fittedFrame: frame
+        ))
+        XCTAssertEqual(back[0], 300, accuracy: 0.001)
+        XCTAssertEqual(back[1], 470, accuracy: 0.001)
+        // A tap outside the framed bitmap is not on the map.
+        XCTAssertNil(LivePlayMapOverlayLayout.unproject(
+            screenPoint: CGPoint(x: 10, y: 60), overlayWidth: 600, overlayHeight: 940, from: phone,
+            topInset: 80, fittedFrame: frame
+        ))
+    }
+
+    func testSelectedHazardFollowsTheFittedFrame() throws {
+        let map = try fixtureMap()
+        let overlay = try XCTUnwrap(map.hole.resolvedMapOverlay)
+        let row = try XCTUnwrap(LiveHazardDisplayItem.rows(for: map.hole, liveReadouts: nil).first)
+        let frame = CGRect(x: 20, y: 150, width: 400, height: 600)
+        let hazard = try XCTUnwrap(LiveHazardOverlayRenderer.screenGeometry(
+            size: viewport,
+            hole: map.hole,
+            row: row,
+            scale: 1,
+            offset: .zero,
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+            fittedFrame: frame
+        ))
+        let front = try XCTUnwrap(hazard.edges.first { $0.isFront })
+        let expected = try XCTUnwrap(LivePlannedRouteRenderer.transformedPoint(
+            CGPoint(x: 112, y: 175),
+            size: viewport,
+            overlay: overlay,
+            scale: 1,
+            offset: .zero,
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+            fittedFrame: frame
+        ))
+        XCTAssertEqual(front.point.x, expected.x, accuracy: 0.001)
+        XCTAssertEqual(front.point.y, expected.y, accuracy: 0.001)
+    }
 }

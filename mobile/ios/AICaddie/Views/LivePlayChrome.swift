@@ -158,10 +158,14 @@ struct LivePlayPinSheetButton: View {
             .disabled(isReading)
             .accessibilityLabel(title)
             .accessibilityIdentifier("live-pin-sheet")
+            // The button frames the live map; the transient reading/result card only pushes the
+            // route labels away, so it never moves the map.
+            .reportsLiveChrome()
             if isReading {
                 card(icon: nil, tint: .white) {
                     Text("正在读取洞位图…")
                 }
+                .reportsLiveChrome(framesMap: false)
                 .accessibilityIdentifier("live-pin-sheet-reading")
             } else if let message {
                 card(
@@ -183,6 +187,7 @@ struct LivePlayPinSheetButton: View {
                         .accessibilityLabel("关闭")
                     }
                 }
+                .reportsLiveChrome(framesMap: false)
                 .accessibilityIdentifier("live-pin-sheet-message")
             }
         }
@@ -759,7 +764,7 @@ enum LivePlannedRouteRenderer {
 
     /// Draws the route layer and returns the placed route-label rects (in `labelTexts` order; nil
     /// for an omitted label). `exclusions` are chrome rects floating over the map (备战's header,
-    /// hole badge and panel): no label is ever placed on them. Live play passes none.
+    /// hole badge and panel; live play's header, ladder and buttons): no label is ever placed on them.
     @discardableResult
     static func draw(
         _ context: inout GraphicsContext,
@@ -794,7 +799,8 @@ enum LivePlannedRouteRenderer {
                 row: $0.row,
                 scale: scale,
                 offset: offset,
-                topInset: topInset
+                topInset: topInset,
+                fittedFrame: fittedFrame
             )
         }
         if let screenTeeArc = geometry.teeArc {
@@ -847,7 +853,8 @@ enum LivePlannedRouteRenderer {
                         overlay: overlay,
                         scale: scale,
                         offset: offset,
-                        topInset: topInset
+                        topInset: topInset,
+                        fittedFrame: fittedFrame
                     )
                 }
             )
@@ -882,6 +889,7 @@ enum LivePlannedRouteRenderer {
                 scale: scale,
                 offset: offset,
                 topInset: topInset,
+                fittedFrame: fittedFrame,
                 labelRects: placed.hazard
             )
         }
