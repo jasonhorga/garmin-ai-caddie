@@ -2,7 +2,7 @@ import SwiftUI
 import AICaddieDomain
 
 /// 开始一场(README §8, `pre-round.html` 第 2 屏)— 一个球场列表(附近在前带距离，其后是搜索、
-/// 最近、已下载，不分区、不写状态文字)；只选第一个 9 洞环(A / B / C 大块)；发球台是颜色圆点 +
+/// 最近、已下载，不分区；附近还在查时顶上只有一行“正在找附近球场…”，已下载的行写“已下载 · N 洞”)；只选第一个 9 洞环(A / B / C 大块)；发球台是颜色圆点 +
 /// 这个环的码数；按钮写明“从 B 场 开始 · 蓝 T”。第二个环在打完第一个环时选(NineLoopPlan)。
 /// 附近只有一个球场时自动选中，多个时由玩家选择；GPS 不可用时搜索照常可用。
 public struct StartRoundView: View {
@@ -479,10 +479,6 @@ public struct StartRoundView: View {
                 .foregroundStyle(LiveHoleStyle.green)
                 .accessibilityLabel(nearbyStatusText ?? "重试附近球场")
                 .accessibilityIdentifier("start-round-retry-nearby")
-            } else if isLoadingNearby, courseRows.isEmpty {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 42, height: 42)
             }
         }
     }
@@ -598,8 +594,18 @@ public struct StartRoundView: View {
 
     @ViewBuilder private var courseList: some View {
         let rows = courseRows
-        if !rows.isEmpty {
+        let pending = nearbyPendingText
+        if !rows.isEmpty || pending != nil {
             VStack(spacing: 0) {
+                // Nearby is still coming: say so above the rows that are already usable (the
+                // downloaded courses), so the list growing a moment later is expected, not a jump.
+                // The watch's start page shows the same two states.
+                if let pending {
+                    nearbyPendingRow(pending)
+                    if !rows.isEmpty {
+                        Divider().padding(.leading, 60)
+                    }
+                }
                 ForEach(rows) { row in
                     courseRow(row)
                     if row.id != rows.last?.id {
@@ -616,7 +622,39 @@ public struct StartRoundView: View {
         }
     }
 
+    /// While nearby discovery is in flight (and not superseded by a manual search): waiting for the
+    /// first fix, then querying. Nil once nearby has answered, failed, or is not being looked for.
+    private var nearbyPendingText: String? {
+        guard isLoadingNearby,
+              !nearbyDiscoveryFailed,
+              !selectedCourseWasManualSearch,
+              nearbyCourseOptions.isEmpty else { return nil }
+        return Self.nearbyPendingText(hasFix: locationProvider.latestFix != nil)
+    }
+
+    static func nearbyPendingText(hasFix: Bool) -> String {
+        hasFix ? "正在找附近球场…" : "正在等待定位…"
+    }
+
+    private func nearbyPendingRow(_ text: String) -> some View {
+        HStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 36, height: 36)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("start-round-nearby-pending")
+    }
+
     /// One venue row: name + "1.2 公里 · 27 洞". Distance only for provider-nearby rows with a fix.
+    /// A downloaded row says "已下载 · 9 洞": its count is the loops on this phone, which can be
+    /// fewer than the venue's (the nearby row that later replaces it shows the whole venue).
     private func courseRow(_ row: StartCourseListRow) -> some View {
         let selected: Bool
         if let segment = selectedSegment {
@@ -678,6 +716,9 @@ public struct StartRoundView: View {
             if let metres, let distance = StartRoundPresentation.distanceText(metres: metres) {
                 parts.append(distance)
             }
+        }
+        if row.source == .downloaded {
+            parts.append("已下载")
         }
         if row.holes > 0 {
             parts.append("\(row.holes) 洞")

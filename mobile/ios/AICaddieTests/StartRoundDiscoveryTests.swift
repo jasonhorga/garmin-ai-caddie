@@ -1064,4 +1064,11 @@ final class StartRoundDiscoveryTests: XCTestCase {
             longitude: longitude
         )
     }
+
+    /// While nearby is still coming the list says so above the downloaded rows (the watch shows
+    /// the same two states), so nearby rows arriving a moment later are expected, not a jump.
+    func testNearbyPendingLineNamesTheStepBeingWaitedOn() {
+        XCTAssertEqual(StartRoundView.nearbyPendingText(hasFix: false), "正在等待定位…")
+        XCTAssertEqual(StartRoundView.nearbyPendingText(hasFix: true), "正在找附近球场…")
+    }
 }
