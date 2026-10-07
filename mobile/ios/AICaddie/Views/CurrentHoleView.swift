@@ -598,7 +598,6 @@ public struct CurrentHoleView: View {
             LivePlayStyle.base.ignoresSafeArea()
             heroSection
                 .ignoresSafeArea()
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { liveHeroFrame = $0 }
                 .id(Self.holeRootScrollAnchor)
             liveMapChrome
                 .onPreferenceChange(LiveChromeRectsKey.self) { liveChromeRects = $0 }
@@ -1057,6 +1056,10 @@ public struct CurrentHoleView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .animation(nil, value: heroMapTransientDragOffset)
+            // The hero's real full-screen frame. A modifier after `.ignoresSafeArea()` reports the
+            // safe-area layout frame instead (its minY is the status bar), which shifted every
+            // measured chrome rect by that inset; inside the reader the frame is the drawn one.
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { liveHeroFrame = $0 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
