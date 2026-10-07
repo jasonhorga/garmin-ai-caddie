@@ -3,16 +3,29 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-07 04:34 UTC
+**Updated:** 2026-10-07 08:29 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `d679ca9029f543256b333b36cf1f998368ad04bc` (#389)
-**Latest review:** exact-head 6fea0239 source/Native/live review; merged and closed.
-**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `queued`
+**Latest review:** PR #391 exact-head 64905987 review; live acceptance blocked.
+**Current slice:** `PR391-LIVE-LIGHTWEIGHT-MAP` — `evidence-open`
 
 ## Current state and deduplication
 
-Claude restored. No open PRs remain; #387/#388/#389/#390 are merged and their
-branches deleted. #389 exact head **6fea02399ab4136455cf333ebf1660388c372211**
+Claude restored. PR #391 is open; #387/#388/#389/#390 are merged and their
+branches deleted. PR #391 exact head is **649059876e690a80fd90b9f3c896e4d0f511580b**
+on `claude/live-lightweight-map-fit-20261007`. Ordinary CI **37583640893** and
+automatic Native CI **37583640781** passed; design (89 iOS) and Watch (47)
+artifacts were checked, with only the four expected iOS lightweight-map frames
+different from the #387 baseline. Required live run **37587781499** is red:
+9/10 selected iOS tests passed, but `RealFlowUITests.testCaptureRealAppFlow`
+failed on three attempts with `NSURLError -1001` for
+`GET /api/v2/history/rounds?hasShots=true&limit=120`; preflight/course discovery
+were HTTP 200 and the origin log has no matching request. No live 09d,
+b4b2-02, or b4b2-04 map frame was captured. P1 evidence-block comment
+**6033977600** posted; do not merge until a successful live capture exists.
+Evidence: `operations/pr391-64905987-20261007/observed-live-37587781499/`.
+
+#389 exact head **6fea02399ab4136455cf333ebf1660388c372211**
 merged as **d679ca9029f543256b333b36cf1f998368ad04bc** after the exact-head
 live review and conclusion comment **6030960009**. Formal approval was refused
 by GitHub because the PR author and Codex share the same account; the review
@@ -45,6 +58,8 @@ Preserve dirty `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 
 ## Unfinished queue
 
+- `PR391-LIVE-LIGHTWEIGHT-MAP` — `evidence-open`: await Claude's transport fix
+  or a new exact head; re-run required live evidence, then issue P1/P2 verdict.
 - `PR-FEEDBACK-CONTINUOUS` — `queued`: resume existing feedback cursor;
   exact head/tests/Native artifacts/screenshots, P1/P2/nonblocking verdict,
   merge/delete only when clear. No second monitor.
@@ -83,6 +98,12 @@ Preserve dirty `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 - No implementation worktree, active snapshot/test/render container, download
   process, observer/sampler, CI or feedback waiter at review closure.
   Native verifier **45268** and previous feedback **59022** completed.
+- PR391 exact-head snapshot `/dev/shm/garmin-ai-caddie-pr391-64905987-20261007`
+  was checked for references and removed at 08:29 UTC; cleanup receipt is
+  `operations/pr391-64905987-20261007/snapshot-cleanup-20261007.json`.
+  Live run artifacts (including `real-screenshots`, `real-video`, and native
+  evidence) remain under `operations/pr391-64905987-20261007/`; local visual
+  copies were moved to the user trash after inspection.
 - 6fea0239 snapshot/container closed after source backup/use checks; Native
   wait **87600**/artifact **57305** closed. Observer **23490** closed after
   GitHub TLS timeout (not a CI verdict); closure receipt confirms sampler ended.
@@ -117,12 +138,14 @@ Preserve dirty `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 
 ## Next action and stopping
 
-Start the existing feedback cursor waiter in the same control turn. If a new
-PR event arrives, review its exact head under the CI/Native/artifact rules;
-otherwise do not poll. Retain #389 live artifacts and receipts.
+Await Claude's response to PR391 comment **6033977600** or a new exact head;
+when actionable, re-run the required live Native capture and inspect 09d /
+b4b2-02 / b4b2-04 before deciding. Until then, retain the PR391 evidence and
+do not merge. After the open PR is resolved, start the existing feedback cursor
+waiter in the same control turn and process only its one-line conclusion.
 No weakened assertions or CI-result-only bookkeeping commit.
-Quiet interval starts **2026-10-07 04:34 UTC** with no open PRs. Stop after
-**48 quiet hours/no open PRs** or absolute
+The 48-hour quiet interval is not active while PR391 is open. After all PRs
+are closed, stop after **48 quiet hours/no open PRs** or absolute
 **2026-10-09 23:59 UTC**, with owned-resource handoff. Own events never reset it.
 Keep ledger ≤200 lines/current-only; archive superseded detail verbatim.
 After compaction read ledger, inspect Git/agent status, resume this slice.
