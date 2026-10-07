@@ -1635,7 +1635,8 @@ enum LivePlayMapOverlayLayout {
         overlayWidth: Int,
         overlayHeight: Int,
         into heroSize: CGSize,
-        topInset: CGFloat = 0
+        topInset: CGFloat = 0,
+        fittedFrame: CGRect? = nil
     ) -> CGPoint? {
         guard overlayPoint.count >= 2,
               overlayPoint[0].isFinite,
@@ -1655,7 +1656,8 @@ enum LivePlayMapOverlayLayout {
             overlayWidth: overlayWidth,
             overlayHeight: overlayHeight,
             in: heroSize,
-            topInset: topInset
+            topInset: topInset,
+            fittedFrame: fittedFrame
         ) else { return nil }
         let scale = frame.width / CGFloat(overlayWidth)
         return CGPoint(
@@ -1666,12 +1668,22 @@ enum LivePlayMapOverlayLayout {
 
     /// The exact fitted map rectangle used by `project`. Exposing it keeps interactive hit testing
     /// and marker overlays on the same aspect-fit frame instead of guessing from the phone width.
+    /// A caller-supplied `fittedFrame` (the lightweight map's plan framing) replaces the aspect fit,
+    /// so every projection, the pan clamp and tap hit testing follow the bitmap wherever it is drawn.
     static func mapFrame(
         overlayWidth: Int,
         overlayHeight: Int,
         in viewportSize: CGSize,
-        topInset: CGFloat = 0
+        topInset: CGFloat = 0,
+        fittedFrame: CGRect? = nil
     ) -> CGRect? {
+        if let fittedFrame {
+            guard overlayWidth > 0, overlayHeight > 0,
+                  fittedFrame.minX.isFinite, fittedFrame.minY.isFinite,
+                  fittedFrame.width.isFinite, fittedFrame.height.isFinite,
+                  fittedFrame.width > 0, fittedFrame.height > 0 else { return nil }
+            return fittedFrame
+        }
         guard overlayWidth > 0, overlayHeight > 0,
               viewportSize.width.isFinite, viewportSize.height.isFinite,
               viewportSize.width > 0, viewportSize.height > 0,
@@ -1750,6 +1762,7 @@ enum LivePlayMapOverlayLayout {
         overlayHeight: Int,
         from viewportSize: CGSize,
         topInset: CGFloat = 0,
+        fittedFrame: CGRect? = nil,
         clampToMap: Bool = false
     ) -> [Double]? {
         guard screenPoint.x.isFinite, screenPoint.y.isFinite,
@@ -1757,7 +1770,8 @@ enum LivePlayMapOverlayLayout {
                   overlayWidth: overlayWidth,
                   overlayHeight: overlayHeight,
                   in: viewportSize,
-                  topInset: topInset
+                  topInset: topInset,
+                  fittedFrame: fittedFrame
               ) else { return nil }
         let inside = frame.contains(screenPoint)
         guard inside || clampToMap else { return nil }
@@ -1771,6 +1785,105 @@ enum LivePlayMapOverlayLayout {
         ]
     }
 
+    /// The lightweight (partial) map's rest frame. Its CourseView canvas is the whole hole
+    /// bounding box, so an aspect fit leaves a narrow hole hugging one edge with most of the screen
+    /// empty. Like 备战 (`PrepMapLayout.restFrame`), the hole is framed instead: the factual route
+    /// from tee to green, with room for a "球杆 码数" label beside every part of it, sits between
+    /// the live chrome (`chrome`, in hero coordinates), centred.
+    ///
+    /// The frame depends on the hole alone, never on the caddie plan: placing a Touch Target or
+    /// switching 打法 refreshes the plan, and a frame that followed it would move the map (and the
+    /// target) under the player's finger. Route labels still avoid the chrome when drawn.
+    ///
+    /// Chrome in the upper part of the hero (title, round buttons, 洞位图, green ladder) sets the top
+    /// inset; chrome in the lower part (记分, 记一杆, the obstacle bar) sets the bottom inset; the side
+    /// controls only constrain labels. Before the chrome is measured the header inset is used.
+    static func lightweightFittedFrame(
+        overlay: CoursePrepOverlay,
+        viewport: CGSize,
+        chrome: [CGRect]
+    ) -> CGRect? {
+        guard viewport.width.isFinite, viewport.height.isFinite,
+              viewport.width > 0, viewport.height > 0 else { return nil }
+        let rects = chrome.filter {
+            $0.minX.isFinite && $0.minY.isFinite && $0.width.isFinite && $0.height.isFinite
+                && $0.width > 0 && $0.height > 0
+        }
+        let upper = rects.filter { $0.maxY <= viewport.height * 0.45 }
+        let lower = rects.filter { $0.minY >= viewport.height * 0.55 }
+        let top = max(liveMapTopInset, (upper.map(\.maxY).max() ?? 0) + chromeGap)
+        let bottom = lower.map(\.minY).min().map { max(viewport.height - $0 + chromeGap, 0) } ?? 0
+        guard top + bottom < viewport.height else { return nil }
+        return PrepMapLayout.routeRestFrame(
+            overlay: overlay,
+            labelText: representativeRouteLabel,
+            viewport: viewport,
+            insets: PrepChromeLayout.Insets(top: top, bottom: bottom),
+            // The lightweight canvas is one flat ground fill that the hero continues around the
+            // frame, so the hole is centred rather than pushed to keep the screen edges covered.
+            prefersCover: false
+        )
+    }
+
+    /// The room every part of the route keeps for a label: a typical "球杆 码数" pill.
+    static let representativeRouteLabel = "三号木 175"
+
+    /// Room kept between the framed plan and the chrome above and below it.
+    static let chromeGap: CGFloat = 8
+}
+
+/// One floating live-play control's frame in global coordinates. Every control keeps the route
+/// labels clear of it; only the fixed ones (`framesMap`) also frame the lightweight map, so a
+/// control that comes and goes (the obstacle bar, 回到) never moves the map under the player.
+struct LiveChromeRect: Equatable {
+    let rect: CGRect
+    let framesMap: Bool
+}
+
+struct LiveChromeRectsKey: PreferenceKey {
+    static let defaultValue: [LiveChromeRect] = []
+
+    static func reduce(value: inout [LiveChromeRect], nextValue: () -> [LiveChromeRect]) {
+        value += nextValue()
+    }
+}
+
+extension View {
+    /// Reports this live chrome's frame (`LiveChromeRectsKey`).
+    func reportsLiveChrome(framesMap: Bool = true) -> some View {
+        background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: LiveChromeRectsKey.self,
+                    value: [LiveChromeRect(rect: proxy.frame(in: .global), framesMap: framesMap)]
+                )
+            }
+        }
+    }
+}
+
+/// One memoized lightweight frame per input. The hero asks for the frame from every projection
+/// (bitmap, route, markers, pan clamp, hit testing) on every pass, so the fit is computed only
+/// when the hole, viewport or framing chrome change.
+final class LiveMapFitMemo {
+    struct Key: Equatable {
+        let overlayWidth: Int
+        let overlayHeight: Int
+        let route: [[Double]]
+        let viewport: CGSize
+        let chrome: [CGRect]
+    }
+
+    private var key: Key?
+    private var value: CGRect?
+
+    func frame(for key: Key, compute: () -> CGRect?) -> CGRect? {
+        if key == self.key { return value }
+        let computed = compute()
+        self.key = key
+        value = computed
+        return computed
+    }
 }
 
 /// Pixel-only distances for a manually placed map target.  This is the honest fallback when a

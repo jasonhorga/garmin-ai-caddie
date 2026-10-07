@@ -367,7 +367,8 @@ enum PrepMapLayout {
         viewport: CGSize,
         topInset: CGFloat,
         bottomInset: CGFloat,
-        shrink: CGFloat = 1
+        shrink: CGFloat = 1,
+        prefersCover: Bool = true
     ) -> CGRect? {
         guard overlayWidth > 0, overlayHeight > 0,
               viewport.width.isFinite, viewport.height.isFinite,
@@ -419,6 +420,9 @@ enum PrepMapLayout {
             let points = axis.map(\.point)
             let middle = ((points.min() ?? 0) + (points.max() ?? 0)) / 2
             let centred = (low + high) / 2 - middle * scale
+            // A map whose surroundings continue seamlessly (the lightweight map's flat ground)
+            // simply centres the plan.
+            guard prefersCover else { return min(max(centred, fit.lower), fit.upper) }
             // Prefer a position that also keeps this edge of the viewport covered.
             let coverLow = viewportLength - length * scale
             let lower = max(fit.lower, coverLow)
