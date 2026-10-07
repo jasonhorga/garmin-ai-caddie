@@ -1625,25 +1625,14 @@ final class RealFlowUITests: XCTestCase {
         return element.exists && element.isHittable && fullyVisible(element)
     }
 
-    private func visibleSafeRect() -> CGRect {
-        let windowFrame = app.windows.firstMatch.frame
-        var top = windowFrame.minY + 8
-        let navigationBar = app.navigationBars.firstMatch
-        if navigationBar.exists {
-            top = max(top, navigationBar.frame.maxY + 8)
-        }
-        let bottom = windowFrame.maxY - 34
-        return CGRect(
-            x: windowFrame.minX + 8,
-            y: top,
-            width: max(0, windowFrame.width - 16),
-            height: max(0, bottom - top)
-        )
+    /// The tappable viewport, shared with TeeSelectionUITests: it also excludes the pinned 开始一场
+    /// action band (`UITestViewport`).
+    private func visibleSafeRect(for element: XCUIElement? = nil) -> CGRect {
+        UITestViewport.usableRect(in: app, for: element)
     }
 
     private func fullyVisible(_ element: XCUIElement) -> Bool {
-        let frame = element.frame
-        return !frame.isNull && !frame.isEmpty && visibleSafeRect().contains(frame)
+        UITestViewport.fullyVisible(element, in: app)
     }
 
     /// `app.statusBars` is empty on the iPhone 16 simulator even while SpringBoard visibly draws the

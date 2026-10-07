@@ -130,7 +130,17 @@ final class TeeSelectionUITests: XCTestCase {
         settle(2)
         save("03-tee-row"); dump("03-tee-row")
         XCTAssertTrue(whiteTee.label.hasPrefix("白 T"), "a tee dot is labelled with its colour and yards")
+        // Re-confirm right before the tap: the list may have moved during the settle, and a tee
+        // under the pinned Start band would start a round instead (live Native 37534118109).
+        XCTAssertTrue(bringIntoView(whiteTee, maxSwipes: 4), "the white Tee must still be clear of the Start band")
         whiteTee.tap()
+        // Selecting a tee must not start a round: no Start has been tapped yet.
+        let stillOnStart = app.navigationBars["开始一场"].waitForExistence(timeout: 3)
+            && app.buttons["start-round-primary-action"].exists
+        if !stillOnStart {
+            save("03b-tee-tap-left-start"); dump("03b-tee-tap-left-start")
+        }
+        XCTAssertTrue(stillOnStart, "tapping a tee must stay on 开始一场 (it must not hit the Start action)")
         // SwiftUI rebuilds the tee row after changing the @State teeBox. Re-resolve the
         // identifier instead of reading the pre-tap XCUIElement, which can point at a stale
         // accessibility snapshot and fail with "No matches found" even though the chip exists.
@@ -139,10 +149,11 @@ final class TeeSelectionUITests: XCTestCase {
         ).firstMatch
         // A real GPS fix can finish nearby discovery right after the tap and re-lay out the list,
         // taking the row out of the hierarchy for a moment (live Native 37252432578).
-        XCTAssertTrue(
-            waitForValue("已选择", on: selectedWhiteTee, timeout: 15),
-            "the tapped tee must become selected"
-        )
+        let whiteSelected = waitForValue("已选择", on: selectedWhiteTee, timeout: 15)
+        if !whiteSelected {
+            save("03c-white-tee-not-selected"); dump("03c-white-tee-not-selected")
+        }
+        XCTAssertTrue(whiteSelected, "the tapped tee must become selected")
         XCTAssertTrue(
             startAction.label.hasSuffix("· 白 T"),
             "the primary action must name the newly selected white Tee"
@@ -729,33 +740,23 @@ final class TeeSelectionUITests: XCTestCase {
     }
 
     /// SwiftUI can report a row at the bottom edge as hittable even when its tap point is under the
-    /// iPhone home-indicator lane. Require the full row to be inside the usable viewport before
-    /// tapping so a catalogue selection exercises the real button action.
-    private func visibleSafeRect() -> CGRect {
-        let windowFrame = app.windows.firstMatch.frame
-        var top = windowFrame.minY + 8
+    /// home-indicator lane or the pinned 开始一场 action band. Require the full row to be inside the
+    /// usable viewport (`UITestViewport`) before tapping so a selection exercises the real button.
+    private func visibleSafeRect(for element: XCUIElement? = nil) -> CGRect {
         // A sheet leaves the underlying start-round navigation bar in the accessibility tree. Use
         // the active catalogue bar first; otherwise its frame falsely marks every top result as
         // covered and the helper oscillates between the list's two scroll bounds.
         let catalogueNavigationBar = app.navigationBars["找球场"]
-        let navigationBar = catalogueNavigationBar.exists
-            ? catalogueNavigationBar
-            : app.navigationBars.firstMatch
-        if navigationBar.exists {
-            top = max(top, navigationBar.frame.maxY + 8)
-        }
-        let bottom = windowFrame.maxY - 34
-        return CGRect(
-            x: windowFrame.minX + 8,
-            y: top,
-            width: max(0, windowFrame.width - 16),
-            height: max(0, bottom - top)
+        return UITestViewport.usableRect(
+            in: app,
+            for: element,
+            topBar: catalogueNavigationBar.exists ? catalogueNavigationBar : nil
         )
     }
 
     private func fullyVisible(_ element: XCUIElement) -> Bool {
         let frame = element.frame
-        return !frame.isNull && !frame.isEmpty && visibleSafeRect().contains(frame)
+        return !frame.isNull && !frame.isEmpty && visibleSafeRect(for: element).contains(frame)
     }
 
     /// B4b: 开始一场 is one course list. After a failed nearby request the only rows left are

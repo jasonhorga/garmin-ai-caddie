@@ -4451,6 +4451,34 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('save("start-course-\\(globalId)-not-selected")', helper)
         self.assertIn('dump("start-course-\\(globalId)-not-selected")', helper)
 
+    def test_ui_tests_never_tap_rows_under_the_pinned_start_band(self) -> None:
+        # Live Native 37534118109: the white Tee sat under the pinned 开始一场 action band, was judged
+        # fully visible (only the home-indicator lane was excluded), and the tap started a Blue round.
+        ui = Path("mobile") / "ios" / "AICaddieUITests"
+        start_round = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
+        inset = start_round.split(".safeAreaInset(edge: .bottom, spacing: 0) {", 1)[1].split("\n        }\n", 1)[0]
+        self.assertLess(
+            inset.index(".accessibilityElement(children: .contain)"),
+            inset.index('.accessibilityIdentifier("start-round-pinned-actions")'),
+        )
+        viewport = _read_required_source(self, ui / "UITestViewport.swift")
+        self.assertIn('static let pinnedBottomAreas = ["start-round-pinned-actions"]', viewport)
+        self.assertIn("bottom = min(bottom, frame.minY)", viewport)
+        self.assertIn("frame.contains(target)", viewport)
+        for name in ("TeeSelectionUITests.swift", "RealFlowUITests.swift"):
+            source = _read_required_source(self, ui / name)
+            self.assertIn("UITestViewport.usableRect(", source, name)
+            self.assertNotIn("let bottom = windowFrame.maxY - 34", source, name)
+        tee = _read_required_source(self, ui / "TeeSelectionUITests.swift")
+        tap = tee.index("whiteTee.tap()")
+        self.assertLess(tee.index('bringIntoView(whiteTee, maxSwipes: 4)'), tap)
+        self.assertLess(tap, tee.index('"tapping a tee must stay on 开始一场 (it must not hit the Start action)"'))
+        self.assertLess(
+            tee.index('"tapping a tee must stay on 开始一场 (it must not hit the Start action)"'),
+            tee.index('"the tapped tee must become selected"'),
+        )
+        self.assertIn('"the primary action must name the newly selected white Tee"', tee)
+
     def test_a_half_start_lists_an_already_installed_whole_course_in_the_prep_library(self) -> None:
         # The B4b-2 template acquisition must not silently skip a course that is already installed:
         # like `downloadPrepCourse`, it lists it as ready so 备战 shows it (live Native 37247820045).
