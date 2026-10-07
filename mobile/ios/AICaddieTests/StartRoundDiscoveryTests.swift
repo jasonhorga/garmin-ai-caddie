@@ -1093,19 +1093,16 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    /// The captions the list draws, through the subtitle's own chain (`holeCaption(for:...)`).
     private func captions(
         nearby: [MobileCourseOption] = [],
-        recent: [MobileCourseOption] = [],
-        downloaded: [MobileCourseOption] = []
+        recentRows: [MobileCourseOption] = [],
+        downloaded: [MobileCourseOption] = [],
+        catalogue: [MobileCourseOption] = [],
+        recentRecord: MobileCourseOption? = nil
     ) -> [String?] {
-        StartRoundPresentation.mergedCourseRows(nearby: nearby, recent: recent, downloaded: downloaded).map { row in
-            StartRoundView.holeCaption(
-                source: row.source,
-                rowHoles: row.holes,
-                downloadedVenueHoles: row.segments.first.map {
-                    StartRoundView.downloadedHoles(atVenueOf: $0, in: downloaded)
-                } ?? 0
-            )
+        StartRoundPresentation.mergedCourseRows(nearby: nearby, recent: recentRows, downloaded: downloaded).map {
+            StartRoundView.holeCaption(for: $0, downloaded: downloaded, catalogue: catalogue, recent: recentRecord)
         }
     }
 
@@ -1119,15 +1116,60 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(waiting.count, 1)
         XCTAssertEqual(waiting.first?.source, .recent)
         XCTAssertEqual(waiting.first?.segments.map(\.globalId), [31794], "sources' loops never mix")
-        XCTAssertEqual(captions(recent: [loopA], downloaded: [loopA, loopB]), ["已下载 18 洞"])
+        XCTAssertEqual(
+            captions(recentRows: [loopA], downloaded: [loopA, loopB], recentRecord: loopA),
+            ["已下载 18 洞"]
+        )
         // Nearby arrives with the whole venue.
         XCTAssertEqual(
-            captions(nearby: [loopA, loopB, loopC], recent: [loopA], downloaded: [loopA, loopB]),
+            captions(nearby: [loopA, loopB, loopC], recentRows: [loopA], downloaded: [loopA, loopB], recentRecord: loopA),
             ["27 洞"]
         )
-        // A recent course with nothing downloaded knows only the loops last played.
-        XCTAssertEqual(captions(recent: [loopA]), ["最近打过 9 洞"])
+        // The actual recent record with nothing downloaded: only the loops last played.
+        XCTAssertEqual(captions(recentRows: [loopA], recentRecord: loopA), ["最近打过 9 洞"])
         // A downloaded-only row: its own loops.
         XCTAssertEqual(captions(downloaded: [loopA]), ["已下载 9 洞"])
+    }
+
+    /// Codex review 6044451139 (1): the catalogue names and groups a downloaded package, but its
+    /// whole-course count must not replace the installed template's. Same id: downloaded 9, catalogue 18.
+    func testDownloadedCoverageCountsTheInstalledTemplateNotTheCatalogueCourse() {
+        let installed = MobileCourseOption(globalId: 40001, name: "丽宫 ~ 前九", holes: 9, segmentHoles: 9)
+        let catalogue = MobileCourseOption(
+            globalId: 40001, name: "北京丽宫体育公园高尔夫俱乐部", holes: 18,
+            venueName: "北京丽宫体育公园高尔夫俱乐部", segmentHoles: 18
+        )
+        let reconciled = StartRoundView.reconciledCourseOptions(
+            primary: [installed], catalogue: [catalogue], downloaded: [installed]
+        )
+        // The list row is built from the reconciled package, exactly as the screen does.
+        let rows = StartRoundPresentation.mergedCourseRows(nearby: [], downloaded: reconciled)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(
+            rows.map { StartRoundView.holeCaption(for: $0, downloaded: [installed], catalogue: [catalogue], recent: nil) },
+            ["已下载 9 洞"]
+        )
+    }
+
+    /// Codex review 6044451139 (2): the carried selection (home GPS card) is sorted with the recent
+    /// rows, but with no recent record and nothing downloaded it was never played: its loops come
+    /// from the catalogue/provider authority and read as the venue.
+    func testCarriedVenueWithoutRecentRecordNeverClaimsItWasPlayed() {
+        let loops = [blackKnight(31794, "A"), blackKnight(31795, "B"), blackKnight(31796, "C")]
+        let rows = StartRoundView.courseRows(
+            nearby: [], search: [], recent: [], downloaded: [],
+            selected: loops[1], selectedLoops: loops, preselectedVenue: loops
+        )
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.source, .recent, "the order is unchanged")
+        XCTAssertEqual(
+            rows.map { StartRoundView.holeCaption(for: $0, downloaded: [], catalogue: loops, recent: nil) },
+            ["27 洞"]
+        )
+        // Having last played loop A here does not make the carried A/B/C row a played 27 holes.
+        XCTAssertEqual(
+            rows.map { StartRoundView.holeCaption(for: $0, downloaded: [], catalogue: loops, recent: loops[0]) },
+            ["27 洞"]
+        )
     }
 }

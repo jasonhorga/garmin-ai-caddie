@@ -751,31 +751,53 @@ public struct StartRoundView: View {
                 parts.append(distance)
             }
         }
-        let downloadedHoles = row.segments.first.map { venue in
-            Self.downloadedHoles(
-                atVenueOf: venue,
-                in: resolvedOfflineOptions(offlineDisplayOptions + downloadedCourseOptions)
-            )
-        } ?? 0
         if let caption = Self.holeCaption(
-            source: row.source,
-            rowHoles: row.holes,
-            downloadedVenueHoles: downloadedHoles
+            for: row,
+            downloaded: downloadedCourseOptions,
+            catalogue: courseOptions,
+            recent: recentCourseOption
         ) {
             parts.append(caption)
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    /// The caption the list draws for `row`, from the screen's own inputs: the downloaded packages
+    /// as installed (`downloaded`), the catalogue used to name and group them, and the actual recent
+    /// record. This is the subtitle's whole chain; tests call it with the same inputs.
+    static func holeCaption(
+        for row: StartCourseListRow,
+        downloaded: [MobileCourseOption],
+        catalogue: [MobileCourseOption],
+        recent: MobileCourseOption?
+    ) -> String? {
+        let venue = row.segments.first
+        let downloadedHoles = venue.map {
+            downloadedCoverageHoles(atVenueOf: $0, downloaded: downloaded, catalogue: catalogue)
+        } ?? 0
+        // "最近打过" only for the recent record's own loops; a carried / catalogue row that merely
+        // shares the venue (A/B/C after playing A) is the venue's authority, not a played claim.
+        let playedRecently = recent.map { record in
+            !row.segments.isEmpty && row.segments.allSatisfy { $0.globalId == record.globalId }
+        } ?? false
+        return holeCaption(
+            source: row.source,
+            rowHoles: row.holes,
+            downloadedVenueHoles: downloadedHoles,
+            playedRecently: playedRecently
+        )
+    }
+
     /// What a row's hole count covers. Provider rows (nearby, search) list the venue's loops, so
-    /// "27 洞" is the venue. A recent or downloaded row only knows what this phone holds: it says how
-    /// much of the venue is downloaded ("已下载 18 洞", every downloaded loop of the venue, whichever
-    /// row source won the de-duplication), or, for a recent course with nothing downloaded, the
-    /// loops last played ("最近打过 9 洞") — never a bare count that reads like the whole venue.
+    /// "27 洞" is the venue. Whatever source owns the row, holes on this phone say so ("已下载 18
+    /// 洞", the venue's installed loops). A recent-sorted row is "最近打过" only when the actual recent
+    /// record's own loops; a carried / catalogue selection sorted there lists the venue's loops
+    /// from that authority ("27 洞") and never claims the player played it.
     static func holeCaption(
         source: StartCourseListRow.Source,
         rowHoles: Int,
-        downloadedVenueHoles: Int
+        downloadedVenueHoles: Int,
+        playedRecently: Bool
     ) -> String? {
         switch source {
         case .nearby, .search:
@@ -783,16 +805,28 @@ public struct StartRoundView: View {
         case .recent, .downloaded:
             if downloadedVenueHoles > 0 { return "已下载 \(downloadedVenueHoles) 洞" }
             guard rowHoles > 0 else { return nil }
-            return source == .recent ? "最近打过 \(rowHoles) 洞" : "已下载 \(rowHoles) 洞"
+            if source == .downloaded { return "已下载 \(rowHoles) 洞" }
+            return playedRecently ? "最近打过 \(rowHoles) 洞" : "\(rowHoles) 洞"
         }
     }
 
-    /// Holes of every distinct downloaded loop at `venue`'s physical venue.
-    static func downloadedHoles(atVenueOf venue: MobileCourseOption, in downloaded: [MobileCourseOption]) -> Int {
+    /// Holes actually installed at `venue`'s physical venue. The catalogue only names and groups the
+    /// downloaded packages (reconciliation); each package counts its own installed template holes,
+    /// never the catalogue's whole-course count for the same id.
+    static func downloadedCoverageHoles(
+        atVenueOf venue: MobileCourseOption,
+        downloaded: [MobileCourseOption],
+        catalogue: [MobileCourseOption]
+    ) -> Int {
+        var installed: [Int: Int] = [:]
+        for option in downloaded where installed[option.globalId] == nil {
+            installed[option.globalId] = option.resolvedHoles
+        }
+        let named = reconciledCourseOptions(primary: downloaded, catalogue: catalogue, downloaded: downloaded)
         var seen = Set<Int>()
-        return downloaded.reduce(0) { total, option in
+        return named.reduce(0) { total, option in
             guard samePhysicalVenue(option, venue), seen.insert(option.globalId).inserted else { return total }
-            return total + option.resolvedHoles
+            return total + (installed[option.globalId] ?? 0)
         }
     }
 
