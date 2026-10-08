@@ -1226,29 +1226,66 @@ public struct RoundShotMapPagerScreen: View {
     }
 }
 
+/// Review scorecards and shot maps the player has opened (or the app prefetched for the newest
+/// round). They live in Application Support, not Caches: iOS purges Caches under storage pressure,
+/// which emptied an offline review exactly when it was wanted. Bounded per account to the newest
+/// `retainedRounds` rounds; files from the old Caches location are still read and moved over.
 enum RoundReviewDiskCache {
     private static let decoder = JSONDecoder()
     private static let encoder = JSONEncoder()
+    static let retainedRounds = 40
 
     static func loadDetail(roundRef: String) -> RoundDetail? {
-        load(RoundDetail.self, from: url(roundRef: roundRef, fileName: "detail.json"))
+        load(RoundDetail.self, roundRef: roundRef, fileName: "detail.json")
     }
 
     static func saveDetail(_ detail: RoundDetail, roundRef: String) {
         save(detail, to: url(roundRef: roundRef, fileName: "detail.json"))
+        pruneOldRounds(keeping: url(roundRef: roundRef, fileName: "detail.json").deletingLastPathComponent())
     }
 
     static func loadShotMap(roundRef: String, hole: Int) -> RoundHoleShotMap? {
-        load(RoundHoleShotMap.self, from: url(roundRef: roundRef, fileName: "hole-\(hole).json"))
+        load(RoundHoleShotMap.self, roundRef: roundRef, fileName: "hole-\(hole).json")
     }
 
     static func saveShotMap(_ map: RoundHoleShotMap, roundRef: String, hole: Int) {
         save(map, to: url(roundRef: roundRef, fileName: "hole-\(hole).json"))
     }
 
+    private static func load<T: Codable>(_ type: T.Type, roundRef: String, fileName: String) -> T? {
+        if let value = load(type, from: url(roundRef: roundRef, fileName: fileName)) {
+            return value
+        }
+        guard let legacy = load(type, from: url(roundRef: roundRef, fileName: fileName, base: legacyRoot)) else {
+            return nil
+        }
+        save(legacy, to: url(roundRef: roundRef, fileName: fileName))
+        return legacy
+    }
+
     private static func load<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         return try? decoder.decode(type, from: data)
+    }
+
+    /// Keep the newest rounds of this account (by last write), never the one just saved.
+    private static func pruneOldRounds(keeping current: URL) {
+        let playerDirectory = current.deletingLastPathComponent()
+        let manager = FileManager.default
+        guard let rounds = try? manager.contentsOfDirectory(
+            at: playerDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ), rounds.count > retainedRounds else { return }
+        let newestFirst = rounds.sorted { lhs, rhs in
+            let l = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let r = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return l > r
+        }
+        for stale in newestFirst.dropFirst(retainedRounds)
+        where stale.standardizedFileURL != current.standardizedFileURL {
+            try? manager.removeItem(at: stale)
+        }
     }
 
     private static func save<T: Encodable>(_ value: T, to url: URL) {
@@ -1257,19 +1294,32 @@ enum RoundReviewDiskCache {
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        // Re-downloadable from the server: keep it out of iCloud/iTunes backups.
+        var reviewRoot = Self.root
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? reviewRoot.setResourceValues(values)
         try? data.write(to: url, options: [.atomic])
     }
 
-    private static func url(roundRef: String, fileName: String) -> URL {
-        let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+    private static var root: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AICaddieRoundReview-v3", isDirectory: true)
+    }
+
+    private static var legacyRoot: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("AICaddieRoundReview-v3", isDirectory: true)
+    }
+
+    private static func url(roundRef: String, fileName: String, base: URL? = nil) -> URL {
         // A round reference is not globally unique across backend members. Bind every review byte
         // to the currently signed-in player so signing out/in can never show another account's
         // cached scorecard or shot positions. DEBUG without Apple auth receives its own scope.
         let playerScope = SessionStore.shared.currentSession?.playerId ?? "debug-no-session"
         let safePlayer = digest(playerScope)
         let safeRef = digest(roundRef)
-        return root.appendingPathComponent(safePlayer, isDirectory: true)
+        return (base ?? Self.root).appendingPathComponent(safePlayer, isDirectory: true)
             .appendingPathComponent(safeRef, isDirectory: true)
             .appendingPathComponent(fileName)
     }

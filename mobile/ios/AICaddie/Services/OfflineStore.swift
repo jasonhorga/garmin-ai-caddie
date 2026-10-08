@@ -1082,6 +1082,28 @@ public final class OfflineStore {
         return try decoder.decode(MobileStats.self, from: Data(contentsOf: mobileStatsURL))
     }
 
+    /// 表现分析 windows (`last10` / `last20` / `12m`) are separate payloads; `all` is the file above.
+    /// Kept per account like the rest, so the page opens on its last answer instead of a spinner.
+    public func saveMobileStats(_ stats: MobileStats, window: String) throws {
+        guard let url = mobileStatsURL(window: window) else { return }
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try encoder.encode(stats).write(to: url, options: [.atomic])
+    }
+
+    public func loadMobileStats(window: String) throws -> MobileStats? {
+        guard let url = mobileStatsURL(window: window),
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try decoder.decode(MobileStats.self, from: Data(contentsOf: url))
+    }
+
+    private func mobileStatsURL(window: String) -> URL? {
+        switch window {
+        case "all": return mobileStatsURL
+        case "last10", "last20", "12m": return directoryURL.appendingPathComponent("mobile_stats_\(window).json")
+        default: return nil
+        }
+    }
+
     /// Preserve one immutable whole-course template per physical course/Tee (B4b-2): the canonical
     /// `G:front+G:back` (18 holes) or `G:all` (a 9-hole loop), keyed by that canonical `loopKey`.
     /// A round played in any order is re-projected into it; a round carrying only one half is not

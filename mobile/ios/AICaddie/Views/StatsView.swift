@@ -8,14 +8,16 @@ import SwiftUI
 public struct StatsView: View {
     public let apiBaseURL: URL?
     public let adminToken: String?
+    public let offlineStore: OfflineStore?
 
     /// Window, its stats (with their previous period) and loading / failure, committed together.
     @State private var load = AnalysisLoadState()
     @State private var inFlight: Task<Void, Never>?
 
-    public init(apiBaseURL: URL? = nil, adminToken: String? = nil) {
+    public init(apiBaseURL: URL? = nil, adminToken: String? = nil, offlineStore: OfflineStore? = nil) {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.offlineStore = offlineStore
     }
 
     public var body: some View {
@@ -30,22 +32,29 @@ public struct StatsView: View {
         .task { start(load.currentRequest) }
         .onDisappear { inFlight?.cancel() }
         .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
-            start(load.refresh())
+            // New Garmin data: the cached window is stale too, so show loading, not the old file.
+            start(load.refresh(), showCache: false)
         }
     }
 
     /// One request per window selection / refresh; only the current generation may write back.
-    private func start(_ request: AnalysisLoadState.Request) {
+    private func start(_ request: AnalysisLoadState.Request, showCache: Bool = true) {
         inFlight?.cancel()
+        if showCache {
+            load.seed(request, cached: try? offlineStore?.loadMobileStats(window: request.window))
+        }
         guard let apiBaseURL else {
             load.complete(request, stats: nil)
             return
         }
         let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
+        let store = offlineStore
         inFlight = Task { @MainActor in
             let stats = try? await client.fetchMobileStats(window: request.window)
             guard !Task.isCancelled else { return }
-            load.complete(request, stats: stats)
+            if load.complete(request, stats: stats), let stats {
+                try? store?.saveMobileStats(stats, window: request.window)
+            }
         }
     }
 }

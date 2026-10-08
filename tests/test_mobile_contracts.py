@@ -4066,7 +4066,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("ResultsPresentation.trendRows(", results_view)
         for title in ("表现分析", "时间与频率", "成绩分布", "球场"):
             self.assertIn(f'entry("{title}"', results_view)
-        self.assertIn("StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)", results_view)
+        self.assertIn("StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore)", results_view)
         self.assertIn("ScoreDistributionView(stats: stats", results_view)
         # round-9 D: per-course drill-in (各九洞) stays.
         self.assertIn("struct StatsTrend", mobile_stats_model)
@@ -4639,6 +4639,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("for: .resultsCacheDidUpdate", results)
         self.assertIn("load.adoptCache(", results)
         self.assertIn("for: .resultsCacheDidUpdate", home)
+        # 表现分析 / 时间与频率 open on cached data; review files survive Caches purges and are bounded.
+        stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
+        shot_map = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
+        self.assertIn("load.seed(request, cached: try? offlineStore?.loadMobileStats(window: request.window))", stats_view)
+        self.assertIn("start(load.refresh(), showCache: false)", stats_view)
+        self.assertIn("ResultsTrendView(apiBaseURL: apiBaseURL, adminToken: adminToken, initialStats: stats)", results)
+        review_cache = shot_map.split("enum RoundReviewDiskCache {", 1)[1]
+        self.assertIn("for: .applicationSupportDirectory", review_cache)
+        self.assertIn("pruneOldRounds(keeping:", review_cache)
+        self.assertIn("isExcludedFromBackup = true", review_cache)
+        self.assertIn("await self.prefetchRoundReview(newest, using: syncClient, playerId: playerId)", app_swift)
 
     def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:
         # 洞位图: the day's sheet places the flag; a flag the player moves still wins, and the

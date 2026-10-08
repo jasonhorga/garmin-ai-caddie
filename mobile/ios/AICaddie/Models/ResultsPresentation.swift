@@ -288,6 +288,8 @@ struct AnalysisLoadState: Equatable {
     private(set) var window: String
     private(set) var phase: Phase = .loading
     private(set) var generation = 0
+    /// `phase` shows this window's cached answer while its request is still running.
+    private(set) var isShowingCache = false
 
     init(window: String = "last20") {
         self.window = window
@@ -305,18 +307,33 @@ struct AnalysisLoadState: Equatable {
     /// New data arrived (Garmin refresh): the current window and its comparison are both stale.
     mutating func refresh() -> Request { restart() }
 
+    /// Show this window's last cached answer until the request answers. Only for the current
+    /// request of the same window, so another window's numbers never appear under this label.
+    mutating func seed(_ request: Request, cached: MobileStats?) {
+        guard let cached, request.generation == generation, request.window == window,
+              phase == .loading else { return }
+        phase = .loaded(cached)
+        isShowingCache = true
+    }
+
     /// Apply a response; `stats == nil` is a failure. Returns false when the request is no longer
-    /// the current one (it is ignored).
+    /// the current one (it is ignored). A failure keeps a cached answer already on screen.
     @discardableResult
     mutating func complete(_ request: Request, stats: MobileStats?) -> Bool {
         guard request.generation == generation, request.window == window else { return false }
-        phase = stats.map(Phase.loaded) ?? .failed("统计暂时取不到(网络或数据)")
+        if let stats {
+            phase = .loaded(stats)
+        } else if !isShowingCache {
+            phase = .failed("统计暂时取不到(网络或数据)")
+        }
+        isShowingCache = false
         return true
     }
 
     private mutating func restart() -> Request {
         generation += 1
         phase = .loading
+        isShowingCache = false
         return currentRequest
     }
 
