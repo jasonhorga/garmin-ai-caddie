@@ -459,6 +459,100 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertEqual(model.package?.roundId, oracle.roundId + "-second")
     }
 
+    // MARK: - Ready before the first tee: intent prefetch and resumable live downloads
+
+    /// Settling on a course (开始一场 / 在这个球场) installs its whole-course template with the Tee
+    /// Start will use, before any round exists.
+    func testCourseIntentInstallsTheWholeCourseBeforeStart() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let requests = LoopRequests()
+        serveOracle(oracle, into: requests)
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let model = acquisitionModel(directory: freshDirectory())
+        model.prefetchIntendedCourses(
+            [MobileCourseOption(globalId: gid, name: "Intent", holes: 18, teeBox: "blue")],
+            teeBox: "white"
+        )
+        let row = try XCTUnwrap(model.prepCourseDownloads.first { $0.course.globalId == gid })
+        XCTAssertTrue(row.isIntentPrefetch)
+        XCTAssertEqual(row.teeBox, "white", "the template is keyed by the Tee Start will use")
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertTrue(requests.contains(loops: "\(gid):front,\(gid):back", tee: "white"))
+        XCTAssertNil(model.package, "an intent never creates a round")
+    }
+
+    /// Tapping through the list: a newer intent drops the older one's unfinished row, so only the
+    /// course the player settled on is fetched.
+    func testANewerCourseIntentDropsAnUnfinishedOlderOne() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let requests = LoopRequests()
+        serveOracle(oracle, into: requests)
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let model = acquisitionModel(directory: freshDirectory())
+        let course = MobileCourseOption(globalId: gid, name: "Intent", holes: 18, teeBox: "blue")
+        model.prefetchIntendedCourses([course], teeBox: "white")
+        model.prefetchIntendedCourses([course], teeBox: "red")
+        XCTAssertEqual(model.prepCourseDownloads.map(\.teeBox), ["red"])
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertTrue(requests.contains(tee: "red"))
+        XCTAssertFalse(requests.contains(tee: "white"), "the superseded intent never made a request")
+    }
+
+    /// A 备战 download of the same course makes the row the player's: a later intent keeps it.
+    func testThePlayersOwnDownloadAdoptsAnIntentRow() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let requests = LoopRequests()
+        serveOracle(oracle, into: requests)
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let model = acquisitionModel(directory: freshDirectory())
+        let course = MobileCourseOption(globalId: gid, name: "Intent", holes: 18, teeBox: "white")
+        model.prefetchIntendedCourses([course], teeBox: "white")
+        model.downloadPrepCourse(course)
+        let adopted = try XCTUnwrap(model.prepCourseDownloads.first { $0.teeBox == "white" })
+        XCTAssertFalse(adopted.isIntentPrefetch)
+        model.prefetchIntendedCourses([course], teeBox: "red")
+        XCTAssertNotNil(model.prepCourseDownloads.first { $0.id == adopted.id }, "the player's row stays")
+        await model.waitForPrepCourseDownloadForTesting()
+    }
+
+    /// Course discovery stops the round's all-hole download; returning to the round's live view
+    /// resumes it, and a finished pass is not restarted.
+    func testDiscoveryStopsTheRoundsDownloadAndItsLiveViewResumesIt() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let requests = LoopRequests()
+        serveOracle(oracle, into: requests)
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let model = acquisitionModel(directory: freshDirectory())
+        await model.prepareCourseRound(roundId: oracle.roundId, teeBox: "blue", loops: [RoundLoopEntry(globalId: gid, half: "back")])
+        model.consumePendingLiveHole()
+        model.liveHoleInitialLoadDidFinish()
+        XCTAssertEqual(model.offlineCourseDownloadRoundIdForTesting, oracle.roundId)
+
+        model.prioritizeCourseDiscoveryForTesting()
+        XCTAssertNil(model.offlineCourseDownloadRoundIdForTesting)
+        XCTAssertEqual(model.interruptedOfflineCourseDownloadRoundIdForTesting, oracle.roundId)
+
+        model.liveHoleInitialLoadDidFinish()
+        XCTAssertNil(model.interruptedOfflineCourseDownloadRoundIdForTesting)
+        XCTAssertEqual(model.offlineCourseDownloadRoundIdForTesting, oracle.roundId, "the live view resumes it")
+        await settleDownloads(model)
+        XCTAssertNil(model.offlineCourseDownloadRoundIdForTesting)
+
+        model.prioritizeCourseDiscoveryForTesting()
+        XCTAssertNil(
+            model.interruptedOfflineCourseDownloadRoundIdForTesting,
+            "a finished pass has nothing to resume"
+        )
+    }
+
     private func assertOneHalfAcquisition(serverEchoesRequestedRoundId: Bool) async throws {
         let oracle = try oracle()
         let gid = oracle.globalId

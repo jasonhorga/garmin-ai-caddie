@@ -91,6 +91,9 @@ public struct RoundHomeView: View {
     public let onLoadCourseTees: (Int) async -> [CourseTee]
     /// Garmin 全库名称搜索；StartRoundView 只保留本次结果，选中后走现有单球场准备链。
     public let onSearchCourses: (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch]
+    /// The course the player is about to play (在这个球场, or settled on 开始一场): its loops and
+    /// Tee, for the app's whole-course prefetch.
+    public let onCourseIntent: ([MobileCourseOption], String) -> Void
     /// Garmin 全库坐标发现；StartRoundView 只保留本次结果。
     public let onNearbyCourses: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onDownloadPrepCourse: (MobileCourseOption) -> Void
@@ -171,6 +174,7 @@ public struct RoundHomeView: View {
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
         onSearchCourses: @escaping (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _, _ in [] },
         onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
+        onCourseIntent: @escaping ([MobileCourseOption], String) -> Void = { _, _ in },
         onDownloadPrepCourse: @escaping (MobileCourseOption) -> Void = { _ in },
         onRetryPrepCourseDownload: @escaping (String) -> Void = { _ in },
         onValidateReadyPrepCourse: @escaping (PrepCourseDownloadRecord) async -> Bool = { _ in true },
@@ -232,6 +236,7 @@ public struct RoundHomeView: View {
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onLoadCourseTees = onLoadCourseTees
         self.onSearchCourses = onSearchCourses
+        self.onCourseIntent = onCourseIntent
         self.onNearbyCourses = onNearbyCourses
         self.onDownloadPrepCourse = onDownloadPrepCourse
         self.onRetryPrepCourseDownload = onRetryPrepCourseDownload
@@ -341,6 +346,9 @@ public struct RoundHomeView: View {
             .onAppear(perform: startHeroLocation)
             .task(id: heroNearbyKey) {
                 await refreshHeroNearby()
+            }
+            .task(id: heroCourseIntentKey) {
+                announceHeroCourseIntent()
             }
             .task(id: weatherKey) {
                 await refreshHomeWeather()
@@ -531,7 +539,8 @@ public struct RoundHomeView: View {
             onConnectGarmin: { showSettings = true },
             onLoadCourseTees: onLoadCourseTees,
             onSearchCourses: onSearchCourses,
-            onNearbyCourses: onNearbyCourses
+            onNearbyCourses: onNearbyCourses,
+            onCourseIntent: onCourseIntent
         )
     }
 
@@ -567,6 +576,19 @@ public struct RoundHomeView: View {
         let lat = (fix.coordinate.latitude * 1_000).rounded() / 1_000
         let lon = (fix.coordinate.longitude * 1_000).rounded() / 1_000
         return "\(lat),\(lon)"
+    }
+
+    /// The 在这个球场 card: the player is standing at this venue, so its loops are installed with the
+    /// tee its one-tap start would use. Empty when the card is not showing.
+    private var heroCourseIntentKey: String {
+        guard case let .nearby(suggestion) = heroState else { return "" }
+        return "\(suggestion.globalId):\((suggestion.teeBox ?? "unknown").lowercased())"
+    }
+
+    private func announceHeroCourseIntent() {
+        guard case let .nearby(suggestion) = heroState else { return }
+        let loops = HubNearby.venueLoops(containing: suggestion.globalId, in: heroNearbyOptions)
+        onCourseIntent(loops, suggestion.teeBox ?? "unknown")
     }
 
     @MainActor

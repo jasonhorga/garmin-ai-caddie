@@ -39,6 +39,9 @@ public struct StartRoundView: View {
     public let onSearchCourses: (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch]
     /// Garmin 全库坐标发现。半径内完整分页，只返回轻量 metadata。
     public let onNearbyCourses: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
+    /// The venue loops and Tee this page would start, once settled: the app installs that whole
+    /// course in the background so Start, and every hole after it, is ready before the first tee.
+    public let onCourseIntent: ([MobileCourseOption], String) -> Void
 
     @StateObject private var locationProvider: LocationProvider
     @State private var roundId: String
@@ -91,6 +94,7 @@ public struct StartRoundView: View {
         onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
         onSearchCourses: @escaping (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _, _ in [] },
         onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
+        onCourseIntent: @escaping ([MobileCourseOption], String) -> Void = { _, _ in },
         // Snapshot fixtures pass a provider with a fixed fix; the app reads CoreLocation.
         locationProvider: LocationProvider? = nil,
         // Snapshot fixtures seed the nearby phase the discovery task would reach (the in-process
@@ -126,6 +130,7 @@ public struct StartRoundView: View {
         self.onLoadCourseTees = onLoadCourseTees
         self.onSearchCourses = onSearchCourses
         self.onNearbyCourses = onNearbyCourses
+        self.onCourseIntent = onCourseIntent
         // An explicit caller selection may be retained, but history alone is not a course picker.
         // Normal new-round entry waits for Garmin's nearby catalogue, matching S70 behaviour.
         let resolvedCourseId = defaultCourseGlobalId.map(String.init) ?? ""
@@ -238,6 +243,9 @@ public struct StartRoundView: View {
         .task(id: courseGlobalIdText) {
             await loadTees()
         }
+        .task(id: courseIntentKey) {
+            await announceCourseIntent()
+        }
         .sheet(isPresented: $showingCourseSearch) {
             NavigationStack {
                 MobileCourseSearchView(
@@ -264,6 +272,24 @@ public struct StartRoundView: View {
                 )
             }
         }
+    }
+
+    /// The course and Tee Start would use, once the Tee request has settled; empty while there is
+    /// none or a round is being prepared.
+    private var courseIntentKey: String {
+        guard !isLoadingTees, !isPreparing, let globalId = courseGlobalId, globalId > 0 else { return "" }
+        let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !tee.isEmpty else { return "" }
+        return "\(globalId):\(tee.lowercased())"
+    }
+
+    /// Hand the settled selection to the app's whole-course prefetch. A short pause lets a player
+    /// tapping through the list settle first; changing course or Tee cancels it (`.task(id:)`).
+    private func announceCourseIntent() async {
+        guard !courseIntentKey.isEmpty else { return }
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        guard !Task.isCancelled, !courseIntentKey.isEmpty else { return }
+        onCourseIntent(selectedVenueLoops, teeBox)
     }
 
     /// Fetch the selected course's tee boxes (colour + yardage + default). Empty → keep the bundled
