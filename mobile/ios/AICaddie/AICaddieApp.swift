@@ -379,6 +379,10 @@ public final class LiveRoundAppModel: ObservableObject {
     /// never overlaps one: live Native 37729778000 showed the home's 在这个球场 prefetch holding the
     /// 开始一场 Tee request for 90 s, so Start never enabled.
     private var foregroundCourseRequestCount = 0
+    private var resultsCacheRefreshTask: Task<Void, Never>?
+    private var lastResultsCacheRefreshAt: Date?
+    /// Lets the screen's own startup requests go first (tests set it to 0).
+    var resultsCacheRefreshDelayNanoseconds: UInt64 = 3_000_000_000
     private var prepCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadGeneration: UUID?
     private var activePrepCourseDownloadID: String?
@@ -573,6 +577,9 @@ public final class LiveRoundAppModel: ObservableObject {
         deferredRoundFinishGeneration = nil
         deferredRoundFinishRetryRequested = false
         cancelGarminLifecycleTasks()
+        resultsCacheRefreshTask?.cancel()
+        resultsCacheRefreshTask = nil
+        lastResultsCacheRefreshAt = nil
         garminSyncOperationGeneration += 1
         garminSyncPresentationLockedUntil = nil
         garminSyncPresentationWatermark = nil
@@ -628,6 +635,7 @@ public final class LiveRoundAppModel: ObservableObject {
             // otherwise the cloud bag (another phone, a reinstall) is restored.
             ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
             Task { await ClubBagSyncCoordinator.shared.restoreFromServer() }
+            refreshResultsCacheIfNeeded()
         }
         #if DEBUG
         // UI-test classes share one simulator installation. A previous journey may have left a
@@ -734,6 +742,55 @@ public final class LiveRoundAppModel: ObservableObject {
             syncStatus = "离线数据暂不可用,稍后重试"
         }
     }
+
+    /// 成绩 and the home read history and stats from disk first, but those files used to be written
+    /// only when 成绩 itself was opened, so they were as old as the last visit. Refresh them in the
+    /// background on launch, every foreground and after a Garmin pull, so opening a page shows current
+    /// numbers at once. Skipped while a round is live (its hole owns the network) and at most every
+    /// five minutes; an account switch cancels it and its answer is dropped.
+    private func refreshResultsCacheIfNeeded() {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
+            return
+        }
+        #endif
+        guard resultsCacheRefreshTask == nil, liveRoundState == nil, let syncClient else { return }
+        if let last = lastResultsCacheRefreshAt, Date().timeIntervalSince(last) < 300 { return }
+        let playerId = boundPlayerId
+        let delay = resultsCacheRefreshDelayNanoseconds
+        resultsCacheRefreshTask = Task { @MainActor [weak self, syncClient] in
+            if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
+            // A round that started meanwhile, or a Tee / nearby / search request the player is waiting
+            // on, keeps the network; the next launch or foreground tries again.
+            guard let self, !Task.isCancelled else { return }
+            guard self.liveRoundState == nil, self.foregroundCourseRequestCount == 0,
+                  self.roundPreparationToken == nil else {
+                self.resultsCacheRefreshTask = nil
+                return
+            }
+            async let stats = try? syncClient.fetchMobileStats()
+            async let archive = try? syncClient.fetchHistoryRounds()
+            let (freshStats, freshArchive) = await (stats, archive)
+            guard !Task.isCancelled, self.boundPlayerId == playerId else { return }
+            self.resultsCacheRefreshTask = nil
+            if let freshStats { try? self.offlineStore.saveMobileStats(freshStats) }
+            if let freshArchive { try? self.offlineStore.saveHistoryRoundsArchive(freshArchive) }
+            guard freshStats != nil || freshArchive != nil else { return }
+            self.lastResultsCacheRefreshAt = Date()
+            self.recordUITestLatency("results-cache.refreshed stats=\(freshStats != nil) archive=\(freshArchive != nil)")
+            NotificationCenter.default.post(name: .resultsCacheDidUpdate, object: nil)
+        }
+    }
+
+    #if DEBUG
+    func refreshResultsCacheForTesting() {
+        refreshResultsCacheIfNeeded()
+    }
+
+    func waitForResultsCacheRefreshForTesting() async {
+        await resultsCacheRefreshTask?.value
+    }
+    #endif
 
     public func refreshCourseOptions() async {
         courseOptionsRefreshSucceeded = false
@@ -3049,6 +3106,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Auto-sync hook for app foreground (scenePhase .active): flush anything still pending.
     public func syncOnForeground() {
         endPrepBackgroundTask()
+        refreshResultsCacheIfNeeded()
         resumePrepCourseDownloads(retryFailed: true)
         retryDeferredRoundFinishes()
         ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
@@ -3264,6 +3322,9 @@ public final class LiveRoundAppModel: ObservableObject {
             // several seconds even though the POST has already returned ready.
             garminSyncPresentationWatermark = Date()
             NotificationCenter.default.post(name: .garminDataDidRefresh, object: nil)
+            // New Garmin rounds change history and stats: rewrite their cached copies now.
+            lastResultsCacheRefreshAt = nil
+            refreshResultsCacheIfNeeded()
             return .completed
         } catch {
             guard operationGeneration == garminSyncOperationGeneration else { return .failed }

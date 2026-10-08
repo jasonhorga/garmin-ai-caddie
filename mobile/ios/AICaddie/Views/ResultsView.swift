@@ -41,6 +41,10 @@ public struct ResultsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
             Task { await reload() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .resultsCacheDidUpdate)) { _ in
+            guard let offlineStore else { return }
+            load.adoptCache(stats: try? offlineStore.loadMobileStats(), archive: try? offlineStore.loadHistoryRoundsArchive())
+        }
     }
 
     /// One load generation: cached sections first, then both requests, each published as soon as

@@ -455,6 +455,19 @@ struct ResultsLandingLoad: Equatable {
         if archive == nil { archive = cachedArchive }
     }
 
+    /// A newer disk copy written by the app's background refresh. A request in flight still owns
+    /// its section; an adopted section is no longer reported as failed.
+    mutating func adoptCache(stats cachedStats: MobileStats?, archive cachedArchive: HistoryRoundsArchive?) {
+        if !statsPending, let cachedStats {
+            stats = cachedStats
+            failed.removeAll { $0 == .stats }
+        }
+        if !archivePending, let cachedArchive {
+            archive = cachedArchive
+            failed.removeAll { $0 == .archive }
+        }
+    }
+
     /// Start loading both sections; returns the generation their answers must carry.
     mutating func begin() -> Int {
         generation += 1

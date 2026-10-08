@@ -4604,6 +4604,29 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("preciseMapTimedOut = true", deadline)
         self.assertNotIn("return", deadline)
 
+    def test_results_and_home_open_on_a_background_refreshed_cache(self) -> None:
+        # Speed plan batch 2: history/stats files were written only when 成绩 was opened, so the
+        # page and the home opened on data as old as the last visit.
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        results = _read_required_source(self, IOS_DIR / "Views" / "ResultsView.swift")
+        home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+
+        def body(source: str, signature: str) -> str:
+            return source.split(signature, 1)[1].split("\n    }\n", 1)[0]
+
+        bootstrap_defer = app_swift.split("public func bootstrap() async {", 1)[1].split("#if DEBUG", 1)[0]
+        self.assertIn("refreshResultsCacheIfNeeded()", bootstrap_defer)
+        self.assertIn("refreshResultsCacheIfNeeded()", body(app_swift, "public func syncOnForeground() {"))
+        refresh = body(app_swift, "private func refreshResultsCacheIfNeeded() {")
+        self.assertIn("liveRoundState == nil", refresh)
+        self.assertIn("self.foregroundCourseRequestCount == 0", refresh)
+        self.assertIn("self.boundPlayerId == playerId", refresh)
+        self.assertIn("saveMobileStats(freshStats)", refresh)
+        self.assertIn("saveHistoryRoundsArchive(freshArchive)", refresh)
+        self.assertIn("for: .resultsCacheDidUpdate", results)
+        self.assertIn("load.adoptCache(", results)
+        self.assertIn("for: .resultsCacheDidUpdate", home)
+
     def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:
         # 洞位图: the day's sheet places the flag; a flag the player moves still wins, and the
         # provider's route end is only the fallback. The server only reads the photo.
