@@ -3,9 +3,9 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-08 03:37 UTC
+**Updated:** 2026-10-08 05:26 UTC
 **Canonical branch:** `main`
-**Latest integrated code:** `0e544fa24f282c4ed06130e5db240fe583c761c4` (#392)
+**Latest integrated code:** `fb7df3658cc02041d29e676105ee78d4e5966a63` (#393)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and deduplication
@@ -35,6 +35,13 @@ heads/CI superseded. First live attempt failure retained; never call it PASS.
 #391/#389 finished evidence and corrections remain archived; no reopening.
 The feedback waiter ending **03:28 UTC** was a timeout with no new external event;
 the cursor remains authoritative and unchanged.
+#393 reviewed exact **e912280692387fb821114107b3c240575b0fe2c8**, review comment
+**6052926671**, merged **fb7df365** at **Oct 8 05:22 UTC**; source branch deleted
+and local `main` fast-forwarded. Native merge **115a5261** has exact head/base
+parents and an identical tree. Native production evidence passed both iOS/Watch;
+93 design and 47 Watch PNGs were byte-identical to the reviewed baseline. The
+new exact-head contract test passed 1/1; the bare-host full 121-test retry was
+environment-limited by missing `pydantic`/`numpy`, while required CI passed.
 Read last matched waiter event, not earlier ignored own lines. Preserve dirty
 `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 
@@ -95,6 +102,9 @@ never reset quiet. Hard stop remains **Oct 9 23:59 UTC**.
   After `lsof` found no users, nine files plus the screenshot directory were
   moved to recoverable user trash. The review manifest remains locally; remote
   snapshot/container/service/volume were already closed.
+- #393 read-only snapshot `/dev/shm/garmin-ai-caddie-pr393-e9122806-20261008`
+  closed after merge; persistent review diff, artifacts, hashes and manifest are
+  retained at `operations/pr393-e9122806-20261008`.
 - Build80 candidate `aicaddie-release-3614bf6f-candidate-20261006`, port 39089;
   full-SHA API + sync images retained for owner tests.
 - Tunnel tmux `codex-release-http2-main-3614bf6f-20261006`, metrics 39110;
