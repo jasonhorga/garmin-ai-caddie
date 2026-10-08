@@ -1686,11 +1686,11 @@ class MobileContractTests(unittest.TestCase):
         begin_round_preparation = app_swift.split(
             "private func beginRoundPreparation() -> UUID {", 1
         )[1].split("private func isCurrentRoundPreparation", 1)[0]
-        self.assertNotIn(
-            "pausePrepCourseDownload()",
-            begin_round_preparation,
-            "starting live play must not pause the independent durable prep download",
-        )
+        # Starting live play must not pause an independent durable prep download (a 备战 job). The
+        # one exception is an intent prefetch, which exists only to anticipate this start.
+        self.assertEqual(begin_round_preparation.count("pausePrepCourseDownload()"), 1)
+        intent_guard = begin_round_preparation.split("pausePrepCourseDownload()", 1)[0].rsplit("if let active", 1)[1]
+        self.assertIn("?.isIntentPrefetch == true {", intent_guard)
         # One home with or without a cached home package: 开始一场 lives in RoundHomeView, and the
         # legacy no-package list (打球 / 备战 / 成绩) that flashed on launch is gone.
         self.assertIn("package: model.package,", app_swift)
@@ -4558,6 +4558,40 @@ class MobileContractTests(unittest.TestCase):
             "if !isPreparingRound, liveRoundState != nil, deferredOfflineCourseDownloadRevalidation == nil {",
             foreground,
         )
+
+    def test_the_course_about_to_be_played_is_ready_before_the_first_tee(self) -> None:
+        # Speed plan batch 1: the selected / 在这个球场 course installs before Start; the live
+        # download visits the hole being played first; discovery no longer strands it; the hole
+        # being played keeps waiting for its precise map after the pending state times out.
+        app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        start_round = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
+        home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+
+        def body(source: str, signature: str) -> str:
+            return source.split(signature, 1)[1].split("\n    }\n", 1)[0]
+
+        self.assertIn("model.prefetchIntendedCourses(courses, teeBox: teeBox)", app_swift)
+        self.assertIn("onCourseIntent(selectedVenueLoops, teeBox)", start_round)
+        self.assertIn("guard !isLoadingTees, !isPreparing", body(start_round, "private var courseIntentKey: String {"))
+        self.assertIn("guard case let .nearby(suggestion) = heroState", body(home, "private func announceHeroCourseIntent() {"))
+        intent = body(app_swift, "public func prefetchIntendedCourses(_ courses: [MobileCourseOption], teeBox: String) {")
+        self.assertIn("isIntentPrefetch: true", intent)
+        self.assertNotIn("userRequested:", intent)
+        self.assertIn("pausePrepCourseDownload()", body(app_swift, "private func beginRoundPreparation() -> UUID {"))
+        self.assertIn("isIntentPrefetch == true", body(app_swift, "private func beginRoundPreparation() -> UUID {"))
+
+        self.assertIn("activeHole: liveRoundState?.roundId == snapshot.roundId", app_swift)
+        self.assertIn("for globalId in attemptGlobalIds {", app_swift)
+
+        discovery = body(app_swift, "private func prioritizeCourseDiscovery() {")
+        self.assertIn("interruptedOfflineCourseDownloadRoundId = roundId", discovery)
+        self.assertIn("resumeInterruptedOfflineCourseDownload()", body(app_swift, "func liveHoleInitialLoadDidFinish() {"))
+
+        wait = body(current_hole, "private func waitForPreciseHoleMap(syncClub: Bool) async {")
+        deadline = wait.split("Date() >= deadline", 1)[1].split("do {", 1)[0]
+        self.assertIn("preciseMapTimedOut = true", deadline)
+        self.assertNotIn("return", deadline)
 
     def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:
         # 洞位图: the day's sheet places the flag; a flag the player moves still wins, and the

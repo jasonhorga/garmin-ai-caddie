@@ -2770,11 +2770,12 @@ public struct CurrentHoleView: View {
         let deadline = Date().addingTimeInterval(30)
 
         while !Task.isCancelled {
-            guard Date() < deadline else {
-                // Keep the lightweight route usable after a bounded wait. A later foreground or
-                // hole refresh may retry; the player is never trapped behind an unbounded spinner.
+            if !preciseMapTimedOut, Date() >= deadline {
+                // Stop presenting the lightweight route as pending after a bounded wait, so the
+                // player is never held behind a spinner, but keep probing at the slow cadence: a
+                // cold course's geometry can take minutes, and the hole being played should still
+                // switch to its precise map the moment it lands. Leaving the hole cancels this.
                 preciseMapTimedOut = true
-                return
             }
             do {
                 try await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)

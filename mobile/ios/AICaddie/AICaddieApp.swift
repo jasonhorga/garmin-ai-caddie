@@ -171,6 +171,9 @@ public struct AICaddieApp: App {
                                 radiusKm: radiusKm
                             )
                         },
+                        onCourseIntent: { courses, teeBox in
+                            model.prefetchIntendedCourses(courses, teeBox: teeBox)
+                        },
                         onDownloadPrepCourse: { course in
                             model.downloadPrepCourse(course)
                         },
@@ -368,6 +371,10 @@ public final class LiveRoundAppModel: ObservableObject {
     private var deferredRoundFinishGeneration: UUID?
     private var deferredRoundFinishRetryRequested = false
     private var offlineCourseDownloadTask: Task<Void, Never>?
+    /// The round whose all-hole download is still running (cleared when a pass finishes).
+    private var offlineCourseDownloadRoundId: String?
+    /// The round whose all-hole download course discovery stopped; its live view resumes it.
+    private var interruptedOfflineCourseDownloadRoundId: String?
     private var prepCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadGeneration: UUID?
     private var activePrepCourseDownloadID: String?
@@ -402,6 +409,12 @@ public final class LiveRoundAppModel: ObservableObject {
     /// invent a demo round: with no configured id bootstrap lands on the normal home package.
     private let preferredRoundId: String?
     private let offlineGeometryRetryDelaysNanoseconds: [UInt64]
+    /// A cold course's geometry lands hole by hole over a few minutes. Probe every 15 s at most so
+    /// each finished hole is picked up promptly (the old 45–60 s slots left ready holes waiting),
+    /// over a window of about five minutes, a little longer than before.
+    public nonisolated static let defaultOfflineGeometryRetryDelaysNanoseconds: [UInt64] = [
+        2_000_000_000, 3_000_000_000, 5_000_000_000, 8_000_000_000, 10_000_000_000,
+    ] + Array(repeating: 15_000_000_000, count: 18)
     /// Keeps the Apple-session observer alive so the watch's standalone-sync auth tracks sign-in /
     /// refresh / sign-out (round-13 watch-auth).
     private var sessionCancellables = Set<AnyCancellable>()
@@ -413,12 +426,8 @@ public final class LiveRoundAppModel: ObservableObject {
         garminSessionStore: GarminSessionStore? = GarminSessionStore(),
         preferredRoundId: String? = nil,
         syncClient: SyncClient? = nil,
-        offlineGeometryRetryDelaysNanoseconds: [UInt64] = [
-            2_000_000_000, 3_000_000_000, 5_000_000_000, 8_000_000_000,
-            12_000_000_000, 20_000_000_000, 30_000_000_000, 45_000_000_000,
-            60_000_000_000, 60_000_000_000,
-        ],
-        freshEntryReleaseFallbackNanoseconds: UInt64 = 60_000_000_000
+        offlineGeometryRetryDelaysNanoseconds: [UInt64] = LiveRoundAppModel.defaultOfflineGeometryRetryDelaysNanoseconds,
+        freshEntryReleaseFallbackNanoseconds: UInt64 = 20_000_000_000
     ) {
         self.init(
             offlineStore: offlineStore,
@@ -441,12 +450,8 @@ public final class LiveRoundAppModel: ObservableObject {
         garminSessionStore: GarminSessionStore? = GarminSessionStore(),
         preferredRoundId: String? = nil,
         syncClient: SyncClient? = nil,
-        offlineGeometryRetryDelaysNanoseconds: [UInt64] = [
-            2_000_000_000, 3_000_000_000, 5_000_000_000, 8_000_000_000,
-            12_000_000_000, 20_000_000_000, 30_000_000_000, 45_000_000_000,
-            60_000_000_000, 60_000_000_000,
-        ],
-        freshEntryReleaseFallbackNanoseconds: UInt64 = 60_000_000_000
+        offlineGeometryRetryDelaysNanoseconds: [UInt64] = LiveRoundAppModel.defaultOfflineGeometryRetryDelaysNanoseconds,
+        freshEntryReleaseFallbackNanoseconds: UInt64 = 20_000_000_000
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
         let resolvedAdminToken = adminToken ?? Self.defaultAdminToken()
@@ -926,7 +931,16 @@ public final class LiveRoundAppModel: ObservableObject {
         roundPreparationToken = token
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
+        offlineCourseDownloadRoundId = nil
+        interruptedOfflineCourseDownloadRoundId = nil
         clearFreshEntryRelease()
+        // An intent prefetch yields to the start it anticipated: the package request must not queue
+        // behind its batches. Whatever it already installed is reused (`carryingInstalledPrecisePrep`,
+        // revision-keyed topo), and the row resumes after the round's own assets.
+        if let active = activePrepCourseDownloadID,
+           prepCourseDownloads.first(where: { $0.id == active })?.isIntentPrefetch == true {
+            pausePrepCourseDownload()
+        }
         isPreparingRound = true
         return token
     }
@@ -1213,6 +1227,21 @@ public final class LiveRoundAppModel: ObservableObject {
     /// facts.
     func liveHoleInitialLoadDidFinish() {
         releaseFreshEntry(reason: "live-initial-load-finished")
+        resumeInterruptedOfflineCourseDownload()
+    }
+
+    /// Course discovery stops the round's all-hole download (`prioritizeCourseDiscovery`). When the
+    /// player comes back to that round's live view instead of starting another, pick it up again:
+    /// it skips every hole already on disk. Previously nothing restarted it until the next launch.
+    private func resumeInterruptedOfflineCourseDownload() {
+        guard let roundId = interruptedOfflineCourseDownloadRoundId else { return }
+        guard offlineCourseDownloadRoundId == nil,
+              roundPreparationToken == nil,
+              deferredOfflineCourseDownloadRevalidation == nil,
+              liveRoundState?.roundId == roundId,
+              package?.roundId == roundId else { return }
+        recordUITestLatency("offline-cache.resume round=\(roundId)")
+        beginOfflineCourseDownload()
     }
 
     /// Arm the bounded release for the deferral just set. A pending release from an earlier
@@ -1274,6 +1303,14 @@ public final class LiveRoundAppModel: ObservableObject {
 
     var userRequestedPrepDownloadIDsForTesting: Set<String> { userRequestedPrepDownloadIDs }
 
+    var offlineCourseDownloadRoundIdForTesting: String? { offlineCourseDownloadRoundId }
+
+    var interruptedOfflineCourseDownloadRoundIdForTesting: String? { interruptedOfflineCourseDownloadRoundId }
+
+    func prioritizeCourseDiscoveryForTesting() {
+        prioritizeCourseDiscovery()
+    }
+
     #endif
 
     /// Keep start latency low, then make the selected course genuinely reusable without a network:
@@ -1289,6 +1326,8 @@ public final class LiveRoundAppModel: ObservableObject {
         // starts after this round's own assets, so it never competes with the live hole.
         enqueueWholeCourseTemplates(for: initial)
         offlineCourseDownloadTask?.cancel()
+        offlineCourseDownloadRoundId = expectedRoundId
+        interruptedOfflineCourseDownloadRoundId = nil
         offlineCourseDownloadTask = Task { @MainActor [weak self, syncClient, initial] in
             guard let self else { return }
             let downloadSnapshot = initial
@@ -1314,6 +1353,9 @@ public final class LiveRoundAppModel: ObservableObject {
             self.recordUITestLatency(
                 "offline-cache.task.end globalId=\(snapshot.course.globalId) holes=\(snapshot.holes.count)"
             )
+            if !Task.isCancelled, self.offlineCourseDownloadRoundId == expectedRoundId {
+                self.offlineCourseDownloadRoundId = nil
+            }
             self.startPrepCourseDownloadQueueIfNeeded()
         }
     }
@@ -1834,6 +1876,27 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
 
+        /// Live play fetches the hole being played first, then the holes ahead in round order; read
+        /// at each pass because the player keeps moving. A prep job has no player position and keeps
+        /// the course order.
+        func liveDownloadRanks() -> [String: Int]? {
+            guard prepDownloadID == nil else { return nil }
+            return OfflineCourseDownloadOrder.ranks(
+                roundHoles: snapshot.holes.map { roundHole in
+                    OfflineCourseDownloadOrder.Hole(
+                        number: roundHole.number,
+                        key: offlinePrepKey(
+                            globalId: roundHole.sourceGlobalId,
+                            localHole: roundHole.sourceLocalHole
+                        )
+                    )
+                },
+                activeHole: liveRoundState?.roundId == snapshot.roundId
+                    ? liveRoundState?.activeHole
+                    : nil
+            )
+        }
+
         var serverInstallStatusAvailable = false
         var serverGeometryReadyKeys = Set<String>()
         var serverTopoReadyKeys = Set<String>()
@@ -1844,7 +1907,7 @@ public final class LiveRoundAppModel: ObservableObject {
         /// 18 holes. Each successful bitmap is revision-keyed and atomically durable, so a later
         /// retry or app relaunch skips it.
         func downloadNewlyReadyTopoHoles() async {
-            let ready = snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int, geometryRevision: String?)? in
+            var ready = snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int, geometryRevision: String?)? in
                 let globalId = roundHole.sourceGlobalId
                 let localHole = roundHole.sourceLocalHole
                 let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
@@ -1860,6 +1923,13 @@ public final class LiveRoundAppModel: ObservableObject {
                           geometryRevision: revision
                       ) == nil else { return nil }
                 return (globalId, localHole, revision)
+            }
+            if let ranks = liveDownloadRanks() {
+                ready = ready.enumerated().sorted { lhs, rhs in
+                    let lhsRank = ranks[offlinePrepKey(globalId: lhs.element.globalId, localHole: lhs.element.localHole)] ?? Int.max
+                    let rhsRank = ranks[offlinePrepKey(globalId: rhs.element.globalId, localHole: rhs.element.localHole)] ?? Int.max
+                    return (lhsRank, lhs.offset) < (rhsRank, rhs.offset)
+                }.map(\.element)
             }
             // Keep the card the player opens first ahead of throughput work. Starting holes 1 and
             // 2 concurrently made the second request win the scheduler occasionally, so a wholly
@@ -2061,12 +2131,27 @@ public final class LiveRoundAppModel: ObservableObject {
         let retryDelays = offlineGeometryRetryDelaysNanoseconds
         for attempt in 0...retryDelays.count {
             var batchRequests: [OfflinePrepBatchRequest] = []
-            for globalId in orderedGlobalIds {
+            let attemptRanks = liveDownloadRanks()
+            func rank(_ globalId: Int, _ localHole: Int) -> Int {
+                attemptRanks?[offlinePrepKey(globalId: globalId, localHole: localHole)] ?? Int.max
+            }
+            func firstRank(_ globalId: Int) -> Int {
+                groups[globalId]?.map { rank(globalId, $0.sourceLocalHole) }.min() ?? Int.max
+            }
+            let attemptGlobalIds = attemptRanks == nil
+                ? orderedGlobalIds
+                : orderedGlobalIds.enumerated().sorted { lhs, rhs in
+                    (firstRank(lhs.element), lhs.offset) < (firstRank(rhs.element), rhs.offset)
+                }.map(\.element)
+            for globalId in attemptGlobalIds {
                 guard !Task.isCancelled else { return false }
                 guard let roundHoles = groups[globalId] else { continue }
-                let localHoles = Array(Set(roundHoles.map {
+                var localHoles = Array(Set(roundHoles.map {
                     $0.sourceLocalHole
                 })).sorted()
+                if attemptRanks != nil {
+                    localHoles.sort { (rank(globalId, $0), $0) < (rank(globalId, $1), $1) }
+                }
                 let requested = localHoles.filter { localHole in
                     let key = offlinePrepKey(globalId: globalId, localHole: localHole)
                     let prep = prepBySource[key]
@@ -3767,6 +3852,12 @@ public final class LiveRoundAppModel: ObservableObject {
             totalHoles: course.resolvedHoles
         )
         let id = candidate.id
+        if prepCourseDownloads.first(where: { $0.id == id })?.isIntentPrefetch == true {
+            // The player now asked for this course themselves: a later intent must not drop it.
+            updatePrepCourseDownload(id: id) { record in
+                record.isIntentPrefetch = false
+            }
+        }
         if let existing = prepCourseDownloads.first(where: { $0.id == id }) {
             if readyPrepTemplate(for: existing) != nil {
                 updatePrepCourseDownload(id: id) { record in
@@ -3810,6 +3901,63 @@ public final class LiveRoundAppModel: ObservableObject {
             refreshDownloadedCourseOptions()
         }
         startPrepCourseDownloadQueueIfNeeded(userRequested: id)
+    }
+
+    /// The course the player is about to play — selected on 开始一场, or the home's 在这个球场
+    /// venue — installs its whole-course template now, on any network, so Start projects it
+    /// offline and every hole opens on its precise map. `courses` are the venue's loops; `teeBox`
+    /// is the tee Start will use, because templates are keyed by tee (topo bitmaps are not, so a
+    /// later tee change still reuses them). A newer intent drops unfinished rows of an older one;
+    /// ready rows stay as downloaded courses. Automatic jobs still wait behind a fresh round entry.
+    public func prefetchIntendedCourses(_ courses: [MobileCourseOption], teeBox: String) {
+        let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard syncClient != nil, !tee.isEmpty else { return }
+        // The live round's own loops already have the all-hole pipeline.
+        let liveGlobalIds = liveRoundState == nil
+            ? Set<Int>()
+            : Set(package?.roundLoops.map(\.globalId) ?? [])
+        var seen = Set<String>()
+        let candidates = courses
+            .filter { $0.globalId > 0 && !liveGlobalIds.contains($0.globalId) }
+            .map { PrepCourseDownloadRecord(course: $0, teeBox: tee, isIntentPrefetch: true) }
+            .filter { seen.insert($0.id).inserted }
+        let wanted = Set(candidates.map(\.id))
+        if let active = activePrepCourseDownloadID, !wanted.contains(active),
+           prepCourseDownloads.first(where: { $0.id == active })?.isIntentPrefetch == true {
+            pausePrepCourseDownload()
+        }
+        let countBefore = prepCourseDownloads.count
+        prepCourseDownloads.removeAll { record in
+            record.isIntentPrefetch && record.phase != .ready && !wanted.contains(record.id)
+        }
+        var changed = prepCourseDownloads.count != countBefore
+        for candidate in candidates {
+            if let existing = prepCourseDownloads.first(where: { $0.id == candidate.id }) {
+                // Queued, running or ready rows (including the player's own) are kept as they are;
+                // only a transient failure is given another go.
+                guard existing.phase == .failed, !existing.isTerminalFailure else { continue }
+                if let index = prepCourseDownloads.firstIndex(where: { $0.id == candidate.id }) {
+                    prepCourseDownloads[index].phase = .queued
+                    prepCourseDownloads[index].errorText = nil
+                    prepCourseDownloads[index].updatedAt = Date()
+                }
+            } else if let installed = readyPrepTemplate(for: candidate) {
+                var ready = candidate
+                ready.phase = .ready
+                ready.totalHoles = max(1, installed.holes.count)
+                ready.preparedHoles = ready.totalHoles
+                ready.downloadedHoles = ready.totalHoles
+                prepCourseDownloads.append(ready)
+            } else {
+                prepCourseDownloads.append(candidate)
+            }
+            changed = true
+        }
+        guard changed else { return }
+        recordUITestLatency("prep-intent.queued ids=\(wanted.sorted().joined(separator: ","))")
+        persistPrepCourseDownloads()
+        refreshDownloadedCourseOptions()
+        startPrepCourseDownloadQueueIfNeeded()
     }
 
     public func retryPrepCourseDownload(id: String) {
@@ -4029,6 +4177,20 @@ public final class LiveRoundAppModel: ObservableObject {
         guard prepCourseDownloadGeneration == generation,
               let syncClient,
               let record = prepCourseDownloads.first(where: { $0.id == id }) else { return }
+        // An intent row often waits behind the round it anticipated, whose own pipeline installs
+        // the same template. Refetching would first overwrite that complete template with the
+        // lightweight package; mark it ready instead.
+        if record.isIntentPrefetch, let installed = readyPrepTemplate(for: record) {
+            updatePrepCourseDownload(id: id, generation: generation) { state in
+                state.phase = .ready
+                state.totalHoles = max(1, installed.holes.count)
+                state.preparedHoles = state.totalHoles
+                state.downloadedHoles = state.totalHoles
+                state.errorText = nil
+            }
+            refreshDownloadedCourseOptions()
+            return
+        }
         updatePrepCourseDownload(id: id, generation: generation) { state in
             state.phase = .preparing
             state.errorText = nil
@@ -4218,6 +4380,10 @@ public final class LiveRoundAppModel: ObservableObject {
     /// all-hole cache pass before issuing it so background topo work cannot strand Start Round.
     /// A selected course starts its own download again after preparation.
     private func prioritizeCourseDiscovery() {
+        if let roundId = offlineCourseDownloadRoundId {
+            interruptedOfflineCourseDownloadRoundId = roundId
+        }
+        offlineCourseDownloadRoundId = nil
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
     }

@@ -574,6 +574,10 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     /// Positive server release revisions that a replacement install must satisfy before this row
     /// can become ready again. Nil for ordinary downloads and backward-compatible persisted rows.
     public var requiredGeometryRevisions: [String: String]?
+    /// Queued by the app because the player is about to play this course (开始一场 selection, the
+    /// home's 在这个球场 card), not by a 备战 action. A newer intent supersedes an unfinished one,
+    /// and an intent job yields to a round start. False for persisted rows from older builds.
+    public var isIntentPrefetch: Bool
 
     public init(
         course: MobileCourseOption,
@@ -584,7 +588,8 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         totalHoles: Int? = nil,
         updatedAt: Date = Date(),
         errorText: String? = nil,
-        requiredGeometryRevisions: [String: String]? = nil
+        requiredGeometryRevisions: [String: String]? = nil,
+        isIntentPrefetch: Bool = false
     ) {
         let rawTee = (teeBox ?? course.teeBox ?? "blue")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -601,6 +606,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         self.requiredGeometryRevisions = requiredGeometryRevisions?.isEmpty == false
             ? requiredGeometryRevisions
             : nil
+        self.isIntentPrefetch = isIntentPrefetch
     }
 
     public static func key(globalId: Int, teeBox: String) -> String {
@@ -615,7 +621,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, course, teeBox, phase, preparedHoles, downloadedHoles, totalHoles, updatedAt
-        case errorText, requiredGeometryRevisions
+        case errorText, requiredGeometryRevisions, isIntentPrefetch
     }
 
     /// The id is re-derived on decode, so a row persisted under the v1 `gid:tee:nine` key joins
@@ -635,6 +641,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
             [String: String].self,
             forKey: .requiredGeometryRevisions
         )
+        isIntentPrefetch = try container.decodeIfPresent(Bool.self, forKey: .isIntentPrefetch) ?? false
     }
 
     public var isActive: Bool {
