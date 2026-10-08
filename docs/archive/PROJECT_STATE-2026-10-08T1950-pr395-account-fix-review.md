@@ -1,9 +1,13 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Preserved verbatim before the ce78f2b8 account-scope review update.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-08 20:10 UTC
+**Updated:** 2026-10-08 19:26 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `6dd96200b199ac8f5ea760719fb295bbc4eea1ef` (#394)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
@@ -12,18 +16,16 @@
 
 Claude restored. Open non-draft **#395**, branch
 `claude/results-fresh-on-open-20261008`, checked head
-`41d8299f063712d05c97e7559a41c8be5e1a988b` (author **6067819673**).
-Account P1 / cancellation P2 accepted in **6068158813**. Captured scope and
-atomic check/write/rebind lock; stale/cancelled foreground outcomes not committed
-or published; notification lifecycle cancellation and background guards retained.
-**Do not merge yet:** same-head live **37837050238**, started **20:07:13 UTC**,
-pending. Inspect its terminal evidence/screenshots before final approval/merge.
-- CI **37834870412**, Native **37834870501** passed: **675 iOS / 448 Watch**.
-  All five new foreground account/A→B→A/background/cancelled-success regressions
-  actually passed. Checkout **afd5eee2**, parents **7191d9aa / 41d8299f**;
-  app/test/backend/workflow/ops source matches head, only state docs differ.
-  All **93 iOS / 47 Watch** PNGs SHA-identical to reviewed f4b75ad9 baseline.
-  Independent contracts **122 / 6.388 s / OK**. Do not repeat passed checks.
+`f4b75ad9b4193aed7440e3ac713c39d464f5df80`.
+**Do not merge yet:** final source review **6067414139** reports P1 account
+isolation: ResultsView's unstructured Garmin-notification reload is not cancelled
+with the view; its successful late response can commit through the shared
+OfflineStore after bindAccount rebinds it. Current commit API captures no scope.
+The unstructured-task/mutable-store boundary predates this PR; the modified
+writer inherits it. Source call chain confirmed; no held-response account-switch
+runtime reproduction yet. Author must capture/validate request account generation,
+cancel notification reload with its lifecycle, and cover stats/archive A→B
+responses with B's cache both empty/populated, retaining same-account arbitration.
 
 - CI **37818780360** and Native **37818780513** passed: **670 iOS / 448 Watch**.
   Checkout **43d5d24b**, parents **78bf1d8f / f4b75ad9**; product/test/workflow/
@@ -37,14 +39,11 @@ pending. Inspect its terminal evidence/screenshots before final approval/merge.
   Prior viewport/journey validation blockers closed; this is not account-race proof.
 - Original three cache P2s resolved in 5f3c0c3c. Original review **6062275804**,
   fixed-head **6064061351**, transport **6064302619**, test findings **6065641884**,
-  account **6067414139**, cancellation **6067792165**, fixes **6068158813** handled.
+  final live/account review **6067414139** handled.
 - Author **6061786172 / 6062377485 / 6064100843 / 6065414746 / 6065682452 /
-  6067178741 / 6067491713 / 6067819673** handled. Heads 1547b250 / 5f3c0c3c /
-  f4b75ad9 / ce78f2b8 source inspected; 41d8299f source/Native review completed.
+  6067178741** handled. Heads 1547b250 / 5f3c0c3c / f4b75ad9 reviewed.
   Runs **37778457263 / 37778457236 / 37781120740 / 37794766703 /
-  37794766696 / 37818780360 / 37818780513 / 37820662929 / 37832426991 /
-  37832426883 / 37834870412 / 37834870501** handled. ce78f2b8 CI superseded;
-  its Native artifacts need no separate replay after final-head Native above.
+  37794766696 / 37818780360 / 37818780513 / 37820662929** handled.
 - **37796943981**: attempt 1 TLS/network failure (4 failures), attempt 2
   viewport false negative + BackNine unselected (2 failures), attempt 3 cancelled
   **17:47:25 UTC**. All handled; distinct logs/artifacts retained. TLS EOF
@@ -57,8 +56,8 @@ pending. Inspect its terminal evidence/screenshots before final approval/merge.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #395 final-head live result;
-  review terminal evidence/screenshots; merge/delete when no P1/P2 remains.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #395 account-scope fix/reply;
+  review exact new head and Native/live evidence; merge/delete when P1/P2 clear.
 - `LIVE-CATALOGUE-FALLBACK` — `evidence-open`: retained TLS/network and viewport
   failures are distinct; new-head fallback now passed. Keep historical evidence.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`, nonblocking: unchanged fixture's
@@ -92,11 +91,9 @@ pending. Inspect its terminal evidence/screenshots before final approval/merge.
 
 ## Owned resources and wait boundary
 
-- #395 final-head evidence: `operations/pr395-41d8299f-20261008`: source tarball,
-  independent contracts, Native artifacts/log/hashes, manifest and **6068158813**.
-  Snapshot /dev/shm/garmin-ai-caddie-pr395-41d8299f-20261008 (27,402,706 bytes)
-  removed after no-open-handle checks; named --rm contract container absent.
-  No local PNG copy created. Earlier-head evidence and failed-attempt logs retained.
+- #395 f4 review: read-only Git ref, no snapshot/runtime. Persistent
+  `operations/pr395-f4b75ad9-20261008`: Native/live artifacts, logs, PNG hashes,
+  review manifest and **6067414139** text. Earlier-head evidence retained.
 - Earlier #395 /dev/shm snapshots and named --rm contract containers closed.
   All prior local PNG copies hash-matched and moved to recoverable user trash.
   Three f4b75ad9 PNG copies (944,266 bytes) hash-matched, no open handles;
@@ -122,12 +119,11 @@ pending. Inspect its terminal evidence/screenshots before final approval/merge.
 
 ## Next action and stopping
 
-Await #395 live **37837050238** through the sole waiter; inspect terminal artifacts,
-then final exact-head review and guarded merge/delete. No remaining source P1/P2.
+Commit review/resource closure and dated archives, then await #395 author's
+account-scope fix through the sole waiter.
 48-hour quiet stop is ineligible while #395 is open; only external events count.
 Absolute owner stop: **2026-10-09 23:59 UTC**; close/hand back owned runtime then.
 Keep same-turn waits through the deadline. Ledger ≤200 lines.
 Superseded ledgers preserved verbatim in dated archives:
-2026-10-08T1750, T1806 and T1926 committed in **7191d9aa**;
-T1950 and T2010 included with this independent review/test/resource closure.
+2026-10-08T1750, T1806 and T1926 (include with this actual review/resource work).
 After compaction read this ledger, inspect Git/agent state, resume this slice.
