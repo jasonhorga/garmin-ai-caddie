@@ -225,15 +225,117 @@ final class ResultsCacheRefreshTests: XCTestCase {
     }
 
     /// 成绩 and the background refresh write the same files: an answer whose request started
-    /// earlier never overwrites one already committed.
+    /// earlier never overwrites one already committed for the same account.
     func testAnOlderRequestsAnswerNeverOverwritesANewerCommit() throws {
         let store = freshStore()
         let older = try JSONDecoder().decode(MobileStats.self, from: Self.statsPayload(rounds: 1))
         let newer = try JSONDecoder().decode(MobileStats.self, from: Self.statsPayload(rounds: 2))
-        let start = Date()
-        XCTAssertTrue(try store.commitMobileStats(newer, requestedAt: start.addingTimeInterval(1)))
-        XCTAssertFalse(try store.commitMobileStats(older, requestedAt: start))
+        let olderTicket = store.beginResultsRequest()
+        Thread.sleep(forTimeInterval: 0.01)
+        let newerTicket = store.beginResultsRequest()
+        XCTAssertTrue(try store.commitMobileStats(newer, ticket: newerTicket))
+        XCTAssertFalse(try store.commitMobileStats(older, ticket: olderTicket))
         XCTAssertEqual(try store.loadMobileStats()?.summary?.totalRounds, 2)
+    }
+
+    // MARK: - Codex review of #395 (P1): an answer for account A never lands in account B
+
+    private func heldClient(_ gate: Gate, into paths: Paths) -> SyncClient {
+        serveHeld(gate, into: paths)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        return SyncClient(
+            baseURL: URL(string: "https://results-cache.example.test")!,
+            session: URLSession(configuration: configuration),
+            retrySleep: { _ in }
+        )
+    }
+
+    /// A 成绩 stats request starts for A; the session expires and B signs in on the same store; A's
+    /// answer arrives. It is neither written to B (empty, or holding its own cache) nor published.
+    func testAStatsAnswerForAPreviousAccountIsNeitherWrittenNorPublished() async throws {
+        for bHasCache in [false, true] {
+            let gate = Gate()
+            let paths = Paths()
+            let client = heldClient(gate, into: paths)
+            defer { CapturingURLProtocol.requestHandler = nil }
+            let store = freshStore()
+            store.bindAccount(playerId: "player-b", migrateLegacyData: false)
+            let bStats = try JSONDecoder().decode(MobileStats.self, from: Self.statsPayload(rounds: 77))
+            if bHasCache { try store.saveMobileStats(bStats) }
+            store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+
+            let pending = Task { @MainActor in await ResultsFreshLoad.stats(client, store: store) }
+            try await waitForRequests(paths, count: 1)
+            store.bindAccount(playerId: "player-b", migrateLegacyData: false)
+            gate.release.signal()
+            let outcome = await pending.value
+
+            guard case .staleAccount = outcome else {
+                return XCTFail("A's answer must not be published under B (bHasCache=\(bHasCache))")
+            }
+            XCTAssertEqual(try store.loadMobileStats()?.summary?.totalRounds, bHasCache ? 77 : nil)
+        }
+    }
+
+    func testAnArchiveAnswerForAPreviousAccountIsNeitherWrittenNorPublished() async throws {
+        let gate = Gate()
+        let paths = Paths()
+        let client = heldClient(gate, into: paths)
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let store = freshStore()
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+
+        let pending = Task { @MainActor in await ResultsFreshLoad.archive(client, store: store) }
+        try await waitForRequests(paths, count: 1)
+        store.bindAccount(playerId: "player-b", migrateLegacyData: false)
+        gate.release.signal()
+        let outcome = await pending.value
+
+        guard case .staleAccount = outcome else { return XCTFail("A's archive must not be published under B") }
+        XCTAssertNil(try store.loadHistoryRoundsArchive())
+    }
+
+    /// Rebinding even back to the same player retires tickets issued before it.
+    func testARebindRetiresEveryEarlierTicket() throws {
+        let store = freshStore()
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        let ticket = store.beginResultsRequest()
+        store.bindAccount(playerId: "player-b", migrateLegacyData: false)
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        let stats = try JSONDecoder().decode(MobileStats.self, from: Self.statsPayload(rounds: 5))
+        XCTAssertFalse(store.isCurrentAccount(ticket))
+        XCTAssertFalse(try store.commitMobileStats(stats, ticket: ticket))
+        XCTAssertNil(try store.loadMobileStats())
+    }
+
+    /// The background refresh keeps its own account-switch guard: A's held answer is dropped
+    /// after the model binds B.
+    func testTheBackgroundRefreshNeverWritesAPreviousAccountsAnswer() async throws {
+        let gate = Gate()
+        let paths = Paths()
+        serveHeld(gate, into: paths)
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let store = freshStore()
+        let model = model(store)
+        let previousClubBagPlayer = ClubBagStore.playerId
+        defer { ClubBagSyncCoordinator.shared.activate(playerId: previousClubBagPlayer, migrateLegacy: false) }
+        model.activateSession(
+            AppSession(token: "token", playerId: "player-a", expiresAt: Date().addingTimeInterval(600)),
+            migrateLegacyData: false
+        )
+
+        model.refreshResultsCacheForTesting()
+        try await waitForRequests(paths, count: 1)
+        model.activateSession(
+            AppSession(token: "token", playerId: "player-b", expiresAt: Date().addingTimeInterval(600)),
+            migrateLegacyData: false
+        )
+        gate.release.signal()
+        gate.release.signal()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertNil(try store.loadMobileStats())
+        XCTAssertNil(try store.loadHistoryRoundsArchive())
     }
 
     /// The cache notification arrives while 成绩's own requests run, then both fail: the page shows

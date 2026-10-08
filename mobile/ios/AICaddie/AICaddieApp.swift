@@ -774,7 +774,7 @@ public final class LiveRoundAppModel: ObservableObject {
         resultsCacheRefreshTask = Task { @MainActor [weak self, syncClient] in
             if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
             guard let self, !Task.isCancelled, self.resultsCacheGeneration == generation else { return }
-            let requestedAt = Date()
+            let ticket = self.offlineStore.beginResultsRequest()
             // Cancelling this task (`abandonResultsCacheRefresh`) cancels both requests in flight.
             async let stats = try? syncClient.fetchMobileStats()
             async let archive = try? syncClient.fetchHistoryRounds()
@@ -784,10 +784,10 @@ public final class LiveRoundAppModel: ObservableObject {
             self.resultsCacheRefreshTask = nil
             var committed = false
             if let freshStats {
-                committed = ((try? self.offlineStore.commitMobileStats(freshStats, requestedAt: requestedAt)) ?? false) || committed
+                committed = ((try? self.offlineStore.commitMobileStats(freshStats, ticket: ticket)) ?? false) || committed
             }
             if let freshArchive {
-                committed = ((try? self.offlineStore.commitHistoryRoundsArchive(freshArchive, requestedAt: requestedAt)) ?? false) || committed
+                committed = ((try? self.offlineStore.commitHistoryRoundsArchive(freshArchive, ticket: ticket)) ?? false) || committed
             }
             guard committed else { return }
             self.lastResultsCacheRefreshAt = Date()

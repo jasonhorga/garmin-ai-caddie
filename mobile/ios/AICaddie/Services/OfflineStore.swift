@@ -622,7 +622,10 @@ public final class OfflineStore {
     private let syncEventLogDirectory: (URL) throws -> Void
     private let eventLogLock = NSLock()
     private let resultsCommitLock = NSLock()
+    /// Per bound account: start time of the request whose 成绩 answer was last committed.
     private var resultsCommittedRequestStarts: [String: Date] = [:]
+    /// Bumped by every account bind; a results ticket from an earlier scope is never committed.
+    private var accountScope = 0
 
     private static func nearestExistingDirectoryAncestor(of url: URL) -> URL {
         var candidate = url.standardizedFileURL.resolvingSymlinksInPath()
@@ -756,6 +759,10 @@ public final class OfflineStore {
     }
 
     private func configurePersonalDirectory(_ directory: URL) {
+        resultsCommitLock.lock()
+        defer { resultsCommitLock.unlock() }
+        accountScope += 1
+        resultsCommittedRequestStarts = [:]
         directoryURL = directory
         logURL = directory.appendingPathComponent("events.jsonl")
         packagesDirectoryURL = directory.appendingPathComponent("packages", isDirectory: true)
@@ -1025,28 +1032,48 @@ public final class OfflineStore {
     }
 
     /// 成绩 and the app's background refresh both write the two results files. Commit an answer only
-    /// if its request started no earlier than the one already committed this run, so a slow older
-    /// response can never overwrite a newer one. Returns whether it was written.
-    @discardableResult
-    public func commitMobileStats(_ stats: MobileStats, requestedAt: Date) throws -> Bool {
-        guard claimResultsCommit("stats", requestedAt: requestedAt) else { return false }
-        try saveMobileStats(stats)
-        return true
+    /// if it belongs to the account bound when its request started (a rebind, even back to the same
+    /// player, retires every ticket issued before it) and that request started no earlier than the one
+    /// already committed for this account, so a slow older response can never overwrite a newer one
+    /// or land in another account's files (Codex review of #395). Returns whether it was written.
+    public struct ResultsRequestTicket: Equatable {
+        let accountScope: Int
+        let requestedAt: Date
     }
 
-    @discardableResult
-    public func commitHistoryRoundsArchive(_ archive: HistoryRoundsArchive, requestedAt: Date) throws -> Bool {
-        guard claimResultsCommit("archive", requestedAt: requestedAt) else { return false }
-        try saveHistoryRoundsArchive(archive)
-        return true
-    }
-
-    private func claimResultsCommit(_ file: String, requestedAt: Date) -> Bool {
+    /// Take this when a 成绩 request starts and hand it to the commit.
+    public func beginResultsRequest() -> ResultsRequestTicket {
         resultsCommitLock.lock()
         defer { resultsCommitLock.unlock() }
-        let key = "\(directoryURL.path)|\(file)"
-        if let committed = resultsCommittedRequestStarts[key], committed > requestedAt { return false }
-        resultsCommittedRequestStarts[key] = requestedAt
+        return ResultsRequestTicket(accountScope: accountScope, requestedAt: Date())
+    }
+
+    /// Whether the account the ticket was taken for is still the bound one.
+    public func isCurrentAccount(_ ticket: ResultsRequestTicket) -> Bool {
+        resultsCommitLock.lock()
+        defer { resultsCommitLock.unlock() }
+        return ticket.accountScope == accountScope
+    }
+
+    @discardableResult
+    public func commitMobileStats(_ stats: MobileStats, ticket: ResultsRequestTicket) throws -> Bool {
+        try commitResults("stats", ticket: ticket) { try saveMobileStats(stats) }
+    }
+
+    @discardableResult
+    public func commitHistoryRoundsArchive(_ archive: HistoryRoundsArchive, ticket: ResultsRequestTicket) throws -> Bool {
+        try commitResults("archive", ticket: ticket) { try saveHistoryRoundsArchive(archive) }
+    }
+
+    /// Check and write under one lock, which `configurePersonalDirectory` also takes, so a rebind
+    /// cannot slip between the account check and the write.
+    private func commitResults(_ file: String, ticket: ResultsRequestTicket, write: () throws -> Void) throws -> Bool {
+        resultsCommitLock.lock()
+        defer { resultsCommitLock.unlock() }
+        guard ticket.accountScope == accountScope else { return false }
+        if let committed = resultsCommittedRequestStarts[file], committed > ticket.requestedAt { return false }
+        try write()
+        resultsCommittedRequestStarts[file] = ticket.requestedAt
         return true
     }
 

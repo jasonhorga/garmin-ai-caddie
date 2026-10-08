@@ -12,6 +12,8 @@ public struct ResultsView: View {
 
     /// Both sections with their per-generation loading (`ResultsLandingLoad`).
     @State private var load = ResultsLandingLoad()
+    /// The reload a Garmin refresh started; tied to this page so leaving it cancels the requests.
+    @State private var notificationReload: Task<Void, Never>?
 
     public init(
         apiBaseURL: URL? = nil,
@@ -39,8 +41,10 @@ public struct ResultsView: View {
         .task { await reload() }
         .refreshable { await reload() }
         .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
-            Task { await reload() }
+            notificationReload?.cancel()
+            notificationReload = Task { await reload() }
         }
+        .onDisappear { notificationReload?.cancel() }
         .onReceive(NotificationCenter.default.publisher(for: .resultsCacheDidUpdate)) { _ in
             guard let offlineStore else { return }
             load.adoptCache(stats: try? offlineStore.loadMobileStats(), archive: try? offlineStore.loadHistoryRoundsArchive())
@@ -61,35 +65,85 @@ public struct ResultsView: View {
             return
         }
         let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
-        async let statsDone: Void = loadStats(client, generation)
-        async let archiveDone: Void = loadArchive(client, generation)
-        _ = await (statsDone, archiveDone)
-        if Task.isCancelled { load.cancel(generation) }
+        async let statsStale = loadStats(client, generation)
+        async let archiveStale = loadArchive(client, generation)
+        let (staleStats, staleArchive) = await (statsStale, archiveStale)
+        if Task.isCancelled || staleStats || staleArchive { load.cancel(generation) }
+    }
+
+    /// Publishes as soon as it answers. Returns true when another account was bound meanwhile:
+    /// nothing from the previous account is published.
+    @MainActor
+    private func loadStats(_ client: SyncClient, _ generation: Int) async -> Bool {
+        switch await ResultsFreshLoad.stats(client, store: offlineStore) {
+        case .staleAccount:
+            return true
+        case let .answer(fresh):
+            guard !Task.isCancelled else { return false }
+            load.completeStats(generation, fresh)
+            return false
+        }
     }
 
     @MainActor
-    private func loadStats(_ client: SyncClient, _ generation: Int) async {
-        let requestedAt = Date()
-        var fresh = try? await client.fetchMobileStats()
-        guard !Task.isCancelled else { return }
-        // A newer answer (the background refresh) is already on disk: show that one instead.
-        if let answer = fresh, let offlineStore,
-           (try? offlineStore.commitMobileStats(answer, requestedAt: requestedAt)) == false {
-            fresh = (try? offlineStore.loadMobileStats()) ?? answer
+    private func loadArchive(_ client: SyncClient, _ generation: Int) async -> Bool {
+        switch await ResultsFreshLoad.archive(client, store: offlineStore) {
+        case .staleAccount:
+            return true
+        case let .answer(fresh):
+            guard !Task.isCancelled else { return false }
+            load.completeArchive(generation, fresh)
+            return false
         }
-        load.completeStats(generation, fresh)
+    }
+}
+
+/// 成绩's own requests and their cache commit, kept out of the view so the account-switch timing is
+/// testable. The ticket is taken when the request starts; an answer for an account that is no
+/// longer bound is neither written nor published.
+enum ResultsFreshLoad {
+    enum Outcome<Value> {
+        /// nil is a failed request.
+        case answer(Value?)
+        case staleAccount
     }
 
     @MainActor
-    private func loadArchive(_ client: SyncClient, _ generation: Int) async {
-        let requestedAt = Date()
-        var fresh = try? await client.fetchHistoryRounds()
-        guard !Task.isCancelled else { return }
-        if let answer = fresh, let offlineStore,
-           (try? offlineStore.commitHistoryRoundsArchive(answer, requestedAt: requestedAt)) == false {
-            fresh = (try? offlineStore.loadHistoryRoundsArchive()) ?? answer
+    static func stats(_ client: SyncClient, store: OfflineStore?) async -> Outcome<MobileStats> {
+        let ticket = store?.beginResultsRequest()
+        let fresh = try? await client.fetchMobileStats()
+        return commit(fresh, store: store, ticket: ticket,
+                      write: { try $0.commitMobileStats($1, ticket: $2) },
+                      reload: { try $0.loadMobileStats() })
+    }
+
+    @MainActor
+    static func archive(_ client: SyncClient, store: OfflineStore?) async -> Outcome<HistoryRoundsArchive> {
+        let ticket = store?.beginResultsRequest()
+        let fresh = try? await client.fetchHistoryRounds()
+        return commit(fresh, store: store, ticket: ticket,
+                      write: { try $0.commitHistoryRoundsArchive($1, ticket: $2) },
+                      reload: { try $0.loadHistoryRoundsArchive() })
+    }
+
+    @MainActor
+    private static func commit<Value>(
+        _ fresh: Value?,
+        store: OfflineStore?,
+        ticket: OfflineStore.ResultsRequestTicket?,
+        write: (OfflineStore, Value, OfflineStore.ResultsRequestTicket) throws -> Bool,
+        reload: (OfflineStore) throws -> Value?
+    ) -> Outcome<Value> {
+        guard let store, let ticket else { return .answer(fresh) }
+        guard store.isCurrentAccount(ticket) else { return .staleAccount }
+        guard let fresh else { return .answer(nil) }
+        if (try? write(store, fresh, ticket)) == false {
+            // Either the account changed after the check above, or a newer answer (the background
+            // refresh) is already on disk: show the disk copy only if it is still this account's.
+            guard store.isCurrentAccount(ticket) else { return .staleAccount }
+            return .answer((try? reload(store)) ?? fresh)
         }
-        load.completeArchive(generation, fresh)
+        return .answer(fresh)
     }
 }
 
