@@ -1,9 +1,14 @@
+# HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Archived verbatim before closing the PR395 review ledger on 2026-10-08.
+This is an audit reference; docs/operations/PROJECT_STATE.md is authoritative.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-08 14:44 UTC
+**Updated:** 2026-10-08 14:20 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `6dd96200b199ac8f5ea760719fb295bbc4eea1ef` (#394)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
@@ -12,21 +17,9 @@
 
 Claude restored. #394 is merged and its release result has been returned.
 Open PR #395, non-draft, head `1547b2506c512228a71a8cf19f0d237bf0e73d6c`:
-成绩页/首页即时数据 (speed plan batch 2). Review completed; **3 P2 blockers**
-in comment **6062275804**: cancel/resume an already-running background refresh
-for foreground work; invalidate older cache writers after Garmin sync; retain
-new fallback cache when a pending page request fails. Await Claude's fixed
-head/reply; do not merge or repeat review of this head. Findings are static
-time-order analysis, not injected Swift race reproductions.
-
-- #395 CI **37778457263**, Native **37778457236**, live **37781120740** passed.
-  Native merge **31924176**, parents base **6dd96200** and head **1547b250**;
-  merge/head trees identical. **93 iOS / 47 Watch** PNGs match #394 hashes;
-  live home/results visually checked. Independent contracts: **122 / 5.176 s
-  / OK**. Initial sandbox fixture-write errors retained separately.
-- #395 evidence: `operations/pr395-1547b250-20261008` (review, manifests,
-  Native/live artifacts and contract logs). Original live evidence and current
-  reviewed head are handled; own review comment must not retrigger work.
+成绩页/首页即时数据 (speed plan batch 2). The waiter delivered terminal CI
+`37778457263`; exact-head review is underway, including background/preemption
+and stale-cache ordering. No duplicate monitor or manual polling.
 
 - #392/#393 finished; old heads, comments, CI and cleanup are archived.
 - #394 exact head `93824a8d59e08a781246ede04678e85a1a0bd5fb` reviewed;
@@ -49,9 +42,9 @@ time-order analysis, not injected Swift race reproductions.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #395 fixes via the existing
-  feedback stream; inspect changed code on the new exact head, relevant tests,
-  Native/screenshots, resolve P1/P2 before merge/delete; handle subsequent PRs.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: review #395 after stream delivery,
+  exact-head tests and Native/screenshots as applicable; P1/P2 comments,
+  merge/delete once clear; handle subsequent actionable feedback.
 - `LIVE-CATALOGUE-FALLBACK` — `queued`, nonblocking: city-search first attempt
   failed; unchanged-head retry passed. If recurrent, preserve actual response,
   completion and scroll evidence; AX mounted rows alone are insufficient.
@@ -87,12 +80,11 @@ time-order analysis, not injected Swift race reproductions.
 
 ## Owned resources and wait boundary
 
-- #395 snapshot `/dev/shm/garmin-ai-caddie-pr395-1547b250-20261008` closed
-  after open-file check; `--rm` contract container gone. Two local PNG copies
-  match persistent evidence hashes and were moved to recoverable user trash.
-  Manifest/evidence at `operations/pr395-1547b250-20261008` retained. No active
-  implementation worktree, review snapshot/container, port, tunnel, browser
-  service or subagent. Local review ref `origin/pr395-review` retains the head.
+- #395 read-only snapshot `/dev/shm/garmin-ai-caddie-pr395-1547b250-20261008`,
+  expires Oct 9 14:35 UTC; one bounded contract test container planned.
+  Manifest/evidence at `operations/pr395-1547b250-20261008`; no worktree,
+  dependency installation, port, tunnel, browser service or subagent.
+  #394 artifacts are persistent evidence, not active runtime.
 - Candidate `aicaddie-release-3614bf6f-candidate-20261006` is **stopped**;
   port 39089 no longer serves it. Keep its private root and isolated DB
   `aicaddie_candidate_3614bf6f_20261006` until owner build82 validation.
@@ -116,13 +108,12 @@ time-order analysis, not injected Swift race reproductions.
 
 ## Next action and stopping
 
-Release and #395 review replies are complete. Resume the existing cursor,
-deduplicate old #393/#394/#395 events, and await #395 fixes or other new work.
-Preserve all new evidence on homeserver.
+Release reply is complete. Resume existing cursor, discard only already handled
+events and process #395 when delivered. Preserve all new evidence on homeserver.
 48-hour quiet stopping is **not eligible while #395 is open**; count only new
 external PR events, never own comments/merges/CI/docs. Absolute owner stop:
 **2026-10-09 23:59 UTC**. At stop close/hand back owned runtime resources.
 Keep this same-turn waiting method through the deadline. Ledger ≤200 lines.
 Latest superseded ledger is archived verbatim in
-`docs/archive/PROJECT_STATE-2026-10-08T1443-pr395-review-close.md`.
+`docs/archive/PROJECT_STATE-2026-10-08T1420-release-close.md`.
 After compaction: read this ledger, inspect Git/agent state, resume this slice.
