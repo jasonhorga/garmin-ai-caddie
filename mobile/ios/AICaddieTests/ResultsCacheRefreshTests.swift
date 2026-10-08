@@ -296,6 +296,40 @@ final class ResultsCacheRefreshTests: XCTestCase {
         XCTAssertNil(try store.loadHistoryRoundsArchive())
     }
 
+    /// The transport has already returned a successful answer when the page's reload is cancelled
+    /// (it disappeared, or a newer Garmin notification replaced it); the main-actor continuation
+    /// runs afterwards. Nothing is committed, for stats or the archive.
+    func testACancelledReloadNeverCommitsAnAnswerThatStillArrived() async throws {
+        for section in ["stats", "archive"] {
+            let gate = Gate()
+            let paths = Paths()
+            let client = heldClient(gate, into: paths)
+            defer { CapturingURLProtocol.requestHandler = nil }
+            let store = freshStore()
+            store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+
+            let pending = Task { @MainActor () -> Bool in
+                if section == "stats" {
+                    if case .cancelled = await ResultsFreshLoad.stats(client, store: store) { return true }
+                } else {
+                    if case .cancelled = await ResultsFreshLoad.archive(client, store: store) { return true }
+                }
+                return false
+            }
+            try await waitForRequests(paths, count: 1)
+            gate.release.signal()
+            // Hold the main actor while the answer is delivered, then cancel before the
+            // continuation can run.
+            Thread.sleep(forTimeInterval: 0.3)
+            pending.cancel()
+            let cancelledOutcome = await pending.value
+
+            XCTAssertTrue(cancelledOutcome, "\(section): the cancelled reload reports cancellation")
+            XCTAssertNil(try store.loadMobileStats(), "\(section): nothing written")
+            XCTAssertNil(try store.loadHistoryRoundsArchive(), "\(section): nothing written")
+        }
+    }
+
     /// Rebinding even back to the same player retires tickets issued before it.
     func testARebindRetiresEveryEarlierTicket() throws {
         let store = freshStore()

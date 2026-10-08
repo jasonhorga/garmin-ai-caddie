@@ -4631,6 +4631,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("abandonResultsCacheRefresh(retryLater: false)", body(app_swift, "private func invalidateResultsCacheAfterGarminPull() {"))
         self.assertIn("guard store.isCurrentAccount(ticket) else { return .staleAccount }", results)
         self.assertIn("notificationReload?.cancel()", results)
+        commit_helper = results.split("private static func commit<Value>(", 1)[1]
+        self.assertLess(
+            commit_helper.index("guard !Task.isCancelled else { return .cancelled }"),
+            commit_helper.index("write(store, fresh, ticket)"),
+        )
         self.assertIn("for: .resultsCacheDidUpdate", results)
         self.assertIn("load.adoptCache(", results)
         self.assertIn("for: .resultsCacheDidUpdate", home)

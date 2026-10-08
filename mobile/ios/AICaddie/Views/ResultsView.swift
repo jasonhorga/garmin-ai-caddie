@@ -78,6 +78,8 @@ public struct ResultsView: View {
         switch await ResultsFreshLoad.stats(client, store: offlineStore) {
         case .staleAccount:
             return true
+        case .cancelled:
+            return false
         case let .answer(fresh):
             guard !Task.isCancelled else { return false }
             load.completeStats(generation, fresh)
@@ -90,6 +92,8 @@ public struct ResultsView: View {
         switch await ResultsFreshLoad.archive(client, store: offlineStore) {
         case .staleAccount:
             return true
+        case .cancelled:
+            return false
         case let .answer(fresh):
             guard !Task.isCancelled else { return false }
             load.completeArchive(generation, fresh)
@@ -106,6 +110,8 @@ enum ResultsFreshLoad {
         /// nil is a failed request.
         case answer(Value?)
         case staleAccount
+        /// The page's reload was cancelled; an answer that still arrived is not committed.
+        case cancelled
     }
 
     @MainActor
@@ -134,6 +140,9 @@ enum ResultsFreshLoad {
         write: (OfflineStore, Value, OfflineStore.ResultsRequestTicket) throws -> Bool,
         reload: (OfflineStore) throws -> Value?
     ) -> Outcome<Value> {
+        // URLSession cancellation cannot take back a value it already returned: check here, before
+        // anything is written (Codex review of #395).
+        guard !Task.isCancelled else { return .cancelled }
         guard let store, let ticket else { return .answer(fresh) }
         guard store.isCurrentAccount(ticket) else { return .staleAccount }
         guard let fresh else { return .answer(nil) }
