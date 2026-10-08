@@ -350,6 +350,10 @@ public struct RoundHomeView: View {
             .task(id: heroCourseIntentKey) {
                 announceHeroCourseIntent()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .resultsCacheDidUpdate)) { _ in
+                heroHistory = (try? offlineStore?.loadHistoryRoundsArchive())?.groups.flatMap(\.rounds) ?? heroHistory
+                loadLastRoundStrip()
+            }
             .task(id: weatherKey) {
                 await refreshHomeWeather()
             }

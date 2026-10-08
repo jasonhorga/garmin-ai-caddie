@@ -99,6 +99,27 @@ final class TeeSelectionUITests: XCTestCase {
         )
     }
 
+    /// Live Native 37796943981 attempt 2 (Codex review of #395): the 找球场 sheet's 北京丽宫 row
+    /// (y 722.3–766.3) was rejected because the Start band of the 开始一场 page underneath, still in
+    /// the AX tree at y 747.6, was counted. A covered band excludes nothing; an active one still does.
+    func testViewportIgnoresABandCoveredByAPresentedSheetButKeepsAnActiveOne() {
+        let width: CGFloat = 393
+        let hiddenBand = CGRect(x: 0, y: 747.6, width: width, height: 818 - 747.6)
+        let sheetResult = CGRect(x: 16, y: 722.3, width: width - 32, height: 766.3 - 722.3)
+        let top: CGFloat = 110
+
+        func visible(_ frame: CGRect, covered: Bool) -> Bool {
+            let bottom = UITestViewport.usableBottom(
+                windowMaxY: 852,
+                pinnedAreas: [UITestViewport.PinnedArea(frame: hiddenBand, ownsTarget: false, isCovered: covered)]
+            )
+            return CGRect(x: 8, y: top, width: width - 16, height: bottom - top).contains(frame)
+        }
+
+        XCTAssertTrue(visible(sheetResult, covered: true), "a result on the sheet is not hidden by the band beneath it")
+        XCTAssertFalse(visible(sheetResult, covered: false), "the active Start band still covers a row behind it")
+    }
+
     func testCaptureTeeSelector() throws {
         app.launchEnvironment["UITEST_COURSE_TEES_DELAY_MS"] = "1500"
         writeDiagnostics()

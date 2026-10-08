@@ -284,6 +284,9 @@ public extension Notification.Name {
     /// Posted only after a Garmin pull has completed and the app has refreshed its shared home/course
     /// state. History and stats views use it to replace any payload that was loaded before the pull.
     static let garminDataDidRefresh = Notification.Name("ai-caddie.garmin-data-did-refresh")
+    /// Posted after the app's background refresh rewrote the cached history/stats files. Views that
+    /// read those files (成绩, the home's last-round strip) re-read them; no network of their own.
+    static let resultsCacheDidUpdate = Notification.Name("ai-caddie.results-cache-did-update")
 }
 
 public struct EventReplayItem: Codable, Equatable {
