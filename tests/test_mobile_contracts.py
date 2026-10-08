@@ -4584,6 +4584,17 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("activeHole: liveRoundState?.roundId == snapshot.roundId", app_swift)
         self.assertIn("for globalId in attemptGlobalIds {", app_swift)
 
+        # Live Native 37729778000: an intent never overlaps a foreground Tee/nearby/search request.
+        next_job = body(app_swift, "private func nextPrepCourseDownloadJob() -> PrepCourseDownloadRecord? {")
+        self.assertIn("foregroundCourseRequestCount == 0 || !$0.isIntentPrefetch", next_job)
+        for signature in (
+            "public func loadCourseTees(globalId: Int) async -> [CourseTee] {",
+            "public func nearbyCourses(",
+            "public func searchCourses(",
+        ):
+            request = app_swift.split(signature, 1)[1][:400]
+            self.assertIn("beginForegroundCourseRequest()", request, signature)
+            self.assertIn("defer { endForegroundCourseRequest() }", request, signature)
         discovery = body(app_swift, "private func prioritizeCourseDiscovery() {")
         self.assertIn("interruptedOfflineCourseDownloadRoundId = roundId", discovery)
         self.assertIn("resumeInterruptedOfflineCourseDownload()", body(app_swift, "func liveHoleInitialLoadDidFinish() {"))

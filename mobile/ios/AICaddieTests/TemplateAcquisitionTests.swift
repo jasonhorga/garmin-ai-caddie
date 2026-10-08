@@ -521,6 +521,52 @@ final class TemplateAcquisitionTests: XCTestCase {
         await model.waitForPrepCourseDownloadForTesting()
     }
 
+    /// Live Native 37729778000: the home's intent prefetch held 开始一场's Tee request until Start
+    /// timed out. An intent never starts while a foreground course request is in flight, and resumes
+    /// on its own once the last one ends.
+    func testAnIntentWaitsForForegroundCourseRequestsThenResumes() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let requests = LoopRequests()
+        serveOracle(oracle, into: requests)
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let model = acquisitionModel(directory: freshDirectory())
+        model.beginForegroundCourseRequestForTesting()
+        model.beginForegroundCourseRequestForTesting()
+        model.prefetchIntendedCourses(
+            [MobileCourseOption(globalId: gid, name: "Intent", holes: 18, teeBox: "white")],
+            teeBox: "white"
+        )
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertFalse(requests.contains(tee: "white"), "no intent request while the Tee request is in flight")
+        XCTAssertEqual(model.prepCourseDownloads.first { $0.teeBox == "white" }?.phase, .queued)
+
+        model.endForegroundCourseRequestForTesting()
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertFalse(requests.contains(tee: "white"), "one foreground request is still in flight")
+
+        model.endForegroundCourseRequestForTesting()
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertTrue(requests.contains(tee: "white"), "the intent resumes when the last one ends")
+    }
+
+    /// A 备战 job the player asked for is never held behind a foreground request.
+    func testAForegroundRequestDoesNotHoldThePlayersOwnDownload() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let requests = LoopRequests()
+        serveOracle(oracle, into: requests)
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let model = acquisitionModel(directory: freshDirectory())
+        model.beginForegroundCourseRequestForTesting()
+        model.downloadPrepCourse(MobileCourseOption(globalId: gid, name: "Prep", holes: 18, teeBox: "white"))
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertTrue(requests.contains(tee: "white"))
+        model.endForegroundCourseRequestForTesting()
+    }
+
     /// Course discovery stops the round's all-hole download; returning to the round's live view
     /// resumes it, and a finished pass is not restarted.
     func testDiscoveryStopsTheRoundsDownloadAndItsLiveViewResumesIt() async throws {
