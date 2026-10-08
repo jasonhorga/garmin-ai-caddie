@@ -49,11 +49,14 @@ public struct StatsView: View {
         }
         let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
         let store = offlineStore
+        let ticket = store?.beginResultsRequest()
         inFlight = Task { @MainActor in
             let stats = try? await client.fetchMobileStats(window: request.window)
             guard !Task.isCancelled else { return }
-            if load.complete(request, stats: stats), let stats {
-                try? store?.saveMobileStats(stats, window: request.window)
+            // Another account was bound meanwhile: show and keep nothing from the previous one.
+            if let store, let ticket, !store.isCurrentAccount(ticket) { return }
+            if load.complete(request, stats: stats), let stats, let store, let ticket {
+                try? store.commitMobileStats(stats, window: request.window, ticket: ticket)
             }
         }
     }

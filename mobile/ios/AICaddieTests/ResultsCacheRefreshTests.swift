@@ -160,6 +160,48 @@ final class ResultsCacheRefreshTests: XCTestCase {
         XCTAssertEqual(paths.all.filter { $0 == "/api/v2/history/rounds/\(roundRef)" }.count, 1, "already on disk")
     }
 
+    /// The review prefetch runs inside the refresh task: a Tee / nearby / search request that starts
+    /// while its scorecard request is in flight abandons it, and nothing is saved.
+    func testAForegroundRequestAbandonsTheReviewPrefetchInFlight() async throws {
+        let roundRef = "prefetch-held-\(UUID().uuidString)"
+        let archive = Data("""
+        {"total": 1, "groups": [{"key": "2026-10", "label": "October 2026", "count": 1, "average18": 86, "bestScore": 86,
+          "rounds": [{"id": "\(roundRef)", "date": "2026-10-08", "courseName": "Half Moon Bay", "score": 86, "scoreStrip": [], "badges": []}]}],
+         "availableYears": ["2026"], "availableCourses": []}
+        """.utf8)
+        let detail = Data(#"{"roundRef":"\#(roundRef)","found":true,"scorecard":[],"phaseSummary":[],"missingData":[]}"#.utf8)
+        let paths = Paths()
+        let release = DispatchSemaphore(value: 0)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            paths.append(url.path)
+            let body: Data
+            switch url.path {
+            case "/api/v2/history/stats/mobile": body = Self.statsPayload
+            case "/api/v2/history/rounds": body = archive
+            case "/api/v2/history/rounds/\(roundRef)":
+                _ = release.wait(timeout: .now() + 5)
+                body = detail
+            default:
+                return (HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            return (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let model = model(freshStore())
+
+        model.refreshResultsCacheForTesting()
+        for _ in 0..<100 where !paths.all.contains("/api/v2/history/rounds/\(roundRef)") {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(paths.all.contains("/api/v2/history/rounds/\(roundRef)"), "the prefetch asked for the scorecard")
+        model.beginForegroundCourseRequestForTesting()
+        release.signal()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertNil(RoundReviewDiskCache.loadDetail(roundRef: roundRef), "the abandoned prefetch saves nothing")
+        model.endForegroundCourseRequestForTesting()
+    }
+
     func testAdoptingTheCacheNeverReplacesASectionStillLoading() {
         var load = ResultsLandingLoad()
         let generation = load.begin()
@@ -472,5 +514,12 @@ final class ResultsCacheRefreshTests: XCTestCase {
         XCTAssertNil(try store.loadMobileStats(window: "last20"))
         try store.saveMobileStats(ten, window: "../escape")
         XCTAssertNil(try store.loadMobileStats(window: "../escape"))
+
+        // A window answer for a previous account is never committed.
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        let ticket = store.beginResultsRequest()
+        store.bindAccount(playerId: "player-b", migrateLegacyData: false)
+        XCTAssertFalse(try store.commitMobileStats(ten, window: "last20", ticket: ticket))
+        XCTAssertNil(try store.loadMobileStats(window: "last20"))
     }
 }

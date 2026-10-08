@@ -1060,6 +1060,13 @@ public final class OfflineStore {
         try commitResults("stats", ticket: ticket) { try saveMobileStats(stats) }
     }
 
+    /// A 表现分析 window, under the same account and ordering rules (`all` is the 成绩 file).
+    @discardableResult
+    public func commitMobileStats(_ stats: MobileStats, window: String, ticket: ResultsRequestTicket) throws -> Bool {
+        guard window != "all" else { return try commitMobileStats(stats, ticket: ticket) }
+        return try commitResults("stats-\(window)", ticket: ticket) { try saveMobileStats(stats, window: window) }
+    }
+
     @discardableResult
     public func commitHistoryRoundsArchive(_ archive: HistoryRoundsArchive, ticket: ResultsRequestTicket) throws -> Bool {
         try commitResults("archive", ticket: ticket) { try saveHistoryRoundsArchive(archive) }

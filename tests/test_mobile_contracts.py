@@ -4643,13 +4643,17 @@ class MobileContractTests(unittest.TestCase):
         stats_view = _read_required_source(self, IOS_DIR / "Views" / "StatsView.swift")
         shot_map = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         self.assertIn("load.seed(request, cached: try? offlineStore?.loadMobileStats(window: request.window))", stats_view)
+        self.assertIn("commitMobileStats(stats, window: request.window, ticket: ticket)", stats_view)
+        self.assertIn("!store.isCurrentAccount(ticket) { return }", stats_view)
+        prefetch = app_swift.split("private func prefetchRoundReview(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("resultsCacheGeneration == generation", prefetch)
         self.assertIn("start(load.refresh(), showCache: false)", stats_view)
         self.assertIn("ResultsTrendView(apiBaseURL: apiBaseURL, adminToken: adminToken, initialStats: stats)", results)
         review_cache = shot_map.split("enum RoundReviewDiskCache {", 1)[1]
         self.assertIn("for: .applicationSupportDirectory", review_cache)
         self.assertIn("pruneOldRounds(keeping:", review_cache)
         self.assertIn("isExcludedFromBackup = true", review_cache)
-        self.assertIn("await self.prefetchRoundReview(newest, using: syncClient, playerId: playerId)", app_swift)
+        self.assertIn("await self.prefetchRoundReview(newest, using: syncClient, playerId: playerId, generation: generation)", app_swift)
 
     def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:
         # 洞位图: the day's sheet places the flag; a flag the player moves still wins, and the
