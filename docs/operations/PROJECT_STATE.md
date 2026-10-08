@@ -3,9 +3,9 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-08 11:04 UTC
+**Updated:** 2026-10-08 12:30 UTC
 **Canonical branch:** `main`
-**Latest integrated code:** `64491d697892f886300fb7dcdca4e69725cf3dcc` (#393 + release evidence)
+**Latest integrated code:** `6dd96200b199ac8f5ea760719fb295bbc4eea1ef` (#394)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and deduplication
@@ -49,13 +49,20 @@ candidate-only decision/cache records were preserved with a merge report and
 both database dumps. Stable production is now serving backend revision
 **3614bf6f3805479f8d13de65eeec4f0ad7871f22** on port **39055**. Sync completed
 **502 rounds / 501 scorecards / 501 shots / sync ok / done**.
+PR #394 reviewed exact `93824a8d59e08a781246ede04678e85a1a0bd5fb`, PASS comment
+`6059399934`, merged as `6dd96200` at **Oct 8 12:02:45 UTC**; source branch
+deleted. Ordinary CI `37736864574`, Native `37736864564`, and exact-head live
+Native `37738509778` passed. Native artifacts were compared against the #393
+baseline: **93 iOS / 47 Watch** files, all SHA-identical. The change yields intent
+prefetch to Tee/nearby/search requests and resumes it afterward; user-started
+prep downloads remain eligible. No P1/P2 findings.
 Read last matched waiter event, not earlier ignored own lines. Preserve dirty
 `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 
-Quiet baseline **Oct 7 21:08:16 UTC** (conservative: merge/no-open transition
-after latest external comment); earliest quiet stop **Oct 9 21:08:16 UTC**
-if no new external PR event and still no open PRs. Own merges/comments/CI/docs
-never reset quiet. Hard stop remains **Oct 9 23:59 UTC**.
+Quiet baseline **Oct 8 12:02:45 UTC** (external #394 merge/no-open transition);
+earliest quiet stop **Oct 10 12:02:45 UTC** if no new external PR event and still
+no open PRs. Own merges/comments/CI/docs never reset quiet. Hard stop remains
+**Oct 9 23:59 UTC**.
 
 ## Unfinished queue
 
@@ -74,6 +81,15 @@ never reset quiet. Hard stop remains **Oct 9 23:59 UTC**.
 
 ## Live release baseline
 
+- **0.1.0 (82)** internal replacement package from merged #394: TestFlight
+  workflow **37774511661**, Apple list/read-only **37776197288**, `VALID /
+  IN_BETA_TESTING`, internal group includes build 82, external distribution off.
+  Commit **6dd96200b199ac8f5ea760719fb295bbc4eea1ef**, IPA SHA256
+  `f8e112b8bf75e4a33fad838bff39e69ec783679ba8a040091b957ec5cc896721`; IPA and
+  provenance retained at `/home/jason/garmin-ai-caddie-data/operations/release-main-6dd96200-20261008/testflight-37774511661`.
+- #394 Native review artifacts and SHA manifests retained at
+  `/home/jason/garmin-ai-caddie-data/operations/pr394-93824a8d-20261008/native-artifacts`;
+  review copy expires **Oct 9 12:30 UTC**.
 - **0.1.0 (81)** internal TestFlight, Apple **VALID / IN_BETA_TESTING**,
   internal group includes build 81 and external distribution is off. App commit
   **64491d69**, backend **3614bf6f3805479f8d13de65eeec4f0ad7871f22**, stable
@@ -139,10 +155,10 @@ never reset quiet. Hard stop remains **Oct 9 23:59 UTC**.
 - Deployed waiter `operations/blocking-waits/wait_for_conclusion.sh`; SHA256
   `37dd8727b1f47c09d56512b52765dc2984dafe6cf90381803d302338a6048179`.
   Cursor `blocking-waits/feedback-cursor`: never edit/delete.
-- The prior feedback waiter timed out without an external event. Start one
-  blocking `--feedback` waiter in this same control turn after the release
-  bookkeeping is pushed; do not inspect processes or create an independent
-  tmux waiter while it is pending.
+- The prior feedback waiter returned actionable #394 `pr_opened` and was closed
+  after review/merge. Start one blocking `--feedback` waiter in this same
+  control turn after the release bookkeeping is pushed; do not inspect
+  processes or create an independent tmux waiter while it is pending.
 - Same turn: terminal → clock.sleep(300000) → one write_stdin until one-line
   conclusion. No idle CI/ps/state/log polling, independent waiter tmux, duplicate
   monitor or CI-only commits. Existing feedback timer unchanged.
