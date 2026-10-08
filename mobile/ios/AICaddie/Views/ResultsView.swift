@@ -69,20 +69,27 @@ public struct ResultsView: View {
 
     @MainActor
     private func loadStats(_ client: SyncClient, _ generation: Int) async {
-        let fresh = try? await client.fetchMobileStats()
+        let requestedAt = Date()
+        var fresh = try? await client.fetchMobileStats()
         guard !Task.isCancelled else { return }
-        if load.completeStats(generation, fresh), let fresh {
-            try? offlineStore?.saveMobileStats(fresh)
+        // A newer answer (the background refresh) is already on disk: show that one instead.
+        if let answer = fresh, let offlineStore,
+           (try? offlineStore.commitMobileStats(answer, requestedAt: requestedAt)) == false {
+            fresh = (try? offlineStore.loadMobileStats()) ?? answer
         }
+        load.completeStats(generation, fresh)
     }
 
     @MainActor
     private func loadArchive(_ client: SyncClient, _ generation: Int) async {
-        let fresh = try? await client.fetchHistoryRounds()
+        let requestedAt = Date()
+        var fresh = try? await client.fetchHistoryRounds()
         guard !Task.isCancelled else { return }
-        if load.completeArchive(generation, fresh), let fresh {
-            try? offlineStore?.saveHistoryRoundsArchive(fresh)
+        if let answer = fresh, let offlineStore,
+           (try? offlineStore.commitHistoryRoundsArchive(answer, requestedAt: requestedAt)) == false {
+            fresh = (try? offlineStore.loadHistoryRoundsArchive()) ?? answer
         }
+        load.completeArchive(generation, fresh)
     }
 }
 

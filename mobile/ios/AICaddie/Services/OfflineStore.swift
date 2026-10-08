@@ -621,6 +621,8 @@ public final class OfflineStore {
     private let syncEventLogFile: (URL) throws -> Void
     private let syncEventLogDirectory: (URL) throws -> Void
     private let eventLogLock = NSLock()
+    private let resultsCommitLock = NSLock()
+    private var resultsCommittedRequestStarts: [String: Date] = [:]
 
     private static func nearestExistingDirectoryAncestor(of url: URL) -> URL {
         var candidate = url.standardizedFileURL.resolvingSymlinksInPath()
@@ -1020,6 +1022,32 @@ public final class OfflineStore {
     public func saveMobileStats(_ stats: MobileStats) throws {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         try encoder.encode(stats).write(to: mobileStatsURL, options: [.atomic])
+    }
+
+    /// 成绩 and the app's background refresh both write the two results files. Commit an answer only
+    /// if its request started no earlier than the one already committed this run, so a slow older
+    /// response can never overwrite a newer one. Returns whether it was written.
+    @discardableResult
+    public func commitMobileStats(_ stats: MobileStats, requestedAt: Date) throws -> Bool {
+        guard claimResultsCommit("stats", requestedAt: requestedAt) else { return false }
+        try saveMobileStats(stats)
+        return true
+    }
+
+    @discardableResult
+    public func commitHistoryRoundsArchive(_ archive: HistoryRoundsArchive, requestedAt: Date) throws -> Bool {
+        guard claimResultsCommit("archive", requestedAt: requestedAt) else { return false }
+        try saveHistoryRoundsArchive(archive)
+        return true
+    }
+
+    private func claimResultsCommit(_ file: String, requestedAt: Date) -> Bool {
+        resultsCommitLock.lock()
+        defer { resultsCommitLock.unlock() }
+        let key = "\(directoryURL.path)|\(file)"
+        if let committed = resultsCommittedRequestStarts[key], committed > requestedAt { return false }
+        resultsCommittedRequestStarts[key] = requestedAt
+        return true
     }
 
     public func loadMobileStats() throws -> MobileStats? {

@@ -134,4 +134,127 @@ final class ResultsCacheRefreshTests: XCTestCase {
         XCTAssertNil(load.archive, "the archive request is still in flight")
         XCTAssertNil(load.errorText)
     }
+
+    // MARK: - Codex review of #395: abandoned refreshes, late answers, notification ordering
+
+    private final class Gate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var holding = true
+        let release = DispatchSemaphore(value: 0)
+        var isHolding: Bool { lock.withLock { holding } }
+        func open() { lock.withLock { holding = false } }
+    }
+
+    private static func statsPayload(rounds: Int) -> Data {
+        Data(#"{"summary":{"totalRounds":\#(rounds)}}"#.utf8)
+    }
+
+    /// While `gate` holds, answers are the old snapshot (1 round) and wait for `release`; after
+    /// `open()` every request answers the new snapshot (2 rounds) at once.
+    private func serveHeld(_ gate: Gate, into paths: Paths) {
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            paths.append(url.path)
+            let held = gate.isHolding
+            if held { _ = gate.release.wait(timeout: .now() + 5) }
+            let body: Data
+            switch url.path {
+            case "/api/v2/history/stats/mobile": body = Self.statsPayload(rounds: held ? 1 : 2)
+            case "/api/v2/history/rounds": body = Self.archivePayload
+            default:
+                return (HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            return (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+    }
+
+    private func waitForRequests(_ paths: Paths, count: Int) async throws {
+        for _ in 0..<100 where paths.all.count < count {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertGreaterThanOrEqual(paths.all.count, count)
+    }
+
+    /// A Tee / nearby / search request arriving after the refresh's requests are in flight abandons
+    /// them; their late answer is never written, and the refresh runs again once the request ends.
+    func testAForegroundRequestAbandonsARefreshInFlightAndItRunsAgainAfterwards() async throws {
+        let gate = Gate()
+        let paths = Paths()
+        serveHeld(gate, into: paths)
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let store = freshStore()
+        let model = model(store)
+
+        model.refreshResultsCacheForTesting()
+        try await waitForRequests(paths, count: 1)
+        model.beginForegroundCourseRequestForTesting()
+        XCTAssertTrue(model.resultsCacheRefreshPendingForTesting)
+        gate.open()
+        gate.release.signal()
+        gate.release.signal()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertNil(try store.loadMobileStats(), "the abandoned answer is never written")
+
+        model.endForegroundCourseRequestForTesting()
+        await model.waitForResultsCacheRefreshForTesting()
+        XCTAssertFalse(model.resultsCacheRefreshPendingForTesting)
+        XCTAssertEqual(try store.loadMobileStats()?.summary?.totalRounds, 2)
+    }
+
+    /// Old snapshot already fetched → Garmin pull completes → the old answer lands late: it is
+    /// dropped and the new snapshot is what ends up on disk.
+    func testAGarminPullDropsARefreshThatReadThePrePullData() async throws {
+        let gate = Gate()
+        let paths = Paths()
+        serveHeld(gate, into: paths)
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let store = freshStore()
+        let model = model(store)
+
+        model.refreshResultsCacheForTesting()
+        try await waitForRequests(paths, count: 1)
+        gate.open()
+        model.invalidateResultsCacheAfterGarminPullForTesting()
+        // The pre-pull answers land only now, after the pull invalidated them.
+        gate.release.signal()
+        gate.release.signal()
+        await model.waitForResultsCacheRefreshForTesting()
+        XCTAssertEqual(try store.loadMobileStats()?.summary?.totalRounds, 2)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(try store.loadMobileStats()?.summary?.totalRounds, 2, "the late pre-pull answer is dropped")
+    }
+
+    /// 成绩 and the background refresh write the same files: an answer whose request started
+    /// earlier never overwrites one already committed.
+    func testAnOlderRequestsAnswerNeverOverwritesANewerCommit() throws {
+        let store = freshStore()
+        let older = try JSONDecoder().decode(MobileStats.self, from: Self.statsPayload(rounds: 1))
+        let newer = try JSONDecoder().decode(MobileStats.self, from: Self.statsPayload(rounds: 2))
+        let start = Date()
+        XCTAssertTrue(try store.commitMobileStats(newer, requestedAt: start.addingTimeInterval(1)))
+        XCTAssertFalse(try store.commitMobileStats(older, requestedAt: start))
+        XCTAssertEqual(try store.loadMobileStats()?.summary?.totalRounds, 2)
+    }
+
+    /// The cache notification arrives while 成绩's own requests run, then both fail: the page shows
+    /// the fresh cache without a failure note. A successful answer still wins over it.
+    func testACacheArrivingBeforeAFailedAnswerIsShownInsteadOfTheFailure() throws {
+        let cached = try JSONDecoder().decode(MobileStats.self, from: Self.statsPayload(rounds: 2))
+        let network = try JSONDecoder().decode(MobileStats.self, from: Self.statsPayload(rounds: 3))
+        let archive = try JSONDecoder().decode(HistoryRoundsArchive.self, from: Self.archivePayload)
+        var load = ResultsLandingLoad()
+        let generation = load.begin()
+        load.adoptCache(stats: cached, archive: archive)
+        XCTAssertNil(load.stats, "not shown over the running request")
+        load.completeStats(generation, nil)
+        load.completeArchive(generation, nil)
+        XCTAssertEqual(load.stats?.summary?.totalRounds, 2)
+        XCTAssertEqual(load.archive?.groups.first?.rounds.first?.id, "r-new")
+        XCTAssertNil(load.errorText)
+
+        let next = load.begin()
+        load.adoptCache(stats: cached, archive: nil)
+        load.completeStats(next, network)
+        XCTAssertEqual(load.stats?.summary?.totalRounds, 3, "a successful answer wins")
+    }
 }

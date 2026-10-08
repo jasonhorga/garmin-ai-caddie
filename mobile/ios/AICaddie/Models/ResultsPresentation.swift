@@ -432,6 +432,10 @@ struct ResultsLandingLoad: Equatable {
     private(set) var statsPending = false
     private(set) var archivePending = false
     private(set) var failed: [Section] = []
+    /// A fresh disk copy that arrived while its section's request was running. It is not shown over
+    /// that request, but it replaces the request's answer if the request fails.
+    private(set) var pendingFallbackStats: MobileStats?
+    private(set) var pendingFallbackArchive: HistoryRoundsArchive?
 
     init(stats: MobileStats? = nil, archive: HistoryRoundsArchive? = nil) {
         self.stats = stats
@@ -458,13 +462,21 @@ struct ResultsLandingLoad: Equatable {
     /// A newer disk copy written by the app's background refresh. A request in flight still owns
     /// its section; an adopted section is no longer reported as failed.
     mutating func adoptCache(stats cachedStats: MobileStats?, archive cachedArchive: HistoryRoundsArchive?) {
-        if !statsPending, let cachedStats {
-            stats = cachedStats
-            failed.removeAll { $0 == .stats }
+        if let cachedStats {
+            if statsPending {
+                pendingFallbackStats = cachedStats
+            } else {
+                stats = cachedStats
+                failed.removeAll { $0 == .stats }
+            }
         }
-        if !archivePending, let cachedArchive {
-            archive = cachedArchive
-            failed.removeAll { $0 == .archive }
+        if let cachedArchive {
+            if archivePending {
+                pendingFallbackArchive = cachedArchive
+            } else {
+                archive = cachedArchive
+                failed.removeAll { $0 == .archive }
+            }
         }
     }
 
@@ -474,6 +486,8 @@ struct ResultsLandingLoad: Equatable {
         statsPending = true
         archivePending = true
         failed = []
+        pendingFallbackStats = nil
+        pendingFallbackArchive = nil
         return generation
     }
 
@@ -482,7 +496,14 @@ struct ResultsLandingLoad: Equatable {
     mutating func completeStats(_ requestGeneration: Int, _ value: MobileStats?) -> Bool {
         guard requestGeneration == generation, statsPending else { return false }
         statsPending = false
-        if let value { stats = value } else { failed.append(.stats) }
+        if let value {
+            stats = value
+        } else if let fallback = pendingFallbackStats {
+            stats = fallback
+        } else {
+            failed.append(.stats)
+        }
+        pendingFallbackStats = nil
         return true
     }
 
@@ -490,7 +511,14 @@ struct ResultsLandingLoad: Equatable {
     mutating func completeArchive(_ requestGeneration: Int, _ value: HistoryRoundsArchive?) -> Bool {
         guard requestGeneration == generation, archivePending else { return false }
         archivePending = false
-        if let value { archive = value } else { failed.append(.archive) }
+        if let value {
+            archive = value
+        } else if let fallback = pendingFallbackArchive {
+            archive = fallback
+        } else {
+            failed.append(.archive)
+        }
+        pendingFallbackArchive = nil
         return true
     }
 
