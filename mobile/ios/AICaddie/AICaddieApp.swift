@@ -839,8 +839,9 @@ public final class LiveRoundAppModel: ObservableObject {
         playerId: String?,
         generation: Int
     ) async {
+        let ticket = RoundReviewDiskCache.beginRequest()
         func mayContinue() -> Bool {
-            !Task.isCancelled && resultsCacheGeneration == generation
+            !Task.isCancelled && resultsCacheGeneration == generation && RoundReviewDiskCache.isCurrent(ticket)
                 && boundPlayerId == playerId && liveRoundState == nil
                 && roundPreparationToken == nil && foregroundCourseRequestCount == 0
         }
@@ -852,7 +853,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 nine: round.nine, teeBox: round.teeBox
             )
             guard let detail, mayContinue() else { return }
-            RoundReviewDiskCache.saveDetail(detail, roundRef: round.id)
+            RoundReviewDiskCache.saveDetail(detail, roundRef: round.id, ticket: ticket)
         }
         guard let detail else { return }
         let missing = RoundReviewHoles(detail.scorecard).played.filter {
@@ -864,7 +865,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 roundRef: round.id, hole: hole, globalId: round.globalId,
                 backGlobalId: round.backGlobalId, nine: round.nine, teeBox: round.teeBox
             ), mayContinue() else { continue }
-            RoundReviewDiskCache.saveShotMap(map, roundRef: round.id, hole: hole)
+            RoundReviewDiskCache.saveShotMap(map, roundRef: round.id, hole: hole, ticket: ticket)
         }
         recordUITestLatency("results-cache.review-prefetched round=\(round.id) holes=\(missing.count)")
     }

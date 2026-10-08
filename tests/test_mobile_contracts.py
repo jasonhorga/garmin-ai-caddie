@@ -4653,6 +4653,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("for: .applicationSupportDirectory", review_cache)
         self.assertIn("pruneOldRounds(keeping:", review_cache)
         self.assertIn("isExcludedFromBackup = true", review_cache)
+        # Codex review of #396: every review writer carries the ticket of the player who started it.
+        self.assertIn("guard isCurrent(ticket), let data = try? encoder.encode(value) else { return false }", review_cache)
+        self.assertIn("player: ticket.playerScope", review_cache)
+        self.assertIn("pruneOldRounds(keeping: roundDirectory)", review_cache.split("private static func save<T: Encodable>", 1)[1])
+        self.assertIn("guard !Task.isCancelled, RoundReviewDiskCache.isCurrent(ticket) else { return }", shot_map)
+        review_view = _read_required_source(self, IOS_DIR / "Views" / "RoundReviewView.swift")
+        self.assertIn("guard RoundReviewDiskCache.isCurrent(ticket) else { return .staleAccount }", review_view)
+        self.assertIn("onRetry: { reload() }", review_view)
+        self.assertIn("onSaved: { reload() }", review_view)
+        self.assertIn(".onDisappear { reloadTask?.cancel() }", review_view)
         self.assertIn("await self.prefetchRoundReview(newest, using: syncClient, playerId: playerId, generation: generation)", app_swift)
 
     def test_pin_sheet_flag_sits_under_a_moved_flag_and_above_the_route_end(self) -> None:

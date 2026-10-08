@@ -507,7 +507,8 @@ final class RoundShotMapRepository: ObservableObject {
     private let nine: String?
     private let teeBox: String?
     private let client: SyncClient?
-    private var inFlight: [Int: Task<LoadResult, Never>] = [:]
+    /// Each request with the ticket taken when it started (a caller joining it shares that ticket).
+    private var inFlight: [Int: (task: Task<LoadResult, Never>, ticket: RoundReviewDiskCache.Ticket)] = [:]
 
     init(roundRef: String, apiBaseURL: URL?, adminToken: String?, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) {
         self.roundRef = roundRef
@@ -526,10 +527,12 @@ final class RoundShotMapRepository: ObservableObject {
 
     func error(for hole: Int) -> String? { errors[hole] }
 
-    func store(_ map: RoundHoleShotMap, for hole: Int) {
+    /// `ticket` is the one taken before the edit's own request (the save) started.
+    func store(_ map: RoundHoleShotMap, for hole: Int, ticket: RoundReviewDiskCache.Ticket = RoundReviewDiskCache.beginRequest()) {
+        guard RoundReviewDiskCache.isCurrent(ticket) else { return }
         maps[hole] = map
         errors[hole] = nil
-        RoundReviewDiskCache.saveShotMap(map, roundRef: roundRef, hole: hole)
+        RoundReviewDiskCache.saveShotMap(map, roundRef: roundRef, hole: hole, ticket: ticket)
         prefetchTopo(for: map)
     }
 
@@ -548,11 +551,14 @@ final class RoundShotMapRepository: ObservableObject {
         }
 
         let task: Task<LoadResult, Never>
+        let ticket: RoundReviewDiskCache.Ticket
         if let existing = inFlight[hole] {
-            task = existing
+            task = existing.task
+            ticket = existing.ticket
         } else {
             errors[hole] = nil
             loadingHoles.insert(hole)
+            ticket = RoundReviewDiskCache.beginRequest()
             task = Task { [roundRef, globalId, backGlobalId, nine, teeBox] in
                 do {
                     return .success(try await client.fetchRoundShotMap(roundRef: roundRef, hole: hole, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox))
@@ -560,17 +566,20 @@ final class RoundShotMapRepository: ObservableObject {
                     return .failure
                 }
             }
-            inFlight[hole] = task
+            inFlight[hole] = (task, ticket)
         }
 
         let result = await task.value
         inFlight[hole] = nil
         loadingHoles.remove(hole)
+        // The page that asked went away, or another player signed in meanwhile: an answer that
+        // still arrived is neither shown nor written (Codex review of #396).
+        guard !Task.isCancelled, RoundReviewDiskCache.isCurrent(ticket) else { return }
         switch result {
         case .success(let map):
             maps[hole] = map
             errors[hole] = nil
-            RoundReviewDiskCache.saveShotMap(map, roundRef: roundRef, hole: hole)
+            RoundReviewDiskCache.saveShotMap(map, roundRef: roundRef, hole: hole, ticket: ticket)
             prefetchTopo(for: map)
         case .failure:
             if maps[hole] == nil { errors[hole] = "这一洞落点暂时取不到" }
@@ -926,10 +935,11 @@ public struct RoundHoleShotMapScreen: View {
     private func saveEditing() async {
         guard !isSaving, let editModel else { return }
         isSaving = true
+        let ticket = RoundReviewDiskCache.beginRequest()
         let saved = await editModel.save()
         isSaving = false
         guard saved else { return }
-        mapRepository.store(editModel.map, for: hole)
+        mapRepository.store(editModel.map, for: hole, ticket: ticket)
         isEditing = false
         onEditingChange?(false)
         onSaved?()
@@ -1228,38 +1238,68 @@ public struct RoundShotMapPagerScreen: View {
 
 /// Review scorecards and shot maps the player has opened (or the app prefetched for the newest
 /// round). They live in Application Support, not Caches: iOS purges Caches under storage pressure,
-/// which emptied an offline review exactly when it was wanted. Bounded per account to the newest
-/// `retainedRounds` rounds; files from the old Caches location are still read and moved over.
+/// which emptied an offline review exactly when it was wanted.
+///
+/// Every writer takes a `Ticket` when its request starts. The answer is written into the directory
+/// of the player the ticket names, and only while that player is still signed in, so a late answer
+/// for account A never lands in account B's files (Codex review of #396). Each account keeps the
+/// `retainedRounds` most recently written rounds; every write, including a move from the old Caches
+/// location, applies that bound. Older reviews are fetched again when opened online.
 enum RoundReviewDiskCache {
     private static let decoder = JSONDecoder()
     private static let encoder = JSONEncoder()
     static let retainedRounds = 40
 
+    /// Who a review answer belongs to: the player signed in when its request started.
+    struct Ticket: Equatable {
+        let playerScope: String
+    }
+
+    /// Test seams. Production reads the signed-in session and the app's support directories.
+    static var currentPlayerScope: () -> String = {
+        SessionStore.shared.currentSession?.playerId ?? "debug-no-session"
+    }
+    static var rootOverride: URL?
+    static var legacyRootOverride: URL?
+
+    static func beginRequest() -> Ticket {
+        Ticket(playerScope: currentPlayerScope())
+    }
+
+    static func isCurrent(_ ticket: Ticket) -> Bool {
+        ticket.playerScope == currentPlayerScope()
+    }
+
     static func loadDetail(roundRef: String) -> RoundDetail? {
         load(RoundDetail.self, roundRef: roundRef, fileName: "detail.json")
     }
 
-    static func saveDetail(_ detail: RoundDetail, roundRef: String) {
-        save(detail, to: url(roundRef: roundRef, fileName: "detail.json"))
-        pruneOldRounds(keeping: url(roundRef: roundRef, fileName: "detail.json").deletingLastPathComponent())
+    /// Returns whether it was written (false once the ticket's player is no longer signed in).
+    @discardableResult
+    static func saveDetail(_ detail: RoundDetail, roundRef: String, ticket: Ticket) -> Bool {
+        save(detail, roundRef: roundRef, fileName: "detail.json", ticket: ticket)
     }
 
     static func loadShotMap(roundRef: String, hole: Int) -> RoundHoleShotMap? {
         load(RoundHoleShotMap.self, roundRef: roundRef, fileName: "hole-\(hole).json")
     }
 
-    static func saveShotMap(_ map: RoundHoleShotMap, roundRef: String, hole: Int) {
-        save(map, to: url(roundRef: roundRef, fileName: "hole-\(hole).json"))
+    @discardableResult
+    static func saveShotMap(_ map: RoundHoleShotMap, roundRef: String, hole: Int, ticket: Ticket) -> Bool {
+        save(map, roundRef: roundRef, fileName: "hole-\(hole).json", ticket: ticket)
     }
 
+    /// Reads the signed-in player's copy; a copy still in the old Caches location is moved over
+    /// (through the same bounded write) the first time it is read.
     private static func load<T: Codable>(_ type: T.Type, roundRef: String, fileName: String) -> T? {
-        if let value = load(type, from: url(roundRef: roundRef, fileName: fileName)) {
+        let player = currentPlayerScope()
+        if let value = load(type, from: url(roundRef: roundRef, fileName: fileName, player: player, base: root)) {
             return value
         }
-        guard let legacy = load(type, from: url(roundRef: roundRef, fileName: fileName, base: legacyRoot)) else {
+        guard let legacy = load(type, from: url(roundRef: roundRef, fileName: fileName, player: player, base: legacyRoot)) else {
             return nil
         }
-        save(legacy, to: url(roundRef: roundRef, fileName: fileName))
+        save(legacy, roundRef: roundRef, fileName: fileName, ticket: Ticket(playerScope: player))
         return legacy
     }
 
@@ -1268,8 +1308,29 @@ enum RoundReviewDiskCache {
         return try? decoder.decode(type, from: data)
     }
 
-    /// Keep the newest rounds of this account (by last write), never the one just saved.
-    private static func pruneOldRounds(keeping current: URL) {
+    private static func save<T: Encodable>(_ value: T, roundRef: String, fileName: String, ticket: Ticket) -> Bool {
+        guard isCurrent(ticket), let data = try? encoder.encode(value) else { return false }
+        let target = url(roundRef: roundRef, fileName: fileName, player: ticket.playerScope, base: root)
+        let roundDirectory = target.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: roundDirectory, withIntermediateDirectories: true)
+            // Re-downloadable from the server: keep it out of iCloud/iTunes backups.
+            var reviewRoot = root
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? reviewRoot.setResourceValues(values)
+            try data.write(to: target, options: [.atomic])
+        } catch {
+            return false
+        }
+        pruneOldRounds(keeping: roundDirectory)
+        return true
+    }
+
+    /// Keep the round just written plus the `retainedRounds - 1` most recently written others of this
+    /// account. Ties and missing timestamps fall back to the directory name, so the count always
+    /// converges to `retainedRounds`.
+    static func pruneOldRounds(keeping current: URL) {
         let playerDirectory = current.deletingLastPathComponent()
         let manager = FileManager.default
         guard let rounds = try? manager.contentsOfDirectory(
@@ -1277,50 +1338,37 @@ enum RoundReviewDiskCache {
             includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles]
         ), rounds.count > retainedRounds else { return }
-        let newestFirst = rounds.sorted { lhs, rhs in
-            let l = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            let r = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            return l > r
+        let keep = current.standardizedFileURL.lastPathComponent
+        let others = rounds
+            .filter { $0.standardizedFileURL.lastPathComponent != keep }
+            .map { url -> (url: URL, date: Date) in
+                let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+                    ?? .distantPast
+                return (url, date)
+            }
+            .sorted { lhs, rhs in
+                lhs.date != rhs.date ? lhs.date > rhs.date : lhs.url.lastPathComponent < rhs.url.lastPathComponent
+            }
+        for stale in others.dropFirst(retainedRounds - 1) {
+            try? manager.removeItem(at: stale.url)
         }
-        for stale in newestFirst.dropFirst(retainedRounds)
-        where stale.standardizedFileURL != current.standardizedFileURL {
-            try? manager.removeItem(at: stale)
-        }
-    }
-
-    private static func save<T: Encodable>(_ value: T, to url: URL) {
-        guard let data = try? encoder.encode(value) else { return }
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        // Re-downloadable from the server: keep it out of iCloud/iTunes backups.
-        var reviewRoot = Self.root
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try? reviewRoot.setResourceValues(values)
-        try? data.write(to: url, options: [.atomic])
     }
 
     private static var root: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        rootOverride ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AICaddieRoundReview-v3", isDirectory: true)
     }
 
     private static var legacyRoot: URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        legacyRootOverride ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AICaddieRoundReview-v3", isDirectory: true)
     }
 
-    private static func url(roundRef: String, fileName: String, base: URL? = nil) -> URL {
-        // A round reference is not globally unique across backend members. Bind every review byte
-        // to the currently signed-in player so signing out/in can never show another account's
-        // cached scorecard or shot positions. DEBUG without Apple auth receives its own scope.
-        let playerScope = SessionStore.shared.currentSession?.playerId ?? "debug-no-session"
-        let safePlayer = digest(playerScope)
-        let safeRef = digest(roundRef)
-        return (base ?? Self.root).appendingPathComponent(safePlayer, isDirectory: true)
-            .appendingPathComponent(safeRef, isDirectory: true)
+    /// A round reference is not globally unique across backend members, so every review byte sits
+    /// under the player it belongs to (DEBUG without Apple auth receives its own scope).
+    private static func url(roundRef: String, fileName: String, player: String, base: URL) -> URL {
+        base.appendingPathComponent(digest(player), isDirectory: true)
+            .appendingPathComponent(digest(roundRef), isDirectory: true)
             .appendingPathComponent(fileName)
     }
 
