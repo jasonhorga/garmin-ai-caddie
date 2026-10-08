@@ -3,9 +3,9 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-08 05:26 UTC
+**Updated:** 2026-10-08 11:04 UTC
 **Canonical branch:** `main`
-**Latest integrated code:** `fb7df3658cc02041d29e676105ee78d4e5966a63` (#393)
+**Latest integrated code:** `64491d697892f886300fb7dcdca4e69725cf3dcc` (#393 + release evidence)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and deduplication
@@ -42,6 +42,13 @@ parents and an identical tree. Native production evidence passed both iOS/Watch;
 93 design and 47 Watch PNGs were byte-identical to the reviewed baseline. The
 new exact-head contract test passed 1/1; the bare-host full 121-test retry was
 environment-limited by missing `pydantic`/`numpy`, while required CI passed.
+
+Build 81 release and production cutover completed after #393. The candidate
+3614bf6f data was merged with production winning the active-round conflict;
+candidate-only decision/cache records were preserved with a merge report and
+both database dumps. Stable production is now serving backend revision
+**3614bf6f3805479f8d13de65eeec4f0ad7871f22** on port **39055**. Sync completed
+**502 rounds / 501 scorecards / 501 shots / sync ok / done**.
 Read last matched waiter event, not earlier ignored own lines. Preserve dirty
 `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 
@@ -67,6 +74,20 @@ never reset quiet. Hard stop remains **Oct 9 23:59 UTC**.
 
 ## Live release baseline
 
+- **0.1.0 (81)** internal TestFlight, Apple **VALID / IN_BETA_TESTING**,
+  internal group includes build 81 and external distribution is off. App commit
+  **64491d69**, backend **3614bf6f3805479f8d13de65eeec4f0ad7871f22**, stable
+  API origin `https://caddie.taile36706.ts.net`.
+- Native Mobile CI **37748709686**, TestFlight **37763965545**, Apple read-only
+  check **37765770840** all succeeded. IPA SHA256
+  `98de193d03cb381f98ca16b31fe1f5027477e648e2d8202a0c90f4fb090c1590`;
+  retained at `/home/jason/garmin-ai-caddie-data/operations/production-cutover-3614bf6f-20261008/testflight-37763965545/AICaddie.ipa`.
+- HTTP/2 stable-origin probes: 3/3 **HTTP/2 200**, **1.82–2.57 s**. Apple
+  exposed `internalReady=false` alongside `internalState=IN_BETA_TESTING`; keep
+  this as an Apple-field discrepancy, not a release failure.
+- Cutover evidence: `/home/jason/garmin-ai-caddie-data/operations/production-cutover-3614bf6f-20261008`.
+- Previous **0.1.0 (80)** baseline remains below for audit and owner-device
+  comparison; it is superseded by build 81 and must not be treated as current.
 - **0.1.0 (80)** internal TestFlight, Apple **VALID / IN_BETA_TESTING**,
   operation=list/external=false. App/API/sync
   **3614bf6f3805479f8d13de65eeec4f0ad7871f22**, static text / Gemini vision.
@@ -107,8 +128,10 @@ never reset quiet. Hard stop remains **Oct 9 23:59 UTC**.
   retained at `operations/pr393-e9122806-20261008`.
 - Build80 candidate `aicaddie-release-3614bf6f-candidate-20261006`, port 39089;
   full-SHA API + sync images retained for owner tests.
-- Tunnel tmux `codex-release-http2-main-3614bf6f-20261006`, metrics 39110;
-  isolated DB `aicaddie_candidate_3614bf6f_20261006`; private config protected.
+- HTTP/2 tunnel tmux `codex-release-http2-main-3614bf6f-20261006` was stopped
+  after the stable-origin probes; no tunnel resource remains owned by this
+  slice. Candidate isolated DB `aicaddie_candidate_3614bf6f_20261006` and
+  private config remain protected.
 - Source `/home/jason/codex-runs/garmin-ai-caddie-release-3614bf6f-20261006`,
   expires Oct 13; release allow-list retained. Production DB/volume protected.
 - Both 39055/39089 health/revision checked after cleanup; unchanged.
@@ -116,9 +139,10 @@ never reset quiet. Hard stop remains **Oct 9 23:59 UTC**.
 - Deployed waiter `operations/blocking-waits/wait_for_conclusion.sh`; SHA256
   `37dd8727b1f47c09d56512b52765dc2984dafe6cf90381803d302338a6048179`.
   Cursor `blocking-waits/feedback-cursor`: never edit/delete.
-- No waiter at update; next waiter handle retained in tool store
-  `active_feedback_wait` in this same turn. Recover that handle after compaction,
-  do not inspect processes or start a replacement while pending.
+- The prior feedback waiter timed out without an external event. Start one
+  blocking `--feedback` waiter in this same control turn after the release
+  bookkeeping is pushed; do not inspect processes or create an independent
+  tmux waiter while it is pending.
 - Same turn: terminal → clock.sleep(300000) → one write_stdin until one-line
   conclusion. No idle CI/ps/state/log polling, independent waiter tmux, duplicate
   monitor or CI-only commits. Existing feedback timer unchanged.
