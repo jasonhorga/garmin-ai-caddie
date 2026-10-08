@@ -3,7 +3,7 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-07 21:13 UTC
+**Updated:** 2026-10-08 03:37 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `0e544fa24f282c4ed06130e5db240fe583c761c4` (#392)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
@@ -33,6 +33,8 @@ Dedupe: latest Claude **6046795815** (Oct 7 **21:02:51 UTC**) consumed; earlier
 Prior #392 P2 **6043496432 / 6044451139 / 6045129506**, b186552b/69cdc9c3/ee379209
 heads/CI superseded. First live attempt failure retained; never call it PASS.
 #391/#389 finished evidence and corrections remain archived; no reopening.
+The feedback waiter ending **03:28 UTC** was a timeout with no new external event;
+the cursor remains authoritative and unchanged.
 Read last matched waiter event, not earlier ignored own lines. Preserve dirty
 `ops/pr_feedback_monitor.sh` and unrelated older `.codex-*`.
 
@@ -86,9 +88,13 @@ never reset quiet. Hard stop remains **Oct 9 23:59 UTC**.
   user trash. Only local cleanup/checksum records remain; permanent evidence kept.
 - #389 56022d32 local image copy also closed: **41 files / 13,256,841 bytes**,
   remote byte-identical backup and recoverable trash. Old unrelated files protected.
-- #389 6fea0239 local helper/screenshot copies remain, backed up in
-  `operations/pr389-6fea0239-20261007`; expiry **Oct 8 03:22 UTC**.
-  Remote snapshot/container/service/volume already closed; bind wait to expiry.
+- #389 6fea0239 local helpers and five screenshots reached expiry **Oct 8 03:22
+  UTC**. Checksums match the persistent evidence backup; the one local
+  `observed-live.py` variant was additionally preserved as
+  `operations/pr389-6fea0239-20261007/.codex-pr389-6fea0239-observed-live-local-copy.py`.
+  After `lsof` found no users, nine files plus the screenshot directory were
+  moved to recoverable user trash. The review manifest remains locally; remote
+  snapshot/container/service/volume were already closed.
 - Build80 candidate `aicaddie-release-3614bf6f-candidate-20261006`, port 39089;
   full-SHA API + sync images retained for owner tests.
 - Tunnel tmux `codex-release-http2-main-3614bf6f-20261006`, metrics 39110;
@@ -111,10 +117,10 @@ never reset quiet. Hard stop remains **Oct 9 23:59 UTC**.
 
 ## Next action and stopping
 
-Resume existing feedback cursor in this turn, bound wait to **Oct 8 03:22 UTC**
-resource expiry, next external event or stop deadline. Deduplicate already reviewed
-#392 heads/replies/runs without new comments/commits. On timeout close exact owned
-expired copies using retained manifest/backup, then resume same-turn waiting.
+Resume the existing feedback cursor in this turn through the next external event
+or stop deadline. Deduplicate already reviewed #392 heads/replies/runs without new
+comments/commits. Expired #389 local copies are closed and recoverable; retain the
+manifest and persistent evidence, then continue the same-turn blocking wait.
 Stop after **48 quiet hours with no open PRs** or absolute **Oct 9 23:59 UTC**;
 close/hand back resources at stop. No waiting-style change before owner deadline.
 Ledger ≤200 lines/current-only; archive superseded detail verbatim.
