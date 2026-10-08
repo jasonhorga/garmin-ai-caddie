@@ -375,6 +375,10 @@ public final class LiveRoundAppModel: ObservableObject {
     private var offlineCourseDownloadRoundId: String?
     /// The round whose all-hole download course discovery stopped; its live view resumes it.
     private var interruptedOfflineCourseDownloadRoundId: String?
+    /// Foreground course requests in flight (Tee authority, nearby, search). An intent prefetch
+    /// never overlaps one: live Native 37729778000 showed the home's 在这个球场 prefetch holding the
+    /// 开始一场 Tee request for 90 s, so Start never enabled.
+    private var foregroundCourseRequestCount = 0
     private var prepCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadGeneration: UUID?
     private var activePrepCourseDownloadID: String?
@@ -1309,6 +1313,14 @@ public final class LiveRoundAppModel: ObservableObject {
 
     func prioritizeCourseDiscoveryForTesting() {
         prioritizeCourseDiscovery()
+    }
+
+    func beginForegroundCourseRequestForTesting() {
+        beginForegroundCourseRequest()
+    }
+
+    func endForegroundCourseRequestForTesting() {
+        endForegroundCourseRequest()
     }
 
     #endif
@@ -3953,10 +3965,29 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             changed = true
         }
-        guard changed else { return }
-        recordUITestLatency("prep-intent.queued ids=\(wanted.sorted().joined(separator: ","))")
-        persistPrepCourseDownloads()
-        refreshDownloadedCourseOptions()
+        if changed {
+            recordUITestLatency("prep-intent.queued ids=\(wanted.sorted().joined(separator: ","))")
+            persistPrepCourseDownloads()
+            refreshDownloadedCourseOptions()
+        }
+        // Also restarts an unchanged intent that yielded to a foreground request.
+        startPrepCourseDownloadQueueIfNeeded()
+    }
+
+    /// An intent prefetch yields to the player's foreground course request: the running intent job
+    /// is paused (back to queued) and none starts until every such request has finished.
+    private func beginForegroundCourseRequest() {
+        foregroundCourseRequestCount += 1
+        if let active = activePrepCourseDownloadID,
+           prepCourseDownloads.first(where: { $0.id == active })?.isIntentPrefetch == true {
+            recordUITestLatency("prep-intent.yield active=\(active)")
+            pausePrepCourseDownload()
+        }
+    }
+
+    private func endForegroundCourseRequest() {
+        foregroundCourseRequestCount = max(0, foregroundCourseRequestCount - 1)
+        guard foregroundCourseRequestCount == 0, roundPreparationToken == nil else { return }
         startPrepCourseDownloadQueueIfNeeded()
     }
 
@@ -4141,6 +4172,7 @@ public final class LiveRoundAppModel: ObservableObject {
         return prepCourseDownloads
             .filter { $0.phase == .queued }
             .filter { !freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id) }
+            .filter { foregroundCourseRequestCount == 0 || !$0.isIntentPrefetch }
             .sorted(by: { $0.updatedAt > $1.updatedAt })
             .first
     }
@@ -4329,6 +4361,8 @@ public final class LiveRoundAppModel: ObservableObject {
         longitude: Double? = nil
     ) async throws -> [MobileCourseSearchMatch] {
         prioritizeCourseDiscovery()
+        beginForegroundCourseRequest()
+        defer { endForegroundCourseRequest() }
         guard let syncClient else { throw URLError(.notConnectedToInternet) }
         do {
             return try await syncClient.searchCourses(
@@ -4349,6 +4383,8 @@ public final class LiveRoundAppModel: ObservableObject {
         radiusKm: Int
     ) async throws -> [MobileCourseSearchMatch] {
         prioritizeCourseDiscovery()
+        beginForegroundCourseRequest()
+        defer { endForegroundCourseRequest() }
         #if DEBUG
         // Real-simulator acceptance seam: keep bootstrap, search and course downloads on the live
         // backend while forcing only the automatic nearby request offline. Release/TestFlight never
@@ -4407,6 +4443,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// retain their bundled Tee names, while a newly searched course stays gated and exposes an
     /// explicit retry rather than starting with invented Tee authority.
     public func loadCourseTees(globalId: Int) async -> [CourseTee] {
+        beginForegroundCourseRequest()
+        defer { endForegroundCourseRequest() }
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             return []
