@@ -18,16 +18,23 @@ enum UITestViewport {
     /// being checked is a real accessibility descendant of the area (the Start action itself), never
     /// because its frame merely lies inside the area: a row scrolled behind the band overlaps it
     /// completely and is exactly what must be excluded (Codex review 6030036864).
+    ///
+    /// `isCovered` is true when the area is still in the AX tree but something presented over it (the
+    /// 找球场 sheet over 开始一场) receives its taps: it no longer covers anything. Live Native
+    /// 37796943981 attempt 2 rejected a fully visible sheet result at y 722–766 because the hidden
+    /// Start band underneath started at y 747.6 (Codex review of #395).
     struct PinnedArea {
         let frame: CGRect
         let ownsTarget: Bool
+        var isCovered: Bool = false
     }
 
     /// Bottom edge of the tappable viewport: the window above the home-indicator lane, cut at the
     /// top of every pinned area that does not own the target.
     static func usableBottom(windowMaxY: CGFloat, pinnedAreas: [PinnedArea]) -> CGFloat {
         var bottom = windowMaxY - homeIndicatorLane
-        for area in pinnedAreas where !area.frame.isNull && !area.frame.isEmpty && !area.ownsTarget {
+        for area in pinnedAreas
+        where !area.frame.isNull && !area.frame.isEmpty && !area.ownsTarget && !area.isCovered {
             bottom = min(bottom, area.frame.minY)
         }
         return bottom
@@ -63,7 +70,8 @@ enum UITestViewport {
             let area = app.descendants(matching: .any).matching(identifier: identifier).firstMatch
             guard area.exists else { continue }
             let owns = element.map { $0.exists && isDescendant($0, of: area) } ?? false
-            pinned.append(PinnedArea(frame: area.frame, ownsTarget: owns))
+            // Hit-testing the band's own hit point: under a presented sheet it lands on the sheet.
+            pinned.append(PinnedArea(frame: area.frame, ownsTarget: owns, isCovered: !area.isHittable))
         }
         let bottom = usableBottom(windowMaxY: window.maxY, pinnedAreas: pinned)
         return CGRect(

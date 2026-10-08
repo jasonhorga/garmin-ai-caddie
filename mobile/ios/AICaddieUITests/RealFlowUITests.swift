@@ -72,8 +72,19 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertEqual(journeyCourse.value as? String, "已选择")
         let backHalf = app.buttons["start-round-course-half-\(approvedJourneyCourseGlobalId)-back"]
         XCTAssertTrue(scrollTo(backHalf, maxSwipes: 8), "an 18-hole course offers its 后九 as a start")
+        // Live Native 37796943981 attempt 2: 后九 never became 已选择 after this tap and nothing was
+        // kept. Record where the tap went and the page right after, so a repeat shows whether it hit
+        // a moved/covered element or the choice was reset by a later update.
+        let tappedFrame = backHalf.frame
         backHalf.tap()
-        XCTAssertTrue(waitForValue("已选择", on: backHalf, timeout: 5))
+        let backSelected = waitForValue("已选择", on: backHalf, timeout: 5)
+        if !backSelected {
+            let now = backHalf.exists ? "frame=\(backHalf.frame) value=\(String(describing: backHalf.value))" : "gone"
+            print("UITEST back-half-not-selected tapped=\(tappedFrame) center=(\(tappedFrame.midX),\(tappedFrame.midY)) now: \(now)")
+            save("b4b2-00-back-half-not-selected")
+            dump("b4b2-00-back-half-not-selected")
+        }
+        XCTAssertTrue(backSelected, "tapping 后九 selects it (tapped \(tappedFrame))")
         let start = app.buttons["start-round-primary-action"]
         XCTAssertTrue(waitUntilEnabled(start, timeout: 90))
         XCTAssertTrue(start.label.hasPrefix("从 后九 开始"), "the action names the half (got \(start.label))")
