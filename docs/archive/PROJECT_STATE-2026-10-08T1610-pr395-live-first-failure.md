@@ -1,9 +1,14 @@
+# HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Archived verbatim before recording the first live failure and its review reply.
+Only docs/operations/PROJECT_STATE.md is authoritative.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-08 16:10 UTC
+**Updated:** 2026-10-08 15:19 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `6dd96200b199ac8f5ea760719fb295bbc4eea1ef` (#394)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
@@ -13,9 +18,7 @@
 Claude restored. #394 is merged and its release result has been returned.
 Open PR #395, non-draft, new head `5f3c0c3c8e4101e1c78b5110caaeccbb79311e96`:
 author fixes in comment **6062377485**. Fixed-head code review resolves the
-three prior P2s. Review reply **6064061351**: live validation remains P2 pending;
-**37796943981 attempt 1** failed (4 failures / 1 skipped / 14 total).
-Run has entered a retry; await its conclusion via the existing event stream.
+three prior P2s; awaiting live run **37796943981** before final conclusion.
 CI **37794766703** and Native **37794766696** passed, including all four new
 regressions: **670 iOS / 448 Watch** tests. Native checkout **b824a61b**, parents
 **ff567de4 / 5f3c0c3c**; app/test/workflow/backend/ops source matches the head
@@ -28,15 +31,6 @@ for foreground work; invalidate older cache writers after Garmin sync; retain
 new fallback cache when a pending page request fails. Fixes checked on
 `5f3c0c3c`; do not repeat completed tests/review. Prior findings were static
 time-order analysis, not injected Swift race reproductions.
-
-- First live failures: RealFlow pre-round search, ReviewEdit capture, Tee no-GPS
-  catalogue fallback, Tee nearby home card. Review/Tee logs show **SSL -1200 /
-  -9816** at the stable origin; screenshot
-  `catalogue-course-catalog-keyword-field-result-missing.png` explicitly shows
-  search network failure, not a missing AX row alone. Home/results visually
-  checked; background abandon/resume successes observed. Do not attribute every
-  failure to this PR without more evidence. Failed attempt is pinned by
-  `live-run-attempt1.log` and artifact **11561028078**; retain on green retry.
 
 - #395 CI **37778457263**, Native **37778457236**, live **37781120740** passed.
   Native merge **31924176**, parents base **6dd96200** and head **1547b250**;
@@ -68,12 +62,12 @@ time-order analysis, not injected Swift race reproductions.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: resume the sole feedback waiter,
-  deduplicate queued fixed-head CI/comments; await #395 retry/reply, inspect
-  terminal artifacts, final P1/P2 conclusion and merge/delete if clear.
-- `LIVE-CATALOGUE-FALLBACK` — `evidence-open`: recurrent first-attempt failure
-  now has screenshot network-error evidence and SSL logs; compare the pending
-  retry and preserve both attempts. Existing failure not yet isolated to code.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #395 fixed-head live result
+  via blocking `--run 37796943981`; inspect its artifacts, final P1/P2 conclusion,
+  merge/delete if clear, then resume the sole feedback waiter.
+- `LIVE-CATALOGUE-FALLBACK` — `queued`, nonblocking: city-search first attempt
+  failed; unchanged-head retry passed. If recurrent, preserve actual response,
+  completion and scroll evidence; AX mounted rows alone are insufficient.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`, nonblocking: 八号铁 164 label
   varies on unchanged fixture; no product regression claimed.
 - `IOS-STATUS-CONTRAST` — `queued`, nonblocking dark status text on dark maps.
@@ -109,8 +103,7 @@ time-order analysis, not injected Swift race reproductions.
 - Fixed-head #395 snapshot `/dev/shm/garmin-ai-caddie-pr395-5f3c0c3c-20261008`
   closed after open-file check; named `--rm` contract container absent.
   Manifest/evidence: `operations/pr395-5f3c0c3c-20261008`; source archive,
-  artifacts and logs retained. Three local live PNG copies (599,602 bytes)
-  match remote hashes and are in recoverable user trash; no active review runtime.
+  artifacts and logs retained, no local PNG copies or active review runtime.
 - #395 snapshot `/dev/shm/garmin-ai-caddie-pr395-1547b250-20261008` closed
   after open-file check; `--rm` contract container gone. Two local PNG copies
   match persistent evidence hashes and were moved to recoverable user trash.
@@ -129,9 +122,9 @@ time-order analysis, not injected Swift race reproductions.
   do not stage them. Prior local review copies are recoverable in user trash.
 - Deployed waiter `operations/blocking-waits/wait_for_conclusion.sh`; SHA256
   `37dd8727b1f47c09d56512b52765dc2984dafe6cf90381803d302338a6048179`.
-- Last feedback waiter delivered **6062377485** and is closed. Native wait
-  handle **51102** returned attempt-1 failure and is closed; no wait pending.
-  Resume sole `--feedback`, handle in `active_feedback_wait`; retry CI is external.
+- Last feedback waiter delivered **6062377485** and is closed. Next wait is
+  live run **37796943981**; store terminal handle in `active_native_wait`.
+  After review, resume sole `--feedback`, handle in `active_feedback_wait`.
   Recover stored pending handles after compaction; never start replacements.
 - While pending: **clock.sleep(300000) → one write_stdin** with a short
   observation interval, repeat in the same turn. No CI/ps/state/log polling,
@@ -141,16 +134,14 @@ time-order analysis, not injected Swift race reproductions.
 
 ## Next action and stopping
 
-Release and fixed-head review replies complete; resume cursor to handle new
-author reply/retry evidence. Deduplicate old #393/#394/#395 events, including
-author **6061786172 / 6062377485**, own **6062275804 / 6064061351**, release
-**6061833380**, old-head runs and fixed-head required Native/CI. The first failed
-live attempt above is already reviewed; only a new attempt/reply needs work.
+Release reply is complete; await #395 live, inspect artifacts, reply and resume the
+existing cursor. Deduplicate old #393/#394/#395 events, including original
+author evidence **6061786172**, own review **6062275804** and release **6061833380**.
 Preserve all new evidence on homeserver.
 48-hour quiet stopping is **not eligible while #395 is open**; count only new
 external PR events, never own comments/merges/CI/docs. Absolute owner stop:
 **2026-10-09 23:59 UTC**. At stop close/hand back owned runtime resources.
 Keep this same-turn waiting method through the deadline. Ledger ≤200 lines.
 Latest superseded ledger is archived verbatim in
-`docs/archive/PROJECT_STATE-2026-10-08T1610-pr395-live-first-failure.md`.
+`docs/archive/PROJECT_STATE-2026-10-08T1519-pr395-live-wait.md`.
 After compaction: read this ledger, inspect Git/agent state, resume this slice.
