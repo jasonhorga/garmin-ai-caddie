@@ -1,9 +1,14 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Superseded by current-head PR398 source review 6077762890 and owned snapshot closure.
+The following ledger is preserved verbatim.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 09:00 UTC
+**Updated:** 2026-10-09 08:48 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `91859eb8d938af6fca6948d4ae3f93bf2f35c1bb` (#397)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
@@ -11,11 +16,11 @@
 ## Current state and feedback deduplication
 
 Claude restored and implementing. Open ready **#398**, exact head
-`a9fd08d0baf6ab8f9dec766bec4828f31e2513a7`, base **4bfe2c97**, branch
+`aa18d0d2078c5f21d302ed248bdec201cc60b133`, base **4bfe2c97**, branch
 `claude/whole-course-download-progress-20261009`: whole-course progress only
-in settings, consistent with approved design. Current CI **37907199430** green;
-required Native **37907199589** pending at metadata read. Two **P2 (must fix)**
-posted **6077762890**, static source findings, no runtime reproduction claims:
+in settings, consistent with approved design. CI **37905448384** green;
+required Native **37905448428** pending at metadata read. Source review has
+two static P2 candidates, not runtime reproduction claims:
 - Retained live value keyed only by roundId. Add/remove second loop keeps
   roundId, so settings can display obsolete 9/18 totals/completion until async
   revalidation publishes. Need retained identity/lifecycle invalidation and
@@ -24,11 +29,8 @@ posted **6077762890**, static source findings, no runtime reproduction claims:
   caught before unconditional publish, final publish precedes persistence.
   Need durable-facts readiness and denied-facts-write regression; metadata
   available in memory does not prove a reusable offline hole.
-Initial **aa18d0d2** independent contracts **123 / 5.884 s / OK**, runtime closed.
-Current a9fd08d0 changes only progress bar to SwiftUI Capsule; both data paths
-unchanged. Initial CI **37905448384** handled; Native **37905448428** terminal
-unconsumed. No current-head Native/artifact approval. Heads/own6077762890
-handled in `handled_pr398_events`, Git ref `origin/pr398-review`.
+Independent contracts/snapshot setup recorded before start, source P2 comment
+not yet posted; no Native/artifact approval. Git ref `origin/pr398-review`.
 
 #397 accepted/merged **08:19:46 UTC**,
 **91859eb8**; final reviewed head **58928fac5d241cb52fdf5f8cf995d80878b8db18**.
@@ -59,15 +61,15 @@ preserved. Post-merge open PR inventory **08:22 UTC: empty**.
   #396 final **f073a77d**, merge **3bd1ce4d**; CI/Native **688 / 448**,
   independent **122 / 5.225 s**; live **37852249384 attempt 2** passed.
   Attempt-1 home-nearby failure retained, transport root cause still unproven.
-- Last known external CI event **08:50:19 UTC** (#398 current CI); #397 final author
+- Last known external CI event **08:33:19 UTC** (#398 CI); #397 final author
   request **07:54:58 UTC** already fulfilled by later PASS/merge.
   Own reviews/merges/docs CI never reset quiet condition. Returned waiter log:
   read last matched event JSON only; never edit/delete cursor.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #398 two P2 fixes/new head
-  through sole waiter; exact-head contracts/required Native, inspect
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: review #398 exact aa18d0d2,
+  independent contracts, return source P2s; wait fix/required Native, inspect
   screenshots before acceptance. New ready PRs remain actionable.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: nonblocking unchanged fixture
   八号铁 164 label variation; no product regression claimed.
@@ -99,15 +101,11 @@ preserved. Post-merge open PR inventory **08:22 UTC: empty**.
 
 ## Owned resources and wait boundary
 
-- #398 **27,660,535-byte** read-only snapshot
-  `/dev/shm/garmin-ai-caddie-pr398-aa18d0d2-20261009` removed after scoped checks,
-  named --rm `codex-pr398-aa18d0d2-contracts-20261009` absent.
+- #398 planned read-only snapshot `/dev/shm/garmin-ai-caddie-pr398-aa18d0d2-20261009`,
+  named --rm `codex-pr398-aa18d0d2-contracts-20261009`, expires owner deadline.
   Manifest `.codex-pr398-aa18d0d2-review-manifest.md`; persistent evidence
-  `operations/pr398-aa18d0d2-20261009`: tar/contracts/cleanup retained; tar SHA256
-  `a879e509949fd31e34f3def215fb532fc5342f730f942ddd45d8f030c0155a05`.
-  Terminal **57676** complete. Current-head review body
-  `operations/pr398-a9fd08d0-20261009/review.md`. 62 GiB free, production running;
-  no dependencies/service/coding worktree/inspection copies.
+  `operations/pr398-aa18d0d2-20261009`. Capacity 62 GiB / 4.5 GiB available RAM;
+  no dependencies/service/coding worktree/PNG copies planned.
 - #397 final evidence `operations/pr397-58928fac-20261009`: source tar,
   independent contracts, Native artifacts/log/hashes/source proof, live ZIPs/
   artifacts/log, three labelled sheets, final review/merge/cleanup receipts.
@@ -122,8 +120,8 @@ preserved. Post-merge open PR inventory **08:22 UTC: empty**.
   Native failure log, P2 reviews. Initial snapshot **27,598,059 bytes** removed.
   #396/#395 original source/test/artifact/review/cleanup evidence retained;
   all owned runtime and inspection copies closed.
-- No review/coding worktree, runtime container, browser, port, tunnel, private
-  venv, inspection PNG directory, artifact terminal or subagent active.
+- No coding worktree, browser, port, tunnel, private venv, inspection PNG
+  directory, artifact terminal or subagent active; sole planned #398 review above.
   Preserve unrelated dirty `ops/pr_feedback_monitor.sh` and older `.codex-*`.
 - Protected stopped candidate `aicaddie-release-3614bf6f-candidate-20261006`,
   39089 inactive, private DB `aicaddie_candidate_3614bf6f_20261006`; stopped
@@ -141,10 +139,10 @@ preserved. Post-merge open PR inventory **08:22 UTC: empty**.
 
 ## Next action and stopping
 
-Commit/push real #398 source P2 review/resource closure, then sole waiter for
-fix/Native. Do not approve a9fd08d0 while P2s remain; verify new exact head,
-required Native/images before acceptance. #397 final-request dedup accompanies
-this real review, never committed alone. Older-head tests do not approve a fix.
+Run #398 exact-head independent contracts, close snapshot/container, post the
+two source P2s with evidence. Then sole waiter for fix/Native; do not approve
+until source/required Native/images verified. #397 closure pushed **4bfe2c97**;
+its final author request dedup joins this real review, never committed alone.
 Absolute stop **2026-10-09 23:59 UTC**; close/hand back owned runtime then.
 Earlier stop requires 48 hours without external PR events and no open PRs;
 quiet condition not met. Same-turn waiting method through owner deadline.

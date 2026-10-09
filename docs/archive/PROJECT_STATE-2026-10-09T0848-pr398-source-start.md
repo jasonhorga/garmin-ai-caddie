@@ -1,36 +1,21 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Superseded by exact-head PR398 review; PR397 dedup notes join this real review.
+The following ledger is preserved verbatim.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 09:00 UTC
+**Updated:** 2026-10-09 08:23 UTC
 **Canonical branch:** `main`
 **Latest integrated code:** `91859eb8d938af6fca6948d4ae3f93bf2f35c1bb` (#397)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and feedback deduplication
 
-Claude restored and implementing. Open ready **#398**, exact head
-`a9fd08d0baf6ab8f9dec766bec4828f31e2513a7`, base **4bfe2c97**, branch
-`claude/whole-course-download-progress-20261009`: whole-course progress only
-in settings, consistent with approved design. Current CI **37907199430** green;
-required Native **37907199589** pending at metadata read. Two **P2 (must fix)**
-posted **6077762890**, static source findings, no runtime reproduction claims:
-- Retained live value keyed only by roundId. Add/remove second loop keeps
-  roundId, so settings can display obsolete 9/18 totals/completion until async
-  revalidation publishes. Need retained identity/lifecycle invalidation and
-  held revalidation regression for same-round add/remove/account transitions.
-- Count uses in-memory prep plus on-disk PNG. Facts persistence errors are
-  caught before unconditional publish, final publish precedes persistence.
-  Need durable-facts readiness and denied-facts-write regression; metadata
-  available in memory does not prove a reusable offline hole.
-Initial **aa18d0d2** independent contracts **123 / 5.884 s / OK**, runtime closed.
-Current a9fd08d0 changes only progress bar to SwiftUI Capsule; both data paths
-unchanged. Initial CI **37905448384** handled; Native **37905448428** terminal
-unconsumed. No current-head Native/artifact approval. Heads/own6077762890
-handled in `handled_pr398_events`, Git ref `origin/pr398-review`.
-
-#397 accepted/merged **08:19:46 UTC**,
+Claude restored and implementing. #397 accepted/merged **08:19:46 UTC**,
 **91859eb8**; final reviewed head **58928fac5d241cb52fdf5f8cf995d80878b8db18**.
 Final PASS **6077199917**, source branch deletion verified 404; all non-doc
 merged source equals reviewed head. Local main fast-forwarded, dirty monitor
@@ -59,16 +44,15 @@ preserved. Post-merge open PR inventory **08:22 UTC: empty**.
   #396 final **f073a77d**, merge **3bd1ce4d**; CI/Native **688 / 448**,
   independent **122 / 5.225 s**; live **37852249384 attempt 2** passed.
   Attempt-1 home-nearby failure retained, transport root cause still unproven.
-- Last known external CI event **08:50:19 UTC** (#398 current CI); #397 final author
-  request **07:54:58 UTC** already fulfilled by later PASS/merge.
+- Last known external reply **07:54:58 UTC** (#397 final verification request).
   Own reviews/merges/docs CI never reset quiet condition. Returned waiter log:
   read last matched event JSON only; never edit/delete cursor.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #398 two P2 fixes/new head
-  through sole waiter; exact-head contracts/required Native, inspect
-  screenshots before acceptance. New ready PRs remain actionable.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await external ready PR/feedback
+  through sole waiter; test exact heads, required Native/screenshots for mobile,
+  post P1/P2 or PASS and merge/delete branch when clear. No open PR at inventory.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: nonblocking unchanged fixture
   八号铁 164 label variation; no product regression claimed.
 - `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark status/navigation text
@@ -80,7 +64,7 @@ preserved. Post-merge open PR inventory **08:22 UTC: empty**.
 
 - **0.1.0 (82)** internal TestFlight; upload **37774511661** successful.
   App **6dd96200b199ac8f5ea760719fb295bbc4eea1ef** includes #394,
-  **excludes #395/#396/#397/#398**. No newer upload/server deployment claimed.
+  **excludes #395/#396/#397**. No newer upload/server deployment claimed.
 - Apple read-only **37776197288**: **VALID / IN_BETA_TESTING**, internal group
   contains 82, no external distribution; `internalReady=false` discrepancy
   retained. IPA SHA256
@@ -99,15 +83,6 @@ preserved. Post-merge open PR inventory **08:22 UTC: empty**.
 
 ## Owned resources and wait boundary
 
-- #398 **27,660,535-byte** read-only snapshot
-  `/dev/shm/garmin-ai-caddie-pr398-aa18d0d2-20261009` removed after scoped checks,
-  named --rm `codex-pr398-aa18d0d2-contracts-20261009` absent.
-  Manifest `.codex-pr398-aa18d0d2-review-manifest.md`; persistent evidence
-  `operations/pr398-aa18d0d2-20261009`: tar/contracts/cleanup retained; tar SHA256
-  `a879e509949fd31e34f3def215fb532fc5342f730f942ddd45d8f030c0155a05`.
-  Terminal **57676** complete. Current-head review body
-  `operations/pr398-a9fd08d0-20261009/review.md`. 62 GiB free, production running;
-  no dependencies/service/coding worktree/inspection copies.
 - #397 final evidence `operations/pr397-58928fac-20261009`: source tar,
   independent contracts, Native artifacts/log/hashes/source proof, live ZIPs/
   artifacts/log, three labelled sheets, final review/merge/cleanup receipts.
@@ -141,10 +116,10 @@ preserved. Post-merge open PR inventory **08:22 UTC: empty**.
 
 ## Next action and stopping
 
-Commit/push real #398 source P2 review/resource closure, then sole waiter for
-fix/Native. Do not approve a9fd08d0 while P2s remain; verify new exact head,
-required Native/images before acceptance. #397 final-request dedup accompanies
-this real review, never committed alone. Older-head tests do not approve a fix.
+Review/merge/resource closure committed/pushed **4bfe2c97**. Start sole feedback
+waiter. Pending dedup note joins next real work; do not commit it alone.
+Dedup all listed completed heads/comments/runs;
+new ready PR is actionable without a request. Native/red PR goes to author.
 Absolute stop **2026-10-09 23:59 UTC**; close/hand back owned runtime then.
 Earlier stop requires 48 hours without external PR events and no open PRs;
 quiet condition not met. Same-turn waiting method through owner deadline.
