@@ -455,6 +455,10 @@ public final class LiveRoundAppModel: ObservableObject {
     private var offlineStorageMeasuredAt: Date?
     private var offlineStorageGrewAt: Date?
     private var offlineStorageRemeasureInFlight = false
+    private var offlineStorageRemeasureTask: Task<Void, Never>?
+    #if DEBUG
+    private(set) var offlineStorageMeasurementCountForTesting = 0
+    #endif
     private var courseOptionsRefreshSucceeded = false
     /// The last catalogue this account accepted (from the network or, at launch, from disk).
     /// `courseOptions` publishes it whole until a refresh fails; after a failure only its downloaded
@@ -1753,8 +1757,18 @@ public final class LiveRoundAppModel: ObservableObject {
         publishOfflineStorageUsage(usage, for: offlineStore.storageScope, measuredAt: Date())
     }
 
-    func noteOfflineStorageGrewForTesting() {
-        offlineStorageGrewAt = Date()
+    func noteOfflineStorageGrewForTesting(at date: Date = Date()) {
+        offlineStorageGrewAt = date
+    }
+
+    /// Runs the speculative re-measure and any retry it starts, to completion.
+    func remeasureOfflineStorageForTesting() async {
+        remeasureOfflineStorage()
+        var awaited: Task<Void, Never>?
+        while let task = offlineStorageRemeasureTask, task != awaited {
+            awaited = task
+            await task.value
+        }
     }
 
     func beginRoundPreparationForTesting() -> UUID {
@@ -3522,6 +3536,9 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Settings asks on appear; the walk over the bitmap directory runs off the main actor.
     public func refreshOfflineStorageUsage() async {
+        #if DEBUG
+        offlineStorageMeasurementCountForTesting += 1
+        #endif
         let scope = offlineStore.storageScope
         let measuredAt = Date()
         let usage = await Task.detached(priority: .utility) { scope.usage() }.value
@@ -4748,12 +4765,23 @@ public final class LiveRoundAppModel: ObservableObject {
         speculativeJobsMayRun && (measuredSpeculativeCourseRoom ?? 0) >= 1
     }
 
-    private func remeasureOfflineStorage() {
+    private func remeasureOfflineStorage(retryIfStale: Bool = true) {
         guard !offlineStorageRemeasureInFlight else { return }
         offlineStorageRemeasureInFlight = true
-        Task { [weak self] in
-            await self?.refreshOfflineStorageUsage()
-            self?.offlineStorageRemeasureInFlight = false
+        offlineStorageRemeasureTask = Task { [weak self] in
+            await self?.runOfflineStorageRemeasure(retryIfStale: retryIfStale)
+        }
+    }
+
+    private func runOfflineStorageRemeasure(retryIfStale: Bool) async {
+        await refreshOfflineStorageUsage()
+        offlineStorageRemeasureInFlight = false
+        // A download that finished during the walk made this measurement stale before it was
+        // published, and its own request to measure found this walk still in flight: measure once
+        // more. Once only, so a clock that moved backwards cannot keep the walks going.
+        if retryIfStale, measuredSpeculativeCourseRoom == nil, speculativeJobsMayRun,
+           prepCourseDownloads.contains(where: { $0.isSpeculative && $0.phase == .queued }) {
+            remeasureOfflineStorage(retryIfStale: false)
         }
     }
 
