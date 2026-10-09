@@ -33,7 +33,8 @@ public struct ResultsView: View {
                 errorText: load.errorText,
                 apiBaseURL: apiBaseURL,
                 adminToken: adminToken,
-                isLoading: load.isLoading
+                isLoading: load.isLoading,
+                offlineStore: offlineStore
             )
         }
         .background(HubStyle.grouped)
@@ -167,6 +168,8 @@ struct ResultsLandingContent: View {
     var adminToken: String? = nil
     /// A request is still running (first load, or a refresh behind cached content).
     var isLoading: Bool = false
+    /// Lets 表现分析 open on its last cached window.
+    var offlineStore: OfflineStore? = nil
 
     /// The chart's selected x (a round index); the nearest round is shown.
     @State private var selectedTrendX: Double?
@@ -376,10 +379,10 @@ struct ResultsLandingContent: View {
     private var entries: some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
             entry("表现分析", "丢杆在哪", id: "analysis") {
-                StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken)
+                StatsView(apiBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore)
             }
             entry("时间与频率", "月 · 季 · 年 · 日历", id: "time") {
-                ResultsTrendView(apiBaseURL: apiBaseURL, adminToken: adminToken)
+                ResultsTrendView(apiBaseURL: apiBaseURL, adminToken: adminToken, initialStats: stats)
             }
             entry("成绩分布", "分数段 · 按 Par", id: "distribution") {
                 ScoreDistributionView(stats: stats, apiBaseURL: apiBaseURL, adminToken: adminToken,
@@ -659,9 +662,17 @@ public struct ResultsTrendView: View {
     let apiBaseURL: URL?
     let adminToken: String?
     @State private var grain: ResultsTimePresentation.Grain = .quarter
+    /// Seeded with 成绩's own all-window payload (the same request), so the page opens at once and
+    /// the request below only refreshes it.
     @State private var stats: MobileStats?
     @State private var isLoading = true
     @State private var failed = false
+
+    public init(apiBaseURL: URL?, adminToken: String?, initialStats: MobileStats? = nil) {
+        self.apiBaseURL = apiBaseURL
+        self.adminToken = adminToken
+        _stats = State(initialValue: initialStats)
+    }
     /// Only the newest load writes back (a Garmin refresh can overlap the first load).
     @State private var generation = 0
     @State private var destination: ResultsTrendDestination?

@@ -781,7 +781,11 @@ public final class LiveRoundAppModel: ObservableObject {
             let (freshStats, freshArchive) = await (stats, archive)
             guard !Task.isCancelled, self.resultsCacheGeneration == generation,
                   self.boundPlayerId == playerId else { return }
-            self.resultsCacheRefreshTask = nil
+            // The task stays registered through the review prefetch below, so a foreground request,
+            // round start, Garmin pull or account switch abandons that too.
+            defer {
+                if self.resultsCacheGeneration == generation { self.resultsCacheRefreshTask = nil }
+            }
             var committed = false
             if let freshStats {
                 committed = ((try? self.offlineStore.commitMobileStats(freshStats, ticket: ticket)) ?? false) || committed
@@ -793,6 +797,9 @@ public final class LiveRoundAppModel: ObservableObject {
             self.lastResultsCacheRefreshAt = Date()
             self.recordUITestLatency("results-cache.refreshed stats=\(freshStats != nil) archive=\(freshArchive != nil)")
             NotificationCenter.default.post(name: .resultsCacheDidUpdate, object: nil)
+            if let newest = freshArchive?.groups.first?.rounds.first {
+                await self.prefetchRoundReview(newest, using: syncClient, playerId: playerId, generation: generation)
+            }
         }
     }
 
@@ -819,6 +826,48 @@ public final class LiveRoundAppModel: ObservableObject {
         abandonResultsCacheRefresh(retryLater: false)
         lastResultsCacheRefreshAt = nil
         refreshResultsCacheIfNeeded()
+    }
+
+    /// The round the player is most likely to open next (上一场 on the home, the top of 成绩): put
+    /// its scorecard and every played hole's shot map on disk, so its review opens at once and
+    /// offline. Only what is missing is fetched, one request at a time. It runs inside the refresh task,
+    /// so abandoning the refresh (foreground request, round start, Garmin pull, account switch) cancels
+    /// the request in flight, and nothing is saved once that generation is retired.
+    private func prefetchRoundReview(
+        _ round: HistoryRoundCard,
+        using syncClient: SyncClient,
+        playerId: String?,
+        generation: Int
+    ) async {
+        let ticket = RoundReviewDiskCache.beginRequest()
+        func mayContinue() -> Bool {
+            !Task.isCancelled && resultsCacheGeneration == generation && RoundReviewDiskCache.isCurrent(ticket)
+                && boundPlayerId == playerId && liveRoundState == nil
+                && roundPreparationToken == nil && foregroundCourseRequestCount == 0
+        }
+        var detail = RoundReviewDiskCache.loadDetail(roundRef: round.id)
+        if detail == nil {
+            guard mayContinue() else { return }
+            detail = try? await syncClient.fetchRoundDetail(
+                roundRef: round.id, globalId: round.globalId, backGlobalId: round.backGlobalId,
+                nine: round.nine, teeBox: round.teeBox
+            )
+            guard let detail, mayContinue() else { return }
+            RoundReviewDiskCache.saveDetail(detail, roundRef: round.id, ticket: ticket)
+        }
+        guard let detail else { return }
+        let missing = RoundReviewHoles(detail.scorecard).played.filter {
+            RoundReviewDiskCache.loadShotMap(roundRef: round.id, hole: $0) == nil
+        }
+        for hole in missing {
+            guard mayContinue() else { return }
+            guard let map = try? await syncClient.fetchRoundShotMap(
+                roundRef: round.id, hole: hole, globalId: round.globalId,
+                backGlobalId: round.backGlobalId, nine: round.nine, teeBox: round.teeBox
+            ), mayContinue() else { continue }
+            RoundReviewDiskCache.saveShotMap(map, roundRef: round.id, hole: hole, ticket: ticket)
+        }
+        recordUITestLatency("results-cache.review-prefetched round=\(round.id) holes=\(missing.count)")
     }
 
     #if DEBUG

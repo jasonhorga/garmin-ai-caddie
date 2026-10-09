@@ -1060,6 +1060,13 @@ public final class OfflineStore {
         try commitResults("stats", ticket: ticket) { try saveMobileStats(stats) }
     }
 
+    /// A 表现分析 window, under the same account and ordering rules (`all` is the 成绩 file).
+    @discardableResult
+    public func commitMobileStats(_ stats: MobileStats, window: String, ticket: ResultsRequestTicket) throws -> Bool {
+        guard window != "all" else { return try commitMobileStats(stats, ticket: ticket) }
+        return try commitResults("stats-\(window)", ticket: ticket) { try saveMobileStats(stats, window: window) }
+    }
+
     @discardableResult
     public func commitHistoryRoundsArchive(_ archive: HistoryRoundsArchive, ticket: ResultsRequestTicket) throws -> Bool {
         try commitResults("archive", ticket: ticket) { try saveHistoryRoundsArchive(archive) }
@@ -1080,6 +1087,28 @@ public final class OfflineStore {
     public func loadMobileStats() throws -> MobileStats? {
         guard FileManager.default.fileExists(atPath: mobileStatsURL.path) else { return nil }
         return try decoder.decode(MobileStats.self, from: Data(contentsOf: mobileStatsURL))
+    }
+
+    /// 表现分析 windows (`last10` / `last20` / `12m`) are separate payloads; `all` is the file above.
+    /// Kept per account like the rest, so the page opens on its last answer instead of a spinner.
+    public func saveMobileStats(_ stats: MobileStats, window: String) throws {
+        guard let url = mobileStatsURL(window: window) else { return }
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try encoder.encode(stats).write(to: url, options: [.atomic])
+    }
+
+    public func loadMobileStats(window: String) throws -> MobileStats? {
+        guard let url = mobileStatsURL(window: window),
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return try decoder.decode(MobileStats.self, from: Data(contentsOf: url))
+    }
+
+    private func mobileStatsURL(window: String) -> URL? {
+        switch window {
+        case "all": return mobileStatsURL
+        case "last10", "last20", "12m": return directoryURL.appendingPathComponent("mobile_stats_\(window).json")
+        default: return nil
+        }
     }
 
     /// Preserve one immutable whole-course template per physical course/Tee (B4b-2): the canonical

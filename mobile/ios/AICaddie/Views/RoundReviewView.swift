@@ -49,6 +49,8 @@ public struct RoundReviewView: View {
     @State private var errorText: String?
     @State private var shotMapHole: ShotMapHole?
     @StateObject private var shotMapRepository: RoundShotMapRepository
+    /// A retry or post-edit reload, owned by the page so leaving it cancels the request.
+    @State private var reloadTask: Task<Void, Never>?
 
     public init(roundRef: String, fallbackCourseName: String? = nil, apiBaseURL: URL? = nil, adminToken: String? = nil, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil) {
         self.roundRef = roundRef
@@ -86,7 +88,7 @@ public struct RoundReviewView: View {
                             guard reviewHoles.canOpen(hole) else { return }
                             shotMapHole = ShotMapHole(hole: hole)
                         },
-                        onRetry: { Task { await load() } }
+                        onRetry: { reload() }
                     )
                 }
             }
@@ -98,6 +100,7 @@ public struct RoundReviewView: View {
         .task(id: roundRef) {
             await load()
         }
+        .onDisappear { reloadTask?.cancel() }
         .fullScreenCover(item: $shotMapHole) { item in
             NavigationStack {
                 RoundShotMapPagerScreen(
@@ -110,7 +113,7 @@ public struct RoundReviewView: View {
                     nine: nine,
                     teeBox: teeBox,
                     scorecard: detail?.scorecard ?? [],
-                    onSaved: { Task { await load() } },
+                    onSaved: { reload() },
                     canonicalRoundRef: detail?.roundRef,
                     stripHoles: reviewHoles.strip
                 )
@@ -138,14 +141,53 @@ public struct RoundReviewView: View {
         }
         isLoading = detail == nil
         errorText = nil
-        do {
-            let fresh = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).fetchRoundDetail(roundRef: roundRef, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox)
+        let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
+        switch await RoundReviewFreshLoad.detail(
+            client, roundRef: roundRef, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox
+        ) {
+        case .cancelled, .staleAccount:
+            return
+        case let .answer(fresh?):
             detail = fresh
-            RoundReviewDiskCache.saveDetail(fresh, roundRef: roundRef)
-        } catch {
+        case .answer(nil):
             if detail == nil { errorText = "这场暂时取不到(网络或数据)" }
         }
         isLoading = false
+    }
+
+    @MainActor
+    private func reload() {
+        reloadTask?.cancel()
+        reloadTask = Task { await load() }
+    }
+}
+
+/// The review scorecard request and its cache write, out of the view so the account-switch and
+/// cancellation timing is testable. The ticket is taken when the request starts; an answer for a
+/// player no longer signed in, or for a cancelled page, is neither written nor shown.
+enum RoundReviewFreshLoad {
+    enum Outcome<Value> {
+        /// nil is a failed request.
+        case answer(Value?)
+        case staleAccount
+        case cancelled
+    }
+
+    @MainActor
+    static func detail(
+        _ client: SyncClient,
+        roundRef: String,
+        globalId: Int?,
+        backGlobalId: Int?,
+        nine: String?,
+        teeBox: String?
+    ) async -> Outcome<RoundDetail> {
+        let ticket = RoundReviewDiskCache.beginRequest()
+        let fresh = try? await client.fetchRoundDetail(roundRef: roundRef, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox)
+        guard !Task.isCancelled else { return .cancelled }
+        guard RoundReviewDiskCache.isCurrent(ticket) else { return .staleAccount }
+        if let fresh { RoundReviewDiskCache.saveDetail(fresh, roundRef: roundRef, ticket: ticket) }
+        return .answer(fresh)
     }
 }
 
