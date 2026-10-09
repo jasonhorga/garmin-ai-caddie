@@ -612,6 +612,7 @@ public final class OfflineStore {
     private var prepCourseDownloadsURL: URL
     private var historyRoundsURL: URL
     private var mobileStatsURL: URL
+    private var courseOptionsURL: URL
     private var pendingRoundFinishesURL: URL
     private var pendingRoundFinishesBackupURL: URL
     private var pendingMediaDirectoryURL: URL
@@ -709,6 +710,7 @@ public final class OfflineStore {
         self.liveProgressURL = resolvedDirectory.appendingPathComponent("live_progress.json")
         self.prepCourseDownloadsURL = resolvedDirectory.appendingPathComponent("prep_course_downloads.json")
         self.historyRoundsURL = resolvedDirectory.appendingPathComponent("history_rounds.json")
+        self.courseOptionsURL = resolvedDirectory.appendingPathComponent("course_options_v1.json")
         self.mobileStatsURL = resolvedDirectory.appendingPathComponent("mobile_stats.json")
         self.pendingRoundFinishesURL = resolvedDirectory.appendingPathComponent("pending_round_finishes.json")
         self.pendingRoundFinishesBackupURL = resolvedDirectory.appendingPathComponent("pending_round_finishes.backup.json")
@@ -776,6 +778,7 @@ public final class OfflineStore {
         liveProgressURL = directory.appendingPathComponent("live_progress.json")
         prepCourseDownloadsURL = directory.appendingPathComponent("prep_course_downloads.json")
         historyRoundsURL = directory.appendingPathComponent("history_rounds.json")
+        courseOptionsURL = directory.appendingPathComponent("course_options_v1.json")
         mobileStatsURL = directory.appendingPathComponent("mobile_stats.json")
         pendingRoundFinishesURL = directory.appendingPathComponent("pending_round_finishes.json")
         pendingRoundFinishesBackupURL = directory.appendingPathComponent("pending_round_finishes.backup.json")
@@ -1070,6 +1073,22 @@ public final class OfflineStore {
     @discardableResult
     public func commitHistoryRoundsArchive(_ archive: HistoryRoundsArchive, ticket: ResultsRequestTicket) throws -> Bool {
         try commitResults("archive", ticket: ticket) { try saveHistoryRoundsArchive(archive) }
+    }
+
+    /// The account's course catalogue (`courses/options`), so 开始一场 and the home have loop names
+    /// and tees before the network answers. One file, replaced whole by each accepted answer; its size
+    /// is bounded by the server's response. Same account and ordering rules as the 成绩 files.
+    @discardableResult
+    public func commitCourseOptions(_ courses: [MobileCourseOption], ticket: ResultsRequestTicket) throws -> Bool {
+        try commitResults("course-options", ticket: ticket) {
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            try encoder.encode(courses).write(to: courseOptionsURL, options: [.atomic])
+        }
+    }
+
+    public func loadCourseOptions() throws -> [MobileCourseOption]? {
+        guard FileManager.default.fileExists(atPath: courseOptionsURL.path) else { return nil }
+        return try decoder.decode([MobileCourseOption].self, from: Data(contentsOf: courseOptionsURL))
     }
 
     /// Check and write under one lock, which `configurePersonalDirectory` also takes, so a rebind

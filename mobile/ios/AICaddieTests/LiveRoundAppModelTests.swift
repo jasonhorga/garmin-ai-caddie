@@ -1463,11 +1463,15 @@ final class LiveRoundAppModelTests: XCTestCase {
     /// An offline store with installed Black Knight loops and a network that answers 503.
     private func offlineBlackKnightModel(
         roundId: String,
-        installedGlobalIds: [Int]
+        installedGlobalIds: [Int],
+        cachedCatalogue: [MobileCourseOption] = []
     ) throws -> (model: LiveRoundAppModel, store: OfflineStore) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
+        if !cachedCatalogue.isEmpty {
+            XCTAssertTrue(try store.commitCourseOptions(cachedCatalogue, ticket: store.beginResultsRequest()))
+        }
         let source = try localFixturePackage()
         let labels = [31794: "A", 31795: "B", 31796: "C"]
         for globalId in installedGlobalIds {
@@ -1510,6 +1514,31 @@ final class LiveRoundAppModelTests: XCTestCase {
             syncClient: client
         )
         return (model, store)
+    }
+
+    /// Speed plan batch 2: the catalogue cached by an earlier launch is on screen before the network
+    /// answers. When the refresh fails, only courses the phone can play offline stay: a cached sibling
+    /// loop or venue that is not installed must not become a dead-end choice at the turn or on 开始.
+    func testACachedCatalogueShowsAtLaunchAndKeepsOnlyInstalledCoursesAfterAFailedRefresh() async throws {
+        let cached = [
+            MobileCourseOption(globalId: 31794, name: "Black Knight A", holes: 9, tees: ["Blue", "White"]),
+            MobileCourseOption(globalId: 31795, name: "Black Knight B", holes: 9),
+            MobileCourseOption(globalId: 40001, name: "Not Downloaded", roundCount: 7, holes: 18),
+        ]
+        let (model, store) = try offlineBlackKnightModel(
+            roundId: "black-knight-cached-catalogue",
+            installedGlobalIds: [31794],
+            cachedCatalogue: cached
+        )
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        XCTAssertEqual(model.courseOptions, cached, "the last catalogue shows before any request")
+
+        await model.refreshCourseOptions()
+
+        XCTAssertEqual(model.courseOptions.map(\.globalId), [31794])
+        XCTAssertEqual(model.courseOptions.first?.tees, ["Blue", "White"], "the installed row keeps its catalogue facts")
+        XCTAssertEqual(try store.loadCourseOptions(), cached, "a failure never rewrites the cache")
     }
 
     /// The turn's continuation fails offline when the chosen loop is not installed: the round and
