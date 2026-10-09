@@ -3,54 +3,50 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 20:54 UTC
-**Canonical branch:** `main`; product merge `188399c9` (#402);
-review bookkeeping `fe44a8a9`
+**Updated:** 2026-10-09 21:34 UTC
+**Canonical branch:** `main`; product merge `188399c9` (#402)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state
 
-#403 OPEN/ready, exact reviewed head
-`e5788c79e369e7bad050b92c19655827ae49627e`,
+#403 OPEN/ready, head `fd73dca520b148a4afd934acb77f643a0346a2fa`,
 branch `claude/new-area-prefetch-20261009`, merge-base `188399c9`.
-P2 review comment **6089071054**; do not merge yet.
+Code/Native/screenshots PASS; #403 old P2 **6089071054 closed**.
+Follow-up PASS/CI-gate comment **6089624424** posted and handled.
+Do not merge until required Docker CI is green.
 
-P2: a newer nearby result clears/replaces pendingNewArea, but an older Tee pass
-may still park its request again, queue old courses or publish its anchor.
-Need a verifiable current intent/pass identity (including no-area invalidation),
-with completion validation before park/enqueue/anchor. Preserve same-area
-yield/resume; drop superseded areas. Requested model regressions: A→home/covered
-and A→B with old completion released after accepting the new result.
-Source-path finding only; no independent Swift interleaving reproduction claimed.
+New-area intent remains present while the pass runs. Replacing/clearing it bumps
+generation; obsolete completion cannot keep the intent, enqueue or anchor.
+Same-area foreground/network yield preserves read Tees. A→home and controlled
+A→B regression cases explicitly passed; bounded anchor retry note corrected
+according to author reply at21:19:02 (IC_kwDOSeO0vs8AAAABavVhQQ).
 
-One nonblocking description correction: leaving for home and returning does not
-change the persistent anchor; another newly anchored area is needed. Keep the
-bounded retry behavior if desired and describe it accurately.
-
-Verification of current head is complete:
-- Independent homeserver contracts **126/126, 9.496 s, OK**.
-- CI `37986519475` green; Native `37986519318` live production,
-  iOS **770/0**, Watch **448/0**. New nearby/blue-Tee and Wi-Fi cancellation
-  regressions explicitly passed.
-- Native evidence `20021cdfbff02b401b016587a530d054f2c23a41` parents
-  are main `fe44a8a9` and the exact reviewed head.
-- All 142 PNGs downloaded; **141 identical /1 expected change** against #402.
-  `settings-prefetch-cellular.png` manually passed: full label/default off,
-  two-line footer without clipping. Other design/Watch images unchanged.
+Exact-head evidence:
+- Independent homeserver contracts **126/126, 8.448 s, OK**.
+- Native `37990736669` live production; iOS **772/0**, Watch **448/0**.
+  New interleaving tests explicitly passed (0.012 /0.014 s).
+- Native evidence `94385754ad9a3f7fcf1067ca53bdbfdc8fb06a8f` parents
+  are main `c83eb848` and exact head `fd73dca5`.
+- **142/142** downloaded design/Watch PNGs byte-identical to the previously
+  manually reviewed e5788c79 UI baseline; source/visual P1/P2 none.
+- CI `37990736702`: backend/frontend green; Docker failed twice. Independent
+  failed-log read confirms Docker Hub manifest request for
+  `node:24-bookworm-slim` returned **429 Too Many Requests**.
+  Author owns rerun; no business-code bypass, no repeated independent testing
+  needed if the head stays unchanged.
 - Evidence:
-  `/home/jason/garmin-ai-caddie-data/operations/pr403-e5788c79-20261009`
-  (source/contracts/Native/provenance/hash comparison/review/cleanup originals).
+  `/home/jason/garmin-ai-caddie-data/operations/pr403-fd73dca5-20261009`
+  (source/contracts/Native/provenance/hashes/Docker failure/review/cleanup).
 
-#399–#402 are merged, branches deleted, all final heads/author requests/CI/PASS/
-merge events handled. #402 PASS 6088323923; prior request at19:42:30 handled.
-#403 author ready request at20:41:09 (IC_kwDOSeO0vs8AAAABau03lA) handled in
-this review. Deduplicate retrospective events and own comments/docs CI.
-Completed details preserved verbatim in dated archives.
+#399–#402 merged and branches deleted; all final heads/requests/CI/comments and
+merge events handled. #403 initial head e5788c79, ready request at20:41:09,
+P2 comment6089071054 and fix reply at21:19:02 handled. Deduplicate retrospective
+events/own comments/docs CI. Historical detail preserved verbatim in archives.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #403 P2 fix/new head or other
-  actionable PR feedback; independently review exact head and Native/screenshots.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: wait for #403 Docker recovery or
+  new actionable PR feedback; merge exact reviewed head when all gates pass.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 label variation; nonblocking.
 - `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark navigation/status text.
 - `OWNER-DEVICE-BUILD82` — `evidence-open`: paired iPhone/Watch validation remains owner work.
@@ -67,32 +63,32 @@ Completed details preserved verbatim in dated archives.
   Protected cutover retained; sync last recorded 502 rounds /501 scorecards /
   501 shots /ok /done. HTTP/2 homeserver 3/3 HTTP200, 1.82–2.57 s;
   not Apple-runner path evidence.
-- Latest reviewed UI baseline: `operations/pr403-e5788c79-20261009/native-artifacts`.
-  Source still has P2; #402 merged baseline remains retained.
+- Latest reviewed UI baseline: `operations/pr403-fd73dca5-20261009/native-artifacts`.
+  Merged #402 baseline and prior #403 evidence retained.
 
 ## Owned resources and wait boundary
 
 - No active snapshot, worktree, contract container, service, tunnel or subagent.
-  PR403 snapshot removed (28,008,871 bytes); --rm container absent; production
-  running. Local settings inspection PNG/directory removed after hash/open-file
-  checks. Remote originals and cleanup receipts retained.
+  fd73dca5 snapshot removed (28,012,950 bytes); --rm container absent; production
+  running. Previous local settings PNG/directory removed; no new local PNG.
+  Original source/log/Native evidence and cleanup receipts retained.
 - Local controls/manifests/reviews retained as receipts; preserve unrelated dirty
   `ops/pr_feedback_monitor.sh` and historical `.codex-*`.
 - Deployed waiter: `operations/blocking-waits/wait_for_conclusion.sh`.
   No wait pending at ledger write; after push start one `--feedback` terminal,
-  retain handle in same turn; `clock.sleep(300000)` → one `write_stdin`.
-  Only its one-line conclusion signals work; no liveness/replacement checks.
-  Existing timeout option bounds the wait before the absolute cutoff.
+  same-turn `clock.sleep(300000)` → one `write_stdin`; its one-line conclusion
+  is the only event signal. No liveness/replacement checks. Existing timeout
+  option bounds the wait before the absolute cutoff.
 - Comments end `_Generated by Codex_`; commits end `Generated-by: Codex`.
   No CI-result-only commits.
 
 ## Next action and stopping
 
-Resume sole feedback waiter. For #403 fix, fetch exact head and verify requested
-intent interleavings plus Native evidence/artifacts; comment PASS and merge/delete
-only when P2 is closed. Review new ready PRs after required CI. Ignore handled
-events/own docs CI; do not change the waiting method.
+Resume sole feedback waiter. On #403 required CI recovery, confirm unchanged
+exact head and all checks green, post final PASS, merge/delete branch. If head
+changes, inspect new changes and obtain corresponding evidence. Review other
+ready PRs after required CI. Ignore handled events/own docs CI.
 
 Absolute stop: **2026-10-09 23:59 UTC**. Earlier stop requires 48 hours without
-external PR events and no open PRs. Last handled author event:20:41:09 UTC.
+external PR events and no open PRs. Latest external author reply:21:19:02 UTC.
 Keep ledger ≤200 lines; archive historical detail verbatim before replacement.
