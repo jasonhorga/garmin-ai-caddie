@@ -920,11 +920,12 @@ public final class LiveRoundAppModel: ObservableObject {
             let courses = try await fetch()
             if adoptCourseOptions(courses, ticket: ticket) { courseOptionsRefreshSucceeded = true }
         } catch {
-            // A cancelled request says nothing about the network or the session.
-            guard !Task.isCancelled, offlineStore.isCurrentAccount(ticket) else { return }
+            // Arbitrate before any side effect: a cancelled, previous-account or superseded
+            // request's failure (even a 401) says nothing about the current session or network.
+            guard acceptsCourseOptionsOutcome(ticket) else { return }
             invalidateAppleSessionIfNeeded(error)
             AICaddieLog.network.error("Course options fetch failed: \(String(describing: error), privacy: .public)")
-            markCourseOptionsRefreshFailed(ticket: ticket)
+            publishCourseOptionsRefreshFailure()
         }
     }
 
@@ -962,6 +963,11 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func markCourseOptionsRefreshFailed(ticket: OfflineStore.ResultsRequestTicket) {
         guard acceptsCourseOptionsOutcome(ticket) else { return }
+        publishCourseOptionsRefreshFailure()
+    }
+
+    /// Only for an outcome `acceptsCourseOptionsOutcome` has already accepted.
+    private func publishCourseOptionsRefreshFailure() {
         courseOptionsRefreshSucceeded = false
         courseOptionsRefreshFailed = true
         publishCourseOptions()

@@ -136,6 +136,47 @@ final class CourseOptionsCacheTests: XCTestCase {
         XCTAssertTrue(model.courseOptionsRefreshSucceededForTesting)
     }
 
+    /// A superseded request's late 401 is arbitrated before any side effect: it neither signs the
+    /// player out nor narrows the newer catalogue. (Unit tests run without `UITEST_MODE`, so the
+    /// sign-out path is real; the next test proves it fires for the current request.)
+    func testAnOlder401AfterANewerSuccessKeepsTheSessionAndTheCatalogue() async throws {
+        XCTAssertNil(ProcessInfo.processInfo.environment["UITEST_MODE"])
+        SessionStore.shared.save(session("player-a"))
+        defer { SessionStore.shared.signOut() }
+        let (model, store) = try seededModel(freshDirectory())
+        let held = Held()
+        let slow = Task { @MainActor in
+            await model.refreshCourseOptions { () async throws -> [MobileCourseOption] in
+                await held.wait()
+                throw SyncClientError.http(status: 401, body: nil)
+            }
+        }
+        try await waitUntilHeld(held)
+        await model.refreshCourseOptions { Self.newer }
+        held.release()
+        await slow.value
+
+        XCTAssertNotNil(SessionStore.shared.currentSession, "a superseded 401 must not sign out")
+        XCTAssertEqual(model.courseOptions, Self.newer)
+        XCTAssertEqual(try store.loadCourseOptions(), Self.newer)
+        XCTAssertTrue(model.courseOptionsRefreshSucceededForTesting)
+    }
+
+    func testTheCurrentRequests401StillSignsOut() async throws {
+        SessionStore.shared.save(session("player-a"))
+        defer { SessionStore.shared.signOut() }
+        let (model, store) = try seededModel(freshDirectory())
+
+        await model.refreshCourseOptions { () async throws -> [MobileCourseOption] in
+            throw SyncClientError.http(status: 401, body: nil)
+        }
+
+        XCTAssertNil(SessionStore.shared.currentSession)
+        XCTAssertTrue(model.courseOptions.isEmpty, "nothing cached is downloaded")
+        XCTAssertEqual(try store.loadCourseOptions(), Self.previous)
+        XCTAssertFalse(model.courseOptionsRefreshSucceededForTesting)
+    }
+
     /// When the disk refuses the newer catalogue it is still shown, and an older answer arriving
     /// afterwards does not replace it.
     func testAnOlderSuccessDoesNotReplaceANewerCatalogueTheDiskRefused() async throws {
