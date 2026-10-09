@@ -1,9 +1,13 @@
+# HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Preserved verbatim before PR397 source-review post, 2026-10-09 05:57 UTC.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 05:57 UTC
+**Updated:** 2026-10-09 05:41 UTC
 **Canonical branch:** `main` at `d02a754d`
 **Latest integrated code:** `3bd1ce4dba4d5920d5e9d18bfe18b879ac612a9f` (#396)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
@@ -18,9 +22,9 @@ failed refresh publishes only downloaded rows, disk catalogue kept intact.
 Owner informed of UX boundary: while waiting, cached uninstalled rows can be
 visible and an offline start may fail/retry; after confirmed failure only local
 rows remain. No map pre-download proposed, no approval question pending.
-- Source review **6075192701** posted: **two P2 (must fix before merge)**,
-  `.codex-pr397-ba7fc932-review.md`. Await fixes; do not merge this head.
-  Required Native green; artifact download/review still in flight.
+- Source candidates: **two P2**, prepared in
+  `.codex-pr397-ba7fc932-review.md`, **not posted yet**; await required Native
+  result/artifacts before final initial review. Do not merge this head.
 - P2 cancellation: successful await goes to adopt/commit without cancellation
   check; catch checks cancellation only after session side-effect handling.
   Need held success after cancel, verify disk/UI/status unchanged.
@@ -30,11 +34,9 @@ rows remain. No map pre-download proposed, no approval question pending.
   storage fallback, regressions for both paths. These are static source findings,
   not claimed runtime reproductions.
 - Independent exact-head remote contracts **122 / 5.330 s / OK**.
-  CI **37888259737** and required Native **37888259783** success confirmed by
-  terminal events; Native concluded **05:33:44 UTC**. Test counts/provenance/
-  images not yet read; do not invent verification from a green conclusion.
-- #397 `pr_opened`/head/source, CI/Native terminal events and own **6075192701**
-  seen; author feedback/fixes and Native artifact verification still unhandled.
+  Initial metadata: backend/docker/frontend checks green (**37888259737**);
+  required Native **37888259783** still pending then; no Native count/pass claimed.
+- #397 `pr_opened`/head/source handled; terminal CI/Native events unhandled.
   Git ref `origin/pr397-review`, no implementation checkout/worktree.
 - #396 accepted/merged **00:56:47 UTC**, **3bd1ce4d**, final head **f073a77d**;
   final PASS **6072047793**, branch deletion verified (404), merged source equals
@@ -58,8 +60,8 @@ rows remain. No map pre-download proposed, no approval question pending.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: finish #397 Native artifact review,
-  add exact evidence to posted P2 review; await author fix through sole waiter.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: accept #397 Native terminal result,
+  download/review exact artifacts, post P2s, await author fix through sole waiter.
   New ready PRs actionable; exact-head tests/Native/screenshots, PASS then merge.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`, nonblocking unchanged fixture's
   八号铁 164 label varies; no product regression claimed.
@@ -97,10 +99,6 @@ rows remain. No map pre-download proposed, no approval question pending.
   container absent. Tar SHA256
   `00560a2bf85cb7b39069d9aed92890a68a03ef70bba8d13ea5d0035a9d544cf3`.
   Cleanup **62 GiB free**, production running. No PNG copies planned/created.
-  One pending artifact/log download terminal **42959**;
-  `pr397_initial_native_artifact_terminal` retains it. Target: evidence's
-  `native-artifacts/` and `native-run.log`. Do not start duplicate downloads;
-  await this handle, then inspect exact source provenance/test counts/PNG hashes.
 - #396 `operations/pr396-f073a77d-20261008`: original tar, contracts, Native and
   live attempts 1/2 ZIPs/artifacts/logs/hashes/reviews/receipts retained; runtime
   and 11 inspection copies closed, originals retained. #395 evidence/runtime
@@ -123,11 +121,11 @@ rows remain. No map pre-download proposed, no approval question pending.
 
 ## Next action and stopping
 
-Await Native artifact terminal 42959, inspect/record provenance/counts/PNGs,
-update review 6075192701; then sole feedback waiter for author fix/new head.
+Start sole feedback waiter; handle terminal #397 Native/artifacts, post two
+source P2s plus evidence, then await author's fixed head and same-head verification.
 Absolute stop **2026-10-09 23:59 UTC**; close/hand back owned runtime then.
 Earlier stop requires 48 hours without external PR events and no open PRs;
 open #397 prevents it. Same-turn waiting method through deadline.
-Ledger ≤200 lines; history verbatim in dated archives, T0541/T0557 included with
-this posted review/resource work; no CI-result-only bookkeeping commit.
+Ledger ≤200 lines; history verbatim in dated archives. T0541 pending next actual
+review/operations commit; no CI-result-only bookkeeping commit.
 After compaction read ledger, inspect Git/agent state, resume this slice.
