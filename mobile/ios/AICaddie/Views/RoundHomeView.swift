@@ -1032,8 +1032,18 @@ struct OfflineCourseDownloadsSection: View {
                                 .foregroundStyle(.secondary)
                         }
                         if let fraction = row.fraction {
-                            ProgressView(value: fraction)
-                                .tint(LiveHoleStyle.green)
+                            // Drawn in SwiftUI rather than `ProgressView(value:)`, which is
+                            // UIKit-backed and renders as a placeholder in design snapshots.
+                            Capsule()
+                                .fill(Color(.systemFill))
+                                .frame(height: 4)
+                                .overlay(alignment: .leading) {
+                                    GeometryReader { proxy in
+                                        Capsule()
+                                            .fill(LiveHoleStyle.green)
+                                            .frame(width: proxy.size.width * fraction)
+                                    }
+                                }
                                 .accessibilityHidden(true)
                         }
                     }
