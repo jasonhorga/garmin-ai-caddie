@@ -1,0 +1,105 @@
+# HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Archived 2026-10-09 17:50 UTC on PR401 findings/resource closure. Prior ledger preserved verbatim.
+
+# Garmin AI Caddie Project State
+
+> Short durable continuity ledger. Only this file is authoritative.
+> Dated docs/archive/ files are historical and non-authoritative.
+
+**Updated:** 2026-10-09 17:43 UTC
+**Canonical branch:** `main`; latest integrated product code
+`d340c5ba2fafbae3a88b84caa2a2edd211610431` (#400 merge)
+**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
+
+## Current state
+
+#401 is newly opened and ready: head `7d67a40de32618a8cf5b534bbcaed914b7e695e0`,
+base `771f7cd1`, branch `claude/speculative-prefetch-20261009`. Adds likely-course
+Wi-Fi prefetch with a cellular settings toggle. CI37965513397 is green;
+Native37965513569 is green (blocking waiter terminal success). Exact-head review
+in progress; contracts and Native artifacts pending. Inspect storage-budget
+freshness and dequeue gating during round preparation before a conclusion.
+
+#400 is MERGED (17:02:16 UTC); branch `claude/storage-eviction-20261009`
+deleted by successful GitHub ref DELETE. PASS comment **6085501723**.
+Exact reviewed head `048eab13fbc7dd23da74dcc396db536d8619103b`;
+merge `d340c5ba2fafbae3a88b84caa2a2edd211610431`.
+
+Both P2 findings from comment `6084947848` closed:
+- A temporarily pinned topo course stays queued, then cleans up after the pin
+  disappears; two-pass regression passes.
+- Reduced prep rows save before publication; model-level write-failure and
+  successful-eviction/relaunch regressions pass.
+
+Final evidence:
+- Independent homeserver contracts: **125/125, 10.799 s, OK**.
+- CI `37959839942`: all green. Native `37959839936`: live production
+  evidence; iOS **743/0**, Watch **448/0**. Three new regression cases explicitly
+  pass in the Native log.
+- Native evidence `ca9879fd44e00189ff1b7bc45122d5c07735e490` has
+  `a3965fdd` (review-record-only main changes) and the exact head as parents.
+- All **141** design/Watch PNGs byte-identical to reviewed #399 baseline.
+- Final evidence at
+  `/home/jason/garmin-ai-caddie-data/operations/pr400-048eab13-20261009`:
+  source tar, contracts, Native artifacts/provenance/hash comparison, PASS,
+  merge request, manifest and cleanup log. Prior review evidence retained at
+  `operations/pr400-74b211cc-20261009`.
+
+#399 and #400 final heads/comments/CI/reviews/merges are handled, including
+retrospective events. #400 author fix/review requests (16:32:43 /16:53:29 UTC)
+are handled; do not replay. Own bookkeeping commit `a3965fdd` CI is ignored.
+Completed detail is preserved verbatim in dated archives.
+
+## Unfinished queue
+
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: #401 exact-head source/contracts/
+  Native artifact review, then findings or PASS.
+- `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 label variation; nonblocking.
+- `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark navigation/status text.
+- `OWNER-DEVICE-BUILD82` — `evidence-open`: paired iPhone/Watch validation remains owner work.
+
+## Live verification baseline
+
+- Internal TestFlight 0.1.0 (82), upload `37774511661`, remains latest claimed
+  release and excludes #395 onward. Apple read-only `37776197288`: VALID /
+  IN_BETA_TESTING; IPA SHA256
+  `f8e112b8bf75e4a33fad838bff39e69ec783679ba8a040091b957ec5cc896721`.
+- API `https://caddie.taile36706.ts.net`; backend/sync revision
+  `3614bf6f3805479f8d13de65eeec4f0ad7871f22`; production container
+  `aicaddie-release-3614bf6f-production-20261008`, loopback 39055.
+- Protected cutover evidence remains under project operations data;
+  sync last recorded 502 rounds / 501 scorecards / 501 shots / ok / done.
+- HTTP/2 homeserver: 3/3 HTTP 200, 1.82–2.57 s; not Apple-runner path evidence.
+- Screenshot baseline: retained #399 Native artifact directory under
+  `operations/pr399-f9aa623e-20261009`.
+
+## Owned resources and wait boundary
+
+- Both PR400 snapshots (`74b211cc`:27,873,710 bytes;
+  `048eab13`:27,879,628 bytes) under `/dev/shm/garmin-ai-caddie-pr400-*`
+  removed by exact allow-lists; named --rm contract containers are absent.
+  Cleanup verified production running; source/log/artifact originals retained.
+- #401 owns snapshot `/dev/shm/garmin-ai-caddie-pr401-7d67a40d-20261009`,
+  --rm container `codex-pr401-7d67a40d-contracts-20261009`; manifest
+  `.codex-pr401-7d67a40d-review-manifest.md`, expiry23:59 or review end.
+  Evidence under `operations/pr401-7d67a40d-20261009`. No worktree/env/service/subagent.
+- Local PR400 manifests/scripts/review/merge request retained as receipts.
+  Preserve unrelated dirty `ops/pr_feedback_monitor.sh` and historical `.codex-*`.
+- Deployed waiter: `operations/blocking-waits/wait_for_conclusion.sh`.
+  Native wait closed successfully; no feedback waiter pending during review.
+  After review/resource closure, resume one `--feedback` terminal;
+  `clock.sleep(300000)` → one `write_stdin`
+  until one-line conclusion. No liveness checks or replacement waiter.
+- GitHub comments end `_Generated by Codex_`; commits end
+  `Generated-by: Codex`. No CI-result-only commits.
+
+## Next action and stopping
+
+Finish #401 exact-head source/contracts and Native provenance/artifact review.
+Inspect the expected new settings toggle screenshot and compare other images.
+Resolve or report confirmed source-path findings on #401, then close resources. No repeat review or bookkeeping-only push.
+
+Absolute stop: **2026-10-09 23:59 UTC**. Earlier stop requires 48 hours with no
+external PR events and no open PRs. Last handled author event:16:53:29 UTC.
+Keep ledger ≤200 lines; archive historical detail verbatim before replacement.
