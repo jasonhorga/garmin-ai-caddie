@@ -3,124 +3,84 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 10:12 UTC
-**Canonical branch:** `main` (pushed **c06fb903e5d52e8e1e03855147b947c92438cd27**)
-**Latest integrated code:** `c06fb903e5d52e8e1e03855147b947c92438cd27` (#398 merge; #397 product `91859eb8`)
+**Updated:** 2026-10-09 11:27 UTC
+**Canonical branch:** `main`; latest integrated product code `c06fb903e5d52e8e1e03855147b947c92438cd27` (#398)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
-## Current state and feedback deduplication
+## Current state
 
-#399 is the current actionable PR, opened **09:56:01 UTC**, ready, exact head
-`9c9aeb62b21626993bc099f55ba00f0677d0bc02`, base `c06fb903`, branch
-`claude/offline-storage-usage-gc-20261009`: account-scoped course-use records,
-settings storage total, and conservative topo garbage collection. Backend,
-docker and frontend passed in **37915129930**. Required Native
-**37915130153** failed: `native-mobile` / **Test iOS app target** compile error
-at `RoundHomeView.swift:274` because new stored properties
-`offlineStorageUsage` and `onRefreshOfflineStorageUsage` are declared but not
-assigned in the designated initializer. Watch tests passed, but no source or
-visual acceptance is possible. Own blocking comment **6078957999** requests
-both assignments and a new Native run. No artifact downloaded; no runtime
-created. Author/CI event heads and comment are deduplicated in
-`handled_pr399_events`.
+#399 is open and awaiting author fixes. Exact reviewed head:
+`0f2147d13ca2f8250eeb5f272fb578304783f132`, base `c06fb903`,
+branch `claude/offline-storage-usage-gc-20261009`.
 
-#398 merged **09:44:44 UTC** after exact-head review: final head
-`ffe1f90c9792a2008e6997a9019484d63b1eedb4`, merge
-`c06fb903e5d52e8e1e03855147b947c92438cd27`, branch deleted (404), PASS comment
-**6078427324**. Exact contracts **123 / 5.674 s / OK**; Native **706 iOS / 448
-Watch** passed from merge `4bff8cd7` (parents latest main `c7b66ad8` + exact
-head); 141 PNGs (140 baseline-identical + settings addition) checked. #398
-source/runtime/artifact resources closed. #397 and earlier handled; do not
-replay their events. Last external event is #399 Native failure; own comments,
-merge and state CI do not reset quiet condition.
+Verification for this head:
+- Backend/frontend/docker CI `37918130112`: passed.
+- Native `37918130174`: passed, 725 iOS tests and 448 Watch tests; merge-evidence
+  `9cb913dd91b559c3759cc16b6d6dd6c941e5b474` has this head as its second parent.
+- Independent homeserver contract suite: **124/124, 5.382 s, OK**.
+- Native artifact: 141 PNGs; 140 match the #397 baseline and one new
+  `design-snapshots/settings-offline-courses.png`. I inspected the new 780×614
+  screenshot: progress rows and the 155 MB footer are correctly laid out.
+- Remote evidence: `/home/jason/garmin-ai-caddie-data/operations/pr399-0f2147d1-20261009`.
+- Review comment `6079877210` records two P2 blockers:
+  1. `LiveRoundAppModel.activateSession` does not clear account-scoped
+     `offlineStorageUsage`, so Settings can briefly show the previous account's
+     template bytes after a switch.
+  2. `OfflineStorageMaintenance.referencedTopo` inserts the generic
+     topo key when prep revision is present but hole revision is nil, although
+     runtime lookup never reads that generic file; add a regression fixture and
+     align the reference set with runtime lookup.
+No merge or branch deletion until a new exact head fixes both and passes Native.
 
-#397 merged **08:19:46 UTC**, **91859eb8**; reviewed exact **58928fac**,
-PASS **6077199917**, branch deletion verified; merged non-doc source matches.
-Independent **122 / 5.502 s / OK**, Native **37894020995**:
-**697 iOS / 448 Watch**, 140 design/Watch PNGs matched reviewed originals.
-Live **37894476953** passed: **15 total / 1 fixture-only skip / 0 failures**,
-2 Watch UI tests; app589/backend361 production provenance and 15 screenshots
-checked. All #397 heads/comments/CI/Native/live/cancellations handled in
-`handled_pr397_events`; final request6076847715 already fulfilled, do not replay.
-#396/#395/#392/#393/#394 and Claude replacement request handled; details archived.
-Last external event **09:06:07 UTC** author fix (new-head CI also external).
-Own comments/merges/docs CI never reset the owner's 48-hour quiet condition.
+#398 is merged at `c06fb903e5d52e8e1e03855147b947c92438cd27`; earlier reviewed PR
+history and evidence remain in dated archives. Do not replay handled events.
 
 ## Unfinished queue
 
-
 - `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #399 author fix and new
-  Native terminal; then exact-head contracts, Native provenance and screenshots.
-  New ready PRs remain actionable. Do not review #399 behavior while iOS build
-  is red.
-- `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: unchanged fixture 八号铁164
-  label variation; nonblocking, no product regression claimed.
+  Native terminal; then rerun exact-head contracts, provenance, and screenshots.
+- `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 label variation; nonblocking.
 - `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark navigation/status text.
-- `OWNER-DEVICE-BUILD82` — `evidence-open`: owner paired iPhone/Watch validation;
-  simulator evidence alone does not prove paired readiness.
+- `OWNER-DEVICE-BUILD82` — `evidence-open`: paired iPhone/Watch validation remains owner work.
 
-## Live verification and release baseline
+## Live verification baseline
 
-- **0.1.0 (82)** internal TestFlight; upload **37774511661** successful.
-  App **6dd96200b199ac8f5ea760719fb295bbc4eea1ef** includes #394,
-  **excludes #395/#396/#397/#398**. No newer upload/server deployment claimed.
-- Apple read-only **37776197288**: **VALID / IN_BETA_TESTING**, internal group82,
-  no external distribution; `internalReady=false` discrepancy retained.
-  IPA SHA256 `f8e112b8bf75e4a33fad838bff39e69ec783679ba8a040091b957ec5cc896721`;
-  provenance `operations/release-main-6dd96200-20261008`.
-- API `https://caddie.taile36706.ts.net`; backend/sync
-  **3614bf6f3805479f8d13de65eeec4f0ad7871f22**; production
-  `aicaddie-release-3614bf6f-production-20261008`, loopback **39055**.
-- Protected `operations/production-cutover-3614bf6f-20261008`: DB dumps/roots/
-  conflict report, newer 7-hole17742546/candidate2-hole copy, ledger suffix
-  **8,426,773 bytes** retained. Sync **502 rounds/501 scorecards/501 shots/ok/done**.
-- HTTP/2 **3/3 200**, **1.82–2.57 s**; homeserver does not prove Apple-runner path.
-  Persistent root `/home/jason/garmin-ai-caddie-data/operations`.
+- Internal TestFlight 0.1.0 (82), upload `37774511661`, remains the latest claimed
+  release and excludes #395 onward. Apple read-only `37776197288`: VALID /
+  IN_BETA_TESTING; IPA SHA256 `f8e112b8bf75e4a33fad838bff39e69ec783679ba8a040091b957ec5cc896721`.
+- API `https://caddie.taile36706.ts.net`; backend/sync revision
+  `3614bf6f3805479f8d13de65eeec4f0ad7871f22`; production container
+  `aicaddie-release-3614bf6f-production-20261008`, loopback 39055.
+- Protected production cutover evidence remains under
+  `/home/jason/garmin-ai-caddie-data/operations`; sync last recorded 502 rounds /
+  501 scorecards / 501 shots / ok / done.
+- HTTP/2 homeserver checks: 3/3 HTTP 200, 1.82–2.57 s; this does not prove Apple-runner path.
 
 ## Owned resources and wait boundary
 
-- #398 fixed-head manifest `.codex-pr398-ffe1f90c-review-manifest.md`:
-  snapshot `/dev/shm/garmin-ai-caddie-pr398-ffe1f90c-20261009`, named --rm
-  container `codex-pr398-ffe1f90c-contracts-20261009`, evidence
-  `operations/pr398-ffe1f90c-20261009`. Created09:21, expires23:59 or review end.
-  Capacity62 GiB disk/3.3 GiB shm/4.5 GiB available RAM. Runtime now closed;
-  read-only existing image/env, no dependency install, network or private venv.
-  Snapshot **27,677,011 bytes** removed after scoped checks; container absent.
-  Contracts terminal44789/cleanup48382 complete; tar SHA256
-  `fd40979d5efeb11d68e219e9428d2f634cc5f664377be9950d25c1d759f120cc`.
-  Original tar/contracts/cleanup receipts retained; production running/62 GiB free.
-- Initial #398 tar/log/cleanup/manifest retained at
-  `operations/pr398-aa18d0d2-20261009`; snapshot27,660,535 bytes removed,
-  container absent. SHA256
-  `a879e509949fd31e34f3def215fb532fc5342f730f942ddd45d8f030c0155a05`.
-  Own P2 review at `operations/pr398-a9fd08d0-20261009/review.md`.
-- #397 final original tar/contracts/Native/live/images/review/cleanup retained at
-  `operations/pr397-58928fac-20261009`; all runtimes, artifact terminals and
-  inspection copies closed. Earlier #397/#396/#395 evidence and failures retained.
-- No active review/coding worktree, browser, port, tunnel, private venv,
-  inspection PNG directory, artifact terminal or subagent. Preserve unrelated
-  dirty `ops/pr_feedback_monitor.sh` and older `.codex-*` controls.
-- Protected stopped candidate `aicaddie-release-3614bf6f-candidate-20261006`,
-  39089 inactive, DB `aicaddie_candidate_3614bf6f_20261006`; stopped rollback
-  `aicaddie-release-d7f69971-production-20260925-pre-cutover` retained.
-  Source `/home/jason/codex-runs/garmin-ai-caddie-release-3614bf6f-20261006`
-  expiresOct13; backups/data protected pending owner build82 validation.
-- Deployed sole waiter `operations/blocking-waits/wait_for_conclusion.sh`, SHA256
-  `37dd8727b1f47c09d56512b52765dc2984dafe6cf90381803d302338a6048179`.
-  No feedback wait pending; next sole terminal in `active_feedback_wait`.
-  Feedback pending: **clock.sleep(300000) → one write_stdin**, same turn to result.
-  No CI/ps/state/log liveness checks, independent tmux or second monitor.
-  Timer/cursor retained; ignore own-CI; no CI-result-only commits.
-- GitHub comments end `_Generated by Codex_`; commits end `Generated-by: Codex`.
+- Remote #399 evidence above is retained; no active review/coding worktree,
+  container, browser, port, tunnel, private venv, artifact terminal, or inspection
+  copy remains. Local review receipt:
+  `.codex-pr399-0f2147d1-review-manifest.md` and
+  `.codex-pr399-0f2147d1-review.md`.
+- Preserve unrelated dirty `ops/pr_feedback_monitor.sh` and historical
+  `.codex-*` controls; do not clean them.
+- The deployed waiter is
+  `operations/blocking-waits/wait_for_conclusion.sh`; no wait is currently pending.
+  Next wait must use the same-turn background-terminal method:
+  start `ops/wait_for_conclusion.sh --feedback`, then repeat
+  `clock.sleep(300000)` → one `write_stdin` until its one-line conclusion.
+  Do not inspect tmux/process/state/log liveness or start a replacement.
+- GitHub comments end `_Generated by Codex_`; commits end
+  `Generated-by: Codex`. Do not create CI-result-only commits.
 
 ## Next action and stopping
 
-Independent exact-ffe contracts/runtime closure complete; use sole blocking
-waiter for Native37909110130, then download/prove/inspect
-final-head artifacts before acceptance. Post findings or PASS, SHA-guard merge
-and branch deletion only if clear. Persist this real review with dated history.
-Absolute stop **2026-10-09 23:59 UTC**; no owned runtime remains to close.
-Earlier stop requires 48 hours without external PR events and no open PRs;
-quiet condition not met. Same-turn waiting method through owner deadline.
-Ledger≤200 lines, archives preserve history, no CI-result-only commits.
-After compaction read ledger, inspect Git/agent state, resume this slice.
+Wait for the next external #399 feedback/new-head event. On a new exact head,
+run the remote contract suite, verify Native merge provenance and artifacts, repeat
+the two static checks above, then comment. If clear, SHA-guard merge and confirm
+branch deletion; otherwise leave a precise P1/P2 review.
+
+Absolute stop: **2026-10-09 23:59 UTC**. Earlier stop requires 48 hours with no
+external PR events and no open PRs. Keep the ledger ≤200 lines and archive completed
+detail verbatim by date before replacing it.
