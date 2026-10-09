@@ -179,6 +179,55 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertTrue(model.prepCourseDownloads.contains { $0.id == guess.id && $0.isSpeculative })
     }
 
+    /// Room comes only from a measurement newer than the last download's writes, so a finished guess
+    /// can never leave the same room to be spent again.
+    func testRoomIsSpentOnceUntilStorageIsMeasuredAgain() async throws {
+        let guess = PrepCourseDownloadRecord(course: course(1, rounds: 3), teeBox: "blue", updatedAt: now, isSpeculative: true)
+        let model = try model(rows: [guess])
+        XCTAssertNil(model.speculativeCourseRoomForTesting, "nothing is queued before storage is measured")
+
+        await model.refreshOfflineStorageUsage()
+        let measured = try XCTUnwrap(model.offlineStorageUsage).totalBytes
+        let full = SpeculativePrefetch.courseRoom(usedBytes: measured)
+        XCTAssertEqual(model.speculativeCourseRoomForTesting, full - 1, "a queued guess holds a whole course")
+
+        // The guess finishes: its row goes, its files land on disk after the measurement.
+        model.noteOfflineStorageGrewForTesting()
+        XCTAssertNil(model.speculativeCourseRoomForTesting, "the old measurement no longer counts")
+        XCTAssertNil(model.speculativeCourseRoomForTesting, "asking again does not reuse it either")
+
+        try await Task.sleep(nanoseconds: 10_000_000)
+        await model.refreshOfflineStorageUsage()
+        XCTAssertNotNil(model.speculativeCourseRoomForTesting, "a fresh measurement gives room again")
+    }
+
+    func testAQueuedGuessWaitsWhileARoundIsBeingPrepared() throws {
+        let asked = PrepCourseDownloadRecord(course: course(1, rounds: 0), teeBox: "blue", updatedAt: now.addingTimeInterval(-60))
+        let guess = PrepCourseDownloadRecord(course: course(2, rounds: 3), teeBox: "blue", updatedAt: now, isSpeculative: true)
+        let model = try model(rows: [guess])
+        model.setNetworkStateForTesting(wifi)
+        XCTAssertEqual(model.nextPrepCourseDownloadJobIDForTesting, guess.id)
+
+        let token = model.beginRoundPreparationForTesting()
+        XCTAssertNil(model.nextPrepCourseDownloadJobIDForTesting)
+        // Network and settings callbacks during preparation do not let it through.
+        model.setNetworkStateForTesting(cellular)
+        UserDefaults.standard.set(true, forKey: SpeculativePrefetchSettings.cellularKey)
+        model.speculativePrefetchSettingChanged()
+        model.setNetworkStateForTesting(wifi)
+        XCTAssertNil(model.nextPrepCourseDownloadJobIDForTesting)
+        XCTAssertEqual(model.prepCourseDownloads.first { $0.id == guess.id }?.phase, .queued)
+
+        model.finishRoundPreparationForTesting(token)
+        XCTAssertEqual(model.nextPrepCourseDownloadJobIDForTesting, guess.id)
+
+        // A 备战 download the player asked for keeps its existing rules during preparation.
+        let playerModel = try self.model(rows: [asked])
+        let playerToken = playerModel.beginRoundPreparationForTesting()
+        XCTAssertEqual(playerModel.nextPrepCourseDownloadJobIDForTesting, asked.id)
+        playerModel.finishRoundPreparationForTesting(playerToken)
+    }
+
     func testOpeningAGuessedCourseInPrepMakesItThePlayersOwn() throws {
         let option = course(1, rounds: 3)
         let guess = PrepCourseDownloadRecord(course: option, teeBox: "blue", updatedAt: now, isSpeculative: true)

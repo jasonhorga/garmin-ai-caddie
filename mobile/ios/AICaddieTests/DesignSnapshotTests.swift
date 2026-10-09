@@ -299,6 +299,28 @@ final class DesignSnapshotTests: XCTestCase {
         try render(view, named: "settings-offline-courses")
     }
 
+    /// 设置 → 离线球场 with the 可能会打 toggle, in a real system List hosted in a window (ImageRenderer
+    /// cannot draw a List or a Toggle): the switch, its label and the footer as the app shows them.
+    @MainActor
+    func testCaptureSettingsSpeculativePrefetch() throws {
+        let key = SpeculativePrefetchSettings.cellularKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.set(previous, forKey: key) }
+        let view = NavigationStack {
+            List {
+                OfflineCourseDownloadsSection(
+                    rows: [],
+                    usage: OfflineStorageUsage(topoBytes: 152_000_000, templateBytes: 2_600_000)
+                )
+                SpeculativePrefetchSettingsSection()
+            }
+            .navigationTitle("设置")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        try captureScreen(view, named: "settings-prefetch-cellular")
+    }
+
     @MainActor
     func testRenderRoundHome() throws {
         // README §8 home main card, all three states: in progress, a known course, no course.

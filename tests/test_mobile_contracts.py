@@ -5638,11 +5638,19 @@ class MobileContractTests(unittest.TestCase):
                       "isSatisfied && !isConstrained && (cellularAllowed || !isExpensive)"):
             self.assertIn(token, policy)
         picker_job = app.split("private func nextPrepCourseDownloadJob()", 1)[1].split("\n    }\n", 1)[0]
-        self.assertIn("!$0.isSpeculative || (speculativeDownloadsAllowed && liveRoundState == nil)", picker_job)
+        self.assertIn("!$0.isSpeculative || speculativeJobsMayRun", picker_job)
+        may_run = app.split("private var speculativeJobsMayRun: Bool {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("speculativeDownloadsAllowed && liveRoundState == nil && roundPreparationToken == nil", may_run)
+        # Room only from a measurement newer than the last download's writes, never spent twice.
+        room = app.split("private var speculativeCourseRoom: Int? {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("offlineStorageGrewAt.map({ $0 < measuredAt }) ?? true", room)
+        self.assertIn("SpeculativePrefetch.courseRoom(usedBytes: usage.totalBytes)", room)
+        assets = app.split("private func downloadOfflineCourseAssets(", 1)[1].split("#if DEBUG", 1)[0]
+        self.assertIn("defer { offlineStorageGrewAt = Date() }", assets)
         self.assertIn("if lhs.isSpeculative != rhs.isSpeculative { return rhs.isSpeculative }", picker_job)
         schedule = app.split("private func scheduleSpeculativePrepCourseDownloads()", 1)[1].split("\n    }\n", 1)[0]
-        for token in ("speculativeDownloadsAllowed", "SpeculativePrefetch.courseRoom(usedBytes: usage.totalBytes)",
-                      ".prefix(room)", "liveRoundState == nil", "roundPreparationToken == nil"):
+        for token in ("speculativeJobsMayRun", "guard let room = speculativeCourseRoom else {",
+                      "remeasureOfflineStorage()", ".prefix(room)"):
             self.assertIn(token, schedule)
         self.assertIn("downloadPresentation.downloads.filter { !$0.isSpeculative }", picker)
         settings = round_home.split("private var settingsSheet: some View {", 1)[1].split("\n// MARK:", 1)[0]
