@@ -623,8 +623,11 @@ public final class OfflineStore {
     private let syncEventLogDirectory: (URL) throws -> Void
     private let eventLogLock = NSLock()
     private let resultsCommitLock = NSLock()
-    /// Per bound account: start time of the request whose 成绩 answer was last committed.
-    private var resultsCommittedRequestStarts: [String: Date] = [:]
+    /// Per bound account: start order of the request whose 成绩 answer was last committed.
+    private var resultsCommittedRequestStarts: [String: UInt64] = [:]
+    /// Strictly increasing across every ticket. Two `Date()` reads in a row can be equal, which let
+    /// an older answer tie, and so pass, the newer one it must lose to.
+    private var resultsRequestSequence: UInt64 = 0
     /// Bumped by every account bind; a results ticket from an earlier scope is never committed.
     private var accountScope = 0
 
@@ -1041,14 +1044,16 @@ public final class OfflineStore {
     /// or land in another account's files (Codex review of #395). Returns whether it was written.
     public struct ResultsRequestTicket: Equatable {
         let accountScope: Int
-        let requestedAt: Date
+        /// Start order, unique per ticket; a later `beginResultsRequest` always has a larger one.
+        let sequence: UInt64
     }
 
     /// Take this when a 成绩 request starts and hand it to the commit.
     public func beginResultsRequest() -> ResultsRequestTicket {
         resultsCommitLock.lock()
         defer { resultsCommitLock.unlock() }
-        return ResultsRequestTicket(accountScope: accountScope, requestedAt: Date())
+        resultsRequestSequence += 1
+        return ResultsRequestTicket(accountScope: accountScope, sequence: resultsRequestSequence)
     }
 
     /// Whether the account the ticket was taken for is still the bound one.
@@ -1097,9 +1102,9 @@ public final class OfflineStore {
         resultsCommitLock.lock()
         defer { resultsCommitLock.unlock() }
         guard ticket.accountScope == accountScope else { return false }
-        if let committed = resultsCommittedRequestStarts[file], committed > ticket.requestedAt { return false }
+        if let committed = resultsCommittedRequestStarts[file], committed > ticket.sequence { return false }
         try write()
-        resultsCommittedRequestStarts[file] = ticket.requestedAt
+        resultsCommittedRequestStarts[file] = ticket.sequence
         return true
     }
 

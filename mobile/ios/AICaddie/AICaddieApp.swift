@@ -422,8 +422,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// courses stay, so a cached row the phone cannot play offline is never offered as a choice.
     private var catalogueCourseOptions: [MobileCourseOption] = []
     private var courseOptionsRefreshFailed = false
-    /// Start time of the request whose outcome (success or failure) the catalogue last accepted.
-    private var courseOptionsOutcomeRequestedAt: Date?
+    /// Start order of the request whose outcome (success or failure) the catalogue last accepted.
+    private var courseOptionsOutcomeSequence: UInt64?
     private var boundPlayerId: String?
     /// Optional DEBUG/CI round to open explicitly. Production and ordinary DEBUG launches must not
     /// invent a demo round: with no configured id bootstrap lands on the normal home package.
@@ -931,8 +931,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Not cancelled, still this account, and started no earlier than the last accepted outcome.
     private func acceptsCourseOptionsOutcome(_ ticket: OfflineStore.ResultsRequestTicket) -> Bool {
         guard !Task.isCancelled, offlineStore.isCurrentAccount(ticket) else { return false }
-        if let accepted = courseOptionsOutcomeRequestedAt, accepted > ticket.requestedAt { return false }
-        courseOptionsOutcomeRequestedAt = ticket.requestedAt
+        if let accepted = courseOptionsOutcomeSequence, accepted > ticket.sequence { return false }
+        courseOptionsOutcomeSequence = ticket.sequence
         return true
     }
 
@@ -940,7 +940,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private func restoreCachedCourseOptions() {
         catalogueCourseOptions = (try? offlineStore.loadCourseOptions()) ?? []
         courseOptionsRefreshFailed = false
-        courseOptionsOutcomeRequestedAt = nil
+        courseOptionsOutcomeSequence = nil
         publishCourseOptions()
     }
 
