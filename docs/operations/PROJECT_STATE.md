@@ -3,7 +3,7 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 17:50 UTC
+**Updated:** 2026-10-09 18:28 UTC
 **Canonical branch:** `main`; latest integrated product code
 `d340c5ba2fafbae3a88b84caa2a2edd211610431` (#400 merge)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
@@ -11,83 +11,85 @@
 ## Current state
 
 #401 is OPEN, branch `claude/speculative-prefetch-20261009`,
-head `7d67a40de32618a8cf5b534bbcaed914b7e695e0`, merge-base `d340c5ba`;
-main at review `771f7cd1`. Review comment **6086245677**:
-- P2: cached storage usage is not updated/invalidated when a guess finishes.
-  Removing its pending row releases the same allowance for a later foreground/
-  network/settings schedule; require a model-level repeated-scheduling regression.
-- P2: actual dequeue does not check round preparation. A network/settings callback
-  can restart a paused queued guess while the first round's package is pending;
-  require actual gating and a suspended-preparation model regression.
-- Required visual evidence: no artifact includes the new cellular toggle/footer.
-  Existing settings snapshot renders only storage rows; add an actual simulator
-  screenshot of the new settings section and inspect it before PASS.
+head `1ce1dd09af985fc03ce71defc07ab6cee18ba8ed`, merge-base `d340c5ba`;
+main at review `0aeb82f4`. Review comment **6086839589**:
+- Remaining P2: freshness/capacity only gates NEW speculative rows. Actual
+  next-job/worker selection still accepts existing rows with unknown, stale or
+  exhausted capacity. Require fresh capacity before dequeue, a wake-up of
+  existing reserved rows after measurement, and actual selector/worker regressions.
+- Prior preparation P2 closed: dequeue/preemption use the preparation token;
+  callbacks during preparation, recovery afterward and explicit prep behavior pass.
+- Visual gap closed: new actual simulator `settings-prefetch-cellular.png`
+  manually inspected: default-off switch, full label, two-line footer/system List.
+  SHA256 `927b35003a7195a3c27c1d6342f055c838c0a247dec2257d48b4ad5ba58f0232`.
 
-Exact-head evidence:
-- Independent homeserver contracts: **126/126, 11.309 s, OK**.
-- CI `37965513397`: all green. Native `37965513569`: live production
-  evidence; iOS **755/0**, Watch **448/0**, SpeculativePrefetchTests passed.
-- Native evidence `d1134f7c4b25fd349b3e2232d65cc3954dc96418` parents
-  are main `771f7cd1` and the exact reviewed head.
-- All **141** design/Watch PNGs byte-identical to reviewed #399 baseline;
-  this establishes no changes in those views, not coverage of the new toggle.
-- Logic findings are source-path review, not independent Swift reproductions.
-- Evidence retained at
-  `/home/jason/garmin-ai-caddie-data/operations/pr401-7d67a40d-20261009`:
-  source tar, contracts, Native artifacts/provenance/hash comparison, review,
-  manifest and cleanup log.
+Latest exact-head evidence:
+- Independent homeserver contracts: **126/126, 5.412 s, OK**.
+- CI `37969493839`: all green. Native `37969493841`: live production
+  evidence, iOS **758/0**, Watch **448/0**. Two new model tests and screenshot
+  capture explicitly passed in the Native log.
+- Native evidence `d2edaf95a7fe555da962cfe38d5e221b83f0fb33` parents
+  are main `0aeb82f4` and the exact reviewed head.
+- PNG comparison: **142** current, **141** baseline-identical, one added settings
+  image inspected as above; no changed/removed images.
+- Remaining P2 is source-path review; no independent Swift reproduction claimed.
+- Evidence at
+  `/home/jason/garmin-ai-caddie-data/operations/pr401-1ce1dd09-20261009`:
+  source tar, contracts, Native provenance/logs/artifacts/hash comparison,
+  review, closed manifest and cleanup log. Prior `7d67a40d` evidence retained.
 
 #399/#400 final heads/comments/CI/reviews/merges and retrospective events handled.
-#400 PASS `6085501723`, merged/deleted; final evidence in
-`operations/pr400-048eab13-20261009`. #401 opened/head/green CI and author request
-at17:37:50 UTC handled; do not repost at `7d67a40d`. Own docs CI ignored.
-Completed detail is verbatim in dated archives.
+#400 PASS `6085501723`, merged/deleted. #401 `7d67a40d` review `6086245677`
+and author fix/review requests at17:54:01 /18:13:49 UTC handled; do not repost.
+Own docs CI ignored. Completed detail remains verbatim in dated archives.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #401 author fixes/new head;
-  review fixes, new tests and new-settings screenshot before merge.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #401 final capacity fix;
+  verify new head/tests/Native artifacts, then PASS/merge if clear.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 label variation; nonblocking.
 - `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark navigation/status text.
 - `OWNER-DEVICE-BUILD82` — `evidence-open`: paired iPhone/Watch validation remains owner work.
 
 ## Live verification baseline
 
-- Internal TestFlight 0.1.0 (82), upload `37774511661`, remains latest claimed
-  release and excludes #395 onward. Apple read-only `37776197288`: VALID /
-  IN_BETA_TESTING; IPA SHA256
-  `f8e112b8bf75e4a33fad838bff39e69ec783679ba8a040091b957ec5cc896721`.
+- Internal TestFlight 0.1.0 (82), upload `37774511661`, latest claimed release;
+  excludes #395 onward. Apple read-only `37776197288`: VALID /IN_BETA_TESTING.
+  IPA SHA256 `f8e112b8bf75e4a33fad838bff39e69ec783679ba8a040091b957ec5cc896721`.
 - API `https://caddie.taile36706.ts.net`; backend/sync revision
   `3614bf6f3805479f8d13de65eeec4f0ad7871f22`; production container
-  `aicaddie-release-3614bf6f-production-20261008`, loopback 39055.
+  `aicaddie-release-3614bf6f-production-20261008`, loopback39055.
 - Protected cutover evidence retained; sync last recorded
   502 rounds /501 scorecards /501 shots /ok /done.
-- HTTP/2 homeserver: 3/3 HTTP 200, 1.82–2.57 s; not Apple-runner path evidence.
-- Screenshot baseline: `operations/pr399-f9aa623e-20261009/native-artifacts`.
+- HTTP/2 homeserver: 3/3 HTTP200, 1.82–2.57 s; not Apple-runner path evidence.
+- For #401 follow-up compare to the reviewed 142-PNG artifact baseline at
+  `operations/pr401-1ce1dd09-20261009/native-artifacts`.
+  Earlier main baseline remains `operations/pr399-f9aa623e-20261009/native-artifacts`.
 
 ## Owned resources and wait boundary
 
-- PR401 snapshot `/dev/shm/garmin-ai-caddie-pr401-7d67a40d-20261009`
-  removed (27,917,538 bytes); named --rm contract container absent.
-  Cleanup verified production running; source/log/artifact originals retained.
+- PR401 `1ce1dd09` snapshot removed (27,924,375 bytes); named --rm container
+  absent; production running. Source/log/Native originals retained.
+- Local settings PNG (122,548 bytes) SHA-checked then removed, empty owned
+  inspection directory removed. Closed remote manifest records both cleanups.
 - No active worktree, snapshot, container, private venv, service, port, tunnel,
-  subagent, verification terminal or local screenshot inspection copy.
-- Local PR401 manifests/scripts/review retained as receipts.
+  subagent, verification terminal or local image inspection copy.
+- Local PR401 controls/manifests/review retained as receipts.
   Preserve unrelated dirty `ops/pr_feedback_monitor.sh` and historical `.codex-*`.
 - Deployed waiter: `operations/blocking-waits/wait_for_conclusion.sh`.
   No wait pending at ledger write; after push start one `--feedback` terminal,
-  retain handle in this same turn; `clock.sleep(300000)` → one `write_stdin`
-  until one-line conclusion. No liveness checks or replacement waiter.
+  retain handle in same turn; `clock.sleep(300000)` → one `write_stdin`
+  until one-line conclusion. No liveness checks/replacement waiter.
 - Comments end `_Generated by Codex_`; commits end `Generated-by: Codex`.
   No CI-result-only commits.
 
 ## Next action and stopping
 
-Resume the sole feedback waiter. Ignore handled events and own docs CI. On #401
-fixes, verify exact head, relevant contracts, Native provenance/tests, and new
-settings screenshot plus unchanged-view comparison. Post PASS and merge/delete
-only when both source blockers and the screenshot evidence gap close.
+Resume sole feedback waiter. Ignore handled events/own docs CI. On #401 fixes,
+check queued-job capacity enforcement and wake-up, actual flow regressions,
+exact-head contracts and Native/artifact provenance; compare all 142 images to
+latest reviewed baseline. PASS/merge/delete only when remaining P2 closes.
 
 Absolute stop: **2026-10-09 23:59 UTC**. Earlier stop requires 48 hours without
-external PR events and no open PRs. Last handled author event:17:37:50 UTC.
+external PR events and no open PRs. Last handled author event:18:13:49 UTC.
 Keep ledger ≤200 lines; archive historical detail verbatim before replacement.
