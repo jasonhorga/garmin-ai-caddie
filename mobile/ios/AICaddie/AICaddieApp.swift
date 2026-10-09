@@ -642,6 +642,8 @@ public final class LiveRoundAppModel: ObservableObject {
         localEventUploadStatus = "自动上传已开启"
         garminConnectionState = storedGarminConnectionState()
         lastGarminSyncAt = nil
+        // Template bytes are this player's own; unknown until the new scope is measured.
+        offlineStorageUsage = nil
         isBootstrapping = true
         restorePrepCourseDownloadsFromDisk()
         refreshDownloadedCourseOptions()

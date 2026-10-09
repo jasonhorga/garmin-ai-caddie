@@ -463,19 +463,23 @@ enum OfflineStorageMaintenance {
         let holes: [Hole]
         let coursePrep: Prep?
 
-        /// The lookups the app makes: the prep row's revision, else the hole's, then the hole's own
-        /// as a fallback (`CurrentHoleView.localTopoURL`, `PrepHoleRows.build`, `hasCourseTopoImages`).
-        /// A missing prep revision is not a reference to the unrevisioned bitmap.
+        /// Exactly the lookups the app makes (`CurrentHoleView.localTopoURL`, `PrepHoleRows.build`,
+        /// `hasCourseTopoImages`): the prep row's revision, else the hole's; then the hole's own
+        /// revision only when it exists. The unrevisioned bitmap is read only when both are absent.
         var referencedFileKeys: Set<String> {
             var keys = Set<String>()
             for hole in holes where hole.sourceGlobalId > 0 && hole.sourceLocalHole > 0 {
                 let prepRevision = coursePrep?.holes.first { $0.hole == hole.number }?.geometryRevision
-                for revision in [prepRevision ?? hole.geometryRevision, hole.geometryRevision] {
-                    keys.insert(TopoFileName.fileKey(
+                func key(_ revision: String?) -> String {
+                    TopoFileName.fileKey(
                         globalId: hole.sourceGlobalId,
                         localHole: hole.sourceLocalHole,
                         geometryRevision: revision
-                    ))
+                    )
+                }
+                keys.insert(key(prepRevision ?? hole.geometryRevision))
+                if let holeRevision = hole.geometryRevision {
+                    keys.insert(key(holeRevision))
                 }
             }
             return keys

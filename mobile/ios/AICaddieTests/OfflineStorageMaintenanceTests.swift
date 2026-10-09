@@ -180,6 +180,64 @@ final class OfflineStorageMaintenanceTests: XCTestCase {
         XCTAssertEqual(collect().removedTopoFiles, ["100-1-other.png"])
     }
 
+    /// With a prep revision and no hole revision the app reads only the prep bitmap.
+    func testPrepRevisionWithoutAHoleRevisionDoesNotReferenceTheUnrevisionedBitmap() throws {
+        try writePackage(
+            "course_templates/v2--100--blue--whole.json",
+            in: account("a"),
+            holes: [(1, 100, 1, nil)],
+            prepRevisions: [1: "preprev"]
+        )
+        try writeTopo("100-1-preprev.png")
+        try writeTopo("100-1.png")
+
+        XCTAssertEqual(collect().removedTopoFiles, ["100-1.png"])
+        XCTAssertTrue(exists("100-1-preprev.png"))
+    }
+
+    func testNoRevisionAtAllReferencesTheUnrevisionedBitmap() throws {
+        try writePackage("course_templates/v2--100--blue--whole.json", in: account("a"), holes: [(1, 100, 1, nil)])
+        try writePackage("course_templates/v2--100--white--whole.json", in: account("a"), holes: [(1, 100, 1, "white")])
+        try writeTopo("100-1.png")
+        try writeTopo("100-1-white.png")
+        try writeTopo("100-1-stale.png")
+
+        XCTAssertEqual(collect().removedTopoFiles, ["100-1-stale.png"])
+        XCTAssertTrue(exists("100-1.png"))
+    }
+
+    /// The settings total includes this player's template bytes, so a switch must not keep showing
+    /// the previous player's figure while the new scope is measured.
+    @MainActor
+    func testAccountSwitchForgetsThePreviousPlayersStorageUsage() async throws {
+        let previousClubBagPlayer = ClubBagStore.playerId
+        defer { ClubBagSyncCoordinator.shared.activate(playerId: previousClubBagPlayer, migrateLegacy: false) }
+        let store = OfflineStore(directoryURL: root)
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: URL(string: "https://storage.example.test")!,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil
+        )
+        func session(_ id: String) -> AppSession {
+            AppSession(token: "token", playerId: id, expiresAt: Date().addingTimeInterval(600))
+        }
+        model.activateSession(session("player-a"), migrateLegacyData: false)
+        try writePackage(
+            "course_templates/v2--1--blue--whole.json",
+            in: account("player-a"),
+            holes: [(1, 1, 1, nil)]
+        )
+        await model.refreshOfflineStorageUsage()
+        XCTAssertGreaterThan(try XCTUnwrap(model.offlineStorageUsage).templateBytes, 0)
+
+        model.activateSession(session("player-b"), migrateLegacyData: false)
+        XCTAssertNil(model.offlineStorageUsage, "unknown until player B's scope is measured")
+        await model.refreshOfflineStorageUsage()
+        XCTAssertEqual(try XCTUnwrap(model.offlineStorageUsage).templateBytes, 0)
+    }
+
     func testUnfinishedPrepDownloadPinsEveryBitmapOfItsCourse() throws {
         try writePackage("course_templates/v2--100--blue--whole.json", in: account("a"), holes: [(1, 100, 1, "old")])
         try writeTopo("100-1-old.png")
