@@ -174,6 +174,67 @@ final class TemplateAcquisitionTests: XCTestCase {
         await model.waitForPrepCourseDownloadForTesting()
     }
 
+    /// PR #398 review: adding or dropping a second nine keeps the round id. 设置's live progress
+    /// must follow the new playable hole set at once — recomputed from disk, with the network
+    /// held so no download pass can publish first — and a cancelled pass for the previous set
+    /// must not repaint it once the network comes back.
+    func testLiveDownloadProgressFollowsASameRoundLoopChangeWithoutTheNetwork() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let roundId = oracle.roundId
+        let directory = freshDirectory()
+        let requests = LoopRequests()
+        serveOracle(oracle, into: requests)
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let model = acquisitionModel(directory: directory)
+        await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: [RoundLoopEntry(globalId: gid, half: "back")])
+        model.liveHoleInitialLoadDidFinish()
+        await settleDownloads(model)
+        let nine = try XCTUnwrap(model.package)
+        XCTAssertEqual(nine.loopKey, "\(gid):back")
+        XCTAssertEqual(model.liveCourseDownloadProgress?.identity, LiveCourseDownloadProgress.Identity(package: nine))
+        XCTAssertEqual(model.liveCourseDownloadProgress?.totalHoles, 9)
+
+        // Every request now hangs until released, then fails as offline.
+        let gate = DispatchSemaphore(value: 0)
+        CapturingURLProtocol.requestHandler = { _ in
+            _ = gate.wait(timeout: .now() + 10)
+            throw URLError(.notConnectedToInternet)
+        }
+
+        await model.setSecondLoop(RoundLoopEntry(globalId: gid, half: "front"), roundId: roundId)
+        let eighteen = try XCTUnwrap(model.package)
+        XCTAssertEqual(eighteen.roundId, roundId)
+        XCTAssertEqual(eighteen.holes.count, 18, "the turn composes offline from the installed template")
+        let added = try XCTUnwrap(model.liveCourseDownloadProgress)
+        XCTAssertEqual(added.identity, LiveCourseDownloadProgress.Identity(package: eighteen))
+        XCTAssertEqual(added.totalHoles, 18)
+        XCTAssertFalse(added.isComplete)
+        XCTAssertEqual(
+            OfflineCourseDownloadRow.rows(
+                live: added,
+                current: LiveCourseDownloadProgress.Identity(package: eighteen),
+                downloads: []
+            ).first?.status,
+            "已下载 \(added.readyHoles)/18 洞"
+        )
+
+        await model.setSecondLoop(nil, roundId: roundId)
+        let dropped = try XCTUnwrap(model.package)
+        XCTAssertEqual(dropped.holes.count, 9)
+        XCTAssertEqual(model.liveCourseDownloadProgress?.identity, LiveCourseDownloadProgress.Identity(package: dropped))
+        XCTAssertEqual(model.liveCourseDownloadProgress?.totalHoles, 9)
+
+        // Release the held requests: the cancelled 18-hole pass must not repaint the 9-hole value.
+        for _ in 0..<256 { gate.signal() }
+        await settleDownloads(model)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        await settleDownloads(model)
+        XCTAssertEqual(model.liveCourseDownloadProgress?.identity, LiveCourseDownloadProgress.Identity(package: dropped))
+        XCTAssertEqual(model.liveCourseDownloadProgress?.totalHoles, 9)
+    }
+
     /// Live Native 37456686597 / 37247820045: the player left every hole before its first load
     /// settled, so `liveHoleInitialLoadDidFinish` never ran and the whole-course job was never
     /// queued — after a relaunch 备战 had no row for the course. The job must be durable as soon as

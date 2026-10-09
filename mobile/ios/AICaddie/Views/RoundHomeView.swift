@@ -984,7 +984,9 @@ public struct RoundHomeView: View {
 
                 OfflineCourseDownloadsSection(rows: OfflineCourseDownloadRow.rows(
                     live: liveCourseDownloadProgress,
-                    liveRoundId: liveRoundState?.roundId,
+                    current: liveRoundState.flatMap { state in
+                        package.flatMap { $0.roundId == state.roundId ? LiveCourseDownloadProgress.Identity(package: $0) : nil }
+                    },
                     downloads: prepCourseDownloads
                 ))
             }

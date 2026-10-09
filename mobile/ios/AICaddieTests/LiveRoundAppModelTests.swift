@@ -2380,7 +2380,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         model.liveHoleInitialLoadDidFinish()
         await model.waitForOfflineCourseDownloadForTesting()
 
-        XCTAssertTrue(published.allSatisfy { $0.roundId == online.roundId && $0.totalHoles == 9 })
+        let identity = LiveCourseDownloadProgress.Identity(package: try XCTUnwrap(model.package))
+        XCTAssertEqual(identity.roundId, online.roundId)
+        XCTAssertTrue(published.allSatisfy { $0.identity == identity && $0.totalHoles == 9 })
         XCTAssertEqual(published.first?.readyHoles, 0, "a cold course starts from nothing on disk")
         XCTAssertEqual(published.last?.readyHoles, 9)
         XCTAssertEqual(model.liveCourseDownloadProgress?.isComplete, true)
@@ -2397,10 +2399,131 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(
             OfflineCourseDownloadRow.rows(
                 live: model.liveCourseDownloadProgress,
-                liveRoundId: model.liveRoundState?.roundId,
+                current: identity,
                 downloads: model.prepCourseDownloads
             ).first?.status,
             "已下载 9 洞"
+        )
+    }
+
+    /// PR #398 review: a hole counts only when its precise facts were written to the round
+    /// package. Every topo PNG landing on disk while the round-package write is refused must not
+    /// read as a finished course; the count stays at what is durable.
+    func testLiveCourseDownloadProgressIgnoresFactsThatFailedToPersist() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try nineHoleFixturePackage()
+        let holes = (1...9).map { number in
+            Hole(
+                number: number,
+                par: number % 3 == 0 ? 3 : 4,
+                yards: 320 + number * 10,
+                geometryCoverage: .ready,
+                sourceGlobalId: source.course.globalId,
+                sourceLocalHole: number,
+                courseHoleNumber: number
+            )
+        }
+        let online = package(
+            source,
+            roundId: "progress-write-refused",
+            recentRounds: source.recentHistory.rounds,
+            holes: holes
+        ).replacingCoursePrep(nil)
+        let packageData = try JSONEncoder().encode(online)
+        let png = minimalPNGData()
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let body: Data
+            let contentType: String
+            switch url.path {
+            case let path where path.contains("/api/v2/mobile/courses/"):
+                body = packageData
+                contentType = "application/json"
+            case let path where path.hasSuffix("/prep"):
+                let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .filter { $0.name == "holes" }
+                    .compactMap { $0.value.flatMap(Int.init) } ?? []
+                body = try self.offlinePrepResponseData(for: online, localHoles: requested)
+                contentType = "application/json"
+            case let path where path.hasSuffix("/topo.png"):
+                body = png
+                contentType = "image/png"
+            default:
+                body = Data(#"{"queued":true}"#.utf8)
+                contentType = "application/json"
+            }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": contentType]
+                )!,
+                body
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://progress-refused.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client
+        )
+        await model.prepareCourseRound(
+            roundId: online.roundId,
+            teeBox: online.course.teeBox,
+            loops: online.loopEntries
+        )
+        let durableBefore = try XCTUnwrap(model.liveCourseDownloadProgress)
+        XCTAssertFalse(durableBefore.isComplete)
+
+        // Round-package writes are refused from here on; the topo cache stays writable.
+        let packages = directory.appendingPathComponent("packages", isDirectory: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: packages.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: packages.path)
+        }
+        var published: [LiveCourseDownloadProgress] = []
+        let subscription = model.$liveCourseDownloadProgress
+            .compactMap { $0 }
+            .sink { published.append($0) }
+        defer { subscription.cancel() }
+
+        model.liveHoleInitialLoadDidFinish()
+        await model.waitForOfflineCourseDownloadForTesting()
+
+        let livePackage = try XCTUnwrap(model.package)
+        XCTAssertTrue(
+            livePackage.holes.allSatisfy { hole in
+                store.loadCourseTopoImageURL(
+                    globalId: hole.sourceGlobalId,
+                    localHole: hole.sourceLocalHole
+                ) != nil
+            },
+            "the scenario needs every bitmap on disk"
+        )
+        XCTAssertFalse(published.contains { $0.isComplete }, "refused facts must never read as a finished course")
+        XCTAssertEqual(model.liveCourseDownloadProgress?.readyHoles, durableBefore.readyHoles)
+        XCTAssertEqual(
+            OfflineCourseDownloadRow.rows(
+                live: model.liveCourseDownloadProgress,
+                current: LiveCourseDownloadProgress.Identity(package: livePackage),
+                downloads: []
+            ).first?.fraction != nil,
+            true,
+            "an unfinished course keeps its progress bar"
         )
     }
 

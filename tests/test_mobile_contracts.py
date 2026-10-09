@@ -5531,12 +5531,21 @@ class MobileContractTests(unittest.TestCase):
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         self.assertIn("@Published public private(set) var liveCourseDownloadProgress: LiveCourseDownloadProgress?", app)
         publish = app.split("func publishLiveCourseDownloadProgress() {", 1)[1].split("\n        }\n", 1)[0]
-        for guard in ("prepDownloadID == nil", "!Task.isCancelled", "isLiveRoundSnapshot(snapshot", "offlineCourseDownloadRoundId == snapshot.roundId"):
+        for guard in ("prepDownloadID == nil", "!Task.isCancelled", "isLiveRoundSnapshot(snapshot", "offlineCourseDownloadRoundId == snapshot.roundId",
+                      "LiveCourseDownloadProgress.Identity(package: snapshot)"):
             self.assertIn(guard, publish)
-        self.assertIn("readyHoles: downloadedHoleCount()", publish)
+        # Only facts a successful round-package write made durable count (PR #398 review).
+        self.assertIn("durablePrep: durableLivePrep", publish)
+        self.assertNotIn("downloadedHoleCount()", publish)
+        self.assertEqual(app.count("retainDurableLivePrep(persisted)"), 3)
+        tail = app.split('"Offline course cache save failed:', 1)[1].split("return replacementCompleted", 1)[0]
+        self.assertIn("publishLiveCourseDownloadProgress()", tail)
+        # A changed playable hole set recomputes from disk at once instead of keeping the old count.
+        did_set = app.split("@Published public private(set) var package: LiveRoundPackage? {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("durableLiveCourseDownloadProgress(for: package)", did_set)
         settings = round_home.split("private var settingsSheet: some View {", 1)[1].split("\n// MARK:", 1)[0]
         self.assertIn("OfflineCourseDownloadsSection(rows: OfflineCourseDownloadRow.rows(", settings)
-        self.assertIn("liveRoundId: liveRoundState?.roundId", settings)
+        self.assertIn("LiveCourseDownloadProgress.Identity(package: $0)", settings)
         self.assertEqual(round_home.count("OfflineCourseDownloadsSection(rows:"), 1)
         views = IOS_DIR / "Views"
         for name in ("CurrentHoleView.swift", "LivePlayChrome.swift", "LiveHoleComponents.swift", "CourseReviewView.swift",

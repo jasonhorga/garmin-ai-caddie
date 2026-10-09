@@ -274,8 +274,13 @@ final class DesignSnapshotTests: XCTestCase {
             )
         }
         let rows = OfflineCourseDownloadRow.rows(
-            live: LiveCourseDownloadProgress(roundId: "r", courseName: "北京丽宫", readyHoles: 7, totalHoles: 18),
-            liveRoundId: "r",
+            live: LiveCourseDownloadProgress(
+                identity: .init(roundId: "r", loopKey: "1:front+1:back", teeBox: "blue"),
+                courseName: "北京丽宫",
+                readyHoles: 7,
+                totalHoles: 18
+            ),
+            current: .init(roundId: "r", loopKey: "1:front+1:back", teeBox: "blue"),
             downloads: [
                 record(2, "华彬庄园", .downloading, 12),
                 record(3, "北京高尔夫俱乐部", .queued, 0),
