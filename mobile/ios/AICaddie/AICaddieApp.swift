@@ -85,6 +85,7 @@ public struct AICaddieApp: App {
                         downloadedCourseKeys: model.downloadedCourseKeys,
                         prepCourseDownloads: model.prepCourseDownloads,
                         prepCourseDownloadPresentation: model.prepCourseDownloadPresentation,
+                        liveCourseDownloadProgress: model.liveCourseDownloadProgress,
                         isPreparingRound: model.isPreparingRound,
                         isFinishingRound: model.isFinishingRound,
                         finishErrorMessage: model.finishErrorMessage,
@@ -282,7 +283,20 @@ public final class PrepCourseDownloadPresentationState: ObservableObject {
 
 @MainActor
 public final class LiveRoundAppModel: ObservableObject {
-    @Published public private(set) var package: LiveRoundPackage?
+    @Published public private(set) var package: LiveRoundPackage? {
+        didSet {
+            // A new playable hole set (another round, a second nine added or dropped, another
+            // tee, sign-out) never inherits the old count: recompute it from disk right away
+            // instead of waiting for the next download pass, which may need the network first.
+            let identity = package.map(LiveCourseDownloadProgress.Identity.init(package:))
+            guard identity != oldValue.map(LiveCourseDownloadProgress.Identity.init(package:)) else { return }
+            if let package, liveRoundState?.roundId == package.roundId {
+                liveCourseDownloadProgress = durableLiveCourseDownloadProgress(for: package)
+            } else {
+                liveCourseDownloadProgress = nil
+            }
+        }
+    }
     @Published public private(set) var pendingEventCount: Int = 0
     @Published public private(set) var syncStatus: String = "离线就绪"
     @Published public private(set) var localEventUploadStatus: String = "自动上传已开启"
@@ -341,6 +355,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// The last course explicitly started by this account. It is a separate source from Garmin's
     /// GPS-nearby response: a successful HTTP 200 may still omit a recently played venue.
     @Published public private(set) var recentCourseOption: MobileCourseOption?
+    /// The live round's own whole-course download (holes with precise facts and topo on disk).
+    /// Only 设置 → 离线球场 reads it; the play screen keeps its quiet faded-hole contract.
+    @Published public private(set) var liveCourseDownloadProgress: LiveCourseDownloadProgress?
     public let prepCourseDownloadPresentation = PrepCourseDownloadPresentationState()
     @Published public private(set) var prepCourseDownloads: [PrepCourseDownloadRecord] = [] {
         didSet {
@@ -1716,6 +1733,43 @@ public final class LiveRoundAppModel: ObservableObject {
         return merged
     }
 
+    /// Offline readiness of `live` counting only facts that are durable: `durablePrep` must come
+    /// from a round package this phone has successfully written. A hole is ready once its precise
+    /// row and the matching revision's topo bitmap are both on disk.
+    private func liveCourseDownloadProgress(
+        for live: LiveRoundPackage,
+        durablePrep: CoursePrepPackage?
+    ) -> LiveCourseDownloadProgress {
+        let ready = live.holes.reduce(into: 0) { count, roundHole in
+            let prep = durablePrep?.holes.first { $0.hole == roundHole.number }
+            guard offlinePrepIsPrecise(prep),
+                  offlineStore.loadCourseTopoImageURL(
+                      globalId: roundHole.sourceGlobalId,
+                      localHole: roundHole.sourceLocalHole,
+                      geometryRevision: prep?.geometryRevision ?? roundHole.geometryRevision
+                  ) != nil else { return }
+            count += 1
+        }
+        return LiveCourseDownloadProgress(
+            identity: LiveCourseDownloadProgress.Identity(package: live),
+            courseName: live.course.venueDisplayName,
+            readyHoles: ready,
+            totalHoles: live.holes.count
+        )
+    }
+
+    /// The persisted round package's facts, if it is this same playable hole set.
+    private func durableLiveCoursePrep(for live: LiveRoundPackage) -> CoursePrepPackage? {
+        guard let persisted = try? offlineStore.loadRoundPackage(roundId: live.roundId),
+              LiveCourseDownloadProgress.Identity(package: persisted)
+                == LiveCourseDownloadProgress.Identity(package: live) else { return nil }
+        return persisted.coursePrep
+    }
+
+    private func durableLiveCourseDownloadProgress(for live: LiveRoundPackage) -> LiveCourseDownloadProgress {
+        liveCourseDownloadProgress(for: live, durablePrep: durableLiveCoursePrep(for: live))
+    }
+
     private func offlinePrepIsPrecise(_ prep: CoursePrepHole?) -> Bool {
         guard let prep, prep.resolvedMapOverlay != nil else { return false }
         return prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
@@ -2011,6 +2065,18 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
         var prepBySource: [String: CoursePrepHole] = [:]
+        // Live progress counts only what a successful round-package write made durable.
+        var durableLivePrep: CoursePrepPackage? = prepDownloadID == nil
+            ? durableLiveCoursePrep(for: snapshot)
+            : nil
+        /// `saveRoundPackage` may keep a richer package it already holds instead of this write;
+        /// only facts for this exact playable hole set count.
+        func retainDurableLivePrep(_ persisted: LiveRoundPackage) {
+            guard prepDownloadID == nil,
+                  LiveCourseDownloadProgress.Identity(package: persisted)
+                    == LiveCourseDownloadProgress.Identity(package: snapshot) else { return }
+            durableLivePrep = persisted.coursePrep
+        }
 
         // Preserve any facts already embedded in an older/full package before fetching only gaps.
         for roundHole in snapshot.holes {
@@ -2069,6 +2135,25 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
 
+        /// Live counterpart of the prep record's per-hole progress. It counts only facts that were
+        /// successfully written to this round's package (`durableLivePrep`), never rows that exist
+        /// only in memory after a failed save. Only the current, uncancelled pass over the live
+        /// round itself may publish: a cancelled or superseded pass (a newer revalidation, a loop
+        /// change, another round) and template/prep passes must not repaint it.
+        func publishLiveCourseDownloadProgress() {
+            guard prepDownloadID == nil,
+                  !Task.isCancelled,
+                  isLiveRoundSnapshot(snapshot, prepDownloadID: prepDownloadID),
+                  offlineCourseDownloadRoundId == snapshot.roundId,
+                  let current = package,
+                  LiveCourseDownloadProgress.Identity(package: current)
+                    == LiveCourseDownloadProgress.Identity(package: snapshot) else { return }
+            let progress = liveCourseDownloadProgress(for: snapshot, durablePrep: durableLivePrep)
+            if liveCourseDownloadProgress != progress {
+                liveCourseDownloadProgress = progress
+            }
+        }
+
         func retainPrepBatchResults(_ results: [OfflinePrepBatchResult]) {
             for result in results {
                 if let errorDescription = result.errorDescription {
@@ -2100,6 +2185,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     if isLiveRoundSnapshot(snapshot, prepDownloadID: prepDownloadID) {
                         let persisted = try offlineStore.saveRoundPackage(assembled)
                         package = persisted
+                        retainDurableLivePrep(persisted)
                     }
                 }
             } catch {
@@ -2118,6 +2204,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     state.totalHoles = max(1, snapshot.holes.count)
                 }
             }
+            publishLiveCourseDownloadProgress()
         }
 
         /// Live play fetches the hole being played first, then the holes ahead in round order; read
@@ -2221,6 +2308,7 @@ public final class LiveRoundAppModel: ObservableObject {
                                 state.totalHoles = max(1, snapshot.holes.count)
                             }
                         }
+                        publishLiveCourseDownloadProgress()
                     } catch {
                         AICaddieLog.storage.error(
                             "Incremental topo save failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(String(describing: error), privacy: .public)"
@@ -2372,6 +2460,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 localHole: roundHole.sourceLocalHole
             ))
         }
+        // A resumed or revalidated course starts from whatever is already durable.
+        publishLiveCourseDownloadProgress()
         let retryDelays = offlineGeometryRetryDelaysNanoseconds
         for attempt in 0...retryDelays.count {
             var batchRequests: [OfflinePrepBatchRequest] = []
@@ -2535,6 +2625,7 @@ public final class LiveRoundAppModel: ObservableObject {
             if isLiveRoundSnapshot(snapshot, prepDownloadID: prepDownloadID) {
                 let persisted = try offlineStore.saveRoundPackage(durableEnriched)
                 package = persisted
+                retainDurableLivePrep(persisted)
             }
         } catch {
             AICaddieLog.storage.error(
@@ -2633,6 +2724,7 @@ public final class LiveRoundAppModel: ObservableObject {
                                 state.totalHoles = max(1, snapshot.holes.count)
                             }
                         }
+                        publishLiveCourseDownloadProgress()
                     } catch {
                         AICaddieLog.storage.error(
                             "Offline topo cache save failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(String(describing: error), privacy: .public)"
@@ -2688,6 +2780,7 @@ public final class LiveRoundAppModel: ObservableObject {
             if isLiveRoundSnapshot(snapshot, prepDownloadID: prepDownloadID) {
                 let persisted = try offlineStore.saveRoundPackage(durableEnriched)
                 package = persisted
+                retainDurableLivePrep(persisted)
             }
             refreshDownloadedCourseOptions()
             if durableEnriched.hasCompleteOfflineCoursePrep,
@@ -2700,6 +2793,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 "Offline course cache save failed: \(String(describing: error), privacy: .public)"
             )
         }
+        // After the final write, so a rejected save cannot be reported as a finished course.
+        publishLiveCourseDownloadProgress()
         return replacementCompleted
     }
 

@@ -660,3 +660,101 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         return min(max(Double(downloadedHoles) / Double(totalHoles), 0), 1)
     }
 }
+
+/// Whole-course offline readiness of the live round's own course. A hole counts only once its
+/// precise facts and its revision-keyed topo bitmap are both durable on this phone — the same
+/// test the prep library uses for `downloadedHoles`. Design README §8 keeps download status off
+/// the play and prep screens, so only 设置 → 离线球场 shows it.
+public struct LiveCourseDownloadProgress: Equatable {
+    /// Which playable hole set the count belongs to. A round keeps its id when a second nine is
+    /// added or removed, so the round id alone cannot tell a 9/9 from the new 18-hole set.
+    public struct Identity: Equatable {
+        public let roundId: String
+        public let loopKey: String
+        public let teeBox: String
+
+        public init(roundId: String, loopKey: String, teeBox: String) {
+            self.roundId = roundId
+            self.loopKey = loopKey
+            self.teeBox = teeBox
+        }
+
+        public init(package: LiveRoundPackage) {
+            self.init(roundId: package.roundId, loopKey: package.loopKey, teeBox: package.course.teeBox)
+        }
+    }
+
+    public let identity: Identity
+    public let courseName: String
+    public let readyHoles: Int
+    public let totalHoles: Int
+
+    public init(identity: Identity, courseName: String, readyHoles: Int, totalHoles: Int) {
+        self.identity = identity
+        self.courseName = courseName
+        self.totalHoles = max(1, totalHoles)
+        self.readyHoles = min(max(0, readyHoles), self.totalHoles)
+    }
+
+    public var fraction: Double {
+        Double(readyHoles) / Double(totalHoles)
+    }
+
+    public var isComplete: Bool { readyHoles == totalHoles }
+}
+
+/// 设置 → 离线球场: one row per course download — the live round's own course first, then the
+/// prep library newest first. Pure input → rows, so the settings section stays a thin renderer.
+public struct OfflineCourseDownloadRow: Equatable, Identifiable {
+    public let id: String
+    public let title: String
+    public let subtitle: String?
+    public let status: String
+    /// Non-nil only while holes are still arriving; a finished, queued or failed row has no bar.
+    public let fraction: Double?
+
+    /// `current` is the live round's identity, or nil when nothing is being played. A value for
+    /// another round, another loop set or another tee — a finished, discarded, other-account or
+    /// re-looped round — never shows.
+    public static func rows(
+        live: LiveCourseDownloadProgress?,
+        current: LiveCourseDownloadProgress.Identity?,
+        downloads: [PrepCourseDownloadRecord]
+    ) -> [OfflineCourseDownloadRow] {
+        var rows: [OfflineCourseDownloadRow] = []
+        if let live, let current, live.identity == current {
+            rows.append(OfflineCourseDownloadRow(
+                id: "live:\(live.identity.roundId)",
+                title: live.courseName,
+                subtitle: "本场",
+                status: live.isComplete
+                    ? "已下载 \(live.totalHoles) 洞"
+                    : "已下载 \(live.readyHoles)/\(live.totalHoles) 洞",
+                fraction: live.isComplete ? nil : live.fraction
+            ))
+        }
+        for download in downloads {
+            let status: String
+            var fraction: Double?
+            switch download.phase {
+            case .queued:
+                status = "等待下载"
+            case .preparing, .downloading:
+                status = "已下载 \(min(download.downloadedHoles, download.totalHoles))/\(download.totalHoles) 洞"
+                fraction = download.progressFraction
+            case .ready:
+                status = "已下载 \(download.totalHoles) 洞"
+            case .failed:
+                status = download.isTerminalFailure ? "暂不支持备战" : "下载失败"
+            }
+            rows.append(OfflineCourseDownloadRow(
+                id: "prep:\(download.id)",
+                title: download.course.localizedName,
+                subtitle: MobileCourseSearchView.recentRowSubtitle(download),
+                status: status,
+                fraction: fraction
+            ))
+        }
+        return rows
+    }
+}
