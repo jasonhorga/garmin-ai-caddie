@@ -996,7 +996,9 @@ public struct RoundHomeView: View {
                     current: liveRoundState.flatMap { state in
                         package.flatMap { $0.roundId == state.roundId ? LiveCourseDownloadProgress.Identity(package: $0) : nil }
                     },
-                    downloads: prepCourseDownloads
+                    // A guess shows only while it is actually downloading, never as a standing
+                    // "等待下载" the player did not ask for.
+                    downloads: prepCourseDownloads.filter { !$0.isSpeculative || $0.phase != .queued }
                 ), usage: offlineStorageUsage)
                 SpeculativePrefetchSettingsSection(onChange: onSpeculativePrefetchSettingChanged)
             }
@@ -1094,7 +1096,6 @@ struct SpeculativePrefetchSettingsSection: View {
     var body: some View {
         Section {
             Toggle("用蜂窝网络预下载常打的球场", isOn: $cellularAllowed)
-                .tint(LiveHoleStyle.green)
                 .accessibilityIdentifier("settings-prefetch-cellular")
         } footer: {
             Text("常打的球场默认只在 Wi-Fi 下自动下载；低数据模式下不下载。")

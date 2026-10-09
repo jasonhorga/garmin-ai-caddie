@@ -79,6 +79,16 @@ public enum SpeculativePrefetchSettings {
 /// the 200 MB cap bounds what speculative downloads can take.
 enum SpeculativePrefetch {
     static let maximumCourses = 5
+    /// A whole course on the phone: 18 bitmaps at ~220 KB plus facts and the template, rounded up.
+    static let estimatedCourseBytes: Int64 = 8_000_000
+
+    /// How many more whole courses fit under the eviction cap. A guess never pushes storage over
+    /// it; a downloaded guess counts as newly installed (seeded as used), so eviction could not
+    /// take it back for 60 days.
+    static func courseRoom(usedBytes: Int64, capBytes: Int64 = OfflineStorageEviction.capBytes) -> Int {
+        guard usedBytes < capBytes else { return 0 }
+        return Int((capBytes - usedBytes) / estimatedCourseBytes)
+    }
 
     /// Rows to queue now. The top `maximumCourses` are ranked first and only then filtered, so an
     /// installed or already queued course does not pull in a less likely one. Skipped: courses

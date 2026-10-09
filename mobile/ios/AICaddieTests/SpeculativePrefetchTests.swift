@@ -112,6 +112,15 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertEqual(rows.map(\.course.globalId), [2, 3])
     }
 
+    func testGuessesNeverPushStoragePastTheCap() {
+        let cap = OfflineStorageEviction.capBytes
+        let course = SpeculativePrefetch.estimatedCourseBytes
+        XCTAssertEqual(SpeculativePrefetch.courseRoom(usedBytes: 0), Int(cap / course))
+        XCTAssertEqual(SpeculativePrefetch.courseRoom(usedBytes: cap - course), 1)
+        XCTAssertEqual(SpeculativePrefetch.courseRoom(usedBytes: cap - course + 1), 0)
+        XCTAssertEqual(SpeculativePrefetch.courseRoom(usedBytes: cap + 1), 0)
+    }
+
     func testRowsFromOlderBuildsAreNotSpeculative() throws {
         let record = PrepCourseDownloadRecord(course: course(1, rounds: 1), teeBox: "blue", isSpeculative: true)
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any])

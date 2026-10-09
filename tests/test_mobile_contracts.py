@@ -5641,8 +5641,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("!$0.isSpeculative || (speculativeDownloadsAllowed && liveRoundState == nil)", picker_job)
         self.assertIn("if lhs.isSpeculative != rhs.isSpeculative { return rhs.isSpeculative }", picker_job)
         schedule = app.split("private func scheduleSpeculativePrepCourseDownloads()", 1)[1].split("\n    }\n", 1)[0]
-        for token in ("speculativeDownloadsAllowed", "usage.totalBytes < OfflineStorageEviction.capBytes",
-                      "liveRoundState == nil", "roundPreparationToken == nil"):
+        for token in ("speculativeDownloadsAllowed", "SpeculativePrefetch.courseRoom(usedBytes: usage.totalBytes)",
+                      ".prefix(room)", "liveRoundState == nil", "roundPreparationToken == nil"):
             self.assertIn(token, schedule)
         self.assertIn("downloadPresentation.downloads.filter { !$0.isSpeculative }", picker)
         settings = round_home.split("private var settingsSheet: some View {", 1)[1].split("\n// MARK:", 1)[0]
@@ -5651,6 +5651,9 @@ class MobileContractTests(unittest.TestCase):
         # A finished guess is not a use; the use-recording count stays at the four real moments.
         self.assertIn("isSpeculative != true {\n                    offlineStore.recordCourseUse(", app)
         self.assertEqual(app.count("offlineStore.recordCourseUse("), 4)
+        # The live round's own whole-course template is never held back as a Wi-Fi-only guess.
+        enqueue = app.split("private func enqueueWholeCourseTemplates(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("prepCourseDownloads[index].isSpeculative = false", enqueue)
         # Tests and UI journeys never see a live path monitor.
         self.assertIn('environment["UITEST_MODE"] != "1", environment["XCTestConfigurationFilePath"] == nil', policy)
 

@@ -1681,6 +1681,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 totalHoles: holes
             )
             if let index = prepCourseDownloads.firstIndex(where: { $0.id == candidate.id }) {
+                if prepCourseDownloads[index].isSpeculative {
+                    // The round needs it now: no longer a Wi-Fi-only guess held back during play.
+                    prepCourseDownloads[index].isSpeculative = false
+                    prepCourseDownloads[index].updatedAt = Date()
+                    changed = true
+                }
                 if prepCourseDownloads[index].phase == .failed,
                    !prepCourseDownloads[index].isTerminalFailure {
                     prepCourseDownloads[index].phase = .queued
@@ -4696,23 +4702,25 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// Queues the likely courses (`SpeculativePrefetch.candidates`) that are not on the phone yet.
-    /// Only when the network allows it, no round is being played or prepared, and the last measured
-    /// storage is under the cap; unmeasured storage waits for the measurement, which calls back here.
+    /// Only when the network allows it, no round is being played or prepared, and as many as fit
+    /// under the cap at `estimatedCourseBytes` each (queued guesses included). Unmeasured storage
+    /// waits for the measurement, which calls back here.
     private func scheduleSpeculativePrepCourseDownloads() {
         guard syncClient != nil, speculativeDownloadsAllowed,
               liveRoundState == nil, roundPreparationToken == nil,
-              let usage = offlineStorageUsage,
-              usage.totalBytes < OfflineStorageEviction.capBytes else { return }
+              let usage = offlineStorageUsage else { return }
+        // Guesses already queued count against the room left, at a whole course each.
+        let pendingGuesses = prepCourseDownloads.filter(\.isSpeculative).count
+        let room = SpeculativePrefetch.courseRoom(usedBytes: usage.totalBytes) - pendingGuesses
+        guard room > 0 else { return }
         let rows = SpeculativePrefetch.candidates(
             options: courseOptions,
             recent: recentCourseOption,
             existingIDs: Set(prepCourseDownloads.map(\.id)).union(failedSpeculativeDownloadIDs),
             lastUsed: offlineStore.loadCourseUsage(),
             now: Date(),
-            isInstalled: { record in
-                (try? offlineStore.loadCourseTemplate(globalId: record.course.globalId, teeBox: record.teeBox)) != nil
-            }
-        )
+            isInstalled: { readyPrepTemplate(for: $0) != nil }
+        ).prefix(room).map { $0 }
         guard !rows.isEmpty else { return }
         AICaddieLog.storage.info(
             "Speculative course downloads queued: \(rows.map(\.id).joined(separator: ","), privacy: .public)"
@@ -4723,11 +4731,21 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// A speculative row leaves the list once its job ends: ready → the installed template is the
-    /// record (the 备战 list never showed it); failed → dropped silently, not retried this launch.
-    /// A row paused back to `.queued` stays.
+    /// record (the 备战 list never showed it); failed on an allowed network → dropped silently, not
+    /// retried this launch; failed once the network no longer allows it → queued again. A row
+    /// paused back to `.queued` stays.
     private func finishSpeculativePrepCourseDownload(id: String) {
         guard let row = prepCourseDownloads.first(where: { $0.id == id }), row.isSpeculative,
               row.phase == .ready || row.phase == .failed else { return }
+        if row.phase == .failed, !speculativeDownloadsAllowed {
+            // Most likely Wi-Fi went away mid-request, before the path update paused the job: wait
+            // for the network again rather than give the course up for this launch.
+            updatePrepCourseDownload(id: id) { state in
+                state.phase = .queued
+                state.errorText = nil
+            }
+            return
+        }
         if row.phase == .failed {
             failedSpeculativeDownloadIDs.insert(id)
             AICaddieLog.storage.info("Speculative course download failed: \(id, privacy: .public)")
@@ -4844,7 +4862,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     state.errorText = nil
                     state.requiredGeometryRevisions = nil
                 }
-                // A speculative download is not a use: it must not hold the course back from eviction.
+                // A speculative download does not record a use itself. (Daily maintenance then seeds
+                // it like any newly installed course: 60 days before it can be evicted.)
                 if prepCourseDownloads.first(where: { $0.id == id })?.isSpeculative != true {
                     offlineStore.recordCourseUse(globalId: record.course.globalId, teeBox: record.teeBox)
                 }
