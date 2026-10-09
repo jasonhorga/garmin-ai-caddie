@@ -60,6 +60,55 @@ public struct OfflineStorageScope: Equatable, Sendable {
         )
         return report
     }
+
+    /// Over the cap, the courses this account may give up, oldest use first. Nil when under the
+    /// cap, when nothing is idle long enough, or when the reference scan is incomplete.
+    public func evictionPlan(
+        now: Date = Date(),
+        capBytes: Int64 = OfflineStorageEviction.capBytes
+    ) -> OfflineStorageEvictionPlan? {
+        OfflineStorageEviction.plan(root: root, accountDirectory: accountDirectory, now: now, capBytes: capBytes)
+    }
+
+    /// Courses this account's round, current and home packages name, read from disk now. Nil when
+    /// one of them cannot be read, so nothing is evicted on a partial view.
+    public func protectedGlobalIds() -> Set<Int>? {
+        try? OfflineStorageEviction.protectedGlobalIds(accountDirectory: accountDirectory)
+    }
+
+    /// Deletes the template only if it is the file the plan measured (same modification date), so
+    /// a template rewritten since then is kept.
+    public func removeEvictedTemplate(_ candidate: CourseEvictionCandidate) -> Bool {
+        OfflineStorageEviction.removeTemplate(candidate, accountDirectory: accountDirectory)
+    }
+
+    /// Records evicted courses whose bitmaps still have to be swept, before their templates go.
+    /// False when the queue could not be written; the templates must then stay.
+    public func queueTopoSweep(globalIds: Set<Int>) -> Bool {
+        do {
+            try TopoSweepQueue.add(globalIds, root: root)
+            return true
+        } catch {
+            AICaddieLog.storage.error("Topo sweep queue write failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    /// Removes bitmaps of evicted courses that no package of any account references any more.
+    @discardableResult
+    public func sweepEvictedTopo(now: Date = Date()) -> OfflineStorageGarbageReport {
+        let report = OfflineStorageEviction.sweepEvictedTopo(
+            root: root,
+            currentStyleVersion: SyncClient.topoStyleVersion,
+            now: now
+        )
+        if !report.removedTopoFiles.isEmpty || report.revisionSweepSkippedReason != nil {
+            AICaddieLog.storage.info(
+                "Evicted topo sweep: \(report.removedTopoFiles.count, privacy: .public) files, \(report.freedBytes, privacy: .public) bytes freed; skipped: \(report.revisionSweepSkippedReason ?? "no", privacy: .public)"
+            )
+        }
+        return report
+    }
 }
 
 /// Course downloads announce themselves here before they look at which bitmaps are already on
@@ -106,8 +155,8 @@ public final class TopoWriterActivity: @unchecked Sendable {
     }
 }
 
-/// Account-scoped "last used" record per physical course and Tee (`course_usage_v1.json`). Eviction
-/// (a later change) reads it; nothing here deletes by age. Writes merge, keeping the later time.
+/// Account-scoped "last used" record per physical course and Tee (`course_usage_v1.json`), read by
+/// `OfflineStorageEviction`. Writes merge, keeping the later time.
 enum CourseUsageLog {
     static let fileName = "course_usage_v1.json"
     private static let lock = NSLock()
@@ -178,7 +227,7 @@ enum OfflineStorageMaintenance {
         )
     }
 
-    private static func bytes(under directory: URL) -> Int64 {
+    static func bytes(under directory: URL) -> Int64 {
         let keys: [URLResourceKey] = [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileSizeKey]
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
@@ -331,7 +380,7 @@ enum OfflineStorageMaintenance {
         return report
     }
 
-    private static func remove(_ url: URL, from report: inout OfflineStorageGarbageReport) {
+    static func remove(_ url: URL, from report: inout OfflineStorageGarbageReport) {
         let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
         do {
             try FileManager.default.removeItem(at: url)
@@ -375,6 +424,28 @@ enum OfflineStorageMaintenance {
     /// A file that cannot be read aborts the scan; a file that reads but does not decode as a
     /// package is skipped, because the app cannot open it to draw any bitmap either.
     static func referencedTopo(root: URL) throws -> TopoReferences {
+        let sources = try referenceSources(root: root)
+        var references = TopoReferences(pinnedGlobalIds: sources.pinnedGlobalIds)
+        for keys in sources.filesByPackage.values {
+            references.files.formUnion(keys)
+        }
+        return references
+    }
+
+    /// Same file, same key, however the path was spelled (iOS `/private/var` vs `/var`).
+    static func packageKey(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    struct TopoReferenceSources: Equatable {
+        /// `packageKey` of each decodable package file → the bitmaps it can render.
+        var filesByPackage: [String: Set<String>] = [:]
+        var pinnedGlobalIds: Set<Int> = []
+    }
+
+    /// `referencedTopo`, kept per package file so eviction can tell which bitmaps lose their last
+    /// reference when a template goes.
+    static func referenceSources(root: URL) throws -> TopoReferenceSources {
         var scopes = [root]
         let accounts = root.appendingPathComponent("accounts", isDirectory: true)
         scopes += try listing(of: accounts).filter { url in
@@ -383,7 +454,7 @@ enum OfflineStorageMaintenance {
             return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
                 && isDirectory.boolValue
         }
-        var references = TopoReferences()
+        var references = TopoReferenceSources()
         let decoder = JSONDecoder()
         for scope in scopes {
             var packageFiles = [
@@ -404,7 +475,7 @@ enum OfflineStorageMaintenance {
                 guard let package = try? decoder.decode(TopoReferencingPackage.self, from: data) else {
                     continue
                 }
-                references.files.formUnion(package.referencedFileKeys)
+                references.filesByPackage[packageKey(url)] = package.referencedFileKeys
             }
             let downloads = scope.appendingPathComponent("prep_course_downloads.json")
             if FileManager.default.fileExists(atPath: downloads.path) {
@@ -425,7 +496,7 @@ enum OfflineStorageMaintenance {
 
     /// A missing directory has no references; one that exists but cannot be listed aborts the scan
     /// like an unreadable file, rather than counting as empty.
-    private static func listing(of directory: URL) throws -> [URL] {
+    static func listing(of directory: URL) throws -> [URL] {
         guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
         do {
             return try FileManager.default.contentsOfDirectory(
@@ -522,5 +593,360 @@ struct TopoFileName: Equatable {
     static func fileKey(globalId: Int, localHole: Int, geometryRevision: String?) -> String {
         let base = "\(globalId)-\(localHole)"
         return normalizedRevision(geometryRevision).map { "\(base)-\($0)" } ?? base
+    }
+}
+
+// MARK: - Eviction
+
+/// One course + Tee this account may give up: its template, and the bitmaps that lose their
+/// last reference with it.
+public struct CourseEvictionCandidate: Equatable, Sendable {
+    public let usageKey: String
+    public let globalId: Int
+    public let teeBox: String
+    let templateFileName: String
+    let templateModifiedAt: Date
+    public let lastUsedAt: Date
+    public let estimatedBytes: Int64
+
+    /// The 备战 row (`PrepCourseDownloadRecord.id`) that this template makes ready.
+    public var prepDownloadID: String { PrepCourseDownloadRecord.key(globalId: globalId, teeBox: teeBox) }
+}
+
+public struct OfflineStorageEvictionPlan: Equatable, Sendable {
+    public let usageBefore: OfflineStorageUsage
+    /// Least recently used first; just enough to bring the estimate under the cap.
+    public let candidates: [CourseEvictionCandidate]
+
+    public var estimatedFreedBytes: Int64 { candidates.reduce(0) { $0 + $1.estimatedBytes } }
+}
+
+/// Over `capBytes`, this account gives up whole courses it has neither played nor opened in 备战
+/// for `idleInterval`, least recently used first, until the estimate is back under the cap. When
+/// every course was used within that window nothing is removed: the settings total simply stays
+/// above the cap. Silent by design (IMPLEMENTATION_PLAN: process status goes to logs and settings).
+///
+/// Only this account's templates are candidates; another account's templates, and every package
+/// of any account, keep the bitmaps they name. Removal runs in three steps so the app never sees
+/// a ready 备战 row without its template: (1) the plan is computed off the main actor; (2) the
+/// main actor re-checks it against live state, queues the bitmap sweep, saves the 备战 list
+/// without the courses' ready rows, then deletes the templates; (3) the sweep removes the
+/// courses' unreferenced bitmaps under `TopoWriterActivity`. The sweep queue is on disk, so a
+/// pass that is skipped or interrupted resumes at the next maintenance.
+public enum OfflineStorageEviction {
+    public static let capBytes: Int64 = 200_000_000
+    public static let idleInterval: TimeInterval = 60 * 24 * 60 * 60
+
+    /// A use stamped in the future (clock moved back) is not idle.
+    public static func isIdle(lastUsedAt: Date, now: Date) -> Bool {
+        lastUsedAt <= now && now.timeIntervalSince(lastUsedAt) >= idleInterval
+    }
+
+    static func plan(
+        root: URL,
+        accountDirectory: URL,
+        now: Date,
+        capBytes: Int64,
+        currentStyleVersion: String = SyncClient.topoStyleVersion
+    ) -> OfflineStorageEvictionPlan? {
+        let usage = OfflineStorageMaintenance.usage(root: root, accountDirectory: accountDirectory)
+        guard usage.totalBytes > capBytes else { return nil }
+        let lastUsed = CourseUsageLog.load(from: accountDirectory.appendingPathComponent(CourseUsageLog.fileName))
+        let protected: Set<Int>
+        let sources: OfflineStorageMaintenance.TopoReferenceSources
+        let templateURLs: [URL]
+        do {
+            protected = try protectedGlobalIds(accountDirectory: accountDirectory)
+            sources = try OfflineStorageMaintenance.referenceSources(root: root)
+            templateURLs = try OfflineStorageMaintenance.listing(
+                of: accountDirectory.appendingPathComponent("course_templates", isDirectory: true)
+            )
+        } catch {
+            AICaddieLog.storage.error(
+                "Offline storage over cap, eviction skipped: \(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+
+        struct IdleCourse {
+            let url: URL
+            let key: String
+            let globalId: Int
+            let teeBox: String
+            let lastUsedAt: Date
+            let modifiedAt: Date
+            let bytes: Int64
+        }
+        let templateKeys: [URLResourceKey] = [
+            .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .totalFileAllocatedSizeKey, .fileSizeKey,
+        ]
+        var idle: [IdleCourse] = []
+        for url in templateURLs {
+            guard let key = OfflineStorageMaintenance.usageKey(templateFileName: url.lastPathComponent),
+                  let identity = courseIdentity(usageKey: key),
+                  let used = lastUsed[key], isIdle(lastUsedAt: used, now: now),
+                  !protected.contains(identity.globalId),
+                  !sources.pinnedGlobalIds.contains(identity.globalId),
+                  let values = try? url.resourceValues(forKeys: Set(templateKeys)),
+                  values.isRegularFile == true, values.isSymbolicLink != true,
+                  let modifiedAt = values.contentModificationDate else { continue }
+            idle.append(IdleCourse(
+                url: url,
+                key: key,
+                globalId: identity.globalId,
+                teeBox: identity.teeBox,
+                lastUsedAt: used,
+                modifiedAt: modifiedAt,
+                bytes: Int64(values.totalFileAllocatedSize ?? values.fileSize ?? 0)
+            ))
+        }
+        guard !idle.isEmpty else {
+            AICaddieLog.storage.info(
+                "Offline storage over cap (\(usage.totalBytes, privacy: .public) bytes), every course used within the idle window"
+            )
+            return nil
+        }
+        idle.sort { ($0.lastUsedAt, $0.key) < ($1.lastUsedAt, $1.key) }
+
+        // Bitmaps of the current style by course, and how many packages name each one.
+        var bitmaps: [Int: [(fileKey: String, bytes: Int64)]] = [:]
+        let topoDirectory = root.appendingPathComponent("course_topo", isDirectory: true)
+            .appendingPathComponent(currentStyleVersion, isDirectory: true)
+        let bitmapKeys: [URLResourceKey] = [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileSizeKey]
+        for url in (try? FileManager.default.contentsOfDirectory(
+            at: topoDirectory,
+            includingPropertiesForKeys: bitmapKeys,
+            options: []
+        )) ?? [] {
+            guard let file = TopoFileName(url.lastPathComponent),
+                  let values = try? url.resourceValues(forKeys: Set(bitmapKeys)),
+                  values.isRegularFile == true else { continue }
+            bitmaps[file.globalId, default: []].append(
+                (file.fileKey, Int64(values.totalFileAllocatedSize ?? values.fileSize ?? 0))
+            )
+        }
+        var referenceCounts: [String: Int] = [:]
+        for keys in sources.filesByPackage.values {
+            for key in keys { referenceCounts[key, default: 0] += 1 }
+        }
+
+        var projected = usage.totalBytes
+        var claimed = Set<String>()
+        var candidates: [CourseEvictionCandidate] = []
+        for course in idle {
+            guard projected > capBytes else { break }
+            for key in sources.filesByPackage[OfflineStorageMaintenance.packageKey(course.url)] ?? [] {
+                referenceCounts[key, default: 0] -= 1
+            }
+            var freed = course.bytes
+            for bitmap in bitmaps[course.globalId] ?? []
+            where !claimed.contains(bitmap.fileKey) && referenceCounts[bitmap.fileKey, default: 0] <= 0 {
+                claimed.insert(bitmap.fileKey)
+                freed += bitmap.bytes
+            }
+            projected -= freed
+            candidates.append(CourseEvictionCandidate(
+                usageKey: course.key,
+                globalId: course.globalId,
+                teeBox: course.teeBox,
+                templateFileName: course.url.lastPathComponent,
+                templateModifiedAt: course.modifiedAt,
+                lastUsedAt: course.lastUsedAt,
+                estimatedBytes: freed
+            ))
+        }
+        return OfflineStorageEvictionPlan(usageBefore: usage, candidates: candidates)
+    }
+
+    /// `"<globalId>|<tee>"` → its parts.
+    static func courseIdentity(usageKey key: String) -> (globalId: Int, teeBox: String)? {
+        let parts = key.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, let globalId = Int(parts[0]), globalId > 0, !parts[1].isEmpty else { return nil }
+        return (globalId, String(parts[1]))
+    }
+
+    /// Every course named by this account's round packages (in progress or awaiting upload, a
+    /// round may span two courses), current package and home package.
+    static func protectedGlobalIds(accountDirectory: URL) throws -> Set<Int> {
+        var urls = [
+            accountDirectory.appendingPathComponent("current_package.json"),
+            accountDirectory.appendingPathComponent("home_package.json"),
+        ]
+        urls += try OfflineStorageMaintenance.listing(
+            of: accountDirectory.appendingPathComponent("packages", isDirectory: true)
+        ).filter { $0.pathExtension.lowercased() == "json" }
+        var globalIds = Set<Int>()
+        let decoder = JSONDecoder()
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            let data: Data
+            do {
+                data = try Data(contentsOf: url)
+            } catch {
+                throw OfflineStorageMaintenance.ReferenceScanError.unreadable(url.lastPathComponent)
+            }
+            // Like the bitmap scan: bytes the app cannot decode cannot be played either.
+            guard let package = try? decoder.decode(CourseNamingPackage.self, from: data) else { continue }
+            globalIds.formUnion(package.globalIds)
+        }
+        return globalIds
+    }
+
+    private struct CourseNamingPackage: Decodable {
+        struct Course: Decodable { let globalId: Int }
+        struct Hole: Decodable { let sourceGlobalId: Int }
+        let course: Course?
+        let holes: [Hole]
+
+        var globalIds: Set<Int> {
+            var ids = Set(holes.map(\.sourceGlobalId))
+            if let course { ids.insert(course.globalId) }
+            return ids
+        }
+    }
+
+    /// The main actor's last look before deleting: a course used since the plan (`usage` is read
+    /// again), or one a 备战 job or the live round is on (`busyGlobalIds`), is kept.
+    public static func confirmedCandidates(
+        _ plan: OfflineStorageEvictionPlan,
+        usage: [String: Date],
+        busyGlobalIds: Set<Int>,
+        now: Date
+    ) -> [CourseEvictionCandidate] {
+        plan.candidates.filter { candidate in
+            guard !busyGlobalIds.contains(candidate.globalId),
+                  let used = usage[candidate.usageKey] else { return false }
+            return isIdle(lastUsedAt: used, now: now)
+        }
+    }
+
+    /// The 备战 list without the evicted courses' ready rows. It is saved before the templates go:
+    /// a ready row whose template is missing is re-queued at launch and would download again.
+    public static func prepRows(
+        _ rows: [PrepCourseDownloadRecord],
+        withoutReadyRowsOf candidates: [CourseEvictionCandidate]
+    ) -> [PrepCourseDownloadRecord] {
+        let evicted = Set(candidates.map(\.prepDownloadID))
+        return rows.filter { !($0.phase == .ready && evicted.contains($0.id)) }
+    }
+
+    static func removeTemplate(_ candidate: CourseEvictionCandidate, accountDirectory: URL) -> Bool {
+        let url = accountDirectory.appendingPathComponent("course_templates", isDirectory: true)
+            .appendingPathComponent(candidate.templateFileName)
+        let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+        guard values?.isRegularFile == true,
+              values?.contentModificationDate == candidate.templateModifiedAt else { return false }
+        do {
+            try FileManager.default.removeItem(at: url)
+            return true
+        } catch {
+            AICaddieLog.storage.error(
+                "Template eviction failed \(candidate.templateFileName, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            return false
+        }
+    }
+
+    /// Removes the queued courses' bitmaps that no package of any account references and no
+    /// unfinished 备战 download pins, under the same gate and age rule as garbage collection.
+    /// A course leaves the queue once a full pass has removed all its unreferenced bitmaps; one
+    /// still pinned by a download, or with a bitmap too new to judge, stays for the next pass.
+    static func sweepEvictedTopo(
+        root: URL,
+        currentStyleVersion: String,
+        now: Date,
+        minimumAge: TimeInterval = OfflineStorageMaintenance.minimumTopoAge,
+        activity: TopoWriterActivity = .shared
+    ) -> OfflineStorageGarbageReport {
+        var report = OfflineStorageGarbageReport()
+        let pending = TopoSweepQueue.load(root: root)
+        guard !pending.isEmpty else { return report }
+        guard let quietToken = activity.quietToken() else {
+            report.revisionSweepSkippedReason = "download active"
+            return report
+        }
+        let references: OfflineStorageMaintenance.TopoReferences
+        let files: [URL]
+        do {
+            references = try OfflineStorageMaintenance.referencedTopo(root: root)
+            files = try OfflineStorageMaintenance.listing(
+                of: root.appendingPathComponent("course_topo", isDirectory: true)
+                    .appendingPathComponent(currentStyleVersion, isDirectory: true)
+            )
+        } catch {
+            report.revisionSweepSkippedReason = String(describing: error)
+            return report
+        }
+        var retry = Set<Int>()
+        for url in files {
+            guard let file = TopoFileName(url.lastPathComponent),
+                  pending.contains(file.globalId),
+                  !references.files.contains(file.fileKey) else { continue }
+            guard !references.pinnedGlobalIds.contains(file.globalId) else {
+                // An unfinished download may still name this bitmap; once it is cancelled or
+                // installed, a later pass decides.
+                retry.insert(file.globalId)
+                continue
+            }
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
+            guard now.timeIntervalSince(modified) >= minimumAge else {
+                // Too new to tell from a download about to write its template: look again later.
+                retry.insert(file.globalId)
+                continue
+            }
+            let quiet = activity.ifQuiet(since: quietToken) {
+                OfflineStorageMaintenance.remove(url, from: &report)
+            }
+            guard quiet else {
+                report.revisionSweepSkippedReason = "download started"
+                return report
+            }
+            if FileManager.default.fileExists(atPath: url.path) { retry.insert(file.globalId) }
+        }
+        TopoSweepQueue.remove(pending.subtracting(retry), root: root)
+        return report
+    }
+}
+
+/// Courses whose templates were evicted and whose bitmaps are still to be swept
+/// (`topo_sweep_pending_v1.json` at the store root; bitmaps are shared by every account).
+enum TopoSweepQueue {
+    static let fileName = "topo_sweep_pending_v1.json"
+    private static let lock = NSLock()
+
+    static func load(root: URL) -> Set<Int> {
+        lock.lock()
+        defer { lock.unlock() }
+        return loadUnlocked(root)
+    }
+
+    static func add(_ globalIds: Set<Int>, root: URL) throws {
+        try update(root) { $0.formUnion(globalIds) }
+    }
+
+    static func remove(_ globalIds: Set<Int>, root: URL) {
+        do {
+            try update(root) { $0.subtract(globalIds) }
+        } catch {
+            AICaddieLog.storage.error("Topo sweep queue write failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private static func update(_ root: URL, _ body: (inout Set<Int>) -> Void) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        var globalIds = loadUnlocked(root)
+        let before = globalIds
+        body(&globalIds)
+        guard globalIds != before else { return }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try JSONEncoder().encode(globalIds.sorted())
+            .write(to: root.appendingPathComponent(fileName), options: [.atomic])
+    }
+
+    private static func loadUnlocked(_ root: URL) -> Set<Int> {
+        guard let data = try? Data(contentsOf: root.appendingPathComponent(fileName)),
+              let globalIds = try? JSONDecoder().decode([Int].self, from: data) else { return [] }
+        return Set(globalIds)
     }
 }

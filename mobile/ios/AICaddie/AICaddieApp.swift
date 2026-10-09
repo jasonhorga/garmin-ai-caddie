@@ -439,6 +439,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// while a fresh entry is pending; every automatic job waits for the release.
     private var userRequestedPrepDownloadIDs = Set<String>()
     private var roundPreparationToken: UUID?
+    /// Courses picked on 开始一场 / 在这个球场 in this launch. Storage eviction keeps them even when
+    /// their row is already ready, because picking a course does not count as a use.
+    private var intendedGlobalIds = Set<Int>()
     private var courseOptionsRefreshSucceeded = false
     /// The last catalogue this account accepted (from the network or, at launch, from disk).
     /// `courseOptions` publishes it whole until a refresh fails; after a failure only its downloaded
@@ -1568,6 +1571,10 @@ public final class LiveRoundAppModel: ObservableObject {
     var userRequestedPrepDownloadIDsForTesting: Set<String> { userRequestedPrepDownloadIDs }
 
     var offlineCourseDownloadRoundIdForTesting: String? { offlineCourseDownloadRoundId }
+
+    func evictIdleCoursesForTesting(_ plan: OfflineStorageEvictionPlan, for scope: OfflineStorageScope) {
+        evictIdleCourses(plan, for: scope)
+    }
 
     var interruptedOfflineCourseDownloadRoundIdForTesting: String? { interruptedOfflineCourseDownloadRoundId }
 
@@ -3394,10 +3401,71 @@ public final class LiveRoundAppModel: ObservableObject {
         guard prepCourseDownloadTask == nil, offlineCourseDownloadRoundId == nil else { return }
         let scope = offlineStore.storageScope
         Task.detached(priority: .background) { [weak self] in
-            scope.runMaintenanceIfDue()
+            if scope.runMaintenanceIfDue() != nil {
+                if let plan = scope.evictionPlan() {
+                    await self?.evictIdleCourses(plan, for: scope)
+                }
+                // Also finishes a sweep an earlier pass queued but could not complete.
+                scope.sweepEvictedTopo()
+            }
             let usage = scope.usage()
             await self?.publishOfflineStorageUsage(usage, for: scope)
         }
+    }
+
+    /// Over the storage cap: drops the plan's long-unused courses. Silent (logs only); nothing on
+    /// the play, 备战 or start screens mentions it. The ready rows are saved away before the
+    /// templates go, otherwise `resumePrepCourseDownloads` would re-queue them as stale and
+    /// download the courses again.
+    private func evictIdleCourses(_ plan: OfflineStorageEvictionPlan, for scope: OfflineStorageScope) {
+        // A round being prepared may read a template (or reuse bitmaps) that is idle on disk.
+        guard offlineStore.storageScope == scope,
+              roundPreparationToken == nil,
+              offlineCourseDownloadRoundId == nil,
+              let onDisk = scope.protectedGlobalIds() else { return }
+        var busy = onDisk
+            .union(prepCourseDownloads.filter { $0.phase != .ready }.map(\.course.globalId))
+            .union(intendedGlobalIds)
+        if let package {
+            busy.formUnion(package.holes.map(\.sourceGlobalId))
+            busy.insert(package.course.globalId)
+        }
+        let candidates = OfflineStorageEviction.confirmedCandidates(
+            plan,
+            usage: offlineStore.loadCourseUsage(),
+            busyGlobalIds: busy,
+            now: Date()
+        )
+        guard !candidates.isEmpty,
+              scope.queueTopoSweep(globalIds: Set(candidates.map(\.globalId))) else { return }
+        let remaining = OfflineStorageEviction.prepRows(prepCourseDownloads, withoutReadyRowsOf: candidates)
+        let remainingIDs = Set(remaining.map(\.id))
+        let setAside = prepCourseDownloads.filter { !remainingIDs.contains($0.id) }
+        if !setAside.isEmpty {
+            // Published only once saved: on failure the list, the templates and the screens stay as they were.
+            do {
+                try offlineStore.savePrepCourseDownloads(remaining)
+            } catch {
+                AICaddieLog.storage.error(
+                    "Eviction stopped, 备战 list save failed: \(String(describing: error), privacy: .public)"
+                )
+                return
+            }
+            prepCourseDownloads = remaining
+        }
+        let removed = candidates.filter { scope.removeEvictedTemplate($0) }
+        // A template kept (rewritten since the plan, or not deletable) gets its ready row back.
+        let removedIDs = Set(removed.map(\.prepDownloadID))
+        let restored = setAside.filter { !removedIDs.contains($0.id) }
+        if !restored.isEmpty {
+            prepCourseDownloads += restored
+            persistPrepCourseDownloads()
+        }
+        let freedBytes = removed.reduce(Int64(0)) { $0 + $1.estimatedBytes }
+        refreshDownloadedCourseOptions()
+        AICaddieLog.storage.info(
+            "Offline storage eviction: \(removed.count, privacy: .public) of \(plan.candidates.count, privacy: .public) idle courses removed, ~\(freedBytes, privacy: .public) of \(plan.usageBefore.totalBytes, privacy: .public) bytes"
+        )
     }
 
     /// Settings asks on appear; the walk over the bitmap directory runs off the main actor.
@@ -4295,6 +4363,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// later tee change still reuses them). A newer intent drops unfinished rows of an older one;
     /// ready rows stay as downloaded courses. Automatic jobs still wait behind a fresh round entry.
     public func prefetchIntendedCourses(_ courses: [MobileCourseOption], teeBox: String) {
+        intendedGlobalIds = Set(courses.map(\.globalId))
         let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
         guard syncClient != nil, !tee.isEmpty else { return }
         // The live round's own loops already have the all-hole pipeline.

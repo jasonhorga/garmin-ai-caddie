@@ -475,3 +475,261 @@ final class OfflineStorageMaintenanceTests: XCTestCase {
         XCTAssertEqual(OfflineStorageUsage(topoBytes: 150_000_000, templateBytes: 2_600_000).summaryText, "离线地图共占用 153 MB")
     }
 }
+
+/// Storage batch PR B: over the cap, courses unused for 60 days go, least recently used first;
+/// shared bitmaps go only once nothing on the phone references them.
+extension OfflineStorageMaintenanceTests {
+    private static let day: TimeInterval = 86_400
+
+    private func scope(_ id: String = "a") -> OfflineStorageScope {
+        OfflineStorageScope(root: root, accountDirectory: account(id))
+    }
+
+    private func template(_ globalId: Int, tee: String = "blue", in id: String = "a") -> URL {
+        account(id).appendingPathComponent("course_templates", isDirectory: true)
+            .appendingPathComponent("v2--\(globalId)--\(tee)--whole.json")
+    }
+
+    /// A one-hole whole-course template of `globalId`, last used `daysAgo` (nil: never recorded).
+    private func installCourse(
+        _ globalId: Int,
+        tee: String = "blue",
+        in id: String = "a",
+        holes: [(number: Int, globalId: Int, localHole: Int, revision: String?)]? = nil,
+        lastUsedDaysAgo daysAgo: Double?
+    ) throws {
+        try writePackage(
+            "course_templates/v2--\(globalId)--\(tee)--whole.json",
+            in: account(id),
+            holes: holes ?? [(1, globalId, 1, nil)]
+        )
+        if let daysAgo {
+            try CourseUsageLog.record(
+                ["\(globalId)|\(tee)"],
+                at: now.addingTimeInterval(-daysAgo * Self.day),
+                in: account(id).appendingPathComponent(CourseUsageLog.fileName)
+            )
+        }
+    }
+
+    private func allocatedBytes(_ url: URL) -> Int64 {
+        let values = try? url.resourceValues(forKeys: [.totalFileAllocatedSizeKey, .fileSizeKey])
+        return Int64(values?.totalFileAllocatedSize ?? values?.fileSize ?? 0)
+    }
+
+    func testNothingIsPlannedUnderTheCap() throws {
+        try installCourse(100, lastUsedDaysAgo: 365)
+        XCTAssertNil(scope().evictionPlan(now: now, capBytes: .max))
+    }
+
+    func testOnlyCoursesIdleForSixtyDaysAreCandidatesOldestFirst() throws {
+        try installCourse(100, lastUsedDaysAgo: 61)
+        try installCourse(200, lastUsedDaysAgo: 90)
+        try installCourse(300, lastUsedDaysAgo: 59)
+        try installCourse(400, lastUsedDaysAgo: nil)
+        try installCourse(500, lastUsedDaysAgo: -1)
+
+        let plan = try XCTUnwrap(scope().evictionPlan(now: now, capBytes: 0))
+
+        XCTAssertEqual(plan.candidates.map(\.usageKey), ["200|blue", "100|blue"],
+                       "recent, unrecorded and future-stamped courses all stay")
+        XCTAssertEqual(plan.candidates.first?.prepDownloadID, PrepCourseDownloadRecord.key(globalId: 200, teeBox: "blue"))
+    }
+
+    func testEveryCourseUsedWithinTheWindowMeansNothingIsRemovedOverTheCap() throws {
+        try installCourse(100, lastUsedDaysAgo: 30)
+        XCTAssertNil(scope().evictionPlan(now: now, capBytes: 0))
+    }
+
+    func testThePlanStopsOnceTheEstimateIsUnderTheCap() throws {
+        try installCourse(100, lastUsedDaysAgo: 100)
+        try installCourse(200, lastUsedDaysAgo: 80)
+        try writeTopo("100-1.png")
+        try writeTopo("200-1.png")
+        let total = scope().usage().totalBytes
+
+        let plan = try XCTUnwrap(scope().evictionPlan(now: now, capBytes: total - 1))
+
+        XCTAssertEqual(plan.candidates.map(\.globalId), [100])
+        XCTAssertEqual(
+            plan.estimatedFreedBytes,
+            allocatedBytes(template(100)) + allocatedBytes(topoDirectory.appendingPathComponent("100-1.png"))
+        )
+    }
+
+    func testRoundHomeCurrentAndUnfinishedPrepCoursesAreNeverCandidates() throws {
+        for globalId in [100, 200, 300, 400, 500, 600] {
+            try installCourse(globalId, lastUsedDaysAgo: 120)
+        }
+        // A combined round spans two physical courses.
+        try writePackage("packages/round-1.json", in: account("a"), holes: [(1, 100, 1, nil), (10, 200, 1, nil)])
+        try writePackage("home_package.json", in: account("a"), holes: [(1, 300, 1, nil)])
+        try writePackage("current_package.json", in: account("a"), holes: [(1, 400, 1, nil)])
+        let downloading = PrepCourseDownloadRecord(
+            course: MobileCourseOption(globalId: 500, name: "球场", holes: 18, teeBox: "blue"),
+            teeBox: "blue",
+            phase: .downloading
+        )
+        try JSONEncoder().encode([downloading])
+            .write(to: account("a").appendingPathComponent("prep_course_downloads.json"))
+
+        let plan = try XCTUnwrap(scope().evictionPlan(now: now, capBytes: 0))
+
+        XCTAssertEqual(plan.candidates.map(\.globalId), [600])
+        XCTAssertEqual(scope().protectedGlobalIds(), Set([100, 200, 300, 400]))
+    }
+
+    func testUnreadableRoundPackageStopsThePlan() throws {
+        try installCourse(100, lastUsedDaysAgo: 120)
+        let packages = account("a").appendingPathComponent("packages", isDirectory: true)
+        try FileManager.default.createDirectory(at: packages.appendingPathComponent("round-1.json"), withIntermediateDirectories: true)
+
+        XCTAssertNil(scope().evictionPlan(now: now, capBytes: 0), "a package that cannot be read might name the course")
+        XCTAssertNil(scope().protectedGlobalIds())
+    }
+
+    func testEvictionKeepsBitmapsAnotherAccountStillReferences() throws {
+        try installCourse(100, holes: [(1, 100, 1, "r1"), (2, 100, 2, "r1")], lastUsedDaysAgo: 120)
+        try installCourse(100, in: "b", holes: [(1, 100, 1, "r1")], lastUsedDaysAgo: 120)
+        let shared = try writeTopo("100-1-r1.png")
+        let own = try writeTopo("100-2-r1.png")
+
+        let plan = try XCTUnwrap(scope().evictionPlan(now: now, capBytes: 0))
+        let candidate = try XCTUnwrap(plan.candidates.first)
+        XCTAssertEqual(candidate.estimatedBytes, allocatedBytes(template(100)) + allocatedBytes(own),
+                       "the bitmap account b still draws is not counted as freed")
+
+        XCTAssertTrue(scope().queueTopoSweep(globalIds: [candidate.globalId]))
+        XCTAssertTrue(scope().removeEvictedTemplate(candidate))
+        let report = OfflineStorageEviction.sweepEvictedTopo(
+            root: root, currentStyleVersion: style, now: now, activity: TopoWriterActivity()
+        )
+
+        XCTAssertEqual(report.removedTopoFiles, ["100-2-r1.png"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: shared.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: template(100).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: template(100, in: "b").path), "another account's template is never a candidate")
+        XCTAssertTrue(TopoSweepQueue.load(root: root).isEmpty)
+    }
+
+    func testSweepKeepsBitmapsOfAnInProgressRoundAndOfAnUnfinishedDownload() throws {
+        try writePackage("packages/round-1.json", in: account("b"), holes: [(1, 100, 1, nil), (10, 200, 1, nil)])
+        let downloading = PrepCourseDownloadRecord(
+            course: MobileCourseOption(globalId: 300, name: "球场", holes: 18, teeBox: "blue"),
+            teeBox: "blue",
+            phase: .queued
+        )
+        try FileManager.default.createDirectory(at: account("c"), withIntermediateDirectories: true)
+        try JSONEncoder().encode([downloading])
+            .write(to: account("c").appendingPathComponent("prep_course_downloads.json"))
+        for name in ["100-1.png", "200-1.png", "300-1.png", "100-2.png"] { try writeTopo(name) }
+        try TopoSweepQueue.add([100, 200, 300], root: root)
+
+        let report = OfflineStorageEviction.sweepEvictedTopo(
+            root: root, currentStyleVersion: style, now: now, activity: TopoWriterActivity()
+        )
+
+        XCTAssertEqual(report.removedTopoFiles, ["100-2.png"])
+        for name in ["100-1.png", "200-1.png", "300-1.png"] { XCTAssertTrue(exists(name), name) }
+        XCTAssertEqual(TopoSweepQueue.load(root: root), [300],
+                       "referenced courses are done; the pinned one waits for its download to settle")
+    }
+
+    /// The pin is released (download cancelled, no template written): the next pass removes it.
+    func testACourseKeptByAnUnfinishedDownloadIsSweptOnceTheDownloadIsGone() throws {
+        let downloading = PrepCourseDownloadRecord(
+            course: MobileCourseOption(globalId: 300, name: "球场", holes: 18, teeBox: "blue"),
+            teeBox: "blue",
+            phase: .downloading
+        )
+        try FileManager.default.createDirectory(at: account("c"), withIntermediateDirectories: true)
+        let rows = account("c").appendingPathComponent("prep_course_downloads.json")
+        try JSONEncoder().encode([downloading]).write(to: rows)
+        try writeTopo("300-1.png")
+        try TopoSweepQueue.add([300], root: root)
+
+        let pinned = OfflineStorageEviction.sweepEvictedTopo(
+            root: root, currentStyleVersion: style, now: now, activity: TopoWriterActivity()
+        )
+        XCTAssertTrue(pinned.removedTopoFiles.isEmpty)
+        XCTAssertTrue(exists("300-1.png"))
+        XCTAssertEqual(TopoSweepQueue.load(root: root), [300])
+
+        try JSONEncoder().encode([PrepCourseDownloadRecord]()).write(to: rows)
+        let released = OfflineStorageEviction.sweepEvictedTopo(
+            root: root, currentStyleVersion: style, now: now, activity: TopoWriterActivity()
+        )
+        XCTAssertEqual(released.removedTopoFiles, ["300-1.png"])
+        XCTAssertTrue(TopoSweepQueue.load(root: root).isEmpty)
+    }
+
+    func testSweepSkippedByADownloadResumesAtTheNextPass() throws {
+        try writeTopo("100-1.png")
+        try writeTopo("100-2.png", ageHours: 2)
+        try TopoSweepQueue.add([100], root: root)
+        let activity = TopoWriterActivity()
+        activity.begin()
+
+        let skipped = OfflineStorageEviction.sweepEvictedTopo(root: root, currentStyleVersion: style, now: now, activity: activity)
+        XCTAssertEqual(skipped.revisionSweepSkippedReason, "download active")
+        XCTAssertTrue(exists("100-1.png"))
+        XCTAssertEqual(TopoSweepQueue.load(root: root), [100], "the course stays queued")
+
+        activity.end()
+        let resumed = OfflineStorageEviction.sweepEvictedTopo(root: root, currentStyleVersion: style, now: now, activity: activity)
+        XCTAssertEqual(resumed.removedTopoFiles, ["100-1.png"])
+        XCTAssertTrue(exists("100-2.png"), "a bitmap younger than a day may belong to a download about to write its template")
+        XCTAssertEqual(TopoSweepQueue.load(root: root), [100], "the young bitmap is looked at again later")
+
+        let later = OfflineStorageEviction.sweepEvictedTopo(
+            root: root, currentStyleVersion: style, now: now.addingTimeInterval(Self.day), activity: activity
+        )
+        XCTAssertEqual(later.removedTopoFiles, ["100-2.png"])
+        XCTAssertTrue(TopoSweepQueue.load(root: root).isEmpty)
+    }
+
+    func testATemplateRewrittenSinceThePlanIsKept() throws {
+        try installCourse(100, lastUsedDaysAgo: 120)
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-100 * Self.day)],
+            ofItemAtPath: template(100).path
+        )
+        let candidate = try XCTUnwrap(scope().evictionPlan(now: now, capBytes: 0)?.candidates.first)
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: template(100).path)
+
+        XCTAssertFalse(scope().removeEvictedTemplate(candidate))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: template(100).path))
+    }
+
+    func testCoursesUsedOrBusySinceThePlanAreDropped() throws {
+        for globalId in [100, 200, 300] {
+            try installCourse(globalId, lastUsedDaysAgo: 120)
+        }
+        let plan = try XCTUnwrap(scope().evictionPlan(now: now, capBytes: 0))
+        XCTAssertEqual(plan.candidates.count, 3)
+        var usage = CourseUsageLog.load(from: account("a").appendingPathComponent(CourseUsageLog.fileName))
+        usage["100|blue"] = now
+
+        let confirmed = OfflineStorageEviction.confirmedCandidates(plan, usage: usage, busyGlobalIds: [200], now: now)
+
+        XCTAssertEqual(confirmed.map(\.globalId), [300])
+    }
+
+    /// A ready row left behind would be re-queued as stale at launch and download the course again.
+    func testOnlyTheEvictedCoursesReadyRowsAreRemoved() throws {
+        try installCourse(100, lastUsedDaysAgo: 120)
+        let candidates = try XCTUnwrap(scope().evictionPlan(now: now, capBytes: 0)?.candidates)
+        func row(_ globalId: Int, _ tee: String, _ phase: PrepCourseDownloadPhase) -> PrepCourseDownloadRecord {
+            PrepCourseDownloadRecord(
+                course: MobileCourseOption(globalId: globalId, name: "球场", holes: 18, teeBox: tee),
+                teeBox: tee,
+                phase: phase
+            )
+        }
+        let rows = [row(100, "blue", .ready), row(100, "white", .ready), row(200, "blue", .ready)]
+
+        let remaining = OfflineStorageEviction.prepRows(rows, withoutReadyRowsOf: candidates)
+
+        XCTAssertEqual(remaining.map(\.id), [row(100, "white", .ready).id, row(200, "blue", .ready).id])
+    }
+}
