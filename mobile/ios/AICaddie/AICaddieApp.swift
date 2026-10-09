@@ -450,10 +450,12 @@ public final class LiveRoundAppModel: ObservableObject {
     private var networkState = SpeculativeNetworkState.unknown
     /// Speculative courses that failed in this launch are not queued again until the next one.
     private var failedSpeculativeDownloadIDs = Set<String>()
-    /// 新区域: the nearest courses of the last nearby answer taken somewhere new, waiting for a
-    /// speculative pass (`scheduleSpeculativePrepCourseDownloads`). Not persisted: the next launch's
-    /// nearby answer finds the area again.
-    private var pendingNewArea: NewAreaRequest?
+    /// 新区域: the area the latest nearby answer found new, with what is known of its Tees, while
+    /// it waits for or runs a pass (`scheduleSpeculativePrepCourseDownloads`); nil when the latest
+    /// answer found no new area. Not persisted: the next launch's nearby answer finds it again.
+    private var newAreaIntent: NewAreaRequest?
+    /// Bumped whenever the intent is replaced or cleared; a pass for an older one queues nothing.
+    private var newAreaGeneration: UInt64 = 0
     /// The pass reading those courses' Tees; nil when none runs.
     private var newAreaTask: Task<Void, Never>?
     /// When the published `offlineStorageUsage` walk started, and when a download last wrote course
@@ -1759,6 +1761,12 @@ public final class LiveRoundAppModel: ObservableObject {
     var nextPrepCourseDownloadJobIDForTesting: String? { nextPrepCourseDownloadJob()?.id }
 
     var speculativeCourseRoomForTesting: Int? { speculativeCourseRoom }
+
+    /// A nearby answer arriving without a foreground request around it, so a test can order it
+    /// before an older pass's completion.
+    func noteNearbyCoursesForTesting(_ matches: [MobileCourseSearchMatch], latitude: Double, longitude: Double) {
+        noteNearbyCourses(matches, latitude: latitude, longitude: longitude)
+    }
 
     /// Waits for the new-area Tee lookups (and the pass they lead to) to finish.
     func waitForNewAreaPassForTesting() async {
@@ -4543,7 +4551,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private func endForegroundCourseRequest() {
         foregroundCourseRequestCount = max(0, foregroundCourseRequestCount - 1)
         guard foregroundCourseRequestCount == 0, roundPreparationToken == nil else { return }
-        if pendingNewArea != nil {
+        if newAreaIntent != nil {
             scheduleSpeculativePrepCourseDownloads()
         }
         startPrepCourseDownloadQueueIfNeeded()
@@ -4843,7 +4851,7 @@ public final class LiveRoundAppModel: ObservableObject {
         guard room > 0, newAreaTask == nil else { return }
         // Somewhere new: its nearest courses take the room first; the pass calls back here. Its
         // Tee lookups wait for the player's own course requests (`endForegroundCourseRequest`).
-        if let area = pendingNewArea {
+        if let area = newAreaIntent {
             if foregroundCourseRequestCount == 0 {
                 startNewAreaPass(area)
             }
@@ -4876,9 +4884,10 @@ public final class LiveRoundAppModel: ObservableObject {
         speculativeJobsMayRun && foregroundCourseRequestCount == 0
     }
 
-    /// A nearby answer (the home card or 开始一场): somewhere new, its nearest courses wait for the
-    /// next speculative pass; anywhere else nothing waits. A newer answer from the same area keeps
-    /// what was already read for it.
+    /// A nearby answer (the home card or 开始一场) decides the intent: somewhere new, its nearest
+    /// courses (a newer answer from the same area keeps the intent and what was read for it);
+    /// anywhere else, none. A replaced or cleared intent stops its pass, and that pass's late
+    /// completion is dropped (`finishNewAreaPass` checks the generation).
     private func noteNearbyCourses(_ matches: [MobileCourseSearchMatch], latitude: Double, longitude: Double) {
         guard liveRoundState == nil else { return }
         let courses = NewAreaPrefetch.courses(
@@ -4889,28 +4898,31 @@ public final class LiveRoundAppModel: ObservableObject {
             anchor: NewAreaPrefetch.loadAnchor()
         )
         guard !courses.isEmpty else {
-            pendingNewArea = nil
+            if newAreaIntent != nil { replaceNewAreaIntent(with: nil) }
             return
         }
         let area = NewAreaRequest(latitude: latitude, longitude: longitude, courses: courses)
-        if let pending = pendingNewArea, pending.isSameArea(as: area) { return }
-        pendingNewArea = area
+        if let current = newAreaIntent, current.isSameArea(as: area) { return }
+        replaceNewAreaIntent(with: area)
         scheduleSpeculativePrepCourseDownloads()
     }
 
-    /// Keeps `area` waiting unless a newer answer from another area replaced it meanwhile.
-    private func parkNewArea(_ area: NewAreaRequest) {
-        if let newer = pendingNewArea, !newer.isSameArea(as: area) { return }
-        pendingNewArea = area
+    private func replaceNewAreaIntent(with area: NewAreaRequest?) {
+        newAreaGeneration &+= 1
+        newAreaTask?.cancel()
+        newAreaIntent = area.map { area in
+            var area = area
+            area.generation = newAreaGeneration
+            return area
+        }
     }
 
-    /// Reads the blue Tees of the area's courses not settled yet (on the phone, listed, or read
+    /// Reads the blue Tees of the intent's courses not settled yet (on the phone, listed, or read
     /// before), one at a time while lookups may run, then queues in `finishNewAreaPass`. A lookup
     /// that fails settles its course as skipped, so a pass never repeats for the same course; one
     /// stopped by the network, a round or a course request leaves the rest for the next pass.
     private func startNewAreaPass(_ request: NewAreaRequest) {
         var area = request
-        pendingNewArea = nil
         // Somewhere it no longer is new: taken meanwhile, or played there since it was noted.
         guard NewAreaPrefetch.isNewArea(
             latitude: area.latitude,
@@ -4919,6 +4931,7 @@ public final class LiveRoundAppModel: ObservableObject {
             played: playedCourseOptions,
             anchor: NewAreaPrefetch.loadAnchor()
         ) else {
+            replaceNewAreaIntent(with: nil)
             scheduleSpeculativePrepCourseDownloads()
             return
         }
@@ -4960,14 +4973,19 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// Queues the area's blue-Tee courses under the same gates and room as any guess. Courses that
-    /// do not fit, or are not settled yet, wait with what is known (ahead of the 可能会打 list). The
-    /// area is taken (anchored) once every course is settled and queued, after the list is saved.
+    /// Queues the intent's blue-Tee courses under the same gates and room as any guess. A pass for
+    /// a replaced or cleared intent queues, keeps and anchors nothing. Courses that do not fit, or
+    /// are not settled yet, stay in the intent (ahead of the 可能会打 list). The area is taken
+    /// (anchored) once every course is settled and queued, after the list is saved.
     private func finishNewAreaPass(_ area: NewAreaRequest) {
         newAreaTask = nil
+        guard area.generation == newAreaGeneration, newAreaIntent != nil else {
+            scheduleSpeculativePrepCourseDownloads()
+            return
+        }
+        newAreaIntent = area
         guard speculativeJobsMayRun, let room = speculativeCourseRoom else {
             // The network or a round stopped guesses, or a download wrote since the measurement.
-            parkNewArea(area)
             scheduleSpeculativePrepCourseDownloads()
             return
         }
@@ -4985,15 +5003,11 @@ public final class LiveRoundAppModel: ObservableObject {
             )
             prepCourseDownloads += queued
         }
-        guard persistPrepCourseDownloads() else {
-            // Not on disk: not taken. It waits for the next trigger rather than retrying now.
-            parkNewArea(area)
-            return
-        }
-        if queued.count < rows.count || !area.isComplete {
-            parkNewArea(area)
-        } else {
+        // Not on disk: not taken. It waits for the next trigger rather than retrying now.
+        guard persistPrepCourseDownloads() else { return }
+        if queued.count == rows.count, area.isComplete {
             NewAreaPrefetch.saveAnchor(latitude: area.latitude, longitude: area.longitude)
+            newAreaIntent = nil
         }
         // The 可能会打 list takes what room is left.
         scheduleSpeculativePrepCourseDownloads()

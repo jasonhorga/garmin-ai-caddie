@@ -242,6 +242,8 @@ struct NewAreaRequest {
     var tees: [Int: String] = [:]
     /// Courses settled: Tee read (or none), lookup failed, or already on the phone or listed.
     var answered: Set<Int> = []
+    /// Which intent this is (`LiveRoundAppModel.newAreaGeneration`).
+    var generation: UInt64 = 0
 
     var isComplete: Bool { Set(courses.map(\.globalId)).isSubset(of: answered) }
 

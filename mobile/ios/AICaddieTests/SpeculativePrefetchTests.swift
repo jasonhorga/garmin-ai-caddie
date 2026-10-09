@@ -401,9 +401,8 @@ final class SpeculativePrefetchTests: XCTestCase {
 
     /// A model whose backend answers nearby with `nearby` rows (id, km, holes) and each course's
     /// Tees with blue + white, except `noBlue` courses (black only) and `failing` courses (an
-    /// unreadable answer). Every other request (the
-    /// queued downloads) never answers, so queued rows stay put. The home course is the last one
-    /// started.
+    /// unreadable answer). Every other request (the queued downloads) never answers, so queued
+    /// rows stay put. The home course is the last one started.
     private func newAreaModel(
         nearby: [(id: Int, km: Double, holes: Int)],
         noBlue: Set<Int> = [],
@@ -560,6 +559,61 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertTrue(NewAreaPrefetch.isNewArea(latitude: away.latitude, longitude: away.longitude, courseIDs: [1], played: [homeCourse()], anchor: nil))
         let playedHere = MobileCourseOption(globalId: 1, name: "这里", roundCount: 1, teeBox: "white")
         XCTAssertFalse(NewAreaPrefetch.isNewArea(latitude: away.latitude, longitude: away.longitude, courseIDs: [1], played: [homeCourse(), playedHere], anchor: nil))
+    }
+
+    /// Back home while A's lookup is in flight: A's late completion queues, keeps and anchors
+    /// nothing, and nothing is looked up afterwards.
+    func testAPassForAnAreaLeftBehindQueuesNothing() async throws {
+        let (model, lookups) = try newAreaModel(nearby: [(71, 0.4, 18), (72, 1.0, 18)])
+        lookups.held = [71]
+        model.publishOfflineStorageUsageForTesting(empty)
+        model.setNetworkStateForTesting(wifi)
+
+        _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
+        for _ in 0..<2_000 where lookups.all.isEmpty { try await Task.sleep(nanoseconds: 1_000_000) }
+        XCTAssertEqual(lookups.all, [71], "A's first lookup is in flight")
+
+        // The same rows, answered at home: not a new area.
+        lookups.held = []
+        _ = try await model.nearbyCourses(latitude: home.latitude, longitude: home.longitude, radiusKm: 5)
+        await model.waitForNewAreaPassForTesting()
+        try await Task.sleep(nanoseconds: 2_000_000)
+        model.publishOfflineStorageUsageForTesting(empty)
+        await model.waitForNewAreaPassForTesting()
+
+        XCTAssertEqual(newAreaGuesses(model), [])
+        XCTAssertNil(NewAreaPrefetch.loadAnchor())
+        XCTAssertEqual(lookups.all, [71], "A is not taken up again")
+    }
+
+    /// A → B while A's pass is in flight, with one of A's Tees already read: A's late completion
+    /// queues none of it (taking none of B's room) and anchors nothing; B gets the room.
+    func testAPassForAReplacedAreaTakesNoneOfTheNewAreasRoom() async throws {
+        let (model, lookups) = try newAreaModel(nearby: [(71, 0.4, 18), (72, 1.0, 18)])
+        lookups.held = [72]
+        let course = SpeculativePrefetch.estimatedCourseBytes
+        model.publishOfflineStorageUsageForTesting(
+            OfflineStorageUsage(topoBytes: OfflineStorageEviction.capBytes - 2 * course, templateBytes: 0)
+        )
+        model.setNetworkStateForTesting(wifi)
+        XCTAssertEqual(model.speculativeCourseRoomForTesting, 1, "the home course took one of the two")
+
+        _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
+        for _ in 0..<2_000 where lookups.all.count < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
+        XCTAssertEqual(lookups.all, [71, 72], "71's blue Tee is read; 72's lookup is in flight")
+
+        // B is noted before A's pass can complete (this runs on the main actor first).
+        let b = (latitude: 33.5, longitude: 121.0)
+        model.noteNearbyCoursesForTesting(
+            [MobileCourseSearchMatch(globalId: 81, name: "乙", holes: 18, city: nil, province: nil, ratio: 1, distanceKm: 0.4)],
+            latitude: b.latitude,
+            longitude: b.longitude
+        )
+        await model.waitForNewAreaPassForTesting()
+
+        XCTAssertEqual(newAreaGuesses(model), [81], "A's 71 took none of B's room")
+        XCTAssertEqual(lookups.all, [71, 72, 81])
+        XCTAssertEqual(NewAreaPrefetch.loadAnchor()?.latitude, b.latitude, "B is taken, A is not")
     }
 }
 
