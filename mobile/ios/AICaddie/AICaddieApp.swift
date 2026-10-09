@@ -3394,10 +3394,55 @@ public final class LiveRoundAppModel: ObservableObject {
         guard prepCourseDownloadTask == nil, offlineCourseDownloadRoundId == nil else { return }
         let scope = offlineStore.storageScope
         Task.detached(priority: .background) { [weak self] in
-            scope.runMaintenanceIfDue()
+            if scope.runMaintenanceIfDue() != nil {
+                if let plan = scope.evictionPlan() {
+                    await self?.evictIdleCourses(plan, for: scope)
+                }
+                // Also finishes a sweep an earlier pass queued but could not complete.
+                scope.sweepEvictedTopo()
+            }
             let usage = scope.usage()
             await self?.publishOfflineStorageUsage(usage, for: scope)
         }
+    }
+
+    /// Over the storage cap: drops the plan's long-unused courses. Silent (logs only); nothing on
+    /// the play, 备战 or start screens mentions it. The ready rows are saved away before the
+    /// templates go, otherwise `resumePrepCourseDownloads` would re-queue them as stale and
+    /// download the courses again.
+    private func evictIdleCourses(_ plan: OfflineStorageEvictionPlan, for scope: OfflineStorageScope) {
+        guard offlineStore.storageScope == scope, let onDisk = scope.protectedGlobalIds() else { return }
+        var busy = onDisk.union(prepCourseDownloads.filter { $0.phase != .ready }.map(\.course.globalId))
+        if let package {
+            busy.formUnion(package.holes.map(\.sourceGlobalId))
+            busy.insert(package.course.globalId)
+        }
+        let candidates = OfflineStorageEviction.confirmedCandidates(
+            plan,
+            usage: offlineStore.loadCourseUsage(),
+            busyGlobalIds: busy,
+            now: Date()
+        )
+        guard !candidates.isEmpty,
+              scope.queueTopoSweep(globalIds: Set(candidates.map(\.globalId))) else { return }
+        let remaining = OfflineStorageEviction.prepRows(prepCourseDownloads, withoutReadyRowsOf: candidates)
+        if remaining.count != prepCourseDownloads.count {
+            prepCourseDownloads = remaining
+            do {
+                try offlineStore.savePrepCourseDownloads(prepCourseDownloads)
+            } catch {
+                AICaddieLog.storage.error(
+                    "Eviction stopped, 备战 list save failed: \(String(describing: error), privacy: .public)"
+                )
+                return
+            }
+        }
+        let removed = candidates.filter { scope.removeEvictedTemplate($0) }
+        let freedBytes = removed.reduce(Int64(0)) { $0 + $1.estimatedBytes }
+        refreshDownloadedCourseOptions()
+        AICaddieLog.storage.info(
+            "Offline storage eviction: \(removed.count, privacy: .public) of \(plan.candidates.count, privacy: .public) idle courses removed, ~\(freedBytes, privacy: .public) of \(plan.usageBefore.totalBytes, privacy: .public) bytes"
+        )
     }
 
     /// Settings asks on appear; the walk over the bitmap directory runs off the main actor.

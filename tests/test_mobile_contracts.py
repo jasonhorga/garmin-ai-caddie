@@ -5554,10 +5554,10 @@ class MobileContractTests(unittest.TestCase):
             for marker in ("liveCourseDownloadProgress", "OfflineCourseDownloadsSection", "OfflineCourseDownloadRow", "progressFraction"):
                 self.assertNotIn(marker, source, f"{name} must not show download progress ({marker})")
 
-    def test_offline_storage_use_is_settings_only_and_maintenance_never_evicts(self) -> None:
+    def test_offline_storage_use_is_settings_only_and_garbage_collection_is_reference_safe(self) -> None:
         # Storage batch PR A: the total joins download progress in 设置 → 离线球场 only (IMPLEMENTATION_PLAN:
         # process status goes to logs and settings), and garbage collection removes nothing a package
-        # of any account still references. Eviction by age/size is a separate change.
+        # of any account still references. Eviction by age/size is covered below.
         app = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
         round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
         maintenance = _read_required_source(self, IOS_DIR / "Services" / "OfflineStorageMaintenance.swift")
@@ -5587,6 +5587,35 @@ class MobileContractTests(unittest.TestCase):
             source = _read_required_source(self, views / name)
             for marker in ("OfflineStorageUsage", "offlineStorageUsage"):
                 self.assertNotIn(marker, source, f"{name} must not show storage use ({marker})")
+
+    def test_offline_storage_eviction_is_silent_and_drops_ready_rows_before_templates(self) -> None:
+        # Storage batch PR B (Jason 10-08): over 200 MB, courses unused for 60 days go, least recently
+        # used first, from the same daily cold-start maintenance. No screen announces it.
+        app = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        maintenance = _read_required_source(self, IOS_DIR / "Services" / "OfflineStorageMaintenance.swift")
+        self.assertIn("public static let capBytes: Int64 = 200_000_000", maintenance)
+        self.assertIn("public static let idleInterval: TimeInterval = 60 * 24 * 60 * 60", maintenance)
+        schedule = app.split("private func scheduleOfflineStorageMaintenance() {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertLess(schedule.index("scope.runMaintenanceIfDue()"), schedule.index("scope.evictionPlan()"))
+        self.assertLess(schedule.index("evictIdleCourses(plan, for: scope)"), schedule.index("scope.sweepEvictedTopo()"))
+        # Queue the bitmap sweep, then save the 备战 list without the ready rows (a ready row without its
+        # template is re-queued as stale and downloads again), and only then delete the templates.
+        evict = app.split("private func evictIdleCourses(", 1)[1].split("\n    }\n", 1)[0]
+        order = ["scope.protectedGlobalIds()", "OfflineStorageEviction.confirmedCandidates(",
+                 "scope.queueTopoSweep(", "try offlineStore.savePrepCourseDownloads(",
+                 "scope.removeEvictedTemplate(", "refreshDownloadedCourseOptions()"]
+        positions = [evict.index(token) for token in order]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("if let package {", evict)
+        # The sweep runs under the same download gate as garbage collection.
+        sweep = maintenance.split("static func sweepEvictedTopo(", 1)[1]
+        self.assertIn("activity.quietToken()", sweep.split("referencedTopo(root: root)", 1)[0])
+        self.assertIn("activity.ifQuiet(since: quietToken)", sweep)
+        views = IOS_DIR / "Views"
+        for path in sorted(views.glob("*.swift")):
+            source = path.read_text(encoding="utf-8")
+            for marker in ("OfflineStorageEviction", "evictionPlan", "久未使用"):
+                self.assertNotIn(marker, source, f"{path.name} must not mention eviction ({marker})")
 
 
 class RoundEditContractTests(unittest.TestCase):
