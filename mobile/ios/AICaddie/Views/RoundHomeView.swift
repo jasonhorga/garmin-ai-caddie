@@ -221,6 +221,7 @@ public struct RoundHomeView: View {
         self.prepCourseDownloads = prepCourseDownloads
         self.prepCourseDownloadPresentation = prepCourseDownloadPresentation
         self.liveCourseDownloadProgress = liveCourseDownloadProgress
+        self.offlineStorageUsage = offlineStorageUsage
         self.isPreparingRound = isPreparingRound
         self.isFinishingRound = isFinishingRound
         self.finishErrorMessage = finishErrorMessage
