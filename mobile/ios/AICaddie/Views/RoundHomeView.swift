@@ -1088,17 +1088,18 @@ struct OfflineCourseDownloadsSection: View {
     }
 }
 
-/// 设置: courses the player has played download on their own (可能会打), on Wi-Fi unless this is on.
+/// 设置: courses the player has played (可能会打) and the nearest courses somewhere new (新区域)
+/// download on their own, on Wi-Fi unless this is on.
 struct SpeculativePrefetchSettingsSection: View {
     var onChange: () -> Void = {}
     @AppStorage(SpeculativePrefetchSettings.cellularKey) private var cellularAllowed = false
 
     var body: some View {
         Section {
-            Toggle("用蜂窝网络预下载常打的球场", isOn: $cellularAllowed)
+            Toggle("用蜂窝网络预下载球场", isOn: $cellularAllowed)
                 .accessibilityIdentifier("settings-prefetch-cellular")
         } footer: {
-            Text("常打的球场默认只在 Wi-Fi 下自动下载；低数据模式下不下载。")
+            Text("常打的球场、到新地方时附近的球场，默认只在 Wi-Fi 下自动下载；低数据模式下不下载。")
         }
         .onChange(of: cellularAllowed) { _, _ in onChange() }
     }
