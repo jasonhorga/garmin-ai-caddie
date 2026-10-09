@@ -980,6 +980,9 @@ def _render_cold(gid: int, hole: int) -> bytes:
     pool = _get_render_pool(processes)
     try:
         future = pool.submit(_render_in_worker, gid, hole)
+    except BrokenProcessPool:  # a worker died between renders; checked before its RuntimeError base
+        _discard_render_pool(pool)
+        return _render_in_process(gid, hole)
     except RuntimeError:  # "cannot schedule new futures after shutdown"
         return _render_in_process(gid, hole)
     try:

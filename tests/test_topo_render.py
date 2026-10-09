@@ -536,6 +536,34 @@ class TopoRenderProcessPoolTests(unittest.TestCase):
         discard.assert_called_once_with(pool)
         in_process.assert_called_once_with(31795, 1)
 
+    def test_a_pool_broken_before_submit_is_replaced_by_the_next_cold_render(self) -> None:
+        """A worker that died between renders makes ``submit`` itself raise ``BrokenProcessPool``
+        (a ``RuntimeError``): that pool is discarded, not reused for every later render."""
+        from concurrent.futures.process import BrokenProcessPool
+
+        canned = _test_png()
+
+        class BrokenPool:
+            shutdowns = 0
+
+            def submit(self, fn, *args):
+                raise BrokenProcessPool("a worker exited between renders")
+
+            def shutdown(self, wait=True, cancel_futures=False):
+                BrokenPool.shutdowns += 1
+
+        broken = BrokenPool()
+        topo_render._render_pool = broken
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp, topo_render._RENDER_PROCESSES_ENV: "1"}), \
+                patch.object(topo_render, "_render_in_process", return_value=canned) as in_process:
+            self.assertEqual(topo_render.render_hole_topo_cached(31795, 1), canned)
+            in_process.assert_called_once_with(31795, 1)
+            self.assertIsNone(topo_render._render_pool, "the broken pool was discarded")
+            self.assertEqual(BrokenPool.shutdowns, 1)
+            replacement = topo_render._get_render_pool(1)
+        self.assertIsNot(replacement, broken, "the next cold render gets a fresh pool")
+
     def test_a_pool_shut_down_under_the_call_falls_back_in_process(self) -> None:
         canned = _test_png()
 
