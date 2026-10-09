@@ -3,93 +3,99 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 22:23 UTC
-**Canonical branch:** `main`; latest product merge
-`d2b3536b0b034f3dc3bd27dabeb6c4b9be3788e5` (#403)
-**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
+**Updated:** 2026-10-09 23:59 UTC
+**Canonical branch:** `main`; product merge `d2b3536b` (#403),
+bookkeeping `1ee54a1e`
+**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `done` (owner 23:59 UTC cutoff)
 
 ## Current state
 
-#403 MERGED; branch `claude/new-area-prefetch-20261009` deleted after exact
-ref validation. Final PASS **6090217699**.
-Exact reviewed head `fd73dca520b148a4afd934acb77f643a0346a2fa`;
-merge `d2b3536b0b034f3dc3bd27dabeb6c4b9be3788e5`.
-Prior P2 **6089071054 closed**; interim PASS/CI-gate **6089624424** handled.
-Generation/intent validation prevents superseded/cleared-area completion from
-keeping old intent, enqueuing old courses or publishing its anchor. Same-area
-foreground/network yield preserves read Tees; A→home and controlled A→B pass.
+# Closing inventory at23:58:55 UTC
+Two ready PRs remain open; no new reviews started during closeout:
+- #404 now head `1fd0ad4c11669f62b5629912c92e54b5f6ff17c6` (author update),
+  not reviewed/tested by Codex. Below evidence/P2 applies to prior e8093d90 only.
+- #405 head `3a093c1c1e6d157ab52ae31b866fba643b25e3ed`, branch
+  `claude/testflight-preflight-timeout-20261009`; unreviewed, CI not checked.
 
-Final evidence:
-- Independent homeserver contracts **126/126, 8.448 s, OK**.
-- Native `37990736669` live production; iOS **772/0**, Watch **448/0**.
-  New interleaving tests explicitly passed (0.012 /0.014 s).
-- Native evidence `94385754ad9a3f7fcf1067ca53bdbfdc8fb06a8f` parents
-  are main `c83eb848` and the exact reviewed head.
-- **142/142** downloaded design/Watch PNGs byte-identical to the manually
-  reviewed e5788c79 UI baseline; settings label/footer passed.
-- Required CI `37990736702` **attempt 3** succeeded at22:00:44; Docker Hub
-  429 resolved. Premerge exact-head check confirmed backend/frontend/docker/
-  native-mobile all SUCCESS. No source/visual P1/P2 remains.
+#404 OPEN/ready, reviewed head `e8093d902b2d60ba805a0aeb1afdc0806166ee76`,
+branch `claude/topo-render-processes-20261009`, merge-base `1ee54a1e`.
+P2 review **6091300546** posted; do not merge or deploy yet.
+
+P2: _render_cold catches submit-time BrokenProcessPool as generic RuntimeError;
+fallback returns but does not discard the singleton pool, so later cold renders
+keep falling back to the API process. Handle BrokenProcessPool before RuntimeError,
+discard the broken pool, and regress both fallback and fresh-pool acquisition
+on the next call. Existing tests cover future.result failure, not submit failure.
+Independent probe reproduced discard **0 calls instead of1**.
+
+Verified exact-head backend evidence:
+- Related suite **101 tests /2.502 s /OK /3 pre-existing geometry skips**,
+  including all7 added pool cases and a real forkserver geometry-unavailable path.
+- Independent submit-broken probe **1 test /FAIL**, intentionally exposing P2.
+- CI `38005936408` backend/frontend/docker all green; no mobile/ios changes.
+- First suite attempt omitted the tracked .env.example in the read-only snapshot.
+  Restored the placeholder template and reran successfully; first log retained.
+- Author's cold-course 35→15 s measurement was not independently rerun.
+  Two render processes require deployment and memory validation; no deploy done.
 - Evidence:
-  `/home/jason/garmin-ai-caddie-data/operations/pr403-fd73dca5-20261009`
-  (source/contracts/Native/provenance/hashes/failure/premerge/PASS/merge/cleanup).
-  Prior-head evidence retained.
+  `/home/jason/garmin-ai-caddie-data/operations/pr404-e8093d90-20261009`
+  (source/tests/probe/attempt1/cleanup/manifest/review originals).
 
-Nonblocking feature boundary: new-area anchor is saved when rows are queued;
-a failed speculative download is dropped, and merely returning home then back
-does not move the anchor. Taking another newly anchored area moves it. Normal
-explicit course download remains available; bounded behavior disclosed.
-
-#399–#403 heads, author requests, reviews, CI and merges handled; all branches
-deleted. #403 author ready/fix at20:41:09 /21:19:02 handled, as are final Native,
-CI attempt3 and own comments/docs CI. Deduplicate retrospective events.
-Historical detail preserved verbatim in dated archives.
+#399–#403 merged; reviewed heads/requests/CI/comments handled and branches deleted.
+#403 final PASS6090217699; CI attempt3 and author green reply6090005691 at22:03:20
+handled. #404 opened23:44:59, head e8093d90 and P2 comment6091300546 handled.
+No duplicate re-review of those heads/events. Historical detail is archived verbatim.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await new actionable PR feedback;
-  independently review exact head/Native/screenshots and merge/delete if clear.
+- `PR404-SUBMIT-BROKEN-POOL` — `queued`: author fix, exact-head recovery
+  regression/relevant suites and CI on new1fd0ad4c; PASS/merge after P2 is closed.
+  Backend deployment is a separate follow-up, with same-revision API/sync builds.
+- `PR405-REVIEW` — `queued`: inspect 3a093c1c and required CI; apply the normal
+  exact-head review/verification/comment/merge gates. No release claim yet.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 label variation; nonblocking.
 - `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark navigation/status text.
 - `OWNER-DEVICE-BUILD82` — `evidence-open`: paired iPhone/Watch validation remains owner work.
 
 ## Live verification baseline
 
-- Internal TestFlight **0.1.0 (82)**, upload `37774511661`, latest claimed
-  release; excludes #395 onward. Apple read-only `37776197288`: VALID /
-  IN_BETA_TESTING. IPA SHA256
-  `f8e112b8bf75e4a33fad838bff39e69ec783679ba8a040091b957ec5cc896721`.
+- Latest claimed internal TestFlight **0.1.0 (82)**, upload `37774511661`;
+  excludes #395 onward. Apple read-only `37776197288`: VALID /IN_BETA_TESTING.
+  IPA SHA256 `f8e112b8bf75e4a33fad838bff39e69ec783679ba8a040091b957ec5cc896721`.
 - API `https://caddie.taile36706.ts.net`; backend/sync revision
   `3614bf6f3805479f8d13de65eeec4f0ad7871f22`; production container
   `aicaddie-release-3614bf6f-production-20261008`, loopback39055.
   Protected cutover retained; sync last recorded 502 rounds /501 scorecards /
   501 shots /ok /done. HTTP/2 homeserver 3/3 HTTP200, 1.82–2.57 s;
   not Apple-runner path evidence.
-- Latest reviewed UI baseline: `operations/pr403-fd73dca5-20261009/native-artifacts`.
-  Prior #402/#403 evidence retained. No new release/deployment pending.
+- Latest merged-source Native `37990736669`: iOS772/0, Watch448/0, live production;
+  all142 PNGs match the manually reviewed baseline.
+  `operations/pr403-fd73dca5-20261009/native-artifacts` retained.
+- #403 anchor saves when speculative rows are queued; a failed guess does not
+  retry merely by returning home then back. Boundary disclosed. No new release.
 
-## Owned resources and wait boundary
+## Owned resources
 
-- No active snapshot, worktree, contract container, service, tunnel or subagent.
-  fd73dca5 snapshot removed (28,012,950 bytes); --rm container absent; production
-  running. Previous local settings PNG/directory removed; no new local PNG.
-  Original source/log/Native evidence and cleanup receipts retained.
-- Local controls/manifests/reviews/merge requests retained as receipts; preserve
-  unrelated dirty `ops/pr_feedback_monitor.sh` and historical `.codex-*`.
-- Deployed waiter: `operations/blocking-waits/wait_for_conclusion.sh`.
-  No wait pending at ledger write; after push start one `--feedback` terminal,
-  same-turn `clock.sleep(300000)` → one `write_stdin`; its one-line conclusion
-  is the only event signal. No liveness/replacement checks. Existing timeout
-  option bounds the wait before the absolute cutoff.
-- Comments end `_Generated by Codex_`; commits end `Generated-by: Codex`.
-  No CI-result-only commits.
+- No active snapshot, worktree, test container, preview/service/tunnel or subagent.
+  PR404 snapshot removed (28,063,810 bytes), --rm container absent, production
+  running. Source/test/Native originals and cleanup receipts remain.
+- A 1,730-byte placeholder /home/jason/.env.example was accidentally extracted
+  while restoring the snapshot template. Confirmed new creation/hash; removed
+  after open-file check. Repository template/source archive retained. No runtime
+  environment file was changed or removed.
+- Local controls/manifests/reviews retained as receipts; preserve unrelated dirty
+  `ops/pr_feedback_monitor.sh` and historical `.codex-*`.
+- Feedback waiter43125 returned PR404 event and ended; no feedback wait pending.
+  gh-feedback timer unchanged. No liveness polling, replacement or independent tmux.
+  No CI-result-only commits. Comment/commit attribution rules remain in force.
 
 ## Next action and stopping
 
-Resume sole feedback waiter; ignore handled events/own docs CI. New ready PRs
-are actionable after required CI; test exact head, verify Native/screenshots,
-post P1/P2 or PASS, and merge/delete when clear. Keep the same waiting method.
+Continuous tracking ended at owner cutoff; closeout committed/pushed separately
+from any CI-only bookkeeping. Do not start a replacement waiter or new review.
+Future work
+requires a new owner instruction; resume PR404 exact current head before merging.
 
-Absolute stop: **2026-10-09 23:59 UTC**. Earlier stop requires 48 hours without
-external PR events and no open PRs. Last handled external terminal CI:22:00:44;
-last handled author reply:21:19:02. Keep ledger ≤200 lines and archive history.
+Absolute stop: **2026-10-09 23:59 UTC**; earlier stop requires48h quiet and no
+open PRs (not satisfied). Latest handled external event: PR404 opened23:44:59.
+Keep ledger ≤200 lines; dated archives are historical, non-authoritative.
