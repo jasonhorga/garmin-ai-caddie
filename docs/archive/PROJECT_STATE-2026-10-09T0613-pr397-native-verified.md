@@ -1,10 +1,14 @@
+# HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Preserved verbatim before PR397 Native provenance/screenshot completion, 2026-10-09 06:13 UTC.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 06:29 UTC
-**Canonical branch:** `main` at `4d6e7f00`
+**Updated:** 2026-10-09 05:57 UTC
+**Canonical branch:** `main` at `d02a754d`
 **Latest integrated code:** `3bd1ce4dba4d5920d5e9d18bfe18b879ac612a9f` (#396)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
@@ -12,41 +16,30 @@
 
 Claude restored and implementing. Open non-draft **#397**, branch
 `claude/course-options-cache-20261009`, exact head
-`7c192a1d62fd9bf9be1a536227c6ca67229d8df6`, base **d02a754d**.
+`ba7fc93259b277c07591ac1b8ffd49a2ef98aaf9`, base **d02a754d**.
 Purpose: per-account cached `courses/options`, refreshed after instant cache restore;
 failed refresh publishes only downloaded rows, disk catalogue kept intact.
 Owner informed of UX boundary: while waiting, cached uninstalled rows can be
 visible and an offline start may fail/retry; after confirmed failure only local
 rows remain. No map pre-download proposed, no approval question pending.
-- Initial review **6075192701**: cancellation/accepted-result ordering P2s.
-  Author **6075229235** fixed cancellation and catalogue/disk-fallback ordering
-  in **cfb65b53**, adding three held-response regressions.
-- Required Native **37890979905** failed `native-mobile / Test iOS app target`:
-  catalogue consecutive-ticket regression three assertions failed, exit 65.
-  Author **6075596162** fixed equal Date tickets in **7c192a1d**: lock-protected
-  UInt64 sequence now orders results disk commits and catalogue memory commits.
-  CI **37890979986** passed; old Native failure is not new-head evidence.
-- Follow-up **6075652720** on exact **7c192a1d**: **remaining ordering P2**.
-  Catch checks account/cancellation, but invalidates session and logs before
-  sequence acceptance. R1 late 401 after R2 success still signs out the current
-  session before rejecting the stale failure. Need acceptance before all failure
-  side effects and held late-401 regression without UITEST_MODE bypass; preserve
-  genuine current 401 sign-out. Static source evidence, no runtime claim.
-- New-head required Native **37892892061**, live **37893343715** announced pending;
-  no new-head independent verification/snapshots started. Old live **37889373222**
-  and **37890981619** author-cancelled, never usable for a fixed head.
-- Initial **ba7fc932** independent remote contracts **122 / 5.330 s / OK**.
+- Source review **6075192701** posted: **two P2 (must fix before merge)**,
+  `.codex-pr397-ba7fc932-review.md`. Await fixes; do not merge this head.
+  Required Native green; artifact download/review still in flight.
+- P2 cancellation: successful await goes to adopt/commit without cancellation
+  check; catch checks cancellation only after session side-effect handling.
+  Need held success after cancel, verify disk/UI/status unchanged.
+- P2 ordering: older refresh failure filters a newer successful catalogue;
+  disk-write failure fallback only checks account, so older success can replace
+  newer memory-only data. Need shared accepted-result order on success/failure/
+  storage fallback, regressions for both paths. These are static source findings,
+  not claimed runtime reproductions.
+- Independent exact-head remote contracts **122 / 5.330 s / OK**.
   CI **37888259737** and required Native **37888259783** success confirmed by
-  terminal events; Native concluded **05:33:44 UTC**, **692 iOS / 448 Watch**,
-  all four new catalogue tests actually passed. Checkout **9db0a9bb**, parents
-  **d02a754d / ba7fc932**; complete tree/source diff empty against reviewed head.
-  140 PNGs checked: 139 identical to #396 live baseline, changed zoomed map
-  matches previously visually reviewed #396 required image (八号铁 164 toggle).
-  No new screenshot blocker; updated exact comment **6075192701** with evidence.
-- #397 initial/cfb/7c heads and comments **6075000869 / 6075192701 / 6075229235 /
-  6075596162 / 6075652720** handled; initial and cfb CI/Native handled. Latest
-  required Native/live and next author fix still pending. Dedup in
-  `handled_pr397_events`; Git ref `origin/pr397-review`, no coding worktree.
+  terminal events; Native concluded **05:33:44 UTC**. Test counts/provenance/
+  images not yet read; do not invent verification from a green conclusion.
+- #397 `pr_opened`/head/source, CI/Native terminal events and own **6075192701**
+  seen; author feedback/fixes and Native artifact verification still unhandled.
+  Git ref `origin/pr397-review`, no implementation checkout/worktree.
 - #396 accepted/merged **00:56:47 UTC**, **3bd1ce4d**, final head **f073a77d**;
   final PASS **6072047793**, branch deletion verified (404), merged source equals
   reviewed head. Detail/window/maps caches account scoped, 40-round cap; owner
@@ -63,15 +56,14 @@ rows remain. No map pre-download proposed, no approval question pending.
   request was already fulfilled by later PASS. Prior run/head IDs in
   `handled_pr396_events` and dated archives; do not replay.
 - #395/#392/#393/#394 and Claude replacement request handled; no repeated release.
-- Last external reply **06:24:33 UTC** (#397); own review/merge/docs CI never
+- Last external PR open **05:22:18 UTC** (#397); own review/merge/docs CI never
   reset quiet condition. Read last matched event JSON from returned wait log,
   ignore own-CI, never edit/delete cursor.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #397 remaining ordering fix
-  through sole waiter; verify exact head/tests/required Native/images/live,
-  merge only if clear. Do not use initial-head evidence to approve new source.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: finish #397 Native artifact review,
+  add exact evidence to posted P2 review; await author fix through sole waiter.
   New ready PRs actionable; exact-head tests/Native/screenshots, PASS then merge.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`, nonblocking unchanged fixture's
   八号铁 164 label varies; no product regression claimed.
@@ -109,13 +101,10 @@ rows remain. No map pre-download proposed, no approval question pending.
   container absent. Tar SHA256
   `00560a2bf85cb7b39069d9aed92890a68a03ef70bba8d13ea5d0035a9d544cf3`.
   Cleanup **62 GiB free**, production running. No PNG copies planned/created.
-  Native artifacts/log/hashes and updated review retained in same evidence root.
-  Artifact terminal **42959** completed and cleared. No pending download/runtime
-  or local PNG inspection copy; old-head Native review complete.
-- #397 cfb failure diagnostics terminal **73938** completed; retained log
-  `operations/pr397-cfb65b53-20261009/native-failure.log`. Latest review body
-  `operations/pr397-7c192a1d-20261009/review.md`, comment **6075652720**.
-  No source snapshot/container/tar/inspection copies created for cfb/7c.
+  One pending artifact/log download terminal **42959**;
+  `pr397_initial_native_artifact_terminal` retains it. Target: evidence's
+  `native-artifacts/` and `native-run.log`. Do not start duplicate downloads;
+  await this handle, then inspect exact source provenance/test counts/PNG hashes.
 - #396 `operations/pr396-f073a77d-20261008`: original tar, contracts, Native and
   live attempts 1/2 ZIPs/artifacts/logs/hashes/reviews/receipts retained; runtime
   and 11 inspection copies closed, originals retained. #395 evidence/runtime
@@ -138,11 +127,11 @@ rows remain. No map pre-download proposed, no approval question pending.
 
 ## Next action and stopping
 
-Start sole feedback waiter for #397 author fix/terminal Native/live; dedup
-handled heads/comments/runs. Do not merge 7c192a1d while late-401 P2 remains.
+Await Native artifact terminal 42959, inspect/record provenance/counts/PNGs,
+update review 6075192701; then sole feedback waiter for author fix/new head.
 Absolute stop **2026-10-09 23:59 UTC**; close/hand back owned runtime then.
 Earlier stop requires 48 hours without external PR events and no open PRs;
 open #397 prevents it. Same-turn waiting method through deadline.
-Ledger ≤200 lines; history verbatim in dated T0613/T0629 archives accompanies
-real source-review follow-up, not a CI-result-only bookkeeping commit.
+Ledger ≤200 lines; history verbatim in dated archives, T0541/T0557 included with
+this posted review/resource work; no CI-result-only bookkeeping commit.
 After compaction read ledger, inspect Git/agent state, resume this slice.
