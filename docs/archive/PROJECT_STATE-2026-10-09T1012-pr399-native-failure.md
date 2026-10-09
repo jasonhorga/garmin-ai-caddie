@@ -1,38 +1,37 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 10:12 UTC
+**Updated:** 2026-10-09 09:49 UTC
 **Canonical branch:** `main` (pushed **c06fb903e5d52e8e1e03855147b947c92438cd27**)
 **Latest integrated code:** `c06fb903e5d52e8e1e03855147b947c92438cd27` (#398 merge; #397 product `91859eb8`)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and feedback deduplication
 
-#399 is the current actionable PR, opened **09:56:01 UTC**, ready, exact head
-`9c9aeb62b21626993bc099f55ba00f0677d0bc02`, base `c06fb903`, branch
-`claude/offline-storage-usage-gc-20261009`: account-scoped course-use records,
-settings storage total, and conservative topo garbage collection. Backend,
-docker and frontend passed in **37915129930**. Required Native
-**37915130153** failed: `native-mobile` / **Test iOS app target** compile error
-at `RoundHomeView.swift:274` because new stored properties
-`offlineStorageUsage` and `onRefreshOfflineStorageUsage` are declared but not
-assigned in the designated initializer. Watch tests passed, but no source or
-visual acceptance is possible. Own blocking comment **6078957999** requests
-both assignments and a new Native run. No artifact downloaded; no runtime
-created. Author/CI event heads and comment are deduplicated in
-`handled_pr399_events`.
-
-#398 merged **09:44:44 UTC** after exact-head review: final head
-`ffe1f90c9792a2008e6997a9019484d63b1eedb4`, merge
-`c06fb903e5d52e8e1e03855147b947c92438cd27`, branch deleted (404), PASS comment
-**6078427324**. Exact contracts **123 / 5.674 s / OK**; Native **706 iOS / 448
-Watch** passed from merge `4bff8cd7` (parents latest main `c7b66ad8` + exact
-head); 141 PNGs (140 baseline-identical + settings addition) checked. #398
-source/runtime/artifact resources closed. #397 and earlier handled; do not
-replay their events. Last external event is #399 Native failure; own comments,
-merge and state CI do not reset quiet condition.
+Claude restored and implementing. **#398 merged 09:44:44 UTC** after exact-head
+review. Final head `ffe1f90c9792a2008e6997a9019484d63b1eedb4`, merge
+`c06fb903e5d52e8e1e03855147b947c92438cd27`, branch deleted (404). Purpose was
+whole-course download progress only in settings, consistent with approved design.
+Author **6077872405** fixed both P2s from own **6077762890**. Final review comment
+**6078427324** PASS:
+- Retained progress identity now round/loopKey/tee; package identity change
+  immediately recomputes from disk or clears. Settings rejects stale identity.
+- Live progress counts successfully persisted same-identity facts plus matching
+  PNG; all three successful round writes retain returned persisted facts, final
+  publication follows persistence. Cancellation/current-identity guards retained.
+- Held-network add/drop-nine, denied-package-write with all PNGs present, and
+  row rejection on loop/tee changes read fully. Independent exact-ffe contracts
+  **123 / 5.674 s / OK**, owned snapshot/container closed.
+CI **37909110114** and Native **37909110130** succeeded. Exact-ffe contracts
+**123 / 5.674 s / OK**. Native merge evidence `4bff8cd7` parents were latest
+main `c7b66ad8` plus exact head; **706 iOS / 448 Watch** passed. Artifact had
+141 PNGs: 140 baseline hashes identical plus expected settings-only image,
+visually checked. Heads/comments/runs and final PASS are deduplicated in
+`handled_pr398_events`; initial/a9 runtime and current fixed-head resources are closed.
 
 #397 merged **08:19:46 UTC**, **91859eb8**; reviewed exact **58928fac**,
 PASS **6077199917**, branch deletion verified; merged non-doc source matches.
@@ -48,11 +47,9 @@ Own comments/merges/docs CI never reset the owner's 48-hour quiet condition.
 
 ## Unfinished queue
 
-
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await #399 author fix and new
-  Native terminal; then exact-head contracts, Native provenance and screenshots.
-  New ready PRs remain actionable. Do not review #399 behavior while iOS build
-  is red.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: monitor new actionable PR events and
+  comments through the owner deadline. #398 is merged and closed; do not replay.
+  New ready PRs remain actionable.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: unchanged fixture 八号铁164
   label variation; nonblocking, no product regression claimed.
 - `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark navigation/status text.
