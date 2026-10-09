@@ -260,7 +260,7 @@ final class DesignSnapshotTests: XCTestCase {
         try render(view, named: "sign-in")
     }
 
-    /// 设置 → 离线球场 (the only place download progress appears). ImageRenderer cannot draw a
+    /// 设置 → 离线球场 (the only place download progress and storage use appear). ImageRenderer cannot draw a
     /// List, so the section is laid out in a plain stack at the settings width.
     @MainActor
     func testRenderSettingsOfflineCourses() throws {
@@ -288,7 +288,10 @@ final class DesignSnapshotTests: XCTestCase {
             ]
         )
         let view = VStack(alignment: .leading, spacing: 12) {
-            OfflineCourseDownloadsSection(rows: rows)
+            OfflineCourseDownloadsSection(
+                rows: rows,
+                usage: OfflineStorageUsage(topoBytes: 152_000_000, templateBytes: 2_600_000)
+            )
         }
         .padding(16)
         .frame(width: 390, alignment: .leading)
