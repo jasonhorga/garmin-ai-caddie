@@ -69,6 +69,95 @@ final class CourseOptionsCacheTests: XCTestCase {
         AppSession(token: "token", playerId: playerId, expiresAt: Date().addingTimeInterval(600))
     }
 
+    /// A fetch that holds until `release()`, ignoring cancellation, then answers or throws: the
+    /// refresh sees exactly the value arriving late, not URLSession's own cancellation error.
+    private final class Held {
+        private var continuation: CheckedContinuation<Void, Never>?
+        var isWaiting: Bool { continuation != nil }
+        func wait() async { await withCheckedContinuation { continuation = $0 } }
+        func release() { continuation?.resume(); continuation = nil }
+    }
+
+    private func waitUntilHeld(_ held: Held) async throws {
+        for _ in 0..<200 where !held.isWaiting { try await Task.sleep(nanoseconds: 5_000_000) }
+        XCTAssertTrue(held.isWaiting)
+    }
+
+    private static let previous = [MobileCourseOption(globalId: 1, name: "Previous", roundCount: 2)]
+    private static let older = [MobileCourseOption(globalId: 2, name: "Older answer")]
+    private static let newer = [
+        MobileCourseOption(globalId: 3, name: "Newer answer"),
+        MobileCourseOption(globalId: 4, name: "Not downloaded"),
+    ]
+
+    private func seededModel(_ directory: URL) throws -> (LiveRoundAppModel, OfflineStore) {
+        let store = OfflineStore(directoryURL: directory)
+        XCTAssertTrue(try store.commitCourseOptions(Self.previous, ticket: store.beginResultsRequest()))
+        return (model(store), store)
+    }
+
+    /// Cancelled while waiting, the request still receives a successful catalogue: it is neither
+    /// written, nor shown, nor counted as a confirmed refresh.
+    func testASuccessArrivingAfterCancellationChangesNothing() async throws {
+        let (model, store) = try seededModel(freshDirectory())
+        XCTAssertEqual(model.courseOptions, Self.previous)
+        let held = Held()
+        let refresh = Task { @MainActor in
+            await model.refreshCourseOptions { await held.wait(); return Self.newer }
+        }
+        try await waitUntilHeld(held)
+        refresh.cancel()
+        held.release()
+        await refresh.value
+
+        XCTAssertEqual(model.courseOptions, Self.previous)
+        XCTAssertEqual(try store.loadCourseOptions(), Self.previous)
+        XCTAssertFalse(model.courseOptionsRefreshSucceededForTesting)
+    }
+
+    /// Launch and Garmin post-sync refreshes overlap: the older one times out after the newer one
+    /// succeeded. Its failure must not narrow the newer catalogue to downloaded courses.
+    func testAnOlderFailureAfterANewerSuccessKeepsTheNewerCatalogue() async throws {
+        let (model, store) = try seededModel(freshDirectory())
+        let held = Held()
+        let slow = Task { @MainActor in
+            await model.refreshCourseOptions { () async throws -> [MobileCourseOption] in
+                await held.wait()
+                throw URLError(.timedOut)
+            }
+        }
+        try await waitUntilHeld(held)
+        await model.refreshCourseOptions { Self.newer }
+        held.release()
+        await slow.value
+
+        XCTAssertEqual(model.courseOptions, Self.newer, "nothing here is downloaded, so a wrongly accepted failure empties it")
+        XCTAssertEqual(try store.loadCourseOptions(), Self.newer)
+        XCTAssertTrue(model.courseOptionsRefreshSucceededForTesting)
+    }
+
+    /// When the disk refuses the newer catalogue it is still shown, and an older answer arriving
+    /// afterwards does not replace it.
+    func testAnOlderSuccessDoesNotReplaceANewerCatalogueTheDiskRefused() async throws {
+        let directory = freshDirectory()
+        let (model, store) = try seededModel(directory)
+        let held = Held()
+        let slow = Task { @MainActor in
+            await model.refreshCourseOptions { await held.wait(); return Self.older }
+        }
+        try await waitUntilHeld(held)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path) }
+        await model.refreshCourseOptions { Self.newer }
+        XCTAssertEqual(try store.loadCourseOptions(), Self.previous, "the write really failed")
+        XCTAssertEqual(model.courseOptions, Self.newer)
+        held.release()
+        await slow.value
+
+        XCTAssertEqual(model.courseOptions, Self.newer)
+        XCTAssertEqual(try store.loadCourseOptions(), Self.previous)
+    }
+
     func testTheCatalogueRoundTripsPerAccountAndAnOlderRequestNeverOverwritesANewerOne() throws {
         let store = OfflineStore(directoryURL: freshDirectory())
         let older = [MobileCourseOption(globalId: 1, name: "Older")]

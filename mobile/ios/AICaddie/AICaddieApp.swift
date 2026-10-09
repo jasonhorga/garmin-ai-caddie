@@ -422,6 +422,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// courses stay, so a cached row the phone cannot play offline is never offered as a choice.
     private var catalogueCourseOptions: [MobileCourseOption] = []
     private var courseOptionsRefreshFailed = false
+    /// Start time of the request whose outcome (success or failure) the catalogue last accepted.
+    private var courseOptionsOutcomeRequestedAt: Date?
     private var boundPlayerId: String?
     /// Optional DEBUG/CI round to open explicitly. Production and ordinary DEBUG launches must not
     /// invent a demo round: with no configured id bootstrap lands on the normal home package.
@@ -883,6 +885,8 @@ public final class LiveRoundAppModel: ObservableObject {
         invalidateResultsCacheAfterGarminPull()
     }
 
+    var courseOptionsRefreshSucceededForTesting: Bool { courseOptionsRefreshSucceeded }
+
     func refreshResultsCacheForTesting() {
         refreshResultsCacheIfNeeded()
     }
@@ -896,53 +900,69 @@ public final class LiveRoundAppModel: ObservableObject {
         courseOptionsRefreshSucceeded = false
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
-            markCourseOptionsRefreshFailed()
+            markCourseOptionsRefreshFailed(ticket: offlineStore.beginResultsRequest())
             return
         }
         #endif
         guard let syncClient else {
-            markCourseOptionsRefreshFailed()
+            markCourseOptionsRefreshFailed(ticket: offlineStore.beginResultsRequest())
             return
         }
+        await refreshCourseOptions { try await syncClient.fetchCourseOptions().courses }
+    }
+
+    /// One refresh: its answer, failure or write-failure fallback is accepted only through
+    /// `acceptsCourseOptionsOutcome`, so a cancelled, previous-account or older request never
+    /// replaces or narrows the catalogue a newer request already settled.
+    func refreshCourseOptions(fetch: () async throws -> [MobileCourseOption]) async {
         let ticket = offlineStore.beginResultsRequest()
         do {
-            let courses = try await syncClient.fetchCourseOptions().courses
-            // A previous account's answer leaves the new account's refresh state alone.
+            let courses = try await fetch()
             if adoptCourseOptions(courses, ticket: ticket) { courseOptionsRefreshSucceeded = true }
         } catch {
-            guard offlineStore.isCurrentAccount(ticket) else { return }
+            // A cancelled request says nothing about the network or the session.
+            guard !Task.isCancelled, offlineStore.isCurrentAccount(ticket) else { return }
             invalidateAppleSessionIfNeeded(error)
             AICaddieLog.network.error("Course options fetch failed: \(String(describing: error), privacy: .public)")
-            // A cancelled request says nothing about the network; keep showing what was there.
-            if !Task.isCancelled { markCourseOptionsRefreshFailed() }
+            markCourseOptionsRefreshFailed(ticket: ticket)
         }
+    }
+
+    /// Not cancelled, still this account, and started no earlier than the last accepted outcome.
+    private func acceptsCourseOptionsOutcome(_ ticket: OfflineStore.ResultsRequestTicket) -> Bool {
+        guard !Task.isCancelled, offlineStore.isCurrentAccount(ticket) else { return false }
+        if let accepted = courseOptionsOutcomeRequestedAt, accepted > ticket.requestedAt { return false }
+        courseOptionsOutcomeRequestedAt = ticket.requestedAt
+        return true
     }
 
     /// Launch / account bind: show the account's last catalogue at once; the refresh decides later.
     private func restoreCachedCourseOptions() {
         catalogueCourseOptions = (try? offlineStore.loadCourseOptions()) ?? []
         courseOptionsRefreshFailed = false
+        courseOptionsOutcomeRequestedAt = nil
         publishCourseOptions()
     }
 
     /// Accept a network catalogue only for the account (and ordering) its request started under.
     private func adoptCourseOptions(_ courses: [MobileCourseOption], ticket: OfflineStore.ResultsRequestTicket) -> Bool {
-        let committed: Bool
+        guard acceptsCourseOptionsOutcome(ticket) else { return false }
         do {
-            committed = try offlineStore.commitCourseOptions(courses, ticket: ticket)
+            // The store applies the same account / ordering rule; every write comes through here.
+            try offlineStore.commitCourseOptions(courses, ticket: ticket)
         } catch {
             // A full disk must not hide a fresh answer; it is only not kept for the next launch.
             AICaddieLog.storage.error("Course options cache write failed: \(String(describing: error), privacy: .public)")
-            committed = offlineStore.isCurrentAccount(ticket)
         }
-        guard committed else { return false }
         catalogueCourseOptions = courses
         courseOptionsRefreshFailed = false
         publishCourseOptions()
         return true
     }
 
-    private func markCourseOptionsRefreshFailed() {
+    private func markCourseOptionsRefreshFailed(ticket: OfflineStore.ResultsRequestTicket) {
+        guard acceptsCourseOptionsOutcome(ticket) else { return }
+        courseOptionsRefreshSucceeded = false
         courseOptionsRefreshFailed = true
         publishCourseOptions()
     }
