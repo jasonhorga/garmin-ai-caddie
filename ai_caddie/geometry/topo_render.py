@@ -925,9 +925,14 @@ def _get_render_pool(processes: int) -> ProcessPoolExecutor:
         if _render_pool is None:
             # forkserver: never fork the multi-threaded API process itself.
             method = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
+            context = multiprocessing.get_context(method)
+            if method == "forkserver":
+                # Import the renderer (NumPy, PIL, geometry) once in the fork server, so a new or
+                # recycled worker does not pay it inside a request.
+                context.set_forkserver_preload([__name__])
             _render_pool = ProcessPoolExecutor(
                 max_workers=processes,
-                mp_context=multiprocessing.get_context(method),
+                mp_context=context,
                 max_tasks_per_child=_RENDER_TASKS_PER_PROCESS,
             )
         return _render_pool
@@ -967,13 +972,18 @@ def _render_cold(gid: int, hole: int) -> bytes:
     """One cold render, in a worker process when enabled. A replaced ``render_hole_topo`` (a
     test double) cannot cross a process boundary, so it is always called in-process. A pool that
     broke (a worker was killed) is discarded and this render falls back to the API process; the
-    next cold render starts a fresh pool."""
+    next cold render starts a fresh pool. A pool shut down under this call (another thread
+    discarded it, or the process is exiting) also falls back rather than failing the request."""
     processes = _render_process_count()
     if processes == 0 or render_hole_topo is not _RENDER_HOLE_TOPO:
         return _render_in_process(gid, hole)
     pool = _get_render_pool(processes)
     try:
-        return pool.submit(_render_in_worker, gid, hole).result()
+        future = pool.submit(_render_in_worker, gid, hole)
+    except RuntimeError:  # "cannot schedule new futures after shutdown"
+        return _render_in_process(gid, hole)
+    try:
+        return future.result()
     except BrokenProcessPool:
         _discard_render_pool(pool)
         return _render_in_process(gid, hole)

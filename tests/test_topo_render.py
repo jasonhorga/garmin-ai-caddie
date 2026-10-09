@@ -536,6 +536,20 @@ class TopoRenderProcessPoolTests(unittest.TestCase):
         discard.assert_called_once_with(pool)
         in_process.assert_called_once_with(31795, 1)
 
+    def test_a_pool_shut_down_under_the_call_falls_back_in_process(self) -> None:
+        canned = _test_png()
+
+        class Pool:
+            def submit(self, fn, *args):
+                raise RuntimeError("cannot schedule new futures after shutdown")
+
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp, topo_render._RENDER_PROCESSES_ENV: "2"}), \
+                patch.object(topo_render, "_get_render_pool", return_value=Pool()), \
+                patch.object(topo_render, "_render_in_process", return_value=canned) as in_process:
+            self.assertEqual(topo_render.render_hole_topo_cached(31795, 1), canned)
+        in_process.assert_called_once_with(31795, 1)
+
     def test_a_real_worker_process_raises_the_same_errors(self) -> None:
         """Across a real forkserver worker, a hole without geometry still reaches the caller as
         ``TopoGeometryUnavailable`` (the route's 404), and nothing is cached."""
