@@ -3,50 +3,52 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 21:34 UTC
-**Canonical branch:** `main`; product merge `188399c9` (#402)
+**Updated:** 2026-10-09 22:23 UTC
+**Canonical branch:** `main`; latest product merge
+`d2b3536b0b034f3dc3bd27dabeb6c4b9be3788e5` (#403)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state
 
-#403 OPEN/ready, head `fd73dca520b148a4afd934acb77f643a0346a2fa`,
-branch `claude/new-area-prefetch-20261009`, merge-base `188399c9`.
-Code/Native/screenshots PASS; #403 old P2 **6089071054 closed**.
-Follow-up PASS/CI-gate comment **6089624424** posted and handled.
-Do not merge until required Docker CI is green.
+#403 MERGED; branch `claude/new-area-prefetch-20261009` deleted after exact
+ref validation. Final PASS **6090217699**.
+Exact reviewed head `fd73dca520b148a4afd934acb77f643a0346a2fa`;
+merge `d2b3536b0b034f3dc3bd27dabeb6c4b9be3788e5`.
+Prior P2 **6089071054 closed**; interim PASS/CI-gate **6089624424** handled.
+Generation/intent validation prevents superseded/cleared-area completion from
+keeping old intent, enqueuing old courses or publishing its anchor. Same-area
+foreground/network yield preserves read Tees; A→home and controlled A→B pass.
 
-New-area intent remains present while the pass runs. Replacing/clearing it bumps
-generation; obsolete completion cannot keep the intent, enqueue or anchor.
-Same-area foreground/network yield preserves read Tees. A→home and controlled
-A→B regression cases explicitly passed; bounded anchor retry note corrected
-according to author reply at21:19:02 (IC_kwDOSeO0vs8AAAABavVhQQ).
-
-Exact-head evidence:
+Final evidence:
 - Independent homeserver contracts **126/126, 8.448 s, OK**.
 - Native `37990736669` live production; iOS **772/0**, Watch **448/0**.
   New interleaving tests explicitly passed (0.012 /0.014 s).
 - Native evidence `94385754ad9a3f7fcf1067ca53bdbfdc8fb06a8f` parents
-  are main `c83eb848` and exact head `fd73dca5`.
-- **142/142** downloaded design/Watch PNGs byte-identical to the previously
-  manually reviewed e5788c79 UI baseline; source/visual P1/P2 none.
-- CI `37990736702`: backend/frontend green; Docker failed twice. Independent
-  failed-log read confirms Docker Hub manifest request for
-  `node:24-bookworm-slim` returned **429 Too Many Requests**.
-  Author owns rerun; no business-code bypass, no repeated independent testing
-  needed if the head stays unchanged.
+  are main `c83eb848` and the exact reviewed head.
+- **142/142** downloaded design/Watch PNGs byte-identical to the manually
+  reviewed e5788c79 UI baseline; settings label/footer passed.
+- Required CI `37990736702` **attempt 3** succeeded at22:00:44; Docker Hub
+  429 resolved. Premerge exact-head check confirmed backend/frontend/docker/
+  native-mobile all SUCCESS. No source/visual P1/P2 remains.
 - Evidence:
   `/home/jason/garmin-ai-caddie-data/operations/pr403-fd73dca5-20261009`
-  (source/contracts/Native/provenance/hashes/Docker failure/review/cleanup).
+  (source/contracts/Native/provenance/hashes/failure/premerge/PASS/merge/cleanup).
+  Prior-head evidence retained.
 
-#399–#402 merged and branches deleted; all final heads/requests/CI/comments and
-merge events handled. #403 initial head e5788c79, ready request at20:41:09,
-P2 comment6089071054 and fix reply at21:19:02 handled. Deduplicate retrospective
-events/own comments/docs CI. Historical detail preserved verbatim in archives.
+Nonblocking feature boundary: new-area anchor is saved when rows are queued;
+a failed speculative download is dropped, and merely returning home then back
+does not move the anchor. Taking another newly anchored area moves it. Normal
+explicit course download remains available; bounded behavior disclosed.
+
+#399–#403 heads, author requests, reviews, CI and merges handled; all branches
+deleted. #403 author ready/fix at20:41:09 /21:19:02 handled, as are final Native,
+CI attempt3 and own comments/docs CI. Deduplicate retrospective events.
+Historical detail preserved verbatim in dated archives.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: wait for #403 Docker recovery or
-  new actionable PR feedback; merge exact reviewed head when all gates pass.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: await new actionable PR feedback;
+  independently review exact head/Native/screenshots and merge/delete if clear.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 label variation; nonblocking.
 - `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark navigation/status text.
 - `OWNER-DEVICE-BUILD82` — `evidence-open`: paired iPhone/Watch validation remains owner work.
@@ -64,7 +66,7 @@ events/own comments/docs CI. Historical detail preserved verbatim in archives.
   501 shots /ok /done. HTTP/2 homeserver 3/3 HTTP200, 1.82–2.57 s;
   not Apple-runner path evidence.
 - Latest reviewed UI baseline: `operations/pr403-fd73dca5-20261009/native-artifacts`.
-  Merged #402 baseline and prior #403 evidence retained.
+  Prior #402/#403 evidence retained. No new release/deployment pending.
 
 ## Owned resources and wait boundary
 
@@ -72,8 +74,8 @@ events/own comments/docs CI. Historical detail preserved verbatim in archives.
   fd73dca5 snapshot removed (28,012,950 bytes); --rm container absent; production
   running. Previous local settings PNG/directory removed; no new local PNG.
   Original source/log/Native evidence and cleanup receipts retained.
-- Local controls/manifests/reviews retained as receipts; preserve unrelated dirty
-  `ops/pr_feedback_monitor.sh` and historical `.codex-*`.
+- Local controls/manifests/reviews/merge requests retained as receipts; preserve
+  unrelated dirty `ops/pr_feedback_monitor.sh` and historical `.codex-*`.
 - Deployed waiter: `operations/blocking-waits/wait_for_conclusion.sh`.
   No wait pending at ledger write; after push start one `--feedback` terminal,
   same-turn `clock.sleep(300000)` → one `write_stdin`; its one-line conclusion
@@ -84,11 +86,10 @@ events/own comments/docs CI. Historical detail preserved verbatim in archives.
 
 ## Next action and stopping
 
-Resume sole feedback waiter. On #403 required CI recovery, confirm unchanged
-exact head and all checks green, post final PASS, merge/delete branch. If head
-changes, inspect new changes and obtain corresponding evidence. Review other
-ready PRs after required CI. Ignore handled events/own docs CI.
+Resume sole feedback waiter; ignore handled events/own docs CI. New ready PRs
+are actionable after required CI; test exact head, verify Native/screenshots,
+post P1/P2 or PASS, and merge/delete when clear. Keep the same waiting method.
 
 Absolute stop: **2026-10-09 23:59 UTC**. Earlier stop requires 48 hours without
-external PR events and no open PRs. Latest external author reply:21:19:02 UTC.
-Keep ledger ≤200 lines; archive historical detail verbatim before replacement.
+external PR events and no open PRs. Last handled external terminal CI:22:00:44;
+last handled author reply:21:19:02. Keep ledger ≤200 lines and archive history.
