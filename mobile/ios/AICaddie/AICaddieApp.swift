@@ -450,6 +450,12 @@ public final class LiveRoundAppModel: ObservableObject {
     private var networkState = SpeculativeNetworkState.unknown
     /// Speculative courses that failed in this launch are not queued again until the next one.
     private var failedSpeculativeDownloadIDs = Set<String>()
+    /// 新区域: the nearest courses of the last nearby answer taken somewhere new, waiting for a
+    /// speculative pass (`scheduleSpeculativePrepCourseDownloads`). Not persisted: the next launch's
+    /// nearby answer finds the area again.
+    private var pendingNewArea: NewAreaRequest?
+    /// The pass reading those courses' Tees; nil when none runs.
+    private var newAreaTask: Task<Void, Never>?
     /// When the published `offlineStorageUsage` walk started, and when a download last wrote course
     /// files. Speculative room is only computed from a measurement newer than the last write.
     private var offlineStorageMeasuredAt: Date?
@@ -1752,6 +1758,15 @@ public final class LiveRoundAppModel: ObservableObject {
     var nextPrepCourseDownloadJobIDForTesting: String? { nextPrepCourseDownloadJob()?.id }
 
     var speculativeCourseRoomForTesting: Int? { speculativeCourseRoom }
+
+    /// Waits for the new-area Tee lookups (and the pass they lead to) to finish.
+    func waitForNewAreaPassForTesting() async {
+        var awaited: Task<Void, Never>?
+        while let task = newAreaTask, task != awaited {
+            awaited = task
+            await task.value
+        }
+    }
 
     func publishOfflineStorageUsageForTesting(_ usage: OfflineStorageUsage) {
         publishOfflineStorageUsage(usage, for: offlineStore.storageScope, measuredAt: Date())
@@ -4791,7 +4806,7 @@ public final class LiveRoundAppModel: ObservableObject {
         applySpeculativeDownloadPolicy()
     }
 
-    /// 设置 → "用蜂窝网络预下载常打的球场" changed.
+    /// 设置 → "用蜂窝网络预下载球场" changed.
     public func speculativePrefetchSettingChanged() {
         applySpeculativeDownloadPolicy()
     }
@@ -4815,7 +4830,12 @@ public final class LiveRoundAppModel: ObservableObject {
             remeasureOfflineStorage()
             return
         }
-        guard room > 0 else { return }
+        guard room > 0, newAreaTask == nil else { return }
+        // Somewhere new: its nearest courses take the room first; the pass calls back here.
+        if let area = pendingNewArea {
+            startNewAreaPass(area)
+            return
+        }
         let rows = SpeculativePrefetch.candidates(
             options: courseOptions,
             recent: recentCourseOption,
@@ -4830,6 +4850,110 @@ public final class LiveRoundAppModel: ObservableObject {
         )
         prepCourseDownloads += rows
         persistPrepCourseDownloads()
+        startPrepCourseDownloadQueueIfNeeded()
+    }
+
+    /// A nearby answer (the home card or 开始一场): somewhere new, its nearest courses wait for the
+    /// next speculative pass; anywhere else nothing waits.
+    private func noteNearbyCourses(_ matches: [MobileCourseSearchMatch], latitude: Double, longitude: Double) {
+        guard liveRoundState == nil else { return }
+        let courses = NewAreaPrefetch.courses(
+            matches: matches,
+            latitude: latitude,
+            longitude: longitude,
+            played: courseOptions.filter { $0.roundCount > 0 } + [recentCourseOption].compactMap { $0 },
+            anchor: NewAreaPrefetch.loadAnchor()
+        )
+        pendingNewArea = courses.isEmpty
+            ? nil
+            : NewAreaRequest(latitude: latitude, longitude: longitude, courses: courses)
+        if pendingNewArea != nil {
+            scheduleSpeculativePrepCourseDownloads()
+        }
+    }
+
+    /// Reads the Tees of the new area's courses that are not on the phone or listed yet (a course
+    /// is downloaded under its blue Tee or not at all), then queues them in `finishNewAreaPass`.
+    /// An area that already has its answers (it waited for room or a measurement) skips the reads.
+    private func startNewAreaPass(_ area: NewAreaRequest) {
+        pendingNewArea = nil
+        if let answers = area.answers {
+            finishNewAreaPass(area, answers: answers, complete: area.complete)
+            return
+        }
+        // Taken meanwhile by the pass this answer arrived during.
+        if let anchor = NewAreaPrefetch.loadAnchor(),
+           StartRoundView.haversineMetres(area.latitude, area.longitude, anchor.latitude, anchor.longitude)
+            < NewAreaPrefetch.areaMetres {
+            scheduleSpeculativePrepCourseDownloads()
+            return
+        }
+        guard let syncClient else { return }
+        let open = NewAreaPrefetch.candidates(
+            courses: area.courses.map { ($0, NewAreaPrefetch.unplayedTee) },
+            existingIDs: Set(prepCourseDownloads.map(\.id)).union(failedSpeculativeDownloadIDs),
+            lastUsed: offlineStore.loadCourseUsage(),
+            now: Date(),
+            isInstalled: { readyPrepTemplate(for: $0) != nil }
+        ).map(\.course)
+        newAreaTask = Task { [weak self] in
+            var answers: [NewAreaRequest.Answer] = []
+            for course in open {
+                do {
+                    let tees = try await syncClient.fetchCourseTees(globalId: course.globalId).tees
+                    answers.append((course, NewAreaPrefetch.tee(offered: tees)))
+                } catch {
+                    AICaddieLog.storage.info(
+                        "New-area Tee lookup failed: \(course.globalId, privacy: .public) \(String(describing: error), privacy: .public)"
+                    )
+                }
+            }
+            self?.finishNewAreaPass(area, answers: answers, complete: answers.count == open.count)
+        }
+    }
+
+    /// Queues the new area's courses that have a blue Tee, under the same gates and room as any
+    /// guess. Courses that do not fit wait with their answers for room, ahead of the 可能会打 list.
+    /// The area is taken (anchored) only once every Tee lookup answered and every course fitted,
+    /// so a lookup lost to the network is tried again on the next nearby answer.
+    private func finishNewAreaPass(
+        _ area: NewAreaRequest,
+        answers: [NewAreaRequest.Answer],
+        complete: Bool
+    ) {
+        newAreaTask = nil
+        var area = area
+        area.answers = answers
+        area.complete = complete
+        guard speculativeJobsMayRun, let room = speculativeCourseRoom else {
+            // The network or a round stopped guesses, or a download wrote since the measurement:
+            // the area waits for the next pass (a newer nearby answer replaces it).
+            if pendingNewArea == nil { pendingNewArea = area }
+            scheduleSpeculativePrepCourseDownloads()
+            return
+        }
+        let rows = NewAreaPrefetch.candidates(
+            courses: answers,
+            existingIDs: Set(prepCourseDownloads.map(\.id)).union(failedSpeculativeDownloadIDs),
+            lastUsed: offlineStore.loadCourseUsage(),
+            now: Date(),
+            isInstalled: { readyPrepTemplate(for: $0) != nil }
+        )
+        let queued = Array(rows.prefix(max(0, room)))
+        if queued.count < rows.count {
+            if pendingNewArea == nil { pendingNewArea = area }
+        } else if complete {
+            NewAreaPrefetch.saveAnchor(latitude: area.latitude, longitude: area.longitude)
+        }
+        if !queued.isEmpty {
+            AICaddieLog.storage.info(
+                "New-area course downloads queued: \(queued.map(\.id).joined(separator: ","), privacy: .public)"
+            )
+            prepCourseDownloads += queued
+            persistPrepCourseDownloads()
+        }
+        // The 可能会打 list takes what room is left.
+        scheduleSpeculativePrepCourseDownloads()
         startPrepCourseDownloadQueueIfNeeded()
     }
 
@@ -5089,11 +5213,13 @@ public final class LiveRoundAppModel: ObservableObject {
         #endif
         guard let syncClient else { throw URLError(.notConnectedToInternet) }
         do {
-            return try await syncClient.nearbyCourses(
+            let matches = try await syncClient.nearbyCourses(
                 latitude: latitude,
                 longitude: longitude,
                 radiusKm: radiusKm
             )
+            noteNearbyCourses(matches, latitude: latitude, longitude: longitude)
+            return matches
         } catch {
             invalidateAppleSessionIfNeeded(error)
             throw error

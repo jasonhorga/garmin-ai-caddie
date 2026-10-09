@@ -11,11 +11,14 @@ final class SpeculativePrefetchTests: XCTestCase {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("speculative-prefetch-\(UUID().uuidString)", isDirectory: true)
         UserDefaults.standard.removeObject(forKey: SpeculativePrefetchSettings.cellularKey)
+        UserDefaults.standard.removeObject(forKey: NewAreaPrefetch.anchorKey)
     }
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: directory)
         UserDefaults.standard.removeObject(forKey: SpeculativePrefetchSettings.cellularKey)
+        UserDefaults.standard.removeObject(forKey: NewAreaPrefetch.anchorKey)
+        NewAreaURLProtocol.handler = nil
     }
 
     private func course(_ globalId: Int, rounds: Int, tee: String? = "blue", latest: String? = nil) -> MobileCourseOption {
@@ -296,4 +299,231 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertFalse(row.isSpeculative)
         XCTAssertEqual(model.nextPrepCourseDownloadJobIDForTesting, guess.id, "runs on any network now")
     }
+
+    // MARK: 新区域
+
+    /// Home is 31.0,121.0; the trip is ~1° (≈110 km) north.
+    private let home = (latitude: 31.0, longitude: 121.0)
+    private let away = (latitude: 32.0, longitude: 121.0)
+
+    private func homeCourse(_ globalId: Int = 900) -> MobileCourseOption {
+        MobileCourseOption(globalId: globalId, name: "家", roundCount: 4, teeBox: "white", latitude: home.latitude, longitude: home.longitude)
+    }
+
+    private func match(_ globalId: Int, km: Double?, holes: Int? = 18) -> MobileCourseSearchMatch {
+        MobileCourseSearchMatch(
+            globalId: globalId, name: "球场\(globalId)", holes: holes, city: nil, province: nil, ratio: 1,
+            latitude: away.latitude, longitude: away.longitude, distanceKm: km
+        )
+    }
+
+    private func newArea(
+        _ matches: [MobileCourseSearchMatch],
+        at point: (latitude: Double, longitude: Double)? = nil,
+        played: [MobileCourseOption]? = nil,
+        anchor: (latitude: Double, longitude: Double)? = nil
+    ) -> [Int] {
+        let at = point ?? away
+        return NewAreaPrefetch.courses(
+            matches: matches, latitude: at.latitude, longitude: at.longitude,
+            played: played ?? [homeCourse()], anchor: anchor
+        ).map(\.globalId)
+    }
+
+    func testANewAreaTakesTheNearestThreeCourses() {
+        let matches = [match(4, km: 4.0), match(1, km: 0.5), match(3, km: 2.5), match(2, km: 1.2), match(5, km: nil)]
+        XCTAssertEqual(newArea(matches), [1, 2, 3])
+        XCTAssertEqual(newArea([match(1, km: 1), match(1, km: 1)]), [1], "a duplicate row counts once")
+        XCTAssertEqual(
+            newArea([match(1, km: 0.5, holes: nil), match(2, km: 1), match(3, km: 2), match(4, km: 3)]),
+            [2, 3],
+            "the nearest three are ranked first; a row without a hole count cannot be downloaded and does not pull in a fourth"
+        )
+    }
+
+    func testHomeAndPlayedAreasAreNotNew() {
+        let matches = [match(1, km: 0.5), match(2, km: 1)]
+        XCTAssertEqual(newArea(matches, at: (31.1, 121.0)), [], "a played course within 30 km: home")
+        XCTAssertEqual(
+            newArea(matches + [match(900, km: 3)], played: [MobileCourseOption(globalId: 900, name: "去年", roundCount: 1)]),
+            [],
+            "a played course among the nearby rows, even without coordinates"
+        )
+        XCTAssertEqual(newArea(matches, played: []), [], "no played course known: no home to be away from")
+    }
+
+    func testAnAreaIsTakenOnce() {
+        let matches = [match(1, km: 0.5)]
+        XCTAssertEqual(newArea(matches, anchor: (32.1, 121.0)), [], "within 30 km of the last area taken")
+        XCTAssertEqual(newArea(matches, anchor: (33.0, 121.0)), [1], "a new area far enough from the last one")
+
+        NewAreaPrefetch.saveAnchor(latitude: 32.0, longitude: 121.0)
+        let anchor = NewAreaPrefetch.loadAnchor()
+        XCTAssertEqual(anchor?.latitude, 32.0)
+        XCTAssertEqual(anchor?.longitude, 121.0)
+    }
+
+    func testOnlyTheBlueTeeIsDownloaded() {
+        XCTAssertEqual(NewAreaPrefetch.tee(offered: [CourseTee(teeBox: "white", name: "白"), CourseTee(teeBox: "Blue", name: "蓝")]), "blue")
+        XCTAssertNil(
+            NewAreaPrefetch.tee(offered: [CourseTee(teeBox: "black", name: "黑", isDefault: true), CourseTee(teeBox: "white", name: "白")]),
+            "no blue Tee: skipped, not downloaded under the default"
+        )
+        XCTAssertNil(NewAreaPrefetch.tee(offered: []))
+
+        let a = MobileCourseOption(globalId: 1, name: "A")
+        let b = MobileCourseOption(globalId: 2, name: "B")
+        let c = MobileCourseOption(globalId: 3, name: "C")
+        let d = MobileCourseOption(globalId: 4, name: "D")
+        let rows = NewAreaPrefetch.candidates(
+            courses: [(a, "blue"), (b, nil), (c, "blue"), (d, "blue")],
+            existingIDs: [PrepCourseDownloadRecord.key(globalId: 3, teeBox: "blue")],
+            lastUsed: [:],
+            now: now,
+            isInstalled: { $0.course.globalId == 4 }
+        )
+        XCTAssertEqual(rows.map(\.id), [PrepCourseDownloadRecord.key(globalId: 1, teeBox: "blue")])
+        XCTAssertTrue(rows.allSatisfy(\.isSpeculative))
+    }
+
+    /// Records the Tee lookups the stubbed backend answered.
+    private final class TeeLookups: @unchecked Sendable {
+        private let lock = NSLock()
+        private var ids: [Int] = []
+        func append(_ id: Int) { lock.withLock { ids.append(id) } }
+        var all: [Int] { lock.withLock { ids } }
+    }
+
+    /// A model whose backend answers nearby with `nearby` rows (id, km, holes) and each course's
+    /// Tees with blue + white, except `noBlue` courses (black only). Every other request (the
+    /// queued downloads) never answers, so queued rows stay put. The home course is the last one
+    /// started.
+    private func newAreaModel(
+        nearby: [(id: Int, km: Double, holes: Int)],
+        noBlue: Set<Int> = []
+    ) throws -> (LiveRoundAppModel, TeeLookups) {
+        let store = OfflineStore(directoryURL: directory)
+        try store.saveRecentCourseSelection(homeCourse())
+        let lookups = TeeLookups()
+        let rows = nearby
+            .map { #"{"globalId":\#($0.id),"name":"球场\#($0.id)","holes":\#($0.holes),"ratio":1,"distanceKm":\#($0.km)}"# }
+            .joined(separator: ",")
+        NewAreaURLProtocol.handler = { request in
+            guard let path = request.url?.path else { return nil }
+            if path == "/api/v2/courses/nearby" {
+                return #"{"schema":"ai-caddie-nearby-courses-v1","radiusKm":5,"matches":[\#(rows)]}"#
+            }
+            let parts = path.split(separator: "/")
+            guard parts.count == 5, parts[2] == "courses", parts[4] == "tees", let id = Int(parts[3]) else {
+                return nil
+            }
+            lookups.append(id)
+            let tees = noBlue.contains(id)
+                ? #"[{"teeBox":"black","name":"黑","default":true}]"#
+                : #"[{"teeBox":"white","name":"白"},{"teeBox":"blue","name":"蓝","default":true}]"#
+            return #"{"schema":"ai-caddie-course-tees-v1","globalId":\#(id),"tees":\#(tees)}"#
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [NewAreaURLProtocol.self]
+        let baseURL = try XCTUnwrap(URL(string: "https://example.test"))
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: baseURL,
+            adminToken: "admin-secret",
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: SyncClient(baseURL: baseURL, adminToken: "admin-secret", session: URLSession(configuration: configuration)),
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+        return (model, lookups)
+    }
+
+    /// New-area guesses in the list (the home course is a 可能会打 guess of its own).
+    private func newAreaGuesses(_ model: LiveRoundAppModel) -> Set<Int> {
+        Set(model.prepCourseDownloads.filter { $0.isSpeculative && $0.course.globalId != 900 }.map(\.course.globalId))
+    }
+
+    /// The real path: a nearby answer somewhere new reads the Tees and queues the blue-Tee courses as
+    /// guesses, anchors the area, and the same area does not ask again.
+    func testANearbyAnswerSomewhereNewQueuesItsBlueTeeCourses() async throws {
+        let (model, lookups) = try newAreaModel(
+            nearby: [(11, 0.4, 18), (12, 1.0, 18), (13, 2.0, 9), (14, 3.0, 18)],
+            noBlue: [12]
+        )
+        model.publishOfflineStorageUsageForTesting(empty)
+        model.setNetworkStateForTesting(wifi)
+
+        _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
+        await model.waitForNewAreaPassForTesting()
+
+        XCTAssertEqual(lookups.all.sorted(), [11, 12, 13], "only the nearest three")
+        XCTAssertEqual(newAreaGuesses(model), [11, 13], "12 has no blue Tee")
+        XCTAssertTrue(model.prepCourseDownloads.filter { $0.course.globalId == 11 || $0.course.globalId == 13 }.allSatisfy { $0.teeBox == "blue" })
+        let anchor = try XCTUnwrap(NewAreaPrefetch.loadAnchor())
+        XCTAssertEqual(anchor.latitude, away.latitude)
+
+        // The same area again (the home card re-asks every ~100 m): no more lookups.
+        _ = try await model.nearbyCourses(latitude: away.latitude + 0.01, longitude: away.longitude, radiusKm: 5)
+        await model.waitForNewAreaPassForTesting()
+        XCTAssertEqual(lookups.all.count, 3)
+    }
+
+    /// Off Wi-Fi nothing is looked up; the area waits and is taken once Wi-Fi comes back.
+    func testANewAreaWaitsForWiFi() async throws {
+        let (model, lookups) = try newAreaModel(nearby: [(21, 0.4, 18)])
+        model.publishOfflineStorageUsageForTesting(empty)
+        model.setNetworkStateForTesting(cellular)
+
+        _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
+        await model.waitForNewAreaPassForTesting()
+        XCTAssertEqual(lookups.all, [], "nothing is looked up on cellular")
+        XCTAssertNil(NewAreaPrefetch.loadAnchor(), "the area is not taken yet")
+
+        model.setNetworkStateForTesting(wifi)
+        await model.waitForNewAreaPassForTesting()
+        XCTAssertEqual(lookups.all, [21])
+        XCTAssertEqual(newAreaGuesses(model), [21])
+        XCTAssertNotNil(NewAreaPrefetch.loadAnchor())
+    }
+
+    /// Room for one more course: the nearest goes now, the next waits with its Tee for room (no
+    /// second lookup), and only then is the area taken.
+    func testCoursesThatDoNotFitWaitForRoom() async throws {
+        let (model, lookups) = try newAreaModel(nearby: [(31, 0.4, 18), (32, 1.0, 18)])
+        let course = SpeculativePrefetch.estimatedCourseBytes
+        let cap = OfflineStorageEviction.capBytes
+        model.publishOfflineStorageUsageForTesting(OfflineStorageUsage(topoBytes: cap - 2 * course, templateBytes: 0))
+        model.setNetworkStateForTesting(wifi)
+        XCTAssertEqual(model.speculativeCourseRoomForTesting, 1, "the home course took one of the two")
+
+        _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
+        await model.waitForNewAreaPassForTesting()
+        XCTAssertEqual(newAreaGuesses(model), [31])
+        XCTAssertNil(NewAreaPrefetch.loadAnchor(), "not taken while a course still waits")
+
+        try await Task.sleep(nanoseconds: 2_000_000)
+        model.publishOfflineStorageUsageForTesting(empty)
+        XCTAssertEqual(newAreaGuesses(model), [31, 32])
+        XCTAssertEqual(lookups.all.sorted(), [31, 32], "the waiting course kept its Tee")
+        XCTAssertNotNil(NewAreaPrefetch.loadAnchor())
+    }
+}
+
+/// Answers 200 with the handler's JSON, or never answers when the handler returns nil (a download
+/// that must stay in flight for the test's assertions), without blocking the loading thread.
+private final class NewAreaURLProtocol: URLProtocol {
+    static var handler: ((URLRequest) -> String?)?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url, let body = Self.handler?(request) else { return }
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

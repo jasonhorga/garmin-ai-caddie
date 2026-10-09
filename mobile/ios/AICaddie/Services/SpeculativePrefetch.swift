@@ -65,7 +65,7 @@ public final class NetworkPathObserver: NetworkPathObserving {
     }
 }
 
-/// 设置 → 离线球场 → "用蜂窝网络预下载常打的球场". Off by default.
+/// 设置 → 离线球场 → "用蜂窝网络预下载球场" (常打的 and 新区域 courses). Off by default.
 public enum SpeculativePrefetchSettings {
     public static let cellularKey = "aicaddie.prefetch.likelyCoursesOnCellular"
 
@@ -134,4 +134,97 @@ enum SpeculativePrefetch {
             return record
         }
     }
+}
+
+/// 新区域: the player is somewhere none of their courses are, so the nearest few courses download
+/// on their own like any other guess (Wi-Fi by default, lowest priority, hidden, under the cap).
+/// Once per area: the next area must be `areaMetres` away from where the last one was taken.
+enum NewAreaPrefetch {
+    static let maximumCourses = 3
+    /// A played course this close means the player is at home, not somewhere new; the same
+    /// distance separates one new area from the next.
+    static let areaMetres: Double = 30_000
+    /// Where the last new area was taken, as `[latitude, longitude]`.
+    static let anchorKey = "aicaddie.prefetch.newAreaAnchor"
+    /// The Tee for a course the player never played (Jason, 2026-10-09: "就下蓝 T").
+    static let unplayedTee = "blue"
+
+    /// The nearby rows to try, nearest first, or [] when this is not a new area: a played course
+    /// (catalogue rounds or the last course started) is among the nearby rows or within
+    /// `areaMetres`, or the last area taken is within `areaMetres`. With no played course known
+    /// yet (catalogue not loaded, or a new player) there is no home to be away from: [].
+    static func courses(
+        matches: [MobileCourseSearchMatch],
+        latitude: Double,
+        longitude: Double,
+        played: [MobileCourseOption],
+        anchor: (latitude: Double, longitude: Double)?
+    ) -> [MobileCourseOption] {
+        if let anchor,
+           StartRoundView.haversineMetres(latitude, longitude, anchor.latitude, anchor.longitude) < areaMetres {
+            return []
+        }
+        guard !played.isEmpty else { return [] }
+        let playedIDs = Set(played.map(\.globalId))
+        guard !matches.contains(where: { playedIDs.contains($0.globalId) }) else { return [] }
+        let nearHome = played.contains { course in
+            guard let lat = course.latitude, let lon = course.longitude else { return false }
+            return StartRoundView.haversineMetres(latitude, longitude, lat, lon) < areaMetres
+        }
+        guard !nearHome else { return [] }
+        var seen = Set<Int>()
+        return matches
+            .filter { $0.globalId > 0 && seen.insert($0.globalId).inserted }
+            .sorted { ($0.distanceKm ?? .infinity) < ($1.distanceKm ?? .infinity) }
+            .prefix(maximumCourses)
+            .compactMap(\.courseOption)
+    }
+
+    /// The Tee to download: the blue Tee when the course has one, else none (the course is
+    /// skipped rather than downloaded under another colour).
+    static func tee(offered: [CourseTee]) -> String? {
+        offered.contains { $0.teeBox.lowercased() == unplayedTee } ? unplayedTee : nil
+    }
+
+    /// Rows to queue for `courses` with their Tees (nil = skipped). Same skips as the 可能会打 list.
+    static func candidates(
+        courses: [(course: MobileCourseOption, tee: String?)],
+        existingIDs: Set<String>,
+        lastUsed: [String: Date],
+        now: Date,
+        isInstalled: (PrepCourseDownloadRecord) -> Bool
+    ) -> [PrepCourseDownloadRecord] {
+        courses.compactMap { entry in
+            guard let tee = entry.tee else { return nil }
+            let record = PrepCourseDownloadRecord(course: entry.course, teeBox: tee, updatedAt: now, isSpeculative: true)
+            guard !existingIDs.contains(record.id), !isInstalled(record) else { return nil }
+            if let key = CourseUsageLog.key(globalId: entry.course.globalId, teeBox: tee),
+               let used = lastUsed[key],
+               OfflineStorageEviction.isIdle(lastUsedAt: used, now: now) {
+                return nil
+            }
+            return record
+        }
+    }
+
+    static func loadAnchor(_ defaults: UserDefaults = .standard) -> (latitude: Double, longitude: Double)? {
+        guard let pair = defaults.array(forKey: anchorKey) as? [Double], pair.count == 2 else { return nil }
+        return (pair[0], pair[1])
+    }
+
+    static func saveAnchor(latitude: Double, longitude: Double, _ defaults: UserDefaults = .standard) {
+        defaults.set([latitude, longitude], forKey: anchorKey)
+    }
+}
+
+/// A nearby answer taken somewhere new: where, and its nearest courses. Once their Tees were read,
+/// the answers (nil Tee = skipped) and whether every lookup answered.
+struct NewAreaRequest {
+    typealias Answer = (course: MobileCourseOption, tee: String?)
+
+    var latitude: Double
+    var longitude: Double
+    var courses: [MobileCourseOption]
+    var answers: [Answer]?
+    var complete = false
 }
