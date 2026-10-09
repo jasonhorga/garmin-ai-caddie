@@ -5554,6 +5554,35 @@ class MobileContractTests(unittest.TestCase):
             for marker in ("liveCourseDownloadProgress", "OfflineCourseDownloadsSection", "OfflineCourseDownloadRow", "progressFraction"):
                 self.assertNotIn(marker, source, f"{name} must not show download progress ({marker})")
 
+    def test_offline_storage_use_is_settings_only_and_maintenance_never_evicts(self) -> None:
+        # Storage batch PR A: the total joins download progress in 设置 → 离线球场 only (IMPLEMENTATION_PLAN:
+        # process status goes to logs and settings), and garbage collection removes nothing a package
+        # of any account still references. Eviction by age/size is a separate change.
+        app = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        maintenance = _read_required_source(self, IOS_DIR / "Services" / "OfflineStorageMaintenance.swift")
+        settings = round_home.split("private var settingsSheet: some View {", 1)[1].split("\n// MARK:", 1)[0]
+        self.assertIn("), usage: offlineStorageUsage)", settings)
+        self.assertIn("await onRefreshOfflineStorageUsage()", settings)
+        # Cold start, before the download queue resumes, off the main actor.
+        defer_block = app.split("public func bootstrap() async {", 1)[1].split("resumePrepCourseDownloads(retryFailed: true)", 1)[0]
+        self.assertIn("scheduleOfflineStorageMaintenance()", defer_block)
+        schedule = app.split("private func scheduleOfflineStorageMaintenance() {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("Task.detached(priority: .background)", schedule)
+        self.assertIn("prepCourseDownloadTask == nil", schedule)
+        # Every "use" moment records the course + Tee.
+        self.assertEqual(app.count("offlineStore.recordCourseUse("), 4)
+        # The reference scan covers every account and the legacy root.
+        self.assertIn('appendingPathComponent("accounts", isDirectory: true)', maintenance)
+        for name in ("current_package.json", "home_package.json", '"course_templates", "packages"', "prep_course_downloads.json"):
+            self.assertIn(name, maintenance)
+        views = IOS_DIR / "Views"
+        for name in ("CurrentHoleView.swift", "LivePlayChrome.swift", "LiveHoleComponents.swift", "CourseReviewView.swift",
+                     "MobileCourseSearchView.swift", "PrepCoursePickerView.swift", "StartRoundView.swift", "HubBento.swift"):
+            source = _read_required_source(self, views / name)
+            for marker in ("OfflineStorageUsage", "offlineStorageUsage"):
+                self.assertNotIn(marker, source, f"{name} must not show storage use ({marker})")
+
 
 class RoundEditContractTests(unittest.TestCase):
     """复盘编辑 iOS 接线不被后续删:稳定 shotId/罚杆模型 + op 载荷 + POST + 编辑控件都在源码里。"""

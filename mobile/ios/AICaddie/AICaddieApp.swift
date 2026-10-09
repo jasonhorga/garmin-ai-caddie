@@ -86,6 +86,7 @@ public struct AICaddieApp: App {
                         prepCourseDownloads: model.prepCourseDownloads,
                         prepCourseDownloadPresentation: model.prepCourseDownloadPresentation,
                         liveCourseDownloadProgress: model.liveCourseDownloadProgress,
+                        offlineStorageUsage: model.offlineStorageUsage,
                         isPreparingRound: model.isPreparingRound,
                         isFinishingRound: model.isFinishingRound,
                         finishErrorMessage: model.finishErrorMessage,
@@ -142,6 +143,9 @@ public struct AICaddieApp: App {
                         },
                         onRefreshGarminSyncStatus: {
                             await model.refreshGarminSyncPresentation()
+                        },
+                        onRefreshOfflineStorageUsage: {
+                            await model.refreshOfflineStorageUsage()
                         },
                         onGarminSessionForgot: {
                             model.didForgetGarminSession()
@@ -358,6 +362,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// The live round's own whole-course download (holes with precise facts and topo on disk).
     /// Only 设置 → 离线球场 reads it; the play screen keeps its quiet faded-hole contract.
     @Published public private(set) var liveCourseDownloadProgress: LiveCourseDownloadProgress?
+    /// 设置 → 离线球场 footer; nil until first measured off the main actor.
+    @Published public private(set) var offlineStorageUsage: OfflineStorageUsage?
     public let prepCourseDownloadPresentation = PrepCourseDownloadPresentationState()
     @Published public private(set) var prepCourseDownloads: [PrepCourseDownloadRecord] = [] {
         didSet {
@@ -659,6 +665,9 @@ public final class LiveRoundAppModel: ObservableObject {
     public func bootstrap() async {
         defer {
             isBootstrapping = false
+            // Before the download queue resumes, so a queued job cannot postpone it every launch;
+            // age and reference guards keep it safe beside a download that starts mid-pass.
+            scheduleOfflineStorageMaintenance()
             resumePrepCourseDownloads(retryFailed: true)
             retryDeferredRoundFinishes()
             // A 球包 edit still in the outbox (the app was closed before its PUT landed) resumes here;
@@ -3374,6 +3383,31 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// Auto-sync hook for app foreground (scenePhase .active): flush anything still pending.
+    /// Cold start only, at most once a day (`OfflineStorageScope` keeps the marker), at background
+    /// priority. Skipped while a download is already writing bitmaps.
+    private func scheduleOfflineStorageMaintenance() {
+        guard prepCourseDownloadTask == nil, offlineCourseDownloadRoundId == nil else { return }
+        let scope = offlineStore.storageScope
+        Task.detached(priority: .background) { [weak self] in
+            scope.runMaintenanceIfDue()
+            let usage = scope.usage()
+            await self?.publishOfflineStorageUsage(usage, for: scope)
+        }
+    }
+
+    /// Settings asks on appear; the walk over the bitmap directory runs off the main actor.
+    public func refreshOfflineStorageUsage() async {
+        let scope = offlineStore.storageScope
+        let usage = await Task.detached(priority: .utility) { scope.usage() }.value
+        publishOfflineStorageUsage(usage, for: scope)
+    }
+
+    /// A measurement taken for an account that has since been switched out is dropped.
+    private func publishOfflineStorageUsage(_ usage: OfflineStorageUsage, for scope: OfflineStorageScope) {
+        guard offlineStore.storageScope == scope else { return }
+        offlineStorageUsage = usage
+    }
+
     public func syncOnForeground() {
         endPrepBackgroundTask()
         refreshResultsCacheIfNeeded()
@@ -4195,6 +4229,8 @@ public final class LiveRoundAppModel: ObservableObject {
             totalHoles: course.resolvedHoles
         )
         let id = candidate.id
+        // The player opened this course in 备战 (选了就进).
+        offlineStore.recordCourseUse(globalId: course.globalId, teeBox: candidate.teeBox)
         if prepCourseDownloads.first(where: { $0.id == id })?.isIntentPrefetch == true {
             // The player now asked for this course themselves: a later intent must not drop it.
             updatePrepCourseDownload(id: id) { record in
@@ -4344,6 +4380,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// A row that is not ready has nothing to verify and is never given a blocking message.
     public func validateReadyPrepCourse(_ record: PrepCourseDownloadRecord) async -> Bool {
         guard record.phase == .ready else { return false }
+        // Reopening a downloaded course from the 备战 list.
+        offlineStore.recordCourseUse(globalId: record.course.globalId, teeBox: record.teeBox)
         guard let template = readyPrepTemplate(for: record) else {
             updatePrepCourseDownload(id: record.id) { state in
                 state.phase = .queued
@@ -4617,6 +4655,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     state.errorText = nil
                     state.requiredGeometryRevisions = nil
                 }
+                offlineStore.recordCourseUse(globalId: record.course.globalId, teeBox: record.teeBox)
                 refreshDownloadedCourseOptions()
             } else {
                 let serverStatus: CourseInstallStatus?
@@ -4807,6 +4846,7 @@ public final class LiveRoundAppModel: ObservableObject {
     ) throws {
         recordUITestLatency("activate.template.begin globalId=\(nextPackage.course.globalId)")
         try? offlineStore.saveCourseTemplate(nextPackage)
+        offlineStore.recordCourseUse(for: nextPackage)
         recordUITestLatency("activate.template.end globalId=\(nextPackage.course.globalId)")
         recordUITestLatency("activate.downloaded-options.begin globalId=\(nextPackage.course.globalId)")
         refreshDownloadedCourseOptions()

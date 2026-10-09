@@ -1247,6 +1247,39 @@ public final class OfflineStore {
         try FileManager.default.removeItem(at: url)
     }
 
+    /// This account just played, opened in 备战 or finished downloading the course + Tee. A round on
+    /// two physical courses marks both. Bookkeeping only: a failed write is logged, never thrown.
+    public func recordCourseUse(for package: LiveRoundPackage, at date: Date = Date()) {
+        let globalIds = Set(package.holes.map(\.sourceGlobalId)).union([package.course.globalId])
+        recordCourseUse(
+            Set(globalIds.compactMap { CourseUsageLog.key(globalId: $0, teeBox: package.course.teeBox) }),
+            at: date
+        )
+    }
+
+    public func recordCourseUse(globalId: Int, teeBox: String, at date: Date = Date()) {
+        recordCourseUse(Set([CourseUsageLog.key(globalId: globalId, teeBox: teeBox)].compactMap { $0 }), at: date)
+    }
+
+    private func recordCourseUse(_ keys: Set<String>, at date: Date) {
+        do {
+            try CourseUsageLog.record(keys, at: date, in: directoryURL.appendingPathComponent(CourseUsageLog.fileName))
+        } catch {
+            AICaddieLog.storage.error("Course usage write failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// `"<globalId>|<tee>"` → last use, for this account.
+    public func loadCourseUsage() -> [String: Date] {
+        CourseUsageLog.load(from: directoryURL.appendingPathComponent(CourseUsageLog.fileName))
+    }
+
+    /// The bound account's paths, captured now so maintenance can run off the main actor without
+    /// reading this store's mutable account state while a sign-in rebinds it.
+    public var storageScope: OfflineStorageScope {
+        OfflineStorageScope(root: baseDirectoryURL, accountDirectory: directoryURL)
+    }
+
     /// Account-scoped prep library / resumable job list. The selected course metadata is tiny; the
     /// actual immutable topo assets remain in the existing revision-keyed shared cache.
     public func savePrepCourseDownloads(_ records: [PrepCourseDownloadRecord]) throws {
@@ -2078,16 +2111,13 @@ public final class OfflineStore {
         localHole: Int,
         geometryRevision: String? = nil
     ) -> URL {
-        let suffix = Self.normalizedGeometryRevision(geometryRevision).map { "-\($0)" } ?? ""
-        return courseTopoDirectoryURL.appendingPathComponent(
-            "\(globalId)-\(localHole)\(suffix).png"
+        // The same name the storage maintenance scan derives from package references.
+        let name = TopoFileName.fileKey(
+            globalId: globalId,
+            localHole: localHole,
+            geometryRevision: geometryRevision
         )
-    }
-
-    private static func normalizedGeometryRevision(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              !trimmed.isEmpty else { return nil }
-        return trimmed.addingPercentEncoding(withAllowedCharacters: .alphanumerics)
+        return courseTopoDirectoryURL.appendingPathComponent("\(name).png")
     }
 
     private func withEventLogLock<T>(_ operation: () throws -> T) rethrows -> T {

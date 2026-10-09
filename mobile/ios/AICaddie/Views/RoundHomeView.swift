@@ -63,6 +63,7 @@ public struct RoundHomeView: View {
     public let prepCourseDownloads: [PrepCourseDownloadRecord]
     public let prepCourseDownloadPresentation: PrepCourseDownloadPresentationState?
     public let liveCourseDownloadProgress: LiveCourseDownloadProgress?
+    public let offlineStorageUsage: OfflineStorageUsage?
     public let isPreparingRound: Bool
     public let isFinishingRound: Bool
     public let finishErrorMessage: String?
@@ -85,6 +86,7 @@ public struct RoundHomeView: View {
     /// bridge for older snapshot/test callers.
     public let onGarminSessionImportedOutcome: (() async -> GarminSyncOutcome)?
     public let onRefreshGarminSyncStatus: () async -> Void
+    public let onRefreshOfflineStorageUsage: () async -> Void
     public let onGarminSessionForgot: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
@@ -153,6 +155,7 @@ public struct RoundHomeView: View {
         prepCourseDownloads: [PrepCourseDownloadRecord] = [],
         prepCourseDownloadPresentation: PrepCourseDownloadPresentationState? = nil,
         liveCourseDownloadProgress: LiveCourseDownloadProgress? = nil,
+        offlineStorageUsage: OfflineStorageUsage? = nil,
         isPreparingRound: Bool = false,
         isFinishingRound: Bool = false,
         finishErrorMessage: String? = nil,
@@ -170,6 +173,7 @@ public struct RoundHomeView: View {
         onGarminSessionImported: @escaping () async -> Bool = { false },
         onGarminSessionImportedOutcome: (() async -> GarminSyncOutcome)? = nil,
         onRefreshGarminSyncStatus: @escaping () async -> Void = {},
+        onRefreshOfflineStorageUsage: @escaping () async -> Void = {},
         onGarminSessionForgot: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
@@ -234,6 +238,7 @@ public struct RoundHomeView: View {
         self.onGarminSessionImported = onGarminSessionImported
         self.onGarminSessionImportedOutcome = onGarminSessionImportedOutcome
         self.onRefreshGarminSyncStatus = onRefreshGarminSyncStatus
+        self.onRefreshOfflineStorageUsage = onRefreshOfflineStorageUsage
         self.onGarminSessionForgot = onGarminSessionForgot
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
@@ -988,7 +993,10 @@ public struct RoundHomeView: View {
                         package.flatMap { $0.roundId == state.roundId ? LiveCourseDownloadProgress.Identity(package: $0) : nil }
                     },
                     downloads: prepCourseDownloads
-                ))
+                ), usage: offlineStorageUsage)
+            }
+            .task {
+                await onRefreshOfflineStorageUsage()
             }
             .task {
                 await onRefreshGarminSyncStatus()
@@ -1006,13 +1014,19 @@ public struct RoundHomeView: View {
     }
 }
 
-/// 设置 → 离线球场: the only place download progress is shown (design README §8 keeps it off the
-/// play and prep screens). Nothing to list → no section.
+/// 设置 → 离线球场: the only place download progress and storage use are shown (design README §8
+/// and IMPLEMENTATION_PLAN keep process status off the play and prep screens). Nothing to list and
+/// nothing stored → no section.
 struct OfflineCourseDownloadsSection: View {
     let rows: [OfflineCourseDownloadRow]
+    var usage: OfflineStorageUsage? = nil
+
+    private var storedUsage: OfflineStorageUsage? {
+        usage.flatMap { $0.totalBytes > 0 ? $0 : nil }
+    }
 
     var body: some View {
-        if !rows.isEmpty {
+        if !rows.isEmpty || storedUsage != nil {
             Section {
                 ForEach(rows) { row in
                     VStack(alignment: .leading, spacing: 6) {
@@ -1056,6 +1070,12 @@ struct OfflineCourseDownloadsSection: View {
                 }
             } header: {
                 Text("离线球场")
+            } footer: {
+                if let storedUsage {
+                    Text(storedUsage.summaryText)
+                        .monospacedDigit()
+                        .accessibilityIdentifier("settings-offline-storage-usage")
+                }
             }
         }
     }
