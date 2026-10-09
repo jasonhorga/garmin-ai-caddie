@@ -1,21 +1,22 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 09:49 UTC
-**Canonical branch:** `main` (pushed **c06fb903e5d52e8e1e03855147b947c92438cd27**)
-**Latest integrated code:** `c06fb903e5d52e8e1e03855147b947c92438cd27` (#398 merge; #397 product `91859eb8`)
+**Updated:** 2026-10-09 09:25 UTC
+**Canonical branch:** `main` (pushed **c7b66ad8**)
+**Latest integrated code:** `91859eb8d938af6fca6948d4ae3f93bf2f35c1bb` (#397)
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and feedback deduplication
 
-Claude restored and implementing. **#398 merged 09:44:44 UTC** after exact-head
-review. Final head `ffe1f90c9792a2008e6997a9019484d63b1eedb4`, merge
-`c06fb903e5d52e8e1e03855147b947c92438cd27`, branch deleted (404). Purpose was
-whole-course download progress only in settings, consistent with approved design.
-Author **6077872405** fixed both P2s from own **6077762890**. Final review comment
-**6078427324** PASS:
+Claude restored and implementing. Ready **#398**, exact head
+`ffe1f90c9792a2008e6997a9019484d63b1eedb4`, base **4bfe2c97**, branch
+`claude/whole-course-download-progress-20261009`: whole-course download progress
+only in settings, consistent with approved design. Author **6077872405**
+(09:06:07 UTC) fixes both P2s from own **6077762890**. Static review completed:
 - Retained progress identity now round/loopKey/tee; package identity change
   immediately recomputes from disk or clears. Settings rejects stale identity.
 - Live progress counts successfully persisted same-identity facts plus matching
@@ -24,12 +25,12 @@ Author **6077872405** fixed both P2s from own **6077762890**. Final review comme
 - Held-network add/drop-nine, denied-package-write with all PNGs present, and
   row rejection on loop/tee changes read fully. Independent exact-ffe contracts
   **123 / 5.674 s / OK**, owned snapshot/container closed.
-CI **37909110114** and Native **37909110130** succeeded. Exact-ffe contracts
-**123 / 5.674 s / OK**. Native merge evidence `4bff8cd7` parents were latest
-main `c7b66ad8` plus exact head; **706 iOS / 448 Watch** passed. Artifact had
-141 PNGs: 140 baseline hashes identical plus expected settings-only image,
-visually checked. Heads/comments/runs and final PASS are deduplicated in
-`handled_pr398_events`; initial/a9 runtime and current fixed-head resources are closed.
+CI **37909110114** success consumed; required Native **37909110130** pending
+terminal/artifact verification. No fixed-head acceptance yet. Older-head
+contracts **123 / 5.884 s / OK** do not approve this fix; initial/a9 runtime
+closed and both CI/Native terminal results handled without artifact approval.
+Heads **aa18d0d2/a9fd08d0** and own6077762890 deduplicated in
+`handled_pr398_events`; update with ffe author/head/CI alongside this real review.
 
 #397 merged **08:19:46 UTC**, **91859eb8**; reviewed exact **58928fac**,
 PASS **6077199917**, branch deletion verified; merged non-doc source matches.
@@ -45,9 +46,9 @@ Own comments/merges/docs CI never reset the owner's 48-hour quiet condition.
 
 ## Unfinished queue
 
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: monitor new actionable PR events and
-  comments through the owner deadline. #398 is merged and closed; do not replay.
-  New ready PRs remain actionable.
+- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: verify #398 fixed-head contracts,
+  required Native/provenance and new settings image; inspect changed originals;
+  then exact-head conclusion/merge if clear. New ready PRs remain actionable.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: unchanged fixture 八号铁164
   label variation; nonblocking, no product regression claimed.
 - `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark navigation/status text.
@@ -114,8 +115,8 @@ Independent exact-ffe contracts/runtime closure complete; use sole blocking
 waiter for Native37909110130, then download/prove/inspect
 final-head artifacts before acceptance. Post findings or PASS, SHA-guard merge
 and branch deletion only if clear. Persist this real review with dated history.
-Absolute stop **2026-10-09 23:59 UTC**; no owned runtime remains to close.
-Earlier stop requires 48 hours without external PR events and no open PRs;
+Absolute stop **2026-10-09 23:59 UTC**; close/hand back owned runtime then.
+Earlier stop requires48 hours without external PR events and no open PRs;
 quiet condition not met. Same-turn waiting method through owner deadline.
 Ledger≤200 lines, archives preserve history, no CI-result-only commits.
 After compaction read ledger, inspect Git/agent state, resume this slice.
