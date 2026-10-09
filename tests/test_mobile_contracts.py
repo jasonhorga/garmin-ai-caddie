@@ -5570,7 +5570,12 @@ class MobileContractTests(unittest.TestCase):
         schedule = app.split("private func scheduleOfflineStorageMaintenance() {", 1)[1].split("\n    }\n", 1)[0]
         self.assertIn("Task.detached(priority: .background)", schedule)
         self.assertIn("prepCourseDownloadTask == nil", schedule)
-        # Every "use" moment records the course + Tee.
+        # A download announces itself before its "already on disk?" checks, so the sweep never removes
+        # a bitmap it is about to reuse.
+        assets = app.split("private func downloadOfflineCourseAssets(", 1)[1]
+        self.assertLess(assets.index("TopoWriterActivity.shared.begin()"), assets.index("loadCourseTopoImageURL("))
+        self.assertIn("defer { TopoWriterActivity.shared.end() }", assets.split("loadCourseTopoImageURL(", 1)[0])
+                # Every "use" moment records the course + Tee.
         self.assertEqual(app.count("offlineStore.recordCourseUse("), 4)
         # The reference scan covers every account and the legacy root.
         self.assertIn('appendingPathComponent("accounts", isDirectory: true)', maintenance)

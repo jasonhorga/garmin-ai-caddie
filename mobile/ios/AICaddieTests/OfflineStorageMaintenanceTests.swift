@@ -76,8 +76,8 @@ final class OfflineStorageMaintenanceTests: XCTestCase {
         FileManager.default.fileExists(atPath: topoDirectory.appendingPathComponent(name).path)
     }
 
-    private func collect() -> OfflineStorageGarbageReport {
-        OfflineStorageMaintenance.collectGarbage(root: root, currentStyleVersion: style, now: now)
+    private func collect(activity: TopoWriterActivity = TopoWriterActivity()) -> OfflineStorageGarbageReport {
+        OfflineStorageMaintenance.collectGarbage(root: root, currentStyleVersion: style, now: now, activity: activity)
     }
 
     // MARK: Style directories
@@ -193,8 +193,55 @@ final class OfflineStorageMaintenanceTests: XCTestCase {
         try JSONEncoder().encode([downloading])
             .write(to: account("b").appendingPathComponent("prep_course_downloads.json"))
 
-        XCTAssertTrue(collect().removedTopoFiles.isEmpty)
+        let report = collect()
+        XCTAssertNil(report.revisionSweepSkippedReason, "the row decoded and pinned, rather than aborting the scan")
+        XCTAssertTrue(report.removedTopoFiles.isEmpty)
         XCTAssertTrue(exists("100-1-older.png"))
+    }
+
+    /// A download may reuse an old bitmap that is on disk but not yet named by any template.
+    func testNoSupersededBitmapIsRemovedWhileADownloadRuns() throws {
+        try writePackage("course_templates/v2--100--blue--whole.json", in: account("a"), holes: [(1, 100, 1, "new")])
+        try writeTopo("100-1-new.png")
+        try writeTopo("100-1-old.png")
+        let activity = TopoWriterActivity()
+        activity.begin()
+
+        let report = collect(activity: activity)
+
+        XCTAssertEqual(report.revisionSweepSkippedReason, "download active")
+        XCTAssertTrue(exists("100-1-old.png"))
+        activity.end()
+        XCTAssertEqual(collect(activity: activity).removedTopoFiles, ["100-1-old.png"])
+    }
+
+    func testADownloadStartingAfterTheScanStopsFurtherDeletes() throws {
+        let activity = TopoWriterActivity()
+        let token = try XCTUnwrap(activity.quietToken())
+        activity.begin()
+        activity.end()
+        var ran = false
+        XCTAssertFalse(activity.ifQuiet(since: token) { ran = true })
+        XCTAssertFalse(ran, "a download that began (even one that already ended) invalidates the scan")
+        let fresh = activity.quietToken()
+        XCTAssertNotNil(fresh)
+        XCTAssertTrue(activity.ifQuiet(since: fresh ?? 0) { ran = true })
+        XCTAssertTrue(ran)
+    }
+
+    func testUnlistableDirectorySkipsTheRevisionSweep() throws {
+        try writePackage("course_templates/v2--100--blue--whole.json", in: account("a"), holes: [(1, 100, 1, "new")])
+        try writePackage("packages/round.json", in: account("b"), holes: [(1, 100, 1, "old")])
+        let packages = account("b").appendingPathComponent("packages", isDirectory: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: packages.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: packages.path) }
+        try writeTopo("100-1-new.png")
+        try writeTopo("100-1-old.png")
+
+        let report = collect()
+
+        XCTAssertNotNil(report.revisionSweepSkippedReason, "an unlistable directory is not an empty one")
+        XCTAssertTrue(exists("100-1-old.png"))
     }
 
     func testUnreadablePackageSkipsTheRevisionSweepButNotOldStyles() throws {

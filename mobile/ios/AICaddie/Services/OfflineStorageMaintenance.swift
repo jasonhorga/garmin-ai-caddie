@@ -62,6 +62,50 @@ public struct OfflineStorageScope: Equatable, Sendable {
     }
 }
 
+/// Course downloads announce themselves here before they look at which bitmaps are already on
+/// disk. A download reuses an existing bitmap without rewriting it, so its file can be old and,
+/// until the download writes its template, unreferenced. Garbage collection deletes a superseded
+/// bitmap only while no download is running or has started since its reference scan, and does
+/// each check-and-delete under this lock, so a `begin()` either precedes the delete (which is then
+/// skipped) or follows it (and the download then finds the file missing and fetches it).
+public final class TopoWriterActivity: @unchecked Sendable {
+    public static let shared = TopoWriterActivity()
+    private let lock = NSLock()
+    private var active = 0
+    private var generation: UInt64 = 0
+
+    public init() {}
+
+    public func begin() {
+        lock.lock()
+        active += 1
+        generation &+= 1
+        lock.unlock()
+    }
+
+    public func end() {
+        lock.lock()
+        active = max(0, active - 1)
+        lock.unlock()
+    }
+
+    /// Nil while a download runs; otherwise a token that a later `begin()` invalidates.
+    func quietToken() -> UInt64? {
+        lock.lock()
+        defer { lock.unlock() }
+        return active == 0 ? generation : nil
+    }
+
+    /// Runs `body` only if no download has begun since `token` was taken.
+    func ifQuiet(since token: UInt64, _ body: () -> Void) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard active == 0, generation == token else { return false }
+        body()
+        return true
+    }
+}
+
 /// Account-scoped "last used" record per physical course and Tee (`course_usage_v1.json`). Eviction
 /// (a later change) reads it; nothing here deletes by age. Writes merge, keeping the later time.
 enum CourseUsageLog {
@@ -210,7 +254,8 @@ enum OfflineStorageMaintenance {
         root: URL,
         currentStyleVersion: String,
         now: Date,
-        minimumAge: TimeInterval = minimumTopoAge
+        minimumAge: TimeInterval = minimumTopoAge,
+        activity: TopoWriterActivity = .shared
     ) -> OfflineStorageGarbageReport {
         var report = OfflineStorageGarbageReport()
         let manager = FileManager.default
@@ -244,6 +289,10 @@ enum OfflineStorageMaintenance {
         }
 
         let currentDirectory = topoRoot.appendingPathComponent(currentStyleVersion, isDirectory: true)
+        guard let quietToken = activity.quietToken() else {
+            report.revisionSweepSkippedReason = "download active"
+            return report
+        }
         let references: TopoReferences
         do {
             references = try referencedTopo(root: root)
@@ -270,7 +319,13 @@ enum OfflineStorageMaintenance {
                 guard values?.isRegularFile == true,
                       let modified = values?.contentModificationDate,
                       now.timeIntervalSince(modified) >= minimumAge else { continue }
-                remove(sibling.url, from: &report)
+                let quiet = activity.ifQuiet(since: quietToken) {
+                    remove(sibling.url, from: &report)
+                }
+                guard quiet else {
+                    report.revisionSweepSkippedReason = "download started"
+                    return report
+                }
             }
         }
         return report
@@ -322,14 +377,11 @@ enum OfflineStorageMaintenance {
     static func referencedTopo(root: URL) throws -> TopoReferences {
         var scopes = [root]
         let accounts = root.appendingPathComponent("accounts", isDirectory: true)
-        if let names = try? FileManager.default.contentsOfDirectory(
-            at: accounts,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) {
-            scopes += names.filter {
-                (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-            }
+        scopes += try listing(of: accounts).filter { url in
+            // `fileExists` follows a symlinked account directory; `isDirectoryKey` would not.
+            var isDirectory = ObjCBool(false)
+            return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                && isDirectory.boolValue
         }
         var references = TopoReferences()
         let decoder = JSONDecoder()
@@ -340,13 +392,7 @@ enum OfflineStorageMaintenance {
             ]
             for directory in ["course_templates", "packages"] {
                 let url = scope.appendingPathComponent(directory, isDirectory: true)
-                if let names = try? FileManager.default.contentsOfDirectory(
-                    at: url,
-                    includingPropertiesForKeys: nil,
-                    options: [.skipsHiddenFiles]
-                ) {
-                    packageFiles += names.filter { $0.pathExtension.lowercased() == "json" }
-                }
+                packageFiles += try listing(of: url).filter { $0.pathExtension.lowercased() == "json" }
             }
             for url in packageFiles where FileManager.default.fileExists(atPath: url.path) {
                 let data: Data
@@ -375,6 +421,21 @@ enum OfflineStorageMaintenance {
             }
         }
         return references
+    }
+
+    /// A missing directory has no references; one that exists but cannot be listed aborts the scan
+    /// like an unreadable file, rather than counting as empty.
+    private static func listing(of directory: URL) throws -> [URL] {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+        do {
+            return try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            throw ReferenceScanError.unreadable(directory.lastPathComponent)
+        }
     }
 
     private struct PrepDownloadRow: Decodable {

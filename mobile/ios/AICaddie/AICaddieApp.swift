@@ -2055,6 +2055,10 @@ public final class LiveRoundAppModel: ObservableObject {
             return false
         }
         #endif
+        // Before any "already on disk?" check: storage maintenance must not remove a bitmap this
+        // download is about to reuse (`TopoWriterActivity`).
+        TopoWriterActivity.shared.begin()
+        defer { TopoWriterActivity.shared.end() }
         var snapshot = initialSnapshot
         if revalidatePackage,
            let current = await revalidatedCourseSnapshot(initialSnapshot, using: syncClient) {
@@ -3382,7 +3386,6 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// Auto-sync hook for app foreground (scenePhase .active): flush anything still pending.
     /// Cold start only, at most once a day (`OfflineStorageScope` keeps the marker), at background
     /// priority. Skipped while a download is already writing bitmaps.
     private func scheduleOfflineStorageMaintenance() {
@@ -3408,6 +3411,7 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineStorageUsage = usage
     }
 
+    /// Auto-sync hook for app foreground (scenePhase .active): flush anything still pending.
     public func syncOnForeground() {
         endPrepBackgroundTask()
         refreshResultsCacheIfNeeded()
