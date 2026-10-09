@@ -233,6 +233,30 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertEqual(model.nextPrepCourseDownloadJobIDForTesting, guess.id, "room for exactly this one; its own share is not deducted twice")
     }
 
+    /// A download that finishes while the walk runs: the published measurement is already stale and
+    /// that download's own request found the walk in flight. One retry measures again; it does not
+    /// loop when the measurement can never be fresh (a clock moved backwards).
+    func testAMeasurementOvertakenByADownloadIsRetriedOnce() async throws {
+        let guess = PrepCourseDownloadRecord(course: course(1, rounds: 3), teeBox: "blue", updatedAt: now, isSpeculative: true)
+        let model = try model(rows: [guess])
+        model.setNetworkStateForTesting(wifi)
+        // Stamped after any measurement this test can take: every walk comes back stale.
+        model.noteOfflineStorageGrewForTesting(at: Date().addingTimeInterval(3600))
+        let before = model.offlineStorageMeasurementCountForTesting
+
+        await model.remeasureOfflineStorageForTesting()
+
+        XCTAssertEqual(model.offlineStorageMeasurementCountForTesting - before, 2, "the walk and exactly one retry")
+        XCTAssertNil(model.nextPrepCourseDownloadJobIDForTesting)
+
+        // The write is in the past now: the next walk is fresh and the guess may start, with no retry.
+        model.noteOfflineStorageGrewForTesting(at: Date().addingTimeInterval(-60))
+        let fresh = model.offlineStorageMeasurementCountForTesting
+        await model.remeasureOfflineStorageForTesting()
+        XCTAssertEqual(model.offlineStorageMeasurementCountForTesting - fresh, 1)
+        XCTAssertEqual(model.nextPrepCourseDownloadJobIDForTesting, guess.id)
+    }
+
     func testAQueuedGuessWaitsWhileARoundIsBeingPrepared() throws {
         let asked = PrepCourseDownloadRecord(course: course(1, rounds: 0), teeBox: "blue", updatedAt: now.addingTimeInterval(-60))
         let guess = PrepCourseDownloadRecord(course: course(2, rounds: 3), teeBox: "blue", updatedAt: now, isSpeculative: true)
