@@ -35,14 +35,18 @@ Pure rendering — no network, no AI. PIL + numpy only (no scipy / cv2).
 """
 from __future__ import annotations
 
+import atexit
 import gc
 import hashlib
 import io
 import math
+import multiprocessing
 import os
 import random
 import sys
 import threading
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from uuid import uuid4
 
@@ -889,6 +893,92 @@ def green_detail_cache_path(
     )
 
 
+# A cold render is CPU-bound Python/NumPy/PIL work that holds the GIL for most of its ~2.4 s.
+# Rendered on API threads, two renders take as long as two in a row, and they also stall every
+# other request in the process — an install job's topo lane and the per-hole /prep builds of the
+# same course serialised into ~70 s for 18 holes (measured 2026-10-09: 9 topo + 9 prep took 34.7 s
+# on threads, 14.4 s with the renders in two worker processes). Cold renders therefore run in a
+# small process pool; the parent keeps the single-flight, the cold-render slot and the cache write.
+_RENDER_PROCESSES_ENV = "AI_CADDIE_TOPO_RENDER_PROCESSES"
+# Off by default (tests patch geometry paths in-process, which a worker cannot see); the API's
+# entrypoint `ops/start_api.sh` turns it on for the deployed server.
+_DEFAULT_RENDER_PROCESSES = 0
+# Recycle a worker after this many renders so allocator growth in a long-lived child is returned.
+_RENDER_TASKS_PER_PROCESS = 64
+_render_pool: ProcessPoolExecutor | None = None
+_render_pool_lock = threading.Lock()
+
+
+def _render_process_count() -> int:
+    """Worker processes for cold renders; 0 renders in-process (the pre-2026-10 behaviour)."""
+    raw = os.environ.get(_RENDER_PROCESSES_ENV, "").strip()
+    try:
+        count = int(raw) if raw else _DEFAULT_RENDER_PROCESSES
+    except ValueError:
+        count = _DEFAULT_RENDER_PROCESSES
+    return max(0, min(count, 4))
+
+
+def _get_render_pool(processes: int) -> ProcessPoolExecutor:
+    global _render_pool
+    with _render_pool_lock:
+        if _render_pool is None:
+            # forkserver: never fork the multi-threaded API process itself.
+            method = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
+            _render_pool = ProcessPoolExecutor(
+                max_workers=processes,
+                mp_context=multiprocessing.get_context(method),
+                max_tasks_per_child=_RENDER_TASKS_PER_PROCESS,
+            )
+        return _render_pool
+
+
+def _discard_render_pool(pool: ProcessPoolExecutor) -> None:
+    global _render_pool
+    with _render_pool_lock:
+        if _render_pool is pool:
+            _render_pool = None
+    pool.shutdown(wait=False, cancel_futures=True)
+
+
+@atexit.register
+def _shutdown_render_pool() -> None:
+    pool = _render_pool
+    if pool is not None:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _render_in_worker(gid: int, hole: int) -> bytes:
+    """Worker-process entry point: one cold render, then hand the arenas back to the OS."""
+    try:
+        return render_hole_topo(gid, hole)
+    finally:
+        _release_cold_render_working_set()
+
+
+def _render_in_process(gid: int, hole: int) -> bytes:
+    try:
+        return render_hole_topo(gid, hole)
+    finally:
+        _release_cold_render_working_set()
+
+
+def _render_cold(gid: int, hole: int) -> bytes:
+    """One cold render, in a worker process when enabled. A replaced ``render_hole_topo`` (a
+    test double) cannot cross a process boundary, so it is always called in-process. A pool that
+    broke (a worker was killed) is discarded and this render falls back to the API process; the
+    next cold render starts a fresh pool."""
+    processes = _render_process_count()
+    if processes == 0 or render_hole_topo is not _RENDER_HOLE_TOPO:
+        return _render_in_process(gid, hole)
+    pool = _get_render_pool(processes)
+    try:
+        return pool.submit(_render_in_worker, gid, hole).result()
+    except BrokenProcessPool:
+        _discard_render_pool(pool)
+        return _render_in_process(gid, hole)
+
+
 _cache_lock = threading.Lock()
 _cache_inflight: dict[Path, threading.Event] = {}
 # A cold supersampled render owns several large NumPy rasters at once.  Different holes used to
@@ -1011,10 +1101,7 @@ def render_hole_topo_cached(gid: int, hole: int) -> bytes:
 
     try:
         with _cold_render_slot:
-            try:
-                png = render_hole_topo(gid, hole)  # raises before any cache write
-            finally:
-                _release_cold_render_working_set()
+            png = _render_cold(gid, hole)  # raises before any cache write
         try:
             _write_cached_topo(path, png)  # atomic: concurrent readers never see a half-written file
         except OSError:
@@ -1080,3 +1167,7 @@ def render_hole_green_detail_cached(
         with _green_cache_lock:
             _green_cache_inflight.pop(path, None)
             waiter.set()
+
+
+# The real renderer, for `_render_cold` to tell it from a test double.
+_RENDER_HOLE_TOPO = render_hole_topo

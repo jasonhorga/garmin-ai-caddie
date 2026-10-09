@@ -132,4 +132,8 @@ if command -v flock >/dev/null 2>&1; then
   exec 9>&-
 fi
 
+# Cold topo renders run in two worker processes (ai_caddie/geometry/topo_render.py) so they use
+# more than one core and stop blocking the API's other requests. 0 renders in the API process.
+export AI_CADDIE_TOPO_RENDER_PROCESSES="${AI_CADDIE_TOPO_RENDER_PROCESSES:-2}"
+
 exec uv run --frozen uvicorn server_v2.main:app --host 0.0.0.0 --port "${PORT:-9000}"
