@@ -1749,6 +1749,10 @@ public final class LiveRoundAppModel: ObservableObject {
 
     var speculativeCourseRoomForTesting: Int? { speculativeCourseRoom }
 
+    func publishOfflineStorageUsageForTesting(_ usage: OfflineStorageUsage) {
+        publishOfflineStorageUsage(usage, for: offlineStore.storageScope, measuredAt: Date())
+    }
+
     func noteOfflineStorageGrewForTesting() {
         offlineStorageGrewAt = Date()
     }
@@ -3534,6 +3538,10 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineStorageUsage = usage
         offlineStorageMeasuredAt = measuredAt
         scheduleSpeculativePrepCourseDownloads()
+        // A queued guess may have been waiting for exactly this measurement.
+        if prepCourseDownloads.contains(where: { $0.isSpeculative && $0.phase == .queued }) {
+            startPrepCourseDownloadQueueIfNeeded()
+        }
     }
 
     /// Auto-sync hook for app foreground (scenePhase .active): flush anything still pending.
@@ -4683,6 +4691,11 @@ public final class LiveRoundAppModel: ObservableObject {
         prepCourseDownloadGeneration = nil
         prepCourseDownloadTask = nil
         endPrepBackgroundTask()
+        // Guesses left queued behind a stale measurement start once storage is measured again.
+        if speculativeJobsMayRun, measuredSpeculativeCourseRoom == nil,
+           prepCourseDownloads.contains(where: { $0.isSpeculative && $0.phase == .queued }) {
+            remeasureOfflineStorage()
+        }
     }
 
     /// The next queued job the worker may take. While a fresh entry is pending only jobs the player
@@ -4694,7 +4707,7 @@ public final class LiveRoundAppModel: ObservableObject {
             .filter { $0.phase == .queued }
             .filter { !freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id) }
             .filter { foregroundCourseRequestCount == 0 || !$0.yieldsToForeground }
-            .filter { !$0.isSpeculative || speculativeJobsMayRun }
+            .filter { !$0.isSpeculative || speculativeJobMayStart }
             // Every job the player or a round asked for goes before a speculative one.
             .sorted(by: { lhs, rhs in
                 if lhs.isSpeculative != rhs.isSpeculative { return rhs.isSpeculative }
@@ -4715,14 +4728,24 @@ public final class LiveRoundAppModel: ObservableObject {
         speculativeDownloadsAllowed && liveRoundState == nil && roundPreparationToken == nil
     }
 
-    /// Whole courses that still fit under the cap, or nil until storage is measured after the last
-    /// download wrote files. Queued guesses count at a whole course each; an installed one is in the
-    /// measurement, so the same room is never spent twice.
-    private var speculativeCourseRoom: Int? {
+    /// Whole courses that fit under the cap by a measurement newer than the last download's writes;
+    /// nil when there is none (unmeasured, or a download wrote since).
+    private var measuredSpeculativeCourseRoom: Int? {
         guard let usage = offlineStorageUsage, let measuredAt = offlineStorageMeasuredAt,
               offlineStorageGrewAt.map({ $0 < measuredAt }) ?? true else { return nil }
         return SpeculativePrefetch.courseRoom(usedBytes: usage.totalBytes)
-            - prepCourseDownloads.filter(\.isSpeculative).count
+    }
+
+    /// How many more guesses may be queued: queued guesses already hold a whole course each.
+    private var speculativeCourseRoom: Int? {
+        measuredSpeculativeCourseRoom.map { $0 - prepCourseDownloads.filter(\.isSpeculative).count }
+    }
+
+    /// Whether a queued guess may start now: on top of `speculativeJobsMayRun`, a fresh measurement
+    /// must leave room for this one course. Only one job runs at a time and every finished download
+    /// makes the measurement stale, so each start is checked against what is really on disk.
+    private var speculativeJobMayStart: Bool {
+        speculativeJobsMayRun && (measuredSpeculativeCourseRoom ?? 0) >= 1
     }
 
     private func remeasureOfflineStorage() {

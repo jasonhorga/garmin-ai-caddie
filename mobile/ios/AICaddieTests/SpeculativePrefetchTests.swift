@@ -150,11 +150,13 @@ final class SpeculativePrefetchTests: XCTestCase {
     }
 
     private let wifi = SpeculativeNetworkState(isSatisfied: true, isExpensive: false, isConstrained: false)
+    private let empty = OfflineStorageUsage(topoBytes: 0, templateBytes: 0)
     private let cellular = SpeculativeNetworkState(isSatisfied: true, isExpensive: true, isConstrained: false)
 
     func testASpeculativeJobWaitsForWiFiUnlessCellularIsAllowed() throws {
         let guess = PrepCourseDownloadRecord(course: course(1, rounds: 3), teeBox: "blue", updatedAt: now, isSpeculative: true)
         let model = try model(rows: [guess])
+        model.publishOfflineStorageUsageForTesting(empty)
         XCTAssertNil(model.nextPrepCourseDownloadJobIDForTesting, "nothing runs before the first path update")
 
         model.setNetworkStateForTesting(cellular)
@@ -173,6 +175,7 @@ final class SpeculativePrefetchTests: XCTestCase {
         let asked = PrepCourseDownloadRecord(course: course(1, rounds: 0), teeBox: "blue", updatedAt: now.addingTimeInterval(-3600))
         let guess = PrepCourseDownloadRecord(course: course(2, rounds: 3), teeBox: "blue", updatedAt: now, isSpeculative: true)
         let model = try model(rows: [guess, asked])
+        model.publishOfflineStorageUsageForTesting(empty)
         model.setNetworkStateForTesting(wifi)
 
         XCTAssertEqual(model.nextPrepCourseDownloadJobIDForTesting, asked.id)
@@ -201,10 +204,40 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertNotNil(model.speculativeCourseRoomForTesting, "a fresh measurement gives room again")
     }
 
+    /// The dequeue itself, not just queueing: a guess already in the list starts only on a fresh
+    /// measurement with room for one more course.
+    func testAQueuedGuessStartsOnlyOnAFreshMeasurementWithRoom() async throws {
+        let guess = PrepCourseDownloadRecord(course: course(1, rounds: 3), teeBox: "blue", updatedAt: now, isSpeculative: true)
+        let model = try model(rows: [guess])
+        model.setNetworkStateForTesting(wifi)
+        XCTAssertNil(model.nextPrepCourseDownloadJobIDForTesting, "a guess left from the last launch waits for a measurement")
+
+        model.publishOfflineStorageUsageForTesting(empty)
+        XCTAssertEqual(model.nextPrepCourseDownloadJobIDForTesting, guess.id)
+
+        // Another download (the player's own) wrote files after that measurement.
+        try await Task.sleep(nanoseconds: 2_000_000)
+        model.noteOfflineStorageGrewForTesting()
+        XCTAssertNil(model.nextPrepCourseDownloadJobIDForTesting, "an old measurement does not let it start")
+
+        try await Task.sleep(nanoseconds: 2_000_000)
+        let courseBytes = SpeculativePrefetch.estimatedCourseBytes
+        model.publishOfflineStorageUsageForTesting(
+            OfflineStorageUsage(topoBytes: OfflineStorageEviction.capBytes - courseBytes + 1, templateBytes: 0)
+        )
+        XCTAssertNil(model.nextPrepCourseDownloadJobIDForTesting, "measured at the cap: no room for a whole course")
+
+        model.publishOfflineStorageUsageForTesting(
+            OfflineStorageUsage(topoBytes: OfflineStorageEviction.capBytes - courseBytes, templateBytes: 0)
+        )
+        XCTAssertEqual(model.nextPrepCourseDownloadJobIDForTesting, guess.id, "room for exactly this one; its own share is not deducted twice")
+    }
+
     func testAQueuedGuessWaitsWhileARoundIsBeingPrepared() throws {
         let asked = PrepCourseDownloadRecord(course: course(1, rounds: 0), teeBox: "blue", updatedAt: now.addingTimeInterval(-60))
         let guess = PrepCourseDownloadRecord(course: course(2, rounds: 3), teeBox: "blue", updatedAt: now, isSpeculative: true)
         let model = try model(rows: [guess])
+        model.publishOfflineStorageUsageForTesting(empty)
         model.setNetworkStateForTesting(wifi)
         XCTAssertEqual(model.nextPrepCourseDownloadJobIDForTesting, guess.id)
 

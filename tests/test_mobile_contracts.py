@@ -5638,11 +5638,13 @@ class MobileContractTests(unittest.TestCase):
                       "isSatisfied && !isConstrained && (cellularAllowed || !isExpensive)"):
             self.assertIn(token, policy)
         picker_job = app.split("private func nextPrepCourseDownloadJob()", 1)[1].split("\n    }\n", 1)[0]
-        self.assertIn("!$0.isSpeculative || speculativeJobsMayRun", picker_job)
+        self.assertIn("!$0.isSpeculative || speculativeJobMayStart", picker_job)
+        may_start = app.split("private var speculativeJobMayStart: Bool {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("speculativeJobsMayRun && (measuredSpeculativeCourseRoom ?? 0) >= 1", may_start)
         may_run = app.split("private var speculativeJobsMayRun: Bool {", 1)[1].split("\n    }\n", 1)[0]
         self.assertIn("speculativeDownloadsAllowed && liveRoundState == nil && roundPreparationToken == nil", may_run)
         # Room only from a measurement newer than the last download's writes, never spent twice.
-        room = app.split("private var speculativeCourseRoom: Int? {", 1)[1].split("\n    }\n", 1)[0]
+        room = app.split("private var measuredSpeculativeCourseRoom: Int? {", 1)[1].split("\n    }\n", 1)[0]
         self.assertIn("offlineStorageGrewAt.map({ $0 < measuredAt }) ?? true", room)
         self.assertIn("SpeculativePrefetch.courseRoom(usedBytes: usage.totalBytes)", room)
         assets = app.split("private func downloadOfflineCourseAssets(", 1)[1].split("#if DEBUG", 1)[0]
