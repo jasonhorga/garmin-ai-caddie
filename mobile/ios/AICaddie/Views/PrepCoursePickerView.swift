@@ -237,8 +237,10 @@ public struct PrepCoursePickerView: View {
         downloadedCourseKeys
     }
 
+    /// Speculative (可能会打) rows were not asked for here; once installed the course is listed
+    /// through `downloadedCourseKeys` like any other.
     private var downloads: [PrepCourseDownloadRecord] {
-        downloadPresentation.downloads
+        downloadPresentation.downloads.filter { !$0.isSpeculative }
     }
 
     private func resolvedOption(for match: MobileCourseSearchMatch) -> MobileCourseOption? {

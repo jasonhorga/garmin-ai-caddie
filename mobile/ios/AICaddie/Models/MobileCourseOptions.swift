@@ -578,6 +578,10 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     /// home's 在这个球场 card), not by a 备战 action. A newer intent supersedes an unfinished one,
     /// and an intent job yields to a round start. False for persisted rows from older builds.
     public var isIntentPrefetch: Bool
+    /// Queued by the app because the player will likely play this course some day ("可能会打":
+    /// played before, ranked by rounds), not for a round now. Wi-Fi only by default, lowest priority,
+    /// hidden from 备战, and dropped once it ends. False for persisted rows from older builds.
+    public var isSpeculative: Bool
 
     public init(
         course: MobileCourseOption,
@@ -589,7 +593,8 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         updatedAt: Date = Date(),
         errorText: String? = nil,
         requiredGeometryRevisions: [String: String]? = nil,
-        isIntentPrefetch: Bool = false
+        isIntentPrefetch: Bool = false,
+        isSpeculative: Bool = false
     ) {
         let rawTee = (teeBox ?? course.teeBox ?? "blue")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -607,7 +612,11 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
             ? requiredGeometryRevisions
             : nil
         self.isIntentPrefetch = isIntentPrefetch
+        self.isSpeculative = isSpeculative
     }
+
+    /// Jobs the app queued on its own give way to a round start and to course search / nearby.
+    public var yieldsToForeground: Bool { isIntentPrefetch || isSpeculative }
 
     public static func key(globalId: Int, teeBox: String) -> String {
         let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -621,7 +630,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, course, teeBox, phase, preparedHoles, downloadedHoles, totalHoles, updatedAt
-        case errorText, requiredGeometryRevisions, isIntentPrefetch
+        case errorText, requiredGeometryRevisions, isIntentPrefetch, isSpeculative
     }
 
     /// The id is re-derived on decode, so a row persisted under the v1 `gid:tee:nine` key joins
@@ -642,6 +651,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
             forKey: .requiredGeometryRevisions
         )
         isIntentPrefetch = try container.decodeIfPresent(Bool.self, forKey: .isIntentPrefetch) ?? false
+        isSpeculative = try container.decodeIfPresent(Bool.self, forKey: .isSpeculative) ?? false
     }
 
     public var isActive: Bool {
