@@ -1691,7 +1691,8 @@ class MobileContractTests(unittest.TestCase):
         # one exception is an intent prefetch, which exists only to anticipate this start.
         self.assertEqual(begin_round_preparation.count("pausePrepCourseDownload()"), 1)
         intent_guard = begin_round_preparation.split("pausePrepCourseDownload()", 1)[0].rsplit("if let active", 1)[1]
-        self.assertIn("?.isIntentPrefetch == true {", intent_guard)
+        # `yieldsToForeground` = intent or speculative (可能会打) rows.
+        self.assertIn("?.yieldsToForeground == true {", intent_guard)
         # One home with or without a cached home package: 开始一场 lives in RoundHomeView, and the
         # legacy no-package list (打球 / 备战 / 成绩) that flashed on launch is gone.
         self.assertIn("package: model.package,", app_swift)
@@ -4580,14 +4581,16 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("isIntentPrefetch: true", intent)
         self.assertNotIn("userRequested:", intent)
         self.assertIn("pausePrepCourseDownload()", body(app_swift, "private func beginRoundPreparation() -> UUID {"))
-        self.assertIn("isIntentPrefetch == true", body(app_swift, "private func beginRoundPreparation() -> UUID {"))
+        self.assertIn("yieldsToForeground == true", body(app_swift, "private func beginRoundPreparation() -> UUID {"))
+        model_source = _read_required_source(self, IOS_DIR / "Models" / "MobileCourseOptions.swift")
+        self.assertIn("public var yieldsToForeground: Bool { isIntentPrefetch || isSpeculative }", model_source)
 
         self.assertIn("activeHole: liveRoundState?.roundId == snapshot.roundId", app_swift)
         self.assertIn("for globalId in attemptGlobalIds {", app_swift)
 
         # Live Native 37729778000: an intent never overlaps a foreground Tee/nearby/search request.
         next_job = body(app_swift, "private func nextPrepCourseDownloadJob() -> PrepCourseDownloadRecord? {")
-        self.assertIn("foregroundCourseRequestCount == 0 || !$0.isIntentPrefetch", next_job)
+        self.assertIn("foregroundCourseRequestCount == 0 || !$0.yieldsToForeground", next_job)
         for signature in (
             "public func loadCourseTees(globalId: Int) async -> [CourseTee] {",
             "public func nearbyCourses(",
@@ -5621,6 +5624,48 @@ class MobileContractTests(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             for marker in ("OfflineStorageEviction", "evictionPlan", "久未使用"):
                 self.assertNotIn(marker, source, f"{path.name} must not mention eviction ({marker})")
+
+
+    def test_speculative_course_downloads_wait_for_wifi_and_stay_off_prep_screens(self) -> None:
+        # 可能会打 (Jason 10-08): played courses download on their own, Wi-Fi only unless the settings
+        # toggle allows cellular, never in Low Data Mode, after every job someone asked for, hidden from
+        # 备战, and not counted as a use (so eviction can still remove them).
+        app = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        policy = _read_required_source(self, IOS_DIR / "Services" / "SpeculativePrefetch.swift")
+        picker = _read_required_source(self, IOS_DIR / "Views" / "PrepCoursePickerView.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        for token in ("NWPathMonitor()", "path.isExpensive", "path.isConstrained",
+                      "isSatisfied && !isConstrained && (cellularAllowed || !isExpensive)"):
+            self.assertIn(token, policy)
+        picker_job = app.split("private func nextPrepCourseDownloadJob()", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("!$0.isSpeculative || speculativeJobMayStart", picker_job)
+        may_start = app.split("private var speculativeJobMayStart: Bool {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("speculativeJobsMayRun && (measuredSpeculativeCourseRoom ?? 0) >= 1", may_start)
+        may_run = app.split("private var speculativeJobsMayRun: Bool {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("speculativeDownloadsAllowed && liveRoundState == nil && roundPreparationToken == nil", may_run)
+        # Room only from a measurement newer than the last download's writes, never spent twice.
+        room = app.split("private var measuredSpeculativeCourseRoom: Int? {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("offlineStorageGrewAt.map({ $0 < measuredAt }) ?? true", room)
+        self.assertIn("SpeculativePrefetch.courseRoom(usedBytes: usage.totalBytes)", room)
+        assets = app.split("private func downloadOfflineCourseAssets(", 1)[1].split("#if DEBUG", 1)[0]
+        self.assertIn("defer { offlineStorageGrewAt = Date() }", assets)
+        self.assertIn("if lhs.isSpeculative != rhs.isSpeculative { return rhs.isSpeculative }", picker_job)
+        schedule = app.split("private func scheduleSpeculativePrepCourseDownloads()", 1)[1].split("\n    }\n", 1)[0]
+        for token in ("speculativeJobsMayRun", "guard let room = speculativeCourseRoom else {",
+                      "remeasureOfflineStorage()", ".prefix(room)"):
+            self.assertIn(token, schedule)
+        self.assertIn("downloadPresentation.downloads.filter { !$0.isSpeculative }", picker)
+        settings = round_home.split("private var settingsSheet: some View {", 1)[1].split("\n// MARK:", 1)[0]
+        self.assertIn("SpeculativePrefetchSettingsSection(onChange: onSpeculativePrefetchSettingChanged)", settings)
+        self.assertIn("@AppStorage(SpeculativePrefetchSettings.cellularKey)", round_home)
+        # A finished guess is not a use; the use-recording count stays at the four real moments.
+        self.assertIn("isSpeculative != true {\n                    offlineStore.recordCourseUse(", app)
+        self.assertEqual(app.count("offlineStore.recordCourseUse("), 4)
+        # The live round's own whole-course template is never held back as a Wi-Fi-only guess.
+        enqueue = app.split("private func enqueueWholeCourseTemplates(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("prepCourseDownloads[index].isSpeculative = false", enqueue)
+        # Tests and UI journeys never see a live path monitor.
+        self.assertIn('environment["UITEST_MODE"] != "1", environment["XCTestConfigurationFilePath"] == nil', policy)
 
 
 class RoundEditContractTests(unittest.TestCase):

@@ -87,6 +87,7 @@ public struct RoundHomeView: View {
     public let onGarminSessionImportedOutcome: (() async -> GarminSyncOutcome)?
     public let onRefreshGarminSyncStatus: () async -> Void
     public let onRefreshOfflineStorageUsage: () async -> Void
+    public let onSpeculativePrefetchSettingChanged: () -> Void
     public let onGarminSessionForgot: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
@@ -174,6 +175,7 @@ public struct RoundHomeView: View {
         onGarminSessionImportedOutcome: (() async -> GarminSyncOutcome)? = nil,
         onRefreshGarminSyncStatus: @escaping () async -> Void = {},
         onRefreshOfflineStorageUsage: @escaping () async -> Void = {},
+        onSpeculativePrefetchSettingChanged: @escaping () -> Void = {},
         onGarminSessionForgot: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
@@ -240,6 +242,7 @@ public struct RoundHomeView: View {
         self.onGarminSessionImportedOutcome = onGarminSessionImportedOutcome
         self.onRefreshGarminSyncStatus = onRefreshGarminSyncStatus
         self.onRefreshOfflineStorageUsage = onRefreshOfflineStorageUsage
+        self.onSpeculativePrefetchSettingChanged = onSpeculativePrefetchSettingChanged
         self.onGarminSessionForgot = onGarminSessionForgot
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
@@ -993,8 +996,11 @@ public struct RoundHomeView: View {
                     current: liveRoundState.flatMap { state in
                         package.flatMap { $0.roundId == state.roundId ? LiveCourseDownloadProgress.Identity(package: $0) : nil }
                     },
-                    downloads: prepCourseDownloads
+                    // A guess shows only while it is actually downloading, never as a standing
+                    // "等待下载" the player did not ask for.
+                    downloads: prepCourseDownloads.filter { !$0.isSpeculative || $0.phase != .queued }
                 ), usage: offlineStorageUsage)
+                SpeculativePrefetchSettingsSection(onChange: onSpeculativePrefetchSettingChanged)
             }
             .task {
                 await onRefreshOfflineStorageUsage()
@@ -1079,6 +1085,22 @@ struct OfflineCourseDownloadsSection: View {
                 }
             }
         }
+    }
+}
+
+/// 设置: courses the player has played download on their own (可能会打), on Wi-Fi unless this is on.
+struct SpeculativePrefetchSettingsSection: View {
+    var onChange: () -> Void = {}
+    @AppStorage(SpeculativePrefetchSettings.cellularKey) private var cellularAllowed = false
+
+    var body: some View {
+        Section {
+            Toggle("用蜂窝网络预下载常打的球场", isOn: $cellularAllowed)
+                .accessibilityIdentifier("settings-prefetch-cellular")
+        } footer: {
+            Text("常打的球场默认只在 Wi-Fi 下自动下载；低数据模式下不下载。")
+        }
+        .onChange(of: cellularAllowed) { _, _ in onChange() }
     }
 }
 

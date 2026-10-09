@@ -147,6 +147,9 @@ public struct AICaddieApp: App {
                         onRefreshOfflineStorageUsage: {
                             await model.refreshOfflineStorageUsage()
                         },
+                        onSpeculativePrefetchSettingChanged: {
+                            model.speculativePrefetchSettingChanged()
+                        },
                         onGarminSessionForgot: {
                             model.didForgetGarminSession()
                         },
@@ -442,6 +445,16 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Courses picked on 开始一场 / 在这个球场 in this launch. Storage eviction keeps them even when
     /// their row is already ready, because picking a course does not count as a use.
     private var intendedGlobalIds = Set<Int>()
+    /// 可能会打: the network as `NWPathMonitor` last reported it (nil observer in tests).
+    private let networkPathObserver: NetworkPathObserving?
+    private var networkState = SpeculativeNetworkState.unknown
+    /// Speculative courses that failed in this launch are not queued again until the next one.
+    private var failedSpeculativeDownloadIDs = Set<String>()
+    /// When the published `offlineStorageUsage` walk started, and when a download last wrote course
+    /// files. Speculative room is only computed from a measurement newer than the last write.
+    private var offlineStorageMeasuredAt: Date?
+    private var offlineStorageGrewAt: Date?
+    private var offlineStorageRemeasureInFlight = false
     private var courseOptionsRefreshSucceeded = false
     /// The last catalogue this account accepted (from the network or, at launch, from disk).
     /// `courseOptions` publishes it whole until a refresh fails; after a failure only its downloaded
@@ -497,7 +510,8 @@ public final class LiveRoundAppModel: ObservableObject {
         preferredRoundId: String? = nil,
         syncClient: SyncClient? = nil,
         offlineGeometryRetryDelaysNanoseconds: [UInt64] = LiveRoundAppModel.defaultOfflineGeometryRetryDelaysNanoseconds,
-        freshEntryReleaseFallbackNanoseconds: UInt64 = 20_000_000_000
+        freshEntryReleaseFallbackNanoseconds: UInt64 = 20_000_000_000,
+        networkPathObserver: NetworkPathObserving? = NetworkPathObserver.live()
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
         let resolvedAdminToken = adminToken ?? Self.defaultAdminToken()
@@ -512,6 +526,7 @@ public final class LiveRoundAppModel: ObservableObject {
             : Self.configuredLiveRoundId()
         self.offlineGeometryRetryDelaysNanoseconds = offlineGeometryRetryDelaysNanoseconds
         self.freshEntryReleaseFallbackNanoseconds = freshEntryReleaseFallbackNanoseconds
+        self.networkPathObserver = networkPathObserver
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map {
             MediaUploadClient(baseURL: $0, adminToken: resolvedAdminToken)
@@ -674,6 +689,9 @@ public final class LiveRoundAppModel: ObservableObject {
             // age and reference guards keep it safe beside a download that starts mid-pass.
             scheduleOfflineStorageMaintenance()
             resumePrepCourseDownloads(retryFailed: true)
+            networkPathObserver?.start { [weak self] state in
+                self?.networkStateChanged(state)
+            }
             retryDeferredRoundFinishes()
             // A 球包 edit still in the outbox (the app was closed before its PUT landed) resumes here;
             // otherwise the cloud bag (another phone, a reinstall) is restored.
@@ -1200,9 +1218,10 @@ public final class LiveRoundAppModel: ObservableObject {
         clearFreshEntryRelease()
         // An intent prefetch yields to the start it anticipated: the package request must not queue
         // behind its batches. Whatever it already installed is reused (`carryingInstalledPrecisePrep`,
-        // revision-keyed topo), and the row resumes after the round's own assets.
+        // revision-keyed topo), and the row resumes after the round's own assets. A speculative
+        // (可能会打) job yields the same way.
         if let active = activePrepCourseDownloadID,
-           prepCourseDownloads.first(where: { $0.id == active })?.isIntentPrefetch == true {
+           prepCourseDownloads.first(where: { $0.id == active })?.yieldsToForeground == true {
             pausePrepCourseDownload()
         }
         isPreparingRound = true
@@ -1667,6 +1686,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 totalHoles: holes
             )
             if let index = prepCourseDownloads.firstIndex(where: { $0.id == candidate.id }) {
+                if prepCourseDownloads[index].isSpeculative {
+                    // The round needs it now: no longer a Wi-Fi-only guess held back during play.
+                    prepCourseDownloads[index].isSpeculative = false
+                    prepCourseDownloads[index].updatedAt = Date()
+                    changed = true
+                }
                 if prepCourseDownloads[index].phase == .failed,
                    !prepCourseDownloads[index].isTerminalFailure {
                     prepCourseDownloads[index].phase = .queued
@@ -1716,6 +1741,30 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Test-only cleanup for a validation test that deliberately queues a replacement download.
     /// Production callers use the foreground/background lifecycle methods instead.
+    func setNetworkStateForTesting(_ state: SpeculativeNetworkState) {
+        networkStateChanged(state)
+    }
+
+    var nextPrepCourseDownloadJobIDForTesting: String? { nextPrepCourseDownloadJob()?.id }
+
+    var speculativeCourseRoomForTesting: Int? { speculativeCourseRoom }
+
+    func publishOfflineStorageUsageForTesting(_ usage: OfflineStorageUsage) {
+        publishOfflineStorageUsage(usage, for: offlineStore.storageScope, measuredAt: Date())
+    }
+
+    func noteOfflineStorageGrewForTesting() {
+        offlineStorageGrewAt = Date()
+    }
+
+    func beginRoundPreparationForTesting() -> UUID {
+        beginRoundPreparation()
+    }
+
+    func finishRoundPreparationForTesting(_ token: UUID) {
+        finishRoundPreparation(token)
+    }
+
     func cancelPrepCourseDownloadForTesting() async {
         let task = prepCourseDownloadTask
         pausePrepCourseDownload()
@@ -2059,6 +2108,8 @@ public final class LiveRoundAppModel: ObservableObject {
         prepDownloadGeneration: UUID? = nil,
         deferTemplateReplacement: Bool = false
     ) async -> Bool {
+        // Whatever this run wrote (templates, bitmaps) is not in the last storage measurement.
+        defer { offlineStorageGrewAt = Date() }
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             return false
@@ -3408,8 +3459,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 // Also finishes a sweep an earlier pass queued but could not complete.
                 scope.sweepEvictedTopo()
             }
+            let measuredAt = Date()
             let usage = scope.usage()
-            await self?.publishOfflineStorageUsage(usage, for: scope)
+            await self?.publishOfflineStorageUsage(usage, for: scope, measuredAt: measuredAt)
         }
     }
 
@@ -3471,14 +3523,25 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Settings asks on appear; the walk over the bitmap directory runs off the main actor.
     public func refreshOfflineStorageUsage() async {
         let scope = offlineStore.storageScope
+        let measuredAt = Date()
         let usage = await Task.detached(priority: .utility) { scope.usage() }.value
-        publishOfflineStorageUsage(usage, for: scope)
+        publishOfflineStorageUsage(usage, for: scope, measuredAt: measuredAt)
     }
 
     /// A measurement taken for an account that has since been switched out is dropped.
-    private func publishOfflineStorageUsage(_ usage: OfflineStorageUsage, for scope: OfflineStorageScope) {
+    private func publishOfflineStorageUsage(
+        _ usage: OfflineStorageUsage,
+        for scope: OfflineStorageScope,
+        measuredAt: Date
+    ) {
         guard offlineStore.storageScope == scope else { return }
         offlineStorageUsage = usage
+        offlineStorageMeasuredAt = measuredAt
+        scheduleSpeculativePrepCourseDownloads()
+        // A queued guess may have been waiting for exactly this measurement.
+        if prepCourseDownloads.contains(where: { $0.isSpeculative && $0.phase == .queued }) {
+            startPrepCourseDownloadQueueIfNeeded()
+        }
     }
 
     /// Auto-sync hook for app foreground (scenePhase .active): flush anything still pending.
@@ -3486,6 +3549,7 @@ public final class LiveRoundAppModel: ObservableObject {
         endPrepBackgroundTask()
         refreshResultsCacheIfNeeded()
         resumePrepCourseDownloads(retryFailed: true)
+        scheduleSpeculativePrepCourseDownloads()
         retryDeferredRoundFinishes()
         ClubBagSyncCoordinator.shared.configure(apiBaseURL: apiBaseURL, adminToken: adminToken)
         Task { await ClubBagSyncCoordinator.shared.restoreFromServer() }
@@ -4305,10 +4369,12 @@ public final class LiveRoundAppModel: ObservableObject {
         let id = candidate.id
         // The player opened this course in 备战 (选了就进).
         offlineStore.recordCourseUse(globalId: course.globalId, teeBox: candidate.teeBox)
-        if prepCourseDownloads.first(where: { $0.id == id })?.isIntentPrefetch == true {
-            // The player now asked for this course themselves: a later intent must not drop it.
+        if prepCourseDownloads.first(where: { $0.id == id })?.yieldsToForeground == true {
+            // The player now asked for this course themselves: a later intent must not drop it, and
+            // a speculative row stops waiting for Wi-Fi.
             updatePrepCourseDownload(id: id) { record in
                 record.isIntentPrefetch = false
+                record.isSpeculative = false
             }
         }
         if let existing = prepCourseDownloads.first(where: { $0.id == id }) {
@@ -4387,6 +4453,15 @@ public final class LiveRoundAppModel: ObservableObject {
         var changed = prepCourseDownloads.count != countBefore
         for candidate in candidates {
             if let existing = prepCourseDownloads.first(where: { $0.id == candidate.id }) {
+                if existing.isSpeculative,
+                   let index = prepCourseDownloads.firstIndex(where: { $0.id == candidate.id }) {
+                    // About to be played: it now downloads on any network, ahead of other guesses.
+                    prepCourseDownloads[index].isSpeculative = false
+                    prepCourseDownloads[index].isIntentPrefetch = true
+                    prepCourseDownloads[index].updatedAt = Date()
+                    changed = true
+                    continue
+                }
                 // Queued, running or ready rows (including the player's own) are kept as they are;
                 // only a transient failure is given another go.
                 guard existing.phase == .failed, !existing.isTerminalFailure else { continue }
@@ -4422,7 +4497,7 @@ public final class LiveRoundAppModel: ObservableObject {
         foregroundCourseRequestCount += 1
         abandonResultsCacheRefresh(retryLater: true)
         if let active = activePrepCourseDownloadID,
-           prepCourseDownloads.first(where: { $0.id == active })?.isIntentPrefetch == true {
+           prepCourseDownloads.first(where: { $0.id == active })?.yieldsToForeground == true {
             recordUITestLatency("prep-intent.yield active=\(active)")
             pausePrepCourseDownload()
         }
@@ -4571,6 +4646,13 @@ public final class LiveRoundAppModel: ObservableObject {
     /// worker then runs only the jobs the player asked for until the release.
     private func startPrepCourseDownloadQueueIfNeeded(userRequested id: String? = nil) {
         if let id { userRequestedPrepDownloadIDs.insert(id) }
+        // A cold course can keep the worker for minutes; a job someone asked for does not wait behind
+        // a guess, and a guess stops when its network no longer allows it.
+        if let active = activePrepCourseDownloadID,
+           prepCourseDownloads.first(where: { $0.id == active })?.isSpeculative == true,
+           nextPrepCourseDownloadJob().map({ !$0.isSpeculative }) == true || !speculativeJobsMayRun {
+            pausePrepCourseDownload()
+        }
         guard prepCourseDownloadTask == nil, syncClient != nil,
               prepCourseDownloads.contains(where: { $0.phase == .queued }) else { return }
         // The worker's own dequeue rule: with a fresh entry pending, only a queued job the player
@@ -4598,6 +4680,7 @@ public final class LiveRoundAppModel: ObservableObject {
             if prepCourseDownloads.first(where: { $0.id == next.id })?.phase != .queued {
                 userRequestedPrepDownloadIDs.remove(next.id)
             }
+            finishSpeculativePrepCourseDownload(id: next.id)
             activePrepCourseDownloadID = nil
         }
         if deferredOfflineCourseDownloadRevalidation != nil,
@@ -4608,6 +4691,11 @@ public final class LiveRoundAppModel: ObservableObject {
         prepCourseDownloadGeneration = nil
         prepCourseDownloadTask = nil
         endPrepBackgroundTask()
+        // Guesses left queued behind a stale measurement start once storage is measured again.
+        if speculativeJobsMayRun, measuredSpeculativeCourseRoom == nil,
+           prepCourseDownloads.contains(where: { $0.isSpeculative && $0.phase == .queued }) {
+            remeasureOfflineStorage()
+        }
     }
 
     /// The next queued job the worker may take. While a fresh entry is pending only jobs the player
@@ -4618,9 +4706,130 @@ public final class LiveRoundAppModel: ObservableObject {
         return prepCourseDownloads
             .filter { $0.phase == .queued }
             .filter { !freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id) }
-            .filter { foregroundCourseRequestCount == 0 || !$0.isIntentPrefetch }
-            .sorted(by: { $0.updatedAt > $1.updatedAt })
+            .filter { foregroundCourseRequestCount == 0 || !$0.yieldsToForeground }
+            .filter { !$0.isSpeculative || speculativeJobMayStart }
+            // Every job the player or a round asked for goes before a speculative one.
+            .sorted(by: { lhs, rhs in
+                if lhs.isSpeculative != rhs.isSpeculative { return rhs.isSpeculative }
+                return lhs.updatedAt > rhs.updatedAt
+            })
             .first
+    }
+
+    // MARK: - 可能会打 (speculative course downloads)
+
+    private var speculativeDownloadsAllowed: Bool {
+        networkState.allowsSpeculativeDownloads(cellularAllowed: SpeculativePrefetchSettings.cellularAllowed())
+    }
+
+    /// Queued guesses may start: the network allows them and no round is played or being prepared
+    /// (`finishRoundPreparation` restarts the queue).
+    private var speculativeJobsMayRun: Bool {
+        speculativeDownloadsAllowed && liveRoundState == nil && roundPreparationToken == nil
+    }
+
+    /// Whole courses that fit under the cap by a measurement newer than the last download's writes;
+    /// nil when there is none (unmeasured, or a download wrote since).
+    private var measuredSpeculativeCourseRoom: Int? {
+        guard let usage = offlineStorageUsage, let measuredAt = offlineStorageMeasuredAt,
+              offlineStorageGrewAt.map({ $0 < measuredAt }) ?? true else { return nil }
+        return SpeculativePrefetch.courseRoom(usedBytes: usage.totalBytes)
+    }
+
+    /// How many more guesses may be queued: queued guesses already hold a whole course each.
+    private var speculativeCourseRoom: Int? {
+        measuredSpeculativeCourseRoom.map { $0 - prepCourseDownloads.filter(\.isSpeculative).count }
+    }
+
+    /// Whether a queued guess may start now: on top of `speculativeJobsMayRun`, a fresh measurement
+    /// must leave room for this one course. Only one job runs at a time and every finished download
+    /// makes the measurement stale, so each start is checked against what is really on disk.
+    private var speculativeJobMayStart: Bool {
+        speculativeJobsMayRun && (measuredSpeculativeCourseRoom ?? 0) >= 1
+    }
+
+    private func remeasureOfflineStorage() {
+        guard !offlineStorageRemeasureInFlight else { return }
+        offlineStorageRemeasureInFlight = true
+        Task { [weak self] in
+            await self?.refreshOfflineStorageUsage()
+            self?.offlineStorageRemeasureInFlight = false
+        }
+    }
+
+    private func networkStateChanged(_ state: SpeculativeNetworkState) {
+        guard state != networkState else { return }
+        networkState = state
+        applySpeculativeDownloadPolicy()
+    }
+
+    /// 设置 → "用蜂窝网络预下载常打的球场" changed.
+    public func speculativePrefetchSettingChanged() {
+        applySpeculativeDownloadPolicy()
+    }
+
+    /// Stops a running guess the network no longer allows (the queue start pauses it), or queues
+    /// and starts guesses it now does.
+    private func applySpeculativeDownloadPolicy() {
+        if speculativeDownloadsAllowed {
+            scheduleSpeculativePrepCourseDownloads()
+        }
+        startPrepCourseDownloadQueueIfNeeded()
+    }
+
+    /// Queues the likely courses (`SpeculativePrefetch.candidates`) that are not on the phone yet.
+    /// Only when the network allows it, no round is being played or prepared, and as many as fit
+    /// under the cap (`speculativeCourseRoom`).
+    private func scheduleSpeculativePrepCourseDownloads() {
+        guard syncClient != nil, speculativeJobsMayRun else { return }
+        guard let room = speculativeCourseRoom else {
+            // Unmeasured, or a download wrote since: measure again; the result calls back here.
+            remeasureOfflineStorage()
+            return
+        }
+        guard room > 0 else { return }
+        let rows = SpeculativePrefetch.candidates(
+            options: courseOptions,
+            recent: recentCourseOption,
+            existingIDs: Set(prepCourseDownloads.map(\.id)).union(failedSpeculativeDownloadIDs),
+            lastUsed: offlineStore.loadCourseUsage(),
+            now: Date(),
+            isInstalled: { readyPrepTemplate(for: $0) != nil }
+        ).prefix(room).map { $0 }
+        guard !rows.isEmpty else { return }
+        AICaddieLog.storage.info(
+            "Speculative course downloads queued: \(rows.map(\.id).joined(separator: ","), privacy: .public)"
+        )
+        prepCourseDownloads += rows
+        persistPrepCourseDownloads()
+        startPrepCourseDownloadQueueIfNeeded()
+    }
+
+    /// A speculative row leaves the list once its job ends: ready → the installed template is the
+    /// record (the 备战 list never showed it); failed on an allowed network → dropped silently, not
+    /// retried this launch; failed once the network no longer allows it → queued again. A row
+    /// paused back to `.queued` stays.
+    private func finishSpeculativePrepCourseDownload(id: String) {
+        guard let row = prepCourseDownloads.first(where: { $0.id == id }), row.isSpeculative,
+              row.phase == .ready || row.phase == .failed else { return }
+        if row.phase == .failed, !speculativeDownloadsAllowed {
+            // Most likely Wi-Fi went away mid-request, before the path update paused the job: wait
+            // for the network again rather than give the course up for this launch.
+            updatePrepCourseDownload(id: id) { state in
+                state.phase = .queued
+                state.errorText = nil
+            }
+            return
+        }
+        if row.phase == .failed {
+            failedSpeculativeDownloadIDs.insert(id)
+            AICaddieLog.storage.info("Speculative course download failed: \(id, privacy: .public)")
+        }
+        prepCourseDownloads.removeAll { $0.id == id }
+        persistPrepCourseDownloads()
+        refreshDownloadedCourseOptions()
+        // The next guess, once storage is measured again with this one on disk.
+        scheduleSpeculativePrepCourseDownloads()
     }
 
     /// iOS grants a bounded grace period after the app enters the background. Use it to finish the
@@ -4658,7 +4867,7 @@ public final class LiveRoundAppModel: ObservableObject {
         // An intent row often waits behind the round it anticipated, whose own pipeline installs
         // the same template. Refetching would first overwrite that complete template with the
         // lightweight package; mark it ready instead.
-        if record.isIntentPrefetch, let installed = readyPrepTemplate(for: record) {
+        if record.yieldsToForeground, let installed = readyPrepTemplate(for: record) {
             updatePrepCourseDownload(id: id, generation: generation) { state in
                 state.phase = .ready
                 state.totalHoles = max(1, installed.holes.count)
@@ -4730,7 +4939,11 @@ public final class LiveRoundAppModel: ObservableObject {
                     state.errorText = nil
                     state.requiredGeometryRevisions = nil
                 }
-                offlineStore.recordCourseUse(globalId: record.course.globalId, teeBox: record.teeBox)
+                // A speculative download does not record a use itself. (Daily maintenance then seeds
+                // it like any newly installed course: 60 days before it can be evicted.)
+                if prepCourseDownloads.first(where: { $0.id == id })?.isSpeculative != true {
+                    offlineStore.recordCourseUse(globalId: record.course.globalId, teeBox: record.teeBox)
+                }
                 refreshDownloadedCourseOptions()
             } else {
                 let serverStatus: CourseInstallStatus?
