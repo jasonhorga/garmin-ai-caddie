@@ -417,6 +417,13 @@ public final class LiveRoundAppModel: ObservableObject {
     private var userRequestedPrepDownloadIDs = Set<String>()
     private var roundPreparationToken: UUID?
     private var courseOptionsRefreshSucceeded = false
+    /// The last catalogue this account accepted (from the network or, at launch, from disk).
+    /// `courseOptions` publishes it whole until a refresh fails; after a failure only its downloaded
+    /// courses stay, so a cached row the phone cannot play offline is never offered as a choice.
+    private var catalogueCourseOptions: [MobileCourseOption] = []
+    private var courseOptionsRefreshFailed = false
+    /// Start order of the request whose outcome (success or failure) the catalogue last accepted.
+    private var courseOptionsOutcomeSequence: UInt64?
     private var boundPlayerId: String?
     /// Optional DEBUG/CI round to open explicitly. Production and ordinary DEBUG launches must not
     /// invent a demo round: with no configured id bootstrap lands on the normal home package.
@@ -517,6 +524,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         #endif
         restorePrepCourseDownloadsFromDisk()
+        restoreCachedCourseOptions()
         refreshDownloadedCourseOptions()
         recentCourseOption = try? offlineStore.loadRecentCourseSelection()
     }
@@ -604,7 +612,7 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingWatchRoundStart = nil
         pendingEventCount = 0
         pendingLiveHole = nil
-        courseOptions = []
+        restoreCachedCourseOptions()
         recentCourseOption = try? offlineStore.loadRecentCourseSelection()
         courseOptionsRefreshSucceeded = false
         syncStatus = "离线就绪"
@@ -877,6 +885,8 @@ public final class LiveRoundAppModel: ObservableObject {
         invalidateResultsCacheAfterGarminPull()
     }
 
+    var courseOptionsRefreshSucceededForTesting: Bool { courseOptionsRefreshSucceeded }
+
     func refreshResultsCacheForTesting() {
         refreshResultsCacheIfNeeded()
     }
@@ -890,21 +900,88 @@ public final class LiveRoundAppModel: ObservableObject {
         courseOptionsRefreshSucceeded = false
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
-            courseOptions = []
+            markCourseOptionsRefreshFailed(ticket: offlineStore.beginResultsRequest())
             return
         }
         #endif
         guard let syncClient else {
+            markCourseOptionsRefreshFailed(ticket: offlineStore.beginResultsRequest())
             return
         }
+        await refreshCourseOptions { try await syncClient.fetchCourseOptions().courses }
+    }
+
+    /// One refresh: its answer, failure or write-failure fallback is accepted only through
+    /// `acceptsCourseOptionsOutcome`, so a cancelled, previous-account or older request never
+    /// replaces or narrows the catalogue a newer request already settled.
+    func refreshCourseOptions(fetch: () async throws -> [MobileCourseOption]) async {
+        let ticket = offlineStore.beginResultsRequest()
         do {
-            courseOptions = try await syncClient.fetchCourseOptions().courses
-            courseOptionsRefreshSucceeded = true
+            let courses = try await fetch()
+            if adoptCourseOptions(courses, ticket: ticket) { courseOptionsRefreshSucceeded = true }
         } catch {
+            // Arbitrate before any side effect: a cancelled, previous-account or superseded
+            // request's failure (even a 401) says nothing about the current session or network.
+            guard acceptsCourseOptionsOutcome(ticket) else { return }
             invalidateAppleSessionIfNeeded(error)
             AICaddieLog.network.error("Course options fetch failed: \(String(describing: error), privacy: .public)")
-            courseOptions = []
+            publishCourseOptionsRefreshFailure()
         }
+    }
+
+    /// Not cancelled, still this account, and started no earlier than the last accepted outcome.
+    private func acceptsCourseOptionsOutcome(_ ticket: OfflineStore.ResultsRequestTicket) -> Bool {
+        guard !Task.isCancelled, offlineStore.isCurrentAccount(ticket) else { return false }
+        if let accepted = courseOptionsOutcomeSequence, accepted > ticket.sequence { return false }
+        courseOptionsOutcomeSequence = ticket.sequence
+        return true
+    }
+
+    /// Launch / account bind: show the account's last catalogue at once; the refresh decides later.
+    private func restoreCachedCourseOptions() {
+        catalogueCourseOptions = (try? offlineStore.loadCourseOptions()) ?? []
+        courseOptionsRefreshFailed = false
+        courseOptionsOutcomeSequence = nil
+        publishCourseOptions()
+    }
+
+    /// Accept a network catalogue only for the account (and ordering) its request started under.
+    private func adoptCourseOptions(_ courses: [MobileCourseOption], ticket: OfflineStore.ResultsRequestTicket) -> Bool {
+        guard acceptsCourseOptionsOutcome(ticket) else { return false }
+        do {
+            // The store applies the same account / ordering rule; every write comes through here.
+            try offlineStore.commitCourseOptions(courses, ticket: ticket)
+        } catch {
+            // A full disk must not hide a fresh answer; it is only not kept for the next launch.
+            AICaddieLog.storage.error("Course options cache write failed: \(String(describing: error), privacy: .public)")
+        }
+        catalogueCourseOptions = courses
+        courseOptionsRefreshFailed = false
+        publishCourseOptions()
+        return true
+    }
+
+    private func markCourseOptionsRefreshFailed(ticket: OfflineStore.ResultsRequestTicket) {
+        guard acceptsCourseOptionsOutcome(ticket) else { return }
+        publishCourseOptionsRefreshFailure()
+    }
+
+    /// Only for an outcome `acceptsCourseOptionsOutcome` has already accepted.
+    private func publishCourseOptionsRefreshFailure() {
+        courseOptionsRefreshSucceeded = false
+        courseOptionsRefreshFailed = true
+        publishCourseOptions()
+    }
+
+    private func publishCourseOptions() {
+        let next: [MobileCourseOption]
+        if courseOptionsRefreshFailed {
+            let downloaded = Set(downloadedCourseOptions.map(\.globalId))
+            next = catalogueCourseOptions.filter { downloaded.contains($0.globalId) }
+        } else {
+            next = catalogueCourseOptions
+        }
+        if next != courseOptions { courseOptions = next }
     }
 
     public func refreshGarminSyncPresentation() async {
@@ -3443,11 +3520,12 @@ public final class LiveRoundAppModel: ObservableObject {
         garminPostSyncRefreshTasks.forEach { $0.cancel() }
         garminPostSyncRefreshTasks = [
             Task { @MainActor [weak self] in
+                guard let ticket = self?.offlineStore.beginResultsRequest() else { return }
                 let options = try? await syncClient.fetchCourseOptions()
                 guard let self, !Task.isCancelled,
                       self.garminSyncOperationGeneration == operationGeneration,
-                      let options else { return }
-                self.courseOptions = options.courses
+                      let options,
+                      self.adoptCourseOptions(options.courses, ticket: ticket) else { return }
                 self.courseOptionsRefreshSucceeded = true
             },
             Task { @MainActor [weak self] in
@@ -4802,6 +4880,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 )
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        // After a failed refresh the published catalogue follows what the phone can play offline.
+        publishCourseOptions()
     }
 
     /// Fetch the home package for an explicitly finished course, or the most-played course during
@@ -4828,7 +4908,11 @@ public final class LiveRoundAppModel: ObservableObject {
                 includeEventCursor: false
             )
         }
-        let mostPlayed = courseOptions.max { $0.roundCount < $1.roundCount }
+        // Only a catalogue this launch confirmed is worth a request: after a failed refresh the
+        // network is presumed down, and the cached home package below is the answer anyway.
+        let mostPlayed = courseOptionsRefreshSucceeded
+            ? courseOptions.max { $0.roundCount < $1.roundCount }
+            : nil
         if let syncClient, let mostPlayed {
             let homeRoundId = mostPlayed.suggestedLiveRoundId ?? "home-\(mostPlayed.globalId)"
             let teeBox = mostPlayed.teeBox.flatMap { $0 == "unknown" ? nil : $0 } ?? "unknown"

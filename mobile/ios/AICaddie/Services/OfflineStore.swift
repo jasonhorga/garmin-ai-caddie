@@ -612,6 +612,7 @@ public final class OfflineStore {
     private var prepCourseDownloadsURL: URL
     private var historyRoundsURL: URL
     private var mobileStatsURL: URL
+    private var courseOptionsURL: URL
     private var pendingRoundFinishesURL: URL
     private var pendingRoundFinishesBackupURL: URL
     private var pendingMediaDirectoryURL: URL
@@ -622,8 +623,11 @@ public final class OfflineStore {
     private let syncEventLogDirectory: (URL) throws -> Void
     private let eventLogLock = NSLock()
     private let resultsCommitLock = NSLock()
-    /// Per bound account: start time of the request whose 成绩 answer was last committed.
-    private var resultsCommittedRequestStarts: [String: Date] = [:]
+    /// Per bound account: start order of the request whose 成绩 answer was last committed.
+    private var resultsCommittedRequestStarts: [String: UInt64] = [:]
+    /// Strictly increasing across every ticket. Two `Date()` reads in a row can be equal, which let
+    /// an older answer tie, and so pass, the newer one it must lose to.
+    private var resultsRequestSequence: UInt64 = 0
     /// Bumped by every account bind; a results ticket from an earlier scope is never committed.
     private var accountScope = 0
 
@@ -709,6 +713,7 @@ public final class OfflineStore {
         self.liveProgressURL = resolvedDirectory.appendingPathComponent("live_progress.json")
         self.prepCourseDownloadsURL = resolvedDirectory.appendingPathComponent("prep_course_downloads.json")
         self.historyRoundsURL = resolvedDirectory.appendingPathComponent("history_rounds.json")
+        self.courseOptionsURL = resolvedDirectory.appendingPathComponent("course_options_v1.json")
         self.mobileStatsURL = resolvedDirectory.appendingPathComponent("mobile_stats.json")
         self.pendingRoundFinishesURL = resolvedDirectory.appendingPathComponent("pending_round_finishes.json")
         self.pendingRoundFinishesBackupURL = resolvedDirectory.appendingPathComponent("pending_round_finishes.backup.json")
@@ -776,6 +781,7 @@ public final class OfflineStore {
         liveProgressURL = directory.appendingPathComponent("live_progress.json")
         prepCourseDownloadsURL = directory.appendingPathComponent("prep_course_downloads.json")
         historyRoundsURL = directory.appendingPathComponent("history_rounds.json")
+        courseOptionsURL = directory.appendingPathComponent("course_options_v1.json")
         mobileStatsURL = directory.appendingPathComponent("mobile_stats.json")
         pendingRoundFinishesURL = directory.appendingPathComponent("pending_round_finishes.json")
         pendingRoundFinishesBackupURL = directory.appendingPathComponent("pending_round_finishes.backup.json")
@@ -1038,14 +1044,16 @@ public final class OfflineStore {
     /// or land in another account's files (Codex review of #395). Returns whether it was written.
     public struct ResultsRequestTicket: Equatable {
         let accountScope: Int
-        let requestedAt: Date
+        /// Start order, unique per ticket; a later `beginResultsRequest` always has a larger one.
+        let sequence: UInt64
     }
 
     /// Take this when a 成绩 request starts and hand it to the commit.
     public func beginResultsRequest() -> ResultsRequestTicket {
         resultsCommitLock.lock()
         defer { resultsCommitLock.unlock() }
-        return ResultsRequestTicket(accountScope: accountScope, requestedAt: Date())
+        resultsRequestSequence += 1
+        return ResultsRequestTicket(accountScope: accountScope, sequence: resultsRequestSequence)
     }
 
     /// Whether the account the ticket was taken for is still the bound one.
@@ -1072,15 +1080,31 @@ public final class OfflineStore {
         try commitResults("archive", ticket: ticket) { try saveHistoryRoundsArchive(archive) }
     }
 
+    /// The account's course catalogue (`courses/options`), so 开始一场 and the home have loop names
+    /// and tees before the network answers. One file, replaced whole by each accepted answer; its size
+    /// is bounded by the server's response. Same account and ordering rules as the 成绩 files.
+    @discardableResult
+    public func commitCourseOptions(_ courses: [MobileCourseOption], ticket: ResultsRequestTicket) throws -> Bool {
+        try commitResults("course-options", ticket: ticket) {
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            try encoder.encode(courses).write(to: courseOptionsURL, options: [.atomic])
+        }
+    }
+
+    public func loadCourseOptions() throws -> [MobileCourseOption]? {
+        guard FileManager.default.fileExists(atPath: courseOptionsURL.path) else { return nil }
+        return try decoder.decode([MobileCourseOption].self, from: Data(contentsOf: courseOptionsURL))
+    }
+
     /// Check and write under one lock, which `configurePersonalDirectory` also takes, so a rebind
     /// cannot slip between the account check and the write.
     private func commitResults(_ file: String, ticket: ResultsRequestTicket, write: () throws -> Void) throws -> Bool {
         resultsCommitLock.lock()
         defer { resultsCommitLock.unlock() }
         guard ticket.accountScope == accountScope else { return false }
-        if let committed = resultsCommittedRequestStarts[file], committed > ticket.requestedAt { return false }
+        if let committed = resultsCommittedRequestStarts[file], committed > ticket.sequence { return false }
         try write()
-        resultsCommittedRequestStarts[file] = ticket.requestedAt
+        resultsCommittedRequestStarts[file] = ticket.sequence
         return true
     }
 
