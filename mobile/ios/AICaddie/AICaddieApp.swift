@@ -439,6 +439,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// while a fresh entry is pending; every automatic job waits for the release.
     private var userRequestedPrepDownloadIDs = Set<String>()
     private var roundPreparationToken: UUID?
+    /// Courses picked on 开始一场 / 在这个球场 in this launch. Storage eviction keeps them even when
+    /// their row is already ready, because picking a course does not count as a use.
+    private var intendedGlobalIds = Set<Int>()
     private var courseOptionsRefreshSucceeded = false
     /// The last catalogue this account accepted (from the network or, at launch, from disk).
     /// `courseOptions` publishes it whole until a refresh fails; after a failure only its downloaded
@@ -3411,8 +3414,14 @@ public final class LiveRoundAppModel: ObservableObject {
     /// templates go, otherwise `resumePrepCourseDownloads` would re-queue them as stale and
     /// download the courses again.
     private func evictIdleCourses(_ plan: OfflineStorageEvictionPlan, for scope: OfflineStorageScope) {
-        guard offlineStore.storageScope == scope, let onDisk = scope.protectedGlobalIds() else { return }
-        var busy = onDisk.union(prepCourseDownloads.filter { $0.phase != .ready }.map(\.course.globalId))
+        // A round being prepared may read a template (or reuse bitmaps) that is idle on disk.
+        guard offlineStore.storageScope == scope,
+              roundPreparationToken == nil,
+              offlineCourseDownloadRoundId == nil,
+              let onDisk = scope.protectedGlobalIds() else { return }
+        var busy = onDisk
+            .union(prepCourseDownloads.filter { $0.phase != .ready }.map(\.course.globalId))
+            .union(intendedGlobalIds)
         if let package {
             busy.formUnion(package.holes.map(\.sourceGlobalId))
             busy.insert(package.course.globalId)
@@ -3426,7 +3435,9 @@ public final class LiveRoundAppModel: ObservableObject {
         guard !candidates.isEmpty,
               scope.queueTopoSweep(globalIds: Set(candidates.map(\.globalId))) else { return }
         let remaining = OfflineStorageEviction.prepRows(prepCourseDownloads, withoutReadyRowsOf: candidates)
-        if remaining.count != prepCourseDownloads.count {
+        let remainingIDs = Set(remaining.map(\.id))
+        let setAside = prepCourseDownloads.filter { !remainingIDs.contains($0.id) }
+        if !setAside.isEmpty {
             prepCourseDownloads = remaining
             do {
                 try offlineStore.savePrepCourseDownloads(prepCourseDownloads)
@@ -3438,6 +3449,13 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
         let removed = candidates.filter { scope.removeEvictedTemplate($0) }
+        // A template kept (rewritten since the plan, or not deletable) gets its ready row back.
+        let removedIDs = Set(removed.map(\.prepDownloadID))
+        let restored = setAside.filter { !removedIDs.contains($0.id) }
+        if !restored.isEmpty {
+            prepCourseDownloads += restored
+            persistPrepCourseDownloads()
+        }
         let freedBytes = removed.reduce(Int64(0)) { $0 + $1.estimatedBytes }
         refreshDownloadedCourseOptions()
         AICaddieLog.storage.info(
@@ -4340,6 +4358,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// later tee change still reuses them). A newer intent drops unfinished rows of an older one;
     /// ready rows stay as downloaded courses. Automatic jobs still wait behind a fresh round entry.
     public func prefetchIntendedCourses(_ courses: [MobileCourseOption], teeBox: String) {
+        intendedGlobalIds = Set(courses.map(\.globalId))
         let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
         guard syncClient != nil, !tee.isEmpty else { return }
         // The live round's own loops already have the all-hole pipeline.

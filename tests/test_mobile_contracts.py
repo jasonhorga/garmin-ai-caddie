@@ -5607,6 +5607,11 @@ class MobileContractTests(unittest.TestCase):
         positions = [evict.index(token) for token in order]
         self.assertEqual(positions, sorted(positions))
         self.assertIn("if let package {", evict)
+        # Never while a round is being prepared, nor for a course just picked to play.
+        for token in ("roundPreparationToken == nil", "offlineCourseDownloadRoundId == nil", ".union(intendedGlobalIds)"):
+            self.assertIn(token, evict)
+        intent = app.split("public func prefetchIntendedCourses(", 1)[1].split("guard syncClient != nil", 1)[0]
+        self.assertIn("intendedGlobalIds = Set(courses.map(\\.globalId))", intent)
         # The sweep runs under the same download gate as garbage collection.
         sweep = maintenance.split("static func sweepEvictedTopo(", 1)[1]
         self.assertIn("activity.quietToken()", sweep.split("referencedTopo(root: root)", 1)[0])

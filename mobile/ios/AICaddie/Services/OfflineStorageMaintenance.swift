@@ -848,7 +848,7 @@ public enum OfflineStorageEviction {
 
     /// Removes the queued courses' bitmaps that no package of any account references and no
     /// unfinished 备战 download pins, under the same gate and age rule as garbage collection.
-    /// A course leaves the queue once a full pass has handled it.
+    /// A course leaves the queue once a full pass has removed all its unreferenced bitmaps.
     static func sweepEvictedTopo(
         root: URL,
         currentStyleVersion: String,
@@ -882,9 +882,12 @@ public enum OfflineStorageEviction {
                   !references.files.contains(file.fileKey),
                   !references.pinnedGlobalIds.contains(file.globalId) else { continue }
             let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
-            guard values?.isRegularFile == true,
-                  let modified = values?.contentModificationDate,
-                  now.timeIntervalSince(modified) >= minimumAge else { continue }
+            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
+            guard now.timeIntervalSince(modified) >= minimumAge else {
+                // Too new to tell from a download about to write its template: look again later.
+                retry.insert(file.globalId)
+                continue
+            }
             let quiet = activity.ifQuiet(since: quietToken) {
                 OfflineStorageMaintenance.remove(url, from: &report)
             }

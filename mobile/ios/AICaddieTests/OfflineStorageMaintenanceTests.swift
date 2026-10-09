@@ -649,6 +649,12 @@ extension OfflineStorageMaintenanceTests {
         let resumed = OfflineStorageEviction.sweepEvictedTopo(root: root, currentStyleVersion: style, now: now, activity: activity)
         XCTAssertEqual(resumed.removedTopoFiles, ["100-1.png"])
         XCTAssertTrue(exists("100-2.png"), "a bitmap younger than a day may belong to a download about to write its template")
+        XCTAssertEqual(TopoSweepQueue.load(root: root), [100], "the young bitmap is looked at again later")
+
+        let later = OfflineStorageEviction.sweepEvictedTopo(
+            root: root, currentStyleVersion: style, now: now.addingTimeInterval(Self.day), activity: activity
+        )
+        XCTAssertEqual(later.removedTopoFiles, ["100-2.png"])
         XCTAssertTrue(TopoSweepQueue.load(root: root).isEmpty)
     }
 
