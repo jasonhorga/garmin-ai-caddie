@@ -848,7 +848,8 @@ public enum OfflineStorageEviction {
 
     /// Removes the queued courses' bitmaps that no package of any account references and no
     /// unfinished 备战 download pins, under the same gate and age rule as garbage collection.
-    /// A course leaves the queue once a full pass has removed all its unreferenced bitmaps.
+    /// A course leaves the queue once a full pass has removed all its unreferenced bitmaps; one
+    /// still pinned by a download, or with a bitmap too new to judge, stays for the next pass.
     static func sweepEvictedTopo(
         root: URL,
         currentStyleVersion: String,
@@ -879,8 +880,13 @@ public enum OfflineStorageEviction {
         for url in files {
             guard let file = TopoFileName(url.lastPathComponent),
                   pending.contains(file.globalId),
-                  !references.files.contains(file.fileKey),
-                  !references.pinnedGlobalIds.contains(file.globalId) else { continue }
+                  !references.files.contains(file.fileKey) else { continue }
+            guard !references.pinnedGlobalIds.contains(file.globalId) else {
+                // An unfinished download may still name this bitmap; once it is cancelled or
+                // installed, a later pass decides.
+                retry.insert(file.globalId)
+                continue
+            }
             let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
             guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
             guard now.timeIntervalSince(modified) >= minimumAge else {

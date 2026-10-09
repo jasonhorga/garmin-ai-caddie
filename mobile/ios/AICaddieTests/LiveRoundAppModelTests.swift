@@ -2136,6 +2136,83 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertTrue(staleModel.downloadedCourseKeys.contains(pending.id))
     }
 
+    // MARK: Storage eviction (storage PR B)
+
+    /// A ready 备战 course unused for 90 days, a model over it, and the plan that evicts it.
+    private func idleReadyCourseEviction() throws -> (
+        fixture: (directory: URL, store: OfflineStore, course: MobileCourseOption, record: PrepCourseDownloadRecord),
+        model: LiveRoundAppModel,
+        scope: OfflineStorageScope,
+        plan: OfflineStorageEvictionPlan
+    ) {
+        let fixture = try readyPrepValidationFixture(revision: "r1")
+        let model = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+        XCTAssertTrue(model.downloadedCourseKeys.contains(fixture.record.id))
+        let now = Date()
+        fixture.store.recordCourseUse(
+            globalId: fixture.course.globalId,
+            teeBox: fixture.record.teeBox,
+            at: now.addingTimeInterval(-90 * 86_400)
+        )
+        let scope = fixture.store.storageScope
+        let plan = try XCTUnwrap(scope.evictionPlan(now: now, capBytes: 0))
+        XCTAssertEqual(plan.candidates.map(\.prepDownloadID), [fixture.record.id])
+        return (fixture, model, scope, plan)
+    }
+
+    func testEvictionRemovesTheReadyRowWithItsTemplateSoARelaunchDoesNotRequeueIt() throws {
+        let (fixture, model, scope, plan) = try idleReadyCourseEviction()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        model.evictIdleCoursesForTesting(plan, for: scope)
+
+        XCTAssertTrue(model.prepCourseDownloads.isEmpty)
+        XCTAssertTrue(try fixture.store.loadPrepCourseDownloads().isEmpty)
+        XCTAssertNil(try fixture.store.loadCourseTemplate(
+            globalId: fixture.course.globalId,
+            teeBox: fixture.record.teeBox
+        ))
+        XCTAssertFalse(model.downloadedCourseKeys.contains(fixture.record.id))
+        XCTAssertFalse(model.downloadedCourseOptions.contains { $0.globalId == fixture.course.globalId })
+        let relaunched = LiveRoundAppModel(
+            offlineStore: fixture.store,
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil,
+            offlineGeometryRetryDelaysNanoseconds: []
+        )
+        XCTAssertTrue(relaunched.prepCourseDownloads.isEmpty, "no ready row without a template to re-queue")
+    }
+
+    func testEvictionLeavesListAndTemplateAloneWhenThePrepListCannotBeSaved() throws {
+        let (fixture, model, scope, plan) = try idleReadyCourseEviction()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        // A non-empty directory where the list file goes: the atomic save cannot replace it.
+        let list = scope.accountDirectory.appendingPathComponent("prep_course_downloads.json")
+        try FileManager.default.removeItem(at: list)
+        try FileManager.default.createDirectory(at: list, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: list.appendingPathComponent("occupied"))
+
+        model.evictIdleCoursesForTesting(plan, for: scope)
+
+        XCTAssertEqual(model.prepCourseDownloads.map(\.id), [fixture.record.id])
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
+        XCTAssertTrue(model.downloadedCourseKeys.contains(fixture.record.id))
+        XCTAssertTrue(model.downloadedCourseOptions.contains { $0.globalId == fixture.course.globalId })
+        XCTAssertNotNil(try fixture.store.loadCourseTemplate(
+            globalId: fixture.course.globalId,
+            teeBox: fixture.record.teeBox
+        ))
+    }
+
     func testReadyPrepRevalidationIgnoresJournalRowsOutsideInstalledSelection() async throws {
         let fixture = try readyPrepValidationFixture(revision: "current-revision")
         let configuration = URLSessionConfiguration.ephemeral

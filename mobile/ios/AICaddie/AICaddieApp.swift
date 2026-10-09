@@ -1572,6 +1572,10 @@ public final class LiveRoundAppModel: ObservableObject {
 
     var offlineCourseDownloadRoundIdForTesting: String? { offlineCourseDownloadRoundId }
 
+    func evictIdleCoursesForTesting(_ plan: OfflineStorageEvictionPlan, for scope: OfflineStorageScope) {
+        evictIdleCourses(plan, for: scope)
+    }
+
     var interruptedOfflineCourseDownloadRoundIdForTesting: String? { interruptedOfflineCourseDownloadRoundId }
 
     func prioritizeCourseDiscoveryForTesting() {
@@ -3438,15 +3442,16 @@ public final class LiveRoundAppModel: ObservableObject {
         let remainingIDs = Set(remaining.map(\.id))
         let setAside = prepCourseDownloads.filter { !remainingIDs.contains($0.id) }
         if !setAside.isEmpty {
-            prepCourseDownloads = remaining
+            // Published only once saved: on failure the list, the templates and the screens stay as they were.
             do {
-                try offlineStore.savePrepCourseDownloads(prepCourseDownloads)
+                try offlineStore.savePrepCourseDownloads(remaining)
             } catch {
                 AICaddieLog.storage.error(
                     "Eviction stopped, 备战 list save failed: \(String(describing: error), privacy: .public)"
                 )
                 return
             }
+            prepCourseDownloads = remaining
         }
         let removed = candidates.filter { scope.removeEvictedTemplate($0) }
         // A template kept (rewritten since the plan, or not deletable) gets its ready row back.

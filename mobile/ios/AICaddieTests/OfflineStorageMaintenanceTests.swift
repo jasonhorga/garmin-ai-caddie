@@ -631,6 +631,36 @@ extension OfflineStorageMaintenanceTests {
 
         XCTAssertEqual(report.removedTopoFiles, ["100-2.png"])
         for name in ["100-1.png", "200-1.png", "300-1.png"] { XCTAssertTrue(exists(name), name) }
+        XCTAssertEqual(TopoSweepQueue.load(root: root), [300],
+                       "referenced courses are done; the pinned one waits for its download to settle")
+    }
+
+    /// The pin is released (download cancelled, no template written): the next pass removes it.
+    func testACourseKeptByAnUnfinishedDownloadIsSweptOnceTheDownloadIsGone() throws {
+        let downloading = PrepCourseDownloadRecord(
+            course: MobileCourseOption(globalId: 300, name: "球场", holes: 18, teeBox: "blue"),
+            teeBox: "blue",
+            phase: .downloading
+        )
+        try FileManager.default.createDirectory(at: account("c"), withIntermediateDirectories: true)
+        let rows = account("c").appendingPathComponent("prep_course_downloads.json")
+        try JSONEncoder().encode([downloading]).write(to: rows)
+        try writeTopo("300-1.png")
+        try TopoSweepQueue.add([300], root: root)
+
+        let pinned = OfflineStorageEviction.sweepEvictedTopo(
+            root: root, currentStyleVersion: style, now: now, activity: TopoWriterActivity()
+        )
+        XCTAssertTrue(pinned.removedTopoFiles.isEmpty)
+        XCTAssertTrue(exists("300-1.png"))
+        XCTAssertEqual(TopoSweepQueue.load(root: root), [300])
+
+        try JSONEncoder().encode([PrepCourseDownloadRecord]()).write(to: rows)
+        let released = OfflineStorageEviction.sweepEvictedTopo(
+            root: root, currentStyleVersion: style, now: now, activity: TopoWriterActivity()
+        )
+        XCTAssertEqual(released.removedTopoFiles, ["300-1.png"])
+        XCTAssertTrue(TopoSweepQueue.load(root: root).isEmpty)
     }
 
     func testSweepSkippedByADownloadResumesAtTheNextPass() throws {
