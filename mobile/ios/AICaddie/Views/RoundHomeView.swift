@@ -62,6 +62,7 @@ public struct RoundHomeView: View {
     public let downloadedCourseKeys: Set<String>
     public let prepCourseDownloads: [PrepCourseDownloadRecord]
     public let prepCourseDownloadPresentation: PrepCourseDownloadPresentationState?
+    public let liveCourseDownloadProgress: LiveCourseDownloadProgress?
     public let isPreparingRound: Bool
     public let isFinishingRound: Bool
     public let finishErrorMessage: String?
@@ -151,6 +152,7 @@ public struct RoundHomeView: View {
         downloadedCourseKeys: Set<String> = [],
         prepCourseDownloads: [PrepCourseDownloadRecord] = [],
         prepCourseDownloadPresentation: PrepCourseDownloadPresentationState? = nil,
+        liveCourseDownloadProgress: LiveCourseDownloadProgress? = nil,
         isPreparingRound: Bool = false,
         isFinishingRound: Bool = false,
         finishErrorMessage: String? = nil,
@@ -214,6 +216,7 @@ public struct RoundHomeView: View {
         self.downloadedCourseKeys = downloadedCourseKeys
         self.prepCourseDownloads = prepCourseDownloads
         self.prepCourseDownloadPresentation = prepCourseDownloadPresentation
+        self.liveCourseDownloadProgress = liveCourseDownloadProgress
         self.isPreparingRound = isPreparingRound
         self.isFinishingRound = isFinishingRound
         self.finishErrorMessage = finishErrorMessage
@@ -978,6 +981,12 @@ public struct RoundHomeView: View {
                 } header: {
                     Text("账号与球包")
                 }
+
+                OfflineCourseDownloadsSection(rows: OfflineCourseDownloadRow.rows(
+                    live: liveCourseDownloadProgress,
+                    liveRoundId: liveRoundState?.roundId,
+                    downloads: prepCourseDownloads
+                ))
             }
             .task {
                 await onRefreshGarminSyncStatus()
@@ -990,6 +999,51 @@ public struct RoundHomeView: View {
                         showSettings = false
                     }
                 }
+            }
+        }
+    }
+}
+
+/// 设置 → 离线球场: the only place download progress is shown (design README §8 keeps it off the
+/// play and prep screens). Nothing to list → no section.
+struct OfflineCourseDownloadsSection: View {
+    let rows: [OfflineCourseDownloadRow]
+
+    var body: some View {
+        if !rows.isEmpty {
+            Section {
+                ForEach(rows) { row in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(row.title)
+                                    .font(.subheadline.weight(.semibold))
+                                    .lineLimit(1)
+                                if let subtitle = row.subtitle {
+                                    Text(subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            Text(row.status)
+                                .font(.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                        if let fraction = row.fraction {
+                            ProgressView(value: fraction)
+                                .tint(LiveHoleStyle.green)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel([row.title, row.subtitle, row.status].compactMap { $0 }.joined(separator: "，"))
+                    .accessibilityIdentifier("settings-offline-course-\(row.id)")
+                }
+            } header: {
+                Text("离线球场")
             }
         }
     }

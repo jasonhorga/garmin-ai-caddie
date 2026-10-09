@@ -5524,6 +5524,28 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("stripHoles: stripHoles,", pager_call)
 
 
+    def test_whole_course_download_progress_is_shown_only_in_settings(self) -> None:
+        # README §8 / IMPLEMENTATION_PLAN: no download status on the play, prep or start screens;
+        # progress lives in 设置 → 离线球场 only.
+        app = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
+        round_home = _read_required_source(self, IOS_DIR / "Views" / "RoundHomeView.swift")
+        self.assertIn("@Published public private(set) var liveCourseDownloadProgress: LiveCourseDownloadProgress?", app)
+        publish = app.split("func publishLiveCourseDownloadProgress() {", 1)[1].split("\n        }\n", 1)[0]
+        for guard in ("prepDownloadID == nil", "!Task.isCancelled", "isLiveRoundSnapshot(snapshot", "offlineCourseDownloadRoundId == snapshot.roundId"):
+            self.assertIn(guard, publish)
+        self.assertIn("readyHoles: downloadedHoleCount()", publish)
+        settings = round_home.split("private var settingsSheet: some View {", 1)[1].split("\n// MARK:", 1)[0]
+        self.assertIn("OfflineCourseDownloadsSection(rows: OfflineCourseDownloadRow.rows(", settings)
+        self.assertIn("liveRoundId: liveRoundState?.roundId", settings)
+        self.assertEqual(round_home.count("OfflineCourseDownloadsSection(rows:"), 1)
+        views = IOS_DIR / "Views"
+        for name in ("CurrentHoleView.swift", "LivePlayChrome.swift", "LiveHoleComponents.swift", "CourseReviewView.swift",
+                     "MobileCourseSearchView.swift", "PrepCoursePickerView.swift", "StartRoundView.swift", "HubBento.swift"):
+            source = _read_required_source(self, views / name)
+            for marker in ("liveCourseDownloadProgress", "OfflineCourseDownloadsSection", "OfflineCourseDownloadRow", "progressFraction"):
+                self.assertNotIn(marker, source, f"{name} must not show download progress ({marker})")
+
+
 class RoundEditContractTests(unittest.TestCase):
     """复盘编辑 iOS 接线不被后续删:稳定 shotId/罚杆模型 + op 载荷 + POST + 编辑控件都在源码里。"""
 

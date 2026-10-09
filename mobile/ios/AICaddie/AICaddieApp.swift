@@ -85,6 +85,7 @@ public struct AICaddieApp: App {
                         downloadedCourseKeys: model.downloadedCourseKeys,
                         prepCourseDownloads: model.prepCourseDownloads,
                         prepCourseDownloadPresentation: model.prepCourseDownloadPresentation,
+                        liveCourseDownloadProgress: model.liveCourseDownloadProgress,
                         isPreparingRound: model.isPreparingRound,
                         isFinishingRound: model.isFinishingRound,
                         finishErrorMessage: model.finishErrorMessage,
@@ -341,6 +342,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// The last course explicitly started by this account. It is a separate source from Garmin's
     /// GPS-nearby response: a successful HTTP 200 may still omit a recently played venue.
     @Published public private(set) var recentCourseOption: MobileCourseOption?
+    /// The live round's own whole-course download (holes with precise facts and topo on disk).
+    /// Only 设置 → 离线球场 reads it; the play screen keeps its quiet faded-hole contract.
+    @Published public private(set) var liveCourseDownloadProgress: LiveCourseDownloadProgress?
     public let prepCourseDownloadPresentation = PrepCourseDownloadPresentationState()
     @Published public private(set) var prepCourseDownloads: [PrepCourseDownloadRecord] = [] {
         didSet {
@@ -2069,6 +2073,25 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
 
+        /// Live counterpart of the prep record's per-hole progress. Only the current, uncancelled
+        /// pass over the live round itself may publish: a cancelled or superseded pass (a newer
+        /// revalidation, another round) and template/prep passes must not repaint it.
+        func publishLiveCourseDownloadProgress() {
+            guard prepDownloadID == nil,
+                  !Task.isCancelled,
+                  isLiveRoundSnapshot(snapshot, prepDownloadID: prepDownloadID),
+                  offlineCourseDownloadRoundId == snapshot.roundId else { return }
+            let progress = LiveCourseDownloadProgress(
+                roundId: snapshot.roundId,
+                courseName: snapshot.course.venueDisplayName,
+                readyHoles: downloadedHoleCount(),
+                totalHoles: snapshot.holes.count
+            )
+            if liveCourseDownloadProgress != progress {
+                liveCourseDownloadProgress = progress
+            }
+        }
+
         func retainPrepBatchResults(_ results: [OfflinePrepBatchResult]) {
             for result in results {
                 if let errorDescription = result.errorDescription {
@@ -2118,6 +2141,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     state.totalHoles = max(1, snapshot.holes.count)
                 }
             }
+            publishLiveCourseDownloadProgress()
         }
 
         /// Live play fetches the hole being played first, then the holes ahead in round order; read
@@ -2221,6 +2245,7 @@ public final class LiveRoundAppModel: ObservableObject {
                                 state.totalHoles = max(1, snapshot.holes.count)
                             }
                         }
+                        publishLiveCourseDownloadProgress()
                     } catch {
                         AICaddieLog.storage.error(
                             "Incremental topo save failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(String(describing: error), privacy: .public)"
@@ -2372,6 +2397,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 localHole: roundHole.sourceLocalHole
             ))
         }
+        // A resumed or revalidated course starts from whatever is already durable.
+        publishLiveCourseDownloadProgress()
         let retryDelays = offlineGeometryRetryDelaysNanoseconds
         for attempt in 0...retryDelays.count {
             var batchRequests: [OfflinePrepBatchRequest] = []
@@ -2633,6 +2660,7 @@ public final class LiveRoundAppModel: ObservableObject {
                                 state.totalHoles = max(1, snapshot.holes.count)
                             }
                         }
+                        publishLiveCourseDownloadProgress()
                     } catch {
                         AICaddieLog.storage.error(
                             "Offline topo cache save failed for \(download.globalId, privacy: .public)/\(download.localHole, privacy: .public): \(String(describing: error), privacy: .public)"
@@ -2660,6 +2688,7 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         }
 
+        publishLiveCourseDownloadProgress()
         guard !Task.isCancelled else { return false }
         var replacementCompleted = false
         do {

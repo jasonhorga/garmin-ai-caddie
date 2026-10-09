@@ -260,6 +260,37 @@ final class DesignSnapshotTests: XCTestCase {
         try render(view, named: "sign-in")
     }
 
+    /// 设置 → 离线球场 (the only place download progress appears). ImageRenderer cannot draw a
+    /// List, so the section is laid out in a plain stack at the settings width.
+    @MainActor
+    func testRenderSettingsOfflineCourses() throws {
+        func record(_ id: Int, _ name: String, _ phase: PrepCourseDownloadPhase, _ downloaded: Int) -> PrepCourseDownloadRecord {
+            PrepCourseDownloadRecord(
+                course: MobileCourseOption(globalId: id, name: name, holes: 18, teeBox: "blue"),
+                teeBox: "blue",
+                phase: phase,
+                downloadedHoles: downloaded,
+                totalHoles: 18
+            )
+        }
+        let rows = OfflineCourseDownloadRow.rows(
+            live: LiveCourseDownloadProgress(roundId: "r", courseName: "北京丽宫", readyHoles: 7, totalHoles: 18),
+            liveRoundId: "r",
+            downloads: [
+                record(2, "华彬庄园", .downloading, 12),
+                record(3, "北京高尔夫俱乐部", .queued, 0),
+                record(4, "北湖九号", .ready, 18),
+            ]
+        )
+        let view = VStack(alignment: .leading, spacing: 12) {
+            OfflineCourseDownloadsSection(rows: rows)
+        }
+        .padding(16)
+        .frame(width: 390, alignment: .leading)
+        .background(Color(.systemBackground))
+        try render(view, named: "settings-offline-courses")
+    }
+
     @MainActor
     func testRenderRoundHome() throws {
         // README §8 home main card, all three states: in progress, a known course, no course.

@@ -660,3 +660,82 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         return min(max(Double(downloadedHoles) / Double(totalHoles), 0), 1)
     }
 }
+
+/// Whole-course offline readiness of the live round's own course. A hole counts only once its
+/// precise facts and its revision-keyed topo bitmap are both durable on this phone — the same
+/// test the prep library uses for `downloadedHoles`. Design README §8 keeps download status off
+/// the play and prep screens, so only 设置 → 离线球场 shows it.
+public struct LiveCourseDownloadProgress: Equatable {
+    public let roundId: String
+    public let courseName: String
+    public let readyHoles: Int
+    public let totalHoles: Int
+
+    public init(roundId: String, courseName: String, readyHoles: Int, totalHoles: Int) {
+        self.roundId = roundId
+        self.courseName = courseName
+        self.totalHoles = max(1, totalHoles)
+        self.readyHoles = min(max(0, readyHoles), self.totalHoles)
+    }
+
+    public var fraction: Double {
+        Double(readyHoles) / Double(totalHoles)
+    }
+
+    public var isComplete: Bool { readyHoles == totalHoles }
+}
+
+/// 设置 → 离线球场: one row per course download — the live round's own course first, then the
+/// prep library newest first. Pure input → rows, so the settings section stays a thin renderer.
+public struct OfflineCourseDownloadRow: Equatable, Identifiable {
+    public let id: String
+    public let title: String
+    public let subtitle: String?
+    public let status: String
+    /// Non-nil only while holes are still arriving; a finished, queued or failed row has no bar.
+    public let fraction: Double?
+
+    public static func rows(
+        live: LiveCourseDownloadProgress?,
+        liveRoundId: String?,
+        downloads: [PrepCourseDownloadRecord]
+    ) -> [OfflineCourseDownloadRow] {
+        var rows: [OfflineCourseDownloadRow] = []
+        // The published value outlives its round until the next download replaces it; a finished,
+        // discarded or other-account round must not keep a row here.
+        if let live, let liveRoundId, live.roundId == liveRoundId {
+            rows.append(OfflineCourseDownloadRow(
+                id: "live:\(live.roundId)",
+                title: live.courseName,
+                subtitle: "本场",
+                status: live.isComplete
+                    ? "已下载 \(live.totalHoles) 洞"
+                    : "已下载 \(live.readyHoles)/\(live.totalHoles) 洞",
+                fraction: live.isComplete ? nil : live.fraction
+            ))
+        }
+        for download in downloads {
+            let status: String
+            var fraction: Double?
+            switch download.phase {
+            case .queued:
+                status = "等待下载"
+            case .preparing, .downloading:
+                status = "已下载 \(min(download.downloadedHoles, download.totalHoles))/\(download.totalHoles) 洞"
+                fraction = download.progressFraction
+            case .ready:
+                status = "已下载 \(download.totalHoles) 洞"
+            case .failed:
+                status = download.isTerminalFailure ? "暂不支持备战" : "下载失败"
+            }
+            rows.append(OfflineCourseDownloadRow(
+                id: "prep:\(download.id)",
+                title: download.course.localizedName,
+                subtitle: MobileCourseSearchView.recentRowSubtitle(download),
+                status: status,
+                fraction: fraction
+            ))
+        }
+        return rows
+    }
+}

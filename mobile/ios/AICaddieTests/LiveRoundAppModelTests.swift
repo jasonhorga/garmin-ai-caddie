@@ -3,6 +3,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import Combine
 import Network
 import XCTest
 @testable import AICaddie
@@ -2288,6 +2289,119 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(requestLock.withLock { packageRequestCount }, 1)
         XCTAssertEqual(model.package?.holes.count, complete.holes.count)
         XCTAssertEqual(model.package?.holes.count, complete.holes.count)
+    }
+
+    /// 设置 → 离线球场 reads the live round's whole-course progress. It counts a hole only once its
+    /// precise facts and topo are both on disk, climbs hole by hole (never in one jump at the end),
+    /// and finishes at the round's hole count.
+    func testLiveCourseDownloadPublishesPerHoleProgressUntilComplete() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try nineHoleFixturePackage()
+        let holes = (1...9).map { number in
+            Hole(
+                number: number,
+                par: number % 3 == 0 ? 3 : 4,
+                yards: 320 + number * 10,
+                geometryCoverage: .ready,
+                sourceGlobalId: source.course.globalId,
+                sourceLocalHole: number,
+                courseHoleNumber: number
+            )
+        }
+        let online = package(
+            source,
+            roundId: "progress-round",
+            recentRounds: source.recentHistory.rounds,
+            holes: holes
+        ).replacingCoursePrep(nil)
+        let packageData = try JSONEncoder().encode(online)
+        let png = minimalPNGData()
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let body: Data
+            let contentType: String
+            switch url.path {
+            case let path where path.contains("/api/v2/mobile/courses/"):
+                body = packageData
+                contentType = "application/json"
+            case let path where path.hasSuffix("/prep"):
+                let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .filter { $0.name == "holes" }
+                    .compactMap { $0.value.flatMap(Int.init) } ?? []
+                body = try self.offlinePrepResponseData(for: online, localHoles: requested)
+                contentType = "application/json"
+            case let path where path.hasSuffix("/topo.png"):
+                body = png
+                contentType = "image/png"
+            default:
+                body = Data(#"{"queued":true}"#.utf8)
+                contentType = "application/json"
+            }
+            return (
+                HTTPURLResponse(
+                    url: url,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": contentType]
+                )!,
+                body
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://progress.example.test")!,
+            session: session,
+            retrySleep: { _ in }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: client.baseURL,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: client
+        )
+        var published: [LiveCourseDownloadProgress] = []
+        let subscription = model.$liveCourseDownloadProgress
+            .compactMap { $0 }
+            .sink { published.append($0) }
+        defer { subscription.cancel() }
+
+        await model.prepareCourseRound(
+            roundId: online.roundId,
+            teeBox: online.course.teeBox,
+            loops: online.loopEntries
+        )
+        model.liveHoleInitialLoadDidFinish()
+        await model.waitForOfflineCourseDownloadForTesting()
+
+        XCTAssertTrue(published.allSatisfy { $0.roundId == online.roundId && $0.totalHoles == 9 })
+        XCTAssertEqual(published.first?.readyHoles, 0, "a cold course starts from nothing on disk")
+        XCTAssertEqual(published.last?.readyHoles, 9)
+        XCTAssertEqual(model.liveCourseDownloadProgress?.isComplete, true)
+        XCTAssertEqual(
+            published.map(\.readyHoles),
+            published.map(\.readyHoles).sorted(),
+            "progress never goes backwards"
+        )
+        XCTAssertGreaterThan(
+            Set(published.map(\.readyHoles)).count,
+            2,
+            "progress must climb as holes land, not only at the start and the end"
+        )
+        XCTAssertEqual(
+            OfflineCourseDownloadRow.rows(
+                live: model.liveCourseDownloadProgress,
+                liveRoundId: model.liveRoundState?.roundId,
+                downloads: model.prepCourseDownloads
+            ).first?.status,
+            "已下载 9 洞"
+        )
     }
 
     func testOnlineCourseStartRetainsAllHolePrepAndTopoForLaterOfflineUse() async throws {
