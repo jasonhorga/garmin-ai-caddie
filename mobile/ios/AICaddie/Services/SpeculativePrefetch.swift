@@ -149,10 +149,30 @@ enum NewAreaPrefetch {
     /// The Tee for a course the player never played (Jason, 2026-10-09: "就下蓝 T").
     static let unplayedTee = "blue"
 
-    /// The nearby rows to try, nearest first, or [] when this is not a new area: a played course
-    /// (catalogue rounds or the last course started) is among the nearby rows or within
-    /// `areaMetres`, or the last area taken is within `areaMetres`. With no played course known
-    /// yet (catalogue not loaded, or a new player) there is no home to be away from: [].
+    /// Whether `latitude, longitude` is somewhere new: some played course is known (catalogue
+    /// rounds or the last course started; with none there is no home to be away from), none is
+    /// among `courseIDs` or within `areaMetres`, and the last area taken is not within it either.
+    static func isNewArea(
+        latitude: Double,
+        longitude: Double,
+        courseIDs: [Int],
+        played: [MobileCourseOption],
+        anchor: (latitude: Double, longitude: Double)?
+    ) -> Bool {
+        guard !played.isEmpty else { return false }
+        if let anchor,
+           GeoDistance.haversineMetres(latitude, longitude, anchor.latitude, anchor.longitude) < areaMetres {
+            return false
+        }
+        let playedIDs = Set(played.map(\.globalId))
+        guard !courseIDs.contains(where: playedIDs.contains) else { return false }
+        return !played.contains { course in
+            guard let lat = course.latitude, let lon = course.longitude else { return false }
+            return GeoDistance.haversineMetres(latitude, longitude, lat, lon) < areaMetres
+        }
+    }
+
+    /// The nearby rows to try, nearest first, or [] when this is not a new area (`isNewArea`).
     static func courses(
         matches: [MobileCourseSearchMatch],
         latitude: Double,
@@ -160,18 +180,13 @@ enum NewAreaPrefetch {
         played: [MobileCourseOption],
         anchor: (latitude: Double, longitude: Double)?
     ) -> [MobileCourseOption] {
-        if let anchor,
-           StartRoundView.haversineMetres(latitude, longitude, anchor.latitude, anchor.longitude) < areaMetres {
-            return []
-        }
-        guard !played.isEmpty else { return [] }
-        let playedIDs = Set(played.map(\.globalId))
-        guard !matches.contains(where: { playedIDs.contains($0.globalId) }) else { return [] }
-        let nearHome = played.contains { course in
-            guard let lat = course.latitude, let lon = course.longitude else { return false }
-            return StartRoundView.haversineMetres(latitude, longitude, lat, lon) < areaMetres
-        }
-        guard !nearHome else { return [] }
+        guard isNewArea(
+            latitude: latitude,
+            longitude: longitude,
+            courseIDs: matches.map(\.globalId),
+            played: played,
+            anchor: anchor
+        ) else { return [] }
         var seen = Set<Int>()
         return matches
             .filter { $0.globalId > 0 && seen.insert($0.globalId).inserted }
@@ -217,14 +232,20 @@ enum NewAreaPrefetch {
     }
 }
 
-/// A nearby answer taken somewhere new: where, and its nearest courses. Once their Tees were read,
-/// the answers (nil Tee = skipped) and whether every lookup answered.
+/// A nearby answer taken somewhere new: where, its nearest courses, and what is known of their
+/// Tees so far (a course answered without a blue Tee, or whose lookup failed, is skipped).
 struct NewAreaRequest {
-    typealias Answer = (course: MobileCourseOption, tee: String?)
-
     var latitude: Double
     var longitude: Double
     var courses: [MobileCourseOption]
-    var answers: [Answer]?
-    var complete = false
+    /// Blue Tees read so far, by course.
+    var tees: [Int: String] = [:]
+    /// Courses settled: Tee read (or none), lookup failed, or already on the phone or listed.
+    var answered: Set<Int> = []
+
+    var isComplete: Bool { Set(courses.map(\.globalId)).isSubset(of: answered) }
+
+    func isSameArea(as other: NewAreaRequest) -> Bool {
+        GeoDistance.haversineMetres(latitude, longitude, other.latitude, other.longitude) < NewAreaPrefetch.areaMetres
+    }
 }

@@ -386,21 +386,28 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertTrue(rows.allSatisfy(\.isSpeculative))
     }
 
-    /// Records the Tee lookups the stubbed backend answered.
+    /// Records the Tee lookups the stubbed backend received; lookups of `held` courses never answer.
     private final class TeeLookups: @unchecked Sendable {
         private let lock = NSLock()
         private var ids: [Int] = []
+        private var heldIDs: Set<Int> = []
         func append(_ id: Int) { lock.withLock { ids.append(id) } }
         var all: [Int] { lock.withLock { ids } }
+        var held: Set<Int> {
+            get { lock.withLock { heldIDs } }
+            set { lock.withLock { heldIDs = newValue } }
+        }
     }
 
     /// A model whose backend answers nearby with `nearby` rows (id, km, holes) and each course's
-    /// Tees with blue + white, except `noBlue` courses (black only). Every other request (the
+    /// Tees with blue + white, except `noBlue` courses (black only) and `failing` courses (an
+    /// unreadable answer). Every other request (the
     /// queued downloads) never answers, so queued rows stay put. The home course is the last one
     /// started.
     private func newAreaModel(
         nearby: [(id: Int, km: Double, holes: Int)],
-        noBlue: Set<Int> = []
+        noBlue: Set<Int> = [],
+        failing: Set<Int> = []
     ) throws -> (LiveRoundAppModel, TeeLookups) {
         let store = OfflineStore(directoryURL: directory)
         try store.saveRecentCourseSelection(homeCourse())
@@ -418,6 +425,8 @@ final class SpeculativePrefetchTests: XCTestCase {
                 return nil
             }
             lookups.append(id)
+            if lookups.held.contains(id) { return nil }
+            if failing.contains(id) { return "{}" }
             let tees = noBlue.contains(id)
                 ? #"[{"teeBox":"black","name":"黑","default":true}]"#
                 : #"[{"teeBox":"white","name":"白"},{"teeBox":"blue","name":"蓝","default":true}]"#
@@ -506,6 +515,51 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertEqual(newAreaGuesses(model), [31, 32])
         XCTAssertEqual(lookups.all.sorted(), [31, 32], "the waiting course kept its Tee")
         XCTAssertNotNil(NewAreaPrefetch.loadAnchor())
+    }
+
+    /// A course whose lookup fails is skipped, not looked up again; the area is still taken.
+    func testAFailedLookupSkipsItsCourse() async throws {
+        let (model, lookups) = try newAreaModel(nearby: [(51, 0.4, 18), (52, 1.0, 18)], failing: [51])
+        model.publishOfflineStorageUsageForTesting(empty)
+        model.setNetworkStateForTesting(wifi)
+
+        _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
+        await model.waitForNewAreaPassForTesting()
+        XCTAssertEqual(newAreaGuesses(model), [52])
+        XCTAssertNotNil(NewAreaPrefetch.loadAnchor())
+        XCTAssertEqual(lookups.all.sorted(), [51, 52])
+    }
+
+    /// Losing Wi-Fi mid-lookup stops the lookups (none runs on cellular); the area waits, and Wi-Fi
+    /// again reads only what was not read.
+    func testLosingWiFiStopsTheLookups() async throws {
+        let (model, lookups) = try newAreaModel(nearby: [(61, 0.4, 18), (62, 1.0, 18)])
+        lookups.held = [61]
+        model.publishOfflineStorageUsageForTesting(empty)
+        model.setNetworkStateForTesting(wifi)
+
+        _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
+        for _ in 0..<2_000 where lookups.all.isEmpty { try await Task.sleep(nanoseconds: 1_000_000) }
+        XCTAssertEqual(lookups.all, [61], "the first lookup is in flight")
+        model.setNetworkStateForTesting(cellular)
+        await model.waitForNewAreaPassForTesting()
+        XCTAssertEqual(lookups.all, [61], "62 is not looked up on cellular")
+        XCTAssertEqual(newAreaGuesses(model), [])
+        XCTAssertNil(NewAreaPrefetch.loadAnchor())
+
+        lookups.held = []
+        model.setNetworkStateForTesting(wifi)
+        await model.waitForNewAreaPassForTesting()
+        XCTAssertEqual(lookups.all, [61, 61, 62])
+        XCTAssertEqual(newAreaGuesses(model), [61, 62])
+        XCTAssertNotNil(NewAreaPrefetch.loadAnchor())
+    }
+
+    /// Played there since: a waiting area is dropped before any lookup.
+    func testAWaitingAreaIsDroppedOncePlayedThere() {
+        XCTAssertTrue(NewAreaPrefetch.isNewArea(latitude: away.latitude, longitude: away.longitude, courseIDs: [1], played: [homeCourse()], anchor: nil))
+        let playedHere = MobileCourseOption(globalId: 1, name: "这里", roundCount: 1, teeBox: "white")
+        XCTAssertFalse(NewAreaPrefetch.isNewArea(latitude: away.latitude, longitude: away.longitude, courseIDs: [1], played: [homeCourse(), playedHere], anchor: nil))
     }
 }
 

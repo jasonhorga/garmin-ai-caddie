@@ -1220,6 +1220,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private func beginRoundPreparation() -> UUID {
         let token = UUID()
         roundPreparationToken = token
+        newAreaTask?.cancel()
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
         offlineCourseDownloadRoundId = nil
@@ -4309,14 +4310,17 @@ public final class LiveRoundAppModel: ObservableObject {
         record.updatedAt = Date()
     }
 
-    private func persistPrepCourseDownloads() {
+    @discardableResult
+    private func persistPrepCourseDownloads() -> Bool {
         prepCourseDownloads.sort { $0.updatedAt > $1.updatedAt }
         do {
             try offlineStore.savePrepCourseDownloads(prepCourseDownloads)
+            return true
         } catch {
             AICaddieLog.storage.error(
                 "Prep course download state save failed: \(String(describing: error), privacy: .public)"
             )
+            return false
         }
     }
 
@@ -4527,6 +4531,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// is paused (back to queued) and none starts until every such request has finished.
     private func beginForegroundCourseRequest() {
         foregroundCourseRequestCount += 1
+        newAreaTask?.cancel()
         abandonResultsCacheRefresh(retryLater: true)
         if let active = activePrepCourseDownloadID,
            prepCourseDownloads.first(where: { $0.id == active })?.yieldsToForeground == true {
@@ -4538,6 +4543,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private func endForegroundCourseRequest() {
         foregroundCourseRequestCount = max(0, foregroundCourseRequestCount - 1)
         guard foregroundCourseRequestCount == 0, roundPreparationToken == nil else { return }
+        if pendingNewArea != nil {
+            scheduleSpeculativePrepCourseDownloads()
+        }
         startPrepCourseDownloadQueueIfNeeded()
         resumePendingResultsCacheRefresh()
     }
@@ -4816,6 +4824,8 @@ public final class LiveRoundAppModel: ObservableObject {
     private func applySpeculativeDownloadPolicy() {
         if speculativeDownloadsAllowed {
             scheduleSpeculativePrepCourseDownloads()
+        } else {
+            newAreaTask?.cancel()
         }
         startPrepCourseDownloadQueueIfNeeded()
     }
@@ -4831,9 +4841,12 @@ public final class LiveRoundAppModel: ObservableObject {
             return
         }
         guard room > 0, newAreaTask == nil else { return }
-        // Somewhere new: its nearest courses take the room first; the pass calls back here.
+        // Somewhere new: its nearest courses take the room first; the pass calls back here. Its
+        // Tee lookups wait for the player's own course requests (`endForegroundCourseRequest`).
         if let area = pendingNewArea {
-            startNewAreaPass(area)
+            if foregroundCourseRequestCount == 0 {
+                startNewAreaPass(area)
+            }
             return
         }
         let rows = SpeculativePrefetch.candidates(
@@ -4853,104 +4866,134 @@ public final class LiveRoundAppModel: ObservableObject {
         startPrepCourseDownloadQueueIfNeeded()
     }
 
+    /// Courses the player has played: the catalogue's and the last course started.
+    private var playedCourseOptions: [MobileCourseOption] {
+        courseOptions.filter { $0.roundCount > 0 } + [recentCourseOption].compactMap { $0 }
+    }
+
+    /// Tee lookups may run: guesses may, and the player has no course request open.
+    private var newAreaLookupsMayRun: Bool {
+        speculativeJobsMayRun && foregroundCourseRequestCount == 0
+    }
+
     /// A nearby answer (the home card or 开始一场): somewhere new, its nearest courses wait for the
-    /// next speculative pass; anywhere else nothing waits.
+    /// next speculative pass; anywhere else nothing waits. A newer answer from the same area keeps
+    /// what was already read for it.
     private func noteNearbyCourses(_ matches: [MobileCourseSearchMatch], latitude: Double, longitude: Double) {
         guard liveRoundState == nil else { return }
         let courses = NewAreaPrefetch.courses(
             matches: matches,
             latitude: latitude,
             longitude: longitude,
-            played: courseOptions.filter { $0.roundCount > 0 } + [recentCourseOption].compactMap { $0 },
+            played: playedCourseOptions,
             anchor: NewAreaPrefetch.loadAnchor()
         )
-        pendingNewArea = courses.isEmpty
-            ? nil
-            : NewAreaRequest(latitude: latitude, longitude: longitude, courses: courses)
-        if pendingNewArea != nil {
-            scheduleSpeculativePrepCourseDownloads()
-        }
-    }
-
-    /// Reads the Tees of the new area's courses that are not on the phone or listed yet (a course
-    /// is downloaded under its blue Tee or not at all), then queues them in `finishNewAreaPass`.
-    /// An area that already has its answers (it waited for room or a measurement) skips the reads.
-    private func startNewAreaPass(_ area: NewAreaRequest) {
-        pendingNewArea = nil
-        if let answers = area.answers {
-            finishNewAreaPass(area, answers: answers, complete: area.complete)
+        guard !courses.isEmpty else {
+            pendingNewArea = nil
             return
         }
-        // Taken meanwhile by the pass this answer arrived during.
-        if let anchor = NewAreaPrefetch.loadAnchor(),
-           StartRoundView.haversineMetres(area.latitude, area.longitude, anchor.latitude, anchor.longitude)
-            < NewAreaPrefetch.areaMetres {
+        let area = NewAreaRequest(latitude: latitude, longitude: longitude, courses: courses)
+        if let pending = pendingNewArea, pending.isSameArea(as: area) { return }
+        pendingNewArea = area
+        scheduleSpeculativePrepCourseDownloads()
+    }
+
+    /// Keeps `area` waiting unless a newer answer from another area replaced it meanwhile.
+    private func parkNewArea(_ area: NewAreaRequest) {
+        if let newer = pendingNewArea, !newer.isSameArea(as: area) { return }
+        pendingNewArea = area
+    }
+
+    /// Reads the blue Tees of the area's courses not settled yet (on the phone, listed, or read
+    /// before), one at a time while lookups may run, then queues in `finishNewAreaPass`. A lookup
+    /// that fails settles its course as skipped, so a pass never repeats for the same course; one
+    /// stopped by the network, a round or a course request leaves the rest for the next pass.
+    private func startNewAreaPass(_ request: NewAreaRequest) {
+        var area = request
+        pendingNewArea = nil
+        // Somewhere it no longer is new: taken meanwhile, or played there since it was noted.
+        guard NewAreaPrefetch.isNewArea(
+            latitude: area.latitude,
+            longitude: area.longitude,
+            courseIDs: area.courses.map(\.globalId),
+            played: playedCourseOptions,
+            anchor: NewAreaPrefetch.loadAnchor()
+        ) else {
             scheduleSpeculativePrepCourseDownloads()
             return
         }
         guard let syncClient else { return }
-        let open = NewAreaPrefetch.candidates(
-            courses: area.courses.map { ($0, NewAreaPrefetch.unplayedTee) },
+        let unsettled = area.courses.filter { !area.answered.contains($0.globalId) }
+        let missing = NewAreaPrefetch.candidates(
+            courses: unsettled.map { ($0, NewAreaPrefetch.unplayedTee) },
             existingIDs: Set(prepCourseDownloads.map(\.id)).union(failedSpeculativeDownloadIDs),
             lastUsed: offlineStore.loadCourseUsage(),
             now: Date(),
             isInstalled: { readyPrepTemplate(for: $0) != nil }
         ).map(\.course)
+        let missingIDs = Set(missing.map(\.globalId))
+        area.answered.formUnion(unsettled.map(\.globalId).filter { !missingIDs.contains($0) })
+        guard !missing.isEmpty else {
+            finishNewAreaPass(area)
+            return
+        }
+        let settled = area
         newAreaTask = Task { [weak self] in
-            var answers: [NewAreaRequest.Answer] = []
-            for course in open {
+            var area = settled
+            for course in missing {
+                guard let self, !Task.isCancelled, self.newAreaLookupsMayRun else { break }
                 do {
                     let tees = try await syncClient.fetchCourseTees(globalId: course.globalId).tees
-                    answers.append((course, NewAreaPrefetch.tee(offered: tees)))
+                    if let tee = NewAreaPrefetch.tee(offered: tees) {
+                        area.tees[course.globalId] = tee
+                    }
+                    area.answered.insert(course.globalId)
                 } catch {
+                    if Task.isCancelled { break }
                     AICaddieLog.storage.info(
-                        "New-area Tee lookup failed: \(course.globalId, privacy: .public) \(String(describing: error), privacy: .public)"
+                        "New-area Tee lookup failed, course skipped: \(course.globalId, privacy: .public) \(String(describing: error), privacy: .public)"
                     )
+                    area.answered.insert(course.globalId)
                 }
             }
-            self?.finishNewAreaPass(area, answers: answers, complete: answers.count == open.count)
+            self?.finishNewAreaPass(area)
         }
     }
 
-    /// Queues the new area's courses that have a blue Tee, under the same gates and room as any
-    /// guess. Courses that do not fit wait with their answers for room, ahead of the 可能会打 list.
-    /// The area is taken (anchored) only once every Tee lookup answered and every course fitted,
-    /// so a lookup lost to the network is tried again on the next nearby answer.
-    private func finishNewAreaPass(
-        _ area: NewAreaRequest,
-        answers: [NewAreaRequest.Answer],
-        complete: Bool
-    ) {
+    /// Queues the area's blue-Tee courses under the same gates and room as any guess. Courses that
+    /// do not fit, or are not settled yet, wait with what is known (ahead of the 可能会打 list). The
+    /// area is taken (anchored) once every course is settled and queued, after the list is saved.
+    private func finishNewAreaPass(_ area: NewAreaRequest) {
         newAreaTask = nil
-        var area = area
-        area.answers = answers
-        area.complete = complete
         guard speculativeJobsMayRun, let room = speculativeCourseRoom else {
-            // The network or a round stopped guesses, or a download wrote since the measurement:
-            // the area waits for the next pass (a newer nearby answer replaces it).
-            if pendingNewArea == nil { pendingNewArea = area }
+            // The network or a round stopped guesses, or a download wrote since the measurement.
+            parkNewArea(area)
             scheduleSpeculativePrepCourseDownloads()
             return
         }
         let rows = NewAreaPrefetch.candidates(
-            courses: answers,
+            courses: area.courses.map { ($0, area.tees[$0.globalId]) },
             existingIDs: Set(prepCourseDownloads.map(\.id)).union(failedSpeculativeDownloadIDs),
             lastUsed: offlineStore.loadCourseUsage(),
             now: Date(),
             isInstalled: { readyPrepTemplate(for: $0) != nil }
         )
         let queued = Array(rows.prefix(max(0, room)))
-        if queued.count < rows.count {
-            if pendingNewArea == nil { pendingNewArea = area }
-        } else if complete {
-            NewAreaPrefetch.saveAnchor(latitude: area.latitude, longitude: area.longitude)
-        }
         if !queued.isEmpty {
             AICaddieLog.storage.info(
                 "New-area course downloads queued: \(queued.map(\.id).joined(separator: ","), privacy: .public)"
             )
             prepCourseDownloads += queued
-            persistPrepCourseDownloads()
+        }
+        guard persistPrepCourseDownloads() else {
+            // Not on disk: not taken. It waits for the next trigger rather than retrying now.
+            parkNewArea(area)
+            return
+        }
+        if queued.count < rows.count || !area.isComplete {
+            parkNewArea(area)
+        } else {
+            NewAreaPrefetch.saveAnchor(latitude: area.latitude, longitude: area.longitude)
         }
         // The 可能会打 list takes what room is left.
         scheduleSpeculativePrepCourseDownloads()
