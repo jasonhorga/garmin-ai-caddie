@@ -1,24 +1,23 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 16:38 UTC
+**Updated:** 2026-10-10 16:11 UTC
 **Canonical branch:** main; product merge d3f05e13b884773041e4ad22c3f0343e9bcd3201
-**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
+**Current slice:** `PR413-REVIEW` — `in-progress`
 
 ## Current state and deduplication
 
-#413 head a6ff242d2086096303e62906104e1d8c2a4bc56b reviewed in6099765021:
-one P2, not merged. Bottom-fit pass can move left-side multi-leg labels back
-inside the newly excluded rootFactsFrame; concrete41mm rectangle case is in
-the comment/evidence. Require final exclusion/bounds/nonoverlap properties and
-crowded four-leg tests on41/45/49mm, then review the new exact head.
-Contracts126/5.402s/OK; CI38063457169 green. Native38063457127 iOS785/0,
-Watch451/0 plus2 UI tests; checkout12a05637 parent2 is exact head.
-All144 PNGs downloaded:136 match #412,8 intended root changes inspected against
-owner request/README/B6/prototype. Normal full-bleed/player/chip/plays-like
-layout looks correct. Snapshot/containers closed; source/artifacts/review retained.
+#413 head a6ff242d2086096303e62906104e1d8c2a4bc56b is green (CI38063457169,
+Native38063457127) and awaiting exact-head review. Claude request6099062967
+at15:24:29 UTC identifies the owner-selected full-bleed Watch root layout.
+Compare intended root changes to that feedback and README/prototype/B6,
+not mechanically to the old split layout. Download both Native snapshot
+artifacts; inspect changed images and prove unchanged baseline hashes.
+No feedback waiter is pending during this review.
 
 Owner resumed review after the historical October9 cutoff. #404–#412 were
 reviewed at exact heads, approved by comment, merged and their branches deleted.
@@ -41,9 +40,9 @@ passed. Result report: docs/operations/2026-10-10-pr408-backend-deploy.md.
 
 ## Unfinished queue
 
-- `PR413-REVIEW` — `blocked`: P2 comment6099765021 at a6ff242d; author fix
-  and new exact-head Native/contract/visual verification required. Do not merge.
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: resume one same-turn feedback
+- `PR413-REVIEW` — `in-progress`: exact head a6ff242d; contracts, Native
+  provenance/artifacts and visual/interaction review pending.
+- `PR-FEEDBACK-CONTINUOUS` — `queued`: resume one same-turn feedback
   terminal after review; deduplicate old/self events.
 - `PR408-BACKEND-DEPLOY` — `done`: f9586f6c API and matching sync are live;
   manual incremental sync ended15:41:15 UTC with sync ok/done.
@@ -105,24 +104,21 @@ passed. Result report: docs/operations/2026-10-10-pr408-backend-deploy.md.
 - b0f64b65 prior production stopped/retained for rollback; older3614bf6f rollback
   remains protected. Existing deploy-tools refreshed and pinned to f9586f6c;
   prior tool copies retained in evidence. Shared sync lock belongs to the host.
-- #408 local controls were backed up/hash-matched and removed (seven files).
+- Local helper files for this slice are backed up and hash-checked before removal.
   Preserve unrelated dirty ops/pr_feedback_monitor.sh and older .codex-* files.
   Local main's older two docs commits remain intact; publish this slice via the
   clean remote Git checkout, without rewriting the local branch or dirty work.
 - No pending feedback wait at deployment closeout. Resume it in the same control
   turn after pushing this real operations change. gh-feedback timer/cursor unchanged.
-- #413 evidence: /home/jason/garmin-ai-caddie-data/operations/pr413-a6ff242d-20261010.
-  Snapshot removed28,259,017 bytes after1,275 archive-file hashes/open-file checks;
-  --rm contracts/visual containers absent. Native artifacts/144 PNGs/comparison/
-  contact sheets/provenance/P2 review/cleanup retained. Local helpers/two sheets
-  are hash-matched to remote copies and closed after review publication.
-  No active snapshot, implementation worktree, preview/tunnel or subagent.
+- New #413 resources: snapshot /dev/shm/codex-pr413-a6ff242d-review-20261010;
+  persistent evidence /home/jason/garmin-ai-caddie-data/operations/pr413-a6ff242d-20261010.
+  Read-only review/--rm contracts container; expire2026-10-11 16:11 UTC.
+  Manifest .codex-pr413-a6ff242d-review-manifest.md; no new worktree/service/agent.
 
 ## Next action and stopping
 
-Consume feedback from the durable cursor; prioritize the #413 P2 correction and
-the #406 atomic-writer fixture follow-up when they arrive. Review each new exact
-head/Native artifacts, then approve/merge/delete only when clear. Resume
+Complete #413 exact-head review, post P1/P2/nonblocking findings or approve/merge
+and delete the source branch when clear. Close temporary review resources; resume
 ops/wait_for_conclusion.sh --feedback in one same-turn background terminal.
 Wait300000ms, read its handle once, repeat until its one-line terminal result.
 Do not inspect waiter liveness or run a second monitor. Only then read the
@@ -131,7 +127,7 @@ ignore Codex comments/commits/CI as feedback or quiet resets.
 
 The historical October9 cutoff was superseded by the owner's explicit resume.
 Stop after48h with no external PR events and no open PRs, or an owner stop.
-Latest handled external event: #413 Native CI completion2026-10-10 15:36:54 UTC;
-earliest quiet stop2026-10-12 15:36:54 UTC, conditional on no newer external
+Latest handled external event: #413 comment6099062967 at2026-10-10 15:24:29 UTC;
+earliest quiet stop2026-10-12 15:24:29 UTC, conditional on no newer external
 events and no open PRs. Verify both conditions before completing the goal.
 Keep this ledger≤200 lines.
