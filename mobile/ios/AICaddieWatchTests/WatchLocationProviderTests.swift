@@ -20,8 +20,8 @@ final class WatchLocationProviderTests: XCTestCase {
     }
 
     /// Battery report 2026-10-10: every published fix or heading redraws the round UI. A standing
-    /// player's 1 Hz fixes are republished only on a 2 m move, a 3 m accuracy change, or every 8 s
-    /// (inside the 15 s rangefinder window).
+    /// player's 1 Hz fixes are republished only on a 2 m move, a 3 m accuracy change, or every 5 s
+    /// (inside the 15 s rangefinder and 10 s swing-speed windows).
     func testUnchangedFixesAreRepublishedOnlyOftenEnoughToStayLive() {
         let previous = WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116),
@@ -45,15 +45,24 @@ final class WatchLocationProviderTests: XCTestCase {
             capturedAt: previous.capturedAt, speedMps: 4, speedAccuracyMps: 1
         )
         XCTAssertTrue(WatchLocationProvider.shouldPublish(
-            previous: riding, previousPublishedAt: publishedAt, next: location(speed: 0.5), now: now.addingTimeInterval(1)
+            previous: riding, previousPublishedAt: publishedAt, next: location(speed: 0.5, speedAccuracy: 1), now: now.addingTimeInterval(1)
         ), "the cart stopped: the swing riding gate must see it")
+        XCTAssertTrue(WatchLocationProvider.shouldPublish(
+            previous: riding, previousPublishedAt: publishedAt, next: location(speed: 4, speedAccuracy: 3),
+            now: now.addingTimeInterval(1)
+        ), "speed turned too uncertain for the riding gate")
         XCTAssertTrue(WatchLocationProvider.shouldPublish(
             previous: previous, previousPublishedAt: publishedAt, next: location(),
             now: now.addingTimeInterval(WatchLocationProvider.stationaryRepublishSeconds)
         ), "standing still: republished before the 15 s window lapses")
         XCTAssertLessThan(
-            WatchLocationProvider.stationaryRepublishSeconds,
+            WatchLocationProvider.stationaryRepublishSeconds + 2,
             WatchLocationProvider.maximumLiveRangefinderAgeSeconds
+        )
+        XCTAssertLessThan(
+            WatchLocationProvider.stationaryRepublishSeconds + 2,
+            WatchSwingCollectionSession.maximumSpeedAgeS,
+            "1 s fix cadence + 1 s ISO8601 truncation"
         )
     }
 
@@ -133,7 +142,8 @@ final class WatchLocationProviderTests: XCTestCase {
         longitude: Double = 116,
         accuracy: Double = 5,
         age: TimeInterval = 0,
-        speed: Double = -1
+        speed: Double = -1,
+        speedAccuracy: Double = -1
     ) -> CLLocation {
         CLLocation(
             coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
@@ -141,7 +151,9 @@ final class WatchLocationProviderTests: XCTestCase {
             horizontalAccuracy: accuracy,
             verticalAccuracy: 5,
             course: -1,
+            courseAccuracy: -1,
             speed: speed,
+            speedAccuracy: speedAccuracy,
             timestamp: now.addingTimeInterval(-age)
         )
     }

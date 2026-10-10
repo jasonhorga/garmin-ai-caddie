@@ -152,10 +152,11 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
 
     /// Every fix arrives (no distance filter), but republishing an unchanged position each second
     /// redraws the whole round UI. Publish a move of 2 m, an accuracy change of 3 m, a ground-speed
-    /// change of 1 m/s (a cart stopping must reach the swing riding gate), or at least every
-    /// `stationaryRepublishSeconds` — well inside the 15 s rangefinder window — so a player standing
-    /// still keeps a live range without a redraw per fix.
-    public static let stationaryRepublishSeconds: TimeInterval = 8
+    /// or speed-accuracy change of 1 m/s (a cart stopping must reach the swing riding gate), or at
+    /// least every `stationaryRepublishSeconds` — inside both the 15 s rangefinder window and the
+    /// 10 s swing-speed window — so a player standing still keeps a live range and a usable speed
+    /// without a redraw per fix.
+    public static let stationaryRepublishSeconds: TimeInterval = 5
 
     static func shouldPublish(
         previous: WatchLocationFix?,
@@ -168,17 +169,21 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
             latitude: previous.coordinate.latitude,
             longitude: previous.coordinate.longitude
         ).distance(from: next)
-        let nextSpeed: Double? = next.speed >= 0 ? next.speed : nil
-        let speedChanged: Bool
-        switch (previous.speedMps, nextSpeed) {
-        case let (old?, new?): speedChanged = abs(new - old) >= 1
-        case (nil, nil): speedChanged = false
-        default: speedChanged = true
-        }
         return moved >= 2
             || abs(next.horizontalAccuracy - previous.horizontalAccuracyM) >= 3
-            || speedChanged
+            || changed(previous.speedMps, next.speed, by: 1)
+            || changed(previous.speedAccuracyMps, next.speedAccuracy, by: 1)
             || now.timeIntervalSince(previousPublishedAt) >= stationaryRepublishSeconds
+    }
+
+    /// Core Location marks a missing speed (or its accuracy) with a negative value.
+    private static func changed(_ previous: Double?, _ raw: Double, by threshold: Double) -> Bool {
+        let next: Double? = raw >= 0 ? raw : nil
+        switch (previous, next) {
+        case let (previous?, next?): return abs(next - previous) >= threshold
+        case (nil, nil): return false
+        default: return true
+        }
     }
 
     /// Hole-root F/M/B is a live rangefinder, not a generic cached-location consumer. Keep the
