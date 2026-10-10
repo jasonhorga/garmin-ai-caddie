@@ -303,7 +303,40 @@ enum WatchPlanLegs {
             tops[i] = min(tops[i], floor - sizes[i].height)
             floor = tops[i] - spacing
         }
-        return (0..<count).map { frame($0, top: tops[$0]) }
+        let stacked = (0..<count).map { frame($0, top: tops[$0]) }
+        if framesAreValid(stacked, bounds: bounds, avoiding: avoiding) { return stacked }
+        // The bottom-fit pass can push a label back into an avoided rect (a tall rect such as the
+        // root F/M/B facts leaves too little room below it). Place each label instead at the
+        // valid spot nearest its landing, also trying the columns beside the avoided rects.
+        var placed = [CGRect](repeating: .null, count: count)
+        for i in order {
+            let size = sizes[i]
+            let desiredTop = landings[i].y - size.height / 2
+            let obstacles = avoiding + placed.filter { !$0.isNull }
+            let columns = [xs[i]] + obstacles.map { $0.maxX + spacing }
+            let rows = [desiredTop, bounds.minY, bounds.maxY - size.height]
+                + obstacles.flatMap { [$0.maxY + spacing, $0.minY - spacing - size.height] }
+            var best: (score: CGFloat, frame: CGRect)?
+            for x in columns where x >= bounds.minX && x + size.width <= bounds.maxX {
+                for y in rows where y >= bounds.minY && y + size.height <= bounds.maxY {
+                    let candidate = CGRect(x: x, y: y, width: size.width, height: size.height)
+                    guard !obstacles.contains(where: { $0.intersects(candidate) }) else { continue }
+                    let score = abs(y - desiredTop) + abs(x - xs[i])
+                    if best.map({ score < $0.score }) ?? true { best = (score, candidate) }
+                }
+            }
+            placed[i] = best?.frame ?? stacked[i]
+        }
+        return placed
+    }
+
+    /// Inside `bounds`, clear of every avoided rect, and apart from each other.
+    static func framesAreValid(_ frames: [CGRect], bounds: CGRect, avoiding: [CGRect]) -> Bool {
+        for (i, frame) in frames.enumerated() {
+            guard bounds.contains(frame), !avoiding.contains(where: { $0.intersects(frame) }) else { return false }
+            for other in frames[(i + 1)...] where other.intersects(frame) { return false }
+        }
+        return true
     }
 }
 

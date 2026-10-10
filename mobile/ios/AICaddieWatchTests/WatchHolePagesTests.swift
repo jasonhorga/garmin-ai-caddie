@@ -40,6 +40,39 @@ final class WatchHolePagesTests: XCTestCase {
         }
     }
 
+    /// Codex review on #413: the full-bleed root reserves the floating F/M/B facts for plan labels,
+    /// and the bottom-fit pass must not push a label back over them. Four left-side landings on
+    /// every face: labels stay inside the face, off the facts and the clock lane, and apart.
+    func testRootPlanLabelsStayOffTheFloatingFactsEvenWhenCrowded() {
+        for size in [CGSize(width: 176, height: 215), CGSize(width: 198, height: 242), CGSize(width: 205, height: 251)] {
+            let safe = WatchDisplayGeometry.contentRect(in: size)
+            let facts = WatchHoleMapView.rootFactsFrame(in: size)
+            let lane = WatchPlanLegs.clockLane(in: size)
+            let landings = [40, 70, 100, 130].map { CGPoint(x: safe.minX + 10, y: CGFloat($0)) }
+            let labels = ["D 224", "3W 205", "5i 175", "9i 153"]
+            let frames = WatchPlanLegs.layoutLabels(labels, landings: landings, in: size, avoiding: [facts])
+            XCTAssertEqual(frames.count, labels.count)
+            for (frame, label) in zip(frames, labels) {
+                XCTAssertTrue(safe.contains(frame), "\(label) \(frame) inside \(safe) for \(size)")
+                XCTAssertFalse(frame.intersects(facts), "\(label) \(frame) over the facts \(facts) for \(size)")
+                XCTAssertFalse(frame.intersects(lane), "\(label) \(frame) under the clock for \(size)")
+            }
+            for i in frames.indices { for j in frames.indices where j > i {
+                XCTAssertFalse(frames[i].intersects(frames[j]), "\(labels[i]) / \(labels[j]) overlap for \(size)")
+            } }
+        }
+        // Codex's explicit geometry: four 54x15 labels under a 70.4x163.4 facts rect.
+        let bounds = CGRect(x: 10, y: 10, width: 156, height: 195)
+        let facts = CGRect(x: 0, y: 0, width: 70.4, height: 163.4)
+        let frames = WatchPlanLegs.labelFrames(
+            landings: [40, 70, 100, 130].map { CGPoint(x: 20, y: CGFloat($0)) },
+            sizes: Array(repeating: CGSize(width: 54, height: 15), count: 4),
+            bounds: bounds,
+            avoiding: [facts]
+        )
+        XCTAssertTrue(WatchPlanLegs.framesAreValid(frames, bounds: bounds, avoiding: [facts]), "\(frames)")
+    }
+
     func testThePlanPageDrawsEveryLegWithItsLandingAndLabel() {
         let tee = CGPoint(x: 435, y: 981)
         let legs = WatchPlanLegs.resolve(
