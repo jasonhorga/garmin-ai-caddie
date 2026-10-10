@@ -5,10 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import copy
+import hashlib
 import json
 import math
 import os
 import re
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -667,14 +670,78 @@ def delete_manual_shot(manual_round_id: str, shot_id: str) -> None:
     write_json(path, raw)
 
 
+# build_club_profiles reads every shot file (about 500 for the owner) and resolves ~45k club names,
+# ~0.85 s per call, and course prep called it twice per /prep request: six requests per 18-hole
+# course re-read the same files about ten seconds in total (profiled 2026-10-09). The result depends
+# only on those files and on clubs.json, so it is kept per (arguments) and reused while a stat-only
+# fingerprint of the inputs is unchanged. Callers get their own copy.
+_CLUB_PROFILE_CACHE: dict[tuple, tuple[str, dict[str, dict[str, Any]]]] = {}
+_CLUB_PROFILE_CACHE_MAX = 32
+_club_profile_cache_lock = threading.Lock()
+
+
+def _club_profile_inputs_fingerprint(dirs: list[Path], apply_overrides: bool) -> str:
+    """Name, mtime and size of every shot file read, plus clubs.json when overrides apply. Any
+    added, removed, rewritten or touched input changes it."""
+    digest = hashlib.blake2b(digest_size=16)
+    for shot_dir in dirs:
+        digest.update(f"dir\0{shot_dir}\n".encode())
+        try:
+            entries = sorted(
+                (entry for entry in os.scandir(shot_dir) if entry.name.endswith(".json")),
+                key=lambda entry: entry.name,
+            )
+        except OSError:
+            digest.update(b"missing\n")
+            continue
+        for entry in entries:
+            try:
+                stat = entry.stat()
+            except OSError:
+                continue
+            digest.update(f"{entry.name}\0{stat.st_mtime_ns}\0{stat.st_size}\n".encode())
+    if apply_overrides:
+        try:
+            stat = os.stat(CLUBS_FILE)
+            digest.update(f"clubs\0{CLUBS_FILE}\0{stat.st_mtime_ns}\0{stat.st_size}\n".encode())
+        except OSError:
+            digest.update(f"clubs\0{CLUBS_FILE}\0missing\n".encode())
+    return digest.hexdigest()
+
+
 def build_club_profiles(
     min_distance_m: float = 5.0, *, shot_dirs: list[Path] | None = None, apply_overrides: bool = True
+) -> dict[str, dict[str, Any]]:
+    dirs = [SHOT_DIR] if shot_dirs is None else list(shot_dirs)
+    # A test double for an input reader would not show in the file fingerprint: compute directly.
+    if (
+        read_json is not _READ_JSON
+        or load_club_overrides is not _LOAD_CLUB_OVERRIDES
+        or club_name_from_details is not _CLUB_NAME_FROM_DETAILS
+    ):
+        return _build_club_profiles_uncached(min_distance_m, dirs=dirs, apply_overrides=apply_overrides)
+    key = (float(min_distance_m), tuple(str(path) for path in dirs), bool(apply_overrides))
+    fingerprint = _club_profile_inputs_fingerprint(dirs, apply_overrides)
+    with _club_profile_cache_lock:
+        cached = _CLUB_PROFILE_CACHE.get(key)
+    if cached is not None and cached[0] == fingerprint:
+        return copy.deepcopy(cached[1])
+    profiles = _build_club_profiles_uncached(min_distance_m, dirs=dirs, apply_overrides=apply_overrides)
+    with _club_profile_cache_lock:
+        _CLUB_PROFILE_CACHE.pop(key, None)
+        _CLUB_PROFILE_CACHE[key] = (fingerprint, copy.deepcopy(profiles))
+        while len(_CLUB_PROFILE_CACHE) > _CLUB_PROFILE_CACHE_MAX:
+            _CLUB_PROFILE_CACHE.pop(next(iter(_CLUB_PROFILE_CACHE)))
+    return profiles
+
+
+def _build_club_profiles_uncached(
+    min_distance_m: float, *, dirs: list[Path], apply_overrides: bool
 ) -> dict[str, dict[str, Any]]:
     # Owner (no arg) reads the flat data/shots; a member passes their own player-scoped shot
     # dir(s) so their measured distances come only from their own logged rounds — never another
     # player's. Garmin + manual shots share the holeShots[].shots[].meters/clubId shape, so this
     # works for a no-Garmin member straight from their manual logs.
-    dirs = [SHOT_DIR] if shot_dirs is None else shot_dirs
     distances: dict[str, list[float]] = {}
     for shot_dir in dirs:
         for shot_file in shot_dir.glob("*.json"):
@@ -715,3 +782,9 @@ def build_club_profiles(
             "confidence": "high" if n >= 30 else "medium" if n >= 10 else "low",
         }
     return profiles
+
+
+# The real input readers, for build_club_profiles to tell them from test doubles.
+_READ_JSON = read_json
+_LOAD_CLUB_OVERRIDES = load_club_overrides
+_CLUB_NAME_FROM_DETAILS = club_name_from_details
