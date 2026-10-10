@@ -1,10 +1,15 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
+Archived2026-10-10 at #416 a38a97bc review closeout.
+Previous ledger follows verbatim; current authority is ../operations/PROJECT_STATE.md.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 19:14 UTC
-**Canonical branch:** main; latest product merge a08634a86a43f576cf1288eb393d581195d3f9f8
+**Updated:** 2026-10-10 19:04 UTC
+**Canonical branch:** main; latest product merge de2cedcf10e6fdcceead36b5a0d2f21ed9e68521
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and deduplication
@@ -20,18 +25,9 @@ parent1 cbb45f5d. All144 PNGs match reviewed336c12a3;8 Watch frames reinspected.
 Clean merge-tree with current main preserves #413 root/layout fixes.
 Source/snapshot/containers/seven local controls closed. Report
 2026-10-10-pr414-review-c13a717e.md; evidence published2678fd23 with shared
-normal index unchanged.
-
-#416 head a38a97bc4e520dd30fa5f7bc36ec11580674fcdb approved6101180215,
-merged a08634a8; exact-head branch deleted. Horizontal-leader follow-up closed.
-Contracts126/6.491s; CI38075749402 and Native38075749433 green:
-iOS785/0, Watch452/0 plus2 UI tests; crowded-layout leader assertions executed.
-Native58314394 parents a0ade550/exact a38a97bc.144 PNGs downloaded;143 unchanged,
-all Watch images match reviewed #413. The one changed iOS zoomed image gains
-八号铁164; before/after inspected, iOS source unchanged, existing fixture-stability
-follow-up remains nonblocking. Clean current-main integration preserves #414.
-Report2026-10-10-pr416-review-a38a97bc.md; resources closed. No waiter/agent pending.
-Publish this real review/merge/cleanup evidence, then resume durable feedback.
+normal index unchanged. #416 opened a38a97bc; CI38075749402 and Native38075749433
+green. Current operation is its exact-head source/contracts/artifact review.
+No waiter/agent pending. This addresses #413's nonblocking horizontal-leader follow-up.
 
 #413 approved6100717513 at eeb99712, merged a0ade550, branch/resources closed;
 evidence published3f0238d8. Report2026-10-10-pr413-review-eeb99712.md.
@@ -45,14 +41,14 @@ their handled reviews, comments or CI results; dated archives preserve detail.
 
 - `PR-FEEDBACK-CONTINUOUS` — `in-progress`: one same-turn durable feedback
   waiter; deduplicate old/self events, review author corrections and new PRs.
-- `PR416-REVIEW` — `done`: a38a97bc approved/merged a08634a8; branch/resources closed.
+- `PR416-REVIEW` — `queued`: a38a97bc current operation; inspect leader-line
+  placement/actual regression/Native artifact provenance before approval/merge.
 - `PR414-REVIEW` — `done`: capture-order P2 fixed; c13a717e approved/merged
   de2cedcf, exact-head branch and temporary resources closed.
 - `PR413-REVIEW` — `done`: eeb99712 approved/merged a0ade550; resources closed.
 - `PR415-BACKEND-DEPLOY` — `done`: cbc17f4e API/sync live and manually synced.
-- `WATCH-PLAN-HORIZONTAL-LEADERS` — `done`: #416 handles #413's suggestion.
-- `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 variation; nonblocking,
-  reproduced/reported in #4166101180215; fixed-route snapshots should be consistent.
+- `WATCH-PLAN-HORIZONTAL-LEADERS` — `queued`: #413 nonblocking suggestion.
+- `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 variation; nonblocking.
 - `IOS-STATUS-CONTRAST` — `queued`: dark navigation/status text; nonblocking.
 - `OWNER-DEVICE-BUILD82` — `evidence-open`: paired-device validation owner work.
 - `NEXT-INTERNAL-IOS-RELEASE` — `evidence-open`: Claude reports build85;
@@ -86,15 +82,10 @@ their handled reviews, comments or CI results; dated archives preserve detail.
 
 ## Owned resources and cleanup
 
-- No active snapshot/worktree/dependency env/container/volume/service/tunnel/agent.
-  No feedback terminal pending. #416 evidence operations/pr416-a38a97bc-20261010:
-  source/contracts/Native/144 PNGs/comparison/integration/review/merge/cleanup retained.
-  Snapshot28,366,673bytes removed after source/file-hash/open-file/process checks;
-  --rm contracts/visual containers absent; health200/cbc17f4e. Eight local review
-  scripts/input/images1,349,809bytes hash-matched to persistent backups and removed.
-  Exact branch head checked before deletion; allow-list/cleanup receipts retained.
-  Alternate publication index removed after guarded push; shared normal index preserved.
-  Capacity49GiB disk/5.0GiB available RAM/4GiB shm before work.
+- Reserved read-only snapshot /dev/shm/codex-pr416-a38a97bc-20261010;
+  expiry2026-10-11 19:04UTC; evidence operations/pr416-a38a97bc-20261010.
+  Labelled --rm contracts/visual only; no worktree/env/service/tunnel/agent.
+  Capacity49GiB disk/5.0GiB available RAM/4GiB shm; no waiter pending.
 - #414 evidence /home/jason/garmin-ai-caddie-data/operations/pr414-c13a717e-20261010:
   source/provenance/diffs/contracts/Native/all144 PNGs/hash/sheets/integration/
   review/comment/merge/branch cleanup retained. Read-only snapshot28,268,570bytes
@@ -119,7 +110,9 @@ their handled reviews, comments or CI results; dated archives preserve detail.
 
 ## Next action and stopping
 
-Publish completed #416 review/merge/cleanup evidence, then resume
+Review #416 a38a97bc exact source/contracts/Native/provenance/artifacts;
+approve/comment/merge/delete only if clear. Close resources and publish
+actual review evidence, then resume
 ops/wait_for_conclusion.sh --feedback in one same-turn background terminal.
 Wait300000ms, read its handle once; repeat until one-line terminal result.
 Do not inspect waiter liveness or start a second monitor. Read only returned
@@ -127,12 +120,11 @@ event/log; handle new heads/PRs with exact tests/Native and visual review.
 Approve/merge/delete only when clear. No CI-only commits; ignore Codex
 comments/commits/CI as actionable events or quiet resets.
 Deduplicate38063457169/38063457127/38065042464/38065042410/38065207338/
-38072318888/38068696174/38068696361/38072029710/38072029726/
-38075749402/38075749433; ignore own #413 merge CI38075353239/a0ade550.
+38072318888/38068696174/38068696361/38072029710/38072029726;
 #413 reply6099812003 and #414 correction6100271007 are already handled.
 
 Owner resumed after historical October9 cutoff. Stop after48h without external
 PR events and with no open PRs, or an owner stop. Latest independently handled
-external terminal result: #416 Native2026-10-10 18:39:17UTC;
-earliest conditional quiet stop2026-10-12 18:39:17UTC. Verify no newer external events and no open PRs
+external PR event: #416 opened2026-10-10 18:25:59UTC;
+earliest conditional quiet stop2026-10-12 18:25:59UTC. #416 is open. Verify no newer external events and no open PRs
 before completing the goal. Keep this ledger≤200 lines.
