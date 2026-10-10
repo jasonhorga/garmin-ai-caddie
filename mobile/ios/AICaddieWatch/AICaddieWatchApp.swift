@@ -126,8 +126,9 @@ public struct AICaddieWatchApp: App {
                     reconcileAutoShot()
                     reconcileLocationServices()
                 }
-                .onChange(of: roundModel.screen, initial: true) { _, _ in
+                .onChange(of: roundModel.screen, initial: true) { _, screen in
                     reconcileAutoShot()
+                    watchLocation.setHeadingUpdates(screen == .flagDirection)
                 }
                 .onChange(of: gpsPreheatEnabled, initial: true) { _, _ in
                     reconcileLocationServices()
