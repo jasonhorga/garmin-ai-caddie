@@ -3961,7 +3961,9 @@ public struct CurrentHoleView: View {
             decisionOriginShotEventIds: decision.flatMap { $0 == caddieDecision ? caddieDecisionOriginShot : nil },
             // The phone's current shots on this hole, so a shot recorded only here after the
             // decision still retires it on the Watch.
-            phoneShotEventIds: recordedShotEventIds
+            phoneShotEventIds: recordedShotEventIds,
+            lastShotLatitude: lastMarkedShotCoordinate?.latitude,
+            lastShotLongitude: lastMarkedShotCoordinate?.longitude
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)
@@ -4200,6 +4202,15 @@ public struct CurrentHoleView: View {
     private var recordedShotEventIds: [String] {
         guard let offlineStore, let events = try? offlineStore.loadEvents() else { return [] }
         return LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number).map(\.eventId)
+    }
+
+    /// Where the newest shot on this hole was marked (phone or relayed Watch mark).
+    private var lastMarkedShotCoordinate: (latitude: Double, longitude: Double)? {
+        guard let offlineStore, let events = try? offlineStore.loadEvents(),
+              let last = LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number).last,
+              case .number(let latitude)? = last.payload["latitude"],
+              case .number(let longitude)? = last.payload["longitude"] else { return nil }
+        return (latitude, longitude)
     }
 
     private var recordedNonPuttShotCount: Int {

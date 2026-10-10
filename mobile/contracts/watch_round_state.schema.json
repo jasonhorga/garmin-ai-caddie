@@ -263,6 +263,16 @@
       "type": ["number", "null"],
       "minimum": 0
     },
+    "lastShotLatitude": {
+      "type": ["number", "null"],
+      "minimum": -90,
+      "maximum": 90
+    },
+    "lastShotLongitude": {
+      "type": ["number", "null"],
+      "minimum": -180,
+      "maximum": 180
+    },
     "greenInRegulation": {
       "type": ["boolean", "null"]
     },

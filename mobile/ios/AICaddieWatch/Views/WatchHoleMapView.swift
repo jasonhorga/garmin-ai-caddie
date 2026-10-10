@@ -1271,13 +1271,18 @@ public struct WatchHoleMapView: View {
         // Mask the data-column region to pure black.
         context.fill(Path(CGRect(x: 0, y: 0, width: mapLeft, height: size.height)), with: .color(.black))
 
-        // While walking to the ball, S70 keeps the measured previous-shot fact small and map-bound.
+        // While walking to the ball, S70 keeps the measured previous-shot fact map-bound, under the
+        // player. Owner feedback 2026-10-10: at 8.5 pt it was never seen on the wrist.
         if let lastShot = WatchGeoMath.usefulGolfYards(lastShot), lastShot > 0 {
-            let lp = CGPoint(x: player.x, y: player.y + 13)
-            context.draw(
-                context.resolve(Text("\(lastShot)").font(.system(size: 8.5, weight: .semibold)).foregroundColor(.white)),
-                at: lp
+            let label = context.resolve(
+                Text("\(lastShot)").font(.system(size: 13, weight: .black, design: .rounded)).foregroundColor(.white)
             )
+            let textSize = label.measure(in: CGSize(width: 80, height: 30))
+            let lp = CGPoint(x: player.x, y: player.y + 17)
+            let pill = CGRect(x: lp.x - textSize.width / 2 - 5, y: lp.y - textSize.height / 2 - 1.5,
+                              width: textSize.width + 10, height: textSize.height + 3)
+            context.fill(Path(roundedRect: pill, cornerRadius: pill.height / 2), with: .color(.black.opacity(0.66)))
+            context.draw(label, at: lp)
         }
 
         // Touch Target: the two line segments carry two small, unframed ranges. Their placement makes

@@ -4913,6 +4913,8 @@ class MobileContractTests(unittest.TestCase):
         for field in [
             "frontGreenM", "centerGreenM", "backGreenM", "playsLikeDistanceM",
             "elevationDeltaM", "lastShotDistanceM", "distanceFromLastShotM",
+            # 2026-10-10: the phone's newest shot, so the Watch measures from a phone-marked shot.
+            "lastShotLatitude", "lastShotLongitude",
             # watch P0.2: green F/M/B WGS84 coords (watch recomputes distance from its own GPS)
             "frontGreenLat", "frontGreenLon", "centerGreenLat", "centerGreenLon",
             "backGreenLat", "backGreenLon",

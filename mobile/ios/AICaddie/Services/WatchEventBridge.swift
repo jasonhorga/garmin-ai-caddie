@@ -490,6 +490,10 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     /// and Watch shots under their Watch ids). Separate from a decision's origin: a shot recorded
     /// only on the phone after a decision still makes that decision stale.
     public var phoneShotEventIds: [String]? = nil
+    /// Where the newest of those shots was marked, so the Watch measures the live distance from the
+    /// last shot with its own GPS even when that shot was marked on the phone.
+    public let lastShotLatitude: Double?
+    public let lastShotLongitude: Double?
     /// Strictly increasing per phone (`WatchEventBridge.nextSnapshotRevision`): the Watch applies a
     /// hole snapshot only if it is newer than the last one it applied, so a late (transferUserInfo)
     /// snapshot never rolls back a newer decision or shot set.
@@ -608,7 +612,9 @@ public final class WatchEventBridge: NSObject {
         caddieOptions: [WatchCaddieOption] = [],
         hazards: [WatchHazard] = [],
         decisionOriginShotEventIds: [String]? = nil,
-        phoneShotEventIds: [String]? = nil
+        phoneShotEventIds: [String]? = nil,
+        lastShotLatitude: Double? = nil,
+        lastShotLongitude: Double? = nil
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
         let offlineSelected = selectedOfflineOption(from: offlineOption)
@@ -688,6 +694,8 @@ public final class WatchEventBridge: NSObject {
             penaltyCount: penaltyCount,
             caddieConfidence: confidenceLevel(from: decision, offlineOption: offlineSelected),
             phoneShotEventIds: phoneShotEventIds,
+            lastShotLatitude: lastShotLatitude,
+            lastShotLongitude: lastShotLongitude,
             snapshotRevision: nextSnapshotRevision()
         )
     }

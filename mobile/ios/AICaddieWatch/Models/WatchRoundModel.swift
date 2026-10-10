@@ -457,17 +457,26 @@ public final class WatchRoundModel: ObservableObject {
               ) else {
             return nil
         }
-        for event in round.pendingEvents.reversed()
-            where event.hole == round.activeHole && event.kind == .location {
-            guard let shot = WatchShotLocationValue(encodedValue: event.value) else { continue }
-            return WatchGeoMath.metres(
-                shot.latitude,
-                shot.longitude,
-                current.latitude,
-                current.longitude
-            )
+        let watchShots: [(id: String, shot: WatchShotLocationValue)] = round.pendingEvents.compactMap { event in
+            guard event.hole == round.activeHole, event.kind == .location,
+                  let shot = WatchShotLocationValue(encodedValue: event.value) else { return nil }
+            return (event.eventId, shot)
         }
-        return nil
+        let phoneShotIds = Set(round.phoneShots?.first { $0.hole == round.activeHole }?.eventIds ?? [])
+        let phoneLast = round.holeStates.first { $0.hole == round.activeHole }.flatMap { state in
+            state.lastShotLatitude.flatMap { latitude in
+                state.lastShotLongitude.flatMap { longitude in
+                    WatchShotLocationValue(latitude: latitude, longitude: longitude, horizontalAccuracyM: 0)
+                }
+            }
+        }
+        // A Watch shot the phone has not acknowledged yet is the newest; otherwise the phone's
+        // newest shot (marked on either device) is, so a shot marked only on the phone counts too.
+        let origin = watchShots.last { !phoneShotIds.contains($0.id) }?.shot
+            ?? phoneLast
+            ?? watchShots.last?.shot
+        guard let origin else { return nil }
+        return WatchGeoMath.metres(origin.latitude, origin.longitude, current.latitude, current.longitude)
     }
 
     /// All holes' states, hole-ordered — feeds the round-13 计分卡 / 选洞 / 18洞环.

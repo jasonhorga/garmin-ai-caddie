@@ -1323,6 +1323,56 @@ final class WatchRoundModelTests: XCTestCase {
         )
     }
 
+    /// Owner feedback 2026-10-10: no distance from the last shot. A shot marked only on the phone
+    /// had no location on the Watch; the phone now sends its newest shot's coordinates.
+    func testDistanceFromLatestShotMeasuresFromAPhoneMarkedShot() throws {
+        let store = makeStore()
+        let phoneHole = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: nil, selectedClub: nil,
+            lastShotLatitude: 40.001, lastShotLongitude: 116.0,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let acknowledged = WatchInputEvent(
+            eventId: "watch-tee", roundId: "r1", hole: 1, kind: .location,
+            value: "40.0,116.0,5.0", createdAt: "2026-07-26T08:00:00Z"
+        )
+        try store.save(WatchRoundStore.PersistedRound(
+            roundId: "r1",
+            activeHole: 1,
+            holeStates: [phoneHole, hole(2)],
+            pendingEvents: [acknowledged],
+            phoneShots: [WatchPhoneShotSet(hole: 1, eventIds: ["watch-tee", "phone-second"], revision: 1)]
+        ))
+        let model = WatchRoundModel(store: store)
+
+        let distance = try XCTUnwrap(model.distanceFromLatestShotM(latitude: 40.002, longitude: 116.0))
+        XCTAssertEqual(distance, WatchGeoMath.metres(40.001, 116.0, 40.002, 116.0), accuracy: 0.01,
+                       "the phone's newer shot, not the Watch tee shot it already holds")
+    }
+
+    func testAWatchShotThePhoneHasNotSeenYetIsTheNewest() throws {
+        let store = makeStore()
+        let phoneHole = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: nil, selectedClub: nil,
+            lastShotLatitude: 40.0, lastShotLongitude: 116.0,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        try store.save(WatchRoundStore.PersistedRound(
+            roundId: "r1",
+            activeHole: 1,
+            holeStates: [phoneHole],
+            pendingEvents: [WatchInputEvent(
+                eventId: "watch-second", roundId: "r1", hole: 1, kind: .location,
+                value: "40.001,116.0,5.0", createdAt: "2026-07-26T08:05:00Z"
+            )],
+            phoneShots: [WatchPhoneShotSet(hole: 1, eventIds: ["phone-tee"], revision: 1)]
+        ))
+        let model = WatchRoundModel(store: store)
+
+        let distance = try XCTUnwrap(model.distanceFromLatestShotM(latitude: 40.002, longitude: 116.0))
+        XCTAssertEqual(distance, WatchGeoMath.metres(40.001, 116.0, 40.002, 116.0), accuracy: 0.01)
+    }
+
     func testDistanceFromLatestShotIsNilWithoutAValidCurrentHoleLocation() {
         let model = seededModel(holes: [hole(1)])
 
