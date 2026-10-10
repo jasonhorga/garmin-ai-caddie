@@ -1,9 +1,12 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+Preserved verbatim before reviewing the corrected PR411 sender and behavioral tests.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 08:25:30 UTC
+**Updated:** 2026-10-10 08:06 UTC
 **Canonical branch:** `main`, product merge `869b73eea1330f31e37cb4944f13204d6e9dd4e3`
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
@@ -43,18 +46,16 @@ battery remains device evidence. Separate topo delivery/layout follow-ups pendin
 
 ## Unfinished queue
 
-- `PR411-RETRY-BOUND-FIX` — `blocked`: head1166c6d9576fa7b92aecbd17ddd86f74dacf1d49,
-  author reply6095535098 at08:08:55 UTC. New WatchTopoSender queues cached maps
-  after package activation, loads off-main, retries failed transfers; six behavior
-  tests include real cached bootstrap against503 and recording enqueue.
-  CI38036897627 green; Native38036897631 pending when read. P26095373116
-  original triggers are corrected. Remaining P26095650811: sync only checks
-  sent membership, so another hole's timer resends an exhausted hole. With one
-  retry, sequence [1,2]→failure1→[1,2,1]→failure1 exhausted→failure2 yields
-  [1,2,1,1,2] instead of[1,2,1,2]. Independent code walkthrough/probe provided;
-  extra Swift probe not executed on Linux (no Swift compiler). Contracts126/OK.
-  Require budget gate in send pass plus two-hole regression; Native/artifact
-  approval on final corrected head still pending. Old34c86257 already handled.
+- `PR411-WATCH-TOPO-FIX` — `blocked`: author correction required after P2
+  comment6095373116 on head34c86257dafe0ac83fbd3c9243a73627c4939a6f.
+  branch claude/watch-push-all-holes-20261010. Contracts126/OK; CI38034622355
+  green. Native38034622344 was pending when read; no artifact approval yet.
+  P2a: cached live package activation must enqueue local images independently
+  of download/connection activation (early activation→offline bootstrap with
+  failed options refresh has no sender). P2b: failed transfer only clears keys,
+  with no scheduled resend after activation/download have already ended.
+  Require behavioral enqueue/duplicate/retry/round-cancel tests and exact-head
+  Native/PNG gate on corrected code. Do not repeat old-head contracts/review.
 - `PR408-BACKEND-DEPLOY` — `queued`: only after fix/review/merge. No production
   API restart before10:00 UTC unless decision/prep traffic is quiet30 minutes
   (author's owner-live-round constraint6094461766). Prebuild matching sync image.
@@ -113,32 +114,28 @@ battery remains device evidence. Separate topo delivery/layout follow-ups pendin
   Source/contracts/P2 comment/cleanup retained; snapshot and --rm contract
   container closed. Four local controls (6,806 bytes) hash-matched originals
   and removed; no Native wait/artifact/local image copy was started for this head.
-  #411 corrected-head evidence: /home/jason/garmin-ai-caddie-data/operations/pr411-1166c6d9-20261010.
-  Source/contracts/retry P2/cleanup retained; snapshot/--rm container closed.
-  Four local controls(6385 bytes) hash-matched originals and removed;
-  no Native wait/artifact copy/service was started for this blocked head.
   No active snapshot, implementation worktree, test service, tunnel or subagent.
 - Stopped rollback `aicaddie-release-3614bf6f-production-20261008` retained.
   No pending Native/feedback wait. gh-feedback timer/cursor unchanged.
   Consumed/deduplicated #404–409 backlog without new comments/tests/CI commits.
   One historical waiter GitHub transport timeout was not a CI failure.
-  Last feedback terminal63903 ended with author fix6095535098; no pending wait.
+  Last feedback result at07:48:48 UTC delivered#411; no pending wait.
 - Preserve unrelated dirty `ops/pr_feedback_monitor.sh` and older `.codex-*`.
   Filter/consume credentials on homeserver; never print them during inspection.
 
 ## Next action and stopping
 
-Commit/push #411's actual retry-bound review/cleanup and dated archives together,
-then retain one same-turn --feedback terminal (sleep300000ms→read once).
-Wait for author fix6095650811; deduplicate old heads/comments/tests, require
-new exact-head Native/PNG gate before merge. No CI-only bookkeeping commits.
+Commit/push #411's actual P2 review/cleanup and dated archives together, then
+retain one same-turn --feedback terminal (sleep300000ms→read once). Wait for
+author's #411 correction or other genuine events; deduplicate handled#404–410
+and #411 old34c86257 findings. New head needs Native/artifact review.
 #408 deployment remains queued for10:00 UTC; a bounded feedback timeout may
 wake that scheduled slice. Build matching sync before API cutover. Do not
 check waiter liveness, repeatedly query traffic or create CI-only commits.
 
 Prior absolute cutoff is historical; owner explicitly resumed work.
 Continuous tracking stops after48h without external PR events and no open PRs,
-or a new owner stop instruction. Latest external PR event08:08:55 UTC (#411);
+or a new owner stop instruction. Latest external PR event07:29:55 UTC (#411);
 quiet requires48h with no new external events and no open PRs;#411 is open.
 Ignore our own
 commits/comments/CI as quiet resets. Keep ledger ≤200 lines.

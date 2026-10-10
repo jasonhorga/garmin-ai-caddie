@@ -1,11 +1,14 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+Preserved verbatim before recording the remaining multi-hole retry-bound blocker.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 08:25:30 UTC
+**Updated:** 2026-10-10 08:22:10 UTC
 **Canonical branch:** `main`, product merge `869b73eea1330f31e37cb4944f13204d6e9dd4e3`
-**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
+**Current slice:** `PR411-FIX-REVIEW` — `in-progress`
 
 ## Current state
 
@@ -43,22 +46,19 @@ battery remains device evidence. Separate topo delivery/layout follow-ups pendin
 
 ## Unfinished queue
 
-- `PR411-RETRY-BOUND-FIX` — `blocked`: head1166c6d9576fa7b92aecbd17ddd86f74dacf1d49,
+- `PR411-FIX-REVIEW` — `in-progress`: new head1166c6d9576fa7b92aecbd17ddd86f74dacf1d49,
   author reply6095535098 at08:08:55 UTC. New WatchTopoSender queues cached maps
   after package activation, loads off-main, retries failed transfers; six behavior
   tests include real cached bootstrap against503 and recording enqueue.
   CI38036897627 green; Native38036897631 pending when read. P26095373116
-  original triggers are corrected. Remaining P26095650811: sync only checks
-  sent membership, so another hole's timer resends an exhausted hole. With one
-  retry, sequence [1,2]→failure1→[1,2,1]→failure1 exhausted→failure2 yields
-  [1,2,1,1,2] instead of[1,2,1,2]. Independent code walkthrough/probe provided;
-  extra Swift probe not executed on Linux (no Swift compiler). Contracts126/OK.
-  Require budget gate in send pass plus two-hole regression; Native/artifact
-  approval on final corrected head still pending. Old34c86257 already handled.
+  original triggers are corrected; reviewing multi-hole retry budget/cancellation
+  before closing. A depleted hole can be resent by another hole's retry because
+  sync checks only sent membership. Run exact-head contracts/Native before
+  final disposition; old34c86257 tests/comments already handled.
 - `PR408-BACKEND-DEPLOY` — `queued`: only after fix/review/merge. No production
   API restart before10:00 UTC unless decision/prep traffic is quiet30 minutes
   (author's owner-live-round constraint6094461766). Prebuild matching sync image.
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: same-turn blocking waits after reviews;
+- `PR-FEEDBACK-CONTINUOUS` — `queued`: same-turn blocking waits after reviews;
   no CI-only bookkeeping commits, self-event loops or waiter liveness checks.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 variation; nonblocking.
 - `IOS-STATUS-CONTRAST` — `queued`: dark navigation/status text; nonblocking.
@@ -113,10 +113,6 @@ battery remains device evidence. Separate topo delivery/layout follow-ups pendin
   Source/contracts/P2 comment/cleanup retained; snapshot and --rm contract
   container closed. Four local controls (6,806 bytes) hash-matched originals
   and removed; no Native wait/artifact/local image copy was started for this head.
-  #411 corrected-head evidence: /home/jason/garmin-ai-caddie-data/operations/pr411-1166c6d9-20261010.
-  Source/contracts/retry P2/cleanup retained; snapshot/--rm container closed.
-  Four local controls(6385 bytes) hash-matched originals and removed;
-  no Native wait/artifact copy/service was started for this blocked head.
   No active snapshot, implementation worktree, test service, tunnel or subagent.
 - Stopped rollback `aicaddie-release-3614bf6f-production-20261008` retained.
   No pending Native/feedback wait. gh-feedback timer/cursor unchanged.
@@ -128,10 +124,9 @@ battery remains device evidence. Separate topo delivery/layout follow-ups pendin
 
 ## Next action and stopping
 
-Commit/push #411's actual retry-bound review/cleanup and dated archives together,
-then retain one same-turn --feedback terminal (sleep300000ms→read once).
-Wait for author fix6095650811; deduplicate old heads/comments/tests, require
-new exact-head Native/PNG gate before merge. No CI-only bookkeeping commits.
+Finish #4111166c6d9 review/tests and multi-hole retry budget analysis. Verify
+exact-head Native source/artifacts for approval; report reproducible remaining
+blocker if confirmed. Close review resources before disposition/next wait.
 #408 deployment remains queued for10:00 UTC; a bounded feedback timeout may
 wake that scheduled slice. Build matching sync before API cutover. Do not
 check waiter liveness, repeatedly query traffic or create CI-only commits.
