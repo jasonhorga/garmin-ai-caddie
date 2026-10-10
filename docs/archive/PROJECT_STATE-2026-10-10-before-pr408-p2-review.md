@@ -1,11 +1,13 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 06:24 UTC
+**Updated:** 2026-10-10 06:15 UTC
 **Canonical branch:** `main`, product merge `45ab789d3e2ebd6dd77afff0873c0e19ccc761ac`
-**Current slice:** `PR409-REVIEW` — `in-progress`
+**Current slice:** `PR408-REVIEW` — `in-progress`
 
 ## Current state
 
@@ -21,24 +23,16 @@ phone/Watch plan/zoom/hazard/flag/off-course images inspected. No new release.
 Two new ready PRs:
 - #408 head `90f8e7f29aecec3afadf0a11b3e724518b96e291`,
   branch `claude/plays-like-approach-20261010`: green-approach club selection
-  using plays-like distance. P2 review6094615864 posted on this exact head:
-  the <3m gate occurs after club selection; a2m drop changes Driver→3W into
-  Driver→3H→58 (362m Par4, PR's ladder). Independent probe1 test fails;
-  related prep170 tests /OK /2 skips and elevation10 tests /OK. CI38029444114 green.
-  Await author fix/new head; do not merge or deploy this version.
+  using plays-like distance. Unreviewed; inspect CI/files before verification.
 - #409 head `a435a5c9ac691f00f67b3a83759df548a5840edd`,
   branch `claude/mixed-venue-loops-20261010`: offer an 18-hole course alongside
-  a venue's nines. Mobile changes; backend/frontend/docker38030048490 green,
-  Native38030048455 was running at inventory. Review/tests/screenshots pending.
+  a venue's nines. Unreviewed; Native and screenshot gate required if mobile changes.
 
 ## Unfinished queue
 
-- `PR408-NOISE-BOUNDARY` — `blocked`: author must gate raw elevation delta before
-  reachability/club lookup; reproduce and close6094615864 on the next exact head.
-- `PR408-BACKEND-DEPLOY` — `queued`: only after fix/review/merge. No production
-  API restart before10:00 UTC unless decision/prep traffic is quiet30 minutes
-  (author's owner-live-round constraint6094461766). Prebuild matching sync image.
-- `PR409-REVIEW` — `in-progress`: exact-head gates, Native artifacts/design inspection.
+- `PR408-REVIEW` — `in-progress`: exact-head code/tests/required CI; comment
+  P1/P2/nonblocking or PASS, merge/delete only when clear; deploy backend if needed.
+- `PR409-REVIEW` — `queued`: exact-head gates, Native artifacts/design inspection.
 - `PR-FEEDBACK-CONTINUOUS` — `queued`: same-turn blocking waits after reviews;
   no CI-only bookkeeping commits, self-event loops or waiter liveness checks.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 variation; nonblocking.
@@ -73,9 +67,6 @@ Two new ready PRs:
   Original source archives/tests/Native PNGs/reviews/cleanup receipts retained.
 - #407 snapshot removed (28,089,999 bytes); --rm contract/inspection containers
   absent. Local controls/contact sheets backed up/hash-matched and removed.
-- #408 evidence: /home/jason/garmin-ai-caddie-data/operations/pr408-90f8e7f2-20261010.
-  Snapshot removed (28,088,036 bytes), three --rm containers absent; local helpers
-  backed up/hash-matched and removed. Source/tests/failing probe/review retained.
   No active snapshot, implementation worktree, test service, tunnel or subagent.
 - Stopped rollback `aicaddie-release-3614bf6f-production-20261008` retained.
   No feedback/CI wait pending; gh-feedback timer and cursor unchanged.
@@ -84,9 +75,9 @@ Two new ready PRs:
 
 ## Next action and stopping
 
-Commit/push #408's P2 review/evidence/cleanup and dated archive together, then
-inspect #409 at its exact head. Use the existing blocking waiter for pending CI;
-inspect required iOS/Watch screenshots before approval. #408 fixes remain actionable.
+Commit/push #407's completed review/cleanup and dated archive together, then
+inspect #408 at its exact head. #409 follows. Use the existing blocking waiter
+for any pending CI; inspect required iOS/Watch screenshots before approval.
 After closure retain one feedback terminal and wait in the same control turn.
 
 Prior absolute cutoff is historical; owner explicitly resumed work.
