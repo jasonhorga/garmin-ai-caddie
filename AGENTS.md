@@ -141,6 +141,9 @@ policy work. Ignore CI events caused only by Codex's own docs/state bookkeeping;
 they must not wake a feedback loop or reset the owner's 48-hour quiet interval.
 The waiter implementation must inspect the run head and commit provenance
 before accepting a repository-wide CI event; real code or PR CI remains actionable.
+Terminal manually dispatched TestFlight releases and Apple operations remain
+actionable even on a Codex head. Verify their workflow name and dispatch event
+from Actions; this exception does not include ordinary or manual Native CI.
 
 ### New pull requests
 

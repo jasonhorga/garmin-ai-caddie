@@ -1,4 +1,4 @@
-"""ops/wait_for_conclusion.sh: Codex's own CI is quiet on every branch, other agents' CI is not.
+"""Own CI stays quiet; manual release/Apple outcomes and other agents' CI are delivered.
 
 PR #383 review (2026-10-06): `--feedback` returned the finished live Native 37426762320 and
 TestFlight 37438559636 again, both on `codex/internal-release-3614bf6f-20261006` with a
@@ -54,9 +54,12 @@ elif args[:2] == ["run", "view"]:
     if "--log" in args:
         print("log for run", args[2])
     else:
-        print(json.dumps({"status": "completed", "conclusion": run["conclusion"], "jobs": [],
+        print(json.dumps({"status": "completed", "conclusion": run["conclusion"],
                           "url": "https://example.invalid/run/" + args[2],
-                          "headBranch": run["headBranch"], "headSha": run["headSha"]}))
+                          "headBranch": run["headBranch"], "headSha": run["headSha"],
+                          "workflowName": run.get("workflowName", "CI"),
+                          "event": run.get("event", "push"),
+                          "jobs": run.get("jobs", [])}))
 else:
     sys.exit(3)
 """
@@ -67,6 +70,31 @@ RUNS = {
     "103": {"headBranch": "owner/docs", "headSha": UNMARKED_DOCS_SHA, "conclusion": "success"},
     "104": {"headBranch": "main", "headSha": MAIN_BOOKKEEPING_SHA, "conclusion": "success"},
     "105": {"headBranch": "codex/fix-pr-7", "headSha": CODEX_SHA, "conclusion": "failure"},
+    "106": {
+        "headBranch": "main", "headSha": CODEX_SHA, "conclusion": "failure",
+        "workflowName": "iOS TestFlight (CD)", "event": "workflow_dispatch",
+        "jobs": [{"name": "testflight", "conclusion": "failure"}],
+    },
+    "107": {
+        "headBranch": "main", "headSha": MAIN_BOOKKEEPING_SHA, "conclusion": "success",
+        "workflowName": "iOS TestFlight Testers", "event": "workflow_dispatch",
+    },
+    "108": {
+        "headBranch": "main", "headSha": CODEX_SHA, "conclusion": "success",
+        "workflowName": "Native Mobile CI", "event": "workflow_dispatch",
+    },
+    "109": {
+        "headBranch": "main", "headSha": CODEX_SHA, "conclusion": "success",
+        "workflowName": "iOS TestFlight (CD)", "event": "push",
+    },
+    "110": {
+        "headBranch": "codex/internal-release-3614bf6f-20261006", "headSha": CODEX_SHA,
+        "conclusion": "success", "workflowName": "iOS TestFlight (CD)", "event": "workflow_dispatch",
+    },
+    "111": {
+        "headBranch": "main", "headSha": CODEX_SHA, "conclusion": "success",
+        "workflowName": "iOS TestFlight Artifact Diagnostics", "event": "workflow_dispatch",
+    },
 }
 
 
@@ -111,7 +139,64 @@ class WaitForConclusionProvenanceTests(unittest.TestCase):
             ["bash", str(WAITER), "--feedback", "--poll-seconds", "1", "--timeout-seconds", "5"],
             env=self.env, capture_output=True, text=True, timeout=60,
         )
-        return result.stdout.strip().splitlines()[-1]
+        lines = result.stdout.strip().splitlines()
+        self.assertEqual(len(lines), 1, result.stdout)
+        return lines[0]
+
+    def test_manual_release_and_apple_outcomes_survive_self_head_filtering(self) -> None:
+        for run_id in ("106", "107", "110", "111"):
+            with self.subTest(run=run_id):
+                self._write_events(run_event(run_id), {"kind": "issue_comment", "pr": 7, "id": 9})
+
+                line = self._feedback()
+
+                self.assertIn(f"status=completed conclusion={RUNS[run_id]['conclusion']}", line)
+                self.assertIn("failed_jobs=testflight" if run_id == "106" else "failed_jobs=none", line)
+                self.assertEqual(self.cursor.read_text(encoding="utf-8").strip(), "1")
+                log = Path(line.rsplit("log=", 1)[1]).read_text(encoding="utf-8")
+                self.assertIn("keeping manual release/Apple outcome", log)
+                self.assertIn(f"log for run {run_id}", log)
+
+    def test_manual_native_ci_and_non_dispatch_release_ci_stay_quiet(self) -> None:
+        for run_id in ("104", "108", "109"):
+            with self.subTest(run=run_id):
+                self._write_events(run_event(run_id), {"kind": "issue_comment", "pr": 7, "id": 10})
+
+                line = self._feedback()
+
+                self.assertIn("conclusion=pr_feedback:issue_comment:pr7", line)
+                self.assertEqual(self.cursor.read_text(encoding="utf-8").strip(), "2")
+
+    def test_stream_cannot_claim_a_release_exception_for_ordinary_ci(self) -> None:
+        event = {**run_event("101"), "workflowName": "iOS TestFlight (CD)", "event": "workflow_dispatch"}
+        self._write_events(event, {"kind": "issue_comment", "pr": 7, "id": 11})
+
+        self.assertIn("conclusion=pr_feedback:issue_comment:pr7", self._feedback())
+
+    def test_manual_release_does_not_wake_before_terminal_event(self) -> None:
+        event = {**run_event("106"), "status": "in_progress", "conclusion": ""}
+        self._write_events(event, {"kind": "issue_comment", "pr": 7, "id": 12})
+
+        self.assertIn("conclusion=pr_feedback:issue_comment:pr7", self._feedback())
+
+    def test_check_summary_keeps_manual_apple_outcome_on_bookkeeping_head(self) -> None:
+        self._write_events(run_event("104"), checks_event(7, "107", "SUCCESS"),
+                           {"kind": "issue_comment", "pr": 7, "id": 13})
+
+        line = self._feedback()
+
+        self.assertIn("status=completed conclusion=ci_checks_terminal failed_jobs=none", line)
+        self.assertEqual(self.cursor.read_text(encoding="utf-8").strip(), "2")
+
+    def test_explicit_release_wait_reports_failed_testflight(self) -> None:
+        result = subprocess.run(
+            ["bash", str(WAITER), "--release", "106", "--poll-seconds", "1"],
+            env=self.env, capture_output=True, text=True, timeout=60,
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(len(result.stdout.strip().splitlines()), 1)
+        self.assertIn("status=completed conclusion=failure failed_jobs=testflight", result.stdout)
 
     def test_feedback_skips_codex_ci_on_an_internal_release_branch(self) -> None:
         comment = {"kind": "issue_comment", "pr": 7, "id": 1}

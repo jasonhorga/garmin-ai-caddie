@@ -1,10 +1,14 @@
+> HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+>
+> Verbatim ledger while release filtering was prepared, before remote test/Apple closure.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 20:44 UTC
-**Canonical branch:** main; product merge a08634a8; released source b662572e
+**Updated:** 2026-10-10 20:33 UTC
+**Canonical branch:** main; origin/main b662572e; product merge a08634a8
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and deduplication
@@ -14,12 +18,11 @@ handled reviews/comments/tests. Reports and verbatim archives preserve evidence.
 #413/#414/#416 branches/resources closed; evidence published b662572e.
 Shared canonical checkout remains a38a97bc; preserve its HEAD/files/normal index.
 
-This commit publishes the verified manual-release filter in waiter/tests/AGENTS.
-Actual Actions workflow/event metadata grants the exception only to the three
-manual TestFlight workflows. Own ordinary/manual Native CI remains suppressed.
-Homeserver15 provenance regressions/12.740s passed, no skips; bash -n passed.
-Snapshot closed. Published waiter runtime path is this operation's persistent
-publication/ops/wait_for_conclusion.sh; do not overwrite shared source files.
+Current operation: correct suppression of manual TestFlight/Apple outcomes on
+Codex heads, then validate successful release38083089271. Code prepared in
+ops/wait_for_conclusion.sh, provenance tests and AGENTS. Only actual
+workflow_dispatch runs for the three TestFlight workflows bypass self-CI
+filtering; manual Native CI remains suppressed. Remote tests not executed yet.
 
 Release38079005590 failed19:20:08UTC at backend-preflight TLS EOF before upload.
 Build86 archive/export succeeded; no uploaded86 claim. Explicit verdict preserved
@@ -27,12 +30,8 @@ in blocking-waits/wait-release-38079005590-20261010T201619Z-122809.log.
 Claude's retry38083089271 on b662572e returned success/none through delegated
 explicit waiter; handle17379 closed0, no resources. No duplicate upload.
 Log blocking-waits/wait-release-38083089271-20261010T202711Z-130634.log.
-Downloaded IPA/provenance independently match source/run/backend/hash; actual
-iPhone and embedded Watch plists both0.1.0(86). Apple read-only38084409144
-success20:37:04UTC: VALID/unexpired/IN_BETA_TESTING; existing internal all-builds
-group contains86, external group does not. No particular device-install claim.
-Apple log blocking-waits/wait-ci-38084409144-20261010T203723Z-143537.log.
-Report2026-10-10-release86-and-waiter-filter.md; #416 reply6102006509 handled.
+Verify its package/provenance, then Apple via ios-testflight-testers.yml,
+operation=list and external_distribution=false.
 
 SSH loss20:02UTC recovered20:10:16. Exact owned orphan73178 closed with receipts
 in operations/feedback-recovery-20261010T2010; cursor/shared monitor preserved.
@@ -42,15 +41,14 @@ No pending main feedback terminal or delegated wait; rearm after this operation.
 ## Unfinished queue
 
 - `PR-FEEDBACK-CONTINUOUS` — `in-progress`: exact-head reviews and same-turn waits.
-- `WAIT-RELEASE-EVENT-FILTER` — `done`:15 regressions passed; this commit
-  publishes code/policy/evidence, and the corrected waiter is ready for use.
-- `RELEASE-38083089271` — `done`:0.1.0(86), uploaded/source/Apple/internal group
-  independently verified; exact artifacts retained, both wait terminals closed.
+- `WAIT-RELEASE-EVENT-FILTER` — `queued`: code prepared; remote regressions,
+  resource closure and scoped publication required before corrected waiter use.
+- `RELEASE-38083089271` — `evidence-open`: terminal success; independently
+  verify package and Apple processing/internal availability.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: nonblocking 八号铁164 variation
   reported in #4166101180215; fixed-route snapshots should remain consistent.
 - `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark navigation/status text.
-- `OWNER-DEVICE-BUILD86` — `evidence-open`: current paired-device validation owner work;
-  supersedes the old build82 baseline without claiming device validation.
+- `OWNER-DEVICE-BUILD82` — `evidence-open`: paired-device validation owner work.
 
 ## Live verification baseline
 
@@ -69,24 +67,21 @@ No pending main feedback terminal or delegated wait; rearm after this operation.
 - #416 exact a38a97bc approved6101180215/merged a08634a8;126 contracts/6.491s.
   Native38075749433 iOS785/0, Watch452/0,2 UI tests;143/144 PNGs identical,
   all Watch unchanged; zoomed iOS image variation reported as nonblocking.
-- Independently verified TestFlight0.1.0(86): upload38083089271,
-  Apple38084409144 VALID/IN_BETA_TESTING, existing internal group includes86;
-  source b662572e, backend cbc17f4e, IPA
-  c59ca85eb527443306d1f49462c8b2c09ac2ecaa2fbebf08ed66dbec0affb4e9.
-  Both package plists86/companion IDs match. This does not prove physical-device
-  GPS, battery, WCSession timing or installation. Prior82 details archived.
+- Last independently verified TestFlight0.1.0(82): upload37774511661,
+  Apple37776197288 VALID/IN_BETA_TESTING; IPA
+  f8e112b8bf75e4a33fad838bff39e69ec783679ba8a040091b957ec5cc896721.
+  No newer Apple-verified package yet. Simulator/source evidence does not prove
+  physical-device GPS, battery, WCSession timing or installation.
 
 ## Owned resources and cleanup
 
 - No pending feedback terminal, delegated agent, service, container, volume,
   dependency environment, tunnel or implementation worktree.
-- Snapshot /dev/shm/garmin-ai-caddie-wait-release-filter-20261010 closed:
- 34520bytes, source comparisons/process cwd/fds clear; exact2-file deletion.
-  Evidence operations/wait-release-filter-20261010: manifest/source hashes/tests/
-  scripts/release IPA/provenance/Apple/cleanup/publication; persistent retained.
-  Alternate index removed after guarded push; normal index/head/files preserved.
-  Local controls have exact backup/allow-list receipts; no production cursor/
-  event changes. Both release/Apple delegated handles closed; no cleanup pending.
+- Reserved snapshot /dev/shm/garmin-ai-caddie-wait-release-filter-20261010;
+  expires2026-10-11 20:33UTC, manifest recorded before creation.
+  Evidence operations/wait-release-filter-20261010: manifest/source hashes/
+  tests/publication/cleanup. Alternate publication index removed after push.
+  Tests use mocked GitHub data; no production cursor/event modifications.
 - Earlier #413/#414/#416 snapshots/controls closed, evidence retained.
   #415 disposable resources closed; old f9586f6c stopped/rollback retained.
 - Preserve unrelated dirty ops/pr_feedback_monitor.sh and older .codex-* files.
@@ -97,24 +92,21 @@ No pending main feedback terminal or delegated wait; rearm after this operation.
 - gh-feedback timer and blocking-waits/feedback-cursor unchanged.
   Last capacity49GiB disk/5.0GiB available RAM/3.3GiB shm.
 - Displaced ledger retained verbatim in
-  docs/archive/PROJECT_STATE-2026-10-10-before-release-filter-fix.md and
-  PROJECT_STATE-2026-10-10-release-filter-verification-in-progress.md.
+  docs/archive/PROJECT_STATE-2026-10-10-before-release-filter-fix.md.
 
 ## Next action and stopping
 
-Finish scoped publication/local controls closure, then use the published waiter
-from operations/wait-release-filter-20261010/publication/ops in one same-turn
---feedback terminal. Publication ID/guards are in persistent publication-commit.txt.
-Deduplicate already handled manual runs38079005590/38083089271/38084409144 and
-#404–#416 comments/checks; do not re-review or reset quiet time for own events.
-For a pending handle:
+Run provenance regressions on homeserver and inspect38083089271 upload metadata.
+Confirm Apple through the real read-only tester workflow; comment verified
+outcome on #416. Publish tested waiter/policy/evidence, close exact resources,
+preserve shared working state. Then one same-turn --feedback terminal:
 wait300000ms, read its handle once, repeat until one-line conclusion.
 No liveness checks/second monitor, CI-only commits or quiet resets for own CI.
 Handle returned new events; exact-head CI/Native/screenshots before merge.
 
 Owner resumed after historical October9 cutoff. Stop after48h without external
 PR events and no open PRs, or an owner stop. Last recorded external PR check-set
-Claude's release retry completion2026-10-10 20:27:19UTC; conditional quiet stop
-2026-10-12 20:27:19UTC. Own Apple dispatch38084409144 and this commit/CI/comment
-do not reset it. Confirm no newer external events/open PRs before completion.
+#4162026-10-10 18:40:59UTC; conditional quiet stop2026-10-12 18:40:59UTC.
+Update after genuine external release/event provenance verification; own commits/
+CI/comments never reset it. Confirm no newer events/open PRs before completion.
 Keep this ledger≤200 lines.

@@ -219,7 +219,7 @@ summarize_run() {
   log "reading terminal run summary run=$summarize_run_id"
   run_json="$LOG_FILE.run-${summarize_run_id}.json"
   set +e
-  gh run view "$summarize_run_id" --repo "$REPO" --json status,conclusion,jobs,url,headBranch,headSha >"$run_json" 2>>"$LOG_FILE"
+  gh run view "$summarize_run_id" --repo "$REPO" --json status,conclusion,jobs,url,headBranch,headSha,workflowName,event >"$run_json" 2>>"$LOG_FILE"
   view_rc=$?
   if (( view_rc != 0 )) || ! jq -e . "$run_json" >/dev/null 2>>"$LOG_FILE"; then
     log "unable to read final run state (gh run view exit=$view_rc)"
@@ -302,9 +302,26 @@ commit_is_self_generated() {
   return "$result"
 }
 
+# Manual release and Apple operations have their own terminal outcomes, even
+# when they run on a Codex merge or bookkeeping head. Verify the real Actions
+# metadata; an event's head or claimed workflow name is not enough. Keep this
+# allow-list narrow so manual Native CI still obeys self-run suppression.
+run_is_manual_release_operation() {
+  jq -e '
+    .event == "workflow_dispatch" and
+    (.workflowName == "iOS TestFlight (CD)" or
+     .workflowName == "iOS TestFlight Testers" or
+     .workflowName == "iOS TestFlight Artifact Diagnostics")
+  ' "$1" >/dev/null 2>>"$LOG_FILE"
+}
+
 run_is_self_generated() {
   local run_json="$1"
   local head_branch head_sha
+  if run_is_manual_release_operation "$run_json"; then
+    log "keeping manual release/Apple outcome workflow=$(jq -r '.workflowName' "$run_json")"
+    return 1
+  fi
   head_branch="$(jq -r '.headBranch // empty' "$run_json" 2>>"$LOG_FILE")"
   head_sha="$(jq -r '.headSha // empty' "$run_json" 2>>"$LOG_FILE")"
   ci_head_is_self_generated "$head_branch" "$head_sha"
@@ -328,7 +345,7 @@ ci_head_is_self_generated() {
 # head is self-generated; a check without an Actions run link, a run that cannot
 # be read, or any other agent's head keeps the event (PR #388 review).
 checks_event_is_self_generated() {
-  local event="$1" run_ids run_id run_json head_branch head_sha
+  local event="$1" run_ids run_id run_json self_generated_rc
   run_ids="$(jq -r '
     [.checks[]? | ((.link // .detailsUrl // .url // "")
       | (capture("/actions/runs/(?<id>[0-9]+)") | .id) // "missing")]
@@ -338,15 +355,15 @@ checks_event_is_self_generated() {
   while IFS= read -r run_id; do
     [[ "$run_id" =~ ^[0-9]+$ ]] || return 1
     run_json="$LOG_FILE.checks-run-${run_id}.json"
-    if ! gh run view "$run_id" --repo "$REPO" --json headBranch,headSha >"$run_json" 2>>"$LOG_FILE"; then
+    if ! gh run view "$run_id" --repo "$REPO" --json headBranch,headSha,workflowName,event >"$run_json" 2>>"$LOG_FILE"; then
       log "unable to read check run for self-run filtering run=$run_id"
       rm -f "$run_json"
       return 1
     fi
-    head_branch="$(jq -r '.headBranch // empty' "$run_json" 2>>"$LOG_FILE")"
-    head_sha="$(jq -r '.headSha // empty' "$run_json" 2>>"$LOG_FILE")"
+    run_is_self_generated "$run_json"
+    self_generated_rc=$?
     rm -f "$run_json"
-    ci_head_is_self_generated "$head_branch" "$head_sha" || return 1
+    (( self_generated_rc == 0 )) || return 1
   done <<<"$run_ids"
   return 0
 }
@@ -443,19 +460,14 @@ wait_for_pr_event() {
         if [[ "$event_kind" == "ci_run_added" || "$event_kind" == "ci_run_changed" ]] && [[ -n "$event_run_id" ]]; then
           event_head_branch="$(jq -r '.headBranch // empty' <<<"$event_line" 2>>"$LOG_FILE")"
           event_head_sha="$(jq -r '.headSha // empty' <<<"$event_line" 2>>"$LOG_FILE")"
-          event_pr_count="$(jq -r '((.pullRequests // []) | length)' <<<"$event_line" 2>>"$LOG_FILE")"
-          if [[ -n "$event_head_sha" ]] && { [[ "$event_head_branch" != "main" || "$event_pr_count" == "0" ]]; } \
-              && ci_head_is_self_generated "$event_head_branch" "$event_head_sha"; then
-            log "ignored self-generated CI event run=$event_run_id branch=$event_head_branch head=$event_head_sha"
-            advance_cursor "$line_no"
-            continue
-          fi
           # A terminal Actions event is a run conclusion. Reuse the same
           # summary path as --run so failed job names and the full run log are
-          # available in the one-line result.
+          # available in the one-line result. Filtering uses this actual run's
+          # workflow/event metadata, not just the stream's commit provenance.
           summarize_run "$event_run_id"
           if (( $? == 42 )); then
             # The final run state named a self-generated head the event did not.
+            log "ignored self-generated CI event run=$event_run_id branch=$event_head_branch head=$event_head_sha"
             advance_cursor "$line_no"
             continue
           fi
