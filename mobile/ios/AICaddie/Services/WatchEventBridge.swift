@@ -507,6 +507,10 @@ public final class WatchEventBridge: NSObject {
     /// Fired when the Watch creates a standalone round. This is deliberately separate from scoring
     /// events: a round must be visible on the phone before the first score/location fact exists.
     public var onRoundStarted: ((WatchRoundStartPayload) -> Void)?
+    /// The session became usable: callers re-send what they could not send before (hole maps).
+    public var onActivated: (() -> Void)?
+    /// A queued hole bitmap transfer failed (globalId, round hole): the caller may send it again.
+    public var onHoleImageTransferFailed: ((Int, Int) -> Void)?
 
     private let offlineStore: OfflineStore
     private let encoder = JSONEncoder()
@@ -994,22 +998,24 @@ public final class WatchEventBridge: NSObject {
     /// watch P0.4: push a hole's topo image to the watch via a guaranteed-delivery file transfer, keyed
     /// by {globalId, hole}. Called at round-start / hole-change so the watch has the current (+ next)
     /// hole's map cached for offline play. Best-effort — a failure just leaves the watch mapless.
+    /// Queues one hole bitmap for the Watch; false when the session cannot take it now.
+    @discardableResult
     public func pushHoleImage(
         globalId: Int,
         hole: Int,
         imageData: Data,
         geometryRevision: String? = nil,
         assetKind: String = "topo"
-    ) {
-        guard WCSession.isSupported(), WCSession.default.activationState == .activated else {
-            return
+    ) -> Bool {
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
+              WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else {
+            return false
         }
+        // One file per transfer: a queued transfer must keep its file until it finishes, and a whole
+        // round is queued at once. `didFinish` removes it.
         let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("holeimg-\(globalId)-\(hole).img")
+            .appendingPathComponent("holeimg-\(globalId)-\(hole)-\(UUID().uuidString).img")
         do {
-            if FileManager.default.fileExists(atPath: tmp.path) {
-                try? FileManager.default.removeItem(at: tmp)
-            }
             try imageData.write(to: tmp, options: .atomic)
             var metadata: [String: Any] = [
                 "globalId": globalId,
@@ -1025,8 +1031,10 @@ public final class WatchEventBridge: NSObject {
                 metadata["geometryRevision"] = revision
             }
             WCSession.default.transferFile(tmp, metadata: metadata)
+            return true
         } catch {
             // best-effort; the watch simply renders no map for this hole
+            return false
         }
     }
 
@@ -1622,7 +1630,22 @@ extension WatchEventBridge: WCSessionDelegate {
     ) {
         if activationState == .activated {
             pushPendingApplicationContext()
+            DispatchQueue.main.async { [weak self] in self?.onActivated?() }
         }
+    }
+
+    public func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        if error != nil,
+           let globalId = fileTransfer.file.metadata?["globalId"] as? Int,
+           let hole = fileTransfer.file.metadata?["hole"] as? Int,
+           (fileTransfer.file.metadata?["assetKind"] as? String ?? "topo") == "topo" {
+            DispatchQueue.main.async { [weak self] in self?.onHoleImageTransferFailed?(globalId, hole) }
+        }
+        let url = fileTransfer.file.fileURL
+        guard url.lastPathComponent.hasPrefix("holeimg-"),
+              url.deletingLastPathComponent().resolvingSymlinksInPath().path
+                == FileManager.default.temporaryDirectory.resolvingSymlinksInPath().path else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     public func sessionDidBecomeInactive(_ session: WCSession) {}

@@ -559,6 +559,44 @@ public final class LiveRoundAppModel: ObservableObject {
                 await self?.handleWatchRoundStart(start)
             }
         }
+        let topoStore = offlineStore
+        let topoBridge = watchBridge
+        watchTopoSender = WatchTopoSender(
+            load: { item in
+                await Task.detached(priority: .utility) {
+                    topoStore.loadCourseTopoImage(
+                        globalId: item.globalId,
+                        localHole: item.localHole,
+                        geometryRevision: item.revision
+                    )
+                }.value
+            },
+            enqueue: { [weak topoBridge] item, data in
+                topoBridge?.pushHoleImage(
+                    globalId: item.globalId,
+                    hole: item.roundHole,
+                    imageData: data,
+                    geometryRevision: item.revision
+                ) ?? false
+            },
+            livePackage: { [weak self] in
+                guard let self, let package = self.package,
+                      self.liveRoundState?.roundId == package.roundId else { return nil }
+                return package
+            }
+        )
+        watchBridge?.onActivated = { [weak self] in
+            Task { @MainActor in
+                // A (re)activated session may be a different Watch: send the round again.
+                self?.watchTopoSender?.forgetSent()
+                self?.watchTopoSender?.sync()
+            }
+        }
+        watchBridge?.onHoleImageTransferFailed = { [weak self] globalId, hole in
+            Task { @MainActor in
+                self?.watchTopoSender?.transferFailed(globalId: globalId, roundHole: hole)
+            }
+        }
         watchBridge?.activateSession()
         garminConnectionState = storedGarminConnectionState()
         syncConfigToWatch()
@@ -1664,12 +1702,18 @@ public final class LiveRoundAppModel: ObservableObject {
             self.recordUITestLatency(
                 "offline-cache.task.end globalId=\(snapshot.course.globalId) holes=\(snapshot.holes.count)"
             )
+            if !Task.isCancelled {
+                self.watchTopoSender?.sync()
+            }
             if !Task.isCancelled, self.offlineCourseDownloadRoundId == expectedRoundId {
                 self.offlineCourseDownloadRoundId = nil
             }
             self.startPrepCourseDownloadQueueIfNeeded()
         }
     }
+
+    /// Every cached hole map of the live round to the Watch (`WatchTopoSender`).
+    private(set) var watchTopoSender: WatchTopoSender?
 
     /// B4b-2 template acquisition. A round that does not carry a whole physical course — a
     /// one-half start (`G:back`), or a second 9-hole loop of a sibling course — queues that
@@ -5377,6 +5421,9 @@ public final class LiveRoundAppModel: ObservableObject {
             watchBridge.sendRoundSeedToWatch(seed)
             recordUITestLatency("activate.watch-seed.end globalId=\(nextPackage.course.globalId)")
         }
+        // The round's maps already on the phone go to the Watch now, not after a network pass
+        // (a resumed round whose refresh fails never starts one). Reads run off the main actor.
+        watchTopoSender?.sync()
     }
 
     /// Convert a successfully activated Garmin package into the small, account-scoped recovery
