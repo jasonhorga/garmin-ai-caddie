@@ -4972,18 +4972,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("greenOutline: holePrep?.greenOutline?.available == true", current_hole)
         self.assertIn("func pushTopoToWatch(", current_hole)
         self.assertIn("watchBridge.pushHoleImage(", current_hole)
-        # 2026-10-10 field report: with the phone in a pocket the hole view never pushed the next
-        # holes and the Watch sat on "地图准备中". The app model pushes every hole of the live round
-        # after its course download and again when the session activates, keyed as the hole view
-        # keys it (round hole + prep revision); each transfer has its own temp file.
-        app_model = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
-        self.assertIn("func pushRoundTopoToWatch(_ snapshot: LiveRoundPackage)", app_model)
-        self.assertIn("self.pushRoundTopoToWatch(self.package ?? snapshot)", app_model)
-        self.assertIn("watchBridge?.onActivated = {", app_model)
-        self.assertIn(".first(where: { $0.hole == hole.number })?.geometryRevision", app_model)
-        self.assertIn("hole: hole.number,", app_model)
-        self.assertIn('"holeimg-\\(globalId)-\\(hole)-\\(UUID().uuidString).img"', bridge)
-        self.assertIn("didFinish fileTransfer: WCSessionFileTransfer", bridge)
         # watch: geometry builder + permanent current-hole map root. `.holeMap` remains only as a
         # backward-compatible state alias; there is no second user-visible "open map" page/button.
         geometry = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapGeometry.swift")

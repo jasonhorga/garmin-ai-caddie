@@ -559,19 +559,42 @@ public final class LiveRoundAppModel: ObservableObject {
                 await self?.handleWatchRoundStart(start)
             }
         }
+        let topoStore = offlineStore
+        let topoBridge = watchBridge
+        watchTopoSender = WatchTopoSender(
+            load: { item in
+                await Task.detached(priority: .utility) {
+                    topoStore.loadCourseTopoImage(
+                        globalId: item.globalId,
+                        localHole: item.localHole,
+                        geometryRevision: item.revision
+                    )
+                }.value
+            },
+            enqueue: { [weak topoBridge] item, data in
+                topoBridge?.pushHoleImage(
+                    globalId: item.globalId,
+                    hole: item.roundHole,
+                    imageData: data,
+                    geometryRevision: item.revision
+                ) ?? false
+            },
+            livePackage: { [weak self] in
+                guard let self, let package = self.package,
+                      self.liveRoundState?.roundId == package.roundId else { return nil }
+                return package
+            }
+        )
         watchBridge?.onActivated = { [weak self] in
             Task { @MainActor in
-                guard let self else { return }
                 // A (re)activated session may be a different Watch: send the round again.
-                self.watchTopoPushedKeys.removeAll()
-                if let package = self.package { self.pushRoundTopoToWatch(package) }
+                self?.watchTopoSender?.forgetSent()
+                self?.watchTopoSender?.sync()
             }
         }
         watchBridge?.onHoleImageTransferFailed = { [weak self] globalId, hole in
             Task { @MainActor in
-                // Not delivered: the next push (download end or activation) sends it again.
-                guard let self else { return }
-                self.watchTopoPushedKeys = self.watchTopoPushedKeys.filter { !$0.contains("|\(hole)|\(globalId)|") }
+                self?.watchTopoSender?.transferFailed(globalId: globalId, roundHole: hole)
             }
         }
         watchBridge?.activateSession()
@@ -1680,7 +1703,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 "offline-cache.task.end globalId=\(snapshot.course.globalId) holes=\(snapshot.holes.count)"
             )
             if !Task.isCancelled {
-                self.pushRoundTopoToWatch(self.package ?? snapshot)
+                self.watchTopoSender?.sync()
             }
             if !Task.isCancelled, self.offlineCourseDownloadRoundId == expectedRoundId {
                 self.offlineCourseDownloadRoundId = nil
@@ -1689,36 +1712,8 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// Round holes whose topo the Watch has been sent this launch (round id | hole | course | revision).
-    private var watchTopoPushedKeys = Set<String>()
-
-    /// The Watch shows a hole's map only once the phone has sent its bitmap. The live hole view sends
-    /// the hole it is showing, so with the phone in a pocket the Watch never got the next holes and
-    /// sat on "地图准备中" (field report 2026-10-10, hole 14). Every hole of the live round whose
-    /// bitmap is on the phone is sent once, keyed exactly as the hole view keys it (round hole,
-    /// prep revision); a session that cannot take it yet is retried on activation.
-    func pushRoundTopoToWatch(_ snapshot: LiveRoundPackage) {
-        guard let watchBridge, liveRoundState?.roundId == snapshot.roundId else { return }
-        for hole in snapshot.holes {
-            let revision = snapshot.coursePrep?.holes.first(where: { $0.hole == hole.number })?.geometryRevision
-                ?? hole.geometryRevision
-            let key = "\(snapshot.roundId)|\(hole.number)|\(hole.sourceGlobalId)|\(revision ?? "")"
-            guard !watchTopoPushedKeys.contains(key),
-                  let data = offlineStore.loadCourseTopoImage(
-                      globalId: hole.sourceGlobalId,
-                      localHole: hole.sourceLocalHole,
-                      geometryRevision: revision
-                  ) else { continue }
-            if watchBridge.pushHoleImage(
-                globalId: hole.sourceGlobalId,
-                hole: hole.number,
-                imageData: data,
-                geometryRevision: revision
-            ) {
-                watchTopoPushedKeys.insert(key)
-            }
-        }
-    }
+    /// Every cached hole map of the live round to the Watch (`WatchTopoSender`).
+    private(set) var watchTopoSender: WatchTopoSender?
 
     /// B4b-2 template acquisition. A round that does not carry a whole physical course — a
     /// one-half start (`G:back`), or a second 9-hole loop of a sibling course — queues that
@@ -5426,6 +5421,9 @@ public final class LiveRoundAppModel: ObservableObject {
             watchBridge.sendRoundSeedToWatch(seed)
             recordUITestLatency("activate.watch-seed.end globalId=\(nextPackage.course.globalId)")
         }
+        // The round's maps already on the phone go to the Watch now, not after a network pass
+        // (a resumed round whose refresh fails never starts one). Reads run off the main actor.
+        watchTopoSender?.sync()
     }
 
     /// Convert a successfully activated Garmin package into the small, account-scoped recovery
