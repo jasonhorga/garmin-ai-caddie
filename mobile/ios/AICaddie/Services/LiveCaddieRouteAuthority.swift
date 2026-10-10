@@ -301,17 +301,21 @@ enum LiveCaddieRouteAuthority {
         return incoming[0]
     }
 
-    /// The leading route at index zero, then only physically distinct alternatives in the order
-    /// the server/offline planner first revealed them, so a refresh cannot reshuffle plan tabs.
+    /// The hole's routes in the order they were first shown, then only physically distinct new
+    /// alternatives. The leading route takes index zero only when it is new; a route already shown
+    /// keeps its place (refreshed in place), so selecting it cannot reshuffle the 打法 pager. Moving
+    /// the selected route to the front made a 1/3 -> 2/3 tap reorder [A, B, C] into [B, A, C], and
+    /// paging then alternated between A and B and never reached C.
     static func mergedRoutes(
         first: CaddiePlanSequence,
         existing: [CaddiePlanSequence],
         incoming: [CaddiePlanSequence]
     ) -> [CaddiePlanSequence] {
-        var merged: [CaddiePlanSequence] = [first]
+        var merged: [CaddiePlanSequence] = existing.contains(where: { sameVisibleRoute($0, first) }) ? [] : [first]
         for route in existing + incoming {
-            guard !merged.contains(where: { sameVisibleRoute($0, route) }) else { continue }
-            merged.append(route)
+            let candidate = sameVisibleRoute(route, first) ? first : route
+            guard !merged.contains(where: { sameVisibleRoute($0, candidate) }) else { continue }
+            merged.append(candidate)
         }
         return merged
     }

@@ -4282,8 +4282,10 @@ class MobileContractTests(unittest.TestCase):
             '.padding(.vertical, 4)\n        .accessibilityLabel("球童建议")',
             live_caddie_panel,
         )
+        # 打法 selects the paged route itself, not the first route sharing its strategy token
+        # (2026-10-10: two routes shared a token and "3/3" could never be reached).
         self.assertIn(
-            "selectStrategyMode(CaddiePlanPresentation.selectionToken(for: next))",
+            "selectStrategyMode(CaddiePlanPresentation.selectionToken(for: next), route: next)",
             current_hole,
         )
         self.assertNotIn("onSelectStep:", current_hole)
