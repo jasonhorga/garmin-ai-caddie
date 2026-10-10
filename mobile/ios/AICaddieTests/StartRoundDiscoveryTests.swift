@@ -805,6 +805,47 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    /// Arzaga (2026-10-10): an 18-hole Jack Nicklaus II beside a 9-hole Gary Player. Whichever is
+    /// selected, both are offered; the whole course comes first.
+    func testA18HoleCourseBesideANineIsOfferedWithIt() {
+        let nicklaus = MobileCourseOption(
+            globalId: 26807, name: "Arzaga Golf Club", holes: 18,
+            venueName: "Arzaga Golf Club", segmentLabel: "Jack Nicklaus II", segmentHoles: 18
+        )
+        let player = MobileCourseOption(
+            globalId: 26808, name: "Arzaga Golf Club", holes: 9,
+            venueName: "Arzaga Golf Club", segmentLabel: "Gary Player", segmentHoles: 9
+        )
+        let elsewhere = loop(26790, venue: "Gardagolf Country Club", label: "Bianco")
+        let candidates = [player, elsewhere, nicklaus]
+
+        for selected in [player, nicklaus] {
+            XCTAssertEqual(
+                StartRoundView.sameVenueStartableCourses(selected: selected, candidates: candidates).map(\.globalId),
+                [26807, 26808],
+                "selected \(selected.globalId)"
+            )
+        }
+        XCTAssertEqual(StartRoundPresentation.loopTileTitle(nicklaus), "Jack Nicklaus II")
+        XCTAssertEqual(
+            StartRoundPresentation.startActionTitle(selected: player, loops: [nicklaus, player], teeBox: "white"),
+            StartRoundPresentation.startActionTitle(selected: player, loops: [player], teeBox: "white"),
+            "the nine's start title ignores the 18-hole course beside it"
+        )
+    }
+
+    func testVenuesWithOnlyNinesOrOnlyOneCourseAreUnchanged() {
+        let a = loop(1, venue: "黑骑士", label: "A")
+        let b = loop(2, venue: "黑骑士", label: "B")
+        let c = loop(3, venue: "黑骑士", label: "C")
+        XCTAssertEqual(
+            StartRoundView.sameVenueStartableCourses(selected: b, candidates: [c, a, b]).map(\.globalId),
+            StartRoundView.sameVenueNineHoleCandidates(selected: b, candidates: [c, a, b]).map(\.globalId)
+        )
+        let single = MobileCourseOption(globalId: 9, name: "北湖", holes: 18, venueName: "北湖", segmentHoles: 18)
+        XCTAssertEqual(StartRoundView.sameVenueStartableCourses(selected: single, candidates: [single, a]).map(\.globalId), [9])
+    }
+
     func testTeeYardsAreShownOnlyWhenTheyCoverTheHolesBeingStarted() {
         XCTAssertEqual(StartRoundPresentation.teeYards(total: 3201, teeHoleCount: 9, playedHoles: 9), 3201)
         XCTAssertEqual(StartRoundPresentation.teeYards(total: 6412, teeHoleCount: 18, playedHoles: 18), 6412)

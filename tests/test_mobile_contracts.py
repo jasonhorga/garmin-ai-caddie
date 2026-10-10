@@ -1793,10 +1793,12 @@ class MobileContractTests(unittest.TestCase):
         # reuse a fixed "live-<globalId>" and merge. The bare reused fallback must be gone.
         self.assertIn("UUID().uuidString", start_view)
         self.assertNotIn('?? "live-\\(option.globalId)"', start_view)
-        # The loop tiles come from the selected venue's factual 9-hole siblings (including the
-        # selected loop itself); the helper must NOT filter the selected loop out.
+        # The loop tiles come from the selected venue's factual courses (including the selected
+        # loop itself): its 9-hole loops and any 18-hole course beside them (2026-10-10, Arzaga's
+        # 18-hole Jack Nicklaus II was hidden beside its 9-hole Gary Player). The helper must NOT
+        # filter the selected loop out.
         self.assertNotIn("$0.globalId != selectedSegment.globalId", start_view)
-        self.assertIn("Self.sameVenueNineHoleCandidates(", start_view)
+        self.assertIn("Self.sameVenueStartableCourses(", start_view)
         self.assertIn("public let onSetSecondLoop: (RoundLoopEntry?, String) -> Void", round_home)
         self.assertIn("onSetSecondLoop: onSetSecondLoop", round_home)
         self.assertNotIn("onPrepareCompositeRound", round_home)

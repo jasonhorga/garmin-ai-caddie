@@ -814,6 +814,57 @@ final class DesignSnapshotTests: XCTestCase {
             },
             named: "full-start-selected"
         )
+        // Field report 2026-10-10 (Arzaga Golf Club): an 18-hole Jack Nicklaus II beside a 9-hole
+        // Gary Player. Both course tiles show whichever is selected; the selected 18-hole course
+        // still offers 前九 / 后九. Provider labels and tee rows as production GET
+        // /api/v2/courses/{26807,26808}/tees?ensure_release=false (2026-10-10).
+        let arzaga = [
+            MobileCourseOption(
+                globalId: 26807, name: "Arzaga Golf Club", holes: 18,
+                venueName: "Arzaga Golf Club", segmentLabel: "Jack Nicklaus II", segmentHoles: 18
+            ),
+            MobileCourseOption(
+                globalId: 26808, name: "Arzaga Golf Club", holes: 9,
+                venueName: "Arzaga Golf Club", segmentLabel: "Gary Player", segmentHoles: 9
+            ),
+        ]
+        let nicklausTees = try JSONDecoder().decode([CourseTee].self, from: Data(#"""
+        [
+          {"teeBox": "white", "name": "White", "yards": 6825, "holeCount": 18, "default": true},
+          {"teeBox": "yellow", "name": "Yellow", "yards": 6432, "holeCount": 18, "default": false}
+        ]
+        """#.utf8))
+        let playerTees = try JSONDecoder().decode([CourseTee].self, from: Data(#"""
+        [
+          {"teeBox": "white", "name": "White", "yards": 3111, "holeCount": 9, "default": true},
+          {"teeBox": "yellow", "name": "Yellow", "yards": 2953, "holeCount": 9, "default": false}
+        ]
+        """#.utf8))
+        // An 18-hole tee total is never shown as the total of the nine being started.
+        XCTAssertNil(StartRoundPresentation.teeYards(total: 6825, teeHoleCount: 18, playedHoles: 9))
+        XCTAssertEqual(StartRoundPresentation.teeYards(total: 3111, teeHoleCount: 9, playedHoles: 9), 3111)
+        XCTAssertEqual(
+            StartRoundPresentation.startActionTitle(selected: arzaga[1], loops: arzaga, teeBox: "white"),
+            StartRoundPresentation.startActionTitle(selected: arzaga[1], loops: [arzaga[1]], teeBox: "white"),
+            "the nine's start action is unchanged by the 18-hole course beside it"
+        )
+        for (selectedId, tees, name) in [
+            (26808, playerTees, "full-start-mixed-venue-nine"),
+            (26807, nicklausTees, "full-start-mixed-venue-eighteen"),
+        ] {
+            try captureScreen(
+                NavigationStack {
+                    StartRoundView(
+                        defaultCourseGlobalId: selectedId,
+                        defaultTeeBox: "white",
+                        initialCourseTees: tees,
+                        courseOptions: arzaga,
+                        onLoadCourseTees: { globalId in globalId == 26807 ? nicklausTees : playerTees }
+                    )
+                },
+                named: name
+            )
+        }
         // Owner feedback (#392): a slow nearby answer. 黑骑士 A/B are downloaded (with their provider
         // coordinates); they stay tappable under one waiting line, captioned "已下载 18 洞" (what the
         // phone holds), and nearby's arrival replaces the line with the venue row ("27 洞"). The

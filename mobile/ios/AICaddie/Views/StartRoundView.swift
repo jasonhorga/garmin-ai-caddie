@@ -873,16 +873,39 @@ public struct StartRoundView: View {
 
     // MARK: - First loop (README §8: only the first nine is chosen here)
 
-    /// The selected venue's loops from the authority that supplied the selection, in the course's
+    /// The selected venue's courses from the authority that supplied the selection, in the course's
     /// order. An 18-hole single course is one row here; `loopSection` shows it as 前九 / 后九.
     private var selectedVenueLoops: [MobileCourseOption] {
         guard let selectedSegment else { return [] }
-        guard selectedSegment.resolvedHoles == 9 else { return [selectedSegment] }
-        let loops = Self.sameVenueNineHoleCandidates(
+        let loops = Self.sameVenueStartableCourses(
             selected: selectedSegment,
             candidates: [selectedSegment] + selectedAuthorityOptions
         )
         return loops.isEmpty ? [selectedSegment] : loops
+    }
+
+    /// Every startable course of the selected venue: its 9-hole loops and any 18-hole course beside
+    /// them. Only 9-hole siblings used to count, so at a venue with an 18-hole course and a 9-hole
+    /// one (Arzaga: Jack Nicklaus II 18 + Gary Player 9) selecting the nine hid the 18-hole course,
+    /// and selecting the 18 hid the nine (2026-10-10). Whole courses first, then loops by label.
+    static func sameVenueStartableCourses(
+        selected: MobileCourseOption,
+        candidates: [MobileCourseOption]
+    ) -> [MobileCourseOption] {
+        guard selected.resolvedHoles == 9 || StartRoundPresentation.isEighteenHoleCourse(selected) else {
+            return [selected]
+        }
+        var seen = Set<Int>()
+        return candidates
+            .filter {
+                ($0.resolvedHoles == 9 || StartRoundPresentation.isEighteenHoleCourse($0))
+                    && samePhysicalVenue(selected, $0)
+                    && seen.insert($0.globalId).inserted
+            }
+            .sorted { lhs, rhs in
+                if lhs.resolvedHoles != rhs.resolvedHoles { return lhs.resolvedHoles > rhs.resolvedHoles }
+                return segmentSortKeyStatic(lhs) < segmentSortKeyStatic(rhs)
+            }
     }
 
     @ViewBuilder private var loopSection: some View {
@@ -891,6 +914,11 @@ public struct StartRoundView: View {
             halfSection(course)
         } else {
             nineLoopSection(loops)
+            // A venue with an 18-hole course beside its nines (Arzaga: Jack Nicklaus II + Gary
+            // Player): the chosen 18-hole course still starts on 前九 or 后九.
+            if let selected = selectedSegment, loops.count > 1, StartRoundPresentation.isEighteenHoleCourse(selected) {
+                halfSection(selected)
+            }
         }
     }
 
@@ -943,7 +971,10 @@ public struct StartRoundView: View {
 
     @ViewBuilder private func nineLoopSection(_ loops: [MobileCourseOption]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(loops.contains(where: { $0.resolvedHoles == 9 }) ? "从哪个 9 洞开始" : "从第 1 洞开始")
+            Text(
+                loops.allSatisfy({ $0.resolvedHoles == 9 }) ? "从哪个 9 洞开始"
+                    : loops.count > 1 ? "打哪个球场" : "从第 1 洞开始"
+            )
                 .font(.footnote.weight(.bold))
                 .foregroundStyle(.secondary)
             LazyVGrid(
@@ -1000,6 +1031,8 @@ public struct StartRoundView: View {
         var parts: [String] = []
         if segment.resolvedHoles == 9 {
             parts.append("9 洞")
+        } else if StartRoundPresentation.loopTileTitle(segment) != "\(segment.resolvedHoles) 洞" {
+            parts.append("\(segment.resolvedHoles) 洞")
         }
         if selected, let yards = teeYards(teeBox) {
             parts.append("\(yards) 码")
