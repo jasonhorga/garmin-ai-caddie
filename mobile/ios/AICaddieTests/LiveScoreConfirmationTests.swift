@@ -296,6 +296,24 @@ final class LiveMarkedShotsTests: XCTestCase {
         )
     }
 
+    /// 2026-10-10: the Watch measures the live last-shot distance from the phone's newest shot. A
+    /// Watch mark relayed late sits after a later phone mark in the log; its own time decides.
+    func testNewestShotCoordinateGoesByShotTimeNotLogOrder() throws {
+        let phoneSecond = LiveRoundEvent(
+            eventId: "phone-second", roundId: "r1", clientId: "ios-phone",
+            timestamp: "2026-09-28T00:05:00Z", hole: 3, kind: .location,
+            payload: ["latitude": .number(40.001), "longitude": .number(116)]
+        )
+        let lateWatchTee = LiveRoundEvent(
+            eventId: "watch-tee", roundId: "r1", clientId: "apple-watch",
+            timestamp: "2026-09-28T00:00:00.250Z", hole: 3, kind: .location,
+            payload: ["latitude": .number(40), "longitude": .number(116)]
+        )
+        let newest = try XCTUnwrap(CurrentHoleView.newestShotCoordinate(in: [phoneSecond, lateWatchTee]))
+        XCTAssertEqual(newest.latitude, 40.001)
+        XCTAssertNil(CurrentHoleView.newestShotCoordinate(in: []))
+    }
+
     func testWatchMarksCountLikePhoneMarksInMarkOrder() {
         let events = [
             event("a", client: "apple-watch"),

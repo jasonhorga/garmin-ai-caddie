@@ -5942,7 +5942,7 @@ class WatchHolePagesContractTests(unittest.TestCase):
         # One shot identity on both devices: Watch shots counted by event id, never a queue length.
         self.assertIn("let shots = knownShotEventIds(for: state.hole)", model)
         # The phone's current shot set travels with every snapshot, newest wins, kept per hole.
-        self.assertIn("phoneShotEventIds: recordedShotEventIds", hole_view)
+        self.assertIn("phoneShotEventIds: markedShots.map(\\.eventId)", hole_view)
         # Snapshot order (a strict revision) is applied before the hole state is replaced.
         receive = model[model.index("public func receivePhoneState("):]
         self.assertLess(
