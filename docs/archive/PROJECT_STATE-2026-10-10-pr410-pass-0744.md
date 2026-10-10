@@ -1,11 +1,14 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+Preserved verbatim before closing the standing-GPS PR410 review and resources.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 07:44 UTC
-**Canonical branch:** `main`, product merge `869b73eea1330f31e37cb4944f13204d6e9dd4e3`
-**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
+**Updated:** 2026-10-10 07:28 UTC
+**Canonical branch:** `main`, product merge `ebd09a0ee3249f5cd8bbdc4c66892d6d8d483183`
+**Current slice:** `PR410-WATCH-GPS-REVIEW` — `in-progress`
 
 ## Current state
 
@@ -33,20 +36,17 @@ selected18 captures and ABC baseline: names/halves/tees/actions fit;18-hole
 yardage is not shown as nine-hole total. Ready for author's planned internal
 release including#407/#409; no Codex TestFlight upload in this review batch.
 
-#410 head795dd9595343ea4853296ee9d2dcd99c8881fa8f approved6095236472,
-merged869b73ee at07:43:54 UTC; source branch deleted. Contracts126/OK;
-CI38034191333 green, Native38034191294 iOS778/0, Watch449/0. New GPS callback
-filter regression and fresh/accurate-fix rejection both passed. Native merge
-2fe27955 parent2 is exact head; all144 PNGs match #409 baseline. Acquiring,
-distance-hero and always-on captures inspected. Hardware stationary fix cadence/
-battery remains device evidence. Separate topo delivery/layout follow-ups pending.
-
 ## Unfinished queue
 
+- `PR410-WATCH-GPS-REVIEW` — `in-progress`: head795dd9595343ea4853296ee9d2dcd99c8881fa8f,
+  branch claude/watch-gps-fresh-20261010. Remove3m CoreLocation callback filter
+  so standing fixes stay fresh;15s/15m rangefinder guard remains. Native38034191294
+  pending; CI38034191333 green. Read code/related GPS tests, run exact-head
+  contracts, wait once, inspect Native artifacts before approval.
 - `PR408-BACKEND-DEPLOY` — `queued`: only after fix/review/merge. No production
   API restart before10:00 UTC unless decision/prep traffic is quiet30 minutes
   (author's owner-live-round constraint6094461766). Prebuild matching sync image.
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: same-turn blocking waits after reviews;
+- `PR-FEEDBACK-CONTINUOUS` — `queued`: same-turn blocking waits after reviews;
   no CI-only bookkeeping commits, self-event loops or waiter liveness checks.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 variation; nonblocking.
 - `IOS-STATUS-CONTRAST` — `queued`: dark navigation/status text; nonblocking.
@@ -70,7 +70,7 @@ battery remains device evidence. Separate topo delivery/layout follow-ups pendin
   nine PNG hashes match, two actual workers. Server-only, not phone load time.
   Combined deployed-source suites237 tests /4.107 s /OK /5 existing skips.
   Full evidence: [backend deployment report](2026-10-10-pr404-406-backend-deploy.md).
-- Latest PR-head Native38034191294: iOS778/0, Watch449/0,144 baseline PNG matches.
+- Latest PR-head Native38031964045: iOS778/0, Watch448/0,142 matches+2 new captures.
   Last merged-source live capture37990736669: iOS772/0, Watch448/0.
 
 ## Owned resources
@@ -93,25 +93,20 @@ battery remains device evidence. Separate topo delivery/layout follow-ups pendin
   Snapshot removed (28,086,784 bytes), --rm contracts container absent. Native
   waiter6350/artifact terminal1456 ended; all evidence retained. Six local
   helpers+three screenshots hash-matched persistent originals and removed.
-  #410 evidence: /home/jason/garmin-ai-caddie-data/operations/pr410-795dd959-20261010.
-  Exact source, Native provenance/144 PNGs/logs/review/cleanup retained. Snapshot
-  removed and --rm contracts container absent. Native52143/artifact30546 closed;
-  six local helpers+three PNGs (62,200 bytes) hash-matched originals and removed.
   No active snapshot, implementation worktree, test service, tunnel or subagent.
 - Stopped rollback `aicaddie-release-3614bf6f-production-20261008` retained.
   No pending Native/feedback wait. gh-feedback timer/cursor unchanged.
   Consumed/deduplicated #404–409 backlog without new comments/tests/CI commits.
   One historical waiter GitHub transport timeout was not a CI failure.
-  Last feedback result at07:26:46 UTC delivered#410, now handled; no pending wait.
+  Last feedback result at07:26:46 UTC delivered new#410; no waiter left running.
 - Preserve unrelated dirty `ops/pr_feedback_monitor.sh` and older `.codex-*`.
   Filter/consume credentials on homeserver; never print them during inspection.
 
 ## Next action and stopping
 
-Commit/push #410 review/merge/cleanup and dated archive together, then retain
-one same-turn --feedback terminal (sleep300000ms→read once). Deduplicate
-already-handled heads/comments/CI for#404–410; receive genuine new feedback
-or author's planned internal release. Do not infer TestFlight from merge.
+Review #410's exact head and related GPS lifecycle/tests, run contracts, wait
+for Native38034191294, compare/inspect phone+Watch artifacts. Record review
+and cleanup together, then retain one same-turn --feedback terminal.
 #408 deployment remains queued for10:00 UTC; a bounded feedback timeout may
 wake that scheduled slice. Build matching sync before API cutover. Do not
 check waiter liveness, repeatedly query traffic or create CI-only commits.
@@ -119,6 +114,5 @@ check waiter liveness, repeatedly query traffic or create CI-only commits.
 Prior absolute cutoff is historical; owner explicitly resumed work.
 Continuous tracking stops after48h without external PR events and no open PRs,
 or a new owner stop instruction. Latest external PR event07:22:10 UTC (#410);
-Review queue is closed as of#410 merge; quiet requires48h with no new external
-events and no open PRs. Ignore our own
+quiet condition is not satisfied while #410 is open. Ignore our own
 commits/comments/CI as quiet resets. Keep ledger ≤200 lines.
