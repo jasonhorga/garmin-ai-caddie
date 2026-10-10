@@ -76,6 +76,13 @@ final class WatchHoleMapViewportTests: XCTestCase {
                 railTop - 6,
                 "club chip must stay above the bottom instrument rail on \(size)"
             )
+            // Owner feedback 2026-10-10: the root map is full-bleed with the hole centred, so the
+            // chip and the floating F/M/B facts must both leave the player marker visible.
+            XCTAssertGreaterThan(frame.minX, size.width * 0.5 + 6, "club chip must not cover the player on \(size)")
+            XCTAssertFalse(
+                WatchHoleMapView.rootFactsFrame(in: size).contains(CGPoint(x: size.width * 0.5, y: size.height * 0.72)),
+                "the F/M/B facts must not swallow taps on the player on \(size)"
+            )
         }
     }
 
