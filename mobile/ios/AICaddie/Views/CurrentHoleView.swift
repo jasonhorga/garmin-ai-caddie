@@ -2183,32 +2183,54 @@ public struct CurrentHoleView: View {
         hasPlausibleLiveFix
     }
 
-    /// Within this distance of the tee anchor the player is on the tee box (tee boxes are long and
-    /// the routed tee is one point on them).
-    static let teeProximityMetres = 45.0
+    /// Farther than this from the hole's routed line (tee to green) the player is not on the hole:
+    /// fairway half-width plus rough, so forward tees and a walk down the fairway stay on it.
+    static let offHoleMetres = 75.0
 
-    /// Before the hole's first shot, a fix away from the tee does not plan the tee shot: a player
-    /// still in the car park or clubhouse can be well within the plausible range of hole 1's green,
-    /// and the tee shot was then planned from there (a 308 y "tee shot" on a 397 y hole, 2026-10-10).
-    /// Only the caddie's planning inputs change; the map, recording and on-screen GPS numbers do not.
-    private var isTeeShotAwayFromTee: Bool {
-        Self.isTeeShotAwayFromTee(
+    /// Before the hole's tee shot, a fix off the hole does not plan it: a player still in the car
+    /// park or clubhouse can be well within the plausible range of hole 1's green, and the tee shot
+    /// was then planned from there (a 308 y "tee shot" on a 397 y hole, 2026-10-10). Only the
+    /// caddie's planning inputs change; the map, recording and on-screen GPS numbers do not.
+    private var isTeeShotOffTheHole: Bool {
+        let route = (holePrep?.resolvedMapOverlay?.route ?? []).compactMap { point -> CLLocationCoordinate2D? in
+            guard point.count >= 2 else { return nil }
+            return liveCoordinate(forOverlayPixel: CGPoint(x: point[0], y: point[1]))
+        }
+        return Self.isTeeShotOffTheHole(
             shotsRecorded: recordedNonPuttShotCount,
+            shotType: selectedShotType,
             fix: currentCoordinate,
-            tee: teeAnchorCoordinate
+            route: route
         )
     }
 
-    /// No shot recorded on the hole yet and the fix more than `teeProximityMetres` from the tee
-    /// anchor. Unknown fix or tee: false, so the live position keeps its role.
-    static func isTeeShotAwayFromTee(
+    /// No shot recorded yet, still the tee shot, and the fix more than `offHoleMetres` from every
+    /// leg of the routed line. Unknown fix or route: false, so the live position keeps its role.
+    static func isTeeShotOffTheHole(
         shotsRecorded: Int,
+        shotType: String,
         fix: CLLocationCoordinate2D?,
-        tee: CLLocationCoordinate2D?
+        route: [CLLocationCoordinate2D]
     ) -> Bool {
-        guard shotsRecorded == 0, let fix, let tee else { return false }
-        let metres = GeoDistance.haversineMetres(fix.latitude, fix.longitude, tee.latitude, tee.longitude)
-        return metres.isFinite && metres > teeProximityMetres
+        guard shotsRecorded == 0,
+              shotType.caseInsensitiveCompare("tee") == .orderedSame,
+              let fix, route.count >= 2 else { return false }
+        // Local metres around the fix (equirectangular; holes are a few hundred metres long).
+        let metresPerDegreeLat = 111_320.0
+        let metresPerDegreeLon = metresPerDegreeLat * cos(fix.latitude * .pi / 180)
+        func local(_ c: CLLocationCoordinate2D) -> (x: Double, y: Double) {
+            ((c.longitude - fix.longitude) * metresPerDegreeLon, (c.latitude - fix.latitude) * metresPerDegreeLat)
+        }
+        var nearest = Double.infinity
+        for (a, b) in zip(route, route.dropFirst()) {
+            let p = local(a), q = local(b)
+            let dx = q.x - p.x, dy = q.y - p.y
+            let lengthSquared = dx * dx + dy * dy
+            let t = lengthSquared > 0 ? max(0, min(1, -(p.x * dx + p.y * dy) / lengthSquared)) : 0
+            let x = p.x + t * dx, y = p.y + t * dy
+            nearest = min(nearest, (x * x + y * y).squareRoot())
+        }
+        return nearest.isFinite && nearest > offHoleMetres
     }
 
     private var hasPlausibleLiveFix: Bool {
@@ -3690,7 +3712,7 @@ public struct CurrentHoleView: View {
                 shotType: selectedShotType,
                 distanceToPinM: caddiePlanningDistanceMetres,
                 lie: selectedLie,
-                coordinate: isTeeShotAwayFromTee ? nil : liveCoordinateForCurrentHole,
+                coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole,
                 targetCoordinate: wireTargetCoordinate,
                 targetKind: wireTargetKind,
                 horizontalAccuracyM: liveCoordinateForCurrentHole == nil ? nil : currentHorizontalAccuracyM,
@@ -4302,10 +4324,10 @@ public struct CurrentHoleView: View {
         )
     }
 
-    /// The distance the caddie plans from: the live answer, except before the first shot away from
-    /// the tee, where only a typed distance or the tee's static green middle counts.
+    /// The distance the caddie plans from: the live answer, except before the tee shot off the hole,
+    /// where only a typed distance or the tee's static green middle counts.
     private var caddiePlanningDistanceMetres: Double? {
-        guard isTeeShotAwayFromTee else { return effectiveDistanceToPinMetres }
+        guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }
         return LiveCaddieDistance.resolve(
             manualM: distanceToPinMetres,
             liveMiddleM: nil,

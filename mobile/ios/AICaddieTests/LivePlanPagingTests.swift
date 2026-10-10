@@ -73,18 +73,28 @@ final class LivePlanPagingTests: XCTestCase {
         )
     }
 
-    /// Before the hole's first shot the caddie plans from the tee unless the player is on it; a
-    /// player 308 y from hole 1's green in the car park is not on the 397 y tee.
-    func testTheTeeShotIsPlannedFromTheTeeUntilThePlayerIsThere() {
-        let tee = CLLocationCoordinate2D(latitude: 45.5140, longitude: 10.4770)
-        let carPark = CLLocationCoordinate2D(latitude: 45.5146, longitude: 10.4770)   // ~67 m away
-        let teeBox = CLLocationCoordinate2D(latitude: 45.5142, longitude: 10.4770)    // ~22 m away
-        XCTAssertTrue(CurrentHoleView.isTeeShotAwayFromTee(shotsRecorded: 0, fix: carPark, tee: tee))
-        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotsRecorded: 0, fix: teeBox, tee: tee))
-        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotsRecorded: 1, fix: carPark, tee: tee),
-                       "after the first shot the live position plans wherever it is")
-        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotsRecorded: 0, fix: nil, tee: tee))
-        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotsRecorded: 0, fix: carPark, tee: nil),
-                       "no tee anchor: the live position keeps its role")
+    /// Before the tee shot the caddie plans from the tee while the player is off the hole: a player
+    /// 308 y from hole 1's green in the car park is not on the 397 y hole. On the hole (a forward
+    /// tee, or walking down the fairway without recording the tee shot) the live position plans.
+    func testTheTeeShotIsPlannedFromTheTeeWhileThePlayerIsOffTheHole() {
+        // A straight hole running north for ~360 m.
+        let route = [
+            CLLocationCoordinate2D(latitude: 45.5100, longitude: 10.4770),
+            CLLocationCoordinate2D(latitude: 45.5118, longitude: 10.4770),
+            CLLocationCoordinate2D(latitude: 45.5132, longitude: 10.4770),
+        ]
+        let carPark = CLLocationCoordinate2D(latitude: 45.5110, longitude: 10.4785)      // ~117 m east
+        let forwardTee = CLLocationCoordinate2D(latitude: 45.5106, longitude: 10.4771)   // 70 m up the line
+        let fairway = CLLocationCoordinate2D(latitude: 45.5120, longitude: 10.4774)      // ~31 m off the line
+        XCTAssertTrue(CurrentHoleView.isTeeShotOffTheHole(shotsRecorded: 0, shotType: "tee", fix: carPark, route: route))
+        XCTAssertFalse(CurrentHoleView.isTeeShotOffTheHole(shotsRecorded: 0, shotType: "Tee", fix: forwardTee, route: route),
+                       "a forward tee is on the hole")
+        XCTAssertFalse(CurrentHoleView.isTeeShotOffTheHole(shotsRecorded: 0, shotType: "tee", fix: fairway, route: route),
+                       "walking down the fairway without recording the tee shot")
+        XCTAssertFalse(CurrentHoleView.isTeeShotOffTheHole(shotsRecorded: 1, shotType: "tee", fix: carPark, route: route))
+        XCTAssertFalse(CurrentHoleView.isTeeShotOffTheHole(shotsRecorded: 0, shotType: "approach", fix: carPark, route: route))
+        XCTAssertFalse(CurrentHoleView.isTeeShotOffTheHole(shotsRecorded: 0, shotType: "tee", fix: nil, route: route))
+        XCTAssertFalse(CurrentHoleView.isTeeShotOffTheHole(shotsRecorded: 0, shotType: "tee", fix: carPark, route: []),
+                       "no projected route: the live position keeps its role")
     }
 }
