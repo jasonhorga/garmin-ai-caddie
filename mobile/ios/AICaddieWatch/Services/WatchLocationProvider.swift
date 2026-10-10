@@ -88,7 +88,11 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
         super.init()
         self.manager.delegate = self
         self.manager.desiredAccuracy = kCLLocationAccuracyBest
-        self.manager.distanceFilter = 3
+        // Every fix, not only after a move: a player standing at the ball or on the tee got no
+        // callback under a 3 m filter, the last fix aged past the 15 s rangefinder window, and
+        // F/M/B fell back to 999 "等待定位" until they walked again (field report 2026-10-10).
+        // The round's workout session keeps GPS on anyway; this only adds the callbacks.
+        self.manager.distanceFilter = kCLDistanceFilterNone
         self.manager.headingFilter = 2
         if let simulatedFix {
             self.latestFix = simulatedFix
