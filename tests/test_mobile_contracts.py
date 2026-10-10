@@ -4226,7 +4226,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("distanceToPinM: effectiveDistanceToPinMetres", current_hole)
         self.assertIn("LiveCaddieDistance.resolve", current_hole)
         self.assertIn("lie: selectedLie", current_hole)
-        self.assertIn("coordinate: liveCoordinateForCurrentHole", current_hole)
+        # The caddie plans from the live position, except before the hole's first shot away from
+        # the tee (2026-10-10: a tee shot was planned from the clubhouse).
+        self.assertIn("coordinate: isTeeShotAwayFromTee ? nil : liveCoordinateForCurrentHole", current_hole)
+        self.assertIn("distanceToPinM: caddiePlanningDistanceMetres", current_hole)
+        self.assertIn("guard isTeeShotAwayFromTee else { return effectiveDistanceToPinMetres }", current_hole)
+        self.assertIn("guard shotsRecorded == 0, let fix, let tee else { return false }", current_hole)
         self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)", current_hole)
         # B1c: the main map publishes the Touch Target through the same coordinate / pixel handlers.
         self.assertIn('handleMapTargetChanged(coordinate, kind: "target")', current_hole)

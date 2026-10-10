@@ -4,6 +4,7 @@ import XCTest
 
 /// 打法 pager on the live hole (2026-10-10 field report: "1/3" and "2/3" but never "3/3"), and the
 /// tee shot planned from the tee rather than from a player still walking up to it.
+@MainActor
 final class LivePlanPagingTests: XCTestCase {
     private func route(_ id: String, _ clubs: [(String, Double)]) -> CaddiePlanSequence {
         var offset = 0.0
@@ -72,18 +73,18 @@ final class LivePlanPagingTests: XCTestCase {
         )
     }
 
-    /// The tee shot uses the live position only at the tee; a player 308 y from hole 1's green in
-    /// the car park is not on the 397 y tee.
+    /// Before the hole's first shot the caddie plans from the tee unless the player is on it; a
+    /// player 308 y from hole 1's green in the car park is not on the 397 y tee.
     func testTheTeeShotIsPlannedFromTheTeeUntilThePlayerIsThere() {
         let tee = CLLocationCoordinate2D(latitude: 45.5140, longitude: 10.4770)
         let carPark = CLLocationCoordinate2D(latitude: 45.5146, longitude: 10.4770)   // ~67 m away
         let teeBox = CLLocationCoordinate2D(latitude: 45.5142, longitude: 10.4770)    // ~22 m away
-        XCTAssertTrue(CurrentHoleView.isTeeShotAwayFromTee(shotType: "tee", fix: carPark, tee: tee))
-        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotType: "Tee", fix: teeBox, tee: tee))
-        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotType: "approach", fix: carPark, tee: tee),
-                       "after the tee shot the live position is the reference wherever it is")
-        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotType: "tee", fix: nil, tee: tee))
-        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotType: "tee", fix: carPark, tee: nil),
-                       "no projection: the live position keeps its previous role")
+        XCTAssertTrue(CurrentHoleView.isTeeShotAwayFromTee(shotsRecorded: 0, fix: carPark, tee: tee))
+        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotsRecorded: 0, fix: teeBox, tee: tee))
+        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotsRecorded: 1, fix: carPark, tee: tee),
+                       "after the first shot the live position plans wherever it is")
+        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotsRecorded: 0, fix: nil, tee: tee))
+        XCTAssertFalse(CurrentHoleView.isTeeShotAwayFromTee(shotsRecorded: 0, fix: carPark, tee: nil),
+                       "no tee anchor: the live position keeps its role")
     }
 }
