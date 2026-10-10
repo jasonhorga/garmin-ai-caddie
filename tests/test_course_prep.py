@@ -739,13 +739,20 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(steps[-1]["routeOffset_m"], 267.0)
 
     def test_a_slope_under_three_metres_changes_nothing(self) -> None:
-        def elevation(route_m: float) -> float:
-            return 10.0 if route_m < 300 else 8.0
+        # Review P2 on #408: a sub-threshold slope still moved the club choice. Sweep lengths and
+        # slopes below 3 m (both directions) so any club or chain change shows up.
+        for length in range(250, 560, 7):
+            for par in (4, 5):
+                plain = cp._strategy(par, length, self._NO_HAZARDS, self._DOWNHILL_LADDER)
+                for drop in (-2.9, -2.0, -1.0, 1.0, 2.0, 2.9):
+                    def elevation(route_m: float, drop=drop, length=length) -> float:
+                        return 10.0 if route_m < length else 10.0 + drop
 
-        self.assertEqual(
-            cp._strategy(4, 363, self._NO_HAZARDS, self._DOWNHILL_LADDER, elevation_at=elevation),
-            cp._strategy(4, 363, self._NO_HAZARDS, self._DOWNHILL_LADDER),
-        )
+                    self.assertEqual(
+                        cp._strategy(par, length, self._NO_HAZARDS, self._DOWNHILL_LADDER, elevation_at=elevation),
+                        plain,
+                        f"par {par}, {length} m, slope {drop} m",
+                    )
 
     _OWNER_LADDER = [
         ("Driver", 197), ("3W", 170), ("3H", 158), ("5I", 142), ("6I", 132), ("7I", 128), ("8I", 121),

@@ -1738,6 +1738,10 @@ def _strategy_tee_row(usable_ladder, hazards: dict):
     )
 
 
+# Below this landing-to-green height change the mesh elevation is noise: the flat plan stands.
+PLAYS_LIKE_MIN_SLOPE_M = 3.0
+
+
 def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_at=None):
     """The hole's planned chain. ``elevation_at(route_m)`` (terrain metres at a distance along the
     route, or None) lets the shot onto the green be chosen by its plays-like distance: the flat
@@ -1856,6 +1860,9 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
                 return flat_m
             if here is None or green is None or not math.isfinite(here) or not math.isfinite(green):
                 return flat_m
+            # A slope of a few metres is noise in the mesh elevation: it must not move any choice.
+            if abs(green - here) < PLAYS_LIKE_MIN_SLOPE_M:
+                return flat_m
             return max(0.0, flat_m + (green - here))
 
         # Plan a complete Par 4/5 chain. A long Par 5 remainder is not one imaginary approach; use
@@ -1881,8 +1888,7 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
             if approach_club is None or approach_distance is None:
                 break
             before = remaining
-            # A slope of a few metres is noise in the mesh elevation; only a real one re-plans.
-            sloped = abs(effective - before) >= 3.0
+            sloped = effective != before
             if sloped and effective - float(approach_distance) <= 15:
                 # Reaches the green by its plays-like distance: it ends on the green, whatever the
                 # slope does to its flat carry, and leaves the plays-like shortfall.
