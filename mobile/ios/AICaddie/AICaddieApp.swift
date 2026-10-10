@@ -559,6 +559,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 await self?.handleWatchRoundStart(start)
             }
         }
+        watchBridge?.onActivated = { [weak self] in
+            Task { @MainActor in
+                guard let self, let package = self.package else { return }
+                self.pushRoundTopoToWatch(package)
+            }
+        }
         watchBridge?.activateSession()
         garminConnectionState = storedGarminConnectionState()
         syncConfigToWatch()
@@ -1664,10 +1670,44 @@ public final class LiveRoundAppModel: ObservableObject {
             self.recordUITestLatency(
                 "offline-cache.task.end globalId=\(snapshot.course.globalId) holes=\(snapshot.holes.count)"
             )
+            if !Task.isCancelled {
+                self.pushRoundTopoToWatch(self.package ?? snapshot)
+            }
             if !Task.isCancelled, self.offlineCourseDownloadRoundId == expectedRoundId {
                 self.offlineCourseDownloadRoundId = nil
             }
             self.startPrepCourseDownloadQueueIfNeeded()
+        }
+    }
+
+    /// Round holes whose topo the Watch has been sent this launch (round id | hole | course | revision).
+    private var watchTopoPushedKeys = Set<String>()
+
+    /// The Watch shows a hole's map only once the phone has sent its bitmap. The live hole view sends
+    /// the hole it is showing, so with the phone in a pocket the Watch never got the next holes and
+    /// sat on "地图准备中" (field report 2026-10-10, hole 14). Every hole of the live round whose
+    /// bitmap is on the phone is sent once, keyed exactly as the hole view keys it (round hole,
+    /// prep revision); a session that cannot take it yet is retried on activation.
+    func pushRoundTopoToWatch(_ snapshot: LiveRoundPackage) {
+        guard let watchBridge, liveRoundState?.roundId == snapshot.roundId else { return }
+        for hole in snapshot.holes {
+            let revision = snapshot.coursePrep?.holes.first(where: { $0.hole == hole.number })?.geometryRevision
+                ?? hole.geometryRevision
+            let key = "\(snapshot.roundId)|\(hole.number)|\(hole.sourceGlobalId)|\(revision ?? "")"
+            guard !watchTopoPushedKeys.contains(key),
+                  let data = offlineStore.loadCourseTopoImage(
+                      globalId: hole.sourceGlobalId,
+                      localHole: hole.sourceLocalHole,
+                      geometryRevision: revision
+                  ) else { continue }
+            if watchBridge.pushHoleImage(
+                globalId: hole.sourceGlobalId,
+                hole: hole.number,
+                imageData: data,
+                geometryRevision: revision
+            ) {
+                watchTopoPushedKeys.insert(key)
+            }
         }
     }
 
