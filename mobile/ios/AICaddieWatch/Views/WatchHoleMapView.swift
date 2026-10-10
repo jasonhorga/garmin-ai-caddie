@@ -330,6 +330,13 @@ enum WatchPlanLegs {
         return placed
     }
 
+    /// A label moved off its landing — vertically, or sideways past an avoided rect (Codex on
+    /// #413) — is joined to it by a leader line.
+    static func needsLeader(landing: CGPoint, label: CGRect) -> Bool {
+        abs(label.midY - landing.y) > label.height / 2 - 2
+            || abs(label.minX - (landing.x + labelGap)) > 2
+    }
+
     /// Inside `bounds`, clear of every avoided rect, and apart from each other.
     static func framesAreValid(_ frames: [CGRect], bounds: CGRect, avoiding: [CGRect]) -> Bool {
         for (i, frame) in frames.enumerated() {
@@ -1694,7 +1701,7 @@ public struct WatchHoleMapView: View {
             avoiding: fullMap || !showTextOverlay ? [] : [Self.rootFactsFrame(in: size)]
         )
         for (leg, (landing, rect)) in zip(planLegs, zip(landings, frames)) {
-            if abs(rect.midY - landing.y) > rect.height / 2 - 2 {
+            if WatchPlanLegs.needsLeader(landing: landing, label: rect) {
                 var leader = Path()
                 leader.move(to: landing)
                 leader.addLine(to: CGPoint(
