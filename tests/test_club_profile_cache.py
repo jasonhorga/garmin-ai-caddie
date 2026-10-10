@@ -11,7 +11,7 @@ from ai_caddie.core import data
 
 
 def _write_round(directory: Path, name: str, meters: list[float], club_name: str = "7I") -> Path:
-    # The production writer (atomic replace), as the Garmin sync writes shot files.
+    # The production writer (atomic replace) that the Garmin fetch uses for shot files.
     path = directory / f"{name}.json"
     data.write_json(path, {
         "holeShots": [{"holeNumber": 1, "shots": [
@@ -62,8 +62,8 @@ class ClubProfileCacheTests(unittest.TestCase):
     def test_a_same_size_rewrite_that_keeps_the_mtime_is_read_again(self) -> None:
         """A re-sync rewriting 150 -> 151 m (same byte count) in the same mtime tick, or a restore
         that keeps mtimes: the atomic writer replaces the inode, so the fingerprint still changes.
-        (An in-place rewrite can share the old inode and every timestamp tick; the cache contract
-        covers files written by `data.write_json`.)"""
+        (An in-place rewrite can share the old inode and every timestamp tick, so shot files are
+        written atomically.)"""
         path = self.shots / "r1.json"
         before = os.stat(path)
         self.assertEqual(self._profiles()["7I"]["median"], 150.0)

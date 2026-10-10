@@ -16,6 +16,7 @@ from typing import Any
 
 import requests
 
+from ai_caddie.core.data import atomic_write_json
 from ai_caddie.garmin.garmin_auth import auth_headers, ensure_web_auth
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -307,13 +308,15 @@ def fetch_details(s: requests.Session, cards: list[dict], with_shots: bool = Fal
                         timeout=30,
                     )
                 if r.status_code == 200:
-                    shot_out.write_text(json.dumps(r.json(), ensure_ascii=False, indent=2))
+                    # Atomic replace: the club-profile cache fingerprints shot files by inode/size/
+                    # mtime/ctime, which an in-place rewrite can leave unchanged.
+                    atomic_write_json(shot_out, r.json())
                     auth_failures = 0
                     print(f"     shots for {sid} saved")
                 elif r.status_code == 400:
                     # No shot data for this round (old round, no auto-tracking).
                     # Persist a placeholder so subsequent runs skip.
-                    shot_out.write_text(json.dumps({"_no_data": True, "status": 400}))
+                    atomic_write_json(shot_out, {"_no_data": True, "status": 400})
                     auth_failures = 0
                     print(f"     shots for {sid}: no-data (400) — placeholder saved")
                 elif r.status_code in (401, 403):
