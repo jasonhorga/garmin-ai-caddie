@@ -3,7 +3,7 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 10:52 UTC
+**Updated:** 2026-10-10 11:40 UTC
 **Canonical branch:** `main`, product merge `d3f05e13b884773041e4ad22c3f0343e9bcd3201`
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
@@ -66,8 +66,9 @@ comparison contained only its three intended Watch files.
 - `OWNER-DEVICE-BUILD82` — `evidence-open`: paired device validation owner work.
 - `NEXT-INTERNAL-IOS-RELEASE` — `evidence-open`: #407 is merged, not in a
   Codex-uploaded TestFlight package; include it in the next requested internal release.
-- `WATCH-BATTERY-RESEARCH` — `queued`: answer the #412 public-source research
-  request; keep notes in homeserver operations data and post a short PR comment.
+- `WATCH-BATTERY-RESEARCH` — `done`: public-source report and short #412
+  comment6097100629 posted. Report is retained at
+  `/home/jason/garmin-ai-caddie-data/operations/watch-battery-research-20261010/report.md`.
 
 ## Live verification baseline
 
@@ -122,6 +123,8 @@ comparison contained only its three intended Watch files.
   waiter/artifact terminals completed; no local images/service remained.
   #412 evidence: /home/jason/garmin-ai-caddie-data/operations/pr412-95801f41-20261010.
   Native artifacts downloaded; 144 PNG hashes compared to #411 and retained.
+  Battery research report: /home/jason/garmin-ai-caddie-data/operations/watch-battery-research-20261010/report.md;
+  repository copy is docs/operations/2026-10-10-watch-battery-research.md.
   No active snapshot, implementation worktree, test service, tunnel or subagent.
 - Stopped rollback `aicaddie-release-3614bf6f-production-20261008` retained.
   No pending Native/feedback wait. gh-feedback timer/cursor unchanged.
@@ -133,15 +136,17 @@ comparison contained only its three intended Watch files.
 
 ## Next action and stopping
 
-Complete WATCH-BATTERY-RESEARCH, then retain one same-turn --feedback terminal
-(sleep300000ms→read once). Deduplicate handled#404–412; process genuine new
-PR/comment or requested internal release.
+Retain one same-turn --feedback terminal (sleep300000ms→read once). Deduplicate
+handled#404–412; process genuine new PR/comment or an explicitly requested
+internal release.
 Physical Watch transfer timing is release evidence, not a merge blocker. No
 CI-only bookkeeping commits.
 
 Prior absolute cutoff is historical; owner explicitly resumed work.
 Continuous tracking stops after48h without external PR events and no open PRs,
-or a new owner stop instruction. Latest external PR event10:49:06 UTC (#412);
-quiet requires48h with no new external events and no open PRs.
+or a new owner stop instruction. Latest external PR event09:14:21 UTC (the
+#412 research request); quiet requires48h with no new external events and no
+open PRs (target 2026-10-12 09:14:21 UTC). Codex comments/commits/CI do not
+reset quiet.
 Ignore our own
 commits/comments/CI as quiet resets. Keep ledger ≤200 lines.
