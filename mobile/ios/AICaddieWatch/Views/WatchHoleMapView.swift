@@ -257,13 +257,14 @@ enum WatchPlanLegs {
         _ labels: [String],
         landings: [CGPoint],
         in size: CGSize,
-        bounds: CGRect? = nil
+        bounds: CGRect? = nil,
+        avoiding extra: [CGRect] = []
     ) -> [CGRect] {
         labelFrames(
             landings: landings,
             sizes: labels.map(labelSize),
             bounds: bounds ?? WatchDisplayGeometry.contentRect(in: size),
-            avoiding: [clockLane(in: size)]
+            avoiding: [clockLane(in: size)] + extra
         )
     }
 
@@ -302,7 +303,40 @@ enum WatchPlanLegs {
             tops[i] = min(tops[i], floor - sizes[i].height)
             floor = tops[i] - spacing
         }
-        return (0..<count).map { frame($0, top: tops[$0]) }
+        let stacked = (0..<count).map { frame($0, top: tops[$0]) }
+        if framesAreValid(stacked, bounds: bounds, avoiding: avoiding) { return stacked }
+        // The bottom-fit pass can push a label back into an avoided rect (a tall rect such as the
+        // root F/M/B facts leaves too little room below it). Place each label instead at the
+        // valid spot nearest its landing, also trying the columns beside the avoided rects.
+        var placed = [CGRect](repeating: .null, count: count)
+        for i in order {
+            let size = sizes[i]
+            let desiredTop = landings[i].y - size.height / 2
+            let obstacles = avoiding + placed.filter { !$0.isNull }
+            let columns = [xs[i]] + obstacles.map { $0.maxX + spacing }
+            let rows = [desiredTop, bounds.minY, bounds.maxY - size.height]
+                + obstacles.flatMap { [$0.maxY + spacing, $0.minY - spacing - size.height] }
+            var best: (score: CGFloat, frame: CGRect)?
+            for x in columns where x >= bounds.minX && x + size.width <= bounds.maxX {
+                for y in rows where y >= bounds.minY && y + size.height <= bounds.maxY {
+                    let candidate = CGRect(x: x, y: y, width: size.width, height: size.height)
+                    guard !obstacles.contains(where: { $0.intersects(candidate) }) else { continue }
+                    let score = abs(y - desiredTop) + abs(x - xs[i])
+                    if best.map({ score < $0.score }) ?? true { best = (score, candidate) }
+                }
+            }
+            placed[i] = best?.frame ?? stacked[i]
+        }
+        return placed
+    }
+
+    /// Inside `bounds`, clear of every avoided rect, and apart from each other.
+    static func framesAreValid(_ frames: [CGRect], bounds: CGRect, avoiding: [CGRect]) -> Bool {
+        for (i, frame) in frames.enumerated() {
+            guard bounds.contains(frame), !avoiding.contains(where: { $0.intersects(frame) }) else { return false }
+            for other in frames[(i + 1)...] where other.intersects(frame) { return false }
+        }
+        return true
     }
 }
 
@@ -464,7 +498,8 @@ public struct WatchCurrentShotLayout: Equatable {
 }
 
 /// round-14 (Watch standalone, DESIGN REVIEW): the player's **hole view** — a Garmin-Approach-S70-inspired
-/// SPLIT (LEFT data column | RIGHT hole-map panel) on the REAL server-rendered CourseView image
+/// face (since 2026-10-10: full-bleed hole map with the data floating top-left; originally a LEFT data
+/// column | RIGHT hole-map panel split) on the REAL server-rendered CourseView image
 /// (`WatchHoleMapSample`), DECLUTTERED toward Garmin's progressive disclosure.
 ///
 /// This snapshot is a par-5 SECOND shot (gid31669 h4). Layout after the "太挤" review:
@@ -729,10 +764,10 @@ public struct WatchHoleMapView: View {
     private func handleTap(_ location: CGPoint, size: CGSize) {
         switch interactionMode {
         case .root:
-            // Only the actual map panel opens Touch Target. The left facts/Caddie column and bottom
-            // Golf Menu/manual-shot controls retain their own actions without a simultaneous race.
+            // The map opens Touch Target; the distance facts and the bottom Golf Menu/manual-shot
+            // controls retain their own actions without a simultaneous race.
             let safeRect = WatchDisplayGeometry.contentRect(in: size)
-            guard location.x >= size.width * columnFrac,
+            guard !Self.rootFactsFrame(in: size).contains(location),
                   location.y < safeRect.maxY - 48 else { return }
             onOpenMapDetail()
         case .touchTarget:
@@ -758,14 +793,14 @@ public struct WatchHoleMapView: View {
         }
     }
 
-    /// The left data column and the bottom control rail keep their own taps.
+    /// The distance facts and the bottom control rail keep their own taps.
     private func measureTapAllowed(_ location: CGPoint, size: CGSize) -> Bool {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
-        let mapLeft = fullMap ? 0 : size.width * columnFrac
+        let onFacts = !fullMap && Self.rootFactsFrame(in: size).contains(location)
         // A tap on the club tag switches plan; it never also drops a measure ring under the tag.
         let onClubTag = showTextOverlay && showCaddieRecommendation
             && Self.rootCaddieChipFrame(in: size).insetBy(dx: -4, dy: -4).contains(location)
-        return location.x >= mapLeft && location.y < safeRect.maxY - 48 && !onClubTag
+        return !onFacts && location.y < safeRect.maxY - 48 && !onClubTag
     }
 
     static func hitsMeasureRing(_ location: CGPoint, ring: CGPoint) -> Bool {
@@ -790,13 +825,13 @@ public struct WatchHoleMapView: View {
     private let youBlue = Color(red: 0.04, green: 0.52, blue: 1.0)
     private let flagRed = Color(red: 0.94, green: 0.28, blue: 0.24)
     private let touchTargetCyan = Color(red: 0.18, green: 0.84, blue: 0.96)
-    /// Keep the factual distance column legible while giving the map the visual majority of the
-    /// root face. The 36/64 split still leaves the 41 mm fact column wide enough for three-digit yards.
-    private let columnFrac: CGFloat = 0.36
-    /// Keep the real topo and every route overlay aligned while moving their shared anchor out of
-    /// watchOS's persistent top-right clock lane. The data column still owns the left 38%; 37% of
-    /// the remaining map panel gives a measured flag enough room even in the drag-preview state.
-    private let mapPanelAnchorFraction: CGFloat = 0.37
+    /// Owner feedback 2026-10-10 ("左半边太浪费空间"): the root map is full-bleed with the hole
+    /// centred, and the F/M/B facts float over its top-left corner instead of owning a column.
+    /// The facts frame is where those numbers sit; taps there never reach the map.
+    static func rootFactsFrame(in size: CGSize) -> CGRect {
+        // Tall enough for identity + B/C/F + the 等待定位 line on the 41 mm face.
+        CGRect(x: 0, y: 0, width: size.width * 0.40, height: size.height * 0.76)
+    }
 
     /// The root recommendation is a compact instrument chip, not a second action button. Keep its
     /// frame entirely inside the rounded-display guide on 41/45/49 mm faces so it cannot collide with
@@ -809,8 +844,10 @@ public struct WatchHoleMapView: View {
         // real gap above that rail so the recommendation remains a quiet map affordance instead of
         // becoming a third, overlapping bottom button on 41 mm.
         let railClearance = WatchDisplayGeometry.instrumentControlSize + 6
+        // The full-bleed root centres the hole, so the player marker sits at mid-width on the
+        // chip's row; the chip starts just right of it instead of covering it.
         return CGRect(
-            x: safeRect.midX - width / 2,
+            x: min(size.width * 0.5 + 14, safeRect.maxX - width),
             y: safeRect.maxY - height - railClearance,
             width: width,
             height: height
@@ -957,17 +994,16 @@ public struct WatchHoleMapView: View {
 
     /// Shared transform so the Canvas vectors and the Text overlay agree on where map points land.
     private func anchors(_ size: CGSize) -> (t: (CGPoint) -> CGPoint, you: CGPoint, focus: CGPoint) {
-        let mapLeft = fullMap ? 0 : size.width * columnFrac
         let scale = currentScale(size)
         let focusImage = fullMap ? (fullMapFocusImagePx ?? geometry.youPx) : geometry.youPx
         let focusFraction = fullMap && fullMapFocusImagePx != nil
             ? fullMapFocusCanvasFraction
             : CGPoint(
-                x: fullMap ? 0.5 : mapPanelAnchorFraction,
+                x: 0.5,
                 y: fullMap ? fullMapPlayerAnchorFraction : 0.72
             )
         let focusCanvas = CGPoint(
-            x: mapLeft + (size.width - mapLeft) * focusFraction.x + userPan.width,
+            x: size.width * focusFraction.x + userPan.width,
             y: size.height * focusFraction.y + userPan.height
         )
         let t: (CGPoint) -> CGPoint = { p in
@@ -1062,7 +1098,7 @@ public struct WatchHoleMapView: View {
                     .padding(.vertical, 3)
                     .background(Capsule().fill(.black.opacity(0.68)))
                     .position(
-                        x: fullMap ? size.width * 0.5 : size.width * (columnFrac + (1 - columnFrac) * 0.5),
+                        x: size.width * 0.5,
                         y: safeRect.maxY - 8
                     )
                     .accessibilityIdentifier("watch-map-preparing")
@@ -1147,7 +1183,7 @@ public struct WatchHoleMapView: View {
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 2) {
             Text(WatchGeoMath.greenRangeText(value))
-                .font(.system(size: big ? 38 : 27, weight: .black, design: .rounded))
+                .font(.system(size: big ? 32 : 23, weight: .black, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(color)
                 .lineLimit(1)
@@ -1158,14 +1194,13 @@ public struct WatchHoleMapView: View {
                     .foregroundStyle(golfYellow.opacity(0.82))
             }
         }
-        .frame(height: big ? 44 : 33, alignment: .leading)
+        .frame(height: big ? 37 : 28, alignment: .leading)
     }
 
     // MARK: - Canvas drawing
     private func drawMap(_ context: inout GraphicsContext, size: CGSize) {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
 
-        let mapLeft = fullMap ? 0 : size.width * columnFrac
         let scale = currentScale(size)
         let a = anchors(size)
         let player = a.you
@@ -1185,7 +1220,7 @@ public struct WatchHoleMapView: View {
         }
         #endif
         if !drew {
-            context.fill(Path(CGRect(x: mapLeft, y: 0, width: size.width - mapLeft, height: size.height)),
+            context.fill(Path(CGRect(origin: .zero, size: size)),
                          with: .color(Color(red: 0.12, green: 0.28, blue: 0.16)))
             drawLightweightMapFacts(&context, transform: a.t, showsHazards: showsHazards)
         } else {
@@ -1239,6 +1274,16 @@ public struct WatchHoleMapView: View {
             break
         }
 
+        if !fullMap, showTextOverlay {
+            // The facts float over the full-bleed map: shade only their corner so the numbers stay
+            // legible above the topo and route layers; pin and player stay undimmed on top.
+            let facts = Self.rootFactsFrame(in: size)
+            context.fill(Path(CGRect(origin: .zero, size: CGSize(width: facts.width * 1.15, height: facts.height))),
+                         with: .linearGradient(
+                            Gradient(colors: [.black.opacity(0.62), .black.opacity(0)]),
+                            startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: facts.width * 1.15, y: 0)))
+        }
+
         // Pin + flag stay subordinate to the course image, matching S70's compact map markers.
         let pr: CGFloat = 3.5
         let pinRect = CGRect(x: green.x - pr, y: green.y - pr, width: pr * 2, height: pr * 2)
@@ -1268,8 +1313,6 @@ public struct WatchHoleMapView: View {
             context.stroke(Path(ellipseIn: dotRect), with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
         }
 
-        // Mask the data-column region to pure black.
-        context.fill(Path(CGRect(x: 0, y: 0, width: mapLeft, height: size.height)), with: .color(.black))
 
         // While walking to the ball, S70 keeps the measured previous-shot fact small and map-bound.
         if let lastShot = WatchGeoMath.usefulGolfYards(lastShot), lastShot > 0 {
@@ -1642,7 +1685,8 @@ public struct WatchHoleMapView: View {
             planLegs.map(\.label),
             landings: landings,
             in: size,
-            bounds: planLabelBounds ?? safeRect
+            bounds: planLabelBounds ?? safeRect,
+            avoiding: fullMap || !showTextOverlay ? [] : [Self.rootFactsFrame(in: size)]
         )
         for (leg, (landing, rect)) in zip(planLegs, zip(landings, frames)) {
             if abs(rect.midY - landing.y) > rect.height / 2 - 2 {
