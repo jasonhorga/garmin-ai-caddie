@@ -139,9 +139,17 @@ enum StartRoundPresentation {
         }
     }
 
-    /// A loop tile's name: the course's own loop name ("A 场", "东"); a whole course is "18 洞".
+    /// A loop tile's name: the course's own loop name ("A 场", "东"); a whole course is its own
+    /// course name when the venue names it ("Jack Nicklaus II" beside a 9-hole "Gary Player"),
+    /// otherwise "18 洞".
     static func loopTileTitle(_ segment: MobileCourseOption) -> String {
-        guard segment.resolvedHoles == 9 else { return "\(segment.resolvedHoles) 洞" }
+        guard segment.resolvedHoles == 9 else {
+            if let label = segment.resolvedSegmentLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !label.isEmpty {
+                return label
+            }
+            return "\(segment.resolvedHoles) 洞"
+        }
         return NineLoopTurn.firstLoop(segment).displayName
     }
 
@@ -182,9 +190,11 @@ enum StartRoundPresentation {
             }
         }
         if selected.resolvedHoles == 9 {
-            let nineLoops = loops.contains(where: { $0.globalId == selected.globalId })
-                ? loops
-                : [selected] + loops
+            // The venue's nines only: an 18-hole course beside them is not a loop of this plan.
+            let nines = loops.filter { $0.resolvedHoles == 9 }
+            let nineLoops = nines.contains(where: { $0.globalId == selected.globalId })
+                ? nines
+                : [selected] + nines
             let course = NineLoopCourse(
                 id: selected.venueDisplayName,
                 loops: nineLoops.map(NineLoopTurn.firstLoop)
