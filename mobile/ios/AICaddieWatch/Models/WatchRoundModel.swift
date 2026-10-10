@@ -457,17 +457,32 @@ public final class WatchRoundModel: ObservableObject {
               ) else {
             return nil
         }
-        for event in round.pendingEvents.reversed()
-            where event.hole == round.activeHole && event.kind == .location {
-            guard let shot = WatchShotLocationValue(encodedValue: event.value) else { continue }
-            return WatchGeoMath.metres(
-                shot.latitude,
-                shot.longitude,
-                current.latitude,
-                current.longitude
-            )
+        // Every same-hole shot either device marked, by its own capture time: a Watch mark the phone
+        // has not received yet can still be older than the phone's newest shot (Codex on #414).
+        var shots: [(shot: WatchShotLocationValue, at: Date?)] = round.pendingEvents.compactMap { event in
+            guard event.hole == round.activeHole, event.kind == .location,
+                  let shot = WatchShotLocationValue(encodedValue: event.value) else { return nil }
+            return (shot, Self.shotTime(event.createdAt))
         }
-        return nil
+        if let state = round.holeStates.first(where: { $0.hole == round.activeHole }),
+           let latitude = state.lastShotLatitude, let longitude = state.lastShotLongitude,
+           let shot = WatchShotLocationValue(latitude: latitude, longitude: longitude, horizontalAccuracyM: 0) {
+            shots.append((shot, state.lastShotCapturedAt.flatMap(Self.shotTime)))
+        }
+        // Newest by time; equal or unreadable times keep list order (Watch marks in capture order,
+        // then the phone's newest).
+        let origin = shots.enumerated().max { lhs, rhs in
+            let (l, r) = (lhs.element.at ?? .distantPast, rhs.element.at ?? .distantPast)
+            return l == r ? lhs.offset < rhs.offset : l < r
+        }?.element.shot
+        guard let origin else { return nil }
+        return WatchGeoMath.metres(origin.latitude, origin.longitude, current.latitude, current.longitude)
+    }
+
+    private static func shotTime(_ text: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: text) ?? ISO8601DateFormatter().date(from: text)
     }
 
     /// All holes' states, hole-ordered — feeds the round-13 计分卡 / 选洞 / 18洞环.

@@ -554,6 +554,10 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let elevationDeltaM: Double?
     public let lastShotDistanceM: Double?
     public let distanceFromLastShotM: Double?
+    /// Where the phone's newest shot on this hole was marked; the Watch measures from it live.
+    public let lastShotLatitude: Double?
+    public let lastShotLongitude: Double?
+    public let lastShotCapturedAt: String?
     public let greenInRegulation: Bool?
     public let fairwayResult: String?
     public let geometryCoverage: String?
@@ -641,6 +645,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case elevationDeltaM
         case lastShotDistanceM
         case distanceFromLastShotM
+        case lastShotLatitude
+        case lastShotLongitude
+        case lastShotCapturedAt
         case greenInRegulation
         case fairwayResult
         case geometryCoverage
@@ -699,6 +706,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         elevationDeltaM: Double? = nil,
         lastShotDistanceM: Double? = nil,
         distanceFromLastShotM: Double? = nil,
+        lastShotLatitude: Double? = nil,
+        lastShotLongitude: Double? = nil,
+        lastShotCapturedAt: String? = nil,
         greenInRegulation: Bool? = nil,
         fairwayResult: String? = nil,
         geometryCoverage: String? = nil,
@@ -755,6 +765,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.elevationDeltaM = elevationDeltaM
         self.lastShotDistanceM = lastShotDistanceM
         self.distanceFromLastShotM = distanceFromLastShotM
+        self.lastShotLatitude = lastShotLatitude
+        self.lastShotLongitude = lastShotLongitude
+        self.lastShotCapturedAt = lastShotCapturedAt
         self.greenInRegulation = greenInRegulation
         self.fairwayResult = fairwayResult
         self.geometryCoverage = geometryCoverage
@@ -817,6 +830,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.elevationDeltaM = try container.decodeIfPresent(Double.self, forKey: .elevationDeltaM)
         self.lastShotDistanceM = try container.decodeIfPresent(Double.self, forKey: .lastShotDistanceM)
         self.distanceFromLastShotM = try container.decodeIfPresent(Double.self, forKey: .distanceFromLastShotM)
+        self.lastShotLatitude = try container.decodeIfPresent(Double.self, forKey: .lastShotLatitude)
+        self.lastShotLongitude = try container.decodeIfPresent(Double.self, forKey: .lastShotLongitude)
+        self.lastShotCapturedAt = try container.decodeIfPresent(String.self, forKey: .lastShotCapturedAt)
         self.greenInRegulation = try container.decodeIfPresent(Bool.self, forKey: .greenInRegulation)
         self.fairwayResult = try container.decodeIfPresent(String.self, forKey: .fairwayResult)
         self.geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage)
@@ -905,6 +921,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             elevationDeltaM: elevationDeltaM,
             lastShotDistanceM: lastShotDistanceM,
             distanceFromLastShotM: distanceFromLastShotM,
+            lastShotLatitude: lastShotLatitude,
+            lastShotLongitude: lastShotLongitude,
+            lastShotCapturedAt: lastShotCapturedAt,
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: geometryCoverage,
@@ -972,6 +991,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             elevationDeltaM: replacesGeometryAuthority ? upgraded.elevationDeltaM : (upgraded.elevationDeltaM ?? elevationDeltaM),
             lastShotDistanceM: lastShotDistanceM,
             distanceFromLastShotM: distanceFromLastShotM,
+            lastShotLatitude: lastShotLatitude,
+            lastShotLongitude: lastShotLongitude,
+            lastShotCapturedAt: lastShotCapturedAt,
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: upgraded.geometryCoverage ?? geometryCoverage,
@@ -1060,6 +1082,9 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             elevationDeltaM: elevationDeltaM,
             lastShotDistanceM: lastShotDistanceM,
             distanceFromLastShotM: distanceFromLastShotM,
+            lastShotLatitude: lastShotLatitude,
+            lastShotLongitude: lastShotLongitude,
+            lastShotCapturedAt: lastShotCapturedAt,
             greenInRegulation: greenInRegulation,
             fairwayResult: nextFairwayResult,
             geometryCoverage: geometryCoverage,

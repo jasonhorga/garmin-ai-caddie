@@ -3924,6 +3924,9 @@ public struct CurrentHoleView: View {
                     : nil
             )
         }
+        // One event-log read per send (this runs on every GPS fix).
+        let markedShots = markedShotsOnHole
+        let lastShot = Self.newestShotCoordinate(in: markedShots)
         let state = watchBridge?.makeWatchRoundStatePayload(
             package: package,
             hole: hole,
@@ -3961,7 +3964,10 @@ public struct CurrentHoleView: View {
             decisionOriginShotEventIds: decision.flatMap { $0 == caddieDecision ? caddieDecisionOriginShot : nil },
             // The phone's current shots on this hole, so a shot recorded only here after the
             // decision still retires it on the Watch.
-            phoneShotEventIds: recordedShotEventIds
+            phoneShotEventIds: markedShots.map(\.eventId),
+            lastShotLatitude: lastShot?.latitude,
+            lastShotLongitude: lastShot?.longitude,
+            lastShotCapturedAt: lastShot?.capturedAt
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)
@@ -4198,8 +4204,30 @@ public struct CurrentHoleView: View {
 
     /// This hole's location events (phone-recorded, and Watch-recorded ones under their Watch ids).
     private var recordedShotEventIds: [String] {
+        markedShotsOnHole.map(\.eventId)
+    }
+
+    private var markedShotsOnHole: [LiveRoundEvent] {
         guard let offlineStore, let events = try? offlineStore.loadEvents() else { return [] }
-        return LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number).map(\.eventId)
+        return LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number)
+    }
+
+    /// Where the newest shot was marked, by its own timestamp: a Watch mark relayed late lands in
+    /// the log after a later phone mark.
+    static func newestShotCoordinate(in shots: [LiveRoundEvent]) -> (latitude: Double, longitude: Double, capturedAt: String)? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plain = ISO8601DateFormatter()
+        func date(_ event: LiveRoundEvent) -> Date {
+            formatter.date(from: event.timestamp) ?? plain.date(from: event.timestamp) ?? .distantPast
+        }
+        guard let newest = shots.enumerated().max(by: { lhs, rhs in
+                  let (l, r) = (date(lhs.element), date(rhs.element))
+                  return l == r ? lhs.offset < rhs.offset : l < r
+              })?.element,
+              case .number(let latitude)? = newest.payload["latitude"],
+              case .number(let longitude)? = newest.payload["longitude"] else { return nil }
+        return (latitude, longitude, newest.timestamp)
     }
 
     private var recordedNonPuttShotCount: Int {

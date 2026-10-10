@@ -4913,12 +4913,17 @@ class MobileContractTests(unittest.TestCase):
         for field in [
             "frontGreenM", "centerGreenM", "backGreenM", "playsLikeDistanceM",
             "elevationDeltaM", "lastShotDistanceM", "distanceFromLastShotM",
+            # 2026-10-10: the phone's newest shot, so the Watch measures from a phone-marked shot.
+            "lastShotLatitude", "lastShotLongitude",
             # watch P0.2: green F/M/B WGS84 coords (watch recomputes distance from its own GPS)
             "frontGreenLat", "frontGreenLon", "centerGreenLat", "centerGreenLon",
             "backGreenLat", "backGreenLon",
         ]:
             self.assertIn(f"public let {field}: Double?", bridge)
             self.assertIn(f"public let {field}: Double?", state_swift)
+        # The phone's newest shot carries its own capture time; the Watch orders shots by it.
+        self.assertIn("public let lastShotCapturedAt: String?", bridge)
+        self.assertIn("public let lastShotCapturedAt: String?", state_swift)
         # watch P0.2: the topo geo→px projection — declared IDENTICALLY on phone encoder + watch decoder.
         for src in (bridge, state_swift):
             self.assertIn("public let holeImageProjection: WatchHoleImageProjection?", src)
@@ -5940,7 +5945,7 @@ class WatchHolePagesContractTests(unittest.TestCase):
         # One shot identity on both devices: Watch shots counted by event id, never a queue length.
         self.assertIn("let shots = knownShotEventIds(for: state.hole)", model)
         # The phone's current shot set travels with every snapshot, newest wins, kept per hole.
-        self.assertIn("phoneShotEventIds: recordedShotEventIds", hole_view)
+        self.assertIn("phoneShotEventIds: markedShots.map(\\.eventId)", hole_view)
         # Snapshot order (a strict revision) is applied before the hole state is replaced.
         receive = model[model.index("public func receivePhoneState("):]
         self.assertLess(
