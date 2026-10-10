@@ -71,6 +71,13 @@ final class WatchHolePagesTests: XCTestCase {
             avoiding: [facts]
         )
         XCTAssertTrue(WatchPlanLegs.framesAreValid(frames, bounds: bounds, avoiding: [facts]), "\(frames)")
+        // A label moved sideways beside the facts keeps a leader to its landing.
+        for (landing, frame) in zip([40, 70, 100, 130].map({ CGPoint(x: 20, y: CGFloat($0)) }), frames)
+            where frame.minX > 20 + WatchPlanLegs.labelGap + 2 {
+            XCTAssertTrue(WatchPlanLegs.needsLeader(landing: landing, label: frame), "\(frame)")
+        }
+        let inPlace = CGRect(x: 20 + WatchPlanLegs.labelGap, y: 40 - 7.5, width: 54, height: 15)
+        XCTAssertFalse(WatchPlanLegs.needsLeader(landing: CGPoint(x: 20, y: 40), label: inPlace))
     }
 
     func testThePlanPageDrawsEveryLegWithItsLandingAndLabel() {
