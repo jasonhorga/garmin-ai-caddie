@@ -58,6 +58,18 @@ class ClubProfileCacheTests(unittest.TestCase):
         added.unlink()
         self.assertEqual(self._profiles()["7I"]["sampleSize"], 2)
 
+    def test_a_same_size_rewrite_that_keeps_the_mtime_is_read_again(self) -> None:
+        """A re-sync rewriting 150 -> 151 m (same byte count) in the same mtime tick, or a restore
+        that keeps mtimes: ctime/inode still change."""
+        path = self.shots / "r1.json"
+        before = os.stat(path)
+        self.assertEqual(self._profiles()["7I"]["median"], 150.0)
+        _write_round(self.shots, "r1", [151.0, 152.0])
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+        after = os.stat(path)
+        self.assertEqual((after.st_size, after.st_mtime_ns), (before.st_size, before.st_mtime_ns))
+        self.assertEqual(self._profiles()["7I"]["median"], 151.0)
+
     def test_clubs_json_counts_only_when_overrides_apply(self) -> None:
         self.assertIn("7I", self._profiles())
         self.assertIn("7I", self._profiles(apply_overrides=False))

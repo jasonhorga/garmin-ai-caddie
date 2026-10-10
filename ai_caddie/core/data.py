@@ -681,8 +681,9 @@ _club_profile_cache_lock = threading.Lock()
 
 
 def _club_profile_inputs_fingerprint(dirs: list[Path], apply_overrides: bool) -> str:
-    """Name, mtime and size of every shot file read, plus clubs.json when overrides apply. Any
-    added, removed, rewritten or touched input changes it."""
+    """Name, inode, mtime, ctime and size of every shot file read, plus clubs.json when overrides
+    apply. Writers replace files atomically (new inode, new ctime), so a same-size rewrite within one
+    mtime tick, or a restore that keeps old mtimes, still changes it (as in prep_cache)."""
     digest = hashlib.blake2b(digest_size=16)
     for shot_dir in dirs:
         digest.update(f"dir\0{shot_dir}\n".encode())
@@ -699,11 +700,15 @@ def _club_profile_inputs_fingerprint(dirs: list[Path], apply_overrides: bool) ->
                 stat = entry.stat()
             except OSError:
                 continue
-            digest.update(f"{entry.name}\0{stat.st_mtime_ns}\0{stat.st_size}\n".encode())
+            digest.update(
+                f"{entry.name}\0{stat.st_ino}\0{stat.st_mtime_ns}\0{stat.st_ctime_ns}\0{stat.st_size}\n".encode()
+            )
     if apply_overrides:
         try:
             stat = os.stat(CLUBS_FILE)
-            digest.update(f"clubs\0{CLUBS_FILE}\0{stat.st_mtime_ns}\0{stat.st_size}\n".encode())
+            digest.update(
+                f"clubs\0{CLUBS_FILE}\0{stat.st_ino}\0{stat.st_mtime_ns}\0{stat.st_ctime_ns}\0{stat.st_size}\n".encode()
+            )
         except OSError:
             digest.update(f"clubs\0{CLUBS_FILE}\0missing\n".encode())
     return digest.hexdigest()
