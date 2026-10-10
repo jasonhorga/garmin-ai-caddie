@@ -509,6 +509,8 @@ public final class WatchEventBridge: NSObject {
     public var onRoundStarted: ((WatchRoundStartPayload) -> Void)?
     /// The session became usable: callers re-send what they could not send before (hole maps).
     public var onActivated: (() -> Void)?
+    /// A queued hole bitmap transfer failed (globalId, round hole): the caller may send it again.
+    public var onHoleImageTransferFailed: ((Int, Int) -> Void)?
 
     private let offlineStore: OfflineStore
     private let encoder = JSONEncoder()
@@ -1005,7 +1007,8 @@ public final class WatchEventBridge: NSObject {
         geometryRevision: String? = nil,
         assetKind: String = "topo"
     ) -> Bool {
-        guard WCSession.isSupported(), WCSession.default.activationState == .activated else {
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
+              WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else {
             return false
         }
         // One file per transfer: a queued transfer must keep its file until it finishes, and a whole
@@ -1632,6 +1635,12 @@ extension WatchEventBridge: WCSessionDelegate {
     }
 
     public func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        if error != nil,
+           let globalId = fileTransfer.file.metadata?["globalId"] as? Int,
+           let hole = fileTransfer.file.metadata?["hole"] as? Int,
+           (fileTransfer.file.metadata?["assetKind"] as? String ?? "topo") == "topo" {
+            DispatchQueue.main.async { [weak self] in self?.onHoleImageTransferFailed?(globalId, hole) }
+        }
         let url = fileTransfer.file.fileURL
         guard url.lastPathComponent.hasPrefix("holeimg-"),
               url.deletingLastPathComponent().resolvingSymlinksInPath().path

@@ -561,8 +561,17 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         watchBridge?.onActivated = { [weak self] in
             Task { @MainActor in
-                guard let self, let package = self.package else { return }
-                self.pushRoundTopoToWatch(package)
+                guard let self else { return }
+                // A (re)activated session may be a different Watch: send the round again.
+                self.watchTopoPushedKeys.removeAll()
+                if let package = self.package { self.pushRoundTopoToWatch(package) }
+            }
+        }
+        watchBridge?.onHoleImageTransferFailed = { [weak self] globalId, hole in
+            Task { @MainActor in
+                // Not delivered: the next push (download end or activation) sends it again.
+                guard let self else { return }
+                self.watchTopoPushedKeys = self.watchTopoPushedKeys.filter { !$0.contains("|\(hole)|\(globalId)|") }
             }
         }
         watchBridge?.activateSession()
