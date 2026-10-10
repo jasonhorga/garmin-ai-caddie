@@ -455,6 +455,140 @@ class TopoRenderModuleTests(unittest.TestCase):
         self.assertEqual(list(combined.tobytes()), [255, 0, 255, 255])
 
 
+class TopoRenderProcessPoolTests(unittest.TestCase):
+    """Cold renders run in worker processes when the API enables them (``ops/start_api.sh``)."""
+
+    def tearDown(self) -> None:
+        topo_render._shutdown_render_pool()
+        topo_render._render_pool = None
+
+    def test_process_count_is_off_by_default_and_bounded(self) -> None:
+        env = topo_render._RENDER_PROCESSES_ENV
+        with patch.dict("os.environ", {}, clear=False):
+            import os
+
+            os.environ.pop(env, None)
+            self.assertEqual(topo_render._render_process_count(), 0)
+        for raw, expected in (("2", 2), ("9", 4), ("-3", 0), ("x", 0), ("0", 0)):
+            with patch.dict("os.environ", {env: raw}):
+                self.assertEqual(topo_render._render_process_count(), expected, raw)
+
+    def test_start_script_enables_two_render_processes(self) -> None:
+        script = (Path(__file__).resolve().parents[1] / "ops" / "start_api.sh").read_text()
+        self.assertIn('export AI_CADDIE_TOPO_RENDER_PROCESSES="${AI_CADDIE_TOPO_RENDER_PROCESSES:-2}"', script)
+        self.assertLess(script.index("AI_CADDIE_TOPO_RENDER_PROCESSES"), script.index("exec uv run"))
+
+    def test_enabled_cold_render_goes_to_a_worker_and_is_cached_by_the_parent(self) -> None:
+        canned = _test_png()
+        submitted: list[tuple] = []
+
+        class Pool:
+            def submit(self, fn, *args):
+                from concurrent.futures import Future
+
+                submitted.append((fn, *args))
+                future: Future = Future()
+                future.set_result(canned)
+                return future
+
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp, topo_render._RENDER_PROCESSES_ENV: "2"}), \
+                patch.object(topo_render, "_get_render_pool", return_value=Pool()) as get_pool, \
+                patch.object(topo_render, "_render_in_process") as in_process:
+            first = topo_render.render_hole_topo_cached(31795, 1)
+            second = topo_render.render_hole_topo_cached(31795, 1)
+            self.assertEqual(topo_render.cache_path(31795, 1).read_bytes(), canned)
+
+        self.assertEqual((first, second), (canned, canned))
+        self.assertEqual(submitted, [(topo_render._render_in_worker, 31795, 1)], "one worker render, then the disk cache")
+        get_pool.assert_called_once_with(2)
+        in_process.assert_not_called()
+
+    def test_a_test_double_renderer_never_crosses_the_process_boundary(self) -> None:
+        canned = _test_png()
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp, topo_render._RENDER_PROCESSES_ENV: "2"}), \
+                patch.object(topo_render, "render_hole_topo", return_value=canned) as render, \
+                patch.object(topo_render, "_get_render_pool") as get_pool:
+            self.assertEqual(topo_render.render_hole_topo_cached(31795, 1), canned)
+        render.assert_called_once_with(31795, 1)
+        get_pool.assert_not_called()
+
+    def test_a_broken_pool_is_discarded_and_the_render_falls_back_in_process(self) -> None:
+        from concurrent.futures import Future
+        from concurrent.futures.process import BrokenProcessPool
+
+        canned = _test_png()
+
+        class Pool:
+            def submit(self, fn, *args):
+                future: Future = Future()
+                future.set_exception(BrokenProcessPool("worker killed"))
+                return future
+
+        pool = Pool()
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp, topo_render._RENDER_PROCESSES_ENV: "2"}), \
+                patch.object(topo_render, "_get_render_pool", return_value=pool), \
+                patch.object(topo_render, "_discard_render_pool") as discard, \
+                patch.object(topo_render, "_render_in_process", return_value=canned) as in_process:
+            self.assertEqual(topo_render.render_hole_topo_cached(31795, 1), canned)
+        discard.assert_called_once_with(pool)
+        in_process.assert_called_once_with(31795, 1)
+
+    def test_a_pool_broken_before_submit_is_replaced_by_the_next_cold_render(self) -> None:
+        """A worker that died between renders makes ``submit`` itself raise ``BrokenProcessPool``
+        (a ``RuntimeError``): that pool is discarded, not reused for every later render."""
+        from concurrent.futures.process import BrokenProcessPool
+
+        canned = _test_png()
+
+        class BrokenPool:
+            shutdowns = 0
+
+            def submit(self, fn, *args):
+                raise BrokenProcessPool("a worker exited between renders")
+
+            def shutdown(self, wait=True, cancel_futures=False):
+                BrokenPool.shutdowns += 1
+
+        broken = BrokenPool()
+        topo_render._render_pool = broken
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp, topo_render._RENDER_PROCESSES_ENV: "1"}), \
+                patch.object(topo_render, "_render_in_process", return_value=canned) as in_process:
+            self.assertEqual(topo_render.render_hole_topo_cached(31795, 1), canned)
+            in_process.assert_called_once_with(31795, 1)
+            self.assertIsNone(topo_render._render_pool, "the broken pool was discarded")
+            self.assertEqual(BrokenPool.shutdowns, 1)
+            replacement = topo_render._get_render_pool(1)
+        self.assertIsNot(replacement, broken, "the next cold render gets a fresh pool")
+
+    def test_a_pool_shut_down_under_the_call_falls_back_in_process(self) -> None:
+        canned = _test_png()
+
+        class Pool:
+            def submit(self, fn, *args):
+                raise RuntimeError("cannot schedule new futures after shutdown")
+
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp, topo_render._RENDER_PROCESSES_ENV: "2"}), \
+                patch.object(topo_render, "_get_render_pool", return_value=Pool()), \
+                patch.object(topo_render, "_render_in_process", return_value=canned) as in_process:
+            self.assertEqual(topo_render.render_hole_topo_cached(31795, 1), canned)
+        in_process.assert_called_once_with(31795, 1)
+
+    def test_a_real_worker_process_raises_the_same_errors(self) -> None:
+        """Across a real forkserver worker, a hole without geometry still reaches the caller as
+        ``TopoGeometryUnavailable`` (the route's 404), and nothing is cached."""
+        with TemporaryDirectory() as tmp, \
+                patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": tmp, topo_render._RENDER_PROCESSES_ENV: "1"}):
+            with self.assertRaises(topo_render.TopoGeometryUnavailable):
+                topo_render.render_hole_topo_cached(999999, 1)
+            self.assertIsNotNone(topo_render._render_pool, "the render ran in the worker pool")
+            self.assertFalse(topo_render.cache_path(999999, 1).exists())
+
+
 class TopoEndpointTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
