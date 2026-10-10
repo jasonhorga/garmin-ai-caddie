@@ -84,9 +84,11 @@ final class WatchTopoSender {
         }
     }
 
-    /// The session (re)activated, possibly with another Watch: send the round again.
+    /// The session (re)activated, possibly with another Watch: send the round again, with fresh
+    /// retries.
     func forgetSent() {
         sent.removeAll()
+        failures.removeAll()
     }
 
     /// A queued topo transfer for (course, round hole) failed: it is no longer sent, and a retry is
