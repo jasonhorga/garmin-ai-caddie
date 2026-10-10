@@ -10,6 +10,15 @@ final class WatchLocationProviderTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Field report 2026-10-10: standing still under a 3 m distance filter produced no callbacks, the
+    /// fix aged past the 15 s rangefinder window and F/M/B showed 999 "等待定位". Every fix is delivered.
+    func testDeliversEveryFixSoAStandingPlayerKeepsALiveRange() {
+        let manager = CLLocationManager()
+        _ = WatchLocationProvider(manager: manager)
+        XCTAssertEqual(manager.distanceFilter, kCLDistanceFilterNone)
+        XCTAssertEqual(manager.desiredAccuracy, kCLLocationAccuracyBest)
+    }
+
     func testRejectsInvalidNegativeAccuracyAndCachedSamples() {
         XCTAssertFalse(WatchLocationProvider.isUsable(location(latitude: 91), now: now))
         XCTAssertFalse(WatchLocationProvider.isUsable(location(longitude: 181), now: now))
