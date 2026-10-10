@@ -11,13 +11,14 @@ from ai_caddie.core import data
 
 
 def _write_round(directory: Path, name: str, meters: list[float], club_name: str = "7I") -> Path:
+    # The production writer (atomic replace), as the Garmin sync writes shot files.
     path = directory / f"{name}.json"
-    path.write_text(json.dumps({
+    data.write_json(path, {
         "holeShots": [{"holeNumber": 1, "shots": [
             {"meters": value, "shotType": "APPROACH", "clubId": 2} for value in meters
         ]}],
         "clubDetails": [{"id": 2, "name": club_name}],
-    }))
+    })
     return path
 
 
@@ -60,7 +61,9 @@ class ClubProfileCacheTests(unittest.TestCase):
 
     def test_a_same_size_rewrite_that_keeps_the_mtime_is_read_again(self) -> None:
         """A re-sync rewriting 150 -> 151 m (same byte count) in the same mtime tick, or a restore
-        that keeps mtimes: ctime/inode still change."""
+        that keeps mtimes: the atomic writer replaces the inode, so the fingerprint still changes.
+        (An in-place rewrite can share the old inode and every timestamp tick; the cache contract
+        covers files written by `data.write_json`.)"""
         path = self.shots / "r1.json"
         before = os.stat(path)
         self.assertEqual(self._profiles()["7I"]["median"], 150.0)
@@ -68,6 +71,7 @@ class ClubProfileCacheTests(unittest.TestCase):
         os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
         after = os.stat(path)
         self.assertEqual((after.st_size, after.st_mtime_ns), (before.st_size, before.st_mtime_ns))
+        self.assertNotEqual(after.st_ino, before.st_ino, "the writer replaced the file")
         self.assertEqual(self._profiles()["7I"]["median"], 151.0)
 
     def test_clubs_json_counts_only_when_overrides_apply(self) -> None:
