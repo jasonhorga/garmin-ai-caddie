@@ -257,13 +257,14 @@ enum WatchPlanLegs {
         _ labels: [String],
         landings: [CGPoint],
         in size: CGSize,
-        bounds: CGRect? = nil
+        bounds: CGRect? = nil,
+        avoiding extra: [CGRect] = []
     ) -> [CGRect] {
         labelFrames(
             landings: landings,
             sizes: labels.map(labelSize),
             bounds: bounds ?? WatchDisplayGeometry.contentRect(in: size),
-            avoiding: [clockLane(in: size)]
+            avoiding: [clockLane(in: size)] + extra
         )
     }
 
@@ -464,7 +465,8 @@ public struct WatchCurrentShotLayout: Equatable {
 }
 
 /// round-14 (Watch standalone, DESIGN REVIEW): the player's **hole view** — a Garmin-Approach-S70-inspired
-/// SPLIT (LEFT data column | RIGHT hole-map panel) on the REAL server-rendered CourseView image
+/// face (since 2026-10-10: full-bleed hole map with the data floating top-left; originally a LEFT data
+/// column | RIGHT hole-map panel split) on the REAL server-rendered CourseView image
 /// (`WatchHoleMapSample`), DECLUTTERED toward Garmin's progressive disclosure.
 ///
 /// This snapshot is a par-5 SECOND shot (gid31669 h4). Layout after the "太挤" review:
@@ -794,7 +796,8 @@ public struct WatchHoleMapView: View {
     /// centred, and the F/M/B facts float over its top-left corner instead of owning a column.
     /// The facts frame is where those numbers sit; taps there never reach the map.
     static func rootFactsFrame(in size: CGSize) -> CGRect {
-        CGRect(x: 0, y: 0, width: size.width * 0.40, height: size.height * 0.62)
+        // Tall enough for identity + B/C/F + the 等待定位 line on the 41 mm face.
+        CGRect(x: 0, y: 0, width: size.width * 0.40, height: size.height * 0.76)
     }
 
     /// The root recommendation is a compact instrument chip, not a second action button. Keep its
@@ -1238,6 +1241,16 @@ public struct WatchHoleMapView: View {
             break
         }
 
+        if !fullMap, showTextOverlay {
+            // The facts float over the full-bleed map: shade only their corner so the numbers stay
+            // legible above the topo and route layers; pin and player stay undimmed on top.
+            let facts = Self.rootFactsFrame(in: size)
+            context.fill(Path(CGRect(origin: .zero, size: CGSize(width: facts.width * 1.15, height: facts.height))),
+                         with: .linearGradient(
+                            Gradient(colors: [.black.opacity(0.62), .black.opacity(0)]),
+                            startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: facts.width * 1.15, y: 0)))
+        }
+
         // Pin + flag stay subordinate to the course image, matching S70's compact map markers.
         let pr: CGFloat = 3.5
         let pinRect = CGRect(x: green.x - pr, y: green.y - pr, width: pr * 2, height: pr * 2)
@@ -1267,15 +1280,6 @@ public struct WatchHoleMapView: View {
             context.stroke(Path(ellipseIn: dotRect), with: .color(.white), style: StrokeStyle(lineWidth: 1.2))
         }
 
-        if !fullMap, showTextOverlay {
-            // The facts float over the full-bleed map: shade only their corner so the numbers stay
-            // legible above the topo and every route layer drawn so far.
-            let facts = Self.rootFactsFrame(in: size)
-            context.fill(Path(CGRect(origin: .zero, size: CGSize(width: facts.width * 1.15, height: facts.height))),
-                         with: .linearGradient(
-                            Gradient(colors: [.black.opacity(0.62), .black.opacity(0)]),
-                            startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: facts.width * 1.15, y: 0)))
-        }
 
         // While walking to the ball, S70 keeps the measured previous-shot fact small and map-bound.
         if let lastShot = WatchGeoMath.usefulGolfYards(lastShot), lastShot > 0 {
@@ -1648,7 +1652,8 @@ public struct WatchHoleMapView: View {
             planLegs.map(\.label),
             landings: landings,
             in: size,
-            bounds: planLabelBounds ?? safeRect
+            bounds: planLabelBounds ?? safeRect,
+            avoiding: fullMap || !showTextOverlay ? [] : [Self.rootFactsFrame(in: size)]
         )
         for (leg, (landing, rect)) in zip(planLegs, zip(landings, frames)) {
             if abs(rect.midY - landing.y) > rect.height / 2 - 2 {
