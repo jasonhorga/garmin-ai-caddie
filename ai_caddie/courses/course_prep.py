@@ -1346,6 +1346,43 @@ class HolePrep:
         return value
 
 
+def _route_elevation(by: dict, route):
+    """``route_m -> terrain metres`` along the hole route from the mesh elevation (the vertex
+    nearest the point that far along the route), or None when the geometry has no elevation.
+    Vectorised once per hole: a per-lookup Python scan of every vertex costs ~0.1 s."""
+    if not route or len(route) < 2:
+        return None
+    try:
+        import numpy as np
+
+        positions = [p for p in elevation.collect_positions(by) if isinstance(p, (list, tuple)) and len(p) >= 3]
+        if not positions:
+            return None
+        array = np.asarray(positions, dtype=float)[:, :3]
+        ground_x, heights, ground_z = -array[:, 0], array[:, 1], array[:, 2]
+        points = [(float(p[0]), float(p[1])) for p in route]
+    except Exception:
+        return None
+
+    def point_at(distance_m: float) -> tuple[float, float]:
+        travelled = 0.0
+        for (ax, az), (bx, bz) in zip(points, points[1:]):
+            leg = math.hypot(bx - ax, bz - az)
+            if leg > 0 and travelled + leg >= distance_m:
+                t = (distance_m - travelled) / leg
+                return (ax + t * (bx - ax), az + t * (bz - az))
+            travelled += leg
+        return points[-1]
+
+    def elevation_at(distance_m: float) -> float | None:
+        x, z = point_at(max(0.0, float(distance_m)))
+        index = int(np.argmin((ground_x - x) ** 2 + (ground_z - z) ** 2))
+        value = float(heights[index])
+        return value if math.isfinite(value) else None
+
+    return elevation_at
+
+
 def _hole_playslike(by: dict, route) -> dict:
     """PlaysLike (elevation ±yd, tee/ball -> green) from the hole's mesh elevation. round-13.
 
@@ -1687,7 +1724,11 @@ def _strategy_tee_row(usable_ladder, hazards: dict):
     )
 
 
-def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
+def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_at=None):
+    """The hole's planned chain. ``elevation_at(route_m)`` (terrain metres at a distance along the
+    route, or None) lets the shot onto the green be chosen by its plays-like distance: the flat
+    remainder plus the rise (or minus the drop) from where it is played to the green. Landing
+    offsets stay physical, so the map draws the same route. Without it nothing changes."""
     steps: list[dict] = []
     cautions: list[str] = []
     usable_ladder = [
@@ -1789,11 +1830,26 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
             # second shot and produce sequences such as 5I -> 1W.
             and club_bag_service.canonical_club_name(name) != "driver"
         ]
+        def plays_like(flat_m: float) -> float:
+            """``flat_m`` from the current landing to the green, adjusted 1:1 for the height change
+            (the same rule as the displayed PlaysLike); flat when elevation is unknown."""
+            if elevation_at is None:
+                return flat_m
+            try:
+                here = elevation_at(route_offset_m)
+                green = elevation_at(route_len_m)
+            except Exception:
+                return flat_m
+            if here is None or green is None or not math.isfinite(here) or not math.isfinite(green):
+                return flat_m
+            return max(0.0, flat_m + (green - here))
+
         # Plan a complete Par 4/5 chain. A long Par 5 remainder is not one imaginary approach; use
         # the longest playable non-driver until a normal scoring club can cover what remains.
         while remaining > 5 and approach_ladder and len(steps) < 4:
             longest_approach = approach_ladder[0][1]
-            if remaining > longest_approach + 15:
+            effective = plays_like(remaining)
+            if effective > longest_approach + 15:
                 approach_club, approach_distance = approach_ladder[0]
                 if remaining - longest_approach < LAYUP_LEAVE_MIN_M:
                     approach_club, approach_distance = (
@@ -1804,23 +1860,37 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder):
                     )
             else:
                 approach_club, approach_distance = club_for(
-                    remaining,
+                    effective,
                     approach_ladder,
                     exclude=("driver", "1W", "1D"),
                 )
             if approach_club is None or approach_distance is None:
                 break
             before = remaining
-            remaining = max(0.0, remaining - float(approach_distance))
-            if remaining <= 15:
+            sloped = abs(effective - before) >= 1.0
+            if sloped and effective - float(approach_distance) <= 15:
+                # Reaches the green by its plays-like distance: it ends on the green, whatever the
+                # slope does to its flat carry, and leaves the plays-like shortfall.
+                remaining = max(0.0, effective - float(approach_distance))
+                scoring = True
+                landing_override = route_len_m
+            else:
+                remaining = max(0.0, remaining - float(approach_distance))
+                scoring = remaining <= 15
+                landing_override = None
+            if scoring:
                 note = f"剩约 {yd(before)}y 上果岭"
+                if abs(effective - before) >= 3:
+                    slope = "上坡" if effective > before else "下坡"
+                    note += f"（{slope}，打起来像 {yd(effective)}y）"
             else:
                 note = f"推进约 {yd(approach_distance)}y，剩约 {yd(remaining)}y"
             append_step(
                 approach_club,
                 note,
                 approach_distance,
-                role="scoring" if remaining <= 15 else "position",
+                role="scoring" if scoring else "position",
+                route_landing_m=landing_override,
             )
     for w in hazards.get("water_carry") or []:
         if w[0] < route_len_m - 5:
@@ -2701,7 +2771,9 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         return (x / hole_render.SS, y / hole_render.SS)
 
     hazards = route_hazards(by, route, to_px=to_px)
-    steps, cautions, landing, tee_club = _strategy(par, route_len, hazards, ladder)
+    steps, cautions, landing, tee_club = _strategy(
+        par, route_len, hazards, ladder, elevation_at=_route_elevation(by, route),
+    )
     # Precise prodgeometry has a filled Green.drc mesh, so expose its actual exterior boundary to
     # clients.  The previous contract only attached the 30-radius CourseView outline on the
     # lightweight fallback; precise holes consequently rendered a synthetic/oversized ellipse in

@@ -667,6 +667,66 @@ class PureLogicTests(unittest.TestCase):
 
         self.assertEqual([step["club"] for step in steps], ["Driver", "3W", "PW"])
 
+    # 2026-10-10 field report (gid 26808 hole 1, 363 m Par 4 falling 38 m): the shot onto the green
+    # was chosen by its flat distance (3W 186 y for a downhill 181 y).
+    _DOWNHILL_LADDER = [
+        ("Driver", 197), ("3W", 170), ("3H", 158), ("5I", 142), ("6I", 132), ("7I", 128), ("8I", 121),
+        ("9I", 109), ("Pw", 107), ("Aw", 102), ("50", 84), ("54", 48), ("58", 35),
+    ]
+
+    def test_the_shot_onto_the_green_is_chosen_by_its_plays_like_distance(self) -> None:
+        # The landing (197 m) sits 25 m above the green: 166 m flat plays like 141 m.
+        def elevation(route_m: float) -> float:
+            return 50.0 if route_m < 300 else 25.0
+
+        flat, *_ = cp._strategy(4, 363, self._NO_HAZARDS, self._DOWNHILL_LADDER)
+        sloped, *_ = cp._strategy(4, 363, self._NO_HAZARDS, self._DOWNHILL_LADDER, elevation_at=elevation)
+
+        self.assertEqual([step["club"] for step in flat], ["Driver", "3W"])
+        self.assertEqual([step["club"] for step in sloped], ["Driver", "5I"])
+        self.assertEqual(sloped[1]["role"], "scoring")
+        self.assertEqual(sloped[1]["routeOffset_m"], 363.0, "it still ends on the green on the map")
+        self.assertEqual(sloped[1]["expectedRemaining_m"], 0.0)
+        self.assertIn("下坡，打起来像 154y", sloped[1]["note"])
+        self.assertEqual(sloped[0], flat[0], "the tee shot is unchanged")
+
+    def test_uphill_takes_more_club(self) -> None:
+        def elevation(route_m: float) -> float:
+            return 10.0 if route_m < 300 else 30.0
+
+        steps, *_ = cp._strategy(4, 330, self._NO_HAZARDS, self._DOWNHILL_LADDER, elevation_at=elevation)
+        # 133 m flat plays like 153 m uphill.
+        self.assertEqual([step["club"] for step in steps], ["Driver", "3H"])
+        self.assertIn("上坡", steps[1]["note"])
+
+    def test_flat_or_unknown_elevation_changes_nothing(self) -> None:
+        for ladder, par, length in ((self._DOWNHILL_LADDER, 4, 396), (self._DOWNHILL_LADDER, 5, 546),
+                                    (self._DOWNHILL_LADDER, 4, 301)):
+            plain = cp._strategy(par, length, self._NO_HAZARDS, ladder)
+            for elevation in (lambda _m: 12.0, lambda _m: None, None):
+                self.assertEqual(
+                    cp._strategy(par, length, self._NO_HAZARDS, ladder, elevation_at=elevation), plain
+                )
+
+    def test_a_failing_elevation_lookup_plans_flat(self) -> None:
+        def broken(_route_m: float) -> float:
+            raise ValueError("no mesh")
+
+        self.assertEqual(
+            cp._strategy(4, 363, self._NO_HAZARDS, self._DOWNHILL_LADDER, elevation_at=broken),
+            cp._strategy(4, 363, self._NO_HAZARDS, self._DOWNHILL_LADDER),
+        )
+
+    def test_route_elevation_reads_the_mesh_along_the_route(self) -> None:
+        # Mesh positions are [x, y(elevation), z]; the route frame is (-x, z).
+        by = {"Fairway.drc": {"positions": [[0, 40.0, 0], [0, 30.0, 100], [0, 20.0, 200]]}}
+        elevation_at = cp._route_elevation(by, [(0.0, 0.0), (0.0, 200.0)])
+        self.assertEqual(elevation_at(0), 40.0)
+        self.assertEqual(elevation_at(95), 30.0)
+        self.assertEqual(elevation_at(500), 20.0, "past the end reads the green end")
+        self.assertIsNone(cp._route_elevation({}, [(0.0, 0.0), (0.0, 200.0)]))
+        self.assertIsNone(cp._route_elevation(by, [(0.0, 0.0)]))
+
     _OWNER_LADDER = [
         ("Driver", 197), ("3W", 170), ("3H", 158), ("5I", 142), ("6I", 132), ("7I", 128), ("8I", 121),
         ("9I", 109), ("Pw", 107), ("Aw", 102), ("50", 84), ("54", 48), ("58", 35),
