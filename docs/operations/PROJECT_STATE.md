@@ -3,8 +3,8 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 09:02 UTC
-**Canonical branch:** `main`, product merge `7439b5920cbfab2335656a778e01f1c8c5d16309
+**Updated:** 2026-10-10 10:52 UTC
+**Canonical branch:** `main`, product merge `d3f05e13b884773041e4ad22c3f0343e9bcd3201`
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state
@@ -41,6 +41,13 @@ filter regression and fresh/accurate-fix rejection both passed. Native merge
 distance-hero and always-on captures inspected. Hardware stationary fix cadence/
 battery remains device evidence. Separate topo delivery/layout follow-ups pending.
 
+#412 head95801f4111f0ae3fa12fd619e91e3d8a60978e5e reviewed in comment
+6096711733 and merged d3f05e13 at10:49:06 UTC; source branch deleted. Native
+38039403230 exact head passed iOS and Watch. Downloaded 144 design/watch PNGs;
+all hashes match #411 baseline. No P1/P2; physical battery-round measurement
+remains evidence-open. The branch was two commits behind main but current-main
+comparison contained only its three intended Watch files.
+
 ## Unfinished queue
 
 - #411 head24444e020d32b791cc5182dd88b0f5fa233da541 approved6095892808,
@@ -50,9 +57,8 @@ battery remains device evidence. Separate topo delivery/layout follow-ups pendin
   38037976761 exact head parent2 of8a0aab2e, Watch449/0 and cached-resume/retry
   tests passed; all144 PNGs identical to PR409 baseline. No visual regression;
   physical WCSession timing remains next-device evidence.
-- `PR408-BACKEND-DEPLOY` — `queued`: only after fix/review/merge. No production
-  API restart before10:00 UTC unless decision/prep traffic is quiet30 minutes
-  (author's owner-live-round constraint6094461766). Prebuild matching sync image.
+- `PR408-BACKEND-DEPLOY` — `done`: combined #404/#406 backend deployment and
+  matching sync image are verified in the live baseline and report below.
 - `PR-FEEDBACK-CONTINUOUS` — `in-progress`: same-turn blocking waits after reviews;
   no CI-only bookkeeping commits, self-event loops or waiter liveness checks.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 variation; nonblocking.
@@ -60,6 +66,8 @@ battery remains device evidence. Separate topo delivery/layout follow-ups pendin
 - `OWNER-DEVICE-BUILD82` — `evidence-open`: paired device validation owner work.
 - `NEXT-INTERNAL-IOS-RELEASE` — `evidence-open`: #407 is merged, not in a
   Codex-uploaded TestFlight package; include it in the next requested internal release.
+- `WATCH-BATTERY-RESEARCH` — `queued`: answer the #412 public-source research
+  request; keep notes in homeserver operations data and post a short PR comment.
 
 ## Live verification baseline
 
@@ -112,10 +120,12 @@ battery remains device evidence. Separate topo delivery/layout follow-ups pendin
   Source/contracts/retry P2/cleanup retained; snapshot/--rm container closed.
   Six local controls(8713 bytes) hash-matched originals and removed; Native
   waiter/artifact terminals completed; no local images/service remained.
+  #412 evidence: /home/jason/garmin-ai-caddie-data/operations/pr412-95801f41-20261010.
+  Native artifacts downloaded; 144 PNG hashes compared to #411 and retained.
   No active snapshot, implementation worktree, test service, tunnel or subagent.
 - Stopped rollback `aicaddie-release-3614bf6f-production-20261008` retained.
   No pending Native/feedback wait. gh-feedback timer/cursor unchanged.
-  Consumed/deduplicated #404–409 backlog without new comments/tests/CI commits.
+  Consumed/deduplicated #404–412 backlog without CI-only bookkeeping commits.
   One historical waiter GitHub transport timeout was not a CI failure.
   Last feedback at08:43:23 UTC delivered#411 fix; final approval/merge handled.
 - Preserve unrelated dirty `ops/pr_feedback_monitor.sh` and older `.codex-*`.
@@ -123,15 +133,15 @@ battery remains device evidence. Separate topo delivery/layout follow-ups pendin
 
 ## Next action and stopping
 
-Commit/push #411's final review/merge/cleanup and dated archive together, then
-retain one same-turn --feedback terminal (sleep300000ms→read once). Deduplicate
-handled#404–411; process genuine new PR/comment or requested internal release.
+Complete WATCH-BATTERY-RESEARCH, then retain one same-turn --feedback terminal
+(sleep300000ms→read once). Deduplicate handled#404–412; process genuine new
+PR/comment or requested internal release.
 Physical Watch transfer timing is release evidence, not a merge blocker. No
 CI-only bookkeeping commits.
 
 Prior absolute cutoff is historical; owner explicitly resumed work.
 Continuous tracking stops after48h without external PR events and no open PRs,
-or a new owner stop instruction. Latest external PR event08:08:55 UTC (#411);
-quiet requires48h with no new external events and no open PRs;#411 is open.
+or a new owner stop instruction. Latest external PR event10:49:06 UTC (#412);
+quiet requires48h with no new external events and no open PRs.
 Ignore our own
 commits/comments/CI as quiet resets. Keep ledger ≤200 lines.
