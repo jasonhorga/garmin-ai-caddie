@@ -4921,6 +4921,9 @@ class MobileContractTests(unittest.TestCase):
         ]:
             self.assertIn(f"public let {field}: Double?", bridge)
             self.assertIn(f"public let {field}: Double?", state_swift)
+        # The phone's newest shot carries its own capture time; the Watch orders shots by it.
+        self.assertIn("public let lastShotCapturedAt: String?", bridge)
+        self.assertIn("public let lastShotCapturedAt: String?", state_swift)
         # watch P0.2: the topo geo→px projection — declared IDENTICALLY on phone encoder + watch decoder.
         for src in (bridge, state_swift):
             self.assertIn("public let holeImageProjection: WatchHoleImageProjection?", src)

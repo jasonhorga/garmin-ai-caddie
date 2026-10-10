@@ -3966,7 +3966,8 @@ public struct CurrentHoleView: View {
             // decision still retires it on the Watch.
             phoneShotEventIds: markedShots.map(\.eventId),
             lastShotLatitude: lastShot?.latitude,
-            lastShotLongitude: lastShot?.longitude
+            lastShotLongitude: lastShot?.longitude,
+            lastShotCapturedAt: lastShot?.capturedAt
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)
@@ -4213,7 +4214,7 @@ public struct CurrentHoleView: View {
 
     /// Where the newest shot was marked, by its own timestamp: a Watch mark relayed late lands in
     /// the log after a later phone mark.
-    static func newestShotCoordinate(in shots: [LiveRoundEvent]) -> (latitude: Double, longitude: Double)? {
+    static func newestShotCoordinate(in shots: [LiveRoundEvent]) -> (latitude: Double, longitude: Double, capturedAt: String)? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let plain = ISO8601DateFormatter()
@@ -4226,7 +4227,7 @@ public struct CurrentHoleView: View {
               })?.element,
               case .number(let latitude)? = newest.payload["latitude"],
               case .number(let longitude)? = newest.payload["longitude"] else { return nil }
-        return (latitude, longitude)
+        return (latitude, longitude, newest.timestamp)
     }
 
     private var recordedNonPuttShotCount: Int {

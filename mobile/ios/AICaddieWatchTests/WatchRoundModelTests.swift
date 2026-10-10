@@ -1323,54 +1323,73 @@ final class WatchRoundModelTests: XCTestCase {
         )
     }
 
-    /// Owner feedback 2026-10-10: no distance from the last shot. A shot marked only on the phone
-    /// had no location on the Watch; the phone now sends its newest shot's coordinates.
-    func testDistanceFromLatestShotMeasuresFromAPhoneMarkedShot() throws {
-        let store = makeStore()
-        let phoneHole = WatchRoundState(
-            roundId: "r1", hole: 1, par: 4, distanceM: nil, selectedClub: nil,
-            lastShotLatitude: 40.001, lastShotLongitude: 116.0,
-            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
-        )
-        let acknowledged = WatchInputEvent(
-            eventId: "watch-tee", roundId: "r1", hole: 1, kind: .location,
-            value: "40.0,116.0,5.0", createdAt: "2026-07-26T08:00:00Z"
-        )
-        try store.save(WatchRoundStore.PersistedRound(
-            roundId: "r1",
-            activeHole: 1,
-            holeStates: [phoneHole, hole(2)],
-            pendingEvents: [acknowledged],
-            phoneShots: [WatchPhoneShotSet(hole: 1, eventIds: ["watch-tee", "phone-second"], revision: 1)]
-        ))
-        let model = WatchRoundModel(store: store)
+    // MARK: live distance from the last shot (owner feedback 2026-10-10; Codex on #414)
 
-        let distance = try XCTUnwrap(model.distanceFromLatestShotM(latitude: 40.002, longitude: 116.0))
-        XCTAssertEqual(distance, WatchGeoMath.metres(40.001, 116.0, 40.002, 116.0), accuracy: 0.01,
-                       "the phone's newer shot, not the Watch tee shot it already holds")
+    private func phoneSnapshot(
+        hole: Int,
+        lastShot: (latitude: Double, longitude: Double, at: String)?,
+        shotIds: [String],
+        revision: Int64
+    ) -> WatchRoundState {
+        WatchRoundState(
+            roundId: "r1", hole: hole, par: 4, distanceM: nil, selectedClub: nil,
+            lastShotLatitude: lastShot?.latitude, lastShotLongitude: lastShot?.longitude,
+            lastShotCapturedAt: lastShot?.at,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline",
+            phoneShotEventIds: shotIds, snapshotRevision: revision
+        )
     }
 
-    func testAWatchShotThePhoneHasNotSeenYetIsTheNewest() throws {
-        let store = makeStore()
-        let phoneHole = WatchRoundState(
-            roundId: "r1", hole: 1, par: 4, distanceM: nil, selectedClub: nil,
-            lastShotLatitude: 40.0, lastShotLongitude: 116.0,
-            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
-        )
-        try store.save(WatchRoundStore.PersistedRound(
-            roundId: "r1",
-            activeHole: 1,
-            holeStates: [phoneHole],
-            pendingEvents: [WatchInputEvent(
-                eventId: "watch-second", roundId: "r1", hole: 1, kind: .location,
-                value: "40.001,116.0,5.0", createdAt: "2026-07-26T08:05:00Z"
-            )],
-            phoneShots: [WatchPhoneShotSet(hole: 1, eventIds: ["phone-tee"], revision: 1)]
-        ))
-        let model = WatchRoundModel(store: store)
+    private func markWatchShot(_ model: WatchRoundModel, latitude: Double, at: String) {
+        model.beginManualShot(latitude: latitude, longitude: 116.0, horizontalAccuracyM: 5, capturedAt: at)
+        model.completePendingManualShot(clubName: nil)
+    }
 
-        let distance = try XCTUnwrap(model.distanceFromLatestShotM(latitude: 40.002, longitude: 116.0))
-        XCTAssertEqual(distance, WatchGeoMath.metres(40.001, 116.0, 40.002, 116.0), accuracy: 0.01)
+    private func liveShotModel(store: WatchRoundStore) -> WatchRoundModel {
+        WatchRoundModel(store: store, makeEventId: sequentialIds(), now: { "2026-07-26T08:00:00Z" })
+    }
+
+    /// A Watch mark made while disconnected is older than the phone's newest shot, whose snapshot
+    /// arrives before the mark is relayed: the phone shot is the origin, and still is after relaunch.
+    func testAnOlderUndeliveredWatchMarkDoesNotBeatTheNewerPhoneShot() throws {
+        let store = makeStore()
+        let model = liveShotModel(store: store)
+        model.seedRound([hole(1), hole(2)], activeHole: 1, courseName: "练习", loopKey: nil)
+        markWatchShot(model, latitude: 40.0, at: "2026-07-26T10:00:00Z")
+        model.receivePhoneState(phoneSnapshot(
+            hole: 1, lastShot: (40.001, 116.0, "2026-07-26T10:05:00Z"), shotIds: ["phone-second"], revision: 1
+        ))
+        let expected = WatchGeoMath.metres(40.001, 116.0, 40.002, 116.0)
+
+        let live = try XCTUnwrap(model.distanceFromLatestShotM(latitude: 40.002, longitude: 116.0))
+        XCTAssertEqual(live, expected, accuracy: 0.01)
+
+        let relaunched = liveShotModel(store: store)
+        let resumed = try XCTUnwrap(relaunched.distanceFromLatestShotM(latitude: 40.002, longitude: 116.0))
+        XCTAssertEqual(resumed, expected, accuracy: 0.01, "same origin after relaunch")
+    }
+
+    func testANewerWatchMarkBeatsThePhonesLastShot() throws {
+        let model = liveShotModel(store: makeStore())
+        model.seedRound([hole(1), hole(2)], activeHole: 1, courseName: "练习", loopKey: nil)
+        model.receivePhoneState(phoneSnapshot(
+            hole: 1, lastShot: (40.0, 116.0, "2026-07-26T10:00:00Z"), shotIds: ["phone-tee"], revision: 1
+        ))
+        markWatchShot(model, latitude: 40.001, at: "2026-07-26T10:05:00.500Z")
+
+        let live = try XCTUnwrap(model.distanceFromLatestShotM(latitude: 40.002, longitude: 116.0))
+        XCTAssertEqual(live, WatchGeoMath.metres(40.001, 116.0, 40.002, 116.0), accuracy: 0.01)
+    }
+
+    func testAnotherHolesShotsNeverBecomeTheOrigin() {
+        let model = liveShotModel(store: makeStore())
+        model.seedRound([hole(1), hole(2)], activeHole: 1, courseName: "练习", loopKey: nil)
+        model.receivePhoneState(phoneSnapshot(
+            hole: 2, lastShot: (41.0, 116.0, "2026-07-26T11:00:00Z"), shotIds: ["phone-h2"], revision: 1
+        ))
+
+        XCTAssertNil(model.distanceFromLatestShotM(latitude: 40.002, longitude: 116.0),
+                     "hole 1 has no shot; hole 2's never leaks in")
     }
 
     func testDistanceFromLatestShotIsNilWithoutAValidCurrentHoleLocation() {

@@ -494,6 +494,9 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     /// last shot with its own GPS even when that shot was marked on the phone.
     public let lastShotLatitude: Double?
     public let lastShotLongitude: Double?
+    /// That shot's own capture time: the Watch orders it against its own marks by time, since a
+    /// Watch mark the phone has not received yet can still be the older one.
+    public let lastShotCapturedAt: String?
     /// Strictly increasing per phone (`WatchEventBridge.nextSnapshotRevision`): the Watch applies a
     /// hole snapshot only if it is newer than the last one it applied, so a late (transferUserInfo)
     /// snapshot never rolls back a newer decision or shot set.
@@ -614,7 +617,8 @@ public final class WatchEventBridge: NSObject {
         decisionOriginShotEventIds: [String]? = nil,
         phoneShotEventIds: [String]? = nil,
         lastShotLatitude: Double? = nil,
-        lastShotLongitude: Double? = nil
+        lastShotLongitude: Double? = nil,
+        lastShotCapturedAt: String? = nil
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
         let offlineSelected = selectedOfflineOption(from: offlineOption)
@@ -696,6 +700,7 @@ public final class WatchEventBridge: NSObject {
             phoneShotEventIds: phoneShotEventIds,
             lastShotLatitude: lastShotLatitude,
             lastShotLongitude: lastShotLongitude,
+            lastShotCapturedAt: lastShotCapturedAt,
             snapshotRevision: nextSnapshotRevision()
         )
     }
