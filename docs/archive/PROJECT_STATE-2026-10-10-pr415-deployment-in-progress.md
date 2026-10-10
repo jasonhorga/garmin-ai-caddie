@@ -1,11 +1,13 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 17:55 UTC
+**Updated:** 2026-10-10 17:39 UTC
 **Canonical branch:** main; product merge cbc17f4e76f085229c3bdb3c74a5067951b217a6
-**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
+**Current slice:** `PR415-BACKEND-DEPLOY` — `in-progress`
 
 ## Current state and deduplication
 
@@ -13,11 +15,9 @@
 merged cbc17f4e, branch deleted. Real fetch200/400 paths use the same atomic
 writer as the cache fixture.26 related tests/0.555s and100 focused regressions/
 0.295s passed independently on ext4. Review snapshot/containers/temp closed.
-Main CI38072318888 green at exact cbc17f4e. That revision is now independently
-deployed with matching API/sync images, protected reads/prep/topo200 and one
-manual incremental sync17:51:52→17:52:25UTC/33s/sync ok/done. Result comments
-#4156100488599/#4066100488830. Deploy/report/evidence/cleanup complete;
-resume the durable feedback queue after publishing this real review/operations work.
+Main CI38072318888 green at exact cbc17f4e. Deploy that revision next with
+matching API/sync images and existing sync-lock/revision gates. Current online
+revision is still f9586f6c; no deployment claim yet. No waiter pending.
 
 #414 head336c12a352189494c575d961de02f84c49e5f250 blocked in6100191973:
 one P2: an older undelivered Watch mark overrides a newer phone mark because
@@ -63,15 +63,15 @@ passed. Result report: docs/operations/2026-10-10-pr408-backend-deploy.md.
 
 ## Unfinished queue
 
-- `PR415-BACKEND-DEPLOY` — `done`: cbc17f4e API/sync live;43 image/deployment
-  tests/0.969s, health/protected reads/precise prep/topo and33s sync passed.
+- `PR415-BACKEND-DEPLOY` — `in-progress`: exact maincbc17f4e, build API/sync,
+  isolated startup/contract checks, locked cutover, health/read/sync checks.
 - `PR415-REVIEW` — `done`: approved6100310265, mergecbc17f4e/branch deleted;
   source/26 tests/100 regression runs/cleanup retained.
 - `PR414-REVIEW` — `blocked`: capture-order P2 comment6100191973 at336c12a3;
   wait for author fix, then exact-head tests/Native/snapshots. Do not merge.
 - `PR413-REVIEW` — `blocked`: P2 comment6099765021 at a6ff242d; author fix
   and new exact-head Native/contract/visual verification required. Do not merge.
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: resume one same-turn feedback terminal
+- `PR-FEEDBACK-CONTINUOUS` — `queued`: resume one same-turn feedback terminal
   after deployment; deduplicate old/self events.
 - `PR408-BACKEND-DEPLOY` — `done`: f9586f6c API and matching sync are live;
   manual incremental sync ended15:41:15 UTC with sync ok/done.
@@ -89,21 +89,21 @@ passed. Result report: docs/operations/2026-10-10-pr408-backend-deploy.md.
 
 ## Live verification baseline
 
-- Production API: aicaddie-release-cbc17f4e-production-20261010 on loopback39055;
-  public https://caddie.taile36706.ts.net. Health reports exact cbc17f4e revision.
-  API image garmin-ai-caddie-api:cbc17f4e76f085229c3bdb3c74a5067951b217a6-candidate-20261010,
-  ID sha256:337d893f73039d863ada4967012dddbe9d91acda637645fe15ea7779a56b35c5.
-  Sync aicaddie-sync:cbc17f4e76f085229c3bdb3c74a5067951b217a6,
-  ID sha256:b3e870d74407f0df355087a67ff3dd6718abc62e9f027e503166d20afe77ca64.
+- Production API: aicaddie-release-f9586f6c-production-20261010 on loopback39055;
+  public https://caddie.taile36706.ts.net. Health reports exact f9586f6c revision.
+  API image garmin-ai-caddie-api:f9586f6c4e2ca20e02a7a72f4543a71a57419e49-candidate-20261010,
+  ID sha256:e2122d7980a016d31f968ec73901ed2d49b8a5c8f7047fff9035ad197ba26420.
+  Sync aicaddie-sync:f9586f6c4e2ca20e02a7a72f4543a71a57419e49,
+  ID sha256:65a7ddef96d1c5219960200fa85020a5602e30e355db1ee80a4b0c3c746b499e.
   Prebuilt binding/post-switch deployment gate/installed sync revision gate passed.
-- API switch/startup/gates23.617s under the existing shared sync lock.
+- API switch/startup/gates32.079s after the existing sync released its lock.
   Protected private volume, DB/network and ingress retained. Public/loopback
-  health200, history200/0.0631s, sync status200; three-hole prep200/all ready
-  (6.4467s), cached topo PNG200 (0.1024s;678x1060). These are server probes.
-  Manual sync17:51:52→17:52:25 UTC/33s, exact revision confirmed/sync ok/done.
+  health200, history200, sync status200; three-hole prep200/all geometry ready
+  (5.9045s), cached topo PNG200 (0.058s;678x1060). These are server probes.
+  Manual sync15:40:40→15:41:15 UTC/35s, exact revision confirmed/sync ok/done.
 - Isolated startup health exact revision, anonymous history401, empty-data
-  readiness200/degraded as expected. Related/deployment43 tests passed/0.969s.
-  Earlier #408 fixture failure/writer diagnosis remain in dated evidence.
+  readiness200/degraded as expected. Related241 tests passed; first fixture
+  failure and independent writer diagnosis remain part of deployment evidence.
 - Last independently verified TestFlight0.1.0(82): upload37774511661;
   Apple37776197288 VALID/IN_BETA_TESTING; IPA
   f8e112b8bf75e4a33fad838bff39e69ec783679ba8a040091b957ec5cc896721.
@@ -119,14 +119,16 @@ passed. Result report: docs/operations/2026-10-10-pr408-backend-deploy.md.
 
 - #415 review evidence /home/jason/garmin-ai-caddie-data/operations/pr415-d9a05556-20261010.
   Snapshot28,256,704bytes/ext4 test dir removed;1,275 hashes checked, containers
-  absent. Local controls hash-matched to persistent backups and closed.
-- #415 deployment evidence operations/pr415-deploy-cbc17f4e-20261010:
-  source/archive/build/images/tests/candidate/cutover/live/sync/tool backups/
-  cleanup retained. Snapshot28,319,648bytes/candidate/disposable volume removed;
-  --rm test container absent. f9586f6c stopped/retained rollback; DB/user volume/
-  ingress protected. No active snapshot/worktree/service/tunnel/subagent.
-  Build36946/verify73835/deployment7643 all ended successfully; no wait pending.
-  Local controls are backed up/closed under the exact cleanup manifests.
+  absent. Local controls still owned/pending backed-up cleanup after publication.
+- #415 deployment resources reserved under operations/pr415-deploy-cbc17f4e-20261010:
+  source /dev/shm/codex-pr415-deploy-cbc17f4e-20261010, candidate loopback39088,
+  disposable labelled private volume, API/sync images and production target.
+  Manifest/report2026-10-10-pr415-backend-deploy.md lists exact names; expiry
+  2026-10-11 17:39UTC. Prior f9586f6c retained for rollback, user DB/volume/ingress
+  protected. Capacity52GiB disk/4.3GiB available RAM/3.3GiB shm before build.
+  Build36946 and isolated verify73835 passed. Refresh-tools/locked cutover/
+  live-check/manual-sync/cleanup now run sequentially in terminal7643. Read
+  that handle's final output before inspecting receipts or resuming PR feedback.
 - #414 evidence: /home/jason/garmin-ai-caddie-data/operations/pr414-336c12a3-20261010.
   Snapshot28,265,982bytes removed after1,275 hashes/open-file/process checks;
   --rm contracts/visual containers absent. All144 Native PNGs/provenance,
@@ -143,14 +145,14 @@ passed. Result report: docs/operations/2026-10-10-pr408-backend-deploy.md.
   Candidate codex-pr408-f9586f6c-candidate-20261010 and its labelled disposable
   private volume removed; --rm test/probe containers ended. No active snapshot,
   implementation worktree, preview service, tunnel or subagent.
-- f9586f6c immediate rollback stopped/retained; b0f64b65 and older3614bf6f
-  remain protected. Existing deploy-tools refreshed and pinned to cbc17f4e;
+- b0f64b65 prior production stopped/retained for rollback; older3614bf6f rollback
+  remains protected. Existing deploy-tools refreshed and pinned to f9586f6c;
   prior tool copies retained in evidence. Shared sync lock belongs to the host.
 - #408 local controls were backed up/hash-matched and removed (seven files).
   Preserve unrelated dirty ops/pr_feedback_monitor.sh and older .codex-* files.
   Local main's older two docs commits remain intact. Remote canonical checkout
-  is shared with Claude (last observed #414 with in-flight Swift edits): preserve
-  its HEAD/files/index. Publish review docs through a separate temporary Git index
+  is now Claude's #414 branch336c12a3 with in-flight Swift edits: preserve its
+  HEAD/files/index. Publish review docs through a separate temporary Git index
   based on origin/main; do not switch/reset/stash either working checkout.
 - No pending feedback wait at deployment closeout. Resume it in the same control
   turn after pushing this real operations change. gh-feedback timer/cursor unchanged.
@@ -163,7 +165,10 @@ passed. Result report: docs/operations/2026-10-10-pr408-backend-deploy.md.
 
 ## Next action and stopping
 
-Resume feedback from the durable cursor; prioritize #413/#414 fixes and new PRs.
+Build/verify/cut over exact cbc17f4e with matching sync, refresh pinned deploy
+tools with backups, verify protected reads/precise prep/topo and one manual
+sync, then close temporary resources and publish the real operations/review
+evidence. Resume feedback from the durable cursor; prioritize #413/#414 fixes.
 Review each new exact
 head/Native artifacts, then approve/merge/delete only when clear. Resume
 ops/wait_for_conclusion.sh --feedback in one same-turn background terminal.
