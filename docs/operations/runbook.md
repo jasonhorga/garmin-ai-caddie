@@ -143,8 +143,19 @@ The response should never include cookie, CSRF, token, `.env`, or absolute priva
 ### Build the Sync Image
 
 The homeserver sync job is a one-shot container. The API deployment is not
-complete until the matching sync image exists. After switching the healthy API
-container to the production port, use the deployment gate from this checkout:
+complete until the matching sync image exists. Build the matching image **before
+switching the API container**, so a scheduled sync cannot see a new revision
+whose sync toolchain is still downloading. Use the already built, revision-labelled
+candidate API image explicitly:
+
+```bash
+API_IMAGE=<the-built-candidate-api-image> bash ops/build_sync_image.sh
+```
+
+Verify that `aicaddie-sync:<candidate-full-SHA>` exists and has the same
+`ai.caddie.source-revision` label. Only then switch the healthy API container to
+the production port. Immediately run the mandatory post-switch deployment gate
+from this checkout; the matching image's cached build should finish quickly:
 
 ```bash
 AICADDIE_API_CONTAINER=<the-container-on-the-production-port> \

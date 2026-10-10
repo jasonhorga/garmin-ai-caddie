@@ -3,99 +3,75 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-09 23:59 UTC
-**Canonical branch:** `main`; product merge `d2b3536b` (#403),
-bookkeeping `1ee54a1e`
-**Current slice:** `PR-FEEDBACK-CONTINUOUS` — `done` (owner 23:59 UTC cutoff)
+**Updated:** 2026-10-10 05:54 UTC
+**Canonical branch:** `main`, product merge `b0f64b65fe51af6665e531010d272fc101d203ac`
+**Current slice:** `PR407-REVIEW` — `in-progress`
 
 ## Current state
 
-# Closing inventory at23:58:55 UTC
-Two ready PRs remain open; no new reviews started during closeout:
-- #404 now head `1fd0ad4c11669f62b5629912c92e54b5f6ff17c6` (author update),
-  not reviewed/tested by Codex. Below evidence/P2 applies to prior e8093d90 only.
-- #405 head `3a093c1c1e6d157ab52ae31b866fba643b25e3ed`, branch
-  `claude/testflight-preflight-timeout-20261009`; unreviewed, CI not checked.
+Owner resumed review after the historical 2026-10-09 23:59 UTC cutoff.
+#404/#405/#406 exact-head reviews, merges, source-branch deletion and backend
+deployment are complete. PASS comments, test evidence, independent performance
+results, deployment/sync receipts and cleanup are in
+[the deployment report](2026-10-10-pr404-406-backend-deploy.md).
+Those PR heads/comments are handled; do not repeat their reviews.
 
-#404 OPEN/ready, reviewed head `e8093d902b2d60ba805a0aeb1afdc0806166ee76`,
-branch `claude/topo-render-processes-20261009`, merge-base `1ee54a1e`.
-P2 review **6091300546** posted; do not merge or deploy yet.
-
-P2: _render_cold catches submit-time BrokenProcessPool as generic RuntimeError;
-fallback returns but does not discard the singleton pool, so later cold renders
-keep falling back to the API process. Handle BrokenProcessPool before RuntimeError,
-discard the broken pool, and regress both fallback and fresh-pool acquisition
-on the next call. Existing tests cover future.result failure, not submit failure.
-Independent probe reproduced discard **0 calls instead of1**.
-
-Verified exact-head backend evidence:
-- Related suite **101 tests /2.502 s /OK /3 pre-existing geometry skips**,
-  including all7 added pool cases and a real forkserver geometry-unavailable path.
-- Independent submit-broken probe **1 test /FAIL**, intentionally exposing P2.
-- CI `38005936408` backend/frontend/docker all green; no mobile/ios changes.
-- First suite attempt omitted the tracked .env.example in the read-only snapshot.
-  Restored the placeholder template and reran successfully; first log retained.
-- Author's cold-course 35→15 s measurement was not independently rerun.
-  Two render processes require deployment and memory validation; no deploy done.
-- Evidence:
-  `/home/jason/garmin-ai-caddie-data/operations/pr404-e8093d90-20261009`
-  (source/tests/probe/attempt1/cleanup/manifest/review originals).
-
-#399–#403 merged; reviewed heads/requests/CI/comments handled and branches deleted.
-#403 final PASS6090217699; CI attempt3 and author green reply6090005691 at22:03:20
-handled. #404 opened23:44:59, head e8093d90 and P2 comment6091300546 handled.
-No duplicate re-review of those heads/events. Historical detail is archived verbatim.
+#407 OPEN/ready, head `936987631dd6498e758d2ba68ce47b4f34873080`,
+branch `claude/live-plan-paging-20261010`, base b0f64b65.
+Backend/frontend/docker CI `38028436578` green; Native `38028436609`
+was running at the initial inventory. No review comment yet.
+It changes iOS route paging and off-hole tee-plan request inputs. Review exact
+head, run relevant contracts, wait for Native and inspect its iOS/Watch PNGs.
 
 ## Unfinished queue
 
-- `PR404-SUBMIT-BROKEN-POOL` — `queued`: author fix, exact-head recovery
-  regression/relevant suites and CI on new1fd0ad4c; PASS/merge after P2 is closed.
-  Backend deployment is a separate follow-up, with same-revision API/sync builds.
-- `PR405-REVIEW` — `queued`: inspect 3a093c1c and required CI; apply the normal
-  exact-head review/verification/comment/merge gates. No release claim yet.
-- `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 label variation; nonblocking.
-- `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark navigation/status text.
-- `OWNER-DEVICE-BUILD82` — `evidence-open`: paired iPhone/Watch validation remains owner work.
+- `PR407-REVIEW` — `in-progress`: exact-head code/contracts/Native screenshots;
+  comment P1/P2/nonblocking findings or PASS, then merge/delete only if clear.
+- `PR-FEEDBACK-CONTINUOUS` — `queued`: resume same-turn blocking waits after
+  this review; no CI-only bookkeeping commits or waiter liveness checks.
+- `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 variation; nonblocking.
+- `IOS-STATUS-CONTRAST` — `queued`: dark navigation/status text; nonblocking.
+- `OWNER-DEVICE-BUILD82` — `evidence-open`: paired device validation owner work.
 
 ## Live verification baseline
 
-- Latest claimed internal TestFlight **0.1.0 (82)**, upload `37774511661`;
-  excludes #395 onward. Apple read-only `37776197288`: VALID /IN_BETA_TESTING.
+- Last independently verified internal TestFlight **0.1.0 (82)**,
+  upload `37774511661`; Apple read-only `37776197288` VALID/IN_BETA_TESTING.
   IPA SHA256 `f8e112b8bf75e4a33fad838bff39e69ec783679ba8a040091b957ec5cc896721`.
-- API `https://caddie.taile36706.ts.net`; backend/sync revision
-  `3614bf6f3805479f8d13de65eeec4f0ad7871f22`; production container
-  `aicaddie-release-3614bf6f-production-20261008`, loopback39055.
-  Protected cutover retained; sync last recorded 502 rounds /501 scorecards /
-  501 shots /ok /done. HTTP/2 homeserver 3/3 HTTP200, 1.82–2.57 s;
-  not Apple-runner path evidence.
-- Latest merged-source Native `37990736669`: iOS772/0, Watch448/0, live production;
-  all142 PNGs match the manually reviewed baseline.
-  `operations/pr403-fd73dca5-20261009/native-artifacts` retained.
-- #403 anchor saves when speculative rows are queued; a failed guess does not
-  retry merely by returning home then back. Boundary disclosed. No new release.
+  #405 author reports build83 upload `38004360047`; not independently checked.
+  The #404–#406 review/deploy batch has not uploaded a new iOS build.
+- API `https://caddie.taile36706.ts.net`, loopback39055:
+  `aicaddie-release-b0f64b65-production-20261010`, exact b0f64b65 revision.
+  Matching API/sync images, deployment and installed sync revision gates passed.
+  Manual sync ended05:48:19 UTC with sync ok/done, 502 summaries/501 scorecards.
+  Health/public health/history/sync/prep/topo checks returned200.
+- Isolated four-CPU benchmark: nine topo +three prep batches35.4904→22.9303 s;
+  nine PNG hashes match, two actual render workers. Server-only, not phone load time.
+  Combined deployed-source relevant suites:237 tests /4.107 s /OK /5 existing skips.
+- Latest merged-source Native `37990736669`: iOS772/0, Watch448/0,
+  142 PNGs match reviewed baseline. Protected private volume/database/ingress retained.
 
 ## Owned resources
 
-- No active snapshot, worktree, test container, preview/service/tunnel or subagent.
-  PR404 snapshot removed (28,063,810 bytes), --rm container absent, production
-  running. Source/test/Native originals and cleanup receipts remain.
-- A 1,730-byte placeholder /home/jason/.env.example was accidentally extracted
-  while restoring the snapshot template. Confirmed new creation/hash; removed
-  after open-file check. Repository template/source archive retained. No runtime
-  environment file was changed or removed.
-- Local controls/manifests/reviews retained as receipts; preserve unrelated dirty
-  `ops/pr_feedback_monitor.sh` and historical `.codex-*`.
-- Feedback waiter43125 returned PR404 event and ended; no feedback wait pending.
-  gh-feedback timer unchanged. No liveness polling, replacement or independent tmux.
-  No CI-result-only commits. Comment/commit attribution rules remain in force.
+- Evidence: `/home/jason/garmin-ai-caddie-data/operations/pr404-406-deploy-20261010`.
+  Three temporary source directories archived/removed (126,382,305 bytes);
+  candidate39088/private volume and all probe/test containers removed.
+  Local helpers backed up/hash-matched and removed; manifest retained with evidence.
+- Stopped rollback `aicaddie-release-3614bf6f-production-20261008` retained.
+  No active snapshot, implementation worktree, test service, tunnel or subagent.
+  No feedback wait pending; gh-feedback timer and cursor unchanged.
+- Preserve unrelated dirty `ops/pr_feedback_monitor.sh` and older `.codex-*`.
+  Filter/consume credentials on homeserver; never print them during inspection.
 
 ## Next action and stopping
 
-Continuous tracking ended at owner cutoff; closeout committed/pushed separately
-from any CI-only bookkeeping. Do not start a replacement waiter or new review.
-Future work
-requires a new owner instruction; resume PR404 exact current head before merging.
+Commit/push the completed review/deployment evidence and sync-prebuild runbook
+change together, then review #407 at the exact head. Use the existing blocking
+waiter for Native results; required iOS/Watch artifacts must be inspected.
+After closure, retain one feedback terminal and wait in the same control turn.
 
-Absolute stop: **2026-10-09 23:59 UTC**; earlier stop requires48h quiet and no
-open PRs (not satisfied). Latest handled external event: PR404 opened23:44:59.
-Keep ledger ≤200 lines; dated archives are historical, non-authoritative.
+Prior absolute cutoff is historical; owner explicitly resumed work.
+Continuous tracking stops after48h without external PR events and no open PRs,
+or a new owner stop instruction. Latest external PR update05:42:46 UTC (#407);
+quiet condition is not satisfied while #407 is open. Ignore our own
+commits/comments/CI as quiet resets. Keep ledger ≤200 lines.
