@@ -19,6 +19,54 @@ final class WatchLocationProviderTests: XCTestCase {
         XCTAssertEqual(manager.desiredAccuracy, kCLLocationAccuracyBest)
     }
 
+    /// Battery report 2026-10-10: every published fix or heading redraws the round UI. A standing
+    /// player's 1 Hz fixes are republished only on a 2 m move, a 3 m accuracy change, or every 8 s
+    /// (inside the 15 s rangefinder window).
+    func testUnchangedFixesAreRepublishedOnlyOftenEnoughToStayLive() {
+        let previous = WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116),
+            horizontalAccuracyM: 5,
+            capturedAt: ISO8601DateFormatter().string(from: now)
+        )
+        let publishedAt = now
+        XCTAssertTrue(WatchLocationProvider.shouldPublish(previous: nil, previousPublishedAt: nil, next: location(), now: now))
+        XCTAssertFalse(WatchLocationProvider.shouldPublish(
+            previous: previous, previousPublishedAt: publishedAt, next: location(), now: now.addingTimeInterval(1)
+        ), "same spot, same accuracy, 1 s later")
+        XCTAssertTrue(WatchLocationProvider.shouldPublish(
+            previous: previous, previousPublishedAt: publishedAt,
+            next: location(latitude: 40.00003), now: now.addingTimeInterval(1)
+        ), "a 3 m step")
+        XCTAssertTrue(WatchLocationProvider.shouldPublish(
+            previous: previous, previousPublishedAt: publishedAt, next: location(accuracy: 12), now: now.addingTimeInterval(1)
+        ), "accuracy changed")
+        let riding = WatchLocationFix(
+            coordinate: previous.coordinate, horizontalAccuracyM: 5,
+            capturedAt: previous.capturedAt, speedMps: 4, speedAccuracyMps: 1
+        )
+        XCTAssertTrue(WatchLocationProvider.shouldPublish(
+            previous: riding, previousPublishedAt: publishedAt, next: location(speed: 0.5), now: now.addingTimeInterval(1)
+        ), "the cart stopped: the swing riding gate must see it")
+        XCTAssertTrue(WatchLocationProvider.shouldPublish(
+            previous: previous, previousPublishedAt: publishedAt, next: location(),
+            now: now.addingTimeInterval(WatchLocationProvider.stationaryRepublishSeconds)
+        ), "standing still: republished before the 15 s window lapses")
+        XCTAssertLessThan(
+            WatchLocationProvider.stationaryRepublishSeconds,
+            WatchLocationProvider.maximumLiveRangefinderAgeSeconds
+        )
+    }
+
+    func testHeadingRunsOnlyWhileAPageThatShowsItIsOpen() {
+        let provider = WatchLocationProvider(manager: CLLocationManager())
+        XCTAssertFalse(provider.wantsHeadingUpdates, "off for the round by default")
+        provider.setHeadingUpdates(true)
+        XCTAssertTrue(provider.wantsHeadingUpdates)
+        provider.setHeadingUpdates(false)
+        XCTAssertFalse(provider.wantsHeadingUpdates)
+        XCTAssertNil(provider.latestHeading, "a stale arrow never outlives the page")
+    }
+
     func testRejectsInvalidNegativeAccuracyAndCachedSamples() {
         XCTAssertFalse(WatchLocationProvider.isUsable(location(latitude: 91), now: now))
         XCTAssertFalse(WatchLocationProvider.isUsable(location(longitude: 181), now: now))
@@ -84,13 +132,16 @@ final class WatchLocationProviderTests: XCTestCase {
         latitude: Double = 40,
         longitude: Double = 116,
         accuracy: Double = 5,
-        age: TimeInterval = 0
+        age: TimeInterval = 0,
+        speed: Double = -1
     ) -> CLLocation {
         CLLocation(
             coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
             altitude: 0,
             horizontalAccuracy: accuracy,
             verticalAccuracy: 5,
+            course: -1,
+            speed: speed,
             timestamp: now.addingTimeInterval(-age)
         )
     }

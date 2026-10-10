@@ -46,6 +46,11 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
     private let formatter = ISO8601DateFormatter()
     private let log = Logger(subsystem: "com.aicaddie.watch", category: "location")
     private var wantsLocationUpdates = false
+    /// Only the 旗向指引 page reads the heading. Every published heading re-renders the whole round
+    /// UI (map canvas included), and with a 2° filter the wrist moving through a round published
+    /// constantly (battery report 2026-10-10), so heading runs only while that page is open.
+    private(set) var wantsHeadingUpdates = false
+    private var lastPublishedFixAt: Date?
 
     @Published public private(set) var latestFix: WatchLocationFix?
     @Published public private(set) var latestHeading: WatchHeadingFix?
@@ -121,7 +126,7 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
             return
         }
         manager.startUpdatingLocation()
-        if CLLocationManager.headingAvailable() {
+        if wantsHeadingUpdates, CLLocationManager.headingAvailable() {
             manager.startUpdatingHeading()
         }
     }
@@ -130,6 +135,50 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
         wantsLocationUpdates = false
         manager.stopUpdatingLocation()
         manager.stopUpdatingHeading()
+    }
+
+    /// Heading only while a view that shows it is open (and location is wanted at all).
+    public func setHeadingUpdates(_ wanted: Bool) {
+        guard wanted != wantsHeadingUpdates else { return }
+        wantsHeadingUpdates = wanted
+        guard simulatedAuthorizationStatus == nil, simulatedFix == nil else { return }
+        if wanted, wantsLocationUpdates, CLLocationManager.headingAvailable() {
+            manager.startUpdatingHeading()
+        } else if !wanted {
+            manager.stopUpdatingHeading()
+            latestHeading = nil
+        }
+    }
+
+    /// Every fix arrives (no distance filter), but republishing an unchanged position each second
+    /// redraws the whole round UI. Publish a move of 2 m, an accuracy change of 3 m, a ground-speed
+    /// change of 1 m/s (a cart stopping must reach the swing riding gate), or at least every
+    /// `stationaryRepublishSeconds` — well inside the 15 s rangefinder window — so a player standing
+    /// still keeps a live range without a redraw per fix.
+    public static let stationaryRepublishSeconds: TimeInterval = 8
+
+    static func shouldPublish(
+        previous: WatchLocationFix?,
+        previousPublishedAt: Date?,
+        next: CLLocation,
+        now: Date = Date()
+    ) -> Bool {
+        guard let previous, let previousPublishedAt else { return true }
+        let moved = CLLocation(
+            latitude: previous.coordinate.latitude,
+            longitude: previous.coordinate.longitude
+        ).distance(from: next)
+        let nextSpeed: Double? = next.speed >= 0 ? next.speed : nil
+        let speedChanged: Bool
+        switch (previous.speedMps, nextSpeed) {
+        case let (old?, new?): speedChanged = abs(new - old) >= 1
+        case (nil, nil): speedChanged = false
+        default: speedChanged = true
+        }
+        return moved >= 2
+            || abs(next.horizontalAccuracy - previous.horizontalAccuracyM) >= 3
+            || speedChanged
+            || now.timeIntervalSince(previousPublishedAt) >= stationaryRepublishSeconds
     }
 
     /// Hole-root F/M/B is a live rangefinder, not a generic cached-location consumer. Keep the
@@ -168,7 +217,7 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
             // Resume both wrist location and heading immediately after the player grants access.
             if wantsLocationUpdates {
                 manager.startUpdatingLocation()
-                if CLLocationManager.headingAvailable() {
+                if wantsHeadingUpdates, CLLocationManager.headingAvailable() {
                     manager.startUpdatingHeading()
                 }
             }
@@ -190,6 +239,11 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = Self.latestUsableLocation(in: locations) else { return }
+        let now = Date()
+        guard Self.shouldPublish(previous: latestFix, previousPublishedAt: lastPublishedFixAt, next: location, now: now) else {
+            return
+        }
+        lastPublishedFixAt = now
         latestFix = WatchLocationFix(
             coordinate: location.coordinate,
             horizontalAccuracyM: location.horizontalAccuracy,
