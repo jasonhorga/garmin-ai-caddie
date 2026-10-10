@@ -1,25 +1,15 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 17:26 UTC
+**Updated:** 2026-10-10 16:38 UTC
 **Canonical branch:** main; product merge d3f05e13b884773041e4ad22c3f0343e9bcd3201
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and deduplication
-
-#414 head336c12a352189494c575d961de02f84c49e5f250 blocked in6100191973:
-one P2: an older undelivered Watch mark overrides a newer phone mark because
-absence from phoneShotIds is treated as chronology. Require capture identity/
-time and same-hole newest-origin selection; real receive/record/relaunch tests.
-Contracts126/10.294s/OK; CI38065042464 green, Native38065042410 iOS786/0,
-Watch453/0 plus2 UI tests; merge21e26c76 parent2 is exact head.144 PNGs,
-139 unchanged from #412, all5 changed Watch PNGs visually inspected/readable.
-The initial acknowledgement-lifetime claim was corrected in the same comment
-after call-site tracing; first version retained, not an outstanding finding.
-Snapshot/containers/local copies closed. Report2026-10-10-pr414-review-336c12a3.md.
-Old/self #406/#413 events deduplicated; resume one feedback terminal next.
 
 #413 head a6ff242d2086096303e62906104e1d8c2a4bc56b reviewed in6099765021:
 one P2, not merged. Bottom-fit pass can move left-side multi-leg labels back
@@ -53,8 +43,6 @@ passed. Result report: docs/operations/2026-10-10-pr408-backend-deploy.md.
 
 ## Unfinished queue
 
-- `PR414-REVIEW` — `blocked`: capture-order P2 comment6100191973 at336c12a3;
-  wait for author fix, then exact-head tests/Native/snapshots. Do not merge.
 - `PR413-REVIEW` — `blocked`: P2 comment6099765021 at a6ff242d; author fix
   and new exact-head Native/contract/visual verification required. Do not merge.
 - `PR-FEEDBACK-CONTINUOUS` — `in-progress`: resume one same-turn feedback
@@ -107,13 +95,6 @@ passed. Result report: docs/operations/2026-10-10-pr408-backend-deploy.md.
 
 ## Owned resources and cleanup
 
-- #414 evidence: /home/jason/garmin-ai-caddie-data/operations/pr414-336c12a3-20261010.
-  Snapshot28,265,982bytes removed after1,275 hashes/open-file/process checks;
-  --rm contracts/visual containers absent. All144 Native PNGs/provenance,
-  review versions/comment/correction and cleanup retained. Seven local controls/
-  sheet/manifest backed up/hash-matched/removed. Production health200/f9586f6c.
-  No active snapshot, implementation worktree, service, tunnel or subagent.
-  No feedback terminal pending; resume it after publishing this real review.
 - Persistent new evidence:
   /home/jason/garmin-ai-caddie-data/operations/pr408-deploy-f9586f6c-20261010.
   Source tar/provenance, image IDs, original failure, writer probe, tests,
@@ -128,10 +109,8 @@ passed. Result report: docs/operations/2026-10-10-pr408-backend-deploy.md.
   prior tool copies retained in evidence. Shared sync lock belongs to the host.
 - #408 local controls were backed up/hash-matched and removed (seven files).
   Preserve unrelated dirty ops/pr_feedback_monitor.sh and older .codex-* files.
-  Local main's older two docs commits remain intact. Remote canonical checkout
-  is now Claude's #414 branch336c12a3 with in-flight Swift edits: preserve its
-  HEAD/files/index. Publish review docs through a separate temporary Git index
-  based on origin/main; do not switch/reset/stash either working checkout.
+  Local main's older two docs commits remain intact; publish this slice via the
+  clean remote Git checkout, without rewriting the local branch or dirty work.
 - No pending feedback wait at deployment closeout. Resume it in the same control
   turn after pushing this real operations change. gh-feedback timer/cursor unchanged.
 - #413 evidence: /home/jason/garmin-ai-caddie-data/operations/pr413-a6ff242d-20261010.
@@ -143,7 +122,7 @@ passed. Result report: docs/operations/2026-10-10-pr408-backend-deploy.md.
 
 ## Next action and stopping
 
-Consume feedback from the durable cursor; prioritize the #413/#414 P2 fixes and
+Consume feedback from the durable cursor; prioritize the #413 P2 correction and
 the #406 atomic-writer fixture follow-up when they arrive. Review each new exact
 head/Native artifacts, then approve/merge/delete only when clear. Resume
 ops/wait_for_conclusion.sh --feedback in one same-turn background terminal.
@@ -154,7 +133,7 @@ ignore Codex comments/commits/CI as feedback or quiet resets.
 
 The historical October9 cutoff was superseded by the owner's explicit resume.
 Stop after48h with no external PR events and no open PRs, or an owner stop.
-Latest handled external event: #414 Native completion2026-10-10 16:04:49 UTC;
-earliest quiet stop2026-10-12 16:04:49 UTC, conditional on no newer external
+Latest handled external event: #413 Native CI completion2026-10-10 15:36:54 UTC;
+earliest quiet stop2026-10-12 15:36:54 UTC, conditional on no newer external
 events and no open PRs. Verify both conditions before completing the goal.
 Keep this ledger≤200 lines.
