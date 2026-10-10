@@ -1,11 +1,13 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 06:41 UTC
+**Updated:** 2026-10-10 06:24 UTC
 **Canonical branch:** `main`, product merge `45ab789d3e2ebd6dd77afff0873c0e19ccc761ac`
-**Current slice:** `PR408-FIX-REVIEW` — `in-progress`
+**Current slice:** `PR409-REVIEW` — `in-progress`
 
 ## Current state
 
@@ -25,28 +27,22 @@ Two new ready PRs:
   the <3m gate occurs after club selection; a2m drop changes Driver→3W into
   Driver→3H→58 (362m Par4, PR's ladder). Independent probe1 test fails;
   related prep170 tests /OK /2 skips and elevation10 tests /OK. CI38029444114 green.
-  Author fixed it at head `e188dfffe5c9d1d23b6fc402a8a8e6420cad2076`,
-  reply6094619806 (06:23:43 UTC). CI38030779827 green. Independent re-review
-  of this replacement head is next; old90f8 findings/tests are already handled.
+  Await author fix/new head; do not merge or deploy this version.
 - #409 head `a435a5c9ac691f00f67b3a83759df548a5840edd`,
   branch `claude/mixed-venue-loops-20261010`: offer an 18-hole course alongside
-  a venue's nines. P2 screenshot gate6094741902 posted; no code blocker found.
-  Contracts126/OK; backend/frontend/docker38030048490 and Native38030048455 green,
-  iOS774/0, Watch448/0. Native merge768f3131 contains exact head. All142 PNGs
-  equal baseline; full-start-selected is Black Knight A/B/C, with no mixed venue.
-  Author asked for selected9/selected18 captures showing both named course tiles,
-  half selector and action; await new head/Native PNGs before merge.
-  First terminal summary hit TLS timeout; waiter retry49584 succeeded. Both closed.
+  a venue's nines. Mobile changes; backend/frontend/docker38030048490 green,
+  Native38030048455 was running at inventory. Review/tests/screenshots pending.
+  Exact-head contracts126 tests /5.253 s /OK; code read completed. Native wait
+  terminal53816 pending; consume it once, never start a duplicate wait.
 
 ## Unfinished queue
 
-- `PR408-FIX-REVIEW` — `in-progress`: re-review e188dfff; rerun related suites
-  and independent362m noise probe, close6094615864, PASS/merge only when clear.
+- `PR408-NOISE-BOUNDARY` — `blocked`: author must gate raw elevation delta before
+  reachability/club lookup; reproduce and close6094615864 on the next exact head.
 - `PR408-BACKEND-DEPLOY` — `queued`: only after fix/review/merge. No production
   API restart before10:00 UTC unless decision/prep traffic is quiet30 minutes
   (author's owner-live-round constraint6094461766). Prebuild matching sync image.
-- `PR409-MIXED-SNAPSHOTS` — `blocked`: author adds Native mixed-venue captures;
-  recheck new exact head/tests/CI/artifacts and close6094741902 before merge.
+- `PR409-REVIEW` — `in-progress`: exact-head gates, Native artifacts/design inspection.
 - `PR-FEEDBACK-CONTINUOUS` — `queued`: same-turn blocking waits after reviews;
   no CI-only bookkeeping commits, self-event loops or waiter liveness checks.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 variation; nonblocking.
@@ -84,20 +80,20 @@ Two new ready PRs:
 - #408 evidence: /home/jason/garmin-ai-caddie-data/operations/pr408-90f8e7f2-20261010.
   Snapshot removed (28,088,036 bytes), three --rm containers absent; local helpers
   backed up/hash-matched and removed. Source/tests/failing probe/review retained.
-  #409 snapshot removed (28,084,003 bytes); --rm contracts container absent,
-  local controls/screenshot backed up/hash-matched and removed. Evidence:
+  #409 snapshot /dev/shm/garmin-ai-caddie-pr409-a435a5c9-20261010 active,
+  expires Oct11 06:28 UTC; --rm contracts container finished. Evidence:
   /home/jason/garmin-ai-caddie-data/operations/pr409-a435a5c9-20261010.
-  No active snapshot, implementation worktree, test service, tunnel or subagent.
+  No implementation worktree, test service, tunnel or subagent.
 - Stopped rollback `aicaddie-release-3614bf6f-production-20261008` retained.
-  No pending Native/feedback wait. gh-feedback timer/cursor unchanged.
+  Native wait53816 pending; no feedback wait. gh-feedback timer/cursor unchanged.
 - Preserve unrelated dirty `ops/pr_feedback_monitor.sh` and older `.codex-*`.
   Filter/consume credentials on homeserver; never print them during inspection.
 
 ## Next action and stopping
 
-Commit/push #409's completed review/evidence/cleanup and dated archive together,
-then independently verify #408 e188dfff. Keep its deployment hold. #409's added
-captures remain actionable; inspect required iOS/Watch screenshots before approval.
+Commit/push #408's P2 review/evidence/cleanup and dated archive together, then
+inspect #409 at its exact head. Use the existing blocking waiter for pending CI;
+inspect required iOS/Watch screenshots before approval. #408 fixes remain actionable.
 After closure retain one feedback terminal and wait in the same control turn.
 
 Prior absolute cutoff is historical; owner explicitly resumed work.
