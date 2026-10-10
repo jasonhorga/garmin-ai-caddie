@@ -747,12 +747,14 @@ public struct CurrentHoleView: View {
         return (index, routes.count)
     }
 
-    /// 打法 steps through the caddie's routes; the map redraws the selected one.
+    /// 打法 steps through the caddie's routes; the map redraws the selected one. The route itself is
+    /// selected: two routes can share a strategy token (the installed plan and an online "safe"
+    /// route), and resolving the token picks the first of them, so the later one was never reached.
     private func selectNextPlan() {
         let routes = liveCaddieRoutes
         guard routes.count > 1, let position = livePlanPosition else { return }
         let next = routes[(position.index + 1) % routes.count]
-        selectStrategyMode(CaddiePlanPresentation.selectionToken(for: next))
+        selectStrategyMode(CaddiePlanPresentation.selectionToken(for: next), route: next)
     }
 
     /// 障碍 shows one obstacle (the first) or hides it again; ‹ › in the bar then steps through them.
@@ -925,7 +927,7 @@ public struct CurrentHoleView: View {
 
     /// Apply a strategy tap immediately. The network request that follows refreshes the authoritative
     /// decision, but the first frame already switches both the selected card and the next-club answer.
-    private func selectStrategyMode(_ mode: String) {
+    private func selectStrategyMode(_ mode: String, route explicitRoute: CaddiePlanSequence? = nil) {
         let normalized = caddieSelectionToken(forRouteId: mode) ?? mode.lowercased()
         guard !normalized.isEmpty else { return }
         requestedStrategyMode = normalized
@@ -933,7 +935,7 @@ public struct CurrentHoleView: View {
         selectedPlanIndex = nil
         hasUserSelectedClub = false
         caddieErrorMessage = nil
-        if let route = LiveCaddieRouteAuthority.selected(
+        if let route = explicitRoute ?? LiveCaddieRouteAuthority.selected(
             routes: liveCaddieRoutes,
             preferredToken: normalized,
             fallbackToken: nil
@@ -941,7 +943,10 @@ public struct CurrentHoleView: View {
             selectedCaddieRouteByHole[hole.number] = routeKey(route)
             explicitlySelectedCaddieRouteHoles.insert(hole.number)
         }
-        if let decision = caddieDecision,
+        if explicitRoute != nil, let choice = recommendedClubChoice {
+            // The paged route's own first club, not the first route sharing its token.
+            selectedClub = choice.name
+        } else if let decision = caddieDecision,
            let recommendation = LiveClubStripPolicy.recommendation(
                from: decision,
                strategyMode: normalized
@@ -1816,21 +1821,21 @@ public struct CurrentHoleView: View {
         let (first, merged) = reconciled
         retainedCaddieRouteByHole[hole.number] = first
 
-        // Keep the retained route at index zero and append only physically distinct alternatives.
+        // Routes already shown keep their pager places; new distinct alternatives are appended.
         caddieRoutesByHole[hole.number] = merged
 
         let currentToken = selectedCaddieRouteByHole[hole.number]
         let fallbackToken = caddieDecision?.selectedSequence.flatMap {
             jsonString($0["id"]) ?? jsonString($0["label"])
         } ?? caddieDecision?.selectedOptionId
+        // Selection still prefers the leading route (it used to sit at index zero of `merged`).
+        let lookupOrder = [first] + merged.filter { routeKey($0) != routeKey(first) }
         let selected = LiveCaddieRouteAuthority.selected(
-            routes: merged,
+            routes: lookupOrder,
             preferredToken: currentToken,
             fallbackToken: currentToken == nil ? fallbackToken : nil
-        ) ?? merged.first
-        if let selected {
-            selectedCaddieRouteByHole[hole.number] = routeKey(selected)
-        }
+        ) ?? first
+        selectedCaddieRouteByHole[hole.number] = routeKey(selected)
     }
 
     private func routeKey(_ route: CaddiePlanSequence) -> String {
@@ -2176,6 +2181,56 @@ public struct CurrentHoleView: View {
 
     private var mapReferenceIsLive: Bool {
         hasPlausibleLiveFix
+    }
+
+    /// Farther than this from the hole's routed line (tee to green) the player is not on the hole:
+    /// fairway half-width plus rough, so forward tees and a walk down the fairway stay on it.
+    static let offHoleMetres = 75.0
+
+    /// Before the hole's tee shot, a fix off the hole does not plan it: a player still in the car
+    /// park or clubhouse can be well within the plausible range of hole 1's green, and the tee shot
+    /// was then planned from there (a 308 y "tee shot" on a 397 y hole, 2026-10-10). Only the
+    /// caddie's planning inputs change; the map, recording and on-screen GPS numbers do not.
+    private var isTeeShotOffTheHole: Bool {
+        let route = (holePrep?.resolvedMapOverlay?.route ?? []).compactMap { point -> CLLocationCoordinate2D? in
+            guard point.count >= 2 else { return nil }
+            return liveCoordinate(forOverlayPixel: CGPoint(x: point[0], y: point[1]))
+        }
+        return Self.isTeeShotOffTheHole(
+            shotsRecorded: recordedNonPuttShotCount,
+            shotType: selectedShotType,
+            fix: currentCoordinate,
+            route: route
+        )
+    }
+
+    /// No shot recorded yet, still the tee shot, and the fix more than `offHoleMetres` from every
+    /// leg of the routed line. Unknown fix or route: false, so the live position keeps its role.
+    static func isTeeShotOffTheHole(
+        shotsRecorded: Int,
+        shotType: String,
+        fix: CLLocationCoordinate2D?,
+        route: [CLLocationCoordinate2D]
+    ) -> Bool {
+        guard shotsRecorded == 0,
+              shotType.caseInsensitiveCompare("tee") == .orderedSame,
+              let fix, route.count >= 2 else { return false }
+        // Local metres around the fix (equirectangular; holes are a few hundred metres long).
+        let metresPerDegreeLat = 111_320.0
+        let metresPerDegreeLon = metresPerDegreeLat * cos(fix.latitude * .pi / 180)
+        func local(_ c: CLLocationCoordinate2D) -> (x: Double, y: Double) {
+            ((c.longitude - fix.longitude) * metresPerDegreeLon, (c.latitude - fix.latitude) * metresPerDegreeLat)
+        }
+        var nearest = Double.infinity
+        for (a, b) in zip(route, route.dropFirst()) {
+            let p = local(a), q = local(b)
+            let dx = q.x - p.x, dy = q.y - p.y
+            let lengthSquared = dx * dx + dy * dy
+            let t = lengthSquared > 0 ? max(0, min(1, -(p.x * dx + p.y * dy) / lengthSquared)) : 0
+            let x = p.x + t * dx, y = p.y + t * dy
+            nearest = min(nearest, (x * x + y * y).squareRoot())
+        }
+        return nearest.isFinite && nearest > offHoleMetres
     }
 
     private var hasPlausibleLiveFix: Bool {
@@ -3655,9 +3710,9 @@ public struct CurrentHoleView: View {
             seed: caddieContextSeed,
             input: LiveCaddieInput(
                 shotType: selectedShotType,
-                distanceToPinM: effectiveDistanceToPinMetres,
+                distanceToPinM: caddiePlanningDistanceMetres,
                 lie: selectedLie,
-                coordinate: liveCoordinateForCurrentHole,
+                coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole,
                 targetCoordinate: wireTargetCoordinate,
                 targetKind: wireTargetKind,
                 horizontalAccuracyM: liveCoordinateForCurrentHole == nil ? nil : currentHorizontalAccuracyM,
@@ -4264,6 +4319,18 @@ public struct CurrentHoleView: View {
         LiveCaddieDistance.resolve(
             manualM: distanceToPinMetres ?? mapTargetDistanceMetres ?? greenPinDistanceMetres,
             liveMiddleM: liveGreenMetres?.middle,
+            staticMiddleM: liveGreenDistances?.middleM,
+            holeYards: hole.yards
+        )
+    }
+
+    /// The distance the caddie plans from: the live answer, except before the tee shot off the hole,
+    /// where only a typed distance or the tee's static green middle counts.
+    private var caddiePlanningDistanceMetres: Double? {
+        guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }
+        return LiveCaddieDistance.resolve(
+            manualM: distanceToPinMetres,
+            liveMiddleM: nil,
             staticMiddleM: liveGreenDistances?.middleM,
             holeYards: hole.yards
         )
