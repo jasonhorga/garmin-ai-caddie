@@ -1,11 +1,14 @@
+HISTORICAL ARCHIVE — NON-AUTHORITATIVE
+Preserved verbatim before closing PR408 review and resuming PR409's new screenshot head.
+
 # Garmin AI Caddie Project State
 
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-10 06:49 UTC
-**Canonical branch:** `main`, product merge `80973ed9b0e45a9bb8b6560fd805ca652b6b4a30`
-**Current slice:** `PR409-FIX-REVIEW` — `in-progress`
+**Updated:** 2026-10-10 06:41 UTC
+**Canonical branch:** `main`, product merge `45ab789d3e2ebd6dd77afff0873c0e19ccc761ac`
+**Current slice:** `PR408-FIX-REVIEW` — `in-progress`
 
 ## Current state
 
@@ -18,27 +21,35 @@ iOS776/0, Watch448/0; all four new regressions passed. Native merge4e6134e5
 contains the exact head. All142 PNGs match #403's reviewed baseline; relevant
 phone/Watch plan/zoom/hazard/flag/off-course images inspected. No new release.
 
-#408 corrected head e188dfffe5c9d1d23b6fc402a8a8e6420cad2076 approved in
-6094808089, merged80973ed9 at06:48:32 UTC; source branch deleted. P26094615864
-closed: raw<3m elevation noise is filtered before club selection. Independent
-related prep170/OK/2 existing skips, elevation10/OK, original362m probe1/OK
-(both flat/noisy Driver→3W). CI38030779827 green. No production change yet.
-
-#409 branch claude/mixed-venue-loops-20261010 now has new exact head
-`b040b2eeb2774cb22e07cd7a7c07768af8f6e620`. Author reply at06:44:19
-adds full-start-mixed-venue-nine/eighteen PNGs, provider labels/tee totals and
-assertions. Native CI in progress; backend/frontend/docker green. Need exact
-head diff/tests and terminal Native evidence/artifact inspection before merge.
-Old a435a5c9 P26094741902 is already reviewed; contracts126, iOS774/0,
-Watch448/0 and all142 old images matched baseline but omitted the new layout.
+Two new ready PRs:
+- #408 head `90f8e7f29aecec3afadf0a11b3e724518b96e291`,
+  branch `claude/plays-like-approach-20261010`: green-approach club selection
+  using plays-like distance. P2 review6094615864 posted on this exact head:
+  the <3m gate occurs after club selection; a2m drop changes Driver→3W into
+  Driver→3H→58 (362m Par4, PR's ladder). Independent probe1 test fails;
+  related prep170 tests /OK /2 skips and elevation10 tests /OK. CI38029444114 green.
+  Author fixed it at head `e188dfffe5c9d1d23b6fc402a8a8e6420cad2076`,
+  reply6094619806 (06:23:43 UTC). CI38030779827 green. Independent re-review
+  of this replacement head is next; old90f8 findings/tests are already handled.
+- #409 head `a435a5c9ac691f00f67b3a83759df548a5840edd`,
+  branch `claude/mixed-venue-loops-20261010`: offer an 18-hole course alongside
+  a venue's nines. P2 screenshot gate6094741902 posted; no code blocker found.
+  Contracts126/OK; backend/frontend/docker38030048490 and Native38030048455 green,
+  iOS774/0, Watch448/0. Native merge768f3131 contains exact head. All142 PNGs
+  equal baseline; full-start-selected is Black Knight A/B/C, with no mixed venue.
+  Author asked for selected9/selected18 captures showing both named course tiles,
+  half selector and action; await new head/Native PNGs before merge.
+  First terminal summary hit TLS timeout; waiter retry49584 succeeded. Both closed.
 
 ## Unfinished queue
 
+- `PR408-FIX-REVIEW` — `in-progress`: re-review e188dfff; rerun related suites
+  and independent362m noise probe, close6094615864, PASS/merge only when clear.
 - `PR408-BACKEND-DEPLOY` — `queued`: only after fix/review/merge. No production
   API restart before10:00 UTC unless decision/prep traffic is quiet30 minutes
   (author's owner-live-round constraint6094461766). Prebuild matching sync image.
-- `PR409-FIX-REVIEW` — `in-progress`: review b040b2ee, run contracts, wait for
-  Native once, inspect all changed PNGs, close6094741902 when verified.
+- `PR409-MIXED-SNAPSHOTS` — `blocked`: author adds Native mixed-venue captures;
+  recheck new exact head/tests/CI/artifacts and close6094741902 before merge.
 - `PR-FEEDBACK-CONTINUOUS` — `queued`: same-turn blocking waits after reviews;
   no CI-only bookkeeping commits, self-event loops or waiter liveness checks.
 - `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: 八号铁164 variation; nonblocking.
@@ -76,9 +87,6 @@ Watch448/0 and all142 old images matched baseline but omitted the new layout.
 - #408 evidence: /home/jason/garmin-ai-caddie-data/operations/pr408-90f8e7f2-20261010.
   Snapshot removed (28,088,036 bytes), three --rm containers absent; local helpers
   backed up/hash-matched and removed. Source/tests/failing probe/review retained.
-  Correction evidence: /home/jason/garmin-ai-caddie-data/operations/pr408-e188dfff-20261010.
-  Snapshot/three containers closed; source/probe/test/review/cleanup retained.
-  Six local correction controls hash-matched remote originals and were removed.
   #409 snapshot removed (28,084,003 bytes); --rm contracts container absent,
   local controls/screenshot backed up/hash-matched and removed. Evidence:
   /home/jason/garmin-ai-caddie-data/operations/pr409-a435a5c9-20261010.
@@ -90,13 +98,13 @@ Watch448/0 and all142 old images matched baseline but omitted the new layout.
 
 ## Next action and stopping
 
-Commit/push #408's actual review closure/evidence/cleanup and archive; then fetch
-and inspect #409 b040b2ee, run contracts, wait for its exact Native run once.
-Keep #408's deployment hold. Verify new iOS/Watch screenshots before approval.
+Commit/push #409's completed review/evidence/cleanup and dated archive together,
+then independently verify #408 e188dfff. Keep its deployment hold. #409's added
+captures remain actionable; inspect required iOS/Watch screenshots before approval.
 After closure retain one feedback terminal and wait in the same control turn.
 
 Prior absolute cutoff is historical; owner explicitly resumed work.
 Continuous tracking stops after48h without external PR events and no open PRs,
-or a new owner stop instruction. Latest external PR update06:44:20 UTC (#409);
+or a new owner stop instruction. Latest external PR update06:11:00 UTC (#409);
 quiet condition is not satisfied while #408/#409 are open. Ignore our own
 commits/comments/CI as quiet resets. Keep ledger ≤200 lines.
