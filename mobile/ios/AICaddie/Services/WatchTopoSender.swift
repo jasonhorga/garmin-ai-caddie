@@ -46,6 +46,9 @@ final class WatchTopoSender {
     private var roundId: String?
     private var sent = Set<String>()
     private var failures: [String: Int] = [:]
+    /// Holes whose retries are used up: no pass sends them again (another hole's retry included)
+    /// until the session re-activates or the round changes.
+    private var exhausted = Set<String>()
     private var running: Task<Void, Never>?
     private var retry: Task<Void, Never>?
 
@@ -75,7 +78,7 @@ final class WatchTopoSender {
         running = Task { [weak self] in
             for item in items {
                 guard let self, !Task.isCancelled, self.roundId == round else { return }
-                guard !self.sent.contains(item.key) else { continue }
+                guard !self.sent.contains(item.key), !self.exhausted.contains(item.key) else { continue }
                 guard let data = await self.load(item), !Task.isCancelled, self.roundId == round else { continue }
                 if self.enqueue(item, data) {
                     self.sent.insert(item.key)
@@ -89,6 +92,7 @@ final class WatchTopoSender {
     func forgetSent() {
         sent.removeAll()
         failures.removeAll()
+        exhausted.removeAll()
     }
 
     /// A queued topo transfer for (course, round hole) failed: it is no longer sent, and a retry is
@@ -99,7 +103,11 @@ final class WatchTopoSender {
         sent.subtract(failed)
         let attempt = failed.map { failures[$0, default: 0] }.max() ?? 0
         for key in failed { failures[key, default: 0] += 1 }
-        guard attempt < retryDelaysNanoseconds.count, retry == nil, let round = roundId else { return }
+        guard attempt < retryDelaysNanoseconds.count else {
+            exhausted.formUnion(failed)
+            return
+        }
+        guard retry == nil, let round = roundId else { return }
         let delay = retryDelaysNanoseconds[attempt]
         retry = Task { [weak self] in
             try? await Task.sleep(nanoseconds: delay)
@@ -128,5 +136,6 @@ final class WatchTopoSender {
         self.roundId = roundId
         sent.removeAll()
         failures.removeAll()
+        exhausted.removeAll()
     }
 }

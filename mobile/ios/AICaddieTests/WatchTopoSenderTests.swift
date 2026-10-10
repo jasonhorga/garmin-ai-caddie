@@ -115,6 +115,31 @@ final class WatchTopoSenderTests: XCTestCase {
         XCTAssertEqual(recorder.sent, [1, 2, 1, 1, 1, 2], "a re-activated session gets the round again")
     }
 
+    /// Codex review: another hole's retry must not resend a hole whose own retries are used up.
+    func testAnExhaustedHoleIsNotRevivedByAnotherHolesRetry() async throws {
+        let recorder = Recorder()
+        recorder.package = try LiveRoundPackageFixture.package()
+        recorder.cached = [1, 2]
+        let sender = sender(recorder, retries: [1_000_000])
+        let globalId = try XCTUnwrap(recorder.package?.holes.first?.sourceGlobalId)
+
+        sender.sync()
+        await sender.waitUntilIdle()
+        sender.transferFailed(globalId: globalId, roundHole: 1)
+        await sender.waitUntilIdle()
+        XCTAssertEqual(recorder.sent, [1, 2, 1])
+        sender.transferFailed(globalId: globalId, roundHole: 1)   // budget used up
+        await sender.waitUntilIdle()
+        sender.transferFailed(globalId: globalId, roundHole: 2)   // another hole's retry
+        await sender.waitUntilIdle()
+        XCTAssertEqual(recorder.sent, [1, 2, 1, 2])
+
+        sender.forgetSent()
+        sender.sync()
+        await sender.waitUntilIdle()
+        XCTAssertEqual(recorder.sent, [1, 2, 1, 2, 1, 2], "a re-activated session resets the budget")
+    }
+
     func testARetryForARoundThatEndedOrChangedSendsNothingOfIt() async throws {
         let recorder = Recorder()
         let first = try LiveRoundPackageFixture.package()
