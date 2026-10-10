@@ -1353,16 +1353,27 @@ def _route_elevation(by: dict, route):
     if not route or len(route) < 2:
         return None
     try:
-        import numpy as np
-
-        positions = [p for p in elevation.collect_positions(by) if isinstance(p, (list, tuple)) and len(p) >= 3]
-        if not positions:
-            return None
-        array = np.asarray(positions, dtype=float)[:, :3]
-        ground_x, heights, ground_z = -array[:, 0], array[:, 1], array[:, 2]
         points = [(float(p[0]), float(p[1])) for p in route]
     except Exception:
         return None
+    # Built on the first lookup only: a Par 3 (or a hole without a sloped approach) never pays it.
+    mesh: dict = {}
+
+    def arrays():
+        if "built" not in mesh:
+            mesh["built"] = True
+            try:
+                import numpy as np
+
+                positions = [
+                    p for p in elevation.collect_positions(by) if isinstance(p, (list, tuple)) and len(p) >= 3
+                ]
+                if positions:
+                    array = np.asarray(positions, dtype=float)[:, :3]
+                    mesh["np"], mesh["x"], mesh["h"], mesh["z"] = np, -array[:, 0], array[:, 1], array[:, 2]
+            except Exception:
+                pass
+        return mesh if "np" in mesh else None
 
     def point_at(distance_m: float) -> tuple[float, float]:
         travelled = 0.0
@@ -1375,9 +1386,12 @@ def _route_elevation(by: dict, route):
         return points[-1]
 
     def elevation_at(distance_m: float) -> float | None:
+        built = arrays()
+        if built is None:
+            return None
         x, z = point_at(max(0.0, float(distance_m)))
-        index = int(np.argmin((ground_x - x) ** 2 + (ground_z - z) ** 2))
-        value = float(heights[index])
+        index = int(built["np"].argmin((built["x"] - x) ** 2 + (built["z"] - z) ** 2))
+        value = float(built["h"][index])
         return value if math.isfinite(value) else None
 
     return elevation_at
@@ -1867,7 +1881,8 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
             if approach_club is None or approach_distance is None:
                 break
             before = remaining
-            sloped = abs(effective - before) >= 1.0
+            # A slope of a few metres is noise in the mesh elevation; only a real one re-plans.
+            sloped = abs(effective - before) >= 3.0
             if sloped and effective - float(approach_distance) <= 15:
                 # Reaches the green by its plays-like distance: it ends on the green, whatever the
                 # slope does to its flat carry, and leaves the plays-like shortfall.
@@ -1892,6 +1907,9 @@ def _strategy(par: int, route_len_m: float, hazards: dict, ladder, *, elevation_
                 role="scoring" if scoring else "position",
                 route_landing_m=landing_override,
             )
+            if landing_override is not None:
+                # On the green by its plays-like distance: no extra chip for the flat shortfall.
+                break
     for w in hazards.get("water_carry") or []:
         if w[0] < route_len_m - 5:
             cautions.append(f"水障碍：进水前约 {yd(w[0])}y，过水需 {yd(w[1])}y")

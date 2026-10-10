@@ -724,8 +724,28 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual(elevation_at(0), 40.0)
         self.assertEqual(elevation_at(95), 30.0)
         self.assertEqual(elevation_at(500), 20.0, "past the end reads the green end")
-        self.assertIsNone(cp._route_elevation({}, [(0.0, 0.0), (0.0, 200.0)]))
+        self.assertIsNone(cp._route_elevation({}, [(0.0, 0.0), (0.0, 200.0)])(100), "no elevation in the mesh")
         self.assertIsNone(cp._route_elevation(by, [(0.0, 0.0)]))
+
+    def test_reaching_the_green_by_plays_like_ends_the_chain(self) -> None:
+        # 267 m Par 4 dropping 8 m from the landing: the leftover plays-like shortfall (5-15 m) must
+        # not add a chip after the shot onto the green.
+        def elevation(route_m: float) -> float:
+            return 20.0 if route_m < 250 else 12.0
+
+        steps, *_ = cp._strategy(4, 267, self._NO_HAZARDS, self._DOWNHILL_LADDER, elevation_at=elevation)
+        self.assertEqual(len(steps), 2, [step["club"] for step in steps])
+        self.assertEqual(steps[-1]["role"], "scoring")
+        self.assertEqual(steps[-1]["routeOffset_m"], 267.0)
+
+    def test_a_slope_under_three_metres_changes_nothing(self) -> None:
+        def elevation(route_m: float) -> float:
+            return 10.0 if route_m < 300 else 8.0
+
+        self.assertEqual(
+            cp._strategy(4, 363, self._NO_HAZARDS, self._DOWNHILL_LADDER, elevation_at=elevation),
+            cp._strategy(4, 363, self._NO_HAZARDS, self._DOWNHILL_LADDER),
+        )
 
     _OWNER_LADDER = [
         ("Driver", 197), ("3W", 170), ("3H", 158), ("5I", 142), ("6I", 132), ("7I", 128), ("8I", 121),
