@@ -98,7 +98,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         let endY: CGFloat = towardTop ? 0.24 : 0.78
         let start = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: startY))
         let end = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: endY))
-        start.press(forDuration: 0.05, thenDragTo: end, duration: 0.35)
+        start.press(forDuration: 0.05, thenDragTo: end)
     }
 
     private func trace(_ fragment: String, timeout: TimeInterval = 10) {
