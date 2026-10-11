@@ -63,16 +63,25 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         }
         if scroll {
             // Scroll the actual container in the direction of the target. Whole-app flicks can
-            // overshoot a row and the old up-then-down loop returned the list to its start.
+            // overshoot a row and the old midpoint rule could reverse direction at the viewport
+            // edge, returning the scorecard to its start. Use the actual visible bounds instead.
             let container = app.scrollViews.firstMatch.exists ? app.scrollViews.firstMatch : app
             for _ in 0..<30 {
                 let frame = target.frame
                 // Header/footer controls are valid near the edge. Requiring every reachable
                 // control to enter the middle band caused futile drags at the scroll limits.
                 if target.isHittable { break }
-                let down = frame.midY > app.frame.height * 0.5
-                if down { container.swipeUp(velocity: .slow) }
-                else { container.swipeDown(velocity: .slow) }
+                let top = app.frame.minY + 44
+                let bottom = app.frame.maxY - 4
+                if frame.maxY > bottom {
+                    container.swipeUp(velocity: .slow)
+                } else if frame.minY < top {
+                    container.swipeDown(velocity: .slow)
+                } else {
+                    // The row is in the viewport but may be settling after the previous flick;
+                    // keep moving toward its nearest edge instead of oscillating across the list.
+                    container.swipeUp(velocity: .slow)
+                }
             }
         }
         XCTAssertTrue(target.isHittable, "Control must be reachable: \(target.label)")
