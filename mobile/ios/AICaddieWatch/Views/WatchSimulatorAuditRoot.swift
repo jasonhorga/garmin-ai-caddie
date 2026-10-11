@@ -30,7 +30,8 @@ struct WatchSimulatorAuditRoot: View {
     private var page: Int { Int(env["UITEST_AUDIT_PAGE"] ?? "0") ?? 0 }
     private var trace: String {
         "hole=\(model.activeHole);scored=\(model.scoredHoles);strokes=\(model.totalStrokes);"
-            + "shots=\(model.recordedShotCount);screen=\(model.screen);"
+            + "shots=\(model.recordedShotCount);putts=\(model.activeHoleState?.putts ?? -1);"
+            + "penalty=\(model.activeHoleState?.penalty ?? -1);screen=\(model.screen);"
             + "pending=\(model.pendingManualShot != nil);auto=\(model.autoShotEnabled);"
             + "round=\(model.round != nil);map=\(geometry != nil);"
             + "ready=\(ready);headingWanted=\(Self.headingUpdatesWanted);"

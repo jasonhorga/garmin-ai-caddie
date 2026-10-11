@@ -111,6 +111,10 @@ jobs:
         run: |
           python .github/scripts/watch_simulator_audit.py sheets \
             --input watch-audit-faces --output watch-audit-contact-sheets
+      - name: Render physical-scale and bright-glare review aids
+        run: |
+          python .github/scripts/watch_simulator_audit.py physical \
+            --input watch-audit-faces --output watch-audit-physical
       - name: Scan public comparisons
         id: scan
         if: always()
@@ -122,5 +126,18 @@ jobs:
         with:
           name: watch-audit-contact-sheets
           path: watch-audit-contact-sheets/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Scan physical review aids
+        id: scan_physical
+        if: always()
+        env:
+          ARTIFACT_TOKEN: ${{ github.token }}
+        run: python .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_TOKEN watch-audit-physical
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.scan_physical.outcome == 'success'
+        with:
+          name: watch-audit-physical
+          path: watch-audit-physical/
           retention-days: 30
           if-no-files-found: error

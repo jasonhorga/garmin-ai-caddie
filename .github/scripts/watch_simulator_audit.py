@@ -144,9 +144,77 @@ def sheets(root: Path, output: Path) -> None:
         raise ValueError("No actual simulator screenshots were captured")
 
 
+PHYSICAL_RENDER = {
+    # Screenshot pixels / native display density. The dimensions describe the visible panel,
+    # rather than the bezel, so a reviewer can print/view the PNG at the recorded DPI.
+    "41mm": {"dpi": 326, "displayMm": [27.5, 33.4]},
+    "46mm": {"dpi": 326, "displayMm": [32.4, 38.7]},
+    "49mm": {"dpi": 338, "displayMm": [30.8, 37.7]},
+}
+
+
+def physical(root: Path, output: Path) -> None:
+    """Emit print-scale and bright-glare variants for every real simulator screenshot."""
+    from PIL import Image, ImageEnhance, ImageDraw, ImageFont
+
+    output.mkdir(parents=True, exist_ok=True)
+    manifest = {"kind": "physical-scale-and-glare", "faces": {}}
+    try:
+        font = ImageFont.truetype("DejaVuSans.ttf", 16)
+    except OSError:
+        font = ImageFont.load_default()
+    for face, spec in PHYSICAL_RENDER.items():
+        source_dir = root / f"watch-audit-{face}"
+        destination = output / face
+        destination.mkdir(parents=True, exist_ok=True)
+        images = sorted(source_dir.glob("*.png"))
+        manifest["faces"][face] = {
+            **spec,
+            "sourceImages": len(images),
+            "physicalImages": len(images),
+            "glareImages": len(images),
+        }
+        for source in images:
+            image = Image.open(source).convert("RGB")
+            # Keep the simulator pixels unchanged; the DPI tag and scale bar make physical size
+            # explicit without resampling away a one-pixel text/edge defect.
+            bar = max(1, round(5 * spec["dpi"] / 25.4))
+            canvas = Image.new("RGB", (image.width, image.height + 34), "#111111")
+            canvas.paste(image, (0, 0))
+            draw = ImageDraw.Draw(canvas)
+            draw.rectangle((8, image.height + 8, 8 + bar, image.height + 12), fill="#ffd447")
+            draw.text((16 + bar, image.height + 4),
+                      f"{face}  5 mm bar  {spec['displayMm'][0]}×{spec['displayMm'][1]} mm @ {spec['dpi']} dpi",
+                      font=font, fill="white")
+            canvas.save(destination / f"{source.stem}-physical.png", dpi=(spec["dpi"], spec["dpi"]))
+
+            # A conservative bright/glare simulation: lift luminance and add a diagonal white
+            # reflection. It is a review aid, not a photometric claim about sunlight.
+            bright = ImageEnhance.Brightness(image).enhance(1.28)
+            glare = Image.new("RGBA", bright.size, (255, 255, 255, 0))
+            glare_draw = ImageDraw.Draw(glare)
+            width, height = bright.size
+            glare_draw.polygon([(int(width * 0.54), 0), (width, 0),
+                                (width, int(height * 0.28)),
+                                (int(width * 0.76), int(height * 0.20))],
+                               fill=(255, 255, 255, 68))
+            bright = Image.alpha_composite(bright.convert("RGBA"), glare).convert("RGB")
+            bright_canvas = Image.new("RGB", (bright.width, bright.height + 34), "#111111")
+            bright_canvas.paste(bright, (0, 0))
+            draw = ImageDraw.Draw(bright_canvas)
+            draw.rectangle((8, bright.height + 8, 8 + bar, bright.height + 12), fill="#ffd447")
+            draw.text((16 + bar, bright.height + 4), f"{face}  bright/glare review aid",
+                      font=font, fill="white")
+            bright_canvas.save(destination / f"{source.stem}-glare.png",
+                               dpi=(spec["dpi"], spec["dpi"]))
+    (output / "physical-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    if not any(output.rglob("*-physical.png")):
+        raise ValueError("No physical-scale screenshots were generated")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("resolve", "collect", "sheets"))
+    parser.add_argument("operation", choices=("resolve", "collect", "sheets", "physical"))
     parser.add_argument("--face", choices=FACES)
     parser.add_argument("--udid", default="")
     parser.add_argument("--outcome", default="unknown")
@@ -157,8 +225,10 @@ def main() -> None:
         resolve(args.face, args.output)
     elif args.operation == "collect":
         collect(args.face, args.udid, args.outcome, args.output)
-    else:
+    elif args.operation == "sheets":
         sheets(args.input, args.output)
+    else:
+        physical(args.input, args.output)
 
 
 if __name__ == "__main__":

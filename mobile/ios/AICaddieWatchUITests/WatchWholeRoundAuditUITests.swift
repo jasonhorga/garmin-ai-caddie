@@ -7,6 +7,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     private let app = XCUIApplication()
     private var lastFlow = "unknown"
     private var lastStep = "unknown"
+    private var auditSequence = 0
     private var output: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("watch-audit", isDirectory: true)
@@ -53,6 +54,103 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
 
     private func element(_ identifier: String) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    private func stateLabel() -> String {
+        element("watch-audit-state").label
+    }
+
+    private func stateValue(_ key: String, in state: String? = nil) -> Int? {
+        let source = state ?? stateLabel()
+        guard let match = source.range(of: "\(key)=") else { return nil }
+        let tail = source[match.upperBound...]
+        let digits = tail.prefix { $0 == "-" || $0.isNumber }
+        return Int(digits)
+    }
+
+    private func writeAuditJSON(_ value: [String: Any], stem: String) throws {
+        auditSequence += 1
+        let safe = stem.replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+        let file = output.appendingPathComponent(String(format: "%04d-%@.json", auditSequence, safe))
+        try JSONSerialization.data(withJSONObject: value, options: .sortedKeys)
+            .write(to: file, options: .atomic)
+    }
+
+    private func controlMetrics(_ target: XCUIElement, role: String) -> [String: Any] {
+        let frame = target.frame
+        return [
+            "role": role,
+            "label": target.label,
+            "identifier": target.identifier,
+            "hittable": target.isHittable,
+            "exists": target.exists,
+            "framePt": [Double(frame.minX), Double(frame.minY), Double(frame.width), Double(frame.height)],
+            "minDimensionPt": Double(min(frame.width, frame.height)),
+            "under44Pt": frame.width < 44 || frame.height < 44,
+            "under38Pt": frame.width < 38 || frame.height < 38,
+        ]
+    }
+
+    @discardableResult
+    private func recordInteraction(_ flow: String, _ step: String, control: XCUIElement,
+                                   gesture: String, expected: String, action: () -> Void,
+                                   success: (String) -> Bool) throws -> Bool {
+        let before = stateLabel()
+        let started = Date()
+        action()
+        let elapsedMs = Int(Date().timeIntervalSince(started) * 1_000)
+        var after = stateLabel()
+        let passed = success(after)
+        after = stateLabel()
+        try writeAuditJSON([
+            "kind": "interaction",
+            "flow": flow,
+            "step": step,
+            "control": controlMetrics(control, role: "interactive"),
+            "gesture": gesture,
+            "expected": expected,
+            "before": before,
+            "after": after,
+            "success": passed,
+            "feedbackMs": elapsedMs,
+            "physicalCrownProven": false,
+        ], stem: "interaction--\(flow)--\(step)")
+        if !passed {
+            try observe(flow, step, expected: expected, actual: after)
+        }
+        return passed
+    }
+
+    private func recordBoundary(_ flow: String, _ step: String, claim: String, reason: String) throws {
+        try writeAuditJSON([
+            "kind": "evidence-boundary",
+            "flow": flow,
+            "step": step,
+            "claim": claim,
+            "reason": reason,
+            "physicalCrownProven": false,
+            "realWatchProven": false,
+        ], stem: "boundary--\(flow)--\(step)")
+    }
+
+    private func waitForValue(_ key: String, _ expected: Int, timeout: TimeInterval = 0.8) -> Bool {
+        XCTWaiter().wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "\(key)=\(expected);"),
+            object: element("watch-audit-state")
+        )], timeout: timeout) == .completed
+    }
+
+    private func button(_ label: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+
+    private func drag(_ target: XCUIElement, distance: CGFloat, xOffset: CGFloat = 0) {
+        let frame = target.frame
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: frame.midX + xOffset, dy: frame.midY))
+        let end = origin.withOffset(CGVector(dx: frame.midX + xOffset, dy: frame.midY - distance))
+        start.press(forDuration: 0.05, thenDragTo: end)
     }
 
     private func tap(_ target: XCUIElement, scroll: Bool = true) throws {
@@ -130,6 +228,32 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         let switches: [[String: Any]] = collectControls ? app.switches.allElementsBoundByIndex.map {
             ["label": $0.label, "value": String(describing: $0.value ?? ""), "hittable": $0.isHittable]
         } : []
+        let queries: [(String, XCUIElementQuery)] = [
+            ("button", app.buttons), ("switch", app.switches), ("slider", app.sliders),
+            ("stepper", app.steppers), ("textField", app.textFields),
+            ("collection", app.collectionViews), ("scroll", app.scrollViews),
+            ("other", app.otherElements),
+        ]
+        let interactive: [[String: Any]] = collectControls
+            ? queries.flatMap { role, query in
+                query.allElementsBoundByIndex.map { controlMetrics($0, role: role) }
+            }
+            : []
+        let readableText: [[String: Any]] = collectControls
+            ? app.staticTexts.allElementsBoundByIndex.map {
+                let frame = $0.frame
+                return [
+                    "label": $0.label,
+                    "identifier": $0.identifier,
+                    "framePt": [Double(frame.minX), Double(frame.minY), Double(frame.width), Double(frame.height)],
+                    "hittable": $0.isHittable,
+                    // XCTest exposes the rendered frame, not SwiftUI's font token. Font sizes are
+                    // cross-checked against the source token and 1:1 physical render downstream.
+                    "fontEvidence": "frame-only; source-token-and-physical-render-required",
+                ] as [String: Any]
+            }
+            : []
+        let cgImage = screenshot.image.cgImage
         let root = element("watch-audit-state")
         let page = element("watch-hole-page-current")
         let viewport = element("watch-audit-viewport")
@@ -138,7 +262,13 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                                        "shownPage": page.exists ? page.label : "not-instrumented",
                                        "viewport": viewport.exists ? viewport.label : "not-instrumented",
                                        "controlsCollected": collectControls,
-                                       "controls": controls, "switches": switches]
+                                       "controls": controls, "switches": switches,
+                                       "interactive": interactive, "readableText": readableText,
+                                       "face": ProcessInfo.processInfo.environment["TEST_RUNNER_UITEST_AUDIT_FACE"] ?? "unknown",
+                                       "screenFramePt": [Double(app.frame.minX), Double(app.frame.minY),
+                                                         Double(app.frame.width), Double(app.frame.height)],
+                                       "screenshotPixels": [cgImage?.width ?? 0, cgImage?.height ?? 0],
+                                       "aodInjected": ProcessInfo.processInfo.environment["UITEST_AUDIT_AOD"] == "1"]
         try JSONSerialization.data(withJSONObject: metadata, options: .sortedKeys)
             .write(to: output.appendingPathComponent(stem + ".json"), options: .atomic)
         return file
@@ -517,5 +647,206 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         trace("round=true;")
         trace("map=true;")
         try capture("watch-nine-start", "04-hole-root")
+    }
+
+    /// Element-level pass for the #419 replacement of the tiny in-chip wheels. The test records
+    /// every attempt instead of turning a missed gesture into a green flow assertion: a golfer's
+    /// first failed drag is a finding even when a second tap can recover it.
+    func test11ElementLevelScorePickersAndAdversarialInput() throws {
+        func inspectWheel(_ wheel: String, chip: String, name: String, wrap: Int) throws {
+            try launch("audit-phone-18")
+            try launch("audit-score-current")
+            try capture("score-elements", "\(name)-01-root")
+            let chipElement = element(chip)
+            guard chipElement.waitForExistence(timeout: 5) else {
+                try observe("score-elements", "\(name)-missing-chip", expected: chip, actual: stateLabel())
+                return
+            }
+            try tap(chipElement, scroll: false)
+            let picker = element("watch-score-wheel-\(wheel)")
+            guard picker.waitForExistence(timeout: 3) else {
+                try observe("score-elements", "\(name)-picker-not-open", expected: "full-screen picker", actual: stateLabel())
+                return
+            }
+            try capture("score-elements", "\(name)-02-picker-open")
+            let plus = button("\(name)加一")
+            let minus = button("\(name)减一")
+            let done = element("watch-score-wheel-done")
+            try writeAuditJSON([
+                "kind": "control-metrics",
+                "flow": "score-elements",
+                "wheel": name,
+                "face": ProcessInfo.processInfo.environment["TEST_RUNNER_UITEST_AUDIT_FACE"] ?? "unknown",
+                "controls": [
+                    controlMetrics(chipElement, role: "closed-chip"),
+                    controlMetrics(picker, role: "full-screen-picker"),
+                    controlMetrics(plus, role: "plus"),
+                    controlMetrics(minus, role: "minus"),
+                    controlMetrics(done, role: "done"),
+                ],
+                "visibleRowsExpected": 3,
+                "rowStepExpectedPt": 30.0,
+                "crownInput": "not-simulatable-by-XCUITest",
+            ], stem: "metrics--score-elements--\(name)")
+
+            var expected = stateValue(wheel == .putts ? "putts" : "penalty") ?? 0
+            for attempt in 1...5 {
+                expected = (expected + 1) % wrap
+                let key = wheel == "putts" ? "putts" : "penalty"
+                _ = try recordInteraction(
+                    "score-elements", "\(name)-plus-short-\(attempt)", control: plus,
+                    gesture: "tap-centre", expected: "\(key)=\(expected);",
+                    action: { plus.tap() },
+                    success: { _ in self.waitForValue(key, expected) }
+                )
+            }
+            for attempt in 1...5 {
+                expected = (expected - 1 + wrap) % wrap
+                let key = wheel == "putts" ? "putts" : "penalty"
+                _ = try recordInteraction(
+                    "score-elements", "\(name)-minus-short-\(attempt)", control: minus,
+                    gesture: "tap-centre", expected: "\(key)=\(expected);",
+                    action: { minus.tap() },
+                    success: { _ in self.waitForValue(key, expected) }
+                )
+            }
+
+            // Five 20 pt and five 60 pt drags measure one-step and two-step behaviour. The
+            // production implementation uses 30 pt per step; wrapping makes the sequence bounded.
+            for (distance, count, label) in [(20.0, 5, "drag-short"), (60.0, 5, "drag-long")] {
+                for attempt in 1...count {
+                    let key = wheel == "putts" ? "putts" : "penalty"
+                    let steps = Int((distance / 30.0).rounded())
+                    expected = (expected + steps) % wrap
+                    _ = try recordInteraction(
+                        "score-elements", "\(name)-\(label)-\(attempt)", control: picker,
+                        gesture: "vertical-drag-\(Int(distance))pt", expected: "\(key)=\(expected);",
+                        action: { self.drag(picker, distance: CGFloat(distance)) },
+                        success: { _ in self.waitForValue(key, expected) }
+                    )
+                }
+            }
+
+            // Off-centre, double-tap and edge-origin gestures are deliberately adversarial. They
+            // are recorded as evidence even if the intended value is ambiguous.
+            let beforeOffCentre = stateValue(wheel == "putts" ? "putts" : "penalty") ?? expected
+            let offCentreOrigin = app.coordinate(withNormalizedOffset: .zero)
+            let plusFrame = plus.frame
+            _ = try recordInteraction(
+                "score-elements", "\(name)-off-centre-8pt", control: plus,
+                gesture: "tap-8pt-off-centre", expected: "value changes once",
+                action: {
+                    offCentreOrigin.withOffset(CGVector(dx: plusFrame.midX + 8, dy: plusFrame.midY + 8)).tap()
+                },
+                success: { _ in
+                    let after = self.stateValue(wheel == "putts" ? "putts" : "penalty") ?? beforeOffCentre
+                    return after != beforeOffCentre
+                }
+            )
+            let beforeDouble = stateValue(wheel == "putts" ? "putts" : "penalty") ?? expected
+            _ = try recordInteraction(
+                "score-elements", "\(name)-double-tap", control: plus,
+                gesture: "double-tap", expected: "one visible step per tap, no lost feedback",
+                action: { plus.doubleTap() },
+                success: { _ in
+                    let after = self.stateValue(wheel == "putts" ? "putts" : "penalty") ?? beforeDouble
+                    return after != beforeDouble
+                }
+            )
+            let beforeEdge = stateValue(wheel == "putts" ? "putts" : "penalty") ?? expected
+            _ = try recordInteraction(
+                "score-elements", "\(name)-edge-swipe", control: picker,
+                gesture: "vertical-swipe-from-screen-edge", expected: "picker remains open and value is deterministic",
+                action: {
+                    let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5))
+                    edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.2)))
+                },
+                success: { _ in
+                    let after = self.stateValue(wheel == "putts" ? "putts" : "penalty") ?? beforeEdge
+                    return self.element("watch-score-wheel-\(wheel)").exists && after != beforeEdge
+                }
+            )
+            try capture("score-elements", "\(name)-03-after-adversarial")
+            if done.exists { try tap(done, scroll: false) }
+            try recordBoundary("score-elements", "\(name)-physical-crown", claim: "Crown increments the open wheel one step per notch",
+                              reason: "XCUITest has no physical Digital Crown/wrist input; validate on 41/46/49 mm hardware")
+        }
+
+        try inspectWheel("putts", chip: "watch-score-putts", name: "推杆", wrap: 6)
+        try inspectWheel("penalty", chip: "watch-score-penalty", name: "罚杆", wrap: 5)
+    }
+
+    /// A golfer does not interact at test speed. This keeps the app backgrounded between shots,
+    /// resumes it after a realistic walk, and retains the hardware/message-interruption boundary.
+    func test12RealisticRoundTempoAndResume() throws {
+        try launch("audit-phone-18", moveAfterShot: true)
+        try capture("tempo", "01-tee-up")
+        for interval in 1...2 {
+            app.suspend()
+            Thread.sleep(forTimeInterval: 20)
+            app.activate()
+            _ = app.wait(for: .runningForeground, timeout: 5)
+            try capture("tempo", "02-wrist-up-\(interval)", input: "ui-action-after-20s-background")
+            try recordBoundary("tempo", "02-phone-message-\(interval)", claim: "A phone notification does not steal or dismiss the active round",
+                              reason: "Hosted Watch simulator cannot inject a real paired-phone notification")
+        }
+        try beginManualShot("03-manual-after-walk")
+        Thread.sleep(forTimeInterval: 20)
+        try capture("tempo", "04-shot-after-20s", input: "ui-action-after-20s-walk")
+        try recordBoundary("tempo", "05-wrist-down-aod", claim: "AOD preserves the current hole and pending shot",
+                          reason: "AOD is injected by UITEST_AUDIT_AOD; OLED luminance and wrist detection are not simulated")
+    }
+
+    /// Repeats page and plan gestures to expose swallowed drags that a single happy-path swipe can
+    /// miss. Each attempt has an explicit success rate in the artifact metadata.
+    func test13RepeatedPageAndPlanGestures() throws {
+        try launch("audit-phone-18")
+        let chip = element("watch-plan-club-tag")
+        guard chip.waitForExistence(timeout: 8) else {
+            try observe("repeat-gestures", "plan-chip-missing", expected: "watch-plan-club-tag", actual: stateLabel())
+            return
+        }
+        var planSuccesses = 0
+        for attempt in 1...5 {
+            let before = String(describing: chip.value ?? chip.label)
+            chip.tap()
+            let changed = XCTWaiter().wait(for: [XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value != %@", before), object: chip
+            )], timeout: 0.8) == .completed
+            if changed { planSuccesses += 1 }
+            try writeAuditJSON(["kind": "repeated-gesture", "screen": "方案", "control": "club-plan-chip",
+                                "attempt": attempt, "before": before, "after": String(describing: chip.value ?? chip.label),
+                                "success": changed, "gesture": "tap-centre"],
+                               stem: "repeat--plan-chip--\(attempt)")
+        }
+        try writeAuditJSON(["kind": "repeated-summary", "screen": "方案", "control": "club-plan-chip",
+                            "attempts": 5, "successes": planSuccesses, "successRate": Double(planSuccesses) / 5.0],
+                           stem: "repeat-summary--plan-chip")
+
+        let pager = app.collectionViews["PUICPageViewController_collectionView"]
+        guard pager.waitForExistence(timeout: 5) else {
+            try observe("repeat-gestures", "pager-missing", expected: "PUICPageViewController_collectionView", actual: stateLabel())
+            return
+        }
+        var pageSuccesses = 0
+        for attempt in 1...5 {
+            let before = element("watch-hole-page-current").label
+            pager.swipeUp()
+            let afterChanged = XCTWaiter().wait(for: [XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label != %@", before), object: element("watch-hole-page-current")
+            )], timeout: 1.2) == .completed
+            if afterChanged { pageSuccesses += 1 }
+            try writeAuditJSON(["kind": "repeated-gesture", "screen": "页面切换", "control": "hole-pager",
+                                "attempt": attempt, "before": before,
+                                "after": element("watch-hole-page-current").label,
+                                "success": afterChanged, "gesture": "swipe-up"],
+                               stem: "repeat--hole-pager--\(attempt)")
+            pager.swipeDown()
+            _ = waitForPage(before, timeout: 1.2)
+        }
+        try writeAuditJSON(["kind": "repeated-summary", "screen": "页面切换", "control": "hole-pager",
+                            "attempts": 5, "successes": pageSuccesses, "successRate": Double(pageSuccesses) / 5.0],
+                           stem: "repeat-summary--hole-pager")
+        try capture("repeat-gestures", "final")
     }
 }
