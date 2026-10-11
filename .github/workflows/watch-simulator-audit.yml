@@ -1,0 +1,126 @@
+name: Watch Whole Round Simulator Audit
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  faces:
+    name: Watch audit ${{ matrix.face }}
+    runs-on: macos-15
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        face: [41mm, 46mm, 49mm]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest installed stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate native project
+        run: xcodegen generate --spec mobile/ios/project.yml --project-root .
+      - name: Resolve newest available watchOS runtime and face
+        env:
+          AUDIT_FACE: ${{ matrix.face }}
+        run: |
+          set -euo pipefail
+          mkdir -p watch-audit-evidence
+          python3 .github/scripts/watch_simulator_audit.py resolve \
+            --face "$AUDIT_FACE" --output watch-audit-evidence/device.json
+          echo "AUDIT_UDID=$(python3 -c 'import json; print(json.load(open("watch-audit-evidence/device.json"))["udid"])')" >> "$GITHUB_ENV"
+          xcrun simctl boot "$(python3 -c 'import json; print(json.load(open("watch-audit-evidence/device.json"))["udid"])')"
+          xcrun simctl bootstatus "$(python3 -c 'import json; print(json.load(open("watch-audit-evidence/device.json"))["udid"])')" -b
+      - name: Drive whole-round Watch audit and record motion
+        id: audit
+        env:
+          TEST_RUNNER_UITEST_WATCH_FULL_AUDIT: '1'
+          TEST_RUNNER_UITEST_AUDIT_FACE: ${{ matrix.face }}
+        run: |
+          set -euo pipefail
+          xcodebuild build-for-testing \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -destination "platform=watchOS Simulator,id=$AUDIT_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/WatchAuditDerivedData" \
+            > "$RUNNER_TEMP/watch-audit-xcode.log" 2>&1
+          xcrun simctl io "$AUDIT_UDID" recordVideo --codec=h264 \
+            watch-audit-evidence/interactions.mp4 > "$RUNNER_TEMP/watch-audit-video.log" 2>&1 &
+          video_pid=$!
+          stop_video() { kill -INT "$video_pid" 2>/dev/null || true; wait "$video_pid" || true; }
+          trap stop_video EXIT
+          xcodebuild test-without-building \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -destination "platform=watchOS Simulator,id=$AUDIT_UDID" \
+            -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests \
+            -resultBundlePath "$RUNNER_TEMP/WatchAudit.xcresult" \
+            -derivedDataPath "$RUNNER_TEMP/WatchAuditDerivedData" \
+            >> "$RUNNER_TEMP/watch-audit-xcode.log" 2>&1
+      - name: Preserve screenshots, coverage and sanitized diagnostics
+        if: always()
+        env:
+          AUDIT_FACE: ${{ matrix.face }}
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+        run: |
+          python3 .github/scripts/watch_simulator_audit.py collect \
+            --face "$AUDIT_FACE" --udid "${AUDIT_UDID:-}" \
+            --outcome "$AUDIT_OUTCOME" --output watch-audit-evidence
+      - name: Scan public evidence
+        if: always()
+        id: scan
+        env:
+          ARTIFACT_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_TOKEN watch-audit-evidence
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.scan.outcome == 'success'
+        with:
+          name: watch-audit-${{ matrix.face }}
+          path: watch-audit-evidence/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Close owned simulator
+        if: always()
+        run: |
+          if [[ -n "${AUDIT_UDID:-}" ]]; then
+            xcrun simctl shutdown "$AUDIT_UDID" || true
+            xcrun simctl delete "$AUDIT_UDID" || true
+          fi
+
+  contact-sheets:
+    needs: faces
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: watch-audit-*mm
+          path: watch-audit-faces
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install contact-sheet renderer
+        run: python -m pip install Pillow==11.3.0
+      - name: Assemble per-flow comparisons and explicit coverage gaps
+        run: |
+          python .github/scripts/watch_simulator_audit.py sheets \
+            --input watch-audit-faces --output watch-audit-contact-sheets
+      - name: Scan public comparisons
+        id: scan
+        if: always()
+        env:
+          ARTIFACT_TOKEN: ${{ github.token }}
+        run: python .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_TOKEN watch-audit-contact-sheets
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.scan.outcome == 'success'
+        with:
+          name: watch-audit-contact-sheets
+          path: watch-audit-contact-sheets/
+          retention-days: 30
+          if-no-files-found: error

@@ -129,6 +129,11 @@ public struct AICaddieWatchApp: App {
                 .onChange(of: roundModel.screen, initial: true) { _, screen in
                     reconcileAutoShot()
                     watchLocation.setHeadingUpdates(screen == .flagDirection)
+                    #if DEBUG
+                    if WatchUITestRoot.requestedScreen()?.hasPrefix("audit-") == true {
+                        WatchSimulatorAuditRoot.headingUpdatesWanted = watchLocation.wantsHeadingUpdates
+                    }
+                    #endif
                 }
                 .onChange(of: gpsPreheatEnabled, initial: true) { _, _ in
                     reconcileLocationServices()

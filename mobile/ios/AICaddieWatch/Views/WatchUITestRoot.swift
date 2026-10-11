@@ -326,6 +326,8 @@ public struct WatchUITestRoot: View {
             )
         case "start":
             WatchStartView(phoneReachable: false)
+        case _ where WatchSimulatorAuditRoot.screens.contains(screen):
+            WatchSimulatorAuditRoot(screen: screen, model: model)
         default:
             Text("unknown uitest screen: \(screen)")
                 .onAppear {
@@ -2076,6 +2078,9 @@ public struct WatchUITestRoot: View {
         penaltyCount: 0,
         caddieConfidence: "offline"
     )
+
+    /// Issue #417 reuses the existing review image and facts, clearly labelled as fixtures.
+    static var auditMappedHole: WatchRoundState { standaloneMappedHole }
 
     private static func standaloneRingHole(_ hole: Int) -> WatchRoundState {
         let par = hole % 3 == 0 ? 3 : (hole % 3 == 1 ? 4 : 5)

@@ -718,6 +718,15 @@ public struct WatchGreenPreviewView: View {
                 Canvas { context, size in
                     drawGreen(&context, size: size, viewport: viewport)
                 }
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["UITEST_AUDIT_ANCHORS"] == "1" {
+                    Text("flag-anchor").font(.system(size: 1)).foregroundStyle(.clear)
+                        .frame(width: 2, height: 2)
+                        .position(viewport.canvasPoint(pin))
+                        .allowsHitTesting(false)
+                        .accessibilityIdentifier("watch-audit-flag-anchor")
+                }
+                #endif
 
                 // Garmin's Green View gives the user a larger visual target while the flag is held.
                 // Re-rendering the same map layer keeps the loupe aligned with the active rotation,

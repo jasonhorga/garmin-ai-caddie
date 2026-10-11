@@ -867,6 +867,15 @@ public struct WatchHoleMapView: View {
                 Canvas { context, size in
                     drawMap(&context, size: size)
                 }
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["UITEST_AUDIT_ANCHORS"] == "1", let measuredPx {
+                    Text("target-anchor").font(.system(size: 1)).foregroundStyle(.clear)
+                        .frame(width: 2, height: 2)
+                        .position(anchors(geo.size).t(measuredPx))
+                        .allowsHitTesting(false)
+                        .accessibilityIdentifier("watch-audit-target-anchor")
+                }
+                #endif
                 if interactionMode == .touchTarget,
                    let focus = measuredDragLocation,
                    isDraggingMeasuredPoint {
