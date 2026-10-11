@@ -72,7 +72,8 @@
 - Persistent evidence: `/home/jason/garmin-ai-caddie-data/operations/watch417-simulator-audit-20261011`;
   artifacts, run receipts, final comments and manifests retained. Test
   containers and download terminals were removed; no tunnel/service/timer was
-  created. Temporary contact sheets expire 2026-10-12 08:30 UTC.
+  created. Local contact-sheet copies and the `/dev/shm` verification snapshot
+  were removed 2026-10-11 15:52 UTC after artifact retention was confirmed.
 - Historical pre-final ledger is preserved verbatim at
   `docs/archive/PROJECT_STATE-2026-10-11-watch417-final-audit-preclose.historical.md`.
 - Shared checkout `/home/jason/codex-runs/garmin-ai-caddie-claude-takeover-20261005`
