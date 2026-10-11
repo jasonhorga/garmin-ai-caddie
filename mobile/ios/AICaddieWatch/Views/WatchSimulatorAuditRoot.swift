@@ -10,6 +10,7 @@ struct WatchSimulatorAuditRoot: View {
         "audit-empty", "audit-start", "audit-start-nine", "audit-phone-9", "audit-phone-18",
         "audit-restore", "audit-score-current", "audit-map-pending", "audit-late-map",
         "audit-out-of-order", "audit-next-tee", "audit-auto-candidate", "audit-heading",
+        "audit-manual-candidate",
     ]
     let screen: String
     @ObservedObject var model: WatchRoundModel
@@ -249,6 +250,10 @@ struct WatchSimulatorAuditRoot: View {
         }
         if screen == "audit-next-tee" {
             model.beginManualShot(latitude: Self.originLatitude + 0.008, longitude: Self.longitude,
+                                  horizontalAccuracyM: 5, capturedAt: ISO8601DateFormatter().string(from: Date()))
+        }
+        if screen == "audit-manual-candidate" {
+            model.beginManualShot(latitude: Self.originLatitude, longitude: Self.longitude,
                                   horizontalAccuracyM: 5, capturedAt: ISO8601DateFormatter().string(from: Date()))
         }
         if screen == "audit-auto-candidate" {

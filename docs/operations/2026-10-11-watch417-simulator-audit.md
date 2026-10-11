@@ -63,3 +63,16 @@ Follow-up preparation: 7 audit-tool regressions, 12 visual contracts and 126 mob
 passed (145 total; mobile 7.181 s). A collection pass is distinct from a product UX pass:
 `observation--*.json` retains failed expectations; named recovery screenshots identify injected
 boundaries. Actual viewport/page metadata accompanies each screenshot where instrumented.
+
+Second dispatch: [38140105793](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38140105793),
+source `ab1732e5`. Every face executed ten methods with zero skips; 41/46/49 mm retained
+101/171/122 PNGs and 12/12/13 recorded observations. Six/seven/five methods passed respectively.
+46 mm completed nine-hole scoring/save and reached the ninth-hole offline restore in the 18-hole flow.
+Ordinary CI `38140032223` and Native CI `38140032219` succeeded. Remaining coverage is partial.
+
+The next driver revision uses real slow scroll flicks and stops as soon as a target is hittable,
+uses the actual “继续本场” restore control, and captures transient wheels/undo windows without
+slow control enumeration. An unresponsive manual + is retained as a finding before a named
+pending-candidate injection allows the remaining controls to be inspected. This does not prove
+manual admission on that face or change product behavior. Follow-up preparation: 145 tests passed
+(mobile contracts 10.293 s); actual new-source Native/runtime evidence is still required.

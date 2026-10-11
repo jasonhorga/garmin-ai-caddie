@@ -17,6 +17,8 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             throw XCTSkip("Whole-round visual audit runs only in the dedicated three-face dispatch")
         }
         continueAfterFailure = false
+        lastFlow = name.replacingOccurrences(of: " ", with: "_").replacingOccurrences(of: "/", with: "_")
+        lastStep = "initial-state"
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
     }
 
@@ -65,13 +67,12 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             let container = app.scrollViews.firstMatch.exists ? app.scrollViews.firstMatch : app
             for _ in 0..<30 {
                 let frame = target.frame
-                let safeTop = app.frame.height * 0.24
-                let safeBottom = app.frame.height * 0.76
-                if target.isHittable && frame.midY >= safeTop && frame.midY <= safeBottom { break }
+                // Header/footer controls are valid near the edge. Requiring every reachable
+                // control to enter the middle band caused futile drags at the scroll limits.
+                if target.isHittable { break }
                 let down = frame.midY > app.frame.height * 0.5
-                let start = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.76 : 0.30))
-                let end = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.30 : 0.76))
-                start.press(forDuration: 0.05, thenDragTo: end)
+                if down { container.swipeUp(velocity: .slow) }
+                else { container.swipeDown(velocity: .slow) }
             }
         }
         XCTAssertTrue(target.isHittable, "Control must be reachable: \(target.label)")
@@ -89,7 +90,8 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     }
 
     @discardableResult
-    private func capture(_ flow: String, _ step: String, input: String = "ui-action") throws -> URL {
+    private func capture(_ flow: String, _ step: String, input: String = "ui-action",
+                         collectControls: Bool = true) throws -> URL {
         lastFlow = flow
         lastStep = step
         let stem = "\(flow)--\(step)"
@@ -100,14 +102,14 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         attachment.name = stem
         attachment.lifetime = .keepAlways
         add(attachment)
-        let controls: [[String: Any]] = app.buttons.allElementsBoundByIndex.map {
+        let controls: [[String: Any]] = collectControls ? app.buttons.allElementsBoundByIndex.map {
             ["label": $0.label, "identifier": $0.identifier, "hittable": $0.isHittable,
              "frame": [Double($0.frame.minX), Double($0.frame.minY),
                        Double($0.frame.width), Double($0.frame.height)]]
-        }
-        let switches: [[String: Any]] = app.switches.allElementsBoundByIndex.map {
+        } : []
+        let switches: [[String: Any]] = collectControls ? app.switches.allElementsBoundByIndex.map {
             ["label": $0.label, "value": String(describing: $0.value ?? ""), "hittable": $0.isHittable]
-        }
+        } : []
         let root = element("watch-audit-state")
         let page = element("watch-hole-page-current")
         let viewport = element("watch-audit-viewport")
@@ -115,6 +117,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                                        "trace": root.exists ? root.label : "not-instrumented",
                                        "shownPage": page.exists ? page.label : "not-instrumented",
                                        "viewport": viewport.exists ? viewport.label : "not-instrumented",
+                                       "controlsCollected": collectControls,
                                        "controls": controls, "switches": switches]
         try JSONSerialization.data(withJSONObject: metadata, options: .sortedKeys)
             .write(to: output.appendingPathComponent(stem + ".json"), options: .atomic)
@@ -166,6 +169,28 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         }
     }
 
+    private func beginManualShot(_ step: String) throws {
+        try tap(element("watch-hole-record-shot"), scroll: false)
+        if !element("watch-shot-undo").waitForExistence(timeout: 3) {
+            try capture("shots", step + "-no-transition")
+            try observe("shots", step + "-no-transition", expected: "manual shot undo window",
+                        actual: element("watch-audit-state").label)
+            // Preserve an unresponsive + button. Inject a pending candidate only to inspect the
+            // remaining undo/commit controls; this does not prove manual admission on that face.
+            try launch("audit-manual-candidate", moveAfterShot: true)
+            try capture("shots", step + "-recovered-candidate", input: "injected-state-after-recorded-finding",
+                        collectControls: false)
+        }
+        XCTAssertTrue(element("watch-shot-undo").waitForExistence(timeout: 3))
+    }
+
+    private func dragWheel(at frame: CGRect) {
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let start = origin.withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+        let end = origin.withOffset(CGVector(dx: frame.midX, dy: frame.midY - 22))
+        start.press(forDuration: 0.05, thenDragTo: end)
+    }
+
     private func selectHole(_ hole: Int) throws {
         try openMenu()
         try tap(app.buttons["选洞"])
@@ -174,6 +199,8 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     }
 
     private func scoreViaCard(_ hole: Int, flow: String) throws {
+        lastFlow = flow
+        lastStep = String(format: "%02d-open-scorecard", hole)
         try openMenu()
         try tap(app.buttons["计分卡"])
         try capture(flow, String(format: "%02d-scorecard", hole))
@@ -305,15 +332,14 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
 
     func test04ShotsUndoCommitAutoAndNextTee() throws {
         try launch("audit-phone-18", moveAfterShot: true)
-        try tap(element("watch-hole-record-shot"), scroll: false)
-        XCTAssertTrue(element("watch-shot-undo").waitForExistence(timeout: 5))
-        try capture("shots", "01-manual-undo-window")
+        try beginManualShot("01-manual-button")
+        try capture("shots", "01-manual-undo-window", collectControls: false)
         try tap(element("watch-shot-undo"), scroll: false)
         trace("shots=0;")
         trace("pending=false;")
         try capture("shots", "02-undone")
-        try tap(element("watch-hole-record-shot"), scroll: false)
-        try capture("shots", "03-pending-commit")
+        try beginManualShot("03-manual-button")
+        try capture("shots", "03-pending-commit", collectControls: false)
         trace("shots=1;", timeout: 30)
         // The next synthetic fix advances the fixture Driver's 201.2 m / 220 yd carry.
         sleep(4)
@@ -350,13 +376,19 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         try capture("scoring", "01-auto-popup", input: "injected-state")
         element("watch-score-band").swipeLeft()
         try capture("scoring", "02-total-drag")
-        try tap(element("watch-score-putts"), scroll: false)
-        try capture("scoring", "03-putts-open")
-        element("watch-score-wheel-putts").swipeUp()
+        let putts = element("watch-score-putts")
+        let puttFrame = putts.frame
+        try tap(putts, scroll: false)
+        // The production wheel folds after idle. Keep this transient capture fast, then drag at
+        // its known location without a second accessibility query racing that timer.
+        try capture("scoring", "03-putts-open", collectControls: false)
+        dragWheel(at: puttFrame)
         try capture("scoring", "04-putts-adjusted")
-        try tap(element("watch-score-penalty"), scroll: false)
-        try capture("scoring", "05-penalty-open")
-        element("watch-score-wheel-penalty").swipeUp()
+        let penalty = element("watch-score-penalty")
+        let penaltyFrame = penalty.frame
+        try tap(penalty, scroll: false)
+        try capture("scoring", "05-penalty-open", collectControls: false)
+        dragWheel(at: penaltyFrame)
         try capture("scoring", "06-penalty-adjusted")
         try tap(element("watch-score-save"), scroll: false)
         try capture("scoring", "07-saved")
@@ -390,7 +422,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             if hole == 9 {
                 try launch("audit-restore")
                 try capture("phone-eighteen", "09-offline-resume")
-                try tap(app.buttons["继续打球"])
+                try tap(app.buttons["继续本场"])
                 trace("scored=9;")
                 trace("strokes=45;")
                 try capture("phone-eighteen", "09-restored-root")
