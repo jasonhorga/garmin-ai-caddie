@@ -74,13 +74,13 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                 let top = app.frame.minY + 44
                 let bottom = app.frame.maxY - 4
                 if frame.maxY > bottom {
-                    container.swipeUp(velocity: .slow)
+                    scrollContainer(container, towardTop: true)
                 } else if frame.minY < top {
-                    container.swipeDown(velocity: .slow)
+                    scrollContainer(container, towardTop: false)
                 } else {
                     // The row is in the viewport but may be settling after the previous flick;
                     // keep moving toward its nearest edge instead of oscillating across the list.
-                    container.swipeUp(velocity: .slow)
+                    scrollContainer(container, towardTop: true)
                 }
             }
         }
@@ -88,6 +88,17 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         // Use the visual centre explicitly; Watch accessibility activation sometimes picks a
         // different point in a rounded bottom control. This remains an actual pointer tap.
         target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+    }
+
+    /// watchOS's small scorecard ScrollView ignores XCTest's semantic swipe in some runtimes.
+    /// A short real drag inside the visible viewport exercises the same user gesture and avoids
+    /// relying on a stale off-screen element coordinate.
+    private func scrollContainer(_ container: XCUIElement, towardTop: Bool) {
+        let startY: CGFloat = towardTop ? 0.78 : 0.24
+        let endY: CGFloat = towardTop ? 0.24 : 0.78
+        let start = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: startY))
+        let end = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: endY))
+        start.press(forDuration: 0.05, thenDragTo: end, duration: 0.35)
     }
 
     private func trace(_ fragment: String, timeout: TimeInterval = 10) {
