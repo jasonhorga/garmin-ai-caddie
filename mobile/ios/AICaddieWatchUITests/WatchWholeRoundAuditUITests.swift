@@ -689,7 +689,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                 "crownInput": "not-simulatable-by-XCUITest",
             ], stem: "metrics--score-elements--\(name)")
 
-            var expected = stateValue(wheel == .putts ? "putts" : "penalty") ?? 0
+            var expected = stateValue(wheel == "putts" ? "putts" : "penalty") ?? 0
             for attempt in 1...5 {
                 expected = (expected + 1) % wrap
                 let key = wheel == "putts" ? "putts" : "penalty"
@@ -782,7 +782,10 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         try launch("audit-phone-18", moveAfterShot: true)
         try capture("tempo", "01-tee-up")
         for interval in 1...2 {
-            app.suspend()
+            // XCTest has no XCUIApplication.suspend on watchOS. Pressing Home exercises the
+            // actual background/resume boundary; the paired-phone notification remains an
+            // explicit evidence gap below.
+            XCUIDevice.shared.press(.home)
             Thread.sleep(forTimeInterval: 20)
             app.activate()
             _ = app.wait(for: .runningForeground, timeout: 5)
