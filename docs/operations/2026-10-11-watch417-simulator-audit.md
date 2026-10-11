@@ -104,3 +104,8 @@ Expanded preparation on homeserver: eight collector/physical-export checks passe
 unmodified pixels and actual-mm HTML sizing. Two earlier expanded attempts (38179866784 /
 38180807102) failed compilation before any UI method ran; they are retained harness diagnostics,
 not product findings. Corrected exact-head runtime evidence is still required.
+
+Expanded source 2f746a23 / run 38182426066 also stopped before any UI method: a DEBUG AOD
+metadata assignment was incorrectly in teardown (no aod parameter). It is moved into launch.
+The exact failure log/artifacts are retained at operations/watch417-run38182426066; no product
+verdict is inferred from that compile failure. Other new Swift declarations produced no errors.

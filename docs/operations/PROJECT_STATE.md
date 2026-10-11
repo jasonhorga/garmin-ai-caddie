@@ -3,7 +3,7 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Completed/history is preserved verbatim in dated docs/archive files.
 
-**Updated:** 2026-10-11 22:53 UTC
+**Updated:** 2026-10-11 23:04 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
 
@@ -18,10 +18,12 @@
 - #419 exact head 4cfb1588356cdde8aff5764616137af0a1b5a4ab merged as 95b5694e;
   full-screen putts/penalty pickers are the required current product baseline.
 - #418 remains draft on codex/watch417-simulator-audit. Existing editing worktree
-  is reused; no second implementation checkout. Last pushed head 9457c702;
-  current harness corrects draft telemetry, transient capture, honest latency
-  labels and expands to 16 UI methods. Eight remote preparation checks pass.
-  Exact-head three-face simulator dispatch is next; no new simulator verdict.
+  is reused; no second implementation checkout. Exact pushed head
+  2f746a23bff793685dadb9b2a437914f802f4c3d corrects draft telemetry, transient
+  capture, honest latency labels and expands to 16 UI methods. Eight remote
+  preparation checks pass. Run 38182426066 failed before any UI methods:
+  injectedAOD assignment was in teardown instead of launch (fixed locally).
+  Failed exact-head artifacts are retained; corrected dispatch is next.
 - Expanded runs 38179866784 / 38180807102 failed compilation, zero UI tests.
   String.putts / unsupported app.suspend were corrected. Preserve failures as
   harness diagnostics; neither is evidence of a product defect.
@@ -80,7 +82,8 @@
 - Old /dev/shm verification snapshot and local contact-sheet copies removed
   2026-10-11 15:52 UTC. #419 screenshot copies moved to Trash.
 - No live audit service, container, tunnel, timer or dependency environment.
-  No pending blocking terminal/waiter. gh-feedback timer/cursor unchanged.
+  CI terminal 18942 returned failure and closed. No pending waiter;
+  no feedback waiter. gh-feedback timer/cursor unchanged.
 - Shared remote checkout
   /home/jason/codex-runs/garmin-ai-caddie-claude-takeover-20261005 untouched.
 - Pre-expansion state retained verbatim in
@@ -89,9 +92,10 @@
 
 ## Next action and stop conditions
 
-1. Verify and push test-only scaffold on existing audit branch with Codex trailer.
-2. Dispatch watch-runtime.yml runtime_scope=simulator-audit at that exact head;
-   use homeserver blocking waiter in the same turn. No main-thread CI polling.
+1. Commit/push the AOD driver scope fix and dispatch corrected exact head;
+   use the homeserver blocking waiter in this same turn. No CI polling.
+2. Preparation snapshot (56 KiB) was removed after eight passing checks and
+   persistent log/manifest retention. No temporary verification resources left.
 3. After terminal result, remote-download/inspect artifacts, read current
    comparison references, publish #417 findings and honest unproved boundaries.
 4. Keep #418 draft until coverage and triage are sufficient; return to feedback

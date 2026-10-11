@@ -36,7 +36,6 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             print("Watch audit failure hierarchy:\n\(app.debugDescription)")
         }
         app.terminate()
-        injectedAOD = aod
     }
 
     private func launch(_ screen: String, range: String = "fresh", page: Int = 0,
@@ -45,6 +44,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                         initialScore: Int? = nil, initialPutts: Int? = nil,
                         initialPenalty: Int? = nil) throws {
         app.terminate()
+        injectedAOD = aod
         app.launchArguments = ["-uitest-screen", screen]
         app.launchEnvironment = [
             "UITEST_GPS_LAT": "40.0454995", "UITEST_GPS_LON": "116.5461531",
