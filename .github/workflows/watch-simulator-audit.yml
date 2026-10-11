@@ -10,7 +10,7 @@ jobs:
   faces:
     name: Watch audit ${{ matrix.face }}
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

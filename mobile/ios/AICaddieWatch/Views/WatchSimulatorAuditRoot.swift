@@ -10,7 +10,7 @@ struct WatchSimulatorAuditRoot: View {
         "audit-empty", "audit-start", "audit-start-nine", "audit-phone-9", "audit-phone-18",
         "audit-restore", "audit-score-current", "audit-map-pending", "audit-late-map",
         "audit-out-of-order", "audit-next-tee", "audit-auto-candidate", "audit-heading",
-        "audit-manual-candidate",
+        "audit-manual-candidate", "audit-turn",
     ]
     let screen: String
     @ObservedObject var model: WatchRoundModel
@@ -30,8 +30,8 @@ struct WatchSimulatorAuditRoot: View {
     private var page: Int { Int(env["UITEST_AUDIT_PAGE"] ?? "0") ?? 0 }
     private var trace: String {
         "hole=\(model.activeHole);scored=\(model.scoredHoles);strokes=\(model.totalStrokes);"
-            + "shots=\(model.recordedShotCount);putts=\(model.activeHoleState?.putts ?? -1);"
-            + "penalty=\(model.activeHoleState?.penalty ?? -1);screen=\(model.screen);"
+            + "shots=\(model.recordedShotCount);score=\(model.draftScore);putts=\(model.draftPutts);"
+            + "penalty=\(model.draftPenalty);fairway=\(model.draftFairway?.rawValue ?? "none");editing=\(model.scoringHole ?? -1);screen=\(model.screen);"
             + "pending=\(model.pendingManualShot != nil);auto=\(model.autoShotEnabled);"
             + "round=\(model.round != nil);map=\(geometry != nil);"
             + "ready=\(ready);headingWanted=\(Self.headingUpdatesWanted);"
@@ -184,6 +184,7 @@ struct WatchSimulatorAuditRoot: View {
         if screen == "audit-score-current" {
             model.resumeRound()
             model.startScoringActiveHole()
+            applyAuditScreenAndDraft()
             return
         }
         model.setAutoShotEnabled(false)
@@ -203,9 +204,10 @@ struct WatchSimulatorAuditRoot: View {
             }
             return
         }
-        let count = screen == "audit-phone-9" ? 9 : 18
-        let globalId = count == 9 ? Self.nineId : Self.venueId
-        let key = count == 9 ? "\(globalId):all" : "\(globalId):front+\(globalId):back"
+        let count = screen == "audit-phone-9" || screen == "audit-turn" ? 9 : 18
+        let globalId = screen == "audit-turn" ? Self.venueId : (count == 9 ? Self.nineId : Self.venueId)
+        let key = screen == "audit-turn" ? "\(globalId):front"
+            : (count == 9 ? "\(globalId):all" : "\(globalId):front+\(globalId):back")
         let roundId = "audit-\(UUID().uuidString)"
         let states = try Self.states(count: count, globalId: globalId, roundId: roundId)
         let seed = WatchRoundSeed(
@@ -263,6 +265,34 @@ struct WatchSimulatorAuditRoot: View {
                                                horizontalAccuracyM: 5, capturedAt: ISO8601DateFormatter().string(from: Date()))
         }
         if screen == "audit-heading" { model.openFlagDirection() }
+        if screen == "audit-turn" {
+            model.selectHole(9)
+            model.startScoringActiveHole()
+            model.setDraftScore(5)
+            model.acceptRecommendedScore()
+            model.openTurn()
+        }
+        applyAuditScreenAndDraft()
+    }
+
+    /// Coverage-only entry points. These seed production screens without changing their gestures,
+    /// timers, ranges, callbacks or hit targets. Metadata explicitly identifies injected setup.
+    @MainActor
+    private func applyAuditScreenAndDraft() {
+        switch env["UITEST_AUDIT_MODEL_SCREEN"] {
+        case "menu": model.openMenu()
+        case "holeSelect": model.openHoleSelect()
+        case "scorecard": model.openScorecard()
+        case "scoring": model.startScoringActiveHole()
+        case "settings": model.openSettings()
+        case "finishing": model.requestFinish()
+        default: break
+        }
+        if model.screen == .scoring {
+            if let value = env["UITEST_AUDIT_PUTTS"].flatMap(Int.init) { model.setDraftPutts(value) }
+            if let value = env["UITEST_AUDIT_PENALTY"].flatMap(Int.init) { model.setDraftPenalty(value) }
+            if let value = env["UITEST_AUDIT_SCORE"].flatMap(Int.init) { model.setDraftScore(value) }
+        }
     }
 
     @MainActor

@@ -1,6 +1,7 @@
 # Watch whole-round simulator audit (#417)
 
-Findings-only audit of main `0882c41c` / Build 86. No product fixes belong in this pass.
+Findings-only audit, refreshed on main 3e785b14 / #419 merge 95b5694e.
+Build 86 is the released baseline, not the source of the new picker. No product fixes belong in this pass.
 The branch adds opt-in DEBUG fixtures, UI-test actions and a separate runtime workflow mode.
 
 One audit dispatch:
@@ -76,3 +77,30 @@ slow control enumeration. An unresponsive manual + is retained as a finding befo
 pending-candidate injection allows the remaining controls to be inspected. This does not prove
 manual admission on that face or change product behavior. Follow-up preparation: 145 tests passed
 (mobile contracts 10.293 s); actual new-source Native/runtime evidence is still required.
+
+Owner expansion (#417 comments 6111380071 / 6111790655) requires element-level evidence, realistic
+20–60 s tempo, adversarial gestures, physical-size inspection and comparison with wrist golf UI.
+The driver now has sixteen methods: the original ten flows plus picker repetitions, background
+resume, repeated page/plan/map gestures, navigation/settings recovery, score-band/fairway/cancel
+and hole-grid/scorecard/finish/turn controls. Fixtures may seed a screen or draft for coverage, but
+never change production timers, hit targets, gestures or callbacks. Actual navigation recovery and
+injected recovery are named separately.
+
+The #419 picker uses real 4 s idle / 2.5 s settled closure. Whole-tree inventories occur once per
+distinct stable screen; transient picker measurements and gestures explicitly reopen when needed.
+Per-attempt JSON stores expected and actual drafts, gesture, validity, frames and exact step outcome.
+An unavailable prepared control is not a dispatched gesture failure. XCTest action duration is
+named xctestActionMs: it includes synchronization and cannot prove 300 ms visible feedback.
+Crown, wrist detection, glove/wet-finger operation and paired-phone notifications remain hardware
+boundaries. Source font tokens are cross-checked with actual frames/images; a nominal font size is
+not a measurement of its scaled rendered glyph.
+
+The physical artifact preserves simulator pixels, records actual pixels-to-mm dimensions and
+includes physical-review.html, print-at-100% instructions and a 5 mm calibration ruler. DPI tags
+and enlarged chat images alone are not evidence of physically wearing the watch. Bright/glare
+versions are review aids, not photometric sunlight tests.
+
+Expanded preparation on homeserver: eight collector/physical-export checks passed, including
+unmodified pixels and actual-mm HTML sizing. Two earlier expanded attempts (38179866784 /
+38180807102) failed compilation before any UI method ran; they are retained harness diagnostics,
+not product findings. Corrected exact-head runtime evidence is still required.

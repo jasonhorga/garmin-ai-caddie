@@ -8,6 +8,12 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     private var lastFlow = "unknown"
     private var lastStep = "unknown"
     private var auditSequence = 0
+    private var inventoriedStates = Set<String>()
+    private var injectedAOD = false
+    private var face: String {
+        ProcessInfo.processInfo.environment["UITEST_AUDIT_FACE"]
+            ?? ProcessInfo.processInfo.environment["TEST_RUNNER_UITEST_AUDIT_FACE"] ?? "unknown"
+    }
     private var output: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("watch-audit", isDirectory: true)
@@ -20,6 +26,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         continueAfterFailure = false
         lastFlow = name.replacingOccurrences(of: " ", with: "_").replacingOccurrences(of: "/", with: "_")
         lastStep = "initial-state"
+        inventoriedStates.removeAll()
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
     }
 
@@ -29,11 +36,14 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             print("Watch audit failure hierarchy:\n\(app.debugDescription)")
         }
         app.terminate()
+        injectedAOD = aod
     }
 
     private func launch(_ screen: String, range: String = "fresh", page: Int = 0,
                         zoom: Int = 1, aod: Bool = false, moveAfterShot: Bool = false,
-                        supportsAutoShot: Bool = false) throws {
+                        supportsAutoShot: Bool = false, modelScreen: String? = nil,
+                        initialScore: Int? = nil, initialPutts: Int? = nil,
+                        initialPenalty: Int? = nil) throws {
         app.terminate()
         app.launchArguments = ["-uitest-screen", screen]
         app.launchEnvironment = [
@@ -44,6 +54,10 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             "UITEST_AUDIT_AUTOSHOT_SUPPORTED": supportsAutoShot ? "1" : "0",
             "UITEST_AUDIT_ANCHORS": "1",
         ]
+        app.launchEnvironment["UITEST_AUDIT_MODEL_SCREEN"] = modelScreen
+        app.launchEnvironment["UITEST_AUDIT_SCORE"] = initialScore.map { String($0) }
+        app.launchEnvironment["UITEST_AUDIT_PUTTS"] = initialPutts.map { String($0) }
+        app.launchEnvironment["UITEST_AUDIT_PENALTY"] = initialPenalty.map { String($0) }
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         if screen.hasPrefix("audit-") {
@@ -78,6 +92,10 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     }
 
     private func controlMetrics(_ target: XCUIElement, role: String) -> [String: Any] {
+        guard target.exists else {
+            return ["role": role, "exists": false, "identifier": "unavailable",
+                    "hittable": false, "frameEvidence": "absent; not a measured hit target"]
+        }
         let frame = target.frame
         return [
             "role": role,
@@ -95,8 +113,19 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     @discardableResult
     private func recordInteraction(_ flow: String, _ step: String, control: XCUIElement,
                                    gesture: String, expected: String, action: () -> Void,
-                                   success: (String) -> Bool) throws -> Bool {
+                                   success: (String) -> Bool,
+                                   cachedMetrics: [String: Any]? = nil) throws -> Bool {
         let before = stateLabel()
+        let metrics = cachedMetrics ?? controlMetrics(control, role: "interactive")
+        guard control.exists else {
+            try writeAuditJSON([
+                "kind": "interaction", "flow": flow, "step": step, "face": face,
+                "control": metrics, "gesture": gesture, "expected": expected,
+                "before": before, "after": stateLabel(), "success": false,
+                "attemptValid": false, "reason": "control absent/unhittable before dispatch; do not count as a product gesture failure",
+            ], stem: "interaction--\(flow)--\(step)")
+            return false
+        }
         let started = Date()
         action()
         let elapsedMs = Int(Date().timeIntervalSince(started) * 1_000)
@@ -107,13 +136,17 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             "kind": "interaction",
             "flow": flow,
             "step": step,
-            "control": controlMetrics(control, role: "interactive"),
+            "control": metrics,
+            "face": face,
+            "attemptValid": true,
             "gesture": gesture,
             "expected": expected,
             "before": before,
             "after": after,
             "success": passed,
-            "feedbackMs": elapsedMs,
+            "xctestActionMs": elapsedMs,
+            "uiFeedbackMs": NSNull(),
+            "latencyEvidence": "XCTest synchronization overhead; not a 300ms UI feedback measurement",
             "physicalCrownProven": false,
         ], stem: "interaction--\(flow)--\(step)")
         if !passed {
@@ -139,6 +172,36 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             predicate: NSPredicate(format: "label CONTAINS %@", "\(key)=\(expected);"),
             object: element("watch-audit-state")
         )], timeout: timeout) == .completed
+    }
+
+    private func waitForFragment(_ fragment: String, timeout: TimeInterval = 1.2) -> Bool {
+        XCTWaiter().wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", fragment),
+            object: element("watch-audit-state")
+        )], timeout: timeout) == .completed
+    }
+
+    private func reach(_ target: XCUIElement, flow: String, step: String) throws -> Bool {
+        guard target.exists else {
+            try observe(flow, step, expected: "control exists", actual: stateLabel())
+            return false
+        }
+        let container = app.scrollViews.firstMatch.exists ? app.scrollViews.firstMatch : app
+        var scrolls = 0
+        while !target.isHittable && scrolls < 6 {
+            let towardTop = target.frame.maxY > app.frame.maxY - 4
+            scrollContainer(container, towardTop: towardTop)
+            scrolls += 1
+        }
+        try writeAuditJSON([
+            "kind": "reachability", "flow": flow, "step": step, "face": face,
+            "scrollGestures": scrolls, "reachable": target.isHittable,
+            "control": controlMetrics(target, role: "interactive"),
+        ], stem: "reach--\(flow)--\(step)")
+        if !target.isHittable {
+            try capture(flow, step + "-unreachable", collectControls: false)
+        }
+        return target.isHittable
     }
 
     private func button(_ label: String) -> XCUIElement {
@@ -220,26 +283,36 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         attachment.name = stem
         attachment.lifetime = .keepAlways
         add(attachment)
-        let controls: [[String: Any]] = collectControls ? app.buttons.allElementsBoundByIndex.map {
-            ["label": $0.label, "identifier": $0.identifier, "hittable": $0.isHittable,
-             "frame": [Double($0.frame.minX), Double($0.frame.minY),
-                       Double($0.frame.width), Double($0.frame.height)]]
-        } : []
-        let switches: [[String: Any]] = collectControls ? app.switches.allElementsBoundByIndex.map {
-            ["label": $0.label, "value": String(describing: $0.value ?? ""), "hittable": $0.isHittable]
-        } : []
+        let root = element("watch-audit-state")
+        let page = element("watch-hole-page-current")
+        let currentTrace = root.exists ? root.label : "not-instrumented"
+        let screen = currentTrace.components(separatedBy: ";").first { $0.hasPrefix("screen=") } ?? "unknown"
+        let inventoryKey = "\(flow)|\(screen)|\(page.exists ? page.label : "none")|\(input)|\(injectedAOD)"
+        // One inventory per distinct state. Full accessibility enumeration can exceed transient
+        // picker/undo timers; it must not run in every screenshot/gesture or silently hold UI open.
+        let inventory = collectControls && inventoriedStates.insert(inventoryKey).inserted
         let queries: [(String, XCUIElementQuery)] = [
             ("button", app.buttons), ("switch", app.switches), ("slider", app.sliders),
             ("stepper", app.steppers), ("textField", app.textFields),
             ("collection", app.collectionViews), ("scroll", app.scrollViews),
-            ("other", app.otherElements),
+            ("picker", app.pickers), ("pickerWheel", app.pickerWheels),
         ]
-        let interactive: [[String: Any]] = collectControls
+        var interactive: [[String: Any]] = inventory
             ? queries.flatMap { role, query in
                 query.allElementsBoundByIndex.map { controlMetrics($0, role: role) }
             }
             : []
-        let readableText: [[String: Any]] = collectControls
+        if inventory {
+            interactive += app.otherElements.allElementsBoundByIndex.filter {
+                $0.identifier.hasPrefix("watch-") && $0.identifier != "watch-audit-state"
+            }.map { controlMetrics($0, role: "custom-gesture-or-container") }
+        }
+        let controls = interactive.filter { ($0["role"] as? String) == "button" }.map { metric in
+            ["label": metric["label"] ?? "", "identifier": metric["identifier"] ?? "",
+             "hittable": metric["hittable"] ?? false, "frame": metric["framePt"] ?? [Double]()] as [String: Any]
+        }
+        let switches = interactive.filter { ($0["role"] as? String) == "switch" }
+        let readableText: [[String: Any]] = inventory
             ? app.staticTexts.allElementsBoundByIndex.map {
                 let frame = $0.frame
                 return [
@@ -254,21 +327,20 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             }
             : []
         let cgImage = screenshot.image.cgImage
-        let root = element("watch-audit-state")
-        let page = element("watch-hole-page-current")
         let viewport = element("watch-audit-viewport")
         let metadata: [String: Any] = ["flow": flow, "step": step, "inputMode": input,
                                        "trace": root.exists ? root.label : "not-instrumented",
                                        "shownPage": page.exists ? page.label : "not-instrumented",
                                        "viewport": viewport.exists ? viewport.label : "not-instrumented",
-                                       "controlsCollected": collectControls,
+                                       "controlsCollected": inventory,
+                                       "inventoryKey": inventoryKey,
                                        "controls": controls, "switches": switches,
                                        "interactive": interactive, "readableText": readableText,
-                                       "face": ProcessInfo.processInfo.environment["TEST_RUNNER_UITEST_AUDIT_FACE"] ?? "unknown",
+                                       "face": face,
                                        "screenFramePt": [Double(app.frame.minX), Double(app.frame.minY),
                                                          Double(app.frame.width), Double(app.frame.height)],
                                        "screenshotPixels": [cgImage?.width ?? 0, cgImage?.height ?? 0],
-                                       "aodInjected": ProcessInfo.processInfo.environment["UITEST_AUDIT_AOD"] == "1"]
+                                       "aodInjected": injectedAOD]
         try JSONSerialization.data(withJSONObject: metadata, options: .sortedKeys)
             .write(to: output.appendingPathComponent(stem + ".json"), options: .atomic)
         return file
@@ -527,19 +599,19 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         element("watch-score-band").swipeLeft()
         try capture("scoring", "02-total-drag")
         let putts = element("watch-score-putts")
-        let puttFrame = putts.frame
         try tap(putts, scroll: false)
         // The production wheel folds after idle. Keep this transient capture fast, then drag at
         // its known location without a second accessibility query racing that timer.
         try capture("scoring", "03-putts-open", collectControls: false)
-        dragWheel(at: puttFrame)
-        try capture("scoring", "04-putts-adjusted")
+        drag(element("watch-score-wheel-putts"), distance: 20)
+        try capture("scoring", "04-putts-adjusted", collectControls: false)
+        if element("watch-score-wheel-done").exists { element("watch-score-wheel-done").tap() }
         let penalty = element("watch-score-penalty")
-        let penaltyFrame = penalty.frame
         try tap(penalty, scroll: false)
         try capture("scoring", "05-penalty-open", collectControls: false)
-        dragWheel(at: penaltyFrame)
-        try capture("scoring", "06-penalty-adjusted")
+        drag(element("watch-score-wheel-penalty"), distance: 20)
+        try capture("scoring", "06-penalty-adjusted", collectControls: false)
+        if element("watch-score-wheel-done").exists { element("watch-score-wheel-done").tap() }
         try tap(element("watch-score-save"), scroll: false)
         try capture("scoring", "07-saved")
         try openMenu()
@@ -649,129 +721,127 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         try capture("watch-nine-start", "04-hole-root")
     }
 
-    /// Element-level pass for the #419 replacement of the tiny in-chip wheels. The test records
-    /// every attempt instead of turning a missed gesture into a green flow assertion: a golfer's
-    /// first failed drag is a finding even when a second tap can recover it.
+    /// The production picker still closes after 4 s idle / 2.5 s after dragging. Inventory is
+    /// sampled separately; each trial explicitly reopens if needed. Reopens are not gesture passes.
     func test11ElementLevelScorePickersAndAdversarialInput() throws {
         func inspectWheel(_ wheel: String, chip: String, name: String, wrap: Int) throws {
-            try launch("audit-phone-18")
-            try launch("audit-score-current")
-            try capture("score-elements", "\(name)-01-root")
+            try launch("audit-phone-18", modelScreen: "scoring")
+            try capture("score-elements", "\(name)-01-root", input: "injected-screen-production-controls")
             let chipElement = element(chip)
-            guard chipElement.waitForExistence(timeout: 5) else {
-                try observe("score-elements", "\(name)-missing-chip", expected: chip, actual: stateLabel())
-                return
-            }
-            try tap(chipElement, scroll: false)
+            let chipMetrics = controlMetrics(chipElement, role: "closed-chip")
             let picker = element("watch-score-wheel-\(wheel)")
-            guard picker.waitForExistence(timeout: 3) else {
-                try observe("score-elements", "\(name)-picker-not-open", expected: "full-screen picker", actual: stateLabel())
-                return
-            }
-            try capture("score-elements", "\(name)-02-picker-open")
             let plus = button("\(name)加一")
             let minus = button("\(name)减一")
             let done = element("watch-score-wheel-done")
+            var reopens = 0
+            func openPicker() -> Bool {
+                if !picker.exists {
+                    guard chipElement.exists, chipElement.isHittable else { return false }
+                    chipElement.tap()
+                    reopens += 1
+                }
+                return picker.waitForExistence(timeout: 1)
+            }
+            guard openPicker() else {
+                try observe("score-elements", "\(name)-missing-picker", expected: "full-screen picker", actual: stateLabel())
+                return
+            }
+            try capture("score-elements", "\(name)-02-picker-open", collectControls: false)
+            // Never enumerate a complete tree inside a production timeout window.
+            var measured: [[String: Any]] = [chipMetrics]
+            for (role, target) in [("full-screen-picker", picker), ("plus", plus), ("minus", minus), ("done", done)] {
+                guard openPicker() else { continue }
+                measured.append(controlMetrics(target, role: role))
+            }
             try writeAuditJSON([
-                "kind": "control-metrics",
-                "flow": "score-elements",
-                "wheel": name,
-                "face": ProcessInfo.processInfo.environment["TEST_RUNNER_UITEST_AUDIT_FACE"] ?? "unknown",
-                "controls": [
-                    controlMetrics(chipElement, role: "closed-chip"),
-                    controlMetrics(picker, role: "full-screen-picker"),
-                    controlMetrics(plus, role: "plus"),
-                    controlMetrics(minus, role: "minus"),
-                    controlMetrics(done, role: "done"),
-                ],
-                "visibleRowsExpected": 3,
-                "rowStepExpectedPt": 30.0,
-                "crownInput": "not-simulatable-by-XCUITest",
+                "kind": "control-metrics", "flow": "score-elements", "wheel": name, "face": face,
+                "controls": measured, "visibleRowsExpected": 3, "dragStepSourcePt": 30,
+                "visibleRowHeight": "font dependent; read screenshot/source, not a 30pt row-height claim",
+                "crownInput": "not-simulatable-by-XCUITest", "productionIdleSeconds": 4.0,
+                "productionSettledSeconds": 2.5, "heldOpen": false,
             ], stem: "metrics--score-elements--\(name)")
+            let pickerMetrics = measured.first { ($0["role"] as? String) == "full-screen-picker" } ?? [:]
+            let plusMetrics = measured.first { ($0["role"] as? String) == "plus" } ?? [:]
+            let minusMetrics = measured.first { ($0["role"] as? String) == "minus" } ?? [:]
 
-            var expected = stateValue(wheel == "putts" ? "putts" : "penalty") ?? 0
-            for attempt in 1...5 {
-                expected = (expected + 1) % wrap
-                let key = wheel == "putts" ? "putts" : "penalty"
-                _ = try recordInteraction(
-                    "score-elements", "\(name)-plus-short-\(attempt)", control: plus,
-                    gesture: "tap-centre", expected: "\(key)=\(expected);",
-                    action: { plus.tap() },
-                    success: { _ in self.waitForValue(key, expected) }
-                )
-            }
-            for attempt in 1...5 {
-                expected = (expected - 1 + wrap) % wrap
-                let key = wheel == "putts" ? "putts" : "penalty"
-                _ = try recordInteraction(
-                    "score-elements", "\(name)-minus-short-\(attempt)", control: minus,
-                    gesture: "tap-centre", expected: "\(key)=\(expected);",
-                    action: { minus.tap() },
-                    success: { _ in self.waitForValue(key, expected) }
-                )
-            }
-
-            // Five 20 pt and five 60 pt drags measure one-step and two-step behaviour. The
-            // production implementation uses 30 pt per step; wrapping makes the sequence bounded.
-            for (distance, count, label) in [(20.0, 5, "drag-short"), (60.0, 5, "drag-long")] {
-                for attempt in 1...count {
-                    let key = wheel == "putts" ? "putts" : "penalty"
-                    let steps = Int((distance / 30.0).rounded())
-                    expected = (expected + steps) % wrap
-                    _ = try recordInteraction(
-                        "score-elements", "\(name)-\(label)-\(attempt)", control: picker,
-                        gesture: "vertical-drag-\(Int(distance))pt", expected: "\(key)=\(expected);",
-                        action: { self.drag(picker, distance: CGFloat(distance)) },
-                        success: { _ in self.waitForValue(key, expected) }
+            let groups = ["plus", "minus", "20pt", "60pt", "off-centre-8pt", "double-tap", "edge-60pt", "long-press"]
+            for group in groups {
+                var valid = 0
+                var successes = 0
+                for attempt in 1...5 {
+                    guard openPicker() else {
+                        try observe("score-elements", "\(name)-\(group)-\(attempt)-unavailable",
+                                    expected: "open picker before a trial", actual: stateLabel())
+                        continue
+                    }
+                    let before = stateValue(wheel) ?? -1
+                    let delta = group == "minus" ? -1 : (group == "60pt" || group == "edge-60pt" || group == "double-tap" ? 2 : 1)
+                    let expected = (before + delta + wrap) % wrap
+                    let control = group == "minus" ? minus
+                        : (["plus", "off-centre-8pt", "double-tap", "long-press"].contains(group) ? plus : picker)
+                    let metrics = group == "minus" ? minusMetrics : (control == picker ? pickerMetrics : plusMetrics)
+                    // State is sampled immediately before dispatch. No stale expected sequence is
+                    // carried across a failed attempt: later trials still test their own exact step.
+                    let passed = try recordInteraction(
+                        "score-elements", "\(name)-\(group)-\(attempt)", control: control,
+                        gesture: group, expected: "\(wheel)=\(expected);",
+                        action: {
+                            switch group {
+                            case "plus": plus.tap()
+                            case "minus": minus.tap()
+                            case "20pt": self.drag(picker, distance: 20)
+                            case "60pt": self.drag(picker, distance: 60)
+                            case "off-centre-8pt":
+                                let frame = plus.frame
+                                self.app.coordinate(withNormalizedOffset: .zero)
+                                    .withOffset(CGVector(dx: frame.midX + 8, dy: frame.midY + 8)).tap()
+                            case "double-tap": plus.doubleTap()
+                            case "long-press": plus.press(forDuration: 0.7)
+                            default:
+                                let origin = self.app.coordinate(withNormalizedOffset: .zero)
+                                let frame = picker.frame
+                                let point = origin.withOffset(CGVector(dx: frame.minX + 7, dy: frame.midY + 15))
+                                point.press(forDuration: 0.05, thenDragTo:
+                                    origin.withOffset(CGVector(dx: frame.minX + 7, dy: frame.midY - 45)))
+                            }
+                        },
+                        success: { _ in self.waitForValue(wheel, expected) },
+                        cachedMetrics: metrics
                     )
+                    valid += 1
+                    if passed { successes += 1 }
+                    if attempt == 1 || attempt == 5 {
+                        try capture("score-elements", "\(name)-\(group)-\(attempt)", collectControls: false)
+                    }
                 }
+                try writeAuditJSON([
+                    "kind": "repeated-summary", "screen": "本洞成绩", "control": name, "face": face,
+                    "gesture": group, "attempts": 5, "validPreparedTrials": valid, "successes": successes,
+                    "successRate": valid > 0 ? Double(successes) / Double(valid) : 0,
+                    "reopensSoFar": reopens, "firstTryHardwareProven": false,
+                ], stem: "repeat-summary--\(wheel)--\(group)")
             }
-
-            // Off-centre, double-tap and edge-origin gestures are deliberately adversarial. They
-            // are recorded as evidence even if the intended value is ambiguous.
-            let beforeOffCentre = stateValue(wheel == "putts" ? "putts" : "penalty") ?? expected
-            let offCentreOrigin = app.coordinate(withNormalizedOffset: .zero)
-            let plusFrame = plus.frame
-            _ = try recordInteraction(
-                "score-elements", "\(name)-off-centre-8pt", control: plus,
-                gesture: "tap-8pt-off-centre", expected: "value changes once",
-                action: {
-                    offCentreOrigin.withOffset(CGVector(dx: plusFrame.midX + 8, dy: plusFrame.midY + 8)).tap()
-                },
-                success: { _ in
-                    let after = self.stateValue(wheel == "putts" ? "putts" : "penalty") ?? beforeOffCentre
-                    return after != beforeOffCentre
-                }
-            )
-            let beforeDouble = stateValue(wheel == "putts" ? "putts" : "penalty") ?? expected
-            _ = try recordInteraction(
-                "score-elements", "\(name)-double-tap", control: plus,
-                gesture: "double-tap", expected: "one visible step per tap, no lost feedback",
-                action: { plus.doubleTap() },
-                success: { _ in
-                    let after = self.stateValue(wheel == "putts" ? "putts" : "penalty") ?? beforeDouble
-                    return after != beforeDouble
-                }
-            )
-            let beforeEdge = stateValue(wheel == "putts" ? "putts" : "penalty") ?? expected
-            _ = try recordInteraction(
-                "score-elements", "\(name)-edge-swipe", control: picker,
-                gesture: "vertical-swipe-from-screen-edge", expected: "picker remains open and value is deterministic",
-                action: {
-                    let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5))
-                    edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.2)))
-                },
-                success: { _ in
-                    let after = self.stateValue(wheel == "putts" ? "putts" : "penalty") ?? beforeEdge
-                    return self.element("watch-score-wheel-\(wheel)").exists && after != beforeEdge
-                }
-            )
-            try capture("score-elements", "\(name)-03-after-adversarial")
-            if done.exists { try tap(done, scroll: false) }
-            try recordBoundary("score-elements", "\(name)-physical-crown", claim: "Crown increments the open wheel one step per notch",
-                              reason: "XCUITest has no physical Digital Crown/wrist input; validate on 41/46/49 mm hardware")
+            for attempt in 1...5 {
+                guard openPicker() else { continue }
+                let before = stateValue(wheel) ?? -1
+                _ = try recordInteraction(
+                    "score-elements", "\(name)-done-\(attempt)", control: done, gesture: "tap",
+                    expected: "picker closed, selected \(wheel) retained",
+                    action: { done.tap() },
+                    success: { _ in !picker.exists && self.stateValue(wheel) == before }
+                )
+            }
+            guard openPicker() else { return }
+            Thread.sleep(forTimeInterval: 4.5)
+            try capture("score-elements", "\(name)-idle-auto-close", collectControls: false)
+            try writeAuditJSON([
+                "kind": "idle-timeout", "screen": "本洞成绩", "control": name, "face": face,
+                "delaySeconds": 4.5, "pickerStillVisible": picker.exists, "state": stateLabel(),
+            ], stem: "timeout--\(wheel)")
+            try recordBoundary("score-elements", "\(name)-physical-crown",
+                               claim: "Crown increments the open wheel one step per notch",
+                               reason: "XCUITest does not expose physical Digital Crown/wrist input")
         }
-
         try inspectWheel("putts", chip: "watch-score-putts", name: "推杆", wrap: 6)
         try inspectWheel("penalty", chip: "watch-score-penalty", name: "罚杆", wrap: 5)
     }
@@ -786,10 +856,11 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             // actual background/resume boundary; the paired-phone notification remains an
             // explicit evidence gap below.
             XCUIDevice.shared.press(.home)
-            Thread.sleep(forTimeInterval: 20)
+            Thread.sleep(forTimeInterval: interval == 1 ? 20 : 60)
             app.activate()
             _ = app.wait(for: .runningForeground, timeout: 5)
-            try capture("tempo", "02-wrist-up-\(interval)", input: "ui-action-after-20s-background")
+            try capture("tempo", "02-wrist-up-\(interval)", input: interval == 1
+                ? "ui-action-after-20s-background" : "ui-action-after-60s-background")
             try recordBoundary("tempo", "02-phone-message-\(interval)", claim: "A phone notification does not steal or dismiss the active round",
                               reason: "Hosted Watch simulator cannot inject a real paired-phone notification")
         }
@@ -798,6 +869,14 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         try capture("tempo", "04-shot-after-20s", input: "ui-action-after-20s-walk")
         try recordBoundary("tempo", "05-wrist-down-aod", claim: "AOD preserves the current hole and pending shot",
                           reason: "AOD is injected by UITEST_AUDIT_AOD; OLED luminance and wrist detection are not simulated")
+        try launch("audit-score-current")
+        try capture("tempo", "06-score-after-walk")
+        let save = element("watch-score-save")
+        if save.exists {
+            save.tap()
+            _ = waitForValue("hole", 2)
+            try capture("tempo", "07-next-tee")
+        }
     }
 
     /// Repeats page and plan gestures to expose swallowed drags that a single happy-path swipe can
@@ -835,9 +914,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         for attempt in 1...5 {
             let before = element("watch-hole-page-current").label
             pager.swipeUp()
-            let afterChanged = XCTWaiter().wait(for: [XCTNSPredicateExpectation(
-                predicate: NSPredicate(format: "label != %@", before), object: element("watch-hole-page-current")
-            )], timeout: 1.2) == .completed
+            let afterChanged = waitForPage("障碍", timeout: 1.2)
             if afterChanged { pageSuccesses += 1 }
             try writeAuditJSON(["kind": "repeated-gesture", "screen": "页面切换", "control": "hole-pager",
                                 "attempt": attempt, "before": before,
@@ -851,5 +928,297 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                             "attempts": 5, "successes": pageSuccesses, "successRate": Double(pageSuccesses) / 5.0],
                            stem: "repeat-summary--hole-pager")
         try capture("repeat-gestures", "final")
+        for page in [0, 1] {
+            try launch("audit-phone-18", page: page, zoom: 2)
+            try capture("map-elements", "page-\(page)-zoom2", input: "injected-zoom-real-pan")
+            let viewport = element("watch-audit-viewport")
+            for attempt in 1...5 {
+                let before = viewport.exists ? viewport.label : "not-instrumented"
+                let expectedPage = page == 0 ? "方案" : "障碍"
+                let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.46, dy: 0.65))
+                let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.46, dy: attempt.isMultiple(of: 2) ? 0.76 : 0.54))
+                from.press(forDuration: 0.05, thenDragTo: to)
+                let after = viewport.exists ? viewport.label : "not-instrumented"
+                try writeAuditJSON(["kind": "repeated-gesture", "screen": expectedPage, "face": face,
+                    "control": "zoomed-map", "gesture": "vertical-pan", "attempt": attempt,
+                    "before": before, "after": after, "page": element("watch-hole-page-current").label,
+                    "success": after != before && element("watch-hole-page-current").label == expectedPage],
+                    stem: "repeat--map-\(page)--\(attempt)")
+                try capture("map-elements", "page-\(page)-pan-\(attempt)", collectControls: false)
+                if page == 1 {
+                    let next = element("watch-hazard-next")
+                    if next.exists {
+                        let label = next.label
+                        let viewBefore = viewport.exists ? viewport.label : "not-instrumented"
+                        next.tap()
+                        let viewAfter = viewport.exists ? viewport.label : "not-instrumented"
+                        try writeAuditJSON(["kind": "repeated-gesture", "screen": "障碍", "face": face,
+                            "control": "watch-hazard-next", "gesture": "tap", "attempt": attempt,
+                            "before": label, "after": next.label, "viewportBefore": viewBefore,
+                            "viewportAfter": viewAfter, "success": next.label != label && viewBefore == viewAfter],
+                            stem: "repeat--hazard-next--\(attempt)")
+                        try capture("map-elements", "hazard-next-\(attempt)", collectControls: false)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Real navigation callbacks, five attempts each. A failed return is retained; only then may
+    /// a named injected screen restore coverage. It never counts as successful navigation.
+    func test14RepeatedNavigationAndRecovery() throws {
+        try launch("audit-phone-18")
+        try capture("nav-elements", "root")
+        for attempt in 1...5 {
+            let menu = element("watch-hole-menu")
+            _ = try recordInteraction("nav-elements", "root-menu-\(attempt)", control: menu,
+                gesture: attempt.isMultiple(of: 2) ? "tap-8pt-off-centre" : "tap-centre",
+                expected: "screen=menu;", action: {
+                    let frame = menu.frame
+                    self.app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                        dx: frame.midX + (attempt.isMultiple(of: 2) ? 8 : 0), dy: frame.midY)).tap()
+                }, success: { _ in self.waitForFragment("screen=menu;") })
+            if !stateLabel().contains("screen=menu;") {
+                try launch("audit-phone-18", modelScreen: "menu")
+                try capture("nav-elements", "menu-\(attempt)-injected-recovery", input: "injected-screen-after-failed-navigation")
+            }
+            let back = button("返回球洞")
+            if back.exists {
+                _ = try recordInteraction("nav-elements", "root-back-\(attempt)", control: back, gesture: "tap",
+                    expected: "screen=home;", action: { back.tap() },
+                    success: { _ in self.waitForFragment("screen=home;") })
+            }
+            if !stateLabel().contains("screen=home;") { try launch("audit-phone-18") }
+        }
+        let routes = [
+            ("查看果岭", "viewGreen", "返回菜单"), ("球童建议", "caddie", "返回球洞"),
+            ("选洞", "holeSelect", "返回菜单"), ("计分卡", "scorecard", "返回"),
+            ("障碍", "hazards", "返回菜单"), ("结束本场", "finishing", "继续打球"),
+        ]
+        for (label, destination, returnLabel) in routes {
+            try launch("audit-phone-18", modelScreen: "menu")
+            try capture("nav-elements", "menu-\(destination)", input: "injected-screen-production-controls")
+            for attempt in 1...5 {
+                let target = button(label)
+                guard try reach(target, flow: "nav-elements", step: "\(destination)-\(attempt)") else { break }
+                _ = try recordInteraction("nav-elements", "\(destination)-open-\(attempt)", control: target,
+                    gesture: "tap", expected: "screen=\(destination);", action: { target.tap() },
+                    success: { _ in self.waitForFragment("screen=\(destination);") })
+                if attempt == 1 {
+                    try capture("nav-elements", "\(destination)-opened")
+                }
+                let back = button(returnLabel)
+                if back.exists, try reach(back, flow: "nav-elements", step: "\(destination)-back-\(attempt)") {
+                    let expectedScreen = returnLabel == "返回球洞" || returnLabel == "继续打球" ? "home" : "menu"
+                    _ = try recordInteraction("nav-elements", "\(destination)-back-\(attempt)", control: back,
+                        gesture: "tap", expected: "screen=\(expectedScreen);", action: { back.tap() },
+                        success: { _ in self.waitForFragment("screen=\(expectedScreen);") })
+                }
+                if stateLabel().contains("screen=home;"), element("watch-hole-menu").exists {
+                    element("watch-hole-menu").tap()
+                }
+                if !waitForFragment("screen=menu;") {
+                    try capture("nav-elements", "\(destination)-\(attempt)-before-recovery", collectControls: false)
+                    try launch("audit-phone-18", modelScreen: "menu")
+                }
+            }
+        }
+        for (label, destination) in [("旗向指引", "flagDirection"), ("球杆数据", "clubStats")] {
+            try launch("audit-phone-18", modelScreen: "menu")
+            for attempt in 1...5 {
+                let tools = button("更多工具")
+                guard try reach(tools, flow: "tools-elements", step: "more-\(destination)-\(attempt)") else { break }
+                tools.tap()
+                if attempt == 1 { try capture("tools-elements", "more-\(destination)") }
+                let target = button(label)
+                guard try reach(target, flow: "tools-elements", step: "\(destination)-\(attempt)") else { break }
+                _ = try recordInteraction("tools-elements", "\(destination)-\(attempt)", control: target,
+                    gesture: "tap", expected: "screen=\(destination);", action: { target.tap() },
+                    success: { _ in self.waitForFragment("screen=\(destination);") })
+                if attempt == 1 { try capture("tools-elements", destination) }
+                let back = button("返回菜单")
+                if back.exists { back.tap() }
+                if !waitForFragment("screen=menu;") { try launch("audit-phone-18", modelScreen: "menu") }
+            }
+        }
+        try launch("audit-phone-18", supportsAutoShot: true, modelScreen: "settings")
+        try capture("settings-elements", "supported", input: "injected-screen-production-controls")
+        let settingLabels = ["GPS 预热", "大字模式", "自动记杆"]
+        for label in settingLabels {
+            let target = element(label)
+            guard try reach(target, flow: "settings-elements", step: label) else { continue }
+            for attempt in 1...5 {
+                let before = String(describing: target.value ?? "")
+                let enabled = before == "开启" || before == "1"
+                _ = try recordInteraction("settings-elements", "\(label)-\(attempt)", control: target,
+                    gesture: "tap", expected: enabled ? "关闭" : "开启", action: { target.tap() },
+                    success: { _ in
+                        let after = String(describing: target.value ?? "")
+                        return enabled ? ["关闭", "0"].contains(after) : ["开启", "1"].contains(after)
+                    })
+            }
+        }
+        try capture("settings-elements", "after-toggles")
+    }
+
+    func test15ScoreBandFairwayAndCancel() throws {
+        for axis in ["horizontal", "vertical"] {
+            for distance in [20, 60] {
+                try launch("audit-phone-18", modelScreen: "scoring", initialScore: 4, initialPutts: 0)
+                try capture("band-elements", "\(axis)-\(distance)-root", input: "injected-draft-production-controls")
+                let band = element("watch-score-band")
+                let metrics = controlMetrics(band, role: "total-band")
+                for attempt in 1...5 {
+                    let before = stateValue("score") ?? -1
+                    let expected = min(15, before + Int((Double(distance) / 28).rounded()))
+                    _ = try recordInteraction("band-elements", "\(axis)-\(distance)-\(attempt)",
+                        control: band, gesture: "\(axis)-drag-\(distance)pt", expected: "score=\(expected);",
+                        action: {
+                            let frame = band.frame
+                            let origin = self.app.coordinate(withNormalizedOffset: .zero)
+                            let from = origin.withOffset(CGVector(dx: frame.midX + 20, dy: frame.midY))
+                            let to = origin.withOffset(CGVector(
+                                dx: frame.midX + 20 - (axis == "horizontal" ? CGFloat(distance) : 0),
+                                dy: frame.midY - (axis == "vertical" ? CGFloat(distance) : 0)))
+                            from.press(forDuration: 0.05, thenDragTo: to)
+                        }, success: { _ in self.waitForValue("score", expected) }, cachedMetrics: metrics)
+                }
+                try capture("band-elements", "\(axis)-\(distance)-final")
+            }
+        }
+        for initial in [1, 10, 15] {
+            try launch("audit-phone-18", modelScreen: "scoring", initialScore: initial, initialPutts: 0)
+            let band = element("watch-score-band")
+            for requested in 10...20 {
+                let before = stateValue("score") ?? -1
+                let delta = requested - before
+                // A single continuous band drag, bounded to the visible screen, then at most two
+                // more. Reaching the product cap is evidence, not a skipped requested value.
+                var gestures = 0
+                while stateValue("score") != requested && gestures < 3 {
+                    let now = stateValue("score") ?? -1
+                    let steps = min(5, max(-5, requested - now))
+                    if steps == 0 { break }
+                    let frame = band.frame
+                    let origin = app.coordinate(withNormalizedOffset: .zero)
+                    let from = origin.withOffset(CGVector(dx: steps > 0 ? frame.maxX - 8 : frame.minX + 8, dy: frame.midY))
+                    from.press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(
+                        dx: (steps > 0 ? frame.maxX - 8 : frame.minX + 8) - CGFloat(steps) * 28,
+                        dy: frame.midY)))
+                    gestures += 1
+                }
+                try writeAuditJSON(["kind": "value-reachability", "screen": "本洞成绩", "face": face,
+                    "start": initial, "before": before, "requested": requested, "delta": delta,
+                    "gestures": gestures, "after": stateValue("score") ?? -1,
+                    "withinThree": stateValue("score") == requested],
+                    stem: "range--score--\(initial)--\(requested)")
+                if requested == 10 || requested == 15 || requested == 20 {
+                    try capture("band-elements", "start-\(initial)-requested-\(requested)", collectControls: false)
+                }
+            }
+        }
+        try launch("audit-phone-18", modelScreen: "scoring")
+        try capture("fairway-elements", "root", input: "injected-screen-production-controls")
+        for result in ["LEFT", "HIT", "RIGHT"] {
+            let target = element("watch-score-fairway-\(result)")
+            for attempt in 1...5 {
+                let selected = stateLabel().contains("fairway=\(result);")
+                let expected = selected ? "fairway=none;" : "fairway=\(result);"
+                _ = try recordInteraction("fairway-elements", "\(result)-\(attempt)", control: target,
+                    gesture: attempt.isMultiple(of: 2) ? "tap-8pt-off-centre" : "tap-centre",
+                    expected: expected, action: {
+                        let frame = target.frame
+                        self.app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                            dx: frame.midX + (attempt.isMultiple(of: 2) ? 8 : 0), dy: frame.midY + 6)).tap()
+                    }, success: { _ in self.waitForFragment(expected) })
+            }
+        }
+        for attempt in 1...5 {
+            if attempt > 1 { try launch("audit-score-current", initialScore: 11) }
+            let cancel = button("取消记分")
+            _ = try recordInteraction("fairway-elements", "cancel-\(attempt)", control: cancel, gesture: "tap",
+                expected: "screen=home;scored=0;strokes=0",
+                action: { cancel.tap() },
+                success: { _ in self.waitForFragment("screen=home;")
+                    && self.stateValue("scored") == 0 && self.stateValue("strokes") == 0 })
+            try capture("fairway-elements", "cancelled-\(attempt)", collectControls: false)
+        }
+    }
+
+    func test16HoleGridScorecardAndFinishRecovery() throws {
+        for hole in [1, 9, 10, 18] {
+            try launch("audit-phone-18", modelScreen: "holeSelect")
+            try capture("select-elements", "hole-\(hole)-grid", input: "injected-screen-production-controls")
+            for attempt in 1...5 {
+                if attempt > 1 { try launch("audit-phone-18", modelScreen: "holeSelect") }
+                let target = button(String(hole))
+                guard try reach(target, flow: "select-elements", step: "hole-\(hole)-\(attempt)") else { break }
+                _ = try recordInteraction("select-elements", "hole-\(hole)-\(attempt)", control: target,
+                    gesture: "tap", expected: "hole=\(hole);screen=home;",
+                    action: { target.tap() },
+                    success: { _ in self.waitForValue("hole", hole) && self.waitForFragment("screen=home;") })
+            }
+        }
+        for hole in [1, 4, 9, 18] {
+            try launch("audit-phone-18", modelScreen: "scorecard")
+            try capture("card-elements", "row-\(hole)-card", input: "injected-screen-production-controls")
+            for attempt in 1...5 {
+                if attempt > 1 { try launch("audit-phone-18", modelScreen: "scorecard") }
+                let target = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "\(hole),")).firstMatch
+                // Label punctuation varies by OS; constrain the integer token rather than matching
+                // '1' to row 10. Keep the actual selected hole in DEBUG telemetry for verification.
+                let row = target.exists ? target
+                    : app.buttons.matching(NSPredicate(format: "label MATCHES %@", "^\(hole)([^0-9].*)?$")).firstMatch
+                guard try reach(row, flow: "card-elements", step: "row-\(hole)-\(attempt)") else { break }
+                _ = try recordInteraction("card-elements", "row-\(hole)-\(attempt)", control: row,
+                    gesture: "tap", expected: "screen=scoring;scoringHole=\(hole)",
+                    action: { row.tap() },
+                    success: { _ in self.waitForFragment("screen=scoring;") && self.stateValue("editing") == hole })
+                try capture("card-elements", "row-\(hole)-\(attempt)-edit", collectControls: false)
+                let save = element("watch-score-save")
+                if save.exists {
+                    _ = try recordInteraction("card-elements", "row-\(hole)-save-\(attempt)", control: save,
+                        gesture: "tap", expected: "screen=scorecard;hole=1;scored=1",
+                        action: { save.tap() },
+                        success: { _ in self.waitForFragment("screen=scorecard;")
+                            && self.stateValue("hole") == 1 && self.stateValue("scored") == 1 })
+                }
+            }
+        }
+        for attempt in 1...5 {
+            try launch("audit-phone-18", modelScreen: "finishing")
+            try capture("finish-elements", "summary-\(attempt)", input: "injected-screen-production-controls")
+            let abandon = button("放弃本场")
+            guard try reach(abandon, flow: "finish-elements", step: "abandon-\(attempt)") else { continue }
+            _ = try recordInteraction("finish-elements", "abandon-\(attempt)", control: abandon, gesture: "tap",
+                expected: "screen=abandonConfirmation;", action: { abandon.tap() },
+                success: { _ in self.waitForFragment("screen=abandonConfirmation;") })
+            try capture("finish-elements", "confirmation-\(attempt)")
+            let back = button("返回")
+            if back.exists {
+                _ = try recordInteraction("finish-elements", "cancel-\(attempt)", control: back,
+                    gesture: "tap", expected: "screen=finishing;round=true;",
+                    action: { back.tap() },
+                    success: { _ in self.waitForFragment("screen=finishing;")
+                        && self.stateLabel().contains("round=true;") })
+            }
+        }
+        for attempt in 1...5 {
+            try launch("audit-turn")
+            try capture("turn-elements", "root-\(attempt)", input: "injected-turn-production-controls")
+            for identifier in ["watch-turn-half-front", "watch-turn-half-back", "watch-turn-stop-after-nine"] {
+                let target = element(identifier)
+                guard try reach(target, flow: "turn-elements", step: "\(identifier)-\(attempt)") else { continue }
+                _ = try recordInteraction("turn-elements", "\(identifier)-\(attempt)", control: target,
+                    gesture: "tap", expected: "choice selected", action: { target.tap() },
+                    success: { _ in String(describing: target.value ?? "") == "已选择" })
+            }
+            let back = button("返回第 9 洞")
+            if back.exists, try reach(back, flow: "turn-elements", step: "back-\(attempt)") {
+                _ = try recordInteraction("turn-elements", "back-\(attempt)", control: back,
+                    gesture: "tap", expected: "hole=9;screen=home;", action: { back.tap() },
+                    success: { _ in self.waitForFragment("screen=home;") && self.stateValue("hole") == 9 })
+            }
+        }
     }
 }

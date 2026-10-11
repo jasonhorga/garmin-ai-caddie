@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 from pathlib import Path
@@ -16,9 +17,9 @@ FACE_TYPES = {
     "49mm": ("Apple Watch Ultra 2 (49mm)", "Apple Watch Ultra (49mm)"),
 }
 FACES = tuple(FACE_TYPES)
-# The class currently contains ten original whole-round methods plus three element/tempo passes.
+# Ten original whole-round methods plus six element/tempo/recovery passes.
 # Keep this explicit so a silently filtered XCTest run cannot be reported as a complete audit.
-EXPECTED_AUDIT_TESTS = 13
+EXPECTED_AUDIT_TESTS = 16
 
 
 def newest_watch_runtime(runtimes: list[dict]) -> dict:
@@ -161,7 +162,10 @@ def physical(root: Path, output: Path) -> None:
     from PIL import Image, ImageEnhance, ImageDraw, ImageFont
 
     output.mkdir(parents=True, exist_ok=True)
-    manifest = {"kind": "physical-scale-and-glare", "faces": {}}
+    manifest = {"kind": "physical-scale-and-glare", "faces": {},
+                "hardwareSunlightProven": False,
+                "scaleRule": "Print at 100%; verify the 5mm bar. Browser zoom alone is not physical scale."}
+    cards = []
     try:
         font = ImageFont.truetype("DejaVuSans.ttf", 16)
     except OSError:
@@ -179,6 +183,10 @@ def physical(root: Path, output: Path) -> None:
         }
         for source in images:
             image = Image.open(source).convert("RGB")
+            width_mm = image.width * 25.4 / spec["dpi"]
+            height_mm = image.height * 25.4 / spec["dpi"]
+            manifest["faces"][face]["actualScreenshotMm"] = [
+                round(width_mm, 3), round(height_mm, 3)]
             # Keep the simulator pixels unchanged; the DPI tag and scale bar make physical size
             # explicit without resampling away a one-pixel text/edge defect.
             bar = max(1, round(5 * spec["dpi"] / 25.4))
@@ -210,6 +218,29 @@ def physical(root: Path, output: Path) -> None:
                       font=font, fill="white")
             bright_canvas.save(destination / f"{source.stem}-glare.png",
                                dpi=(spec["dpi"], spec["dpi"]))
+            cards.append(
+                f'<article><h2>{html.escape(face)} · {html.escape(source.stem)}</h2>'
+                f'<p>{width_mm:.2f} × {height_mm:.2f} mm · original pixels; simulated glare</p>'
+                f'<div class="pair"><img style="width:{width_mm:.6f}mm" '
+                f'src="{html.escape(face)}/{html.escape(source.stem)}-physical.png">'
+                f'<img style="width:{width_mm:.6f}mm" '
+                f'src="{html.escape(face)}/{html.escape(source.stem)}-glare.png"></div></article>'
+            )
+    (output / "physical-review.html").write_text(
+        '<!doctype html><html lang="en"><meta charset="utf-8">'
+        '<title>Watch #417 physical-scale evidence</title><style>'
+        '@page{size:A4;margin:12mm}body{font:12px system-ui;color:#111}'
+        'article{break-inside:avoid;border-top:1px solid #ccc;padding:4mm 0}'
+        'h2{font-size:12px;margin:0}p{font-size:10px;margin:2mm 0}'
+        '.pair{display:flex;align-items:flex-start;gap:5mm}img{height:auto;max-width:none}'
+        '.ruler{width:5mm;height:1mm;background:#111;margin:3mm 0}'
+        '</style><h1>Physical-scale review</h1>'
+        '<p>Print at 100% / actual size, with fit-to-page disabled. Verify this 5mm ruler '
+        'using a physical ruler. Browser CSS mm and enlarged chat images are not proof of wrist scale.</p>'
+        '<div class="ruler"></div><p>The image itself is not resampled. Bright/glare versions '
+        'are inspection aids, not measured sunlight or OLED luminance. Hardware first-try success, '
+        'Crown, gloves, wet fingers and arm-length readability remain unproved.</p>'
+        + "".join(cards) + '</html>', encoding="utf-8")
     (output / "physical-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     if not any(output.rglob("*-physical.png")):
         raise ValueError("No physical-scale screenshots were generated")

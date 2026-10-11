@@ -64,6 +64,29 @@ class WatchSimulatorAuditTests(unittest.TestCase):
             result = audit.sanitize("/Users/example/repository/a.swift /tmp/audit-example/log /Users/another/Library")
         self.assertEqual(result, "[GITHUB_WORKSPACE]/a.swift [RUNNER_TEMP]/log [RUNNER]/Library")
 
+    def test_physical_export_preserves_original_pixels_and_uses_actual_mm_dimensions(self):
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "input" / "watch-audit-41mm"
+            source.mkdir(parents=True)
+            original = Image.new("RGB", (352, 430), (24, 87, 35))
+            original.save(source / "score--picker.png")
+            destination = root / "physical"
+            audit.physical(root / "input", destination)
+            with Image.open(destination / "41mm" / "score--picker-physical.png") as exported:
+                self.assertEqual(exported.size, (352, 464))
+                self.assertEqual(exported.getpixel((176, 215)), original.getpixel((176, 215)))
+                self.assertAlmostEqual(exported.info["dpi"][0], 326, places=1)
+            manifest = json.loads((destination / "physical-manifest.json").read_text())
+            self.assertEqual(manifest["faces"]["41mm"]["actualScreenshotMm"],
+                             [round(352 * 25.4 / 326, 3), round(430 * 25.4 / 326, 3)])
+            page = (destination / "physical-review.html").read_text()
+            self.assertIn(f"width:{352 * 25.4 / 326:.6f}mm", page)
+            self.assertIn("Print at 100%", page)
+            self.assertFalse(manifest["hardwareSunlightProven"])
+
     def test_device_receipt_contains_exact_source_and_no_inventory_paths(self):
         runtime = {"identifier": "com.apple.watchOS-26-0", "version": "26.0", "name": "watchOS 26.0",
                    "isAvailable": True, "bundlePath": "/private/runtime"}
