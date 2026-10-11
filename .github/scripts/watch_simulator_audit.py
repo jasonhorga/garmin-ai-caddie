@@ -16,6 +16,9 @@ FACE_TYPES = {
     "49mm": ("Apple Watch Ultra 2 (49mm)", "Apple Watch Ultra (49mm)"),
 }
 FACES = tuple(FACE_TYPES)
+# The class currently contains ten original whole-round methods plus three element/tempo passes.
+# Keep this explicit so a silently filtered XCTest run cannot be reported as a complete audit.
+EXPECTED_AUDIT_TESTS = 13
 
 
 def newest_watch_runtime(runtimes: list[dict]) -> dict:
@@ -96,8 +99,8 @@ def collect(face: str, udid: str, outcome: str, output: Path) -> None:
         "tests": counts,
         "observations": len(list(output.glob("observation--*.json"))),
     }, indent=2) + "\n")
-    if counts["executed"] != 10 or counts["skipped"] or not list(output.glob("*--*.png")):
-        raise ValueError(f"Incomplete actual simulator evidence: tests={counts}")
+    if counts["executed"] != EXPECTED_AUDIT_TESTS or counts["skipped"] or not list(output.glob("*--*.png")):
+        raise ValueError(f"Incomplete actual simulator evidence: expected={EXPECTED_AUDIT_TESTS} tests={counts}")
 
 
 def grouped_steps(root: Path) -> dict[str, dict[str, dict[str, Path]]]:

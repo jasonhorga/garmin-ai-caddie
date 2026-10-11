@@ -68,6 +68,17 @@ jobs:
           AUDIT_FACE: ${{ matrix.face }}
           AUDIT_OUTCOME: ${{ steps.audit.outcome }}
         run: |
+          # The test driver intentionally redirects xcodebuild output so the simulator video does
+          # not drown the Actions log. Preserve that exact log and an xcresult summary before the
+          # collector enforces complete evidence; a failed test must remain diagnosable.
+          if test -f "$RUNNER_TEMP/watch-audit-xcode.log"; then
+            cp "$RUNNER_TEMP/watch-audit-xcode.log" watch-audit-evidence/xcodebuild.log
+          fi
+          if test -d "$RUNNER_TEMP/WatchAudit.xcresult"; then
+            xcrun xcresulttool get test-results summary \
+              --path "$RUNNER_TEMP/WatchAudit.xcresult" \
+              > watch-audit-evidence/xcresult-summary.json 2>&1 || true
+          fi
           python3 .github/scripts/watch_simulator_audit.py collect \
             --face "$AUDIT_FACE" --udid "${AUDIT_UDID:-}" \
             --outcome "$AUDIT_OUTCOME" --output watch-audit-evidence
