@@ -63,6 +63,19 @@ def sanitize(text: str) -> str:
     return text
 
 
+def test_counts(text: str) -> dict[str, int]:
+    # Count terminal methods, not repeated suite totals or merely started tests. A skipped or
+    # empty UI run must not become a green screenshot-collection claim.
+    results = dict(re.findall(
+        r"Test Case '-\[AICaddieWatchUITests\.WatchWholeRoundAuditUITests (test\w+)\]' "
+        r"(passed|failed|skipped)", text
+    ))
+    return {"executed": len(results), **{
+        status: sum(value == status for value in results.values())
+        for status in ("passed", "failed", "skipped")
+    }}
+
+
 def collect(face: str, udid: str, outcome: str, output: Path) -> None:
     output.mkdir(parents=True, exist_ok=True)
     if udid:
@@ -72,6 +85,7 @@ def collect(face: str, udid: str, outcome: str, output: Path) -> None:
                 if source.suffix in (".png", ".json"):
                     shutil.copy2(source, output / source.name)
     log = Path(os.environ["RUNNER_TEMP"]) / "watch-audit-xcode.log"
+    counts = test_counts(log.read_text(errors="replace")) if log.exists() else test_counts("")
     if log.exists():
         (output / "test.log").write_text(sanitize(log.read_text(errors="replace")))
     (output / "result.json").write_text(json.dumps({
@@ -79,7 +93,11 @@ def collect(face: str, udid: str, outcome: str, output: Path) -> None:
         "screenshots": len(list(output.glob("*--*.png"))),
         "source": os.environ.get("GITHUB_SHA", "unknown"),
         "run": os.environ.get("GITHUB_RUN_ID", "unknown"),
+        "tests": counts,
+        "observations": len(list(output.glob("observation--*.json"))),
     }, indent=2) + "\n")
+    if counts["executed"] != 10 or counts["skipped"] or not list(output.glob("*--*.png")):
+        raise ValueError(f"Incomplete actual simulator evidence: tests={counts}")
 
 
 def grouped_steps(root: Path) -> dict[str, dict[str, dict[str, Path]]]:
@@ -109,11 +127,12 @@ def sheets(root: Path, output: Path) -> None:
             for row, (step, images) in enumerate(page):
                 for col, face in enumerate(FACES):
                     x, y = col * 450, row * 565
-                    draw.text((x + 8, y + 5), f"{face} | {flow} | {step}", font=font, fill="white")
+                    draw.text((x + 8, y + 5), f"{face} | {flow}", font=font, fill="white")
+                    draw.text((x + 8, y + 27), step[:48], font=font, fill="white")
                     source = images.get(face)
                     if source:
                         image = Image.open(source).convert("RGB")
-                        sheet.paste(image, (x + (450 - image.width) // 2, y + 43))
+                        sheet.paste(image, (x + (450 - image.width) // 2, y + 59))
                     else:
                         draw.text((x + 20, y + 180), "NOT CAPTURED", font=font, fill="#ff655b")
                 coverage.append({"flow": flow, "step": step,

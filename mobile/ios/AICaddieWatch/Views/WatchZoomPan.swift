@@ -41,6 +41,16 @@ struct WatchZoomPanModifier: ViewModifier {
                     .onEnded { _ in dragStart = nil },
                 including: viewport.isZoomed ? .all : .subviews
             )
+            #if DEBUG
+            .overlay(alignment: .topLeading) {
+                if ProcessInfo.processInfo.environment["UITEST_AUDIT_ANCHORS"] == "1" {
+                    Text("zoom=\(viewport.zoom);panX=\(viewport.pan.width);panY=\(viewport.pan.height);")
+                        .font(.system(size: 1)).foregroundStyle(.clear)
+                        .frame(width: 2, height: 2).allowsHitTesting(false)
+                        .accessibilityIdentifier("watch-audit-viewport")
+                }
+            }
+            #endif
     }
 }
 

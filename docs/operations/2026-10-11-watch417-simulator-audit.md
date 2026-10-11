@@ -46,3 +46,20 @@ It adds actual measurement-ring clearing, two flag edge drags, hazard switching 
 both named nine-hole choices beside the 18-hole venue, and consistent 220-yard fixture movement.
 The first scaffold source's ordinary CI and Native CI passed; exact final-head simulator evidence
 is still required. No opt-in audit test execution is inferred from ordinary Native CI.
+
+First dispatch: [38136927473](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38136927473),
+source `678eca1b`, Xcode 26.3 / watchOS 26.2. Ten methods executed on every face; 41/46 mm
+had six failures and 49 mm seven. The artifact gallery is partial, not a passed whole-round audit.
+Ordinary CI `38136912931` and Native CI `38136912932` succeeded; both artifact sets were retained.
+
+Test corrections use the actual Switch for auto-shot, directional drags on the actual ScrollView,
+and explicit visual-centre pointer taps. A failed product page transition is preserved as an
+observation with screenshots; any fixture recovery is explicitly named before later pages run.
+DEBUG-only viewport telemetry distinguishes injected zoom from the state actually shown.
+The collector records terminal test counts and rejects missing, skipped or empty audit evidence.
+The corrected source needs a new documented dispatch; the first failed attempt remains evidence.
+
+Follow-up preparation: 7 audit-tool regressions, 12 visual contracts and 126 mobile contracts
+passed (145 total; mobile 7.181 s). A collection pass is distinct from a product UX pass:
+`observation--*.json` retains failed expectations; named recovery screenshots identify injected
+boundaries. Actual viewport/page metadata accompanies each screenshot where instrumented.

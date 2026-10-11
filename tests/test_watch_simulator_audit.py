@@ -13,6 +13,17 @@ spec.loader.exec_module(audit)
 
 
 class WatchSimulatorAuditTests(unittest.TestCase):
+    def test_execution_count_uses_completed_methods_and_rejects_empty_or_skipped_evidence(self):
+        log = "\n".join([
+            "Test Case '-[AICaddieWatchUITests.WatchWholeRoundAuditUITests test01Launch]' started.",
+            "Test Case '-[AICaddieWatchUITests.WatchWholeRoundAuditUITests test01Launch]' passed (2.1 seconds).",
+            "Test Case '-[AICaddieWatchUITests.WatchWholeRoundAuditUITests test02Pages]' failed (3.0 seconds).",
+            "Test Case '-[AICaddieWatchUITests.WatchWholeRoundAuditUITests test03Shots]' skipped (0.0 seconds).",
+            "Executed 10 tests, with 0 failures",
+        ])
+        self.assertEqual(audit.test_counts(log), {"executed": 3, "passed": 1, "failed": 1, "skipped": 1})
+        self.assertEqual(audit.test_counts("Executed 10 tests, with 0 failures")["executed"], 0)
+
     def test_newest_runtime_is_numeric_and_excludes_unavailable_and_ios(self):
         rows = [
             {"identifier": "com.apple.watchOS-9-6", "version": "9.6", "isAvailable": True},

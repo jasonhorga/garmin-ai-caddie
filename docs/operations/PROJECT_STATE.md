@@ -3,7 +3,7 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Dated docs/archive/ files are historical and non-authoritative.
 
-**Updated:** 2026-10-11 11:44 UTC
+**Updated:** 2026-10-11 12:34 UTC
 **Canonical branch:** main 0882c41c; released source b662572e
 **Current slice:** `WATCH-417-SIMULATOR-AUDIT` — `in-progress`
 
@@ -31,16 +31,32 @@ Review required CI and dedicated actual simulator artifacts before any merge.
 ## Audit source and verification
 
 Owned implementation branch codex/watch417-simulator-audit, base0882c41c.
-Published3408289779c4339ab30c345660d17fa61b9067f4 in #418.
-Local follow-up8bfb7fd3 was verified; publication of this updated source
-and its continuity record is next: exact measurement clearing/flag edge drag/zoomed hazard switching,
+Published exact #418 head678eca1b05b34bdc541200e0e1388074a9f7c509;
+34082897 initial source and8bfb7fd3 unpublished draft superseded.
+Guarded bundle push preserved shared HEAD/index and removed temporary ref.
+Latest follow-up: exact measurement clearing/flag edge drag/zoomed hazard switching,
 mixed A/B venues and consistent220-yard shot movement.
 Latest source preparation:6 audit-tool +12 native visual +126 mobile
 contracts=144 tests passed; mobile7.297s; two workflow YAML files parsed.
 First #418 source34082897: CI38127947554/Native38127947531 succeeded;
 latest exact-head Native CI/screenshot evidence still pending. First mobile attempt
 hit read-only fixture data; isolated128MiB tmpfs resolved it, container removed.
-No dedicated audit dispatch yet; exact latest-head Native run pending.
+First audit38136927473 finished failure; CI38136912931/Native38136912932
+succeeded. PTY61473 closed1 after delivering all three explicit conclusions.
+Artifacts retained privately: audit73MiB/Native23MiB. All ten audit methods
+actually executed on each face:41/46mm6 failures,49mm7; no skipped-audit claim.
+Actual observed runner: Xcode26.3/watchOS26.2 (not mocked26.0).
+Initial screenshots inspected:41mm center575 clips to5…; unzoomed swipe after
+measurement stayed on plan; zoomed hazard drag switched to green. Provisional
+UI findings need viewport telemetry/reproduction. Harness also queried a switch
+as a button and scroll up/down could undo its own progress. Ultra bottom-control
+taps did not transition; explicit visual-centre taps/real long-press alternative
+will separate pointer/harness behavior from a dead-end product flow.
+Test-only corrections/observations implemented;7 audit-tool+12 visual+126
+mobile contracts=145 passed (mobile7.181s). Named recovery preserves broken
+interactions while collecting later pages; no product fixes. First-pass gallery
+101/107/57 screenshots, face comparisons artifact11702260861.
+Exact new-head Native/runtime verification still required.
 Mock selector watchOS26.0 is test data, not an observed runner runtime.
 
 Fixtures repeat an existing hole across synthetic all-par5 rounds. This does
@@ -93,22 +109,27 @@ Detailed scope: docs/operations/2026-10-11-watch417-simulator-audit.md.
   /home/jason/codex-runs/garmin-ai-caddie-claude-takeover-20261005 belongs to
   Claude too: never checkout/reset/stash, overwrite files or use normal index.
 - All prior feedback/release/Apple terminals closed.11516 delivered the #417
-  task and closed0. No active waiting terminal; do not recover old handles.
+  task and closed0. Explicit wait PTY61473 closed1; artifact-download terminal9348 closed0.
+  No active waiter; do not recover old handles.
   Prior transport recoveries/closure receipts retained in dated operations.
 - gh-feedback timer/cursor unchanged. Published waiter:
   /home/jason/garmin-ai-caddie-data/operations/wait-release-filter-20261010/publication/ops/wait_for_conclusion.sh
+- Local first-pass contact-sheet copy .codex-watch417-first-contact-sheets/
+  is owned, backed by private persistent artifacts; expiry October12 08:30UTC.
 - Last verified capacity57GiB disk/4.9GiB RAM. Recheck before heavy work.
 - Displaced ledger preserved verbatim in
-  docs/archive/PROJECT_STATE-2026-10-11-before-watch417-runtime-verification.md.
+  docs/archive/PROJECT_STATE-2026-10-11-before-watch417-runtime-verification.md; subsequent transition in
+  PROJECT_STATE-2026-10-11-before-watch417-dispatch.md.
 
 ## Next action and stopping
 
-Latest remote verification complete; publish updated existing #418 branch
-without changing shared checkout/index.
-Obtain exact-head CI IDs once; use explicit blocking waits (Codex Native/audit
-heads are suppressed from feedback wakes). Required Native CI/screenshots
-before merge. Dispatch watch-runtime.yml runtime_scope=simulator-audit once,
-wait its specific run, download and inspect all actual screenshots/motion.
+Publish the corrected test harness (directional container scroll, Switch query,
+explicit tap coordinates, viewport/page telemetry, non-silent recovery after
+recorded UI findings; collector rejects zero/skipped methods). Remote preparation verified145 tests; publish
+#418 follow-up, then one documented dispatch on that corrected exact source.
+Retain first failure as evidence; do not rerun unchanged source. Required final
+exact-head Native CI/screenshots before merge. Complete9/18-hole/turn flows,
+review all faces/artifacts and report ranked findings/gaps to #417.
 Separate harness failures, product findings and simulator gaps; report #417.
 Do not claim ten flows ran if skipped or artifacts are empty.
 Close owned resources when review ends, then resume feedback waiter same turn.

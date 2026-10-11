@@ -60,11 +60,24 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             return
         }
         if scroll {
-            for _ in 0..<10 where !target.isHittable { app.swipeUp() }
-            for _ in 0..<10 where !target.isHittable { app.swipeDown() }
+            // Scroll the actual container in the direction of the target. Whole-app flicks can
+            // overshoot a row and the old up-then-down loop returned the list to its start.
+            let container = app.scrollViews.firstMatch.exists ? app.scrollViews.firstMatch : app
+            for _ in 0..<30 {
+                let frame = target.frame
+                let safeTop = app.frame.height * 0.24
+                let safeBottom = app.frame.height * 0.76
+                if target.isHittable && frame.midY >= safeTop && frame.midY <= safeBottom { break }
+                let down = frame.midY > app.frame.height * 0.5
+                let start = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.76 : 0.30))
+                let end = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.30 : 0.76))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            }
         }
         XCTAssertTrue(target.isHittable, "Control must be reachable: \(target.label)")
-        target.tap()
+        // Use the visual centre explicitly; Watch accessibility activation sometimes picks a
+        // different point in a rounded bottom control. This remains an actual pointer tap.
+        target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 
     private func trace(_ fragment: String, timeout: TimeInterval = 10) {
@@ -92,16 +105,66 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
              "frame": [Double($0.frame.minX), Double($0.frame.minY),
                        Double($0.frame.width), Double($0.frame.height)]]
         }
+        let switches: [[String: Any]] = app.switches.allElementsBoundByIndex.map {
+            ["label": $0.label, "value": String(describing: $0.value ?? ""), "hittable": $0.isHittable]
+        }
         let root = element("watch-audit-state")
+        let page = element("watch-hole-page-current")
+        let viewport = element("watch-audit-viewport")
         let metadata: [String: Any] = ["flow": flow, "step": step, "inputMode": input,
                                        "trace": root.exists ? root.label : "not-instrumented",
-                                       "controls": controls]
+                                       "shownPage": page.exists ? page.label : "not-instrumented",
+                                       "viewport": viewport.exists ? viewport.label : "not-instrumented",
+                                       "controls": controls, "switches": switches]
         try JSONSerialization.data(withJSONObject: metadata, options: .sortedKeys)
             .write(to: output.appendingPathComponent(stem + ".json"), options: .atomic)
         return file
     }
 
-    private func openMenu() throws { try tap(element("watch-hole-menu"), scroll: false) }
+    /// An audit must retain a broken product interaction and still inspect later pages. These
+    /// observations are findings, not passing product assertions; any fixture recovery is named.
+    private func observe(_ flow: String, _ step: String, expected: String, actual: String) throws {
+        let row = ["flow": flow, "step": step, "expected": expected, "actual": actual]
+        try JSONSerialization.data(withJSONObject: row, options: .sortedKeys)
+            .write(to: output.appendingPathComponent("observation--\(flow)-\(step).json"), options: .atomic)
+    }
+
+    private func waitForPage(_ name: String, timeout: TimeInterval = 5) -> Bool {
+        let marker = element("watch-hole-page-current")
+        return XCTWaiter().wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", name), object: marker
+        )], timeout: timeout) == .completed
+    }
+
+    private func swipePage(up: Bool, to name: String, flow: String, step: String) throws -> Bool {
+        let pager = app.collectionViews["PUICPageViewController_collectionView"]
+        XCTAssertTrue(pager.waitForExistence(timeout: 5))
+        if up { pager.swipeUp() } else { pager.swipeDown() }
+        let moved = waitForPage(name)
+        try capture(flow, step)
+        if !moved {
+            try observe(flow, step, expected: name, actual: element("watch-hole-page-current").label)
+        }
+        return moved
+    }
+
+    private func openMenu() throws {
+        try tap(element("watch-hole-menu"), scroll: false)
+        let opened = XCTWaiter().wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "screen=menu;"),
+            object: element("watch-audit-state")
+        )], timeout: 3) == .completed
+        if !opened {
+            try capture("navigation", "menu-tap-no-transition")
+            try observe("navigation", "menu-tap-no-transition", expected: "screen=menu;",
+                        actual: element("watch-audit-state").label)
+            // The production map also offers a long-press menu. Preserve a broken tap, then
+            // continue via that real alternative so later scoring flows are still inspected.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.73)).press(forDuration: 0.75)
+            trace("screen=menu;")
+            try capture("navigation", "menu-recovered-by-long-press")
+        }
+    }
 
     private func selectHole(_ hole: Int) throws {
         try openMenu()
@@ -173,13 +236,18 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             predicate: NSPredicate(format: "exists == false"), object: ring
         )], timeout: 5), .completed, "tapping the actual measure ring clears it")
         try capture("pages", "04-cleared-measure")
-        let pager = app.collectionViews["PUICPageViewController_collectionView"]
-        pager.swipeUp()
+        if try swipePage(up: true, to: "障碍", flow: "pages", step: "04b-swipe-to-hazards") == false {
+            try launch("audit-phone-18", page: 1)
+            try capture("pages", "04c-recovered-hazard-page", input: "injected-state-after-recorded-finding")
+        }
         XCTAssertTrue(element("watch-hazard-next").waitForExistence(timeout: 8))
         try capture("pages", "05-hazard-first")
         try tap(element("watch-hazard-next"), scroll: false)
         try capture("pages", "06-hazard-next")
-        pager.swipeUp()
+        if try swipePage(up: true, to: "果岭", flow: "pages", step: "06b-swipe-to-green") == false {
+            try launch("audit-phone-18", page: 2)
+            try capture("pages", "06c-recovered-green-page", input: "injected-state-after-recorded-finding")
+        }
         try capture("pages", "07-green")
         let flagAnchor = element("watch-audit-flag-anchor")
         XCTAssertTrue(flagAnchor.waitForExistence(timeout: 8))
@@ -191,8 +259,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         flagAnchor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(forDuration: 0.5, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.23)))
         try capture("pages", "08b-flag-edge-slide")
-        pager.swipeDown()
-        try capture("pages", "09-back-to-hazard")
+        _ = try swipePage(up: false, to: "障碍", flow: "pages", step: "09-back-to-hazard")
     }
 
     func test03ZoomPanLongPressAndAOD() throws {
@@ -203,9 +270,16 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                 let step = "p\(page)-z\(zoom)"
                 try capture("zoom", step + "-before", input: "injected-state")
                 if zoom > 1 {
+                    let expectedPage = ["方案", "障碍", "果岭"][page]
                     app.coordinate(withNormalizedOffset: CGVector(dx: 0.84, dy: 0.65))
                         .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.66, dy: 0.37)))
                     try capture("zoom", step + "-panned")
+                    if !waitForPage(expectedPage, timeout: 1) {
+                        try observe("zoom", step + "-panned", expected: expectedPage,
+                                    actual: element("watch-hole-page-current").label)
+                        try launch("audit-phone-18", page: page, zoom: zoom)
+                        try capture("zoom", step + "-recovered-page", input: "injected-state-after-recorded-finding")
+                    }
                     app.coordinate(withNormalizedOffset: CGVector(dx: 0.67, dy: 0.37)).press(forDuration: 0.6)
                     try capture("zoom", step + "-long-press")
                     if page == 1 {
@@ -253,7 +327,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         try tap(app.buttons["更多工具"])
         try tap(app.buttons["设置"])
         try capture("shots", "05b-supported-settings", input: "injected-state")
-        let autoShot = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "自动记杆")).firstMatch
+        let autoShot = app.switches["自动记杆"]
         try tap(autoShot)
         trace("auto=true;")
         try capture("shots", "05c-auto-enabled")
