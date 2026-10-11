@@ -131,11 +131,14 @@ struct WatchSimulatorAuditRoot: View {
             WatchCourseOption(globalId: nineId, name: "模拟审查球场 ~ A", holes: 9,
                               teeBox: "Blue", venueName: "模拟审查球场",
                               segmentLabel: "A", segmentHoles: 9, tees: ["Blue", "White"]),
+            WatchCourseOption(globalId: 32002, name: "模拟审查球场 ~ B", holes: 9,
+                              teeBox: "Blue", venueName: "模拟审查球场",
+                              segmentLabel: "B", segmentHoles: 9, tees: ["Blue", "White"]),
         ]
     }
 
     private var startOptions: [WatchCourseOption] {
-        screen == "audit-start-nine" ? Array(Self.options.reversed()) : Self.options
+        screen == "audit-start-nine" ? [Self.options[1], Self.options[2], Self.options[0]] : Self.options
     }
 
     /// Repeating an existing review hole is a UI fixture, never a claim about an actual 18-hole map.
@@ -273,7 +276,7 @@ struct WatchSimulatorAuditRoot: View {
     private func refreshFix() {
         guard env["UITEST_AUDIT_RANGE"] != "none" else { fix = nil; return }
         let movement = env["UITEST_AUDIT_RANGE"] == "far" ? 1.0
-            : (env["UITEST_AUDIT_MOVE_AFTER_SHOT"] == "1" && model.recordedShotCount > 0 ? 0.0012 : 0)
+            : (env["UITEST_AUDIT_MOVE_AFTER_SHOT"] == "1" && model.recordedShotCount > 0 ? 201.2 / 111_195 : 0)
         let latitude = (model.activeHoleState?.teeLatitude ?? Self.originLatitude) + movement
         let date = env["UITEST_AUDIT_RANGE"] == "stale" ? Date().addingTimeInterval(-120) : Date()
         fix = WatchLocationFix(coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: Self.longitude),

@@ -166,8 +166,12 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         try capture("pages", "02-switched-plan")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.45)).tap()
         try capture("pages", "03-tap-measure")
-        let clear = app.buttons["清除测距目标"]
-        if clear.exists { try tap(clear, scroll: false) }
+        let ring = element("watch-audit-target-anchor")
+        XCTAssertTrue(ring.waitForExistence(timeout: 5))
+        ring.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"), object: ring
+        )], timeout: 5), .completed, "tapping the actual measure ring clears it")
         try capture("pages", "04-cleared-measure")
         let pager = app.collectionViews["PUICPageViewController_collectionView"]
         pager.swipeUp()
@@ -184,6 +188,9 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             .press(forDuration: 0.5, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.86, dy: 0.43)))
         XCTAssertNotEqual(flagAnchor.frame, originalFlag, "dragging the actual flag base moves the flag")
         try capture("pages", "08-flag-boundary")
+        flagAnchor.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.5, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.23)))
+        try capture("pages", "08b-flag-edge-slide")
         pager.swipeDown()
         try capture("pages", "09-back-to-hazard")
     }
@@ -201,6 +208,10 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                     try capture("zoom", step + "-panned")
                     app.coordinate(withNormalizedOffset: CGVector(dx: 0.67, dy: 0.37)).press(forDuration: 0.6)
                     try capture("zoom", step + "-long-press")
+                    if page == 1 {
+                        try tap(element("watch-hazard-next"), scroll: false)
+                        try capture("zoom", step + "-switched-hazard")
+                    }
                 }
             }
             try launch("audit-phone-18", page: page, aod: true)
@@ -230,7 +241,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         try tap(element("watch-hole-record-shot"), scroll: false)
         try capture("shots", "03-pending-commit")
         trace("shots=1;", timeout: 30)
-        // The injected next stationary fix advances 133 m; the distance pill itself is production.
+        // The next synthetic fix advances the fixture Driver's 201.2 m / 220 yd carry.
         sleep(4)
         try capture("shots", "04-committed")
         try openMenu()

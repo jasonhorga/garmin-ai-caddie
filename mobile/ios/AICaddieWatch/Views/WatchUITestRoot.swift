@@ -6,8 +6,8 @@ import SwiftUI
 /// Real-runtime watch screenshots: launched with `-uitest-screen <name>` (via `simctl launch`), the watch
 /// app renders the REAL target view with demo data at its root so `simctl io screenshot` captures it in
 /// the actual watchOS simulator runtime — including List/ScrollView content that ImageRenderer design
-/// snapshots cannot render. DEBUG-only: never compiled into the Release/TestFlight binary. watchOS has no
-/// XCUITest, so this direct-render-by-arg harness is how the watch surfaces get genuine running-app shots.
+/// snapshots cannot render. DEBUG-only: never compiled into the Release/TestFlight binary. The Watch
+/// UI-test target also uses these fixture inputs while driving real controls and gestures.
 public struct WatchUITestRoot: View {
     public let screen: String
     @ObservedObject private var model: WatchRoundModel

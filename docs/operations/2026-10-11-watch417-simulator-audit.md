@@ -40,3 +40,9 @@ contracts and 126 mobile contracts (144 tests total); both workflow files parse 
 suite used the existing API image with a read-only source mount and fixture-only in-memory data.
 Its first attempt exposed a read-only test-data mount error; the isolated fixture mount resolved it.
 The temporary test container was removed automatically. No simulator verdict has been claimed yet.
+
+The follow-up source repeats the 144 preparation tests successfully (mobile contracts: 7.297 s).
+It adds actual measurement-ring clearing, two flag edge drags, hazard switching while zoomed,
+both named nine-hole choices beside the 18-hole venue, and consistent 220-yard fixture movement.
+The first scaffold source's ordinary CI and Native CI passed; exact final-head simulator evidence
+is still required. No opt-in audit test execution is inferred from ordinary Native CI.
