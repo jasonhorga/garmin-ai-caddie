@@ -16,23 +16,24 @@ enum WatchScoreHoleLayout {
     static let systemTimeTrailingClearance: CGFloat = 48
     /// Horizontal drag distance for one stroke on the total band.
     static let bandStepPoints: CGFloat = 28
-    /// Vertical drag distance for one step on an open putts / penalties wheel.
-    static let wheelStepPoints: CGFloat = 22
+    /// Vertical drag distance for one step on the open putts / penalties picker (full screen).
+    static let wheelStepPoints: CGFloat = 30
     /// Rolling up brings the next number in.
     static func wheelSteps(_ translationHeight: CGFloat) -> Int {
         Int((-translationHeight / wheelStepPoints).rounded())
     }
 
-    /// How far the digits follow the finger: a peek, never past the chip's own edge.
-    static func wheelPeek(_ translationHeight: CGFloat, chip: CGFloat) -> CGFloat {
-        let limit = chip * 0.22
-        return min(max(translationHeight / 3, -limit), limit)
+    /// How far the digits follow the finger: a short peek toward the next number.
+    static func wheelPeek(_ translationHeight: CGFloat) -> CGFloat {
+        let limit = wheelStepPoints * 0.6
+        return min(max(translationHeight / 2, -limit), limit)
     }
 
-    /// How long an open wheel waits before folding back: briefly once a roll has settled, a little
-    /// longer while it is only open (tapped, or turned with the Crown).
+    /// Owner feedback 2026-10-11: the in-chip wheel (36 pt, folding 0.45 s after the finger lifted)
+    /// could not be operated on the wrist. The picker now opens full screen and folds back only
+    /// after the golfer has left it alone this long, or on 完成.
     static func wheelCloseDelayNanoseconds(settled: Bool) -> UInt64 {
-        settled ? 450_000_000 : 1_600_000_000
+        settled ? 2_500_000_000 : 4_000_000_000
     }
 
     /// Below this content height (41 mm / 40 mm) the compact metrics are used so every row — the
@@ -48,8 +49,8 @@ enum WatchScoreHoleLayout {
         let save: CGFloat
         let spacing: CGFloat
 
-        static let regular = Metrics(header: 32, bandFont: 48, band: 54, chip: 36, cell: 28, save: 38, spacing: 4)
-        static let compact = Metrics(header: 24, bandFont: 38, band: 42, chip: 28, cell: 24, save: 32, spacing: 2)
+        static let regular = Metrics(header: 32, bandFont: 48, band: 54, chip: 40, cell: 28, save: 38, spacing: 3)
+        static let compact = Metrics(header: 24, bandFont: 38, band: 42, chip: 36, cell: 24, save: 32, spacing: 2)
     }
 
     static func metrics(forHeight height: CGFloat) -> Metrics {
@@ -64,14 +65,14 @@ enum WatchScoreHoleLayout {
     }
 }
 
-/// Which inline wheel is open on 本洞成绩.
+/// Which putts / penalties picker is open on 本洞成绩.
 public enum WatchScoreWheel: String, Equatable {
     case putts, penalty
 }
 
 /// B6 本洞成绩 (README §3): one screen. The total is a horizontal number band (drag or Crown; the
-/// middle number is the value, its neighbours smaller and fainter). Putts and penalties are inline
-/// wheels: tap to open, roll up/down (or the Crown) in a loop, and they close once left alone.
+/// middle number is the value, its neighbours smaller and fainter). Putts and penalties are chips
+/// that open a full-screen picker (- / +, roll up/down, or the Crown, in a loop; 完成 or left alone).
 /// Par 4/5 add the three tee-shot cells. 保存 confirms; an unconfirmed hole is saved by the next
 /// hole's tee shot. Presentational and driven by `WatchRoundModel`.
 public struct WatchScoreHoleView: View {
@@ -98,6 +99,8 @@ public struct WatchScoreHoleView: View {
     @State private var wheelDrag: CGFloat = 0
     /// A roll on the open wheel has ended; it folds back after a short pause.
     @State private var wheelSettled = false
+    /// A finger is on the open picker: it never folds mid-drag.
+    @State private var wheelDragging = false
     /// DEBUG evidence only (`WatchUITestRoot` score-putts / score-penalty): keep the fixture's open
     /// wheel open so a runtime capture shows it. Production always folds it back.
     private let holdsOpenWheel: Bool
@@ -144,8 +147,8 @@ public struct WatchScoreHoleView: View {
             VStack(spacing: m.spacing) {
                 header(m)
                 scoreBand(m)
-                // 推 / 罚 roll IN PLACE inside their own chip (README §3: 原地上下滚，不弹单独页面);
-                // the band, the other chip and the tee cells stay where they are and uncovered.
+                // 推 / 罚 open a full-screen picker (owner feedback 2026-10-11 supersedes README §3
+                // 原地上下滚: the in-chip wheel was too small to operate on the wrist).
                 HStack(spacing: 6) {
                     wheelChip(.putts, m)
                     wheelChip(.penalty, m)
@@ -160,6 +163,12 @@ public struct WatchScoreHoleView: View {
             .padding(.top, 3)
             .padding(.bottom, 7)
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+            .overlay {
+                if let openWheel {
+                    wheelPicker(openWheel, size: proxy.size)
+                        .transition(.opacity)
+                }
+            }
         }
         // The title already reserves the top-right clock lane.
         .ignoresSafeArea(edges: .top)
@@ -175,9 +184,10 @@ public struct WatchScoreHoleView: View {
         }
         .task(id: wheelIdentity) {
             // An open wheel closes once left alone ("停手即选定并收起").
-            guard openWheel != nil, !holdsOpenWheel else { return }
+            guard openWheel != nil, !holdsOpenWheel, !wheelDragging else { return }
             try? await Task.sleep(nanoseconds: WatchScoreHoleLayout.wheelCloseDelayNanoseconds(settled: wheelSettled))
             guard !Task.isCancelled else { return }
+            wheelDrag = 0
             withAnimation(.easeOut(duration: 0.2)) { openWheel = nil }
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: score)
@@ -186,8 +196,8 @@ public struct WatchScoreHoleView: View {
     /// Changes whenever the open wheel or its value changes, restarting the close timer.
     private var wheelIdentity: String {
         switch openWheel {
-        case .putts: return "putts-\(putts)-\(wheelSettled)"
-        case .penalty: return "penalty-\(penalty)-\(wheelSettled)"
+        case .putts: return "putts-\(putts)-\(wheelSettled)-\(wheelDragging)"
+        case .penalty: return "penalty-\(penalty)-\(wheelSettled)-\(wheelDragging)"
         case nil: return "closed"
         }
     }
@@ -227,12 +237,16 @@ public struct WatchScoreHoleView: View {
             HStack(alignment: .center, spacing: 0) {
                 ForEach(-2...2, id: \.self) { offset in
                     let value = score + offset
+                    // Audit #417: five equal columns clipped a two-digit total to "…"; the centre
+                    // column is sized for two digits and every number may shrink rather than clip.
                     Text(WatchScoreRules.scoreRange.contains(value) ? "\(value)" : "")
                         .font(.system(size: offset == 0 ? m.bandFont : (abs(offset) == 1 ? m.bandFont * 0.48 : m.bandFont * 0.32),
                                       weight: .black, design: .rounded))
                         .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                         .foregroundStyle(.white.opacity(offset == 0 ? 1 : (abs(offset) == 1 ? 0.45 : 0.2)))
-                        .frame(maxWidth: .infinity)
+                        .frame(minWidth: offset == 0 ? m.bandFont * 1.3 : 0, maxWidth: offset == 0 ? m.bandFont * 1.3 : .infinity)
                         .onTapGesture { if offset != 0 { onScore(value) } }
                 }
             }
@@ -275,51 +289,25 @@ public struct WatchScoreHoleView: View {
 
     private func wheelChip(_ wheel: WatchScoreWheel, _ m: WatchScoreHoleLayout.Metrics) -> some View {
         let value = wheel == .putts ? putts : penalty
-        let isOpen = openWheel == wheel
         let name = wheel == .putts ? "推杆" : "罚杆"
-        // README §3: the wheel rolls INSIDE the chip at the chip's own size — the neighbours peek
-        // above and below the value — so the band, the other chip and the tee cells stay uncovered.
+        // Owner feedback 2026-10-11 supersedes README §3 "原地上下滚": the chip only shows the value;
+        // a tap opens the full-screen picker (`wheelPicker`), which a gloved finger can operate.
         return HStack(spacing: 4) {
             Text(wheel == .putts ? "推" : "罚")
-                .font(.system(size: 14, weight: .heavy))
+                .font(.system(size: 15, weight: .heavy))
                 .foregroundStyle(.secondary)
-            if isOpen {
-                wheelDigits(wheel, value: value, m)
-            } else {
-                Text("\(value)")
-                    .font(.system(size: m.chip * 0.58, weight: .black, design: .rounded))
-                    .monospacedDigit()
-            }
+            Text("\(value)")
+                .font(.system(size: m.chip * 0.6, weight: .black, design: .rounded))
+                .monospacedDigit()
         }
         .frame(maxWidth: .infinity)
         .frame(height: m.chip)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(isOpen ? 0.14 : 0.2)))
-        .overlay {
-            if isOpen {
-                RoundedRectangle(cornerRadius: 12).strokeBorder(AICaddieDesignTokens.par, lineWidth: 1.5)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.2)))
         .contentShape(Rectangle())
         .onTapGesture {
             wheelSettled = false
-            withAnimation(.easeOut(duration: 0.2)) { openWheel = isOpen ? nil : wheel }
+            withAnimation(.easeOut(duration: 0.2)) { openWheel = wheel }
         }
-        .gesture(
-            DragGesture(minimumDistance: 4)
-                .onChanged { drag in
-                    wheelSettled = false
-                    wheelDrag = WatchScoreHoleLayout.wheelPeek(drag.translation.height, chip: m.chip)
-                }
-                .onEnded { drag in
-                    wheelDrag = 0
-                    let steps = WatchScoreHoleLayout.wheelSteps(drag.translation.height)
-                    if steps != 0 { step(steps) }
-                    // 停手即选定并收起: the settled wheel folds back shortly after the finger lifts.
-                    wheelSettled = true
-                },
-            including: isOpen ? .all : .subviews
-        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(name) \(value)")
         .accessibilityAddTraits(.isButton)
@@ -327,22 +315,94 @@ public struct WatchScoreHoleView: View {
             let delta = direction == .increment ? 1 : -1
             if wheel == .putts { onPutts(putts + delta) } else { onPenalty(penalty + delta) }
         }
-        .accessibilityIdentifier(isOpen ? "watch-score-wheel-\(wheel.rawValue)" : "watch-score-\(wheel.rawValue)")
+        .accessibilityIdentifier("watch-score-\(wheel.rawValue)")
     }
 
-    /// The value with its neighbours, all inside the chip's height.
-    private func wheelDigits(_ wheel: WatchScoreWheel, value: Int, _ m: WatchScoreHoleLayout.Metrics) -> some View {
+    /// The open putts / penalties picker, full screen: a large value with its neighbours, big − / +
+    /// buttons, a vertical drag anywhere on the sheet, the Crown, and 完成.
+    private func wheelPicker(_ wheel: WatchScoreWheel, size: CGSize) -> some View {
+        let value = wheel == .putts ? putts : penalty
         let range = wheel == .putts ? WatchScoreRules.puttRange : WatchScoreRules.penaltyRange
-        return VStack(spacing: 0) {
-            ForEach(-1...1, id: \.self) { offset in
-                Text("\(WatchScoreRules.wrap(value + offset, in: range))")
-                    .font(.system(size: offset == 0 ? m.chip * 0.5 : m.chip * 0.26, weight: .black, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(offset == 0 ? 1 : 0.4))
-                    .frame(height: offset == 0 ? m.chip * 0.56 : m.chip * 0.22)
+        let name = wheel == .putts ? "推杆" : "罚杆"
+        let compact = size.height < WatchScoreHoleLayout.compactHeight
+        let digit: CGFloat = compact ? 50 : 64
+        let button: CGFloat = compact ? 44 : 50
+        return ZStack {
+            Color.black // opaque: the score screen underneath must not show through
+            VStack(spacing: compact ? 2 : 4) {
+                Text(name)
+                    .font(.system(size: 17, weight: .black))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, WatchScoreHoleLayout.systemTimeTrailingClearance)
+                HStack(spacing: 4) {
+                    pickerStep("minus", label: "\(name)减一", size: button) { nudge(-1) }
+                    VStack(spacing: 0) {
+                        ForEach(-1...1, id: \.self) { offset in
+                            Text("\(WatchScoreRules.wrap(value + offset, in: range))")
+                                .font(.system(size: offset == 0 ? digit : digit * 0.4, weight: .black, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(.white.opacity(offset == 0 ? 1 : 0.4))
+                        }
+                    }
+                    .offset(y: wheelDrag)
+                    .frame(maxWidth: .infinity)
+                    pickerStep("plus", label: "\(name)加一", size: button) { nudge(1) }
+                }
+                .frame(maxHeight: .infinity)
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) { openWheel = nil }
+                } label: {
+                    Text("完成")
+                        .font(.system(size: 17, weight: .black))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: button)
+                        .background(Capsule().fill(AICaddieDesignTokens.par))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("watch-score-wheel-done")
             }
+            .padding(.horizontal, WatchDisplayGeometry.minimumContentInset)
+            .padding(.top, 3)
+            .padding(.bottom, 7)
         }
-        .offset(y: wheelDrag)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 6)
+                .onChanged { drag in
+                    wheelSettled = false
+                    wheelDragging = true
+                    wheelDrag = WatchScoreHoleLayout.wheelPeek(drag.translation.height)
+                }
+                .onEnded { drag in
+                    wheelDragging = false
+                    wheelDrag = 0
+                    let steps = WatchScoreHoleLayout.wheelSteps(drag.translation.height)
+                    if steps != 0 { step(steps) }
+                    wheelSettled = true
+                }
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(name) \(value)")
+        .accessibilityIdentifier("watch-score-wheel-\(wheel.rawValue)")
+    }
+
+    private func nudge(_ delta: Int) {
+        wheelSettled = false
+        step(delta)
+    }
+
+    private func pickerStep(_ symbol: String, label: String, size: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: size * 0.42, weight: .black))
+                .foregroundStyle(.white)
+                .frame(width: size, height: size)
+                .background(Circle().fill(Color.white.opacity(0.22)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     // MARK: 开球三格

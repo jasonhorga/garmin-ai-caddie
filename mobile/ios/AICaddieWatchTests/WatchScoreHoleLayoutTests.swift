@@ -27,23 +27,25 @@ final class WatchScoreHoleLayoutTests: XCTestCase {
         XCTAssertEqual(WatchScoreHoleLayout.bandSteps(CGSize(width: -4, height: 28)), -1)
     }
 
-    func testTheInlineWheelStaysInsideItsChipAndFoldsBackOnceSettled() {
+    /// Owner feedback 2026-10-11: the in-chip wheel could not be operated on the wrist. The picker
+    /// is full screen, a step is a deliberate 30 pt, and it stays open long enough to keep rolling.
+    func testThePickerStepsDeliberatelyAndStaysOpenWhileTheGolferWorks() {
         // Rolling up brings the next number in.
-        XCTAssertEqual(WatchScoreHoleLayout.wheelSteps(-44), 2)
-        XCTAssertEqual(WatchScoreHoleLayout.wheelSteps(22), -1)
-        XCTAssertEqual(WatchScoreHoleLayout.wheelSteps(5), 0)
-        // The digits only peek: never past the chip's own edge on any face.
-        for metrics in [WatchScoreHoleLayout.Metrics.regular, .compact] {
-            let limit = metrics.chip * 0.22
-            XCTAssertEqual(WatchScoreHoleLayout.wheelPeek(-400, chip: metrics.chip), -limit)
-            XCTAssertEqual(WatchScoreHoleLayout.wheelPeek(400, chip: metrics.chip), limit)
-            XCTAssertEqual(WatchScoreHoleLayout.wheelPeek(3, chip: metrics.chip), 1)
-        }
-        // 停手即选定并收起: a settled roll folds back sooner than a merely open wheel.
+        XCTAssertEqual(WatchScoreHoleLayout.wheelSteps(-60), 2)
+        XCTAssertEqual(WatchScoreHoleLayout.wheelSteps(30), -1)
+        XCTAssertEqual(WatchScoreHoleLayout.wheelSteps(10), 0, "a jitter is not a step")
+        let limit = WatchScoreHoleLayout.wheelStepPoints * 0.6
+        XCTAssertEqual(WatchScoreHoleLayout.wheelPeek(-400), -limit)
+        XCTAssertEqual(WatchScoreHoleLayout.wheelPeek(400), limit)
+        XCTAssertEqual(WatchScoreHoleLayout.wheelPeek(4), 2)
         XCTAssertLessThan(
             WatchScoreHoleLayout.wheelCloseDelayNanoseconds(settled: true),
             WatchScoreHoleLayout.wheelCloseDelayNanoseconds(settled: false)
         )
-        XCTAssertLessThanOrEqual(WatchScoreHoleLayout.wheelCloseDelayNanoseconds(settled: true), 500_000_000)
+        XCTAssertGreaterThanOrEqual(WatchScoreHoleLayout.wheelCloseDelayNanoseconds(settled: true), 2_000_000_000,
+                                    "never folds while the golfer is still between rolls")
+        // The closed chips are a real tap target on every face.
+        XCTAssertGreaterThanOrEqual(WatchScoreHoleLayout.Metrics.compact.chip, 36)
+        XCTAssertGreaterThanOrEqual(WatchScoreHoleLayout.Metrics.regular.chip, 40)
     }
 }

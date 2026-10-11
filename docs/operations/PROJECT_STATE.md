@@ -3,8 +3,8 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Completed/history is preserved verbatim in dated `docs/archive/` files.
 
-**Updated:** 2026-10-11 15:50 UTC  
-**Canonical baseline:** main `0882c41c` / released source `b662572e`  
+**Updated:** 2026-10-11 19:18 UTC
+**Canonical baseline:** main `0882c41c` / released source `b662572e`
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state
@@ -13,9 +13,14 @@
   repeat those reviews, tests, comments, or Build 86 upload.
 - #417 whole-round Watch audit is complete as an evidence pass. Final issue
   findings comment: [#6110771081](https://github.com/jasonhorga/garmin-ai-caddie/issues/417#issuecomment-6110771081).
-- #418 remains a draft test-only scaffold at `7c08858d`. CI and Native CI are
-  green, but the exact audit failed with retained P1/P2 evidence; hold merge.
-  PR comment: [#6110781599](https://github.com/jasonhorga/garmin-ai-caddie/pull/418#issuecomment-6110781599).
+- #418 remains a draft test-only scaffold at `715b6ddb`. Required CI and Native
+  CI are green, but exact-head Watch audit run [38158983899](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38158983899)
+  failed with the retained 49 mm P1 candidate and incomplete control coverage;
+  hold merge. Latest PR comment: [#6112194367](https://github.com/jasonhorga/garmin-ai-caddie/pull/418#issuecomment-6112194367).
+- #419 exact head `4cfb1588` passed required CI/Native artifact review, received
+  [PASS](https://github.com/jasonhorga/garmin-ai-caddie/pull/419#issuecomment-6112715912),
+  merged as `95b5694e`, and had its source branch deleted. Evidence is recorded
+  in `docs/operations/2026-10-11-pr419-review-4cfb1588.md`.
 - Product fixes are outside the audit scope and await Jason/Claude triage.
 
 ## Unfinished queue
@@ -31,24 +36,27 @@
 
 ## Watch audit evidence
 
-- Exact source `7c08858d548b8ec0febcfba0eb378bb7b95ace0e`; Xcode 26.3,
-  watchOS 26.2; 41/46/49 mm. Run [38148306446](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38148306446).
-- All ten methods ran on every face with zero skips: 41 mm 7/3, 46 mm 6/4,
-  49 mm 6/4 passed/failed. 131/128/134 screenshots; contact sheets and
-  face artifacts are retained for 30 days.
-- CI [38148159955](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38148159955)
-  and Native [38148159961](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38148159961)
+- Exact source `715b6ddb31ddbf550fc7819e2a5576fefe377206`; Xcode 26.3,
+  watchOS 26.2; 41/46/49 mm. Run [38158983899](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38158983899).
+- All ten methods ran on every face with zero skips: 41 mm 8/2, 46 mm 8/2,
+  49 mm 8/2 passed/failed. 156/212/215 screenshots; contact sheets and face
+  artifacts are retained for 30 days.
+- CI [38158970598](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38158970598)
+  and Native [38158970597](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38158970597)
   passed. Preparation checks: 145 passed (7 audit-tool, 12 native visual,
   126 mobile contracts).
 - P1 candidate: 49 mm `手动记杆` leaves `shots=0; pending=false` on the
-  hole root; the injected candidate is explicitly not a recovery proof.
-- P2: 41 mm F/M/B `575` clips to `5…`; 46/49 mm score `11` clips to `…`;
-  zoom-2 hazard pan changes to 果岭 on 41/49; post-measure page swipes are
-  swallowed on all faces; 41 mm scorecard heading clips to `计…`.
-- 9/18/turn scorecard rows later than the first visible rows were not
-  reliably reachable (hole 3/4/5 by face). This remains a coverage/control
-  investigation, not a silently passing result. Simulator evidence cannot
-  prove real GPS, battery, WCSession timing, physical Crown, or wrist motion.
+  hole root in the real first-tap path; the injected candidate is explicitly
+  not a recovery proof.
+- P2/control coverage: 46 mm undo evidence misses the four-second action
+  window after delayed attachment capture; 46/49 mm 9→18 continuation remains
+  not hittable; 41 mm scorecard navigation fails at row 4. Existing visual
+  findings remain: 41 mm F/M/B `575` clips to `5…`, 46/49 mm score `11` clips
+  to `…`, zoom-2 hazard pan changes to 果岭 on 41/49, and post-measure page
+  swipes are swallowed on all faces.
+- This remains a coverage/control investigation, not a silently passing
+  result. Simulator evidence cannot prove real GPS, battery, WCSession timing,
+  physical Crown, or wrist motion.
 - Design references checked: `docs/design/2026-09-25-ui-redesign/README.md`
   §3 and `watch.html`; October 10 full-bleed/floating F/M/B direction wins.
 
@@ -74,6 +82,10 @@
   containers and download terminals were removed; no tunnel/service/timer was
   created. Local contact-sheet copies and the `/dev/shm` verification snapshot
   were removed 2026-10-11 15:52 UTC after artifact retention was confirmed.
+- #419 review evidence is retained at
+  `/home/jason/garmin-ai-caddie-data/operations/pr419-4cfb1588-20261011`;
+  local screenshot copies were moved to Trash after inspection, and no
+  service, tunnel, container, or dependency environment was created.
 - Historical pre-final ledger is preserved verbatim at
   `docs/archive/PROJECT_STATE-2026-10-11-watch417-final-audit-preclose.historical.md`.
 - Shared checkout `/home/jason/codex-runs/garmin-ai-caddie-claude-takeover-20261005`
