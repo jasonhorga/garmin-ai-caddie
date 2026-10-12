@@ -1559,9 +1559,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 named: "proto-turn-\(name)"
             )
             try render(
-                WatchMoreMenuPrototype(bottomInset: inset, showsGuide: true)
+                WatchMoreMenuPrototype(bottomInset: inset, showsGuide: true, snapshotScrolledToEnd: false)
                     .watchSnapshotFrame(width: size.width, height: size.height),
                 named: "proto-menu-\(name)"
+            )
+            try render(
+                WatchMoreMenuPrototype(bottomInset: inset, showsGuide: true, snapshotScrolledToEnd: true)
+                    .watchSnapshotFrame(width: size.width, height: size.height),
+                named: "proto-menu-end-\(name)"
             )
         }
     }

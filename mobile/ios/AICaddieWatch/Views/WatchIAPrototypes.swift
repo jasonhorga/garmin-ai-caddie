@@ -154,32 +154,56 @@ public struct WatchHoleFacePrototype: View {
 public struct WatchMoreMenuPrototype: View {
     public let bottomInset: CGFloat?
     public let showsGuide: Bool
+    /// Design snapshots only: watchOS ImageRenderer does not lay out ScrollView content, so a
+    /// snapshot draws the rows directly, at the top (false) or scrolled to the end (true).
+    public let snapshotScrolledToEnd: Bool?
     private let rows = ["计分卡", "换洞", "本洞记录", "设置", "结束本场"]
+    private static let top: CGFloat = 34
+    private static let rowHeight: CGFloat = 44
+    private static let spacing: CGFloat = 4
 
-    public init(bottomInset: CGFloat? = nil, showsGuide: Bool = false) {
+    public init(bottomInset: CGFloat? = nil, showsGuide: Bool = false, snapshotScrolledToEnd: Bool? = nil) {
         self.bottomInset = bottomInset
         self.showsGuide = showsGuide
+        self.snapshotScrolledToEnd = snapshotScrolledToEnd
     }
 
     public var body: some View {
         WatchProtoCanvas(bottomInset: bottomInset, showsGuide: showsGuide) { size, interactiveBottom in
-            let top: CGFloat = 34
-            let fitting = max(1, Int((interactiveBottom - top) / 48))
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(rows.prefix(fitting)), id: \.self) { row in
-                    Text(row)
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(row == "结束本场" ? Color.red : Color.white)
-                        .padding(.horizontal, 12)
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.14)))
-                        .accessibilityIdentifier("proto-menu-\(row)")
+            // Every row is reachable: the list scrolls, and the last row scrolls clear of the dead strip.
+            let bottom = size.height - interactiveBottom + 4
+            if let end = snapshotScrolledToEnd {
+                let count = CGFloat(rows.count)
+                let content = Self.top + count * Self.rowHeight + (count - 1) * Self.spacing + bottom
+                list(bottom: bottom)
+                    .frame(width: size.width, alignment: .top)
+                    .offset(y: end ? min(0, size.height - content) : 0)
+                    .frame(width: size.width, height: size.height, alignment: .top)
+                    .clipped()
+            } else {
+                ScrollView {
+                    list(bottom: bottom)
                 }
+                .frame(width: size.width, height: size.height)
             }
-            .padding(.horizontal, WatchProtoFace.edgeInset)
-            .padding(.top, top)
-            .frame(width: size.width, height: size.height, alignment: .top)
         }
+    }
+
+    private func list(bottom: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: Self.spacing) {
+            ForEach(rows, id: \.self) { row in
+                Text(row)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(row == "结束本场" ? Color.red : Color.white)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, minHeight: Self.rowHeight, maxHeight: Self.rowHeight, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.14)))
+                    .accessibilityIdentifier("proto-menu-\(row)")
+            }
+        }
+        .padding(.horizontal, WatchProtoFace.edgeInset)
+        .padding(.top, Self.top)
+        .padding(.bottom, bottom)
     }
 }
 
