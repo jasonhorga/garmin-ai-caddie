@@ -90,6 +90,9 @@ struct WatchProtoCanvas<Content: View>: View {
                 }
                 .frame(width: size.width, height: size.height, alignment: .topLeading)
                 .background { WatchPrototypeAuditProbe.geometry("canvas-full", proxy: full) }
+                .overlay(alignment: .topLeading) {
+                    WatchPrototypeAuditCanvasGeometry(size: size, interactiveBottom: interactiveBottom)
+                }
                 .overlay {
                     if WatchPrototypeAuditProbe.boundaryScope == "canvas" { WatchPrototypeBoundaryLayer() }
                 }

@@ -7,6 +7,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     private let app = XCUIApplication()
     private var sequence = 0
     private var face: String { ProcessInfo.processInfo.environment["UITEST_AUDIT_FACE"] ?? "unknown" }
+    private var prototypeRecheck: Bool { ProcessInfo.processInfo.environment["UITEST_PROTO_RECHECK"] == "1" }
     private var output: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("watch-audit", isDirectory: true)
@@ -122,18 +123,42 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         return point
     }
 
+    private func prepare(_ actions: [String]) throws -> Bool {
+        for action in actions {
+            if action.hasPrefix("menu-reveal:") {
+                let target = element(String(action.dropFirst("menu-reveal:".count)))
+                let receipt = element("proto-audit-canvas-geometry").label
+                let bottom = receipt.split(separator: ";").first { $0.hasPrefix("bottom=") }
+                    .flatMap { Double($0.dropFirst("bottom=".count)) }
+                guard let bottom else { return false }
+                var visible = false
+                for step in 0...3 {
+                    if target.exists {
+                        let rect = try target.snapshot().frame
+                        // Keep the whole row below the initial clock gap and above the measured
+                        // interactive bottom; an existing off-screen AX node isn't a valid tap.
+                        visible = rect.minY >= 34 && rect.maxY <= bottom + 0.01
+                        if visible { break }
+                    }
+                    if step < 3 { app.swipeUp() }
+                }
+                guard visible else { return false }
+            } else {
+                let control = element(action)
+                guard control.exists else { return false }
+                _ = try tapCoordinate(control)
+            }
+        }
+        return true
+    }
+
     private func run(_ specs: [Spec]) throws {
         for spec in specs {
             for offset in [CGFloat(0), CGFloat(8)] {
                 for attempt in 1...5 {
                     let trial = "\(spec.key)-x\(Int(offset))-\(attempt)"
                     try launch(spec.route, trial: trial, traced: spec.placeholder && spec.callback != nil)
-                    var preparationValid = true
-                    for action in spec.prepare {
-                        let control = element(action)
-                        if !control.exists { preparationValid = false; break }
-                        _ = try tapCoordinate(control)
-                    }
+                    var preparationValid = try prepare(spec.prepare)
                     let before = state()
                     preparationValid = preparationValid && matches(before, spec.precondition)
                     let control = element(spec.target)
@@ -147,7 +172,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                                    "key": spec.key, "control": details, "offsetPt": Double(offset),
                                    "attempt": attempt, "before": before, "after": before,
                                    "attemptValid": false, "success": NSNull(),
-                                   "reason": !exists ? "not rendered" : "real-tap preparation did not establish required state",
+                                   "reason": !exists ? "not rendered" : "real-input preparation did not establish required state or visible row",
                                    "placeholder": spec.placeholder], "proto-tap--\(trial)")
                         continue
                     }
@@ -171,13 +196,11 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                 }
             }
             // One independent raw-input diagnostic; do not mix it into the ten trace-off trials.
-            if !spec.placeholder {
+            if !spec.placeholder || spec.route == "proto-menu" {
                 let trial = "\(spec.key)-diagnostic"
                 try launch(spec.route, trial: trial, traced: true)
-                for action in spec.prepare {
-                    if element(action).exists { _ = try tapCoordinate(element(action)) }
-                }
-                if element(spec.target).exists {
+                let prepared = try prepare(spec.prepare)
+                if prepared && element(spec.target).exists {
                     let before = state()
                     let point = try tapCoordinate(element(spec.target))
                     try write(["kind": "prototype-input-diagnostic", "face": face, "trial": trial,
@@ -262,18 +285,21 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     }
 
     func test04TurnAndMenuControls() throws {
-        var specs = [
+        var specs: [Spec] = prototypeRecheck ? [] : [
             Spec("proto-turn", "turn-continue", "proto-turn-continue", placeholder: true, callback: "proto-turn-continue"),
             Spec("proto-turn", "turn-change", "proto-turn-change", expected: ["all": "true"]),
             Spec("proto-turn", "turn-finish", "proto-turn-finish", placeholder: true, callback: "proto-turn-finish"),
         ]
-        for (index, option) in ["C 场", "A 场（再打一次）"].enumerated() {
-            specs.append(Spec("proto-turn", "turn-option-\(index)", "proto-turn-\(option)",
-                              prepare: ["proto-turn-change"], precondition: ["all": "true"],
-                              expected: ["all": "false", "next": option]))
+        if !prototypeRecheck {
+            for (index, option) in ["C 场", "A 场（再打一次）"].enumerated() {
+                specs.append(Spec("proto-turn", "turn-option-\(index)", "proto-turn-\(option)",
+                                  prepare: ["proto-turn-change"], precondition: ["all": "true"],
+                                  expected: ["all": "false", "next": option]))
+            }
         }
         for (index, title) in ["计分卡", "换洞", "本洞记录", "设置", "结束本场"].enumerated() {
-            specs.append(Spec("proto-menu", "menu-row-\(index)", "proto-menu-\(title)", placeholder: true))
+            specs.append(Spec("proto-menu", "menu-row-\(index)", "proto-menu-\(title)",
+                              prepare: ["menu-reveal:proto-menu-\(title)"], placeholder: true))
         }
         try run(specs)
         // Actual swipes can reveal omitted rows only if the prototype supports them.
@@ -293,7 +319,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                    "executed": false, "reason": "No verified genuine Crown rotation mechanism available to this XCTest harness",
                    "bindingInjected": false, "touchSwipeSubstituted": false, "physicalCrownProven": false], "proto-crown-boundary")
         try screenshot("proto-route", "score-crown-boundary", inventory: true)
-        guard face == "42mm" || face == "45mm" else {
+        guard face == "42mm" || face == "45mm" || prototypeRecheck else {
             try write(["kind": "prototype-safe-area-reuse", "face": face,
                        "priorNativeRuns": ["38219857642", "38225977002"],
                        "note": "Original control trials retain current geometry/native diagnostics; no repeat cutoff search"], "proto-cutoff-prior")
@@ -333,7 +359,25 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                 for attempt in 1...5 { retries.append(try probe(low, stage: "retry-\(attempt)")) }
                 lowerWorks = retries.allSatisfy { $0 }
             }
-            if !lowerWorks || upperWorks {
+            if upperWorks {
+                var confirmations: [[String: Any]] = []
+                for y in [low, high] {
+                    for attempt in 1...5 {
+                        confirmations.append(["y": Double(y), "traced": false,
+                                              "fired": try probe(y, stage: "confirm-endpoint-\(attempt)")])
+                    }
+                    confirmations.append(["y": Double(y), "traced": true,
+                                          "fired": try probe(y, stage: "confirm-endpoint-diagnostic", traced: true)])
+                }
+                try write(["kind": "prototype-cutoff-summary", "face": face, "scope": scope,
+                           "boundaryLocated": false, "lowerWorks": lowerWorks, "upperWorks": upperWorks,
+                           "windowMaxY": Double(window.maxY), "sampledLowY": Double(low),
+                           "sampledHighY": Double(high), "confirmations": confirmations,
+                           "note": "Both endpoints accepted; no cutoff bracket. This does not sample every intervening pixel.",
+                           "originalControlAcceptance": false], "proto-cutoff-summary--\(scope)")
+                continue
+            }
+            if !lowerWorks {
                 try write(["kind": "prototype-cutoff-summary", "face": face, "scope": scope,
                            "boundaryLocated": false, "lowerWorks": lowerWorks, "upperWorks": upperWorks], "proto-cutoff-summary--\(scope)")
                 continue
