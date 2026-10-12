@@ -78,8 +78,8 @@
   no new container, service, tunnel, dependency environment, or simulator
   was created in this slice. Existing audit artifacts remain under their
   retention policy.
-- Local visual samples are in `/tmp/codex-pr418-visual`; remove after the
-  review comment if no longer needed. Do not delete the remote artifact set.
+- Local visual samples in `/tmp/codex-pr418-visual` were removed 2026-10-12
+  after the review comment; do not delete the remote artifact set.
 - Untracked `.codex-*` files in the worktree are historical session evidence;
   do not delete or stage them.
 
