@@ -256,13 +256,18 @@ public struct WatchScoreBoxesPrototype: View {
                             stepButton("plus", label: "\(name(selected))加一") { adjust(selected, 1) }
                         }
                         .frame(height: row)
+                        bottomRow.frame(height: row)
                     } else {
-                        let line = max(38, min(row, (interactiveBottom - top - title - row - gap * 4) / 3))
+                        // Three steppers and the save row share what is above the dead strip; on
+                        // 40/41 mm every row gives a little (41 mm: 37 + 39, 40 mm: 33 + 35).
+                        let available = interactiveBottom - top - title - gap * 4
+                        let bottom = min(row, max(32, available * 0.26))
+                        let line = min(row, max(30, (available - bottom) / 3))
                         ForEach(Field.allCases, id: \.self) { field in
                             stackRow(field, height: line)
                         }
+                        bottomRow.frame(height: bottom)
                     }
-                    bottomRow.frame(height: row)
                 }
                 .padding(.horizontal, WatchProtoFace.edgeInset)
                 .padding(.top, top)
