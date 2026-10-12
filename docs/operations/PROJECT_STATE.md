@@ -57,7 +57,17 @@
   Crown needs a genuine input mechanism;do not substitute binding injection.
   Menu Text/no actions and empty save/turn closures are DEBUG placeholders;
   distinguish geometry/hit evidence from implemented product functionality.
-  Proto source excludes #420;carry only audit scaffolding onto c9 source.
+  Proto source excludes #420;candidate773e9d836bd22974058ee8e1512af5fd3e308b52
+  has direct parenta913 and prototype-only scaffolding.137 remote tests passed
+  (11 collector0.443s+126 mobile6.175s),zero skips. Snapshot/container removed.
+  Native simulator audit38237977234 in flight;five faces,seven routes.
+  Start comment6122637453 posted;save/turn callbacks measured separately.
+  Native a913 watch-snapshots artifact11741400980:35 family-size renders,
+  three sheets all inspected;original-pixel/DPI/5mm physical exports retained.
+  PIA01 P2:menu Settings/End omitted on every face;PIA02 P2:stack bottom
+  crosses guide41(+9pt)/42(+5pt estimate). Precheck6122881278 posted.
+  docs/reviews/2026-10-12-pr422-ia-prototype-element-audit.md is the receipt;
+  runtime clock/touch conclusions and real42 inset remain pending.
 - Issue delivery option GH_FEEDBACK_EXTENDED_EVENTS=1 enabled05:27.
   Existing collector/timer/cursor unchanged;no second monitor.
   #42162201d90057a5efa8df415416dadd0e96eccd604 wait-event attribution fix,
@@ -66,7 +76,8 @@
 
 ## Unfinished queue
 
-- PR-422-PROTOTYPE-IA — in-progress:latest Native green;verify prepared harness.
+- PR-422-PROTOTYPE-IA — in-progress:audit38237977234 running;review Native
+  a913 design artifacts in parallel,then runtime outcomes and physical images.
 - WATCH417-ELEMENT-AUDIT — evidence-open:hardware/runtime gaps and replies;
   diagnostics/capability/band adjudicated;do not recollect unchanged evidence.
 - PR-420-MANUAL-SHOT — blocked:original49 first-tap unresolved;stale-fix
@@ -119,10 +130,18 @@
 - Owned waiter runner:operations/blocking-waits/
   codex-watch417-66000eba-wait_for_conclusion.sh(matches #42162201d90).
   Expires goal cutoff;existing collector/timer/feedback-cursor untouched.
-- Delegated wait_release_38083089271 completed38235401034/exacta913.
+- Delegated wait_release_38083089271 now waits38237977234/exact773e9d83;
+  completed38235401034/exacta913 earlier.
   Handles78560/13464 closed0;no resources or cleanup pending.
   Handles12393/41660 closed0;log retained;no resources or cleanup pending.
-  Older80096/43231/3178/50266/93158/8953 closed. No active feedback or CI waiter.
+  Older80096/43231/3178/50266/93158/8953 closed. No active feedback waiter.
+  Remote /dev/shm/garmin-ai-caddie-pr422-prototype-20261012 removed;
+  named garmin-pr422-prototype-20261012 container absent/no open files.
+  Manifest/tests/script persist operations/pr422-prototype-audit-20261012.
+  Capacity54GiB disk,4.7GiB available memory before verification.
+  Native comparison container garmin-pr422-native-sheets-20261012 removed;
+  no install/source snapshot/service. Scripts/manifest/design+physical outputs
+  persist in pr422-prototype-audit-20261012/native38235401034.
 - Local /tmp/garmin-watch417-images-20261012-GCqa8Y holds viewed copies;
   expiryOct13 08:30/after review;remote originals retained.
 - Historical ledgers verbatim in dated docs/archive files;latest
@@ -130,9 +149,11 @@
 
 ## Next action and stop conditions
 
-1. Prepare prototype-only scaffolding at exact#422a913;W37 is committed.
-2. Add audit scaffolding only;verify remote,run five-face Native element
-   harness,inspect images and physical exports;comment results on#422.
+1. Review already-green a913 Native design snapshots during delegated wait.
+2. After38237977234 returns,collect all five-face interaction results,
+   geometry/cutoffs/screens/physical exports;comment findings on#422.
+   Read genuine input capability files before adjudicating the Crown gap;
+   try a verified native simulator mechanism if available,never binding injection.
 3. Keep#422/#418 draft;process corrected#420 acceptance/Claude replies once.
 4. Resume same-turn blocking feedback when active evidence is adjudicated.
 
