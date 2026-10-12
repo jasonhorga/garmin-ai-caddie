@@ -1,0 +1,20 @@
+Owner/project: Codex / garmin-ai-caddie #422 clock revision audit
+Mode: test scaffolding/review only; Claude implements product fixes; keep draft and do not merge
+Author source: 9e03df3072248dd03b0e3915ca413d5c185edaaa
+Instrumented candidate: c345ae15473fc48826f49cb1785026a91d0ca78f
+Creation: 2026-10-12 14:05 UTC
+Editing worktree: /home/ubuntu/claude-web-data/repo/garmin-ai-caddie-watch417-20261011 (existing sole worktree)
+Branch: codex/pr422-clock-harness-20261012
+Temporary source snapshot allow-list: /dev/shm/garmin-ai-caddie-pr422-clock-20261012
+Verification container allow-list: garmin-pr422-clock-20261012
+Native graphics container allow-list: garmin-pr422-clock-native-sheets-20261012
+Runtime analysis container allow-list: garmin-pr422-clock-runtime-analysis-20261012
+Persistent artifacts/manifest/scripts/logs: /home/jason/garmin-ai-caddie-data/operations/pr422-prototype-clock-20261012
+Native source run/artifact: 38251072892 / watch-snapshots11749246424
+Runtime scope: prototype-clock-recheck; 4 methods / 74 control-offset groups / 370 tap records per face
+Faces: 41/42/45/46/49 mm, with real centre and +8pt taps on score/par3/stack/turn/menu
+Probe: newly changed proto-score-stack hierarchy, root and canvas temporary2pt layers; measured bottom-1, bottom+1, inset midpoint and endpoints
+No dependency install/private venv, service, port, tunnel, named volume, or product hit/layout repair
+Expiry: source snapshot/container at verification completion; all temporary resources no later than 2026-10-13 08:22:16 UTC
+Delete only exact snapshot after open-file check; --rm containers must be verified absent
+Hosted workflow owns and cleans its five simulator/video processes; persistent input/evidence retained

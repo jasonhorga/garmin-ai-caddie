@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. Dated archives preserve history verbatim.
 
-**Updated:** 2026-10-12 14:10 UTC
+**Updated:** 2026-10-12 15:12 UTC
 **Canonical baseline:** main 3e785b14 / product merge95b5694e (#419)
 **Current slice:** PR-422-PROTOTYPE-IA — in-progress
 
@@ -18,6 +18,10 @@
   Native38251072892 success;watch-snapshots11749246424.
   Recheck score/stack/turn/menu centre/+8pt on41/42/45/46/49;
   several bottom-inset y values five trace-off trials plus native diagnostic.
+  Exact9e-derived c345ae15473fc48826f49cb1785026a91d0ca78f:
+  remote137 tests passed11=1.324s/126=16.510s,zero skips;source/container removed.
+  Runtime38267523735 dispatched,delegated blocking wait pending.
+  Four methods/74 groups/370 tap records per face;stack hierarchy probes.
 - Original a913 audit38237977234/773e9d83:25 collector methods passed,
   no skips;1,500/1,500 functional taps,250/250 empty callback dispatches.
   Original menu Settings/End absent;PIA01/02 P2 menu/stack fit.
@@ -43,7 +47,8 @@
   No cutoff bracket;does not sample all pixels or clear production W01.
 - 3a exact Native38242810064 artifact11743844433:40 design images,
   all three sheets inspected;physical originals/DPI/5mm exports retained.
-  New9e clock/selected/inset changes need native visual/runtime check.
+  New9e artifact11749246424:all40 design renders/three sheets inspected;
+  physical exports retained;live clock/scrolling/input adjudication pending.
 - docs/reviews/2026-10-12-pr422-ia-prototype-element-audit.md and
   2026-10-12-pr422-prototype-controls.tsv contain original findings.
   Persistent3a analysis/red logs retain all partial evidence.
@@ -61,7 +66,7 @@
 ## Unfinished queue
 
 - PR-422-PROTOTYPE-IA — in-progress:immutable inventory repair complete;
-  scaffolding rebased exact9e,verify and dispatch four changed routes.
+  c345 harness verified/pushed;runtime38267523735 delegated wait pending.
 - WATCH417-ELEMENT-AUDIT — evidence-open:hardware/Crown/replies;
   completed diagnostic/capability/band/safe-area evidence must not be repeated.
 - PR-420-MANUAL-SHOT — blocked:original49 acceptance unresolved;
@@ -112,11 +117,12 @@
 - Branch codex/pr422-clock-harness-20261012 rebased onto exact9e;
   turn row height/clock/selected styles retained;passive probes only.
   Prior4d7b5dff/312e4272/f34c94bd receipts pushed/retained.
-- Prior snapshots and test/analysis/graphics --rm containers removed.
-  Next snapshot /dev/shm/garmin-ai-caddie-pr422-clock-20261012;
+- Prior and clock-verification snapshots/containers removed.
+  /dev/shm/garmin-ai-caddie-pr422-clock-20261012 removed(no open files);
   allow-list containers garmin-pr422-clock-20261012,
   garmin-pr422-clock-native-sheets-20261012 and
-  garmin-pr422-clock-runtime-analysis-20261012. Localmanifest recorded.
+  garmin-pr422-clock-runtime-analysis-20261012. Manifest persisted;
+  clock Native graphics container removed;runtime analysis not started.
   No installs,private environments,services,ports,tunnels or volumes.
 - Persistent evidence under /home/jason/garmin-ai-caddie-data/operations:
   watch417-* audit/control/picker/map/input-probe/capability/feedback/
@@ -132,11 +138,12 @@
   Red log wait-ci-38251740277-20261012T131238Z-3484111.log;
   Green log wait-ci-38251072892-20261012T134219Z-3567821.log.
   Exact cleanup check found no surviving interrupted38251740277 waiter.
-  No pending Native wait/redispatch or active feedback waiter.
+  Newwait_release_38083089271 blocks38267523735/exactc345;
+  no redispatch or active feedback waiter.
 - Runtime collection23500 lost SSH255;artifacts and analysis completed on
   remote,complete=false intentionally. Visual53524 closed0;downloads
   31929/27106 closed0. Remote scripts/manifests persist;container absent.
-- Latest capacity53GiB free/4.8GiB available memory.
+- Latest capacity52GiB free/4.6GiB available memory.
 - Local /tmp/garmin-watch417-images-20261012-GCqa8Y viewed copies;
   expiryOct13 08:30/after review;remote originals retained.
 - Superseded ledger preserved verbatim in
@@ -144,10 +151,10 @@
 
 ## Next action and stop conditions
 
-1. Verify exact9e-derived harness remotely with shared read-only image.
-2. Push source;dispatch four changed
-   routes and bottom-inset sampling on all five faces. No layout/hit repair.
-3. Wait with installed blocker;inspect Native/live/physical artifacts;
+1. Await installed blocker38267523735 while finishing physical review aids;
+   no main-thread CI/status polling and no new PR slice.
+2. After terminal result,use clock collection script once;retain partial failures.
+3. Inspect live/physical artifacts;
    adjudicate PIA03–05 and requested bottom sampling on#422.
 4. Keep#422/#418 draft;#420 HOLD until original acceptance corrected.
 5. Resume same-turn blocking feedback after active evidence adjudicated.
