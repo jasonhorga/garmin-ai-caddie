@@ -768,6 +768,9 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             // Never enumerate a complete tree inside a production timeout window.
             var measured: [[String: Any]] = [chipMetrics]
             for (role, target) in [("full-screen-picker", picker), ("plus", plus), ("minus", minus), ("done", done)] {
+                // Each geometry sample gets a fresh production open. Otherwise the previous
+                // snapshot can leave a still-visible overlay just milliseconds from closing.
+                if picker.exists { Thread.sleep(forTimeInterval: 4.3) }
                 guard openPicker() else { continue }
                 measured.append(controlMetrics(target, role: role))
             }

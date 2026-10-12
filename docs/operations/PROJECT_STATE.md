@@ -3,7 +3,7 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Completed/history is preserved verbatim in dated docs/archive files.
 
-**Updated:** 2026-10-12 01:18 UTC
+**Updated:** 2026-10-12 01:15 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
 
@@ -47,6 +47,10 @@
   every putts/penalty start/target pair. picker-recheck runs only methods 11/18.
   Remote preparation: 10 tests pass (0.480 s), 2 YAML / 30 Bash sections valid.
   Viewport contract fix verified. This is real scaffold work, not CI bookkeeping.
+- Picker dispatch 38190700188 / 2a60e59d is superseded: source inspection found
+  initial measurements could already expire before their frozen frame was saved.
+  Give each geometry sample a fresh real open; do not hold the picker open.
+  Rerun only this scoped picker evidence after the corrected source is pushed.
 - Expanded runs 38179866784 / 38180807102 failed compilation, zero UI tests.
   String.putts / unsupported app.suspend were corrected. Preserve failures as
   harness diagnostics; neither is evidence of a product defect.
