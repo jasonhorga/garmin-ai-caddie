@@ -1226,7 +1226,18 @@ public struct WatchRoundContainerView: View {
         dimmed: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button(action: {
+            #if DEBUG && targetEnvironment(simulator)
+            WatchSimulatorInputTrace.action(identifier + ".enter", fields: ["holePage": holePage])
+            #endif
+            action()
+            #if DEBUG && targetEnvironment(simulator)
+            WatchSimulatorInputTrace.action(identifier + ".exit", fields: [
+                "screen": String(describing: model.screen), "shots": model.recordedShotCount,
+                "pending": model.pendingManualShot != nil,
+            ])
+            #endif
+        }) {
             Image(systemName: systemName)
                 .font(.system(size: 22, weight: .black))
                 .foregroundStyle(systemName == "plus" ? Color.black : Color.white)
@@ -1278,6 +1289,18 @@ public struct WatchRoundContainerView: View {
     }
 
     private func recordManualShot() {
+        #if DEBUG && targetEnvironment(simulator)
+        let raw = latestWatchFix ?? shotLocation
+        let captured = raw.flatMap { ISO8601DateFormatter().date(from: $0.capturedAt) }
+        WatchSimulatorInputTrace.action("recordManualShot.enter", fields: [
+            "hasRawFix": raw != nil, "hasRangeFix": shotLocation != nil,
+            "eligibleShotOrigin": shotOriginFix != nil,
+            "rawAgeSeconds": captured.map { Date().timeIntervalSince($0) as Any } ?? NSNull(),
+            "rawAccuracyM": raw.map { $0.horizontalAccuracyM as Any } ?? NSNull(),
+            "rawSpeedMps": raw.flatMap { $0.speedMps }.map { $0 as Any } ?? NSNull(),
+            "shotsBefore": model.recordedShotCount, "pendingBefore": model.pendingManualShot != nil,
+        ])
+        #endif
         guard let fix = shotOriginFix else {
             // Never a silent no-op: the golfer saw +, tapped it, and must learn why nothing happened.
             #if canImport(WatchKit)

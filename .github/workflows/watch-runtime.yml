@@ -31,6 +31,7 @@ on:
           - picker-recheck
           - map-recheck
           - shot-recheck
+          - input-probe
       backend_revision:
         description: Expected deployed backend Git revision (40 hex characters); falls back to protected AI_CADDIE_BACKEND_REVISION
         type: string

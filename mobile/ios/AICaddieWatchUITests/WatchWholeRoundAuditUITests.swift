@@ -42,7 +42,8 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                         zoom: Int = 1, aod: Bool = false, moveAfterShot: Bool = false,
                         supportsAutoShot: Bool = false, modelScreen: String? = nil,
                         initialScore: Int? = nil, initialPutts: Int? = nil,
-                        initialPenalty: Int? = nil,
+                        initialPenalty: Int? = nil, inputTraceTrial: String? = nil,
+                        observeRawInput: Bool = false,
                         fixAgeSeconds: Int? = nil, fixSpeedMps: Double? = nil) throws {
         app.terminate()
         injectedAOD = aod
@@ -56,6 +57,8 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             "UITEST_AUDIT_ANCHORS": "1",
         ]
         app.launchEnvironment["UITEST_AUDIT_MODEL_SCREEN"] = modelScreen
+        app.launchEnvironment["UITEST_AUDIT_INPUT_TRIAL"] = inputTraceTrial
+        app.launchEnvironment["UITEST_AUDIT_INPUT_TRACE"] = observeRawInput ? "1" : "0"
         app.launchEnvironment["UITEST_AUDIT_SCORE"] = initialScore.map { String($0) }
         app.launchEnvironment["UITEST_AUDIT_PUTTS"] = initialPutts.map { String($0) }
         app.launchEnvironment["UITEST_AUDIT_PENALTY"] = initialPenalty.map { String($0) }
@@ -1403,6 +1406,96 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                 "transientGPSMessageSeen": feedbackSeen, "physicalHapticProven": false],
                 stem: "shot-origin--\(sample.name)")
             XCTAssertEqual(recorded, sample.shouldRecord, "\(sample.name): \(after)")
+        }
+    }
+
+    /// #417 / 6117411661. Explicit coordinates plus native dispatcher and action receipts separate
+    /// an XCTest coordinate problem from interception, recognizer competition and GPS/model gating.
+    /// No injected pending, new gesture recognizer or product hit-area/timer change. Trace-off
+    /// centre trials check that observing the dispatcher has not repaired the original failure.
+    func test19NativeInputDispatchAndControlCoordinates() throws {
+        let railOffsets: [CGFloat] = face == "49mm" ? [0, -8, 8, -16, 16] : [0]
+        for identifier in ["watch-hole-menu", "watch-hole-record-shot"] {
+            let controlName = identifier == "watch-hole-menu" ? "menu" : "shot"
+            let cases = railOffsets.map { (offset: $0, traced: true) } + [(offset: CGFloat(0), traced: false)]
+            for (number, sample) in cases.enumerated() {
+                let trial = "rail-\(controlName)-\(number + 1)-\(sample.traced ? "trace-on" : "trace-off")"
+                try launch("audit-phone-18", inputTraceTrial: trial, observeRawInput: sample.traced)
+                let control = element(identifier)
+                XCTAssertTrue(control.waitForExistence(timeout: 8))
+                let appFrame = app.frame
+                let frame = control.frame
+                let metrics = controlMetrics(control, role: "root-input-probe")
+                let point = CGPoint(x: frame.midX, y: frame.midY + sample.offset)
+                let local = CGPoint(x: point.x - appFrame.minX, y: point.y - appFrame.minY)
+                let before = stateLabel()
+                if number == 0 { try capture("input-probe", trial + "-before", collectControls: false) }
+                app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: local.x, dy: local.y)).tap()
+                let after = stateLabel()
+                let succeeded = identifier == "watch-hole-menu"
+                    ? after.contains("screen=menu;")
+                    : (after.contains("pending=true;") || (stateValue("shots", in: after) ?? 0) > 0)
+                try writeAuditJSON([
+                    "kind": "explicit-input-probe", "face": face, "trial": trial,
+                    "control": identifier, "metrics": metrics, "verticalOffsetPt": Double(sample.offset),
+                    "appFramePt": [Double(appFrame.minX), Double(appFrame.minY), Double(appFrame.width), Double(appFrame.height)],
+                    "expectedWindowPointPt": [Double(point.x), Double(point.y)],
+                    "requestedAppOffsetPt": [Double(local.x), Double(local.y)],
+                    "pointInsideAXFrame": frame.contains(point), "before": before, "after": after,
+                    "observedTransition": succeeded, "rawTraceRequested": sample.traced,
+                    "rawTraceFile": sample.traced ? "input-events--\(trial).json" : "none",
+                    "inputEvidence": "actual coordinate tap; raw arrival/action must be adjudicated from separate trace",
+                    "physicalWatchProven": false, "uiFeedbackMs": NSNull(),
+                ], stem: "input-probe--\(trial)")
+                try capture("input-probe", trial + "-after", collectControls: false)
+            }
+        }
+
+        let hazardOffsets: [(x: CGFloat, y: CGFloat)] = [(0, 0), (0, -8), (0, 8), (-8, 0), (8, 0)]
+        let hazardCases = hazardOffsets.map { (offset: $0, traced: true) }
+            + [(offset: (x: CGFloat(0), y: CGFloat(0)), traced: false)]
+        for (number, sample) in hazardCases.enumerated() {
+            let trial = "hazard-\(number + 1)-\(sample.traced ? "trace-on" : "trace-off")"
+            try launch("audit-phone-18", page: 1, zoom: 2,
+                       inputTraceTrial: trial, observeRawInput: sample.traced)
+            let control = element("watch-hazard-next")
+            XCTAssertTrue(control.waitForExistence(timeout: 8))
+            let viewport = element("watch-audit-viewport-hazard")
+            let beforePage = element("watch-hole-page-current").label
+            let beforeViewport = viewport.label
+            XCTAssertEqual(beforePage, "障碍")
+            XCTAssertTrue(beforeViewport.contains("zoom=2."))
+            let appFrame = app.frame
+            let frame = control.frame
+            let metrics = controlMetrics(control, role: "hazard-input-probe")
+            let point = CGPoint(x: frame.midX + sample.offset.x, y: frame.midY + sample.offset.y)
+            let local = CGPoint(x: point.x - appFrame.minX, y: point.y - appFrame.minY)
+            let beforeLabel = control.label
+            if number == 0 { try capture("input-probe", trial + "-before", collectControls: false) }
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: local.x, dy: local.y)).tap()
+            let afterPage = element("watch-hole-page-current").label
+            let afterLabel = control.exists ? control.label : "control-absent"
+            let afterViewport = viewport.exists ? viewport.label : "viewport-absent"
+            try writeAuditJSON([
+                "kind": "explicit-input-probe", "face": face, "trial": trial,
+                "control": "watch-hazard-next", "metrics": metrics,
+                "offsetPt": [Double(sample.offset.x), Double(sample.offset.y)],
+                "appFramePt": [Double(appFrame.minX), Double(appFrame.minY), Double(appFrame.width), Double(appFrame.height)],
+                "expectedWindowPointPt": [Double(point.x), Double(point.y)],
+                "requestedAppOffsetPt": [Double(local.x), Double(local.y)],
+                "pointInsideAXFrame": frame.contains(point), "beforePage": beforePage, "afterPage": afterPage,
+                "beforeLabel": beforeLabel, "afterLabel": afterLabel,
+                "beforeViewport": beforeViewport, "afterViewport": afterViewport,
+                "observedTransition": afterPage == "障碍" && afterLabel != beforeLabel
+                    && afterLabel != "control-absent" && beforeViewport == afterViewport,
+                "rawTraceRequested": sample.traced,
+                "rawTraceFile": sample.traced ? "input-events--\(trial).json" : "none",
+                "inputEvidence": "actual explicit coordinate tap; fresh hazard2x; no reframing",
+                "physicalWatchProven": false, "uiFeedbackMs": NSNull(),
+            ], stem: "input-probe--\(trial)")
+            try capture("input-probe", trial + "-after", collectControls: false)
         }
     }
 }

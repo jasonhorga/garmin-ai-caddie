@@ -291,8 +291,20 @@ public struct WatchHazardMapView: View {
 
     /// "1 / N": the next upcoming hazard (wrapping).
     private func selectNextHazard() {
+        #if DEBUG && targetEnvironment(simulator)
+        WatchSimulatorInputTrace.action("watch-hazard-next.enter", fields: [
+            "index": selectedIndex, "count": upcoming.count,
+            "zoom": Double(viewport.zoom), "panX": Double(viewport.pan.width), "panY": Double(viewport.pan.height),
+        ])
+        #endif
         guard upcoming.count > 1 else { return }
         selection = (selectedIndex + 1) % upcoming.count
+        #if DEBUG && targetEnvironment(simulator)
+        WatchSimulatorInputTrace.action("watch-hazard-next.exit", fields: [
+            "index": selectedIndex, "count": upcoming.count,
+            "zoom": Double(viewport.zoom), "panX": Double(viewport.pan.width), "panY": Double(viewport.pan.height),
+        ])
+        #endif
     }
 
     public var body: some View {

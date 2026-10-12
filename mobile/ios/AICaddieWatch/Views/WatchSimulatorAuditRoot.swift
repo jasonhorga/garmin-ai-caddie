@@ -80,6 +80,9 @@ struct WatchSimulatorAuditRoot: View {
         .task {
             guard !initialized else { return }
             initialized = true
+            #if targetEnvironment(simulator)
+            WatchSimulatorInputTrace.installIfRequested()
+            #endif
             do { try initialize(); ready = true } catch { self.error = String(describing: error) }
             // A deterministic stationary GPS feed, not a real receiver measurement. Unlike a single
             // startup coordinate this remains qualified during a long UI session. Stale/acquiring
