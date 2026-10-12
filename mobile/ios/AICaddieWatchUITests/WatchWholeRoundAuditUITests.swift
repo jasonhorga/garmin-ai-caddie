@@ -1545,4 +1545,91 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             try capture("unsupported-auto", "after-\(attempt)", collectControls: false)
         }
     }
+
+    /// Fill the previously declared total-band gap: every valid start 1...15 to every supported
+    /// requested total 10...15, with a new production draft for each pair. Values 16...20 have
+    /// already exposed the product cap; retain a separate fresh boundary attempt for each value.
+    /// No callbacks, pending state or held-open timers are injected to make a gesture succeed.
+    func test21TotalBandFreshStartMatrixAndSave() throws {
+        var pairs: [(start: Int, target: Int)] = []
+        for start in 1...15 {
+            for target in 10...15 { pairs.append((start, target)) }
+        }
+        for target in 16...20 { pairs.append((15, target)) }
+
+        for pair in pairs {
+            try launch("audit-phone-18", modelScreen: "scoring", initialScore: pair.start,
+                       initialPutts: 0, initialPenalty: 0)
+            XCTAssertTrue(waitForFragment("screen=scoring;"))
+            let before = stateValue("score") ?? -1
+            XCTAssertEqual(before, pair.start, "the seeded start must be observed before dispatch")
+            let band = element("watch-score-band")
+            let frame = try band.snapshot().frame
+            let appFrame = app.frame
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            // Rounded watch corners are outside this central band. Keep both pointer endpoints
+            // inside its visible width, 8 pt from either edge. Production rounds at 28 pt/step,
+            // so a 136 pt sweep on 41 mm is five steps, not four (flooring would bias the test).
+            let maxTravel = frame.width - 16
+            let maxSteps = Int((maxTravel / 28).rounded())
+            XCTAssertGreaterThan(maxSteps, 0)
+            var inputs: [[String: Any]] = []
+            while stateValue("score") != pair.target && inputs.count < 3 {
+                let now = stateValue("score") ?? -1
+                let delta = pair.target - now
+                let steps = min(maxSteps, max(-maxSteps, delta))
+                let travel = min(CGFloat(abs(steps)) * 28, maxTravel)
+                let startX = steps > 0 ? frame.maxX - 8 : frame.minX + 8
+                let endX = startX + (steps > 0 ? -travel : travel)
+                origin.withOffset(CGVector(dx: startX - appFrame.minX, dy: frame.midY - appFrame.minY))
+                    .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(
+                        dx: endX - appFrame.minX, dy: frame.midY - appFrame.minY)))
+                // This is an observation wait, not a direct value assignment. A clamped or
+                // swallowed gesture remains visible in the raw before/after sequence.
+                let expected = min(15, max(1, now + steps))
+                _ = waitForValue("score", expected)
+                inputs.append([
+                    "before": now, "after": stateValue("score") ?? -1,
+                    "requestedSteps": steps, "travelPt": Double(travel),
+                    "startPt": [Double(startX), Double(frame.midY)],
+                    "endPt": [Double(endX), Double(frame.midY)],
+                ])
+            }
+            let after = stateValue("score") ?? -1
+            let reached = after == pair.target
+            if pair.target == 10 || pair.target == 15 || !reached {
+                try capture("total-matrix", "start-\(pair.start)-target-\(pair.target)",
+                            input: "seeded-start-real-band-gestures", collectControls: false)
+            }
+            var saveAfter = "not-at-requested-value"
+            var saveSucceeded = false
+            if reached {
+                let save = element("watch-score-save")
+                let saveFrame = try save.snapshot().frame
+                origin.withOffset(CGVector(dx: saveFrame.midX - appFrame.minX,
+                                           dy: saveFrame.midY - appFrame.minY)).tap()
+                _ = waitForValue("scored", 1)
+                saveAfter = stateLabel()
+                saveSucceeded = stateValue("scored", in: saveAfter) == 1
+                    && stateValue("strokes", in: saveAfter) == pair.target
+                if !saveSucceeded {
+                    try capture("total-matrix", "start-\(pair.start)-target-\(pair.target)-save-failed",
+                                collectControls: false)
+                }
+            }
+            try writeAuditJSON([
+                "kind": "fresh-total-reachability", "face": face, "screen": "本洞成绩",
+                "start": pair.start, "before": before, "requested": pair.target,
+                "attemptValid": before == pair.start, "supportedTarget": pair.target <= 15,
+                "after": after, "adjustmentGestures": inputs.count,
+                "withinThree": reached && inputs.count <= 3, "inputs": inputs,
+                "saveAttempted": reached, "saveAfter": saveAfter, "saveSucceeded": saveSucceeded,
+                "saveGestures": reached ? 1 : 0,
+                "framePt": [Double(frame.minX), Double(frame.minY), Double(frame.width), Double(frame.height)],
+                "input": "fresh seeded draft per pair; real coordinates; no model callback injection",
+                "repetitionsPerPair": 1, "physicalCrownProven": false,
+                "uiFeedbackMs": NSNull(),
+            ], stem: "total-matrix--\(pair.start)--\(pair.target)")
+        }
+    }
 }

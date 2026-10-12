@@ -89,6 +89,10 @@ jobs:
             audit_tests=(
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test20UnsupportedAutoShotVisibleFeedback
             )
+          elif [[ "$AUDIT_SELECTION" == "total-matrix" ]]; then
+            audit_tests=(
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test21TotalBandFreshStartMatrixAndSave
+            )
           fi
           xcodebuild test-without-building \
             -project mobile/ios/AICaddieNative.xcodeproj \

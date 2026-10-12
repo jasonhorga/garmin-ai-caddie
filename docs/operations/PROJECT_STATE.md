@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. History is preserved in dated archives.
 
-**Updated:** 2026-10-12 06:04 UTC
+**Updated:** 2026-10-12 06:35 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
 
@@ -55,7 +55,17 @@
   Added attribution-based own comment/commit/head suppression in the existing
   waiter;unknown/Claude/unsigned messages retained,issue subject now explicit.
   Nineteen offline stream/provenance regressions passed30.108 s,zero skips.
-  Submit a bounded operations PR for Claude review;wait interface unchanged.
+  PR42162201d90 opened;CI38211176310 passed,await Claude review. #417
+  notice6118815691 deduped;wait interface unchanged.
+- Total-band supplement method21 prepared:90 fresh valid-start1..15 to
+  target10..15 pairs per face,at most3 visible-band drags,then real Save and
+  recorded total check;five separate16..20 boundaries. One trial/pair,
+  not five-repeat acceptance. Production/scoring range unchanged.
+  Collector/mobile contracts135 passed11.200 s,zero skips. Initial readonly
+  data-lock setup8 errors retained;64 MiB container tmpfs corrected it.
+- Feedback36723 ended gh_error061446 while skipping old own audit CI:
+  one GitHub connection timeout,not external PR feedback. Catch-up0628
+  found no new external #417/#420/#421 response;420 head unchangedbd2ec304.
 
 ## Unfinished queue
 
@@ -65,8 +75,10 @@
 - PR-420-MANUAL-SHOT — blocked:first-tap49 acceptance unresolved; stale-fix
   merits independent. Review exact new head or explicit scope correction.
 - PR-418-AUDIT-SCAFFOLD — evidence-open:draft;diagnostics are not product fixes.
-- ISSUE-FEEDBACK-WAITER — queued:publish tested own-receipt filter as a scoped
-  operations PR;Claude reviews. Existing supported collection option enabled.
+- ISSUE-FEEDBACK-WAITER — evidence-open:Claude review pending for operations
+  PR421,head62201d90,branch
+  codex/watch417-feedback-delivery-20261012,source matches09f8ecbb.
+  Existing supported collection option enabled;owned runner updated after tests.
 - PR-FEEDBACK-CONTINUOUS — queued:resume deduplicated feedback after audit.
 - NATIVE-FIXTURE-LAYOUT-STABILITY — queued:nonblocking #416 variation.
 - IOS-STATUS-CONTRAST — queued:nonblocking dark status/navigation text.
@@ -116,10 +128,16 @@
   collector invocation25454 closed0,no persistent session was created.
 - Feedback runner:operations/blocking-waits/codex-watch417-66000eba-wait_for_conclusion.sh,
   owned repository waiter;conventional top-level source path absent.
-  Owned copy expires goal cutoff;current cursor/event source/behavior retained.
+  Updated09f8ecbb/matches62201d90;expires goal cutoff,interface/cursor retained.
 - /dev/shm/garmin-ai-caddie-watch417-feedbackwait-20261012 removed44 KiB;
   no open files/install/container/service. Offline tests/log/manifests retained
-  in operations/watch417-feedback-20261012. Feedback81342 closed0;no pending wait.
+  in operations/watch417-feedback-20261012. Feedback81342 closed0;36723
+  closed1(gh_error),posting50477 closed0. No pending feedback terminal.
+- /dev/shm/garmin-ai-caddie-watch417-total-matrix-20261012 removed31 MiB;
+  named --rm container gone,no open files/dependency install/test data.
+  Manifest/logs persist operations/watch417-total-matrix-20261012.
+  Verification terminals33139 failed setup,61136 passed,10389 cleanup closed;
+  capacity54 GiB disk free. Native dispatch pending.
 - Other persistent evidence under /home/jason/garmin-ai-caddie-data/operations:
   watch417-simulator-audit-20261011,pr419-4cfb1588-20261011,
   watch417-wide-audit-20261012,watch417-control-recheck-20261012,
@@ -133,13 +151,13 @@
   download closed0. No live waiter/service/
   tunnel/container/volume/port/new environment;gh-feedback timer/cursor unchanged.
 - Historical ledgers preserved verbatim in dated docs/archive files;
-  latest PROJECT_STATE-2026-10-12-watch417-feedback-recovery.historical.md.
+  latest PROJECT_STATE-2026-10-12-watch417-total-matrix.historical.md.
 
 ## Next action and stop conditions
 
-1. Commit/push tested waiter change/evidence;open scoped operations PR for
-   Claude review;update only owned runner,then one same-turn --feedback wait.
-   Known own comments/CI are deduped;do not create CI-result-only commits.
+1. Commit/push method21 scaffolding;dispatch focused total-matrix on
+   exact integration head;block for conclusion,collect and judge actual
+   pair/Save evidence. Keep invalid/capped values distinct from failed gestures.
 2. Process Claude reply/new #420 head once;exact-source/Native review and
    original five taps/undo required for W01. Keep #418 draft.
 3. Continue independent audit gaps;when exhausted use one same-turn blocking
