@@ -52,6 +52,19 @@ public struct WatchUITestRoot: View {
     @ViewBuilder
     private var routedScreen: some View {
         switch screen {
+        // IA prototypes (2026-10-12): live-runtime targets for the #417 element harness.
+        case "proto-face":
+            WatchHoleFacePrototype()
+        case "proto-face-autoshot":
+            WatchHoleFacePrototype(autoShotOn: true)
+        case "proto-score":
+            WatchScoreBoxesPrototype()
+        case "proto-score-par3":
+            WatchScoreBoxesPrototype(hole: 3, par: 3, total: 3, putts: 2)
+        case "proto-turn":
+            WatchNineTurnPrototype()
+        case "proto-menu":
+            WatchMoreMenuPrototype()
         case "milestone-seed", "milestone-restore":
             milestoneRound
         case "standalone-course-seed", "standalone-course-restore",

@@ -1513,6 +1513,54 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
     }
 
+    /// IA prototypes for owner review (2026-10-12): every face Jason's family wears or may buy, with
+    /// the measured non-interactive bottom strip drawn in red. Review artifacts, not production.
+    @MainActor
+    func testRenderInformationArchitecturePrototypesOnEveryFace() throws {
+        let faces: [(String, CGSize)] = [
+            ("40mm", CGSize(width: 162, height: 197)),
+            ("41mm", CGSize(width: 176, height: 215)),
+            ("42mm", CGSize(width: 187, height: 223)),
+            ("45mm", CGSize(width: 198, height: 242)),
+            ("46mm", CGSize(width: 208, height: 248)),
+            ("49mm", CGSize(width: 205, height: 251)),
+        ]
+        for (name, size) in faces {
+            let inset = WatchProtoFace.bottomInset(forHeight: size.height)
+            try render(
+                WatchHoleFacePrototype(bottomInset: inset, showsGuide: true)
+                    .watchSnapshotFrame(width: size.width, height: size.height),
+                named: "proto-face-\(name)"
+            )
+            try render(
+                WatchHoleFacePrototype(autoShotOn: true, bottomInset: inset, showsGuide: true)
+                    .watchSnapshotFrame(width: size.width, height: size.height),
+                named: "proto-face-autoshot-\(name)"
+            )
+            try render(
+                WatchScoreBoxesPrototype(bottomInset: inset, showsGuide: true)
+                    .watchSnapshotFrame(width: size.width, height: size.height),
+                named: "proto-score-\(name)"
+            )
+            try render(
+                WatchScoreBoxesPrototype(total: 11, putts: 3, penalty: 1, fairway: "右", showsExtras: true,
+                                         bottomInset: inset, showsGuide: true)
+                    .watchSnapshotFrame(width: size.width, height: size.height),
+                named: "proto-score-extras-\(name)"
+            )
+            try render(
+                WatchNineTurnPrototype(bottomInset: inset, showsGuide: true)
+                    .watchSnapshotFrame(width: size.width, height: size.height),
+                named: "proto-turn-\(name)"
+            )
+            try render(
+                WatchMoreMenuPrototype(bottomInset: inset, showsGuide: true)
+                    .watchSnapshotFrame(width: size.width, height: size.height),
+                named: "proto-menu-\(name)"
+            )
+        }
+    }
+
     @MainActor
     private func render(_ view: some View, named name: String) throws {
         // watchOS UI is dark; render in dark mode so `.primary` text is white (not black-on-black).

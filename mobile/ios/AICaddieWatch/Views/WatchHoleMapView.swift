@@ -347,6 +347,23 @@ enum WatchPlanLegs {
     }
 }
 
+/// How the player's own position is drawn on the resting hole map.
+public enum WatchPlayerMarkerStyle: Equatable {
+    /// The blue Apple-Maps-style dot with a heading arrow (production since watch P3).
+    case youDot
+    /// S70-style: no dot; a small white chevron at the origin of every route / measure line.
+    case chevron
+}
+
+/// Where the live distance from the last shot is shown.
+public enum WatchLastShotPlacement: Equatable {
+    /// A pill under the player marker (production).
+    case underPlayer
+    /// A line in the top-left facts, under the hole identity (owner request 2026-10-12, S70-style
+    /// top position: the number used to find the ball).
+    case facts
+}
+
 enum WatchHoleMapRouteOverlay: Equatable {
     case none
     case currentShot
@@ -612,6 +629,14 @@ public struct WatchHoleMapView: View {
     public let fullMap: Bool
     public let mapScale: CGFloat
     public let fullMapPlayerAnchorFraction: CGFloat
+    /// Where the player sits on the resting (non-full) map, as a fraction of the height. 0.72 shows
+    /// some of the hole already played; nearer 0.85 keeps the screen for what is ahead (S70).
+    public let restingPlayerAnchorFraction: CGFloat
+    public let playerMarker: WatchPlayerMarkerStyle
+    public let lastShotPlacement: WatchLastShotPlacement
+    /// The map's own club chip beside the player. A face that places the recommendation in its own
+    /// control (IA prototype 2026-10-12) turns it off and keeps the prepared-plan route.
+    public let showsRootCaddieChip: Bool
     /// A focused instrument (for example Hazard) can centre a measured image-space object instead
     /// of keeping the player visible. Hole Root and Touch Target leave this nil and retain the
     /// ordinary player-anchored viewport.
@@ -665,6 +690,10 @@ public struct WatchHoleMapView: View {
         fullMap: Bool = false,
         mapScale: CGFloat = 0.32,
         fullMapPlayerAnchorFraction: CGFloat = 0.66,
+        restingPlayerAnchorFraction: CGFloat = 0.72,
+        playerMarker: WatchPlayerMarkerStyle = .youDot,
+        lastShotPlacement: WatchLastShotPlacement = .underPlayer,
+        showsRootCaddieChip: Bool = true,
         fullMapFocusImagePx: CGPoint? = nil,
         fullMapFocusCanvasFraction: CGPoint = CGPoint(x: 0.5, y: 0.52),
         geometry: WatchHoleMapGeometry = WatchHoleMapSample.geometry,
@@ -710,6 +739,10 @@ public struct WatchHoleMapView: View {
         self.fullMap = fullMap
         self.mapScale = mapScale
         self.fullMapPlayerAnchorFraction = fullMapPlayerAnchorFraction
+        self.restingPlayerAnchorFraction = restingPlayerAnchorFraction
+        self.playerMarker = playerMarker
+        self.lastShotPlacement = lastShotPlacement
+        self.showsRootCaddieChip = showsRootCaddieChip
         self.fullMapFocusImagePx = fullMapFocusImagePx
         self.fullMapFocusCanvasFraction = fullMapFocusCanvasFraction
         self.geometry = geometry
@@ -747,7 +780,7 @@ public struct WatchHoleMapView: View {
         return CGFloat(WatchHoleMapViewport.effectiveRestingScale(
             requestedScale: Double(mapScale),
             viewportHeight: Double(size.height),
-            playerAnchorFraction: 0.72,
+            playerAnchorFraction: Double(restingPlayerAnchorFraction),
             playerImageY: Double(geometry.youPx.y),
             pinImageY: Double(pinImagePoint.y)
         ))
@@ -1007,7 +1040,7 @@ public struct WatchHoleMapView: View {
             ? fullMapFocusCanvasFraction
             : CGPoint(
                 x: 0.5,
-                y: fullMap ? fullMapPlayerAnchorFraction : 0.72
+                y: fullMap ? fullMapPlayerAnchorFraction : restingPlayerAnchorFraction
             )
         let focusCanvas = CGPoint(
             x: size.width * focusFraction.x + userPan.width,
@@ -1042,9 +1075,20 @@ public struct WatchHoleMapView: View {
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     holeIdentity
+                    if lastShotPlacement == .facts, let shot = WatchGeoMath.usefulGolfYards(lastShot), shot > 0 {
+                        // The distance walked from the last shot: what finds the ball.
+                        Text("上一杆 \(shot)")
+                            .font(.system(size: 15, weight: .black, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(touchTargetCyan)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .padding(.top, 2)
+                            .accessibilityIdentifier("watch-hole-last-shot")
+                    }
 
                     if showTextOverlay, let centerGreen {
-                        Spacer().frame(height: 11)
+                        Spacer().frame(height: lastShotPlacement == .facts ? 6 : 11)
                         if let backGreen {
                             distanceValue(backGreen + d, color: .white.opacity(0.92), big: false)
                         }
@@ -1069,7 +1113,7 @@ public struct WatchHoleMapView: View {
                 .padding(.leading, size.width * 0.07)
                 .padding(.top, size.height * 0.09)
 
-                if showTextOverlay, showCaddieRecommendation {
+                if showTextOverlay, showCaddieRecommendation, showsRootCaddieChip {
                     // Its own high-priority tap, not a Button: on the 本洞 方案 page the map's
                     // simultaneous measure tap and the page's recognizers otherwise take the touch
                     // and the tag never switches plan.
@@ -1307,7 +1351,14 @@ public struct WatchHoleMapView: View {
 
         // YOU is a live rangefinder fact, not the fallback Tee/reference anchor used during a
         // no-GPS cold start. Do not paint the reference point as the player's current position.
-        if !rangeUnavailable {
+        if !rangeUnavailable, playerMarker == .chevron {
+            // S70-style: the lines start here; a small chevron is enough to say "you".
+            var chevron = Path()
+            chevron.move(to: CGPoint(x: player.x - 5, y: player.y + 2))
+            chevron.addLine(to: CGPoint(x: player.x, y: player.y - 5))
+            chevron.addLine(to: CGPoint(x: player.x + 5, y: player.y + 2))
+            context.stroke(chevron, with: .color(.white), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+        } else if !rangeUnavailable {
             var arrowP = Path()
             arrowP.move(to: CGPoint(x: player.x, y: player.y - 12))
             arrowP.addLine(to: CGPoint(x: player.x - 4, y: player.y - 5.5))
@@ -1323,7 +1374,7 @@ public struct WatchHoleMapView: View {
 
         // While walking to the ball, S70 keeps the measured previous-shot fact map-bound, under the
         // player. Owner feedback 2026-10-10: at 8.5 pt it was never seen on the wrist.
-        if let lastShot = WatchGeoMath.usefulGolfYards(lastShot), lastShot > 0 {
+        if lastShotPlacement == .underPlayer, let lastShot = WatchGeoMath.usefulGolfYards(lastShot), lastShot > 0 {
             let label = context.resolve(
                 Text("\(lastShot)").font(.system(size: 13, weight: .black, design: .rounded)).foregroundColor(.white)
             )
