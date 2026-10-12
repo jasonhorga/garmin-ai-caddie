@@ -93,6 +93,14 @@ jobs:
             audit_tests=(
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test21TotalBandFreshStartMatrixAndSave
             )
+          elif [[ "$AUDIT_SELECTION" == "band-input-probe" ]]; then
+            audit_tests=(
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test22TotalBandCentreAndEdgeInputDispatch
+            )
+          elif [[ "$AUDIT_SELECTION" == "safe-area-probe" ]]; then
+            audit_tests=(
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test23SafeAreaGeometryAndButtonCutoff
+            )
           fi
           xcodebuild test-without-building \
             -project mobile/ios/AICaddieNative.xcodeproj \

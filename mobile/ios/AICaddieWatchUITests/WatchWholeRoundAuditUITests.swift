@@ -44,7 +44,8 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                         initialScore: Int? = nil, initialPutts: Int? = nil,
                         initialPenalty: Int? = nil, inputTraceTrial: String? = nil,
                         observeRawInput: Bool = false,
-                        fixAgeSeconds: Int? = nil, fixSpeedMps: Double? = nil) throws {
+                        fixAgeSeconds: Int? = nil, fixSpeedMps: Double? = nil,
+                        safeAreaScope: String? = nil, safeAreaY: CGFloat? = nil) throws {
         app.terminate()
         injectedAOD = aod
         app.launchArguments = ["-uitest-screen", screen]
@@ -64,6 +65,8 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         app.launchEnvironment["UITEST_AUDIT_PENALTY"] = initialPenalty.map { String($0) }
         app.launchEnvironment["UITEST_AUDIT_FIX_AGE_SECONDS"] = fixAgeSeconds.map { String($0) }
         app.launchEnvironment["UITEST_AUDIT_FIX_SPEED_MPS"] = fixSpeedMps.map { String($0) }
+        app.launchEnvironment["UITEST_AUDIT_SAFE_AREA_SCOPE"] = safeAreaScope
+        app.launchEnvironment["UITEST_AUDIT_SAFE_AREA_Y"] = safeAreaY.map { String(Double($0)) }
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         if screen.hasPrefix("audit-") {
@@ -1543,6 +1546,142 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                 "physicalHapticProven": false, "uiFeedbackMs": NSNull(),
             ], stem: "unsupported-auto--tap-\(attempt)")
             try capture("unsupported-auto", "after-\(attempt)", collectControls: false)
+        }
+    }
+
+    /// #417 / 6119731901: measure the temporary full-width row's cutoff to one native pixel (0.5pt).
+    /// Every point is a fresh launch. Then check both adjacent rows across five horizontal points
+    /// and repeat their centres five times without tracing; no product acceptance is implied.
+    func test23SafeAreaGeometryAndButtonCutoff() throws {
+        try launch("audit-phone-18")
+        let appFrame = app.frame
+        let height = appFrame.height
+        var sequence = 0
+        for scope in ["root", "hazard"] {
+            func probe(_ y: CGFloat, x: CGFloat, stage: String, traced: Bool = true) throws -> Bool {
+                sequence += 1
+                let trial = "safe-area-\(scope)-\(stage)-\(sequence)"
+                try launch("audit-phone-18", page: scope == "hazard" ? 1 : 0,
+                           zoom: scope == "hazard" ? 2 : 1,
+                           inputTraceTrial: trial, observeRawInput: traced,
+                           safeAreaScope: scope, safeAreaY: y)
+                let counter = element("watch-safe-area-probe-count")
+                XCTAssertTrue(counter.waitForExistence(timeout: 8))
+                XCTAssertEqual(counter.label, "count=0;")
+                let row = element("watch-safe-area-probe-row")
+                let rowFrame = try row.snapshot().frame
+                XCTAssertEqual(rowFrame.midY, y, accuracy: 0.01)
+                let before = stateLabel()
+                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                    dx: x - appFrame.minX, dy: y - appFrame.minY)).tap()
+                let countAfter = counter.exists ? counter.label : "control-absent-after-tap"
+                let fired = countAfter == "count=1;"
+                try writeAuditJSON([
+                    "kind": "safe-area-boundary-point", "face": face, "scope": scope, "stage": stage,
+                    "trial": trial, "requestedWindowPointPt": [Double(x), Double(y)],
+                    "rowFramePt": [Double(rowFrame.minX), Double(rowFrame.minY), Double(rowFrame.width), Double(rowFrame.height)],
+                    "appFramePt": [Double(appFrame.minX), Double(appFrame.minY), Double(appFrame.width), Double(appFrame.height)],
+                    "rowActionFired": fired, "countAfter": countAfter, "before": before, "after": stateLabel(),
+                    "rawTraceRequested": traced, "rawTraceFile": traced ? "input-events--\(trial).json" : "none",
+                    "geometryFile": "safe-area-geometry--\(trial).json",
+                    "temporaryFullWidthButton": true, "buttonHeightPt": 2, "resolutionPt": 0.5,
+                    "productionControlAcceptance": false,
+                ], stem: "safe-area-point--\(trial)")
+                if stage == "bracket-low" || stage == "bracket-high" || stage == "row-centre" {
+                    try capture("safe-area", trial + (fired ? "-fired" : "-ignored"), collectControls: false)
+                }
+                return fired
+            }
+            var low = appFrame.minY + height - 72
+            var high = appFrame.maxY - 1
+            let lowerWorks = try probe(low, x: appFrame.midX, stage: "bracket-low")
+            let upperWorks = try probe(high, x: appFrame.midX, stage: "bracket-high")
+            if !lowerWorks || upperWorks {
+                try writeAuditJSON(["kind": "safe-area-boundary-bracket", "face": face, "scope": scope,
+                                    "lowerY": Double(low), "upperY": Double(high),
+                                    "lowerWorks": lowerWorks, "upperWorks": upperWorks,
+                                    "boundaryLocated": false], stem: "safe-area-bracket--\(scope)")
+                continue
+            }
+            while high - low > 0.5 {
+                let mid = ((low + high) / 2 * 2).rounded(.down) / 2
+                if try probe(mid, x: appFrame.midX, stage: "binary") { low = mid } else { high = mid }
+            }
+            let xs = [appFrame.minX + 20, appFrame.minX + appFrame.width * 0.25,
+                      appFrame.midX, appFrame.minX + appFrame.width * 0.75, appFrame.maxX - 20]
+            var rows: [[String: Any]] = []
+            for y in [low, high] {
+                for (index, x) in xs.enumerated() {
+                    let fired = try probe(y, x: x, stage: index == 2 ? "row-centre" : "row-span")
+                    rows.append(["x": Double(x), "y": Double(y), "fired": fired, "traced": true])
+                }
+                for attempt in 1...5 {
+                    let fired = try probe(y, x: appFrame.midX, stage: "centre-off-\(attempt)", traced: false)
+                    rows.append(["x": Double(appFrame.midX), "y": Double(y), "fired": fired, "traced": false])
+                }
+            }
+            try writeAuditJSON([
+                "kind": "safe-area-boundary-summary", "face": face, "scope": scope,
+                "lastWorkingY": Double(low), "firstFailingY": Double(high), "resolutionPt": 0.5,
+                "rows": rows, "freshLaunchPerPoint": true, "temporaryButtonHeightPt": 2,
+                "productionControlAcceptance": false, "physicalWatchProven": false,
+            ], stem: "safe-area-cutoff--\(scope)")
+        }
+    }
+
+    /// Five untraced fresh-launch drags per centre/edge path, then one separate traced diagnostic
+    /// of that path. Keep real pointer arrival and drag/tap callbacks separate from value success.
+    func test22TotalBandCentreAndEdgeInputDispatch() throws {
+        let cases: [(name: String, anchor: String, distance: CGFloat, initial: Int)] = [
+            ("centre-left-20", "centre", 20, 10),
+            ("centre-left-28", "centre", 28, 10),
+            ("right-edge-left-20", "right", 20, 10),
+            ("right-edge-left-28", "right", 28, 10),
+            ("left-edge-right-28", "left", -28, 10),
+            ("right-edge-left-60", "right", 60, 10),
+            ("right-edge-full", "right", 0, 4),
+        ]
+        for sample in cases {
+            for attempt in 1...6 {
+                let traced = attempt == 6
+                let trial = "band-\(sample.name)-\(traced ? "trace" : String(attempt))"
+                try launch("audit-phone-18", modelScreen: "scoring", initialScore: sample.initial,
+                           initialPutts: 0, initialPenalty: 0,
+                           inputTraceTrial: traced ? trial : nil, observeRawInput: traced)
+                let before = stateValue("score") ?? -1
+                XCTAssertEqual(before, sample.initial)
+                let frame = try element("watch-score-band").snapshot().frame
+                let appFrame = app.frame
+                let distance = sample.distance == 0 ? frame.width - 16 : sample.distance
+                let startX = sample.anchor == "right" ? frame.maxX - 8
+                    : (sample.anchor == "left" ? frame.minX + 8 : frame.midX)
+                let endX = startX - distance
+                XCTAssertTrue(frame.contains(CGPoint(x: startX, y: frame.midY)))
+                XCTAssertTrue(frame.contains(CGPoint(x: endX, y: frame.midY)))
+                if attempt == 1 {
+                    try capture("band-probe", sample.name + "-before", collectControls: false)
+                }
+                let expected = min(15, max(1, before + Int((distance / 28).rounded())))
+                let origin = app.coordinate(withNormalizedOffset: .zero)
+                origin.withOffset(CGVector(dx: startX - appFrame.minX, dy: frame.midY - appFrame.minY))
+                    .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(
+                        dx: endX - appFrame.minX, dy: frame.midY - appFrame.minY)))
+                _ = waitForValue("score", expected)
+                let after = stateValue("score") ?? -1
+                try writeAuditJSON([
+                    "kind": "total-band-input-probe", "face": face, "case": sample.name,
+                    "attempt": attempt, "before": before, "after": after, "expected": expected,
+                    "attemptValid": before == sample.initial, "valueCorrect": after == expected,
+                    "rawTraceRequested": traced, "rateGroup": traced ? "single-diagnostic" : "five-untraced-first-drags",
+                    "startPt": [Double(startX), Double(frame.midY)],
+                    "endPt": [Double(endX), Double(frame.midY)], "travelPt": Double(distance),
+                    "framePt": [Double(frame.minX), Double(frame.minY), Double(frame.width), Double(frame.height)],
+                    "rawTraceFile": traced ? "input-events--\(trial).json" : "none",
+                    "gesture": "actual coordinate press0.05s then horizontal drag",
+                    "physicalCrownProven": false, "uiFeedbackMs": NSNull(),
+                ], stem: "band-probe--\(trial)")
+                try capture("band-probe", trial + "-after", collectControls: false)
+            }
         }
     }
 

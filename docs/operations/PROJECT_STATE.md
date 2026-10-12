@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. History is preserved in dated archives.
 
-**Updated:** 2026-10-12 06:35 UTC
+**Updated:** 2026-10-12 07:40 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
 
@@ -63,6 +63,18 @@
   not five-repeat acceptance. Production/scoring range unchanged.
   Collector/mobile contracts135 passed11.200 s,zero skips. Initial readonly
   data-lock setup8 errors retained;64 MiB container tmpfs corrected it.
+  Native38214143769/437c6ca1 complete;68791 closed0,download44745 closed0.
+  All285 pairs valid:10..15 targets within3 =72/90,77/90,77/90;
+  actual saves for reached targets72/72,77/77,77/77. Capped16..20 stay15.
+  Edge28pt short drag gives±2;matrix failures not classified before callback
+  probe. #417 preliminary6119651495. Method22 prepared,not dispatched.
+  Artifacts/source/analysis persistent;contact-sheet visual review partial.
+- PRIORITY owner/Claude6119731901 at0727:root-before-ignore and hole-page
+  safeAreaInsets/size plus full-width-row y cutoff. Method23 prepared;
+  passive geometry/global frames/native window guide,temporary2pt button,
+  0.5pt binary interval,five x points and five trace-off centre taps at each
+  adjacent row. DEBUG simulation only;Claude owns layout fix. Do this next.
+  #417 ack6119962970;135 collector/contracts passed21.259 s,zero skips.
 - Feedback36723 ended gh_error061446 while skipping old own audit CI:
   one GitHub connection timeout,not external PR feedback. Catch-up0628
   found no new external #417/#420/#421 response;420 head unchangedbd2ec304.
@@ -137,7 +149,11 @@
   named --rm container gone,no open files/dependency install/test data.
   Manifest/logs persist operations/watch417-total-matrix-20261012.
   Verification terminals33139 failed setup,61136 passed,10389 cleanup closed;
-  capacity54 GiB disk free. Native dispatch pending.
+  capacity54 GiB disk free. Hosted38214143769 closed;three simulators/video
+  processes closed by workflow. Results persist;no Native currently in flight.
+- /dev/shm/garmin-ai-caddie-watch417-safe-area-20261012 removed31 MiB;
+  exact --rm container gone,no open files/test data/service/environment.
+  Logs/manifest operations/watch417-safe-area-20261012.81716/26263 closed0.
 - Other persistent evidence under /home/jason/garmin-ai-caddie-data/operations:
   watch417-simulator-audit-20261011,pr419-4cfb1588-20261011,
   watch417-wide-audit-20261012,watch417-control-recheck-20261012,
@@ -151,13 +167,13 @@
   download closed0. No live waiter/service/
   tunnel/container/volume/port/new environment;gh-feedback timer/cursor unchanged.
 - Historical ledgers preserved verbatim in dated docs/archive files;
-  latest PROJECT_STATE-2026-10-12-watch417-total-matrix.historical.md.
+  latest PROJECT_STATE-2026-10-12-watch417-safe-area-request.historical.md.
 
 ## Next action and stop conditions
 
-1. Commit/push method21 scaffolding;dispatch focused total-matrix on
-   exact integration head;block for conclusion,collect and judge actual
-   pair/Save evidence. Keep invalid/capped values distinct from failed gestures.
+1. Verify DEBUG method23/observers,dispatch only safe-area-probe,block for
+   result;report root/page insets and0.5pt cutoff interval to Claude on417.
+   Then method22 short-band diagnostic and finish matrix screenshot review.
 2. Process Claude reply/new #420 head once;exact-source/Native review and
    original five taps/undo required for W01. Keep #418 draft.
 3. Continue independent audit gaps;when exhausted use one same-turn blocking

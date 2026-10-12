@@ -247,7 +247,14 @@ public struct WatchScoreHoleView: View {
                         .minimumScaleFactor(0.6)
                         .foregroundStyle(.white.opacity(offset == 0 ? 1 : (abs(offset) == 1 ? 0.45 : 0.2)))
                         .frame(minWidth: offset == 0 ? m.bandFont * 1.3 : 0, maxWidth: offset == 0 ? m.bandFont * 1.3 : .infinity)
-                        .onTapGesture { if offset != 0 { onScore(value) } }
+                        .onTapGesture {
+                            #if DEBUG && targetEnvironment(simulator)
+                            WatchSimulatorInputTrace.action("watch-score-band-neighbor-tap", fields: [
+                                "offset": offset, "scoreBefore": score, "requested": value,
+                            ])
+                            #endif
+                            if offset != 0 { onScore(value) }
+                        }
                 }
             }
             .offset(x: bandDrag)
@@ -260,6 +267,13 @@ public struct WatchScoreHoleView: View {
                     .onEnded { value in
                         bandDrag = 0
                         let steps = WatchScoreHoleLayout.bandSteps(value.translation)
+                        #if DEBUG && targetEnvironment(simulator)
+                        WatchSimulatorInputTrace.action("watch-score-band-drag-ended", fields: [
+                            "widthPt": Double(value.translation.width),
+                            "heightPt": Double(value.translation.height),
+                            "scoreBefore": score, "steps": steps,
+                        ])
+                        #endif
                         if steps != 0 { onScore(score + steps) }
                     }
             )

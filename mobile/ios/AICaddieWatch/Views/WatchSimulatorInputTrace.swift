@@ -81,7 +81,16 @@ enum WatchSimulatorInputTrace {
                 let point = getPoint(touch, selector, window)
                 row["windowPointPt"] = [Double(point.x), Double(point.y)]
             }
-            if let window, let bounds = rectangle(window, "bounds") { row["windowBoundsPt"] = rect(bounds) }
+            if let window, let bounds = rectangle(window, "bounds") {
+                row["windowBoundsPt"] = rect(bounds)
+                if let guide = object(window, "safeAreaLayoutGuide"), let layout = rectangle(guide, "layoutFrame") {
+                    row["windowSafeAreaLayoutFramePt"] = rect(layout)
+                    row["windowSafeAreaInsetsDerivedPt"] = [
+                        "top": Double(layout.minY - bounds.minY), "bottom": Double(bounds.maxY - layout.maxY),
+                        "leading": Double(layout.minX - bounds.minX), "trailing": Double(bounds.maxX - layout.maxX),
+                    ]
+                }
+            }
             var ancestors: [[String: Any]] = []
             var next = view
             while let node = next, ancestors.count < 12 {

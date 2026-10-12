@@ -361,6 +361,9 @@ public struct WatchRoundContainerView: View {
         } else {
             activeScreen
                 .overlay(alignment: .bottom) { undoableShotStrip }
+                #if DEBUG && targetEnvironment(simulator)
+                .background { WatchSafeAreaGeometryObserver(layer: "container-root") }
+                #endif
                 .task(id: model.pendingManualShot?.capturedAt) {
                     // B6: a detected shot is recorded once its undo window passes.
                     guard model.undoableShotText != nil else { return }
@@ -801,6 +804,9 @@ public struct WatchRoundContainerView: View {
             GeometryReader { proxy in
                 holeMapView(s, geometry)
                     .watchZoomPan($planViewport, size: proxy.size, auditTag: "plan")
+                    #if DEBUG && targetEnvironment(simulator)
+                    .background { WatchSafeAreaProbe.receipt("plan-page", proxy: proxy) }
+                    #endif
             }
             .tag(0)
             // Always three pages (README §3): with nothing ahead the hazard page says 前方无障碍
@@ -1126,6 +1132,11 @@ public struct WatchRoundContainerView: View {
         ZStack {
             content()
             rootControls
+            #if DEBUG && targetEnvironment(simulator)
+            if WatchSafeAreaProbe.scope == "root" {
+                WatchSafeAreaProbeLayer(scope: "root")
+            }
+            #endif
         }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)

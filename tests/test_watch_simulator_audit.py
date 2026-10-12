@@ -90,7 +90,8 @@ class WatchSimulatorAuditTests(unittest.TestCase):
     def test_focused_recheck_is_explicit_and_cannot_masquerade_as_full_coverage(self):
         for selection, expected in [("control-recheck", 4), ("picker-recheck", 2), ("map-recheck", 1),
                                     ("shot-recheck", 1), ("input-probe", 1), ("capability-recheck", 1),
-                                    ("total-matrix", 1)]:
+                                    ("total-matrix", 1), ("band-input-probe", 1),
+                                    ("safe-area-probe", 1)]:
             with self.subTest(selection=selection), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 evidence = root / "evidence"

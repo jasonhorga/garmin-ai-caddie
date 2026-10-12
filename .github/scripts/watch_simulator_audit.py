@@ -17,9 +17,9 @@ FACE_TYPES = {
     "49mm": ("Apple Watch Ultra 2 (49mm)", "Apple Watch Ultra (49mm)"),
 }
 FACES = tuple(FACE_TYPES)
-# Ten original whole-round methods plus eleven element/tempo/recovery/input passes.
+# Ten original whole-round methods plus thirteen element/tempo/recovery/input passes.
 # Keep this explicit so a silently filtered XCTest run cannot be reported as a complete audit.
-EXPECTED_AUDIT_TESTS = 21
+EXPECTED_AUDIT_TESTS = 23
 
 
 def newest_watch_runtime(runtimes: list[dict]) -> dict:
@@ -95,7 +95,8 @@ def collect(face: str, udid: str, outcome: str, output: Path) -> None:
     selection = os.environ.get("AUDIT_SELECTION", "full")
     expected = {"control-recheck": 4, "picker-recheck": 2, "map-recheck": 1,
                 "shot-recheck": 1, "input-probe": 1, "capability-recheck": 1,
-                "total-matrix": 1}.get(selection, EXPECTED_AUDIT_TESTS)
+                "total-matrix": 1, "band-input-probe": 1,
+                "safe-area-probe": 1}.get(selection, EXPECTED_AUDIT_TESTS)
     (output / "result.json").write_text(json.dumps({
         "face": face, "outcome": outcome,
         "screenshots": len(list(output.glob("*--*.png"))),

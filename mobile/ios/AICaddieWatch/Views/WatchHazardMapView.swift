@@ -319,6 +319,14 @@ public struct WatchHazardMapView: View {
             case .hazard:
                 hazardMap(upcoming[selectedIndex], index: selectedIndex, size: geo.size)
                     .watchZoomPan($viewport, size: geo.size, auditTag: "hazard")
+                    #if DEBUG && targetEnvironment(simulator)
+                    .background { WatchSafeAreaProbe.receipt("hazard-page", proxy: geo) }
+                    .overlay {
+                        if WatchSafeAreaProbe.scope == "hazard" {
+                            WatchSafeAreaProbeLayer(scope: "hazard")
+                        }
+                    }
+                    #endif
             }
         }
         .background(Color.black)
