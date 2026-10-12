@@ -4,7 +4,7 @@
 
 **Updated:** 2026-10-12 03:40 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
-**Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
+**Current slice:** PR-420-MANUAL-SHOT — in-progress
 
 ## Current state
 
@@ -47,7 +47,7 @@
 - Substantive report: docs/reviews/2026-10-12-watch417-wrist-ux-audit.md,
   35 distinct findings (2 P1 / 16 P2 / 17 P3), twelve screen tables,
   task counts, physical/glare/reference review and explicit hardware gaps.
-  Publishing this completed review, then #420 review is the next slice.
+  Published at #417 comment 6117399134; report commit fdebb6f1 pushed.
 - Nine map collector regressions pass (2.060 s). Thirty-four distinct
   states inspected in nine calibrated normal/glare pages; physical wrist,
   display ruler calibration and sunlight remain unproved.
@@ -56,12 +56,14 @@
 
 ## Unfinished queue
 
-- WATCH417-ELEMENT-AUDIT — in-progress: complete calibrated image review,
-  adjudicate settled map pairs and publish drafted per-screen tables,
-  task counts and evidence-backed P1–P3 findings on #417.
-- PR-420-MANUAL-SHOT — queued: head bd2ec304, CI 38190513760 / Native
+- WATCH417-ELEMENT-AUDIT — queued: report published; after #420 continue
+  boundary/latency/unsupported-state gaps and Claude's numbered feedback.
+- PR-420-MANUAL-SHOT — in-progress: head bd2ec304, CI 38190513760 / Native
   38190513917 green. Review diff/artifacts and five first-pointer taps with
   immediate undo on every face after publishing the current audit report.
+  Remote exact-source 126 mobile contracts pass (13.429 s); nine scoped
+  collector regressions pass (1.207 s). Earlier Docker mount failures are
+  retained environment diagnostics, not product failures.
 - PR-418-AUDIT-SCAFFOLD — evidence-open: draft; collection is not a UX pass.
 - PR-FEEDBACK-CONTINUOUS — queued: resume deduplicated feedback after #417.
 - NATIVE-FIXTURE-LAYOUT-STABILITY — queued: nonblocking #416 variation.
@@ -103,6 +105,13 @@
   exact 7155607d artifacts, no old evidence overwritten.
 - Map evidence root: watch417-map-recheck-20261012; exact 32b45ba6
   artifacts and settled-image comparisons. No live waiter or service.
+- PR420 evidence root: pr420-bd2ec304-20261012; Native artifacts retained.
+  Reuse the same editing worktree for temporary test-only integration
+  branch codex/pr420-wrist-recheck-20261012, expires Oct 13 08:22 UTC or
+  after review. No second implementation checkout; #418 stays separate.
+- PR420 read-only snapshot /dev/shm/garmin-ai-caddie-pr420-bd2ec304-20261012,
+  30 MiB, expires Oct 13 03:55 UTC or after checks; named --rm test container
+  removed. Exact gates/source unchanged; cleanup after evidence retention.
 - Local /tmp/garmin-watch417-images-20261012-GCqa8Y expires Oct 13 08:30 UTC
   or after review; preserve remote originals.
 - No live audit service, dependency environment, volume, port, tunnel or timer.
@@ -123,11 +132,9 @@
 
 ## Next action and stop conditions
 
-1. Finish settled map adjudication; update and publish substantive review
-   docs/reviews/2026-10-12-watch417-wrist-ux-audit.md on #417. Commit it
-   with this ledger/archive; no separate CI-result bookkeeping commit.
-2. Review #420 exact head, Native artifacts and the five first-tap/undo
+1. Review #420 exact head, Native artifacts and the five first-tap/undo
    check; post/resolve blockers on PR, then continue #417 remaining gaps.
+2. Close temporary PR420 test ref/snapshot; return to #418 audit branch.
 3. Keep #418 draft until sufficient coverage/triage; return to feedback.
    Never commit CI bookkeeping alone or loop on own CI events.
 

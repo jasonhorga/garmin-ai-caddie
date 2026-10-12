@@ -46,7 +46,8 @@ struct WatchSimulatorAuditRoot: View {
                     model: model,
                     holeGeometry: geometry,
                     watchGreenYards: greenRanges,
-                    shotLocation: fix,
+                    shotLocation: fix.flatMap { WatchLocationProvider.isLiveRangefinderFix($0) ? $0 : nil },
+                    latestWatchFix: fix,
                     watchHeading: screen == "audit-heading" ? WatchHeadingFix(
                         trueDegrees: 110, accuracyDegrees: 6, capturedAt: Date()
                     ) : nil,
@@ -314,9 +315,12 @@ struct WatchSimulatorAuditRoot: View {
         let movement = env["UITEST_AUDIT_RANGE"] == "far" ? 1.0
             : (env["UITEST_AUDIT_MOVE_AFTER_SHOT"] == "1" && model.recordedShotCount > 0 ? 201.2 / 111_195 : 0)
         let latitude = (model.activeHoleState?.teeLatitude ?? Self.originLatitude) + movement
-        let date = env["UITEST_AUDIT_RANGE"] == "stale" ? Date().addingTimeInterval(-120) : Date()
+        let age = Double(env["UITEST_AUDIT_FIX_AGE_SECONDS"] ?? "")
+            ?? (env["UITEST_AUDIT_RANGE"] == "stale" ? 120 : 0)
+        let date = Date().addingTimeInterval(-age)
         fix = WatchLocationFix(coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: Self.longitude),
-                               horizontalAccuracyM: 5, capturedAt: ISO8601DateFormatter().string(from: date))
+                               horizontalAccuracyM: 5, capturedAt: ISO8601DateFormatter().string(from: date),
+                               speedMps: Double(env["UITEST_AUDIT_FIX_SPEED_MPS"] ?? ""))
     }
 
     private func writeState() {

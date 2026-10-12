@@ -77,6 +77,10 @@ jobs:
             audit_tests=(
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test13RepeatedPageAndPlanGestures
             )
+          elif [[ "$AUDIT_SELECTION" == "shot-recheck" ]]; then
+            audit_tests=(
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test17FirstTryManualShotAndUndo
+            )
           fi
           xcodebuild test-without-building \
             -project mobile/ios/AICaddieNative.xcodeproj \

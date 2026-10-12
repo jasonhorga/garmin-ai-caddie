@@ -88,7 +88,8 @@ class WatchSimulatorAuditTests(unittest.TestCase):
             self.assertFalse(manifest["hardwareSunlightProven"])
 
     def test_focused_recheck_is_explicit_and_cannot_masquerade_as_full_coverage(self):
-        for selection, expected in [("control-recheck", 4), ("picker-recheck", 2), ("map-recheck", 1)]:
+        for selection, expected in [("control-recheck", 4), ("picker-recheck", 2), ("map-recheck", 1),
+                                    ("shot-recheck", 1)]:
             with self.subTest(selection=selection), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 evidence = root / "evidence"

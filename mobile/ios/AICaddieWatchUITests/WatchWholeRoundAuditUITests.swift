@@ -42,7 +42,8 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                         zoom: Int = 1, aod: Bool = false, moveAfterShot: Bool = false,
                         supportsAutoShot: Bool = false, modelScreen: String? = nil,
                         initialScore: Int? = nil, initialPutts: Int? = nil,
-                        initialPenalty: Int? = nil) throws {
+                        initialPenalty: Int? = nil,
+                        fixAgeSeconds: Int? = nil, fixSpeedMps: Double? = nil) throws {
         app.terminate()
         injectedAOD = aod
         app.launchArguments = ["-uitest-screen", screen]
@@ -58,6 +59,8 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         app.launchEnvironment["UITEST_AUDIT_SCORE"] = initialScore.map { String($0) }
         app.launchEnvironment["UITEST_AUDIT_PUTTS"] = initialPutts.map { String($0) }
         app.launchEnvironment["UITEST_AUDIT_PENALTY"] = initialPenalty.map { String($0) }
+        app.launchEnvironment["UITEST_AUDIT_FIX_AGE_SECONDS"] = fixAgeSeconds.map { String($0) }
+        app.launchEnvironment["UITEST_AUDIT_FIX_SPEED_MPS"] = fixSpeedMps.map { String($0) }
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         if screen.hasPrefix("audit-") {
@@ -1356,6 +1359,50 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                 "capturedBeforeUndo": false, "realWatchProven": false],
                 stem: "first-try--manual--\(attempt)")
             try capture("first-try-shots", "attempt-\(attempt)", collectControls: false)
+        }
+        // Product behavior at the PR's new source boundary. Only input GPS facts are injected:
+        // live shotLocation is nil for a 20 s sample, so acceptance must come from latestWatchFix.
+        // One trial per state is supplemental evidence, never a five-trial success claim.
+        let cases: [(name: String, range: String, age: Int?, speed: Double?, shouldRecord: Bool)] = [
+            ("older-walking", "fresh", 20, 0, true),
+            ("older-cart", "fresh", 20, 6, false),
+            ("expired", "fresh", 31, 0, false),
+            ("missing", "none", nil, nil, false),
+        ]
+        for sample in cases {
+            try launch("audit-phone-18", range: sample.range,
+                       fixAgeSeconds: sample.age, fixSpeedMps: sample.speed)
+            let record = element("watch-hole-record-shot")
+            let frame = record.frame
+            let before = stateLabel()
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
+            // Capture transient visual feedback before state/tree enumeration. A simulator
+            // screenshot does not prove the physical haptic; absence after this tool's latency
+            // does not by itself prove the short-lived product message was never shown.
+            let stem = "shot-origin--\(sample.name)-after-tap"
+            let screenshot = app.screenshot()
+            let visual = XCTAttachment(screenshot: screenshot)
+            visual.name = stem
+            visual.lifetime = .keepAlways
+            add(visual)
+            let screenshotFile = output.appendingPathComponent(stem + ".png")
+            try screenshot.pngRepresentation.write(to: screenshotFile, options: .atomic)
+            let after = stateLabel()
+            let recorded = after.contains("pending=true;") || (stateValue("shots", in: after) ?? 0) > 0
+            let feedback = element("watch-hole-record-shot-needs-gps")
+            let feedbackSeen = feedback.exists
+            if after.contains("pending=true;"), element("watch-shot-undo").exists {
+                element("watch-shot-undo").tap()
+            }
+            try writeAuditJSON(["kind": "shot-origin-boundary", "face": face,
+                "case": sample.name, "inputAgeSeconds": sample.age.map { $0 as Any } ?? NSNull(),
+                "inputSpeedMps": sample.speed.map { $0 as Any } ?? NSNull(), "range": sample.range,
+                "before": before, "after": after, "recorded": recorded,
+                "expectedRecord": sample.shouldRecord, "success": recorded == sample.shouldRecord,
+                "transientGPSMessageSeen": feedbackSeen, "physicalHapticProven": false],
+                stem: "shot-origin--\(sample.name)")
+            XCTAssertEqual(recorded, sample.shouldRecord, "\(sample.name): \(after)")
         }
     }
 }
