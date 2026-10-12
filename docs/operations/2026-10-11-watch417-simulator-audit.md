@@ -133,3 +133,13 @@ putts/penalty start/target pair. `picker-recheck` explicitly collects only metho
 11/18, never claims a complete eighteen-method run, and keeps production timers.
 Preparation: nine audit regressions plus the viewport contract pass (10 tests,
 0.480 s) in the existing API image; two YAML files / thirty Bash sections validate.
+
+Picker supplement 38191363704 / c1d5c876 executed both selected methods on all faces,
+no skips, all passed; 58/60/58 PNGs. Valid start/target reachability was 61/61 on
+41/46 mm and 60/60 on 49 mm, with one invalid preparation. Repeated gesture trials
+still spent the production timeout sampling state between opening and input, so
+their partial rates are not confirmed product defects. The follow-up makes each
+trial a fresh production chip tap followed immediately by pointer input, sampling
+state beforehand. It does not change any product timer, gesture or hit region.
+Nine remote collector/physical-export regressions pass (1.120 s). Scoped native
+evidence is required before claiming those first-try gesture rates are complete.

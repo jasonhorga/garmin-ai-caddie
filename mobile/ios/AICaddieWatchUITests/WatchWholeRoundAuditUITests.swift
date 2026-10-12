@@ -119,10 +119,14 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     private func recordInteraction(_ flow: String, _ step: String, control: XCUIElement,
                                    gesture: String, expected: String, action: () -> Void,
                                    success: (String) -> Bool,
-                                   cachedMetrics: [String: Any]? = nil) throws -> Bool {
+                                   cachedMetrics: [String: Any]? = nil,
+                                   freshPickerOpen: (() -> Void)? = nil) throws -> Bool {
         let before = stateLabel()
         let metrics = cachedMetrics ?? controlMetrics(control, role: "interactive")
-        guard control.exists else {
+        // A fresh-open sequence measures the chip tap and the immediate pointer gesture together.
+        // No state/tree query may spend the production timeout between these two actions.
+        // Failure to open is an actual first-try failure, never an injected recovery or invalid trial.
+        if freshPickerOpen == nil, !control.exists {
             try writeAuditJSON([
                 "kind": "interaction", "flow": flow, "step": step, "face": face,
                 "control": metrics, "gesture": gesture, "expected": expected,
@@ -132,6 +136,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             return false
         }
         let started = Date()
+        freshPickerOpen?()
         action()
         let elapsedMs = Int(Date().timeIntervalSince(started) * 1_000)
         var after = stateLabel()
@@ -153,6 +158,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             "uiFeedbackMs": NSNull(),
             "latencyEvidence": "XCTest synchronization overhead; not a 300ms UI feedback measurement",
             "physicalCrownProven": false,
+            "includesFreshOpen": freshPickerOpen != nil,
         ], stem: "interaction--\(flow)--\(step)")
         if !passed {
             try observe(flow, step, expected: expected, actual: after)
@@ -797,17 +803,18 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             let origin = app.coordinate(withNormalizedOffset: .zero)
             let plusPoint = origin.withOffset(CGVector(dx: plusFrame.midX, dy: plusFrame.midY))
             let minusPoint = origin.withOffset(CGVector(dx: minusFrame.midX, dy: minusFrame.midY))
+            let chipFrame = try frozenFrame(chipMetrics)
+            let chipPoint = origin.withOffset(CGVector(dx: chipFrame.midX, dy: chipFrame.midY))
+            let doneMetrics = measured.first { ($0["role"] as? String) == "done" } ?? [:]
+            let doneFrame = try frozenFrame(doneMetrics)
+            let donePoint = origin.withOffset(CGVector(dx: doneFrame.midX, dy: doneFrame.midY))
 
             let groups = ["plus", "minus", "20pt", "60pt", "off-centre-8pt", "double-tap", "edge-60pt", "long-press"]
             for group in groups {
                 var valid = 0
                 var successes = 0
                 for attempt in 1...5 {
-                    guard openPicker() else {
-                        try observe("score-elements", "\(name)-\(group)-\(attempt)-unavailable",
-                                    expected: "open picker before a trial", actual: stateLabel())
-                        continue
-                    }
+                    try launch("audit-phone-18", modelScreen: "scoring")
                     let before = stateValue(wheel) ?? -1
                     let delta = group == "minus" ? -1 : (group == "60pt" || group == "edge-60pt" || group == "double-tap" ? 2 : 1)
                     let expected = (before + delta + wrap) % wrap
@@ -839,8 +846,10 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                             }
                         },
                         success: { _ in self.waitForValue(wheel, expected) },
-                        cachedMetrics: metrics
+                        cachedMetrics: metrics,
+                        freshPickerOpen: { chipPoint.tap() }
                     )
+                    reopens += 1
                     valid += 1
                     if passed { successes += 1 }
                     if attempt == 1 || attempt == 5 {
@@ -855,13 +864,15 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                 ], stem: "repeat-summary--\(wheel)--\(group)")
             }
             for attempt in 1...5 {
-                guard openPicker() else { continue }
+                try launch("audit-phone-18", modelScreen: "scoring")
                 let before = stateValue(wheel) ?? -1
                 _ = try recordInteraction(
                     "score-elements", "\(name)-done-\(attempt)", control: done, gesture: "tap",
                     expected: "picker closed, selected \(wheel) retained",
-                    action: { done.tap() },
-                    success: { _ in !picker.exists && self.stateValue(wheel) == before }
+                    action: { donePoint.tap() },
+                    success: { state in state.contains("screen=scoring;") && !picker.exists && self.stateValue(wheel, in: state) == before },
+                    cachedMetrics: doneMetrics,
+                    freshPickerOpen: { chipPoint.tap() }
                 )
             }
             guard openPicker() else { return }
@@ -899,10 +910,9 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                                initialPenalty: wheel == "penalty" ? start : 0)
                     let before = stateValue(wheel) ?? -1
                     origin.withOffset(CGVector(dx: chipFrame.midX, dy: chipFrame.midY)).tap()
-                    let prepared = picker.exists
                     var delta = (target - start + count) % count
                     if delta > count / 2 { delta -= count }
-                    if prepared && delta != 0 {
+                    if delta != 0 {
                         origin.withOffset(CGVector(dx: pickerFrame.midX, dy: pickerFrame.midY))
                             .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(
                                 dx: pickerFrame.midX, dy: pickerFrame.midY - CGFloat(delta) * 30)))
@@ -912,9 +922,10 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                         "kind": "value-reachability", "screen": "本洞成绩", "control": wheel,
                         "face": face, "start": start, "before": before, "requested": target,
                         "gestures": delta == 0 ? 1 : 2, "includesOpen": true,
-                        "attemptValid": prepared && before == start, "after": after,
-                        "withinThree": prepared && before == start && after == target,
+                        "attemptValid": before == start, "after": after,
+                        "withinThree": before == start && after == target,
                         "input": "real-pointer; seeded-start-draft; measured-cached-frame",
+                        "dispatch": "fresh chip tap then immediate drag; no intervening state/tree query",
                         "physicalCrownProven": false,
                     ], stem: "range--\(wheel)--\(start)--\(target)")
                     if target == 0 || target == count - 1 {
