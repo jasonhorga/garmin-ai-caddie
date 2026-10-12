@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. Dated archives preserve history verbatim.
 
-**Updated:** 2026-10-12 13:52 UTC
+**Updated:** 2026-10-12 14:10 UTC
 **Canonical baseline:** main 3e785b14 / product merge95b5694e (#419)
 **Current slice:** PR-422-PROTOTYPE-IA — in-progress
 
@@ -60,8 +60,8 @@
 
 ## Unfinished queue
 
-- PR-422-PROTOTYPE-IA — in-progress:repair immutable screenshot inventory,
-  rebase scaffolding onto exact9e,verify and dispatch requested four routes.
+- PR-422-PROTOTYPE-IA — in-progress:immutable inventory repair complete;
+  scaffolding rebased exact9e,verify and dispatch four changed routes.
 - WATCH417-ELEMENT-AUDIT — evidence-open:hardware/Crown/replies;
   completed diagnostic/capability/band/safe-area evidence must not be repeated.
 - PR-420-MANUAL-SHOT — blocked:original49 acceptance unresolved;
@@ -109,16 +109,21 @@
 
 - Sole editing worktree:/home/ubuntu/claude-web-data/repo/garmin-ai-caddie-watch417-20261011;
   Codex,createdOct11 08:30,expiresOct18 08:30 UTC. Preserve primary dirty tree.
-- Branch codex/pr422-revised-harness-20261012 at69539a5b;
-  next preserve receipts then rebase onto9e on a new named branch.
-  Previous312e4272/f34c94bd reviews pushed/retained.
-- All owned source snapshots and test/analysis/graphics --rm containers removed.
+- Branch codex/pr422-clock-harness-20261012 rebased onto exact9e;
+  turn row height/clock/selected styles retained;passive probes only.
+  Prior4d7b5dff/312e4272/f34c94bd receipts pushed/retained.
+- Prior snapshots and test/analysis/graphics --rm containers removed.
+  Next snapshot /dev/shm/garmin-ai-caddie-pr422-clock-20261012;
+  allow-list containers garmin-pr422-clock-20261012,
+  garmin-pr422-clock-native-sheets-20261012 and
+  garmin-pr422-clock-runtime-analysis-20261012. Localmanifest recorded.
   No installs,private environments,services,ports,tunnels or volumes.
 - Persistent evidence under /home/jason/garmin-ai-caddie-data/operations:
   watch417-* audit/control/picker/map/input-probe/capability/feedback/
   total-matrix/safe-area/band-input-20261012,pr419-4cfb1588-20261011,
   pr420-bd2ec304-20261012,pr422-prototype-audit-20261012,
   pr422-prototype-recheck-20261012(native38242810064/runtime38251740277).
+  New pr422-prototype-clock-20261012 stores9e source/render/runtime evidence.
   Originals,physical exports,red logs,analysis/control tables retained.
 - Wait runner:operations/blocking-waits/codex-watch417-66000eba-wait_for_conclusion.sh
   matches#421;expires goal cutoff. Collector/timer/feedback-cursor untouched.
@@ -139,8 +144,8 @@
 
 ## Next action and stop conditions
 
-1. Preserve substantive review receipts;repair inventory using one snapshot.
-2. Rebase audit onto9e;verify exact source remotely;dispatch four changed
+1. Verify exact9e-derived harness remotely with shared read-only image.
+2. Push source;dispatch four changed
    routes and bottom-inset sampling on all five faces. No layout/hit repair.
 3. Wait with installed blocker;inspect Native/live/physical artifacts;
    adjudicate PIA03–05 and requested bottom sampling on#422.

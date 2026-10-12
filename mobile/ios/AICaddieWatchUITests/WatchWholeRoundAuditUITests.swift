@@ -8,6 +8,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     private var sequence = 0
     private var face: String { ProcessInfo.processInfo.environment["UITEST_AUDIT_FACE"] ?? "unknown" }
     private var prototypeRecheck: Bool { ProcessInfo.processInfo.environment["UITEST_PROTO_RECHECK"] == "1" }
+    private var prototypeClockRecheck: Bool { ProcessInfo.processInfo.environment["UITEST_PROTO_CLOCK_RECHECK"] == "1" }
     private var output: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("watch-audit", isDirectory: true)
@@ -77,6 +78,9 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     }
     private func metric(_ control: XCUIElement) -> [String: Any] {
         guard let snap = try? control.snapshot() else { return ["exists": false] }
+        return metric(snap)
+    }
+    private func metric(_ snap: any XCUIElementSnapshot) -> [String: Any] {
         let box = snap.frame
         guard [box.minX, box.minY, box.width, box.height].allSatisfy({ $0.isFinite }) else {
             return ["exists": true, "identifier": snap.identifier, "label": snap.label, "finiteFrame": false]
@@ -100,11 +104,18 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         attachment.name = stem; attachment.lifetime = .keepAlways; add(attachment)
         var controls: [[String: Any]] = []
         if inventory {
-            controls = app.descendants(matching: .any).allElementsBoundByIndex.filter {
+            // Scrolling changes live query indices (38251740277 failed at index21 on every face).
+            // Capture the native tree once; every inventory entry belongs to that same snapshot.
+            func descendants(_ root: any XCUIElementSnapshot) -> [any XCUIElementSnapshot] {
+                root.children.flatMap { [$0] + descendants($0) }
+            }
+            let tree = descendants(try app.snapshot())
+            controls = tree.filter {
                 $0.identifier.hasPrefix("proto-") && $0.identifier != "proto-audit-state"
             }.map(metric)
-            controls += app.buttons.allElementsBoundByIndex.filter {
-                $0.identifier.isEmpty && ($0.label.hasSuffix("加一") || $0.label.hasSuffix("减一"))
+            controls += tree.filter {
+                $0.elementType == .button && $0.identifier.isEmpty
+                    && ($0.label.hasSuffix("加一") || $0.label.hasSuffix("减一"))
             }.map(metric)
         }
         try write(["kind": "prototype-screen", "face": face, "flow": flow, "step": step,
@@ -123,21 +134,25 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         return point
     }
 
+    private func canvasMetric(_ key: String) -> CGFloat? {
+        element("proto-audit-canvas-geometry").label.split(separator: ";")
+            .first { $0.hasPrefix("\(key)=") }
+            .flatMap { Double($0.dropFirst(key.count + 1)) }
+            .map { CGFloat($0) }
+    }
+
     private func prepare(_ actions: [String]) throws -> Bool {
         for action in actions {
             if action.hasPrefix("menu-reveal:") {
                 let target = element(String(action.dropFirst("menu-reveal:".count)))
-                let receipt = element("proto-audit-canvas-geometry").label
-                let bottom = receipt.split(separator: ";").first { $0.hasPrefix("bottom=") }
-                    .flatMap { Double($0.dropFirst("bottom=".count)) }
-                guard let bottom else { return false }
+                guard let bottom = canvasMetric("bottom"), let top = canvasMetric("top") else { return false }
                 var visible = false
                 for step in 0...3 {
                     if target.exists {
                         let rect = try target.snapshot().frame
                         // Keep the whole row below the initial clock gap and above the measured
                         // interactive bottom; an existing off-screen AX node isn't a valid tap.
-                        visible = rect.minY >= 34 && rect.maxY <= bottom + 0.01
+                        visible = rect.minY >= top - 0.01 && rect.maxY <= bottom + 0.01
                         if visible { break }
                     }
                     if step < 3 { app.swipeUp() }
@@ -319,20 +334,24 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                    "executed": false, "reason": "No verified genuine Crown rotation mechanism available to this XCTest harness",
                    "bindingInjected": false, "touchSwipeSubstituted": false, "physicalCrownProven": false], "proto-crown-boundary")
         try screenshot("proto-route", "score-crown-boundary", inventory: true)
-        guard face == "42mm" || face == "45mm" || prototypeRecheck else {
+        guard face == "42mm" || face == "45mm" || prototypeRecheck || prototypeClockRecheck else {
             try write(["kind": "prototype-safe-area-reuse", "face": face,
                        "priorNativeRuns": ["38219857642", "38225977002"],
                        "note": "Original control trials retain current geometry/native diagnostics; no repeat cutoff search"], "proto-cutoff-prior")
             return
         }
-        try launch("proto-face", trial: "boundary-window")
+        // Test the newly changed score hierarchy rather than infer its dispatch from the map.
+        let boundaryRoute = prototypeClockRecheck ? "proto-score-stack" : "proto-face"
+        try launch(boundaryRoute, trial: "boundary-window")
         let window = app.frame
+        let interactiveBottom = try XCTUnwrap(canvasMetric("bottom"))
+        let bottomInset = window.maxY - interactiveBottom
         var serial = 0
         for scope in ["root", "canvas"] {
             func probe(_ y: CGFloat, stage: String, traced: Bool = false) throws -> Bool {
                 serial += 1
                 let trial = "boundary-\(scope)-\(stage)-\(serial)"
-                try launch("proto-face", trial: trial, traced: traced, scope: scope, y: y)
+                try launch(boundaryRoute, trial: trial, traced: traced, scope: scope, y: y)
                 let row = element("proto-boundary-row")
                 XCTAssertTrue(row.waitForExistence(timeout: 5))
                 XCTAssertEqual(try row.snapshot().frame.midY, y, accuracy: 0.01)
@@ -343,7 +362,10 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                     dx: point.x - window.minX, dy: point.y - window.minY)).tap()
                 let fired = count.label == "count=1;"
                 try write(["kind": "prototype-cutoff-point", "face": face, "scope": scope, "stage": stage,
-                           "trial": trial, "windowPointPt": [Double(point.x), Double(point.y)], "fired": fired,
+                           "route": boundaryRoute, "trial": trial,
+                           "windowPointPt": [Double(point.x), Double(point.y)], "fired": fired,
+                           "measuredInteractiveBottomPt": Double(interactiveBottom),
+                           "insideBottomInset": y > interactiveBottom,
                            "temporaryButtonHeightPt": 2, "originalControlAcceptance": false,
                            "geometryFile": "proto-geometry--\(trial).json", "traced": traced,
                            "traceFile": traced ? "input-events--\(trial).json" : "none"], "proto-cutoff-point--\(trial)")
@@ -354,13 +376,28 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             var high = window.maxY - 1
             var lowerWorks = try probe(low, stage: "low")
             let upperWorks = try probe(high, stage: "high")
+            var insetConfirmations: [[String: Any]] = []
+            if prototypeClockRecheck {
+                // Collect these positions even if the very bottom rejects the first probe.
+                // Their receipts remain independent of any monotonic-cutoff assumption.
+                let ys = [interactiveBottom - 1, interactiveBottom + 1,
+                          ((interactiveBottom + bottomInset / 2) * 2).rounded(.down) / 2]
+                for y in ys {
+                    for attempt in 1...5 {
+                        insetConfirmations.append(["y": Double(y), "traced": false,
+                                                   "fired": try probe(y, stage: "confirm-inset-\(attempt)")])
+                    }
+                    insetConfirmations.append(["y": Double(y), "traced": true,
+                                               "fired": try probe(y, stage: "confirm-inset-diagnostic", traced: true)])
+                }
+            }
             if !lowerWorks && !upperWorks {
                 var retries: [Bool] = []
                 for attempt in 1...5 { retries.append(try probe(low, stage: "retry-\(attempt)")) }
                 lowerWorks = retries.allSatisfy { $0 }
             }
             if upperWorks {
-                var confirmations: [[String: Any]] = []
+                var confirmations = insetConfirmations
                 for y in [low, high] {
                     for attempt in 1...5 {
                         confirmations.append(["y": Double(y), "traced": false,
@@ -370,23 +407,28 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                                           "fired": try probe(y, stage: "confirm-endpoint-diagnostic", traced: true)])
                 }
                 try write(["kind": "prototype-cutoff-summary", "face": face, "scope": scope,
+                           "route": boundaryRoute,
                            "boundaryLocated": false, "lowerWorks": lowerWorks, "upperWorks": upperWorks,
+                           "measuredInteractiveBottomPt": Double(interactiveBottom),
                            "windowMaxY": Double(window.maxY), "sampledLowY": Double(low),
                            "sampledHighY": Double(high), "confirmations": confirmations,
-                           "note": "Both endpoints accepted; no cutoff bracket. This does not sample every intervening pixel.",
+                           "note": "Upper endpoint accepted; confirmations retain each sampled y, without proving every intervening pixel or another hierarchy.",
                            "originalControlAcceptance": false], "proto-cutoff-summary--\(scope)")
                 continue
             }
             if !lowerWorks {
                 try write(["kind": "prototype-cutoff-summary", "face": face, "scope": scope,
-                           "boundaryLocated": false, "lowerWorks": lowerWorks, "upperWorks": upperWorks], "proto-cutoff-summary--\(scope)")
+                           "route": boundaryRoute, "boundaryLocated": false,
+                           "lowerWorks": lowerWorks, "upperWorks": upperWorks,
+                           "confirmations": insetConfirmations,
+                           "originalControlAcceptance": false], "proto-cutoff-summary--\(scope)")
                 continue
             }
             while high - low > 0.5 {
                 let middle = ((low + high) * 1).rounded(.down) / 2
                 if try probe(middle, stage: "binary") { low = middle } else { high = middle }
             }
-            var confirmations: [[String: Any]] = []
+            var confirmations = insetConfirmations
             for y in [low, high] {
                 for attempt in 1...5 {
                     confirmations.append(["y": Double(y), "traced": false,
@@ -396,6 +438,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                                       "fired": try probe(y, stage: "confirm-diagnostic", traced: true)])
             }
             try write(["kind": "prototype-cutoff-summary", "face": face, "scope": scope,
+                       "route": boundaryRoute,
                        "lastWorkingY": Double(low), "firstFailingY": Double(high), "resolutionPt": 0.5,
                        "boundaryLocated": true, "confirmations": confirmations,
                        "originalControlAcceptance": false], "proto-cutoff-summary--\(scope)")

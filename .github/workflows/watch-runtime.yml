@@ -23,6 +23,7 @@ on:
         options:
           - prototype-elements
           - prototype-recheck
+          - prototype-clock-recheck
       api_base_url:
         description: Optional public API origin shared by Watch and Web evidence
         type: string

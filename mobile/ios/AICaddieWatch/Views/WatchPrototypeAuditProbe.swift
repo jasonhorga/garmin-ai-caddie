@@ -74,10 +74,11 @@ struct WatchPrototypeAuditState: View {
 /// A passive receipt used to scroll real menu rows into the measured interactive canvas.
 struct WatchPrototypeAuditCanvasGeometry: View {
     let size: CGSize
+    let interactiveTop: CGFloat
     let interactiveBottom: CGFloat
     var body: some View {
         if WatchPrototypeAuditProbe.enabled {
-            Text("width=\(Double(size.width));height=\(Double(size.height));bottom=\(Double(interactiveBottom));")
+            Text("width=\(Double(size.width));height=\(Double(size.height));top=\(Double(interactiveTop));bottom=\(Double(interactiveBottom));")
                 .font(.system(size: 1)).foregroundStyle(.clear)
                 .frame(width: 1, height: 1).allowsHitTesting(false)
                 .accessibilityIdentifier("proto-audit-canvas-geometry")

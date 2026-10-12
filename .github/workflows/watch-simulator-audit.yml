@@ -16,7 +16,7 @@ jobs:
     name: Watch audit ${{ matrix.face }}
     runs-on: macos-15
     env:
-      PROTOTYPE_BASE_SHA: 3a8b2af244646b40194a83c89e87ba15e32017aa
+      PROTOTYPE_BASE_SHA: 9e03df3072248dd03b0e3915ca413d5c185edaaa
     timeout-minutes: 180
     strategy:
       fail-fast: false
@@ -53,6 +53,7 @@ jobs:
           TEST_RUNNER_UITEST_WATCH_FULL_AUDIT: '1'
           TEST_RUNNER_UITEST_AUDIT_FACE: ${{ matrix.face }}
           TEST_RUNNER_UITEST_PROTO_RECHECK: ${{ inputs.audit_selection == 'prototype-recheck' && '1' || '0' }}
+          TEST_RUNNER_UITEST_PROTO_CLOCK_RECHECK: ${{ inputs.audit_selection == 'prototype-clock-recheck' && '1' || '0' }}
           AUDIT_SELECTION: ${{ inputs.audit_selection }}
         run: |
           set -euo pipefail
@@ -68,7 +69,14 @@ jobs:
           stop_video() { kill -INT "$video_pid" 2>/dev/null || true; wait "$video_pid" || true; }
           trap stop_video EXIT
           audit_tests=(-only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests)
-          if [[ "$AUDIT_SELECTION" == "prototype-recheck" ]]; then
+          if [[ "$AUDIT_SELECTION" == "prototype-clock-recheck" ]]; then
+            audit_tests=(
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test02RowScoreAndFairwayControls
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test03StackScoreControls
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test04TurnAndMenuControls
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test05SafeAreaCutoffAndCrownEvidenceBoundary
+            )
+          elif [[ "$AUDIT_SELECTION" == "prototype-recheck" ]]; then
             audit_tests=(
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test03StackScoreControls
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test04TurnAndMenuControls
