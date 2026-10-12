@@ -36,6 +36,7 @@ on:
           - total-matrix
           - band-input-probe
           - safe-area-probe
+          - safe-area-root-recheck
       backend_revision:
         description: Expected deployed backend Git revision (40 hex characters); falls back to protected AI_CADDIE_BACKEND_REVISION
         type: string

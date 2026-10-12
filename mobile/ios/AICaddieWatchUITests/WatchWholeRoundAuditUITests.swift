@@ -1557,7 +1557,9 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         let appFrame = app.frame
         let height = appFrame.height
         var sequence = 0
-        for scope in ["root", "hazard"] {
+        let rootOnly = ProcessInfo.processInfo.environment["UITEST_AUDIT_SAFE_AREA_ROOT_ONLY"] == "1"
+        let scopes = rootOnly ? ["root"] : ["root", "hazard"]
+        for scope in scopes {
             func probe(_ y: CGFloat, x: CGFloat, stage: String, traced: Bool = true) throws -> Bool {
                 sequence += 1
                 let trial = "safe-area-\(scope)-\(stage)-\(sequence)"
@@ -1594,8 +1596,24 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             }
             var low = appFrame.minY + height - 72
             var high = appFrame.maxY - 1
-            let lowerWorks = try probe(low, x: appFrame.midX, stage: "bracket-low")
+            var lowerWorks = try probe(low, x: appFrame.midX, stage: "bracket-low")
             let upperWorks = try probe(high, x: appFrame.midX, stage: "bracket-high")
+            // Keep the original cancelled lower trial. A launch-time cancellation must not be
+            // relabelled as a hit boundary: require five fresh trace-off successes before searching.
+            if !lowerWorks && !upperWorks {
+                var retries: [Bool] = []
+                for attempt in 1...5 {
+                    retries.append(try probe(low, x: appFrame.midX,
+                                             stage: "bracket-low-off-\(attempt)", traced: false))
+                }
+                lowerWorks = retries.allSatisfy { $0 }
+                try writeAuditJSON([
+                    "kind": "safe-area-bracket-retry", "face": face, "scope": scope,
+                    "lowerY": Double(low), "initialLowerWorks": false,
+                    "traceOffRetries": retries, "lowerWorks": lowerWorks,
+                    "productionControlAcceptance": false,
+                ], stem: "safe-area-bracket-retry--\(scope)")
+            }
             if !lowerWorks || upperWorks {
                 try writeAuditJSON(["kind": "safe-area-boundary-bracket", "face": face, "scope": scope,
                                     "lowerY": Double(low), "upperY": Double(high),
@@ -1605,7 +1623,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             }
             while high - low > 0.5 {
                 let mid = ((low + high) / 2 * 2).rounded(.down) / 2
-                if try probe(mid, x: appFrame.midX, stage: "binary") { low = mid } else { high = mid }
+                if try probe(mid, x: appFrame.midX, stage: "binary", traced: false) { low = mid } else { high = mid }
             }
             let xs = [appFrame.minX + 20, appFrame.minX + appFrame.width * 0.25,
                       appFrame.midX, appFrame.minX + appFrame.width * 0.75, appFrame.maxX - 20]
@@ -1624,6 +1642,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                 "kind": "safe-area-boundary-summary", "face": face, "scope": scope,
                 "lastWorkingY": Double(low), "firstFailingY": Double(high), "resolutionPt": 0.5,
                 "rows": rows, "freshLaunchPerPoint": true, "temporaryButtonHeightPt": 2,
+                "binaryTraceEnabled": false,
                 "productionControlAcceptance": false, "physicalWatchProven": false,
             ], stem: "safe-area-cutoff--\(scope)")
         }

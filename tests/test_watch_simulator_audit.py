@@ -91,7 +91,7 @@ class WatchSimulatorAuditTests(unittest.TestCase):
         for selection, expected in [("control-recheck", 4), ("picker-recheck", 2), ("map-recheck", 1),
                                     ("shot-recheck", 1), ("input-probe", 1), ("capability-recheck", 1),
                                     ("total-matrix", 1), ("band-input-probe", 1),
-                                    ("safe-area-probe", 1)]:
+                                    ("safe-area-probe", 1), ("safe-area-root-recheck", 1)]:
             with self.subTest(selection=selection), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 evidence = root / "evidence"

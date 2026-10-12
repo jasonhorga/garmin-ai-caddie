@@ -96,7 +96,7 @@ def collect(face: str, udid: str, outcome: str, output: Path) -> None:
     expected = {"control-recheck": 4, "picker-recheck": 2, "map-recheck": 1,
                 "shot-recheck": 1, "input-probe": 1, "capability-recheck": 1,
                 "total-matrix": 1, "band-input-probe": 1,
-                "safe-area-probe": 1}.get(selection, EXPECTED_AUDIT_TESTS)
+                "safe-area-probe": 1, "safe-area-root-recheck": 1}.get(selection, EXPECTED_AUDIT_TESTS)
     (output / "result.json").write_text(json.dumps({
         "face": face, "outcome": outcome,
         "screenshots": len(list(output.glob("*--*.png"))),

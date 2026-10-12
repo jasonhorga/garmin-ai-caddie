@@ -46,6 +46,7 @@ jobs:
         env:
           TEST_RUNNER_UITEST_WATCH_FULL_AUDIT: '1'
           TEST_RUNNER_UITEST_AUDIT_FACE: ${{ matrix.face }}
+          TEST_RUNNER_UITEST_AUDIT_SAFE_AREA_ROOT_ONLY: ${{ inputs.audit_selection == 'safe-area-root-recheck' && '1' || '0' }}
           AUDIT_SELECTION: ${{ inputs.audit_selection }}
         run: |
           set -euo pipefail
@@ -97,7 +98,7 @@ jobs:
             audit_tests=(
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test22TotalBandCentreAndEdgeInputDispatch
             )
-          elif [[ "$AUDIT_SELECTION" == "safe-area-probe" ]]; then
+          elif [[ "$AUDIT_SELECTION" == "safe-area-probe" || "$AUDIT_SELECTION" == "safe-area-root-recheck" ]]; then
             audit_tests=(
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test23SafeAreaGeometryAndButtonCutoff
             )
