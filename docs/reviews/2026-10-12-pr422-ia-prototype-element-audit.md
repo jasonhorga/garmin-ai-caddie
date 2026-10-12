@@ -1,8 +1,8 @@
 # PR #422 Watch IA prototype element audit
 
-Status: runtime measurement in progress. This is a DEBUG prototype review, not a production fix or merge approval. Keep #422 draft.
+Status: exact `a913758a` runtime evidence collected; revised stack/menu on `3a8b2af2` await targeted remeasurement. This is a DEBUG prototype review, not a production fix or merge approval. Keep #422 draft.
 
-Source: `a913758a0460dccc24ab76ce34ea4bcd753288be`; [exact Native CI 38235401034](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38235401034) passed. Prototype audit candidate `773e9d836bd22974058ee8e1512af5fd3e308b52` has that direct parent and only audit instrumentation/workflows/docs. It does not carry #420 production changes. [Five-face runtime run 38237977234](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38237977234) is pending.
+Source: `a913758a0460dccc24ab76ce34ea4bcd753288be`; [exact Native CI 38235401034](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38235401034) passed. Prototype audit candidate `773e9d836bd22974058ee8e1512af5fd3e308b52` has that direct parent and only audit instrumentation/workflows/docs. It does not carry #420 production changes. [Five-face runtime run 38237977234](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38237977234) completed successfully; five collector methods executed/passed with zero skips on each face. Functional outcomes below are assessed separately from collector success.
 
 The element method uses five independent launches per control at the visual/AX centre, and another five at centre+8pt horizontally. Functional controls use state outcomes with native event tracing off; a separate diagnostic traces native touches/actions. Empty save/continue/finish closures are measured for callback dispatch with tracing, without claiming score persistence or round navigation. Menu Text rows have no callbacks; no synthetic gesture/action is added to them. Setup for modal/selection controls uses actual taps and verifies the starting state.
 
@@ -25,6 +25,32 @@ The row-score layout, fairway choices and turn choices are fully visible in thes
 
 ## Runtime results and unresolved scope
 
-Pending exact-run collection:element frames/success groups, real42/45 insets/cutoffs, native-window screenshots/corners/clock and physical comparisons. Genuine Crown rotation requires a verified runner mechanism; simulator/physical Crown acceptance remains open. Test scaffolding will preserve an explicit capability boundary rather than fabricate a pass.
+The collector preserves400 control records and426 screenshots per face (2,000 records/2,130 screenshots total). Each of30 implemented control cases succeeds5/5 at the centre and5/5 at centre+8pt on every face:1,500/1,500 trace-off functional taps. Five intentionally empty callback cases dispatch50/50 per face with native tracing:250/250 callback receipts, not persistence/navigation acceptance. Menu Settings/End are absent in all100 planned records for those two rows; they are not failed taps. All three real upward swipes still show only the original three menu rows on all faces, confirming PIA01 on this source.
+
+The [control table](2026-10-12-pr422-prototype-controls.tsv) contains all400 face/control/offset groups, frames and outcomes. AX frames do not establish padded hit bounds. There are150 independent functional native-input diagnostics; every hook is available and every terminal coordinate is within0.25pt of the requested point. Clock-free synthetic renders did not establish these results. Seven baseline sheets, the route sheet and the three-swipe menu sheet have been inspected (200 baseline/control-state images +15 route +15 swipe images); repeated after-tap screenshots remain preserved for detailed comparison.
+
+| Face / actual simulator | Full window (pt) | Root/outer safe frame (pt) | Top / bottom inset (pt) | Functional taps | Placeholder callbacks |
+|---|---|---|---|---|---|
+|41 / Series9|176×215|2,46,172,143|46 /26|300/300|50/50|
+|42 / Series10|187×223|2,48,183,144|48 /31|300/300|50/50|
+|45 / Series9|198×242|2,51,194,164|51 /27|300/300|50/50|
+|46 / Series10|208×248|2,53,204,159|53 /36|300/300|50/50|
+|49 / Ultra2|205×251|2,55,201,157|55 /39|300/300|50/50|
+
+The runtime inset is31pt on42 and27pt on45, replacing the snapshot estimates30/35. Runtime canvas reads the measured outer inset; the explicit snapshot helper still needs correction by the author. The full canvas is0,0,width,height with zero own insets. Do not subtract the bottom inset again from the already-safe root frame.
+
+Cutoff qualification: both root and canvas temporary2pt probes fired at y222 on42 and y241 on45 (window height−1). The original bracketing therefore reports `boundaryLocated=false, upperWorks=true`; it does **not** locate a dead strip or prove five-repeat acceptance at those endpoints. Recheck will confirm the endpoints five times without tracing and once with native diagnostics. Earlier production root/hazard cutoffs stay valid for their measured hierarchy; a safe-area inset alone is not proof of a universal watchOS touch cutoff.
+
+| Additional prototype finding | Actual evidence | Expected before production wiring |
+|---|---|---|
+|PIA03 — P2: top score/turn content encroaches on the native clock|`proto-route--score-crown-boundary.png`, `proto-baseline--stack-save.png` and `proto-baseline--turn-continue.png`. Score boxes and the stack first + start at y28; the native clock lies over their upper-right area, especially46/49. The41 turn summary+6 runs into the clock. Design renders omit the clock.|Reserve the real clock region on every face, retaining the measured bottom fit and usable controls; check live-window screenshots after the change. Centre tap success does not clear visual overlap.|
+|PIA04 — P2: stack selection is invisible|Five-repeat `stack-select-total` / `stack-select-penalty` state receipts confirm selection changes, but `stackRow` has no selected style. After-tap screenshots show the same three rows, while the Crown handler uses `selected`.|Show which field Crown input will change. This finding concerns visible selection; it does not claim a tested Crown gesture.|
+|PIA05 — nonblocking:42/45 design insets differ from runtime|Snapshot helper30/35 versus measured31/27.42 design bottom193 versus actual192;45 design bottom207 versus actual215.|Update `WatchProtoFace.bottomInset` for representative owner renders; runtime nil-inset path already reads actual geometry.|
+
+Physical artifacts retain original pixels, recorded326/338DPI,5mm rulers and print-at100% instructions. Stack labels are11pt versus13pt in row layout; centre/+8pt success does not prove wet/gloved or wrist-distance readability. Printed/device calibration and genuine Crown rotation remain open. `simctl io … help` lists enumerate/poll/video/screenshot; `simctl help` has no Crown input. No binding injection, AX adjustment or touch swipe is counted as Crown rotation.
+
+Author replies6122683856/6123342194 advance #422 to `3a8b2af244646b40194a83c89e87ba15e32017aa`: stack height split and ScrollView menu only, plus design snapshots. Exact-head Native38242810064 is green. PIA01/PIA02 are author-fixed and await targeted runtime checks; unchanged routes retain the `a913758a` evidence. Latest acknowledgement6124133593. No merge or release approval.
+
+Artifacts: [contact sheets11745969268](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38237977234/artifacts/11745969268), [physical11746519142](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38237977234/artifacts/11746519142). Face artifacts:41=11743167946,42=11744230723,45=11743208092,46=11743710858,49=11746278840. Raw receipts/analysis/control table persist under `operations/pr422-prototype-audit-20261012/runtime38237977234` on homeserver. API EOF ended one waiter; restarting the same run returned success. Collection/analysis container removed; no new environments or services.
 
 _Generated by Codex_
