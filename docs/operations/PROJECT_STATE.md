@@ -1,169 +1,102 @@
 # Garmin AI Caddie Project State
 
-> Short authoritative live ledger. Dated archives preserve history verbatim.
+> Short durable continuity ledger. Only this file is authoritative.
+> Completed/history is preserved verbatim in dated `docs/archive/` files.
 
-**Updated:** 2026-10-12 17:18 UTC
-**Canonical baseline:** main 3e785b14 / product merge95b5694e (#419)
-**Current slice:** PR-FEEDBACK-CONTINUOUS — in-progress
+**Updated:** 2026-10-12 19:12 UTC
+**Canonical baseline:** PR #418 exact head `477eaab6`; main baseline `0882c41c`
+**Current slice:** `PR-418-AUDIT-477EAAB6` — `in-progress`
 
 ## Current state
 
-- #417 owner audit6111380071/6111790655: test scaffolding/review only;
-  Claude implements product fixes. No new TestFlight.
-- Full wrist audit37 findings (2 P1/17 P2/18 P3), plus measured supplements.
-  docs/reviews/2026-10-12-watch417-wrist-ux-audit.md is the audit receipt.
-- #422 DEBUG-only IA prototypes: Jason approved evaluation, KEEP DRAFT,
-  DO NOT MERGE. Latest request6124535353, acknowledgement6125615938.
-  Exact head9e03df3072248dd03b0e3915ca413d5c185edaaa;
-  Native38251072892 success;watch-snapshots11749246424.
-  Recheck score/stack/turn/menu centre/+8pt on41/42/45/46/49;
-  several bottom-inset y values five trace-off trials plus native diagnostic.
-  Exact9e-derived c345ae15473fc48826f49cb1785026a91d0ca78f:
-  remote137 tests passed11=1.324s/126=16.510s,zero skips;source/container removed.
-  Runtime38267523735 completed success on exact head;4 methods/74 groups/370
-  records per face,zero skips. Element report and visual sheets updated in
-  docs/reviews/2026-10-12-pr422-ia-prototype-element-audit.md;final comment
-  #6129026681 posted;keep draft and do not merge.
-  Four methods/74 groups/370 tap records per face;stack hierarchy probes.
-- Original a913 audit38237977234/773e9d83:25 collector methods passed,
-  no skips;1,500/1,500 functional taps,250/250 empty callback dispatches.
-  Original menu Settings/End absent;PIA01/02 P2 menu/stack fit.
-  PIA03 P2 clock overlap;PIA04 P2 invisible stack selection;
-  PIA05 nonblocking snapshot inset estimates42/45 differ from runtime.
-  All1,900 valid after-tap images compared,312 unmasked representatives
-  across16 inspected sheets;baseline/route/swipe evidence inspected.
-  Immediate plan transitions do not prove a settled/latency defect.
-- Targeted3a audit38251740277/exact69539a5b is RED:
-  every face3 methods=2 passed/1 failed,zero skips. Live AX index inventory
-  throws after first menu swipe(line104);collector fault,not action failure.
-  All160 tap records/203 screenshots per face retained;complete=false.
-  Functional499/500:42 stack-select-total centre trial1 misses;retain it.
-  Save placeholders50/50 callbacks;250 Text rows visible/tapped,no actions.
-  75 independent input diagnostics hooks available,coordinates≤0.25pt.
-  PIA01 reachability/PIA02 bottom fit resolved on3a. Save bottoms
-  189/192/215/212/212pt;centre/+8pt callbacks5/5 each on every face.
-  800 valid images compared,94 representatives/four sheets inspected;
-  three baseline,swipe/failure,route/four endpoint sheets inspected.
-- 3a root/canvas temporary2pt probes:low/high endpoints
-  143/214,151/222,170/241,176/247,179/250pt on41/42/45/46/49;
-  each5/5 trace-off;20 diagnostics exact coordinate/action dispatch.
-  No cutoff bracket;does not sample all pixels or clear production W01.
-- 3a exact Native38242810064 artifact11743844433:40 design images,
-  all three sheets inspected;physical originals/DPI/5mm exports retained.
-  New9e artifact11749246424:all40 design renders/three sheets inspected;
-  physical exports retained;live clock/scrolling/input adjudication pending.
-- docs/reviews/2026-10-12-pr422-ia-prototype-element-audit.md and
-  2026-10-12-pr422-prototype-controls.tsv contain original findings.
-  Persistent3a analysis/red logs retain all partial evidence.
-- #420 OPEN production bd2ec304794d17dee644279df3e4d30f9f0dd544:
-  Native38190513917 green;original49 first-tap0/5 remains HOLD.
-  Probe38205917630:centre reaches app/no action;y-8/-16 work with eligible
-  fixes;trace-off centres fail. Cause unproved;new prototypes don't clear it.
-  Published#4176118215955/#4206118223337;original coordinates unchanged.
-- #418 draft477eaab6;immutable W/C/I/M evidence retained. Do not merge.
-- Issue delivery GH_FEEDBACK_EXTENDED_EVENTS=1 enabled05:27;
-  existing collector/timer/cursor unchanged. #42162201d90 attribution fix,
-  19 offline regressions/CI38211176310 passed;await Claude review.
-  Own signed audit receipts suppressed. Do not self-merge.
+- #404–#416 were reviewed, merged, and (where required) deployed. Do not
+  repeat those reviews, tests, comments, or Build 86 upload.
+- #417 whole-round Watch audit remains an evidence pass; findings are posted on
+  issue #417 and product fixes are Claude/Jason work.
+- #418 is still draft/test-only and must not be merged. Required CI
+  `38204478707` and Native CI `38204478793` are green. Exact-head Watch
+  Runtime Visual Check `38285619153` failed: 41 mm 15/18, 46 mm 16/18,
+  49 mm 14/18.
+- #422 proto-* IA harness review is complete on head `9e03df30`; all five
+  faces completed 4/4 methods, 270/270 state taps and 50/50 placeholder
+  callbacks. It remains draft and unmerged; final comment is
+  `6129026681`.
 
 ## Unfinished queue
 
-- PR-422-PROTOTYPE-IA — done:exact runtime38267523735 and visual review
-  complete;final PR comment6129026681;draft remains intentionally unmerged.
-- WATCH417-ELEMENT-AUDIT — evidence-open:hardware/Crown/replies;
-  completed diagnostic/capability/band/safe-area evidence must not be repeated.
-- PR-420-MANUAL-SHOT — blocked:original49 acceptance unresolved;
-  review changed exact source or explicit stale-fix scope correction.
-- PR-418-AUDIT-SCAFFOLD — evidence-open:draft,not a product fix.
-- ISSUE-FEEDBACK-WAITER — evidence-open:#421 pending Claude review.
-- PR-FEEDBACK-CONTINUOUS — queued:deduplicated feedback after active audit.
-- NATIVE-FIXTURE-LAYOUT-STABILITY — queued:nonblocking#416 variation.
-- IOS-STATUS-CONTRAST — queued:nonblocking dark status/navigation text.
-- OWNER-DEVICE-BUILD86 — evidence-open:paired physical-device validation.
+- `PR-418-AUDIT-477EAAB6` — `in-progress`: post the exact-head hold /
+  request-changes review with the P1/P2 evidence below, then return to the
+  single blocking feedback waiter.
+- `PR-FEEDBACK-CONTINUOUS` — `queued`: resume only after this review/state
+  commit; ignore Codex-owned docs/state CI.
+- `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: nonblocking #416 variation.
+- `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark status/navigation text.
+- `OWNER-DEVICE-BUILD86` — `evidence-open`: paired-device validation remains
+  owner work; package evidence is not a physical-install claim.
 
-## Retained verification baselines
+## Exact-head audit evidence
 
-- Safe-area6120644491/6121410222:41/46/49 bottom26/36/39pt;
-  root last→first188.5→189/211.5→212;hazard192.5→193/215.5→216.
-  Five horizontal points and trace-off5/5 below,0/5 above. Temporary probes;
-  native38219857642/a9cd76e0 and38225977002/a968220f,34 images inspected.
-- W37 P2 short band drags6122137499,Native38229912952/4e8ce25c:
-  105 untraced+21 diagnostics/147 images;neighbour-tap failures retained.
-- Picker38194936812/7155607d:183/183 valid pairs≤two gestures;
-  immediate/Done5/5 per face;4.5s idle closes. Map38197809368/32b45ba6:
-  page/zoomed-hazard/plan pan0/5 changes page,15 settled pairs unchanged.
-- Total matrix38214143769/437c6ca1:valid pairs90/face;≤3 drags72/77/77;
-  reached totals saved72/72,77/77,77/77;unreached≠save failures.
-- W36 capability38207654935/3d29e56e:three faces disabled/off5/5,
-  visible reason0/5;injected capability,not physical proof.
-- Production API/sync cbc17f4e76f085229c3bdb3c74a5067951b217a6:
-  health/history/sync/prep/topo verified,sync ok/done.
-  #404/#406237 tests,5 existing skips;nine-hole35.49→22.93s,two workers.
-- TestFlight0.1.0(86):Apple VALID/IN_BETA_TESTING. #419 reviewed/merged.
-- Full preceding metrics and receipts remain in dated archives/review files.
+- Run: [38285619153](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38285619153);
+  artifacts:
+  `/home/jason/garmin-ai-caddie-data/operations/pr418-477eaab6-20261012/artifacts`.
+- P1 candidate: on 49 mm, `0001–0005-first-try--manual--*.json` all report
+  `recordSucceeded=false`, with `afterRecord shots=0;pending=false` for
+  centre and 8 pt off-centre taps. The direct `shots--01-manual-button-
+  no-transition.json` capture agrees. The injected recovery candidate is
+  explicitly not success evidence.
+- P2: 41 mm scorecard row 4 is unreachable in
+  `phone-nine--04-scorecard-FAILURE.json` and `watch-turn--04-scorecard-
+  FAILURE.json`; row frames are 26.5 pt high and row 4 starts at y=238 pt
+  on a 251 pt viewport.
+- P2: 46/49 mm `watch-turn--11-same-half-choice-FAILURE.json` leaves
+  `watch-turn-continue` at y=268.5 pt, outside the 251 pt viewport; the
+  screen also shows the offline whole-course warning.
+- P2: 49 mm `phone-eighteen--09-score-missing-control-FAILURE.json` has no
+  controls and test 07 fails to find `watch-score-save`. Test 12's 49 mm
+  missing captures are a consequence of the same manual-shot dead end.
+- 41/46 mm first-try shot evidence is 5/5 record+undo. Simulator data does
+  not prove a physical Crown, real GPS, WCSession delivery, OLED luminance,
+  or wrist motion. Physical-scale sheets are retained for inspection.
 
-## Evidence boundaries
+## Live verification baselines
 
-- AX frame≠padded hit bounds;five fresh launches separate trials.
-  Trace-on may change timing;trace-off acceptance stays independent.
-- Root frame already excludes safe-area;do not subtract inset twice.
-- xctestActionMs includes synchronization;null uiFeedbackMs≠≤300ms.
-- Empty callbacks/Text placeholders≠persistence/navigation success.
-- Genuine Crown/gloves/wet/sunlight/AOD/GPS/battery/notification/WCSession
-  hardware remains open. simctl help exposes no Crown input;
-  binding injection/AX adjustment/touch swipes never count as Crown rotation.
+- Production API/sync: `cbc17f4e76f085229c3bdb3c74a5067951b217a6`; health,
+  history, sync, precise prep and topo PNG gates passed; manual sync reported
+  `sync ok` and `done`.
+- #404/#406 deployment evidence: 237 related tests; nine-hole workload
+  35.49 s → 22.93 s; two render workers observed.
+- Internal TestFlight 0.1.0 (86) remains Apple-checked
+  `VALID/IN_BETA_TESTING`; no new upload is authorized by this audit.
 
 ## Owned resources and cleanup
 
-- Sole editing worktree:/home/ubuntu/claude-web-data/repo/garmin-ai-caddie-watch417-20261011;
-  Codex,createdOct11 08:30,expiresOct18 08:30 UTC. Preserve primary dirty tree.
-- Branch codex/pr422-clock-harness-20261012 rebased onto exact9e;
-  turn row height/clock/selected styles retained;passive probes only.
-  Prior4d7b5dff/312e4272/f34c94bd receipts pushed/retained.
-- Prior and clock-verification snapshots/containers removed.
-  /dev/shm/garmin-ai-caddie-pr422-clock-20261012 removed(no open files);
-  allow-list containers garmin-pr422-clock-20261012,
-  garmin-pr422-clock-native-sheets-20261012 and
-  garmin-pr422-clock-runtime-analysis-20261012. Manifest persisted;
-  clock Native graphics container removed;runtime analysis not started.
-  No installs,private environments,services,ports,tunnels or volumes.
-- Persistent evidence under /home/jason/garmin-ai-caddie-data/operations:
-  watch417-* audit/control/picker/map/input-probe/capability/feedback/
-  total-matrix/safe-area/band-input-20261012,pr419-4cfb1588-20261011,
-  pr420-bd2ec304-20261012,pr422-prototype-audit-20261012,
-  pr422-prototype-recheck-20261012(native38242810064/runtime38251740277).
-  New pr422-prototype-clock-20261012 stores9e source/render/runtime evidence.
-  Originals,physical exports,red logs,analysis/control tables retained.
-- Wait runner:operations/blocking-waits/codex-watch417-66000eba-wait_for_conclusion.sh
-  matches#421;expires goal cutoff. Collector/timer/feedback-cursor untouched.
-- wait_release_38083089271 completed runtime38251740277 RED and latest
-  Native38251072892 GREEN/exact9e. Latest handles64314/91690/47911 closed0.
-  Red log wait-ci-38251740277-20261012T131238Z-3484111.log;
-  Green log wait-ci-38251072892-20261012T134219Z-3567821.log.
-  Exact cleanup check found no surviving interrupted38251740277 waiter.
-  Newwait_release_38083089271 completed38267523735/exactc345;no redispatch
-  or active feedback waiter.
-- Runtime collection38267523735 complete;visual analysis container absent and
-  no downloads/tunnels remain. Safe-frame bottoms41/42/45/46/49 are
-  189/192/215/212/212pt;sampled bottom−1,+1,midpoint,endpoints fired5/5,
-  so exact stop-y remains unlocated.
-- Latest capacity52GiB free/4.6GiB available memory.
-- Local /tmp/garmin-watch417-images-20261012-GCqa8Y viewed copies;
-  expiryOct13 08:30/after review;remote originals retained.
-- Superseded ledgers preserved verbatim in
-  docs/archive/PROJECT_STATE-2026-10-12-pr422-recheck-complete.historical.md
-  docs/archive/PROJECT_STATE-2026-10-12-pr422-clock-precomplete.historical.md
-  and docs/archive/PROJECT_STATE-2026-10-12-pr422-comment-pending.historical.md.
+- Review worktree:
+  `/home/ubuntu/claude-web-data/repo/garmin-ai-caddie-watch417-20261011`,
+  Codex-owned, expires 2026-10-18 08:30 UTC.
+- Remote artifact evidence is persistent at
+  `/home/jason/garmin-ai-caddie-data/operations/pr418-477eaab6-20261012`;
+  no new container, service, tunnel, dependency environment, or simulator
+  was created in this slice. Existing audit artifacts remain under their
+  retention policy.
+- Local visual samples are in `/tmp/codex-pr418-visual`; remove after the
+  review comment if no longer needed. Do not delete the remote artifact set.
+- Untracked `.codex-*` files in the worktree are historical session evidence;
+  do not delete or stage them.
 
 ## Next action and stop conditions
 
-1. Resume one same-turn blocking feedback waiter after this evidence slice;
-   no main-thread CI/status polling and no new PR slice.
-2. Process only external actionable feedback;ignore CI caused by Codex docs
-   state commits and keep #422/#418 draft.
-3. Keep #420 HOLD until original acceptance is corrected;retain the explicit
-   no-Crown/no-physical-watch boundary.
+1. Commit/push this report and ledger with the required Codex trailer.
+2. Post the #418 hold/request-changes comment with exact evidence and the
+   `_Generated by Codex_` attribution line; do not merge the draft.
+3. Close only the local visual samples after posting, then launch one blocking
+   `ops/wait_for_conclusion.sh --feedback` waiter in the same control turn.
+   Observe only with `sleep 300000` followed by one `write_stdin`; its
+   one-line result is the only wake-up signal.
+4. Process each external PR event once, ignoring Codex-owned docs/state CI.
 
-Continuous cutoff:2026-10-13 08:22:16 UTC,or earlier48h without external
-PR events and no open PRs. Owner stop overrides. Comments end
-_Generated by Codex_;commits end Generated-by: Codex. Ledger≤200 lines.
+Owner's latest explicit review requests keep this queue active; otherwise
+stop when the owner stop condition is met. Every Codex commit ends with
+`Generated-by: Codex`; every GitHub comment/review ends with
+`_Generated by Codex_`.
+Keep this file at 200 lines or fewer and archive completed detail by date
+without deleting information.
