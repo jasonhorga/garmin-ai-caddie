@@ -88,7 +88,7 @@ class WatchSimulatorAuditTests(unittest.TestCase):
             self.assertFalse(manifest["hardwareSunlightProven"])
 
     def test_focused_recheck_is_explicit_and_cannot_masquerade_as_full_coverage(self):
-        for selection, expected in [("prototype-elements", 5)]:
+        for selection, expected in [("prototype-elements", 5), ("prototype-recheck", 3)]:
             with self.subTest(selection=selection), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 evidence = root / "evidence"
@@ -105,7 +105,7 @@ class WatchSimulatorAuditTests(unittest.TestCase):
                 (root / "watch-audit-xcode.log").write_text(
                     "Test Case '-[AICaddieWatchUITests.WatchWholeRoundAuditUITests test1]' passed.")
                 with patch.dict(os.environ, {"RUNNER_TEMP": str(root), "AUDIT_SELECTION": selection}):
-                    with self.assertRaisesRegex(ValueError, "expected=5"):
+                    with self.assertRaisesRegex(ValueError, f"expected={expected}"):
                         audit.collect("41mm", "", "success", evidence)
 
     def test_family_faces_resolve_exact_types_without_size_substitution(self):

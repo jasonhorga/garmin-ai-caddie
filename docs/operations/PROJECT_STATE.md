@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. History is preserved in dated archives.
 
-**Updated:** 2026-10-12 12:30 UTC
+**Updated:** 2026-10-12 12:36 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** PR-422-PROTOTYPE-IA — in-progress
 
@@ -71,6 +71,11 @@
   field has no visual indication. Snapshot estimates30/35 differ31/27.
   Latest head3a8b2af244646b40194a83c89e87ba15e32017aa,Native38242810064 green.
   Author-fixed stack/menu6122683856/6123342194;targeted recheck required.
+  Runtime findings published6124416250;receipt312e4272 pushed prior branch.
+  Targeted harness rebased onto exact3a8b2af2;no product hit/layout repairs.
+  Recheck adds real bounded menu swipes,visible-row validation and native
+  row-touch diagnostics;menu Text remains without callbacks. Confirm probes
+  at both unbracketed endpoints five times trace-off plus one diagnostic.
   Start comment6122637453 posted;save/turn callbacks measured separately.
   Native a913 watch-snapshots artifact11741400980:35 family-size renders,
   three sheets all inspected;original-pixel/DPI/5mm physical exports retained.
@@ -86,8 +91,8 @@
 
 ## Unfinished queue
 
-- PR-422-PROTOTYPE-IA — in-progress:publish original runtime evidence,
-  remeasure only revised stack/menu and unbracketed42/45 endpoints on3a8b2af2.
+- PR-422-PROTOTYPE-IA — in-progress:verify targeted harness on3a8b2af2,
+  then dispatch revised stack/menu and prototype endpoints on five faces.
 - WATCH417-ELEMENT-AUDIT — evidence-open:hardware/runtime gaps and replies;
   diagnostics/capability/band adjudicated;do not recollect unchanged evidence.
 - PR-420-MANUAL-SHOT — blocked:original49 first-tap unresolved;stale-fix
@@ -127,8 +132,8 @@
 
 - One editing worktree:/home/ubuntu/claude-web-data/repo/garmin-ai-caddie-watch417-20261011;
   Codex,createdOct11 08:30,expiryOct18 08:30 UTC. Preserve primary dirty tree.
-- Current branch codex/pr422-prototype-harness-20261012 based exacta913;
-  no #420 product changes. Prior f34c94bd band review committed/pushed.
+- Current branch codex/pr422-revised-harness-20261012 based exact3a8b2af2;
+  no #420 product changes. Prior312e4272/f34c94bd reviews pushed/retained.
 - All owned /dev/shm review snapshots and named --rm test containers removed.
   No dependency installs,services,tunnels,ports or volumes.
 - Persistent originals/manifests under /home/jason/garmin-ai-caddie-data/operations:
@@ -160,6 +165,10 @@
   Runtime analysis container garmin-pr422-runtime-analysis-20261012 removed.
   All face/contact/physical artifacts persist runtime38237977234;analysis.json
   and controls.tsv complete. No active audit/waiter or source snapshot.
+  Planned /dev/shm/garmin-ai-caddie-pr422-recheck-20261012 and named
+  --rm garmin-pr422-recheck-20261012 for exact-harness verification.
+  Manifest/persistent evidence:operations/pr422-prototype-recheck-20261012;
+  no dependencies/services/ports/volumes;expire at verification/goal cutoff.
 - Local /tmp/garmin-watch417-images-20261012-GCqa8Y holds viewed copies;
   expiryOct13 08:30/after review;remote originals retained.
 - Historical ledgers verbatim in dated docs/archive files;latest
@@ -167,9 +176,9 @@
 
 ## Next action and stop conditions
 
-1. Publish old exact-source runtime findings on#422;commit review/state/table.
-2. Carry harness onto exact3a8b2af2 and dispatch targeted stack/menu recheck;
-   confirm42/45 full-window endpoints five times plus native diagnostics.
+1. Verify/push exact3a8b2af2 targeted harness;dispatch prototype-recheck.
+2. After blocking waiter returns,collect revised stack/menu and endpoint
+   confirmations;comment outcomes on#422 and retain Crown/hardware boundary.
    Read genuine input capability files before adjudicating the Crown gap;
    try a verified native simulator mechanism if available,never binding injection.
 3. Keep#422/#418 draft;process corrected#420 acceptance/Claude replies once.
