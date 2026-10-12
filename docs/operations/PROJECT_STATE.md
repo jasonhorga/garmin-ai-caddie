@@ -2,137 +2,112 @@
 
 > Short authoritative live ledger. History is preserved in dated archives.
 
-**Updated:** 2026-10-12 03:40 UTC
+**Updated:** 2026-10-12 04:34 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
 
 ## Current state
 
-- Owner widened #417 (6111380071 / 6111790655): wrist-scale element review,
-  repeated gestures, 20/60 pt drags, value reachability, real-round tempo,
-  adversarial navigation and S70/Golfshot/Apple Workout comparison.
-- Both comments read completely; issue-only wake-up miss acknowledged in
-  6114726773. Scaffolding only; Claude implements product fixes after triage.
-- #419 merged; #418 draft on codex/watch417-simulator-audit. Reuse existing
-  editing worktree; no second implementation checkout.
-- Full run 38182935895 / 1ef62984: 16 methods per face, no skips;
-  41/46/49 mm 11/5, 14/2, 12/4 pass/fail, 252/343/334 PNGs.
-- Control supplement 38188153210 / 8e6feee6: four methods per face, no skips;
-  41/46/49 mm 3/1, 2/2, 4/0 pass/fail, 51/39/63 PNGs.
-- P1 49 mm manual shot 0/5 posted in 6115815445; 41/46 mm 5/5 with undo.
-  No injected candidate in these first-pointer trials.
-- Also document root menu 49 mm 0/5 (41/46 mm 5/5), page swipe 0/5,
-  hazard pan switches page, clipped numbers and many element-level frictions.
-- Picker supplement 38191363704 / c1d5c876: two methods per face, no skips,
-  all pass; 58/60/58 PNGs. Range pairs: 41/46 mm 61/61 valid; 49 mm 60/60
-  plus one invalid preparation. Continuous trials still hit collection races;
-  do not label these raw rates as confirmed product failures.
-- Required CI 38191204820 / Native CI 38191204685 pass at c1d5c876.
-- New scaffold samples state before a fresh chip-open plus immediate input;
-  no query between open and pointer gesture, no production timer change.
-  Remote nine audit regressions pass (1.120 s). New exact native/runtime
-  evidence still required. Partial runs cannot masquerade as full coverage.
-- Immediate-picker 38194936812 / 7155607d plus required/Native
-  38194820494 / 38194820350 succeeded. Every repeated picker gesture and
-  Done 5/5 per control/face; 183/183 valid start/target pairs within two
-  gestures. Idle 4.5 s closes both pickers on every face. Raw retained.
-- Map recheck 38197809368 / 32b45ba6 plus required/Native
-  38197705918 / 38197705896 succeeded, one method per face, zero skips.
-  Independent hazard pans 0/5 per face: up -> 果岭, down -> 方案.
-  Zoomed hazard next: 41 mm 5/5, 46/49 mm 0/5 with unchanged image.
-  Plan chip: latest 41 mm 4/5, 46/49 mm 5/5 (earlier C all 5/5).
-  Plan pans 0/5 per face: fifteen settled image pairs confirm zero map
-  movement; one pair differs only at system clock. Short 24–28 pt drags.
-  Each trial now resets page/zoom; no product edits.
-- Substantive report: docs/reviews/2026-10-12-watch417-wrist-ux-audit.md,
-  35 distinct findings (2 P1 / 16 P2 / 17 P3), twelve screen tables,
-  task counts, physical/glare/reference review and explicit hardware gaps.
-  Publishing this completed review, then #420 review is the next slice.
-- Nine map collector regressions pass (2.060 s). Thirty-four distinct
-  states inspected in nine calibrated normal/glare pages; physical wrist,
-  display ruler calibration and sunlight remain unproved.
-- Raw evidence immutable; earlier compile failures are harness diagnostics.
-  #404–#416 deployment and internal TestFlight Build 86 already complete.
+- #417 widened owner audit (6111380071 / 6111790655) read and acted on.
+  Scaffolding only; Claude implements product fixes. No new TestFlight.
+- Substantive 35-finding report (2 P1 / 16 P2 / 17 P3) published in fdebb6f1:
+  docs/reviews/2026-10-12-watch417-wrist-ux-audit.md; issue comment 6117399134.
+  Twelve screen tables, gesture rates, task counts, physical/reference review
+  and hardware gaps are in that report; do not recollect completed evidence.
+- #418 remains draft on codex/watch417-simulator-audit. Raw W/C/I/M evidence
+  is immutable; collection pass is not product UX approval.
+- #420 production head bd2ec304 reviewed; required/Native CI green,
+  126 mobile contracts pass (13.429 s), nine collector regressions pass
+  (1.207 s). Native receipt 10c949ce parents 3e785b14 + bd2ec304 checked;
+  47 Watch and 97 iOS screenshots inspected.
+- #420 runtime 38202658425 at test integration fd40e821 failed 49 mm:
+  first pointer taps center x3 / right-offset8 pt x2, 41/46 mm 5/5 with
+  immediate undo 5/5; 49 mm 0/5, shots=0 and pending=false before/after.
+  Supplemental 20-second walking fix accepted on41/46 but fails49;
+  remaining three fix states not executed49. Transient-message AX evidence
+  cannot establish absence of feedback; real haptics remain unproved.
+- P1 review posted on #420 as 6117777245. HOLD MERGE; no timer/hit-area/gate
+  production edits or injected pending in the actual-tap evidence.
+  Tracked review: docs/reviews/2026-10-12-pr420-bd2ec304-first-tap-review.md.
+  Returned to #418 branch; temporary integration ref remains for diagnosis.
 
 ## Unfinished queue
 
-- WATCH417-ELEMENT-AUDIT — in-progress: complete calibrated image review,
-  adjudicate settled map pairs and publish drafted per-screen tables,
-  task counts and evidence-backed P1–P3 findings on #417.
-- PR-420-MANUAL-SHOT — queued: head bd2ec304, CI 38190513760 / Native
-  38190513917 green. Review diff/artifacts and five first-pointer taps with
-  immediate undo on every face after publishing the current audit report.
-- PR-418-AUDIT-SCAFFOLD — evidence-open: draft; collection is not a UX pass.
-- PR-FEEDBACK-CONTINUOUS — queued: resume deduplicated feedback after #417.
+- WATCH417-ELEMENT-AUDIT — in-progress: diagnose49 root-button input with
+  test-only callback/fix trace; explicitly recheck hazard visual-center and
+  boundary taps. Continue remaining runtime gaps and numbered Claude feedback.
+- PR-420-MANUAL-SHOT — blocked: bd2ec304 fails first-tap49 validation;
+  await Claude fix, then review exact new head and repeat five real taps/undo.
+- PR-418-AUDIT-SCAFFOLD — evidence-open: keep draft; trace is evidence only.
+- PR-FEEDBACK-CONTINUOUS — queued: resume deduplicated feedback after audit.
 - NATIVE-FIXTURE-LAYOUT-STABILITY — queued: nonblocking #416 variation.
 - IOS-STATUS-CONTRAST — queued: nonblocking dark status/navigation text.
 - OWNER-DEVICE-BUILD86 — evidence-open: paired physical-device validation.
 
-## Verification boundaries
+## Retained verification baseline
 
-- Adjudicate final state separately from raw predicate flags. XCTest time is
-  synchronization overhead, not 300 ms visible feedback latency.
-- AX content bounds can differ from padded hit bounds; boundary taps needed.
-  Source font tokens are not measurements of scaled glyph size.
-- Crown, gloves, wet fingers, wrist/AOD sensing, sunlight/OLED, GPS, battery,
-  notifications and actual WCSession timing remain hardware gaps.
-- Physical exports retain pixels, mm/DPI and rulers; reduced pages are
-  calibrated proxies, not a claim of wearing a watch.
-- Fixture repeats one factual mapped hole, no all-course/caddie quality claim.
-  No new TestFlight requested. No product fixes in this audit.
-
-## Live verification baselines
-
+- Immediate picker run38194936812 / 7155607d: repeated gestures and Done
+  5/5 per picker/face; 183/183 valid start/target pairs within two gestures.
+  Idle4.5 s closes both on all faces. Old timeout-raced failures excluded.
+- Map run38197809368 / 32b45ba6: unzoomed page swipe0/5 all faces;
+  zoomed hazard pans0/5 all faces, up changes to果岭/down to方案.
+  Zoomed plan pans0/5 all faces, 15 settled pairs show zero map movement.
+  Hazard-next element taps41=5/5,46/49=0/5; explicit center still pending.
+  Latest plan chip41=4/5,46/49=5/5. Do not extrapolate to other gestures.
 - Production API/sync cbc17f4e76f085229c3bdb3c74a5067951b217a6;
-  health/history, incremental sync and prep/topo gates passed; sync ok/done.
-- #404/#406: 237 related tests, five existing skips; nine-hole workload
-  35.49 s -> 22.93 s, two render workers; deployment evidence retained.
-- Internal TestFlight 0.1.0 (86): Apple VALID / IN_BETA_TESTING verified.
-- #419 required/Native 38159377877 / 38159377871, PASS 6112715912.
+  health/history, incremental sync, prep/topo gates passed; sync ok/done.
+- #404/#406:237 related tests, five existing skips; nine-hole workload
+  35.49 s ->22.93 s, two render workers; deployment evidence retained.
+- Internal TestFlight0.1.0 (86): Apple VALID/IN_BETA_TESTING verified.
+- #419 reviewed/merged; PASS6112715912, merge95b5694e.
+
+## Evidence boundaries
+
+- AX content is not padded hit bounds; explicit visual-center/boundary input
+  and callback dispatch must be distinguished from stale GPS and undo timeout.
+- XCTest action durations include synchronization; uiFeedbackMs=null is not
+  a measured300 ms pass. Short-lived GPS message/haptic evidence remains open.
+- Crown/gloves/wet fingers/wrist/AOD/sunlight/GPS/battery/notifications/
+  WCSession require hardware. Calibrated mm exports are rendered review aids.
+- One factual mapped-hole fixture cannot establish all-course caddie quality.
 
 ## Owned resources and cleanup
 
-- Editing worktree /home/ubuntu/claude-web-data/repo/garmin-ai-caddie-watch417-20261011;
-  Codex, created Oct 11 08:30 UTC, expires Oct 18 08:30 UTC.
-- Persistent roots under /home/jason/garmin-ai-caddie-data/operations:
+- Editing worktree:
+  /home/ubuntu/claude-web-data/repo/garmin-ai-caddie-watch417-20261011;
+  Codex, createdOct11 08:30 UTC, expiryOct18 08:30 UTC. One checkout reused.
+- Temporary ref codex/pr420-wrist-recheck-20261012 at fd40e821;
+  expiryOct13 08:22 UTC or after diagnosis. No extra implementation checkout.
+- Persistent evidence under /home/jason/garmin-ai-caddie-data/operations:
   watch417-simulator-audit-20261011, pr419-4cfb1588-20261011,
   watch417-wide-audit-20261012, watch417-control-recheck-20261012,
-  watch417-picker-recheck-20261012. Raw/artifacts, physical aids, fetched
-  reference receipts, diagnostics and waiter logs retained.
-- New persistent operations root: watch417-immediate-picker-20261012;
-  exact 7155607d artifacts, no old evidence overwritten.
-- Map evidence root: watch417-map-recheck-20261012; exact 32b45ba6
-  artifacts and settled-image comparisons. No live waiter or service.
-- Local /tmp/garmin-watch417-images-20261012-GCqa8Y expires Oct 13 08:30 UTC
-  or after review; preserve remote originals.
-- No live audit service, dependency environment, volume, port, tunnel or timer.
-  Terminal 18014 closed SSH 255 without output. Delegated replacement 67985
-  returned three success conclusions and closed 0; download 72960 closed 0.
-  Latest agent's original three-waiter shell/attachment and handles closed 0;
-  summaries recovered from owned logs. No pending waiter; cursor unchanged.
-- Snapshot /dev/shm/garmin-ai-caddie-watch417-immediate-picker-20261012:
-  31 MiB, read-only, expires Oct 13 02:02 UTC or after verification.
-  Named --rm container exited 0 and removed; snapshot removed after open-file check.
-  Manifest/log retained in picker evidence. Older snapshots already removed.
-- Map collector snapshot /dev/shm/garmin-ai-caddie-watch417-map-recheck-20261012;
-  only two input files, expires Oct 13 02:50 UTC or after verification;
-  24 KiB, nine tests passed; no open files, named --rm container removed;
-  exact snapshot removed after persistent manifest/log retention.
-- Shared canonical checkout unchanged. Force-add only individually named
-  owned history ledgers because docs/archive is Git-ignored.
+  watch417-picker-recheck-20261012, watch417-immediate-picker-20261012,
+  watch417-map-recheck-20261012, pr420-bd2ec304-20261012.
+  Originals/artifacts/manifests/references/diagnostics/waiter logs retained.
+- PR420 read-only /dev/shm snapshot removed after checks/open-file check
+  (30 MiB); named --rm container gone. Earlier mount failures are retained
+  environment diagnostics. Prior audit snapshots also removed.
+- Local /tmp/garmin-watch417-images-20261012-GCqa8Y contains viewed copies;
+  expiryOct13 08:30 UTC or after review; remote originals retained.
+- No live waiter/service/tunnel/container/volume/port/dependency environment.
+  Agent wait_release_38083089271 completed38202658425 wait; handle88036
+  closed1 with failure summary retained. Publish/switch handle69759 closed0.
+  Shared checkout, gh-feedback timer and feedback cursor unchanged.
+- History archived verbatim in
+  docs/archive/PROJECT_STATE-2026-10-12-pr420-first-tap-review.historical.md.
 
 ## Next action and stop conditions
 
-1. Finish settled map adjudication; update and publish substantive review
-   docs/reviews/2026-10-12-watch417-wrist-ux-audit.md on #417. Commit it
-   with this ledger/archive; no separate CI-result bookkeeping commit.
-2. Review #420 exact head, Native artifacts and the five first-tap/undo
-   check; post/resolve blockers on PR, then continue #417 remaining gaps.
-3. Keep #418 draft until sufficient coverage/triage; return to feedback.
-   Never commit CI bookkeeping alone or loop on own CI events.
+1. Commit/push #420 substantive review with this ledger/archive, not a
+   CI-result-only commit. Continue active #417 input/boundary diagnosis.
+2. Process Claude replies/new #420 head once; exact-head CI/Native review
+   and genuine five first taps required. Keep #420 unmerged meanwhile.
+3. Keep #418 draft until coverage/triage sufficient. Use one same-turn
+   blocking feedback waiter when independent audit work is exhausted.
+   Ignore Codex bookkeeping CI; no ad-hoc main-thread status polling.
 
-Continuous cutoff: 2026-10-13 08:22:16 UTC, or earlier after 48 hours without
+Continuous cutoff: 2026-10-13 08:22:16 UTC, or earlier after48 hours without
 external PR events and no open PRs. Explicit #417 audit remains authorized;
 owner stop overrides work. GitHub comments end _Generated by Codex_;
-Codex commits end Generated-by: Codex. Keep ledger <=200 lines; archive
-historical detail verbatim by date.
+Codex commits end Generated-by: Codex. Ledger<=200 lines; dated archives
+preserve historical detail verbatim.
