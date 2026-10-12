@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. History is preserved in dated archives.
 
-**Updated:** 2026-10-12 08:35 UTC
+**Updated:** 2026-10-12 09:25 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
 
@@ -75,13 +75,16 @@
   All22 screenshots/three sheets inspected;147 point trials/194 touches.
   Root46/49 last211.5,first212;hazard41 last192.5,first193;
   hazard46/49 last215.5,first216. Adjacent trace-off centres5/5 vs0/5.
-  Root41 lower143 CANCELLED,not boundary;hazard41 x20 lower cancelled.
+  Initial root41 lower143 CANCELLED,not boundary;hazard41 x20 cancelled.
   Root/plan native safe frames:[2,46,172,143],[2,53,204,159],
   [2,55,201,157];bottom26/36/39. Hazard full-window/insets0.
   Native safe-frame maxY189/212/212;don't subtract bottom twice.
   Published6120644491;docs/reviews/2026-10-12-watch417-safe-area-measurement.md.
-  Root-only supplement prepared:bounded5 trace-off lower retries,untraced
-  binary search;retain original cancellations. No product fix/acceptance.
+  Root38225977002/a968220f complete:41 last188.5/first189;46/49 repeat
+  211.5/212. Five x points5/5 vs0/5;five untraced centres5/5 vs0/5 each.
+  92 trials/72 touches;12 screenshots/two sheets checked.49 initial lower
+  cancelled,retry5/5. Published6121410222;original button acceptance open.
+  135 contracts passed1.930/26.180s,no skips. Method22 resumes next.
 - Feedback36723 ended gh_error061446 while skipping old own audit CI:
   one GitHub connection timeout,not external PR feedback. Catch-up0628
   found no new external #417/#420/#421 response;420 head unchangedbd2ec304.
@@ -162,9 +165,10 @@
   exact --rm container gone,no open files/test data/service/environment.
   Logs/manifest operations/watch417-safe-area-20261012.81716/26263 closed0.
   Native38219857642 closed;workflow cleaned three hosted simulators.
-  Root supplement reserved:/dev/shm/garmin-ai-caddie-watch417-safe-area-root-20261012,
-  --rm garmin-watch417-safe-area-root-20261012;owner Codex,created0839,
-  expiryOct13 0839 or after test. Same persistent evidence root;no install.
+  Root /dev/shm/garmin-ai-caddie-watch417-safe-area-root-20261012 removed31MiB;
+  --rm garmin-watch417-safe-area-root-20261012 absent/no open files;
+  logs/manifest same evidence/root-recheck.45251/74656 closed0;no install.
+  Hosted38225977002 closed;3178/50266 closed0;workflow cleaned3 simulators.
 - Other persistent evidence under /home/jason/garmin-ai-caddie-data/operations:
   watch417-simulator-audit-20261011,pr419-4cfb1588-20261011,
   watch417-wide-audit-20261012,watch417-control-recheck-20261012,
@@ -178,13 +182,12 @@
   download closed0. No live waiter/service/
   tunnel/container/volume/port/new environment;gh-feedback timer/cursor unchanged.
 - Historical ledgers preserved verbatim in dated docs/archive files;
-  latest PROJECT_STATE-2026-10-12-watch417-safe-area-measurement.historical.md.
+  latest PROJECT_STATE-2026-10-12-watch417-safe-area-complete.historical.md.
 
 ## Next action and stop conditions
 
-1. Verify/dispatch root-only safe-area supplement to complete cancelled41
-   root bracket;report exact interval and repeat controls to Claude on417.
-   Then method22 short-band diagnostic and finish matrix screenshot review.
+1. Dispatch method22 short-band diagnostic and finish matrix screenshot
+   review;classify callback/input evidence before publishing new finding.
 2. Process Claude reply/new #420 head once;exact-source/Native review and
    original five taps/undo required for W01. Keep #418 draft.
 3. Continue independent audit gaps;when exhausted use one same-turn blocking
