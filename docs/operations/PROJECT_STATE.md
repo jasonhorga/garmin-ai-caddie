@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. History is preserved in dated archives.
 
-**Updated:** 2026-10-12 10:18 UTC
+**Updated:** 2026-10-12 12:30 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** PR-422-PROTOTYPE-IA — in-progress
 
@@ -60,14 +60,24 @@
   Proto source excludes #420;candidate773e9d836bd22974058ee8e1512af5fd3e308b52
   has direct parenta913 and prototype-only scaffolding.137 remote tests passed
   (11 collector0.443s+126 mobile6.175s),zero skips. Snapshot/container removed.
-  Native simulator audit38237977234 in flight;five faces,seven routes.
+  Native simulator audit38237977234 completed success/exact773e9d83.
+  All five faces400 records/426 images each;30 functional cases per face
+  centre/+8pt5/5:1500/1500 trace-off taps;250/250 placeholder callbacks.
+  Settings/End absent on old source,three real swipes don't reveal them.
+  42 bottom31pt/45 bottom27pt;full-window temporary probes at222/241 fire.
+  No cutoff bracket located;repeat endpoints with native diagnostics next.
+  Seven baseline/route/menu sheets inspected;all originals retained.
+  PIA03 P2 native clock encroaches score/stack/turn;PIA04 P2 stack selected
+  field has no visual indication. Snapshot estimates30/35 differ31/27.
+  Latest head3a8b2af244646b40194a83c89e87ba15e32017aa,Native38242810064 green.
+  Author-fixed stack/menu6122683856/6123342194;targeted recheck required.
   Start comment6122637453 posted;save/turn callbacks measured separately.
   Native a913 watch-snapshots artifact11741400980:35 family-size renders,
   three sheets all inspected;original-pixel/DPI/5mm physical exports retained.
   PIA01 P2:menu Settings/End omitted on every face;PIA02 P2:stack bottom
   crosses guide41(+9pt)/42(+5pt estimate). Precheck6122881278 posted.
   docs/reviews/2026-10-12-pr422-ia-prototype-element-audit.md is the receipt;
-  runtime clock/touch conclusions and real42 inset remain pending.
+  runtime report/control TSV updated;new-head stack/menu+Crown remain open.
 - Issue delivery option GH_FEEDBACK_EXTENDED_EVENTS=1 enabled05:27.
   Existing collector/timer/cursor unchanged;no second monitor.
   #42162201d90057a5efa8df415416dadd0e96eccd604 wait-event attribution fix,
@@ -76,8 +86,8 @@
 
 ## Unfinished queue
 
-- PR-422-PROTOTYPE-IA — in-progress:audit38237977234 running;review Native
-  a913 design artifacts in parallel,then runtime outcomes and physical images.
+- PR-422-PROTOTYPE-IA — in-progress:publish original runtime evidence,
+  remeasure only revised stack/menu and unbracketed42/45 endpoints on3a8b2af2.
 - WATCH417-ELEMENT-AUDIT — evidence-open:hardware/runtime gaps and replies;
   diagnostics/capability/band adjudicated;do not recollect unchanged evidence.
 - PR-420-MANUAL-SHOT — blocked:original49 first-tap unresolved;stale-fix
@@ -130,8 +140,13 @@
 - Owned waiter runner:operations/blocking-waits/
   codex-watch417-66000eba-wait_for_conclusion.sh(matches #42162201d90).
   Expires goal cutoff;existing collector/timer/feedback-cursor untouched.
-- Delegated wait_release_38083089271 now waits38237977234/exact773e9d83;
-  completed38235401034/exacta913 earlier.
+- Delegated wait_release_38083089271 completed:38237977234/exact773e9d83
+  returned gh_error/API EOF,not a verified CI failure.
+  Log wait-ci-38237977234-20261012T104341Z-3077553.log retained.
+  Handles33952 closed1/10252 closed0;no active waiter or cleanup pending.
+  Restarted main handle27308 closed0:completed/success12:16 UTC.
+  Log wait-ci-38237977234-20261012T121641Z-3337591.log;collection51292 closed0.
+  Completed38235401034/exacta913 earlier.
   Handles78560/13464 closed0;no resources or cleanup pending.
   Handles12393/41660 closed0;log retained;no resources or cleanup pending.
   Older80096/43231/3178/50266/93158/8953 closed. No active feedback waiter.
@@ -142,6 +157,9 @@
   Native comparison container garmin-pr422-native-sheets-20261012 removed;
   no install/source snapshot/service. Scripts/manifest/design+physical outputs
   persist in pr422-prototype-audit-20261012/native38235401034.
+  Runtime analysis container garmin-pr422-runtime-analysis-20261012 removed.
+  All face/contact/physical artifacts persist runtime38237977234;analysis.json
+  and controls.tsv complete. No active audit/waiter or source snapshot.
 - Local /tmp/garmin-watch417-images-20261012-GCqa8Y holds viewed copies;
   expiryOct13 08:30/after review;remote originals retained.
 - Historical ledgers verbatim in dated docs/archive files;latest
@@ -149,9 +167,9 @@
 
 ## Next action and stop conditions
 
-1. Review already-green a913 Native design snapshots during delegated wait.
-2. After38237977234 returns,collect all five-face interaction results,
-   geometry/cutoffs/screens/physical exports;comment findings on#422.
+1. Publish old exact-source runtime findings on#422;commit review/state/table.
+2. Carry harness onto exact3a8b2af2 and dispatch targeted stack/menu recheck;
+   confirm42/45 full-window endpoints five times plus native diagnostics.
    Read genuine input capability files before adjudicating the Crown gap;
    try a verified native simulator mechanism if available,never binding injection.
 3. Keep#422/#418 draft;process corrected#420 acceptance/Claude replies once.
