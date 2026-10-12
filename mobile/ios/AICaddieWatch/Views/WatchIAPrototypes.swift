@@ -60,8 +60,13 @@ struct WatchProtoCanvas<Content: View>: View {
                     }
                 }
                 .frame(width: size.width, height: size.height, alignment: .topLeading)
+                .background { WatchPrototypeAuditProbe.geometry("canvas-full", proxy: full) }
+                .overlay {
+                    if WatchPrototypeAuditProbe.boundaryScope == "canvas" { WatchPrototypeBoundaryLayer() }
+                }
             }
             .ignoresSafeArea()
+            .background { WatchPrototypeAuditProbe.geometry("canvas-outer", proxy: outer) }
         }
         .background(Color.black.ignoresSafeArea())
     }
@@ -107,6 +112,7 @@ public struct WatchHoleFacePrototype: View {
                 .frame(width: size.width, height: size.height)
 
                 Button {
+                    WatchPrototypeAuditProbe.action("proto-face-plan")
                     planIndex = (planIndex + 1) % plans.count
                 } label: {
                     VStack(spacing: 0) {
@@ -129,6 +135,7 @@ public struct WatchHoleFacePrototype: View {
 
                 if !autoShotOn {
                     Button {
+                        WatchPrototypeAuditProbe.action("proto-face-record")
                         shots += 1
                     } label: {
                         Image(systemName: "plus")
@@ -146,6 +153,9 @@ public struct WatchHoleFacePrototype: View {
                     .position(x: size.width - WatchProtoFace.edgeInset - WatchProtoFace.controlHit / 2, y: controlY)
                 }
             }
+        }
+        .overlay(alignment: .topLeading) {
+            WatchPrototypeAuditState(value: "plan=\(planIndex);club=\(plans[planIndex]);shots=\(shots);autoShot=\(autoShotOn);")
         }
     }
 }
@@ -179,6 +189,9 @@ public struct WatchMoreMenuPrototype: View {
             .padding(.horizontal, WatchProtoFace.edgeInset)
             .padding(.top, top)
             .frame(width: size.width, height: size.height, alignment: .top)
+            .overlay(alignment: .topLeading) {
+                WatchPrototypeAuditState(value: "menuRows=\(fitting);implementedActions=false;")
+            }
         }
     }
 }
@@ -280,7 +293,11 @@ public struct WatchScoreBoxesPrototype: View {
             let steps = Int((value - crownBase).rounded())
             guard steps != 0 else { return }
             crownBase += Double(steps)
+            WatchPrototypeAuditProbe.action("proto-score-crown", fields: ["steps": steps, "selected": String(describing: selected)])
             adjust(selected, steps)
+        }
+        .overlay(alignment: .topLeading) {
+            WatchPrototypeAuditState(value: "total=\(total);putts=\(putts);penalty=\(penalty);selected=\(selected);fairway=\(fairway);sheet=\(showsFairway);")
         }
     }
 
@@ -302,7 +319,10 @@ public struct WatchScoreBoxesPrototype: View {
     private var bottomRow: some View {
         HStack(spacing: 6) {
             if par != 3 {
-                Button { showsFairway = true } label: {
+                Button {
+                    WatchPrototypeAuditProbe.action("proto-score-fairway")
+                    showsFairway = true
+                } label: {
                     Text("开球 \(fairway)")
                         .font(.system(size: 15, weight: .black))
                         .foregroundStyle(.white)
@@ -314,7 +334,7 @@ public struct WatchScoreBoxesPrototype: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("proto-score-fairway")
             }
-            Button {} label: {
+            Button { WatchPrototypeAuditProbe.action("proto-score-save-placeholder") } label: {
                 Text("保存")
                     .font(.system(size: 17, weight: .black))
                     .foregroundStyle(.black)
@@ -390,7 +410,10 @@ public struct WatchScoreBoxesPrototype: View {
                 .strokeBorder(isSelected ? AICaddieDesignTokens.hudGreen : Color.clear, lineWidth: 2.5)
         )
         .contentShape(Rectangle())
-        .onTapGesture { selected = field }
+        .onTapGesture {
+            WatchPrototypeAuditProbe.action(identifier(field))
+            selected = field
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(name(field)) \(value(field))")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
@@ -414,7 +437,10 @@ public struct WatchScoreBoxesPrototype: View {
             }
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
-            .onTapGesture { selected = field }
+            .onTapGesture {
+                WatchPrototypeAuditProbe.action(identifier(field))
+                selected = field
+            }
             .accessibilityIdentifier(identifier(field))
             stepButton("plus", label: "\(name(field))加一", width: 46) {
                 selected = field
@@ -425,7 +451,10 @@ public struct WatchScoreBoxesPrototype: View {
     }
 
     private func stepButton(_ symbol: String, label: String, width: CGFloat? = nil, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            WatchPrototypeAuditProbe.action("proto-score-step", fields: ["label": label])
+            action()
+        } label: {
             Image(systemName: symbol)
                 .font(.system(size: 20, weight: .black))
                 .foregroundStyle(.white)
@@ -445,6 +474,7 @@ public struct WatchScoreBoxesPrototype: View {
             HStack(spacing: 6) {
                 ForEach(["左", "中", "右"], id: \.self) { side in
                     Button {
+                        WatchPrototypeAuditProbe.action("proto-score-fairway-\(side)")
                         fairway = side
                         showsFairway = false
                     } label: {
@@ -519,10 +549,16 @@ public struct WatchNineTurnPrototype: View {
             .padding(.top, 4)
             .frame(width: size.width, height: size.height, alignment: .top)
         }
+        .overlay(alignment: .topLeading) {
+            WatchPrototypeAuditState(value: "all=\(showsAll);next=\(next);")
+        }
     }
 
     private func row(_ title: String, filled: Bool, id: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            WatchPrototypeAuditProbe.action(id)
+            action()
+        } label: {
             Text(title)
                 .font(.system(size: 16, weight: .black))
                 .foregroundStyle(filled ? Color.black : Color.white)

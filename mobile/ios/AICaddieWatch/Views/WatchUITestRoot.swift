@@ -44,7 +44,19 @@ public struct WatchUITestRoot: View {
 
     public var body: some View {
         routedScreen
+            .background {
+                if screen.hasPrefix("proto-"), WatchPrototypeAuditProbe.enabled {
+                    GeometryReader { proxy in WatchPrototypeAuditProbe.geometry("route-root", proxy: proxy) }
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
+            .overlay {
+                if screen.hasPrefix("proto-"), WatchPrototypeAuditProbe.boundaryScope == "root" {
+                    WatchPrototypeBoundaryLayer()
+                }
+            }
             .onAppear {
+                if screen.hasPrefix("proto-") { WatchPrototypeAuditProbe.install() }
                 writeRuntimeMarker(Self.renderedMarkerName, contents: "screen=\(screen)\n")
             }
     }
