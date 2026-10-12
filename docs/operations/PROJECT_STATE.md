@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. Dated archives preserve history verbatim.
 
-**Updated:** 2026-10-12 15:12 UTC
+**Updated:** 2026-10-12 16:48 UTC
 **Canonical baseline:** main 3e785b14 / product merge95b5694e (#419)
 **Current slice:** PR-422-PROTOTYPE-IA — in-progress
 
@@ -20,7 +20,9 @@
   several bottom-inset y values five trace-off trials plus native diagnostic.
   Exact9e-derived c345ae15473fc48826f49cb1785026a91d0ca78f:
   remote137 tests passed11=1.324s/126=16.510s,zero skips;source/container removed.
-  Runtime38267523735 dispatched,delegated blocking wait pending.
+  Runtime38267523735 completed success on exact head;4 methods/74 groups/370
+  records per face,zero skips. Element report and visual sheets updated in
+  docs/reviews/2026-10-12-pr422-ia-prototype-element-audit.md;keep draft.
   Four methods/74 groups/370 tap records per face;stack hierarchy probes.
 - Original a913 audit38237977234/773e9d83:25 collector methods passed,
   no skips;1,500/1,500 functional taps,250/250 empty callback dispatches.
@@ -65,8 +67,9 @@
 
 ## Unfinished queue
 
-- PR-422-PROTOTYPE-IA — in-progress:immutable inventory repair complete;
-  c345 harness verified/pushed;runtime38267523735 delegated wait pending.
+- PR-422-PROTOTYPE-IA — evidence-open:immutable inventory repair complete;
+  exact runtime38267523735 green;270/270 state taps and50/50 placeholder
+  callbacks per face;bottom probes all5/5 but no stop-y boundary.
 - WATCH417-ELEMENT-AUDIT — evidence-open:hardware/Crown/replies;
   completed diagnostic/capability/band/safe-area evidence must not be repeated.
 - PR-420-MANUAL-SHOT — blocked:original49 acceptance unresolved;
@@ -138,26 +141,27 @@
   Red log wait-ci-38251740277-20261012T131238Z-3484111.log;
   Green log wait-ci-38251072892-20261012T134219Z-3567821.log.
   Exact cleanup check found no surviving interrupted38251740277 waiter.
-  Newwait_release_38083089271 blocks38267523735/exactc345;
-  no redispatch or active feedback waiter.
-- Runtime collection23500 lost SSH255;artifacts and analysis completed on
-  remote,complete=false intentionally. Visual53524 closed0;downloads
-  31929/27106 closed0. Remote scripts/manifests persist;container absent.
+  Newwait_release_38083089271 completed38267523735/exactc345;no redispatch
+  or active feedback waiter.
+- Runtime collection38267523735 complete;visual analysis container absent and
+  no downloads/tunnels remain. Safe-frame bottoms41/42/45/46/49 are
+  189/192/215/212/212pt;sampled bottom−1,+1,midpoint,endpoints fired5/5,
+  so exact stop-y remains unlocated.
 - Latest capacity52GiB free/4.6GiB available memory.
 - Local /tmp/garmin-watch417-images-20261012-GCqa8Y viewed copies;
   expiryOct13 08:30/after review;remote originals retained.
-- Superseded ledger preserved verbatim in
-  docs/archive/PROJECT_STATE-2026-10-12-pr422-recheck-complete.historical.md.
+- Superseded ledgers preserved verbatim in
+  docs/archive/PROJECT_STATE-2026-10-12-pr422-recheck-complete.historical.md
+  and docs/archive/PROJECT_STATE-2026-10-12-pr422-clock-precomplete.historical.md.
 
 ## Next action and stop conditions
 
-1. Await installed blocker38267523735 while finishing physical review aids;
+1. Post the exact-head #422 element-audit conclusion;keep #422/#418 draft
+   and do not merge. Commit/push report, archive and ledger together.
+2. Resume one same-turn blocking feedback waiter after this evidence slice;
    no main-thread CI/status polling and no new PR slice.
-2. After terminal result,use clock collection script once;retain partial failures.
-3. Inspect live/physical artifacts;
-   adjudicate PIA03–05 and requested bottom sampling on#422.
-4. Keep#422/#418 draft;#420 HOLD until original acceptance corrected.
-5. Resume same-turn blocking feedback after active evidence adjudicated.
+3. Keep #420 HOLD until original acceptance is corrected;retain the explicit
+   no-Crown/no-physical-watch boundary.
 
 Continuous cutoff:2026-10-13 08:22:16 UTC,or earlier48h without external
 PR events and no open PRs. Owner stop overrides. Comments end

@@ -1,6 +1,6 @@
 # PR #422 Watch IA prototype element audit
 
-Status: `a913758a` full audit and `3a8b2af2` targeted evidence preserved; `9e03df30` clock/selection revision awaits requested runtime remeasurement. This is a DEBUG prototype review, not a production fix or merge approval. Keep #422 draft.
+Status: `a913758a` full audit and `3a8b2af2` targeted evidence preserved; exact `9e03df30` clock/selection remeasurement is complete on all five requested faces. This is a DEBUG prototype review, not a production fix or merge approval. Keep #422 draft.
 
 Source: `a913758a0460dccc24ab76ce34ea4bcd753288be`; [exact Native CI 38235401034](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38235401034) passed. Prototype audit candidate `773e9d836bd22974058ee8e1512af5fd3e308b52` has that direct parent and only audit instrumentation/workflows/docs. It does not carry #420 production changes. [Five-face runtime run 38237977234](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38237977234) completed successfully; five collector methods executed/passed with zero skips on each face. Functional outcomes below are assessed separately from collector success.
 
@@ -77,6 +77,24 @@ The `codex/pr422-clock-harness-20261012` candidate retains exact9e product layou
 
 `prototype-clock-recheck` selects four collector methods: row/par3 score, stack score, turn/menu, and temporary bottom probes. It expects74 control/offset groups and370 tap records per face (37 cases at five fresh centre and five fresh+8pt trials), explicitly excluding unchanged hole-face controls from the recheck. Planned functional taps, placeholder callback dispatch and Text-only menu touches are reported separately. The new bottom probes use `proto-score-stack`, not the unchanged map hierarchy: two probe scopes, five trace-off confirmations plus one native diagnostic at measured bottom−1, bottom+1, inset midpoint and endpoints. Interior samples are collected even if the upper endpoint rejects the initial probe; bracketing does not substitute for their independent receipts. Genuine Crown rotation remains unexecuted.
 
-Exact candidate `c345ae15473fc48826f49cb1785026a91d0ca78f` passed137 remote tests (11 collector1.324s/126 contracts16.510s), zero skips. The temporary source snapshot and verification container were removed. [Runtime38267523735](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38267523735) is dispatched with `prototype-clock-recheck`; its terminal result remains pending. All40 exact9e Native design renders from artifact11749246424 are inspected across three sheets: the selected stack outline is visible, initial score/turn controls avoid the clock guide, and End is visible in the menu end-state projection. This does not sign off live clock/scrolling/touches.40 originals and40 glare aids with retained pixels/DPI/5mm ruler remain under `operations/pr422-prototype-clock-20261012/native38251072892`; Native graphics container removed.
+Exact candidate `c345ae15473fc48826f49cb1785026a91d0ca78f` passed137 remote tests (11 collector1.324s/126 contracts16.510s), zero skips. The temporary source snapshot and verification container were removed. [Runtime38267523735](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38267523735) completed successfully with the exact candidate and no skipped methods. All40 exact9e Native design renders from artifact11749246424 are inspected across three sheets: the selected stack outline is visible, initial score/turn controls avoid the clock guide, and End is visible in the menu end-state projection. This does not sign off live clock/scrolling/touches.40 originals and40 glare aids with retained pixels/DPI/5mm ruler remain under `operations/pr422-prototype-clock-20261012/native38251072892`; Native graphics container removed.
+
+## Exact-head element recheck — `9e03df30` / runtime `38267523735`
+
+The hosted runtime ran four methods on every `41/42/45/46/49 mm` face: `4/4` passed, zero skips, `370/370` tap records valid per face. The 54 state-changing control groups are `270/270` successful per face at centre and +8 pt. The ten deliberately empty Save/Continue callback groups dispatch `50/50` per face; this is callback delivery only, not persistence or round navigation. The ten menu-row groups are layout/coordinate placeholders and have no product callback. The 32 independent native input diagnostics per face all have a hook and terminal coordinate error ≤0.25 pt; no diagnostic is Crown input.
+
+The exact runtime geometry and bottom sampling are below. `Interactive bottom` is the measured bottom edge of the safe root (`window height − bottom inset`). Every listed y was sampled five times with tracing disabled and fired `5/5`; the separate native diagnostic at each listed point received the requested coordinate. Because the highest point is window-height−1 and still fires, this hierarchy does not locate an exact “tap stops firing” y. It must not be generalized to production W01 or to a physical watch.
+
+| Face | Window pt | Root frame pt | Insets top/bottom | Interactive bottom | Sampled y (each 5/5) |
+|---|---:|---|---:|---:|---|
+|41 mm|176×215|2,46,172,143|46 / 26|189|143, 188, 190, 202, 214|
+|42 mm|187×223|2,48,183,144|48 / 31|192|151, 191, 193, 207.5, 222|
+|45 mm|198×242|2,51,194,164|51 / 27|215|170, 214, 216, 228.5, 241|
+|46 mm|208×248|2,53,204,159|53 / 36|212|176, 211, 213, 230, 247|
+|49 mm|205×251|2,55,201,157|55 / 39|212|179, 211, 213, 231.5, 250|
+
+The nine runtime visual sheets (`visual-review/after-tap-01..09.png`) were generated remotely from the unmasked after-tap images and inspected. The five faces keep the title/control content below the reserved clock band; the stack’s selected row is visibly outlined green; score, par3, fairway and turn controls remain visible and fit the measured root. The menu’s bounded scroll reaches Settings and End; initial 41/42 mm menu images clipping the lower rows are the pre-scroll state, not missing actions. No new P1/P2 product finding was found on this exact prototype. The remaining review boundary is P3/evidence: genuine Crown rotation, physical-watch input, glare/gloves, persistence/navigation behind placeholder callbacks and actual production controls are unverified.
+
+Persistent runtime evidence is under `/home/jason/garmin-ai-caddie-data/operations/pr422-prototype-clock-20261012/runtime38267523735/` (`analysis.json`, `controls.tsv`, `analysis-summary.log`, raw face artifacts and `visual-review`). #422 remains a draft and is intentionally not merged.
 
 _Generated by Codex_
