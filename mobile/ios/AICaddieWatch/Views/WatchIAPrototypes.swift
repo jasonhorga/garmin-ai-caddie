@@ -185,14 +185,20 @@ public struct WatchMoreMenuPrototype: View {
 
 // MARK: - Score
 
-/// Golfshot-style hole score: 总杆 and 推杆 as two large boxes (tap selects; the − / + row and the
-/// Crown change the selected one; putts carry the total along when shots were marked), penalties
-/// and the tee result on a secondary sheet, and 保存. Every control sits inside the interactive area.
+/// Hole score with every value selectable and adjustable (owner request 2026-10-12): 总杆, 推杆 and
+/// 罚杆. Two layouts to compare on the wrist:
+/// - `.row`: three boxes across the top (tap selects), one shared − / + row and the Crown below.
+/// - `.stack`: three rows, each with its own − / + on either side.
+/// Putts and penalties carry the total along (marked shots + putts + penalties); the total alone
+/// moves only itself, never below putts + penalties + 1 and up to 20 (#417 W03). The tee result is
+/// a secondary choice. Every control sits inside the interactive area.
 public struct WatchScoreBoxesPrototype: View {
-    public enum Field { case total, putts }
+    public enum Field: CaseIterable { case total, putts, penalty }
+    public enum Layout { case row, stack }
 
     public let hole: Int
     public let par: Int
+    public let layout: Layout
     public let bottomInset: CGFloat?
     public let showsGuide: Bool
     @State private var total: Int
@@ -200,7 +206,7 @@ public struct WatchScoreBoxesPrototype: View {
     @State private var penalty: Int
     @State private var fairway: String
     @State private var selected: Field = .putts
-    @State private var showsExtras: Bool
+    @State private var showsFairway: Bool
     @State private var crown: Double = 0
     @State private var crownBase: Double = 0
 
@@ -211,19 +217,21 @@ public struct WatchScoreBoxesPrototype: View {
         putts: Int = 2,
         penalty: Int = 0,
         fairway: String = "中",
-        showsExtras: Bool = false,
+        layout: Layout = .row,
+        showsFairway: Bool = false,
         bottomInset: CGFloat? = nil,
         showsGuide: Bool = false
     ) {
         self.hole = hole
         self.par = par
+        self.layout = layout
         self.bottomInset = bottomInset
         self.showsGuide = showsGuide
         _total = State(initialValue: total)
         _putts = State(initialValue: putts)
         _penalty = State(initialValue: penalty)
         _fairway = State(initialValue: fairway)
-        _showsExtras = State(initialValue: showsExtras)
+        _showsFairway = State(initialValue: showsFairway)
     }
 
     public var body: some View {
@@ -232,66 +240,36 @@ public struct WatchScoreBoxesPrototype: View {
             let top: CGFloat = 4
             let title: CGFloat = 20
             let row: CGFloat = 44
-            let box = max(48, interactiveBottom - top - title - row * 2 - gap * 3)
             ZStack(alignment: .topLeading) {
                 VStack(spacing: gap) {
-                    HStack(spacing: 6) {
-                        // Same identity as the hole face.
-                        Text("H\(hole) · P\(par)")
-                            .font(.system(size: 15, weight: .black))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                        Text(toParText)
-                            .font(.system(size: 15, weight: .black, design: .rounded))
-                            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: total - par))
-                        Spacer(minLength: 0)
-                    }
-                    .frame(height: title)
-                    .padding(.trailing, 44)
-
-                    HStack(spacing: 6) {
-                        valueBox("总杆", total, field: .total, height: box)
-                        valueBox("推杆", putts, field: .putts, height: box)
-                    }
-                    .frame(height: box)
-
-                    HStack(spacing: 6) {
-                        stepButton("minus", label: "减一") { adjust(-1) }
-                        stepButton("plus", label: "加一") { adjust(1) }
-                    }
-                    .frame(height: row)
-
-                    HStack(spacing: 6) {
-                        Button { showsExtras = true } label: {
-                            Text(par == 3 ? "罚 \(penalty)" : "罚 \(penalty) · \(fairway)")
-                                .font(.system(size: 15, weight: .black))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.16)))
+                    titleRow.frame(height: title)
+                    if layout == .row {
+                        let box = max(48, interactiveBottom - top - title - row * 2 - gap * 3)
+                        HStack(spacing: 5) {
+                            ForEach(Field.allCases, id: \.self) { field in
+                                valueBox(field, height: box)
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("proto-score-extras")
-
-                        Button {} label: {
-                            Text("保存")
-                                .font(.system(size: 17, weight: .black))
-                                .foregroundStyle(.black)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(Capsule().fill(AICaddieDesignTokens.hudGreen))
+                        .frame(height: box)
+                        HStack(spacing: 6) {
+                            stepButton("minus", label: "\(name(selected))减一") { adjust(selected, -1) }
+                            stepButton("plus", label: "\(name(selected))加一") { adjust(selected, 1) }
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("proto-score-save")
+                        .frame(height: row)
+                    } else {
+                        let line = max(38, min(row, (interactiveBottom - top - title - row - gap * 4) / 3))
+                        ForEach(Field.allCases, id: \.self) { field in
+                            stackRow(field, height: line)
+                        }
                     }
-                    .frame(height: row)
+                    bottomRow.frame(height: row)
                 }
                 .padding(.horizontal, WatchProtoFace.edgeInset)
                 .padding(.top, top)
                 .frame(width: size.width, height: size.height, alignment: .top)
 
-                if showsExtras {
-                    extrasSheet(size: size, interactiveBottom: interactiveBottom)
+                if showsFairway {
+                    fairwaySheet(size: size)
                 }
             }
         }
@@ -302,7 +280,49 @@ public struct WatchScoreBoxesPrototype: View {
             let steps = Int((value - crownBase).rounded())
             guard steps != 0 else { return }
             crownBase += Double(steps)
-            if showsExtras { penalty = min(max(penalty + steps, 0), 4) } else { adjust(steps) }
+            adjust(selected, steps)
+        }
+    }
+
+    private var titleRow: some View {
+        HStack(spacing: 6) {
+            // Same identity as the hole face.
+            Text("H\(hole) · P\(par)")
+                .font(.system(size: 15, weight: .black))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(toParText)
+                .font(.system(size: 15, weight: .black, design: .rounded))
+                .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: total - par))
+            Spacer(minLength: 0)
+        }
+        .padding(.trailing, 44)
+    }
+
+    private var bottomRow: some View {
+        HStack(spacing: 6) {
+            if par != 3 {
+                Button { showsFairway = true } label: {
+                    Text("开球 \(fairway)")
+                        .font(.system(size: 15, weight: .black))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.16)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("proto-score-fairway")
+            }
+            Button {} label: {
+                Text("保存")
+                    .font(.system(size: 17, weight: .black))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Capsule().fill(AICaddieDesignTokens.hudGreen))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("proto-score-save")
         }
     }
 
@@ -312,101 +332,136 @@ public struct WatchScoreBoxesPrototype: View {
         return diff > 0 ? "+\(diff)" : "\(diff)"
     }
 
-    /// Putts carry the total along (marked shots + putts); the total alone moves only itself. The
-    /// total never drops below putts + penalties + 1 and is not capped at 15 (#417 W03).
-    private func adjust(_ delta: Int) {
-        switch selected {
+    private func name(_ field: Field) -> String {
+        switch field {
+        case .total: return "总杆"
+        case .putts: return "推杆"
+        case .penalty: return "罚杆"
+        }
+    }
+
+    private func value(_ field: Field) -> Int {
+        switch field {
+        case .total: return total
+        case .putts: return putts
+        case .penalty: return penalty
+        }
+    }
+
+    private func adjust(_ field: Field, _ delta: Int) {
+        switch field {
         case .putts:
             let next = min(max(putts + delta, 0), 6)
             total = min(max(total + (next - putts), 1), 20)
             putts = next
+        case .penalty:
+            let next = min(max(penalty + delta, 0), 4)
+            total = min(max(total + (next - penalty), 1), 20)
+            penalty = next
         case .total:
             total = min(max(total + delta, putts + penalty + 1), 20)
         }
     }
 
-    private func valueBox(_ label: String, _ value: Int, field: Field, height: CGFloat) -> some View {
+    private func identifier(_ field: Field) -> String {
+        switch field {
+        case .total: return "proto-score-total"
+        case .putts: return "proto-score-putts"
+        case .penalty: return "proto-score-penalty"
+        }
+    }
+
+    private func valueBox(_ field: Field, height: CGFloat) -> some View {
         let isSelected = selected == field
         return VStack(spacing: 0) {
-            Text(label)
+            Text(name(field))
                 .font(.system(size: 13, weight: .heavy))
                 .foregroundStyle(.secondary)
-            Text("\(value)")
-                .font(.system(size: min(56, height * 0.62), weight: .black, design: .rounded))
+            Text("\(value(field))")
+                .font(.system(size: min(48, height * 0.58), weight: .black, design: .rounded))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(isSelected ? 0.20 : 0.12)))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(isSelected ? 0.20 : 0.12)))
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(isSelected ? AICaddieDesignTokens.hudGreen : Color.clear, lineWidth: 2.5)
         )
         .contentShape(Rectangle())
         .onTapGesture { selected = field }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label) \(value)")
+        .accessibilityLabel("\(name(field)) \(value(field))")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityIdentifier(field == .total ? "proto-score-total" : "proto-score-putts")
+        .accessibilityIdentifier(identifier(field))
     }
 
-    private func stepButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+    /// `.stack`: − label value + in one row; the Crown follows the last row touched.
+    private func stackRow(_ field: Field, height: CGFloat) -> some View {
+        HStack(spacing: 4) {
+            stepButton("minus", label: "\(name(field))减一", width: 46) {
+                selected = field
+                adjust(field, -1)
+            }
+            VStack(spacing: -2) {
+                Text(name(field))
+                    .font(.system(size: 11, weight: .heavy))
+                    .foregroundStyle(.secondary)
+                Text("\(value(field))")
+                    .font(.system(size: min(30, height * 0.7), weight: .black, design: .rounded))
+                    .monospacedDigit()
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture { selected = field }
+            .accessibilityIdentifier(identifier(field))
+            stepButton("plus", label: "\(name(field))加一", width: 46) {
+                selected = field
+                adjust(field, 1)
+            }
+        }
+        .frame(height: height)
+    }
+
+    private func stepButton(_ symbol: String, label: String, width: CGFloat? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 20, weight: .black))
                 .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: width ?? .infinity, maxHeight: .infinity)
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.22)))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
-        .accessibilityIdentifier("proto-score-\(symbol)")
     }
 
-    private func extrasSheet(size: CGSize, interactiveBottom: CGFloat) -> some View {
+    private func fairwaySheet(size: CGSize) -> some View {
         VStack(spacing: 6) {
-            Text(par == 3 ? "罚杆" : "罚杆 · 开球")
+            Text("开球落点")
                 .font(.system(size: 15, weight: .black))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, 44)
             HStack(spacing: 6) {
-                stepButton("minus", label: "罚杆减一") { penalty = max(penalty - 1, 0) }
-                Text("罚 \(penalty)")
-                    .font(.system(size: 22, weight: .black, design: .rounded))
-                    .frame(minWidth: 52)
-                stepButton("plus", label: "罚杆加一") { penalty = min(penalty + 1, 4) }
-            }
-            .frame(height: 44)
-            if par != 3 {
-                HStack(spacing: 6) {
-                    ForEach(["左", "中", "右"], id: \.self) { side in
-                        Button { fairway = side } label: {
-                            Text(side)
-                                .font(.system(size: 17, weight: .black))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(fairway == side ? AICaddieDesignTokens.par : Color.white.opacity(0.16))
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("proto-score-fairway-\(side)")
+                ForEach(["左", "中", "右"], id: \.self) { side in
+                    Button {
+                        fairway = side
+                        showsFairway = false
+                    } label: {
+                        Text(side)
+                            .font(.system(size: 19, weight: .black))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(fairway == side ? AICaddieDesignTokens.par : Color.white.opacity(0.16))
+                            )
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("proto-score-fairway-\(side)")
                 }
-                .frame(height: 44)
             }
-            Button { showsExtras = false } label: {
-                Text("完成")
-                    .font(.system(size: 17, weight: .black))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Capsule().fill(AICaddieDesignTokens.hudGreen))
-            }
-            .buttonStyle(.plain)
-            .frame(height: 44)
-            .accessibilityIdentifier("proto-score-extras-done")
+            .frame(height: 56)
         }
         .padding(.horizontal, WatchProtoFace.edgeInset)
         .padding(.top, 4)

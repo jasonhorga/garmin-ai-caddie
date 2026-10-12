@@ -59,6 +59,8 @@ public struct WatchUITestRoot: View {
             WatchHoleFacePrototype(autoShotOn: true)
         case "proto-score":
             WatchScoreBoxesPrototype()
+        case "proto-score-stack":
+            WatchScoreBoxesPrototype(layout: .stack)
         case "proto-score-par3":
             WatchScoreBoxesPrototype(hole: 3, par: 3, total: 3, putts: 2)
         case "proto-turn":

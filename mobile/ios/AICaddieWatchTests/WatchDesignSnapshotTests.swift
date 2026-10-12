@@ -1543,10 +1543,15 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 named: "proto-score-\(name)"
             )
             try render(
-                WatchScoreBoxesPrototype(total: 11, putts: 3, penalty: 1, fairway: "右", showsExtras: true,
+                WatchScoreBoxesPrototype(total: 11, putts: 3, penalty: 1, fairway: "右", layout: .stack,
                                          bottomInset: inset, showsGuide: true)
                     .watchSnapshotFrame(width: size.width, height: size.height),
-                named: "proto-score-extras-\(name)"
+                named: "proto-score-stack-\(name)"
+            )
+            try render(
+                WatchScoreBoxesPrototype(showsFairway: true, bottomInset: inset, showsGuide: true)
+                    .watchSnapshotFrame(width: size.width, height: size.height),
+                named: "proto-score-fairway-\(name)"
             )
             try render(
                 WatchNineTurnPrototype(bottomInset: inset, showsGuide: true)
