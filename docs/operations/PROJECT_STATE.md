@@ -2,9 +2,9 @@
 
 > Short authoritative live ledger. Dated archives preserve history verbatim.
 
-**Updated:** 2026-10-12 16:48 UTC
+**Updated:** 2026-10-12 17:18 UTC
 **Canonical baseline:** main 3e785b14 / product merge95b5694e (#419)
-**Current slice:** PR-422-PROTOTYPE-IA — in-progress
+**Current slice:** PR-FEEDBACK-CONTINUOUS — in-progress
 
 ## Current state
 
@@ -22,7 +22,8 @@
   remote137 tests passed11=1.324s/126=16.510s,zero skips;source/container removed.
   Runtime38267523735 completed success on exact head;4 methods/74 groups/370
   records per face,zero skips. Element report and visual sheets updated in
-  docs/reviews/2026-10-12-pr422-ia-prototype-element-audit.md;keep draft.
+  docs/reviews/2026-10-12-pr422-ia-prototype-element-audit.md;final comment
+  #6129026681 posted;keep draft and do not merge.
   Four methods/74 groups/370 tap records per face;stack hierarchy probes.
 - Original a913 audit38237977234/773e9d83:25 collector methods passed,
   no skips;1,500/1,500 functional taps,250/250 empty callback dispatches.
@@ -67,9 +68,8 @@
 
 ## Unfinished queue
 
-- PR-422-PROTOTYPE-IA — evidence-open:immutable inventory repair complete;
-  exact runtime38267523735 green;270/270 state taps and50/50 placeholder
-  callbacks per face;bottom probes all5/5 but no stop-y boundary.
+- PR-422-PROTOTYPE-IA — done:exact runtime38267523735 and visual review
+  complete;final PR comment6129026681;draft remains intentionally unmerged.
 - WATCH417-ELEMENT-AUDIT — evidence-open:hardware/Crown/replies;
   completed diagnostic/capability/band/safe-area evidence must not be repeated.
 - PR-420-MANUAL-SHOT — blocked:original49 acceptance unresolved;
@@ -152,14 +152,15 @@
   expiryOct13 08:30/after review;remote originals retained.
 - Superseded ledgers preserved verbatim in
   docs/archive/PROJECT_STATE-2026-10-12-pr422-recheck-complete.historical.md
-  and docs/archive/PROJECT_STATE-2026-10-12-pr422-clock-precomplete.historical.md.
+  docs/archive/PROJECT_STATE-2026-10-12-pr422-clock-precomplete.historical.md
+  and docs/archive/PROJECT_STATE-2026-10-12-pr422-comment-pending.historical.md.
 
 ## Next action and stop conditions
 
-1. Post the exact-head #422 element-audit conclusion;keep #422/#418 draft
-   and do not merge. Commit/push report, archive and ledger together.
-2. Resume one same-turn blocking feedback waiter after this evidence slice;
+1. Resume one same-turn blocking feedback waiter after this evidence slice;
    no main-thread CI/status polling and no new PR slice.
+2. Process only external actionable feedback;ignore CI caused by Codex docs
+   state commits and keep #422/#418 draft.
 3. Keep #420 HOLD until original acceptance is corrected;retain the explicit
    no-Crown/no-physical-watch boundary.
 
