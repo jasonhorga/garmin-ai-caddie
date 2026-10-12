@@ -133,6 +133,12 @@ final class WatchLocationProviderTests: XCTestCase {
         XCTAssertFalse(WatchLocationProvider.isShotOriginFix(fix(age: 31), now: now))
         XCTAssertFalse(WatchLocationProvider.isShotOriginFix(fix(accuracy: 15.1), now: now))
         XCTAssertFalse(WatchLocationProvider.isShotOriginFix(fix(age: -1), now: now))
+        var riding = fix(age: 20)
+        riding.speedMps = 6
+        XCTAssertFalse(WatchLocationProvider.isShotOriginFix(riding, now: now), "an old fix from a moving cart")
+        var ridingLive = fix(age: 5)
+        ridingLive.speedMps = 6
+        XCTAssertTrue(WatchLocationProvider.isShotOriginFix(ridingLive, now: now), "a live fix is always usable")
     }
 
     private func fix(

@@ -187,6 +187,8 @@ public struct WatchRoundContainerView: View {
     /// Latest fix from the Watch itself. Manual shot capture is disabled until this exists; no
     /// placeholder coordinate is ever manufactured.
     private let shotLocation: WatchLocationFix?
+    /// The Watch's newest fix before the 15 s rangefinder gate; only manual shot marking reads it.
+    private let latestWatchFix: WatchLocationFix?
     private let watchHeading: WatchHeadingFix?
     private let autoShotSupported: Bool
     private let autoShotStatus: String
@@ -209,6 +211,7 @@ public struct WatchRoundContainerView: View {
     public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
                 shotLocation: WatchLocationFix? = nil,
+                latestWatchFix: WatchLocationFix? = nil,
                 watchHeading: WatchHeadingFix? = nil,
                 autoShotSupported: Bool = false,
                 autoShotStatus: String = "本机不支持",
@@ -226,6 +229,7 @@ public struct WatchRoundContainerView: View {
         self.holeGeometry = holeGeometry
         self.watchGreenYards = watchGreenYards
         self.shotLocation = shotLocation
+        self.latestWatchFix = latestWatchFix
         self.watchHeading = watchHeading
         self.autoShotSupported = autoShotSupported
         self.autoShotStatus = autoShotStatus
@@ -1269,8 +1273,8 @@ public struct WatchRoundContainerView: View {
 
     /// The fix a manual shot is marked at: live, or at most `maximumShotOriginAgeSeconds` old.
     private var shotOriginFix: WatchLocationFix? {
-        guard let shotLocation, WatchLocationProvider.isShotOriginFix(shotLocation) else { return nil }
-        return shotLocation
+        guard let fix = latestWatchFix ?? shotLocation, WatchLocationProvider.isShotOriginFix(fix) else { return nil }
+        return fix
     }
 
     private func recordManualShot() {
@@ -1286,15 +1290,17 @@ public struct WatchRoundContainerView: View {
             }
             return
         }
-        #if canImport(WatchKit)
-        WKInterfaceDevice.current().play(.click)
-        #endif
+
         model.beginManualShot(
             latitude: fix.coordinate.latitude,
             longitude: fix.coordinate.longitude,
             horizontalAccuracyM: fix.horizontalAccuracyM,
             capturedAt: fix.capturedAt
         )
+        // Feedback reflects what actually happened: the model can still decline the shot.
+        #if canImport(WatchKit)
+        WKInterfaceDevice.current().play(model.pendingManualShot != nil ? .click : .failure)
+        #endif
     }
 
     private var instrumentBackButton: some View {

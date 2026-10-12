@@ -195,8 +195,11 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
     public static let maximumShotOriginAgeSeconds: TimeInterval = 30
 
     public static func isShotOriginFix(_ fix: WatchLocationFix, now: Date = Date()) -> Bool {
+        if isLiveRangefinderFix(fix, now: now) { return true }
+        // Past the live window only a fix taken at walking pace: an older fix from a moving cart
+        // could put the shot origin 100 m from the ball.
         guard isLiveRangefinderFix(fix, now: now, maximumAge: maximumShotOriginAgeSeconds) else { return false }
-        return true
+        return (fix.speedMps ?? 0) <= WatchSwingFeatureExtractor.ridingSpeedMps
     }
 
     public static func isLiveRangefinderFix(

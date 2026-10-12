@@ -265,6 +265,7 @@ public struct AICaddieWatchApp: App {
                     holeGeometry: activeHoleGeometry,
                     watchGreenYards: watchGreenYards,
                     shotLocation: qualifiedWatchFix,
+                    latestWatchFix: watchLocation.latestFix,
                     watchHeading: watchLocation.latestHeading,
                     autoShotSupported: autoShotProvider.isSupported,
                     autoShotStatus: autoShotProvider.state.menuDetail
