@@ -73,6 +73,10 @@ jobs:
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test11ElementLevelScorePickersAndAdversarialInput
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test18PickerRangeReachability
             )
+          elif [[ "$AUDIT_SELECTION" == "map-recheck" ]]; then
+            audit_tests=(
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test13RepeatedPageAndPlanGestures
+            )
           fi
           xcodebuild test-without-building \
             -project mobile/ios/AICaddieNative.xcodeproj \

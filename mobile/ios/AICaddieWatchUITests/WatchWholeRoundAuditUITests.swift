@@ -1019,23 +1019,38 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                            stem: "repeat-summary--hole-pager")
         try capture("repeat-gestures", "final")
         for page in [0, 1] {
-            try launch("audit-phone-18", page: page, zoom: 2)
-            try capture("map-elements", "page-\(page)-zoom2", input: "injected-zoom-real-pan")
-            let viewport = activeViewport()
             for attempt in 1...5 {
-                let before = viewport.exists ? viewport.label : "not-instrumented"
+                // A failed hazard pan can turn the page. Every trial must start on the intended
+                // page again; four later drags on 果岭 are not four more hazard-pan failures.
+                try launch("audit-phone-18", page: page, zoom: 2)
+                let viewportID = "watch-audit-viewport-\(page == 0 ? "plan" : "hazard")"
+                let beforePage = element("watch-hole-page-current").label
+                let before = (try? element(viewportID).snapshot().label) ?? "not-instrumented"
                 let expectedPage = page == 0 ? "方案" : "障碍"
+                let valid = beforePage == expectedPage && before.contains("zoom=2.")
+                try capture("map-elements", "page-\(page)-before-\(attempt)",
+                            input: "injected-zoom-real-pan", collectControls: false)
                 let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.46, dy: 0.65))
                 let to = app.coordinate(withNormalizedOffset: CGVector(dx: 0.46, dy: attempt.isMultiple(of: 2) ? 0.76 : 0.54))
                 from.press(forDuration: 0.05, thenDragTo: to)
-                let after = viewport.exists ? viewport.label : "not-instrumented"
+                // Keep pager rubber-band motion out of the settled-image comparison. This delay
+                // is evidence collection only, never a visible-feedback latency measurement.
+                Thread.sleep(forTimeInterval: 0.8)
+                let after = (try? element(viewportID).snapshot().label) ?? "not-instrumented"
+                let afterPage = element("watch-hole-page-current").label
                 try writeAuditJSON(["kind": "repeated-gesture", "screen": expectedPage, "face": face,
                     "control": "zoomed-map", "gesture": "vertical-pan", "attempt": attempt,
-                    "before": before, "after": after, "page": element("watch-hole-page-current").label,
-                    "success": after != before && element("watch-hole-page-current").label == expectedPage],
+                    "before": before, "after": after, "beforePage": beforePage, "page": afterPage,
+                    "attemptValid": valid, "preparation": "fresh launch on intended page for every trial",
+                    "settleSeconds": 0.8, "uiFeedbackMs": NSNull(),
+                    "success": valid && after != before && afterPage == expectedPage,
+                    "imageAdjudicationRequired": true],
                     stem: "repeat--map-\(page)--\(attempt)")
                 try capture("map-elements", "page-\(page)-pan-\(attempt)", collectControls: false)
                 if page == 1 {
+                    // Switch independently of the pan result, preserving the failed pan above.
+                    try launch("audit-phone-18", page: 1, zoom: 2)
+                    let viewport = element(viewportID)
                     let next = element("watch-hazard-next")
                     if next.exists {
                         let label = next.label

@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. History is preserved in dated archives.
 
-**Updated:** 2026-10-12 02:12 UTC
+**Updated:** 2026-10-12 02:58 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
 
@@ -32,6 +32,16 @@
   no query between open and pointer gesture, no production timer change.
   Remote nine audit regressions pass (1.120 s). New exact native/runtime
   evidence still required. Partial runs cannot masquerade as full coverage.
+- Immediate-picker 38194936812 / 7155607d plus required/Native
+  38194820494 / 38194820350 succeeded; artifacts downloaded to a separate
+  immutable root. Adjudicate fresh-open rates and all start/target pairs.
+- Review correction: plan-pan raw 0/5 conflicts with visible movement;
+  withhold a plan-pan defect. Earlier hazard-pan trials 2–5 ran on 果岭,
+  so only the first is valid. Scoped map-recheck resets before every pan,
+  reads fresh snapshots and captures settled images; no product edits.
+- Nine map collector regressions pass (2.060 s). Thirty-four distinct
+  states inspected in nine calibrated normal/glare pages; physical wrist,
+  display ruler calibration and sunlight remain unproved.
 - Raw evidence immutable; earlier compile failures are harness diagnostics.
   #404–#416 deployment and internal TestFlight Build 86 already complete.
 
@@ -77,24 +87,31 @@
   watch417-wide-audit-20261012, watch417-control-recheck-20261012,
   watch417-picker-recheck-20261012. Raw/artifacts, physical aids, fetched
   reference receipts, diagnostics and waiter logs retained.
+- New persistent operations root: watch417-immediate-picker-20261012;
+  exact 7155607d artifacts, no old evidence overwritten.
 - Local /tmp/garmin-watch417-images-20261012-GCqa8Y expires Oct 13 08:30 UTC
   or after review; preserve remote originals.
 - No live audit service, dependency environment, volume, port, tunnel or timer.
   Terminal 18014 closed SSH 255 without output. Delegated replacement 67985
   returned three success conclusions and closed 0; download 72960 closed 0.
-  No pending waiter; gh-feedback/cursor unchanged.
+  Latest agent's original three-waiter shell/attachment and handles closed 0;
+  summaries recovered from owned logs. No pending waiter; cursor unchanged.
 - Snapshot /dev/shm/garmin-ai-caddie-watch417-immediate-picker-20261012:
   31 MiB, read-only, expires Oct 13 02:02 UTC or after verification.
   Named --rm container exited 0 and removed; snapshot removed after open-file check.
   Manifest/log retained in picker evidence. Older snapshots already removed.
+- Map collector snapshot /dev/shm/garmin-ai-caddie-watch417-map-recheck-20261012;
+  only two input files, expires Oct 13 02:50 UTC or after verification;
+  24 KiB, nine tests passed; no open files, named --rm container removed;
+  exact snapshot removed after persistent manifest/log retention.
 - Shared canonical checkout unchanged. Force-add only individually named
   owned history ledgers because docs/archive is Git-ignored.
 
 ## Next action and stop conditions
 
-1. Push the real fresh-open scaffold changes and dispatch scoped picker evidence;
-   snapshot and container are closed, verification artifacts retained.
-2. Inspect physical/normal/glare evidence, publish tables and distinct
+1. Push scoped map-recheck scaffold and dispatch after picker run closure;
+   adjudicate exact-head picker evidence, keep all raw results immutable.
+2. Finish physical/normal/glare evidence, publish tables and distinct
    findings on #417 with Actions links and no internal hosts/paths.
 3. Keep #418 draft until sufficient coverage/triage; return to feedback.
    Never commit CI bookkeeping alone or loop on own CI events.

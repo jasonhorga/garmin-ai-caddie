@@ -143,3 +143,13 @@ trial a fresh production chip tap followed immediately by pointer input, samplin
 state beforehand. It does not change any product timer, gesture or hit region.
 Nine remote collector/physical-export regressions pass (1.120 s). Scoped native
 evidence is required before claiming those first-try gesture rates are complete.
+
+Immediate-picker run 38194936812 at 7155607d and its required/Native CI passed.
+Artifacts are retained independently; selected-method success is not a UX verdict.
+The map follow-up resets the intended page before each of five pan trials and
+uses fresh viewport snapshots plus settled images. Earlier hazard trials after
+the first had already changed to 果岭; only that first trial is valid per face.
+Plan-pan telemetry conflicts with visible movement, so no plan-pan defect may
+be reported without settled-image adjudication. `map-recheck` explicitly selects
+one method and cannot satisfy the full audit's execution-count gate. Nine
+remote collector regressions pass (2.060 s). Product gestures remain unchanged.

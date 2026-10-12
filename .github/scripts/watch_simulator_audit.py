@@ -93,7 +93,7 @@ def collect(face: str, udid: str, outcome: str, output: Path) -> None:
     if log.exists():
         (output / "test.log").write_text(sanitize(log.read_text(errors="replace")))
     selection = os.environ.get("AUDIT_SELECTION", "full")
-    expected = {"control-recheck": 4, "picker-recheck": 2}.get(selection, EXPECTED_AUDIT_TESTS)
+    expected = {"control-recheck": 4, "picker-recheck": 2, "map-recheck": 1}.get(selection, EXPECTED_AUDIT_TESTS)
     (output / "result.json").write_text(json.dumps({
         "face": face, "outcome": outcome,
         "screenshots": len(list(output.glob("*--*.png"))),
