@@ -124,6 +124,17 @@ final class WatchLocationProviderTests: XCTestCase {
         ))
     }
 
+    /// Audit #417 P1: + did nothing once the fix aged past the 15 s rangefinder window. A shot mark
+    /// accepts a fix up to 30 s old; older, inaccurate or future fixes still cannot mark a shot.
+    func testAShotMarkAcceptsABrieflyOlderFixThanTheRangefinder() {
+        XCTAssertTrue(WatchLocationProvider.isShotOriginFix(fix(age: 20), now: now))
+        XCTAssertFalse(WatchLocationProvider.isLiveRangefinderFix(fix(age: 20), now: now))
+        XCTAssertTrue(WatchLocationProvider.isShotOriginFix(fix(age: 30), now: now))
+        XCTAssertFalse(WatchLocationProvider.isShotOriginFix(fix(age: 31), now: now))
+        XCTAssertFalse(WatchLocationProvider.isShotOriginFix(fix(accuracy: 15.1), now: now))
+        XCTAssertFalse(WatchLocationProvider.isShotOriginFix(fix(age: -1), now: now))
+    }
+
     private func fix(
         latitude: Double = 40,
         longitude: Double = 116,

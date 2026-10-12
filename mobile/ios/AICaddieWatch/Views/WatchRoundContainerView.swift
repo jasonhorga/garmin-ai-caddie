@@ -1,5 +1,8 @@
 import SwiftUI
 import AICaddieDomain
+#if canImport(WatchKit)
+import WatchKit
+#endif
 
 /// The permanent current-hole surface. Geometry and distance availability select an honest visual
 /// projection; they never change the scoring or shot state machine behind it.
@@ -173,6 +176,8 @@ public struct WatchRoundContainerView: View {
     @State private var holePage = 0
     @State private var planViewport = WatchHoleViewport()
     @State private var selectedPlanId: String?
+    /// A + tap found no usable fix: shows 等待定位 above the button for a moment.
+    @State private var manualShotNeedsGPS = false
     /// DEBUG compatibility and deep-linking only; production opens the nearest upcoming obstacle.
     private let initialHazardID: String?
 
@@ -1179,13 +1184,29 @@ public struct WatchRoundContainerView: View {
                 )
                 Spacer()
                 if !model.autoShotEnabled {
+                    // Always tappable: a tap without a usable fix says 等待定位 instead of doing
+                    // nothing (audit #417 P1). Dimmed while no fix can mark a shot.
                     rootControl(
                         systemName: "plus",
                         label: "手动记杆",
                         identifier: "watch-hole-record-shot",
-                        isEnabled: qualifiedShotLocation != nil,
+                        dimmed: shotOriginFix == nil,
                         action: { recordManualShot() }
                     )
+                    .overlay(alignment: .top) {
+                        if manualShotNeedsGPS {
+                            Text("等待定位")
+                                .font(.system(size: 13, weight: .black))
+                                .foregroundStyle(.black)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(AICaddieDesignTokens.hudYellow))
+                                .fixedSize()
+                                .offset(x: -18, y: -30)
+                                .allowsHitTesting(false)
+                                .accessibilityIdentifier("watch-hole-record-shot-needs-gps")
+                        }
+                    }
                 }
             }
             .frame(width: safeRect.width)
@@ -1198,6 +1219,7 @@ public struct WatchRoundContainerView: View {
         label: String,
         identifier: String,
         isEnabled: Bool = true,
+        dimmed: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -1218,7 +1240,7 @@ public struct WatchRoundContainerView: View {
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.45)
+        .opacity(isEnabled && !dimmed ? 1 : 0.45)
         .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
     }
@@ -1235,7 +1257,7 @@ public struct WatchRoundContainerView: View {
             courseDataPending: s.geometryCoverage == "pending",
             pendingUploads: model.pendingUploads,
             hasHoleMap: false,
-            canRecordShot: qualifiedShotLocation != nil,
+            canRecordShot: shotOriginFix != nil,
             onRecordShot: { recordManualShot() },
             onScoreHole: { model.startScoringActiveHole() },
             onPreviousHole: { model.goToPreviousHole() },
@@ -1245,8 +1267,28 @@ public struct WatchRoundContainerView: View {
         )
     }
 
+    /// The fix a manual shot is marked at: live, or at most `maximumShotOriginAgeSeconds` old.
+    private var shotOriginFix: WatchLocationFix? {
+        guard let shotLocation, WatchLocationProvider.isShotOriginFix(shotLocation) else { return nil }
+        return shotLocation
+    }
+
     private func recordManualShot() {
-        guard let fix = qualifiedShotLocation else { return }
+        guard let fix = shotOriginFix else {
+            // Never a silent no-op: the golfer saw +, tapped it, and must learn why nothing happened.
+            #if canImport(WatchKit)
+            WKInterfaceDevice.current().play(.failure)
+            #endif
+            withAnimation(.easeOut(duration: 0.15)) { manualShotNeedsGPS = true }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_800_000_000)
+                withAnimation(.easeIn(duration: 0.2)) { manualShotNeedsGPS = false }
+            }
+            return
+        }
+        #if canImport(WatchKit)
+        WKInterfaceDevice.current().play(.click)
+        #endif
         model.beginManualShot(
             latitude: fix.coordinate.latitude,
             longitude: fix.coordinate.longitude,
