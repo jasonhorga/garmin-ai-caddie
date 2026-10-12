@@ -88,22 +88,23 @@ class WatchSimulatorAuditTests(unittest.TestCase):
             self.assertFalse(manifest["hardwareSunlightProven"])
 
     def test_focused_recheck_is_explicit_and_cannot_masquerade_as_full_coverage(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            evidence = root / "evidence"
-            evidence.mkdir()
-            (evidence / "picker--open.png").touch()
-            (root / "watch-audit-xcode.log").write_text("\n".join(
-                f"Test Case '-[AICaddieWatchUITests.WatchWholeRoundAuditUITests test{number}]' passed."
-                for number in range(4)))
-            with patch.dict(os.environ, {"RUNNER_TEMP": str(root), "AUDIT_SELECTION": "control-recheck"}):
-                audit.collect("41mm", "", "success", evidence)
-            receipt = json.loads((evidence / "result.json").read_text())
-            self.assertEqual(receipt["selection"], "control-recheck")
-            self.assertEqual(receipt["expectedMethods"], 4)
-            with patch.dict(os.environ, {"RUNNER_TEMP": str(root), "AUDIT_SELECTION": "full"}):
-                with self.assertRaisesRegex(ValueError, "selection=full"):
+        for selection, expected in [("control-recheck", 4), ("picker-recheck", 2)]:
+            with self.subTest(selection=selection), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                evidence = root / "evidence"
+                evidence.mkdir()
+                (evidence / "picker--open.png").touch()
+                (root / "watch-audit-xcode.log").write_text("\n".join(
+                    f"Test Case '-[AICaddieWatchUITests.WatchWholeRoundAuditUITests test{number}]' passed."
+                    for number in range(expected)))
+                with patch.dict(os.environ, {"RUNNER_TEMP": str(root), "AUDIT_SELECTION": selection}):
                     audit.collect("41mm", "", "success", evidence)
+                receipt = json.loads((evidence / "result.json").read_text())
+                self.assertEqual(receipt["selection"], selection)
+                self.assertEqual(receipt["expectedMethods"], expected)
+                with patch.dict(os.environ, {"RUNNER_TEMP": str(root), "AUDIT_SELECTION": "full"}):
+                    with self.assertRaisesRegex(ValueError, "selection=full"):
+                        audit.collect("41mm", "", "success", evidence)
 
     def test_device_receipt_contains_exact_source_and_no_inventory_paths(self):
         runtime = {"identifier": "com.apple.watchOS-26-0", "version": "26.0", "name": "watchOS 26.0",

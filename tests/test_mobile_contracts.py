@@ -5196,7 +5196,7 @@ class MobileContractTests(unittest.TestCase):
         hazard = _read_required_source(self, WATCH_DIR / "Views" / "WatchHazardMapView.swift")
         self.assertIn("Button(action: selectNextHazard)", hazard)
         self.assertIn("static func activeFrame(isZoomed: Bool, frozen: WatchHazardFrame?", hazard)
-        self.assertIn(".watchZoomPan($viewport, size: geo.size)", hazard)
+        self.assertIn(".watchZoomPan($viewport, size: geo.size", hazard)
         self.assertNotIn("$crownSelection", hazard)
         hole_map = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleMapView.swift")
         self.assertIn("LongPressGesture(minimumDuration: 0.5)", hole_map)

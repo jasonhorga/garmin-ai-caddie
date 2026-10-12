@@ -68,6 +68,11 @@ jobs:
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test13RepeatedPageAndPlanGestures
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test17FirstTryManualShotAndUndo
             )
+          elif [[ "$AUDIT_SELECTION" == "picker-recheck" ]]; then
+            audit_tests=(
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test11ElementLevelScorePickersAndAdversarialInput
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test18PickerRangeReachability
+            )
           fi
           xcodebuild test-without-building \
             -project mobile/ios/AICaddieNative.xcodeproj \

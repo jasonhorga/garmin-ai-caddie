@@ -781,6 +781,19 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             let pickerMetrics = measured.first { ($0["role"] as? String) == "full-screen-picker" } ?? [:]
             let plusMetrics = measured.first { ($0["role"] as? String) == "plus" } ?? [:]
             let minusMetrics = measured.first { ($0["role"] as? String) == "minus" } ?? [:]
+            // Reading a live frame after preparing the overlay can outlast its real idle timer.
+            // Freeze only measured geometry; all following input is still real pointer input.
+            func frozenFrame(_ metrics: [String: Any]) throws -> CGRect {
+                let values = try XCTUnwrap(metrics["framePt"] as? [Double], "Missing measured picker geometry")
+                XCTAssertEqual(values.count, 4)
+                return CGRect(x: values[0], y: values[1], width: values[2], height: values[3])
+            }
+            let pickerFrame = try frozenFrame(pickerMetrics)
+            let plusFrame = try frozenFrame(plusMetrics)
+            let minusFrame = try frozenFrame(minusMetrics)
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let plusPoint = origin.withOffset(CGVector(dx: plusFrame.midX, dy: plusFrame.midY))
+            let minusPoint = origin.withOffset(CGVector(dx: minusFrame.midX, dy: minusFrame.midY))
 
             let groups = ["plus", "minus", "20pt", "60pt", "off-centre-8pt", "double-tap", "edge-60pt", "long-press"]
             for group in groups {
@@ -805,22 +818,21 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                         gesture: group, expected: "\(wheel)=\(expected);",
                         action: {
                             switch group {
-                            case "plus": plus.tap()
-                            case "minus": minus.tap()
-                            case "20pt": self.drag(picker, distance: 20)
-                            case "60pt": self.drag(picker, distance: 60)
+                            case "plus": plusPoint.tap()
+                            case "minus": minusPoint.tap()
+                            case "20pt", "60pt":
+                                let distance: CGFloat = group == "20pt" ? 20 : 60
+                                origin.withOffset(CGVector(dx: pickerFrame.midX, dy: pickerFrame.midY))
+                                    .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(
+                                        dx: pickerFrame.midX, dy: pickerFrame.midY - distance)))
                             case "off-centre-8pt":
-                                let frame = plus.frame
-                                self.app.coordinate(withNormalizedOffset: .zero)
-                                    .withOffset(CGVector(dx: frame.midX + 8, dy: frame.midY + 8)).tap()
-                            case "double-tap": plus.doubleTap()
-                            case "long-press": plus.press(forDuration: 0.7)
+                                origin.withOffset(CGVector(dx: plusFrame.midX + 8, dy: plusFrame.midY + 8)).tap()
+                            case "double-tap": plusPoint.doubleTap()
+                            case "long-press": plusPoint.press(forDuration: 0.7)
                             default:
-                                let origin = self.app.coordinate(withNormalizedOffset: .zero)
-                                let frame = picker.frame
-                                let point = origin.withOffset(CGVector(dx: frame.minX + 7, dy: frame.midY + 15))
+                                let point = origin.withOffset(CGVector(dx: pickerFrame.minX + 7, dy: pickerFrame.midY + 15))
                                 point.press(forDuration: 0.05, thenDragTo:
-                                    origin.withOffset(CGVector(dx: frame.minX + 7, dy: frame.midY - 45)))
+                                    origin.withOffset(CGVector(dx: pickerFrame.minX + 7, dy: pickerFrame.midY - 45)))
                             }
                         },
                         success: { _ in self.waitForValue(wheel, expected) },
@@ -862,6 +874,52 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         }
         try inspectWheel("putts", chip: "watch-score-putts", name: "推杆", wrap: 6)
         try inspectWheel("penalty", chip: "watch-score-penalty", name: "罚杆", wrap: 5)
+    }
+
+    /// Every start/target pair uses a new draft, a real chip tap and at most one real drag.
+    /// Values are observed immediately. Timers are not held open and Crown input is not claimed.
+    func test18PickerRangeReachability() throws {
+        for (wheel, count) in [("putts", 6), ("penalty", 5)] {
+            try launch("audit-phone-18", modelScreen: "scoring")
+            let chip = element("watch-score-\(wheel)")
+            let chipSnapshot = try chip.snapshot()
+            let chipFrame = chipSnapshot.frame
+            chip.tap()
+            let picker = element("watch-score-wheel-\(wheel)")
+            XCTAssertTrue(picker.waitForExistence(timeout: 1))
+            let pickerFrame = try picker.snapshot().frame
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            for start in 0..<count {
+                for target in 0..<count {
+                    try launch("audit-phone-18", modelScreen: "scoring",
+                               initialPutts: wheel == "putts" ? start : 0,
+                               initialPenalty: wheel == "penalty" ? start : 0)
+                    let before = stateValue(wheel) ?? -1
+                    origin.withOffset(CGVector(dx: chipFrame.midX, dy: chipFrame.midY)).tap()
+                    let prepared = picker.exists
+                    var delta = (target - start + count) % count
+                    if delta > count / 2 { delta -= count }
+                    if prepared && delta != 0 {
+                        origin.withOffset(CGVector(dx: pickerFrame.midX, dy: pickerFrame.midY))
+                            .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(
+                                dx: pickerFrame.midX, dy: pickerFrame.midY - CGFloat(delta) * 30)))
+                    }
+                    let after = stateValue(wheel) ?? -1
+                    try writeAuditJSON([
+                        "kind": "value-reachability", "screen": "本洞成绩", "control": wheel,
+                        "face": face, "start": start, "before": before, "requested": target,
+                        "gestures": delta == 0 ? 1 : 2, "includesOpen": true,
+                        "attemptValid": prepared && before == start, "after": after,
+                        "withinThree": prepared && before == start && after == target,
+                        "input": "real-pointer; seeded-start-draft; measured-cached-frame",
+                        "physicalCrownProven": false,
+                    ], stem: "range--\(wheel)--\(start)--\(target)")
+                    if target == 0 || target == count - 1 {
+                        try capture("picker-range", "\(wheel)-start-\(start)-target-\(target)", collectControls: false)
+                    }
+                }
+            }
+        }
     }
 
     /// A golfer does not interact at test speed. This keeps the app backgrounded between shots,

@@ -123,3 +123,13 @@ frames, names each page's telemetry and tries shot/undo without spending the und
 An explicit control-recheck runs four methods (09/11/13/17) and is recorded as partial coverage;
 it cannot pass the full seventeen-method collector gate. Timers/product controls remain unchanged.
 Nine remote preparation checks pass; two workflow YAML files and thirty Bash sections validate.
+
+Control recheck 38188153210 at 8e6feee6 ran four methods on each face, no skips:
+41/46/49 mm 3/1, 2/2, 4/0 pass/fail and 51/39/63 PNGs. P1 first-pointer manual
+shot 49 mm 0/5 (41/46 mm 5/5) is published in #417 comment 6115815445.
+The small-face picker coverage still raced automatic closure during a live-frame query.
+The follow-up caches measured frames for real pointer taps/drags and adds every
+putts/penalty start/target pair. `picker-recheck` explicitly collects only methods
+11/18, never claims a complete eighteen-method run, and keeps production timers.
+Preparation: nine audit regressions plus the viewport contract pass (10 tests,
+0.480 s) in the existing API image; two YAML files / thirty Bash sections validate.
