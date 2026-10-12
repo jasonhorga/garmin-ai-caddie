@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. History is preserved in dated archives.
 
-**Updated:** 2026-10-12 05:39 UTC
+**Updated:** 2026-10-12 06:04 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
 
@@ -51,6 +51,11 @@
   Recovery:docs/operations/2026-10-12-watch417-feedback-collection.md.
   Catch-up read found no new external #417 reply. Issue delivery will be
   confirmed from completed feedback event;legacy summary may say prall.
+- First feedback81342 returned old own #418 f0682202,already in477eaab6.
+  Added attribution-based own comment/commit/head suppression in the existing
+  waiter;unknown/Claude/unsigned messages retained,issue subject now explicit.
+  Nineteen offline stream/provenance regressions passed30.108 s,zero skips.
+  Submit a bounded operations PR for Claude review;wait interface unchanged.
 
 ## Unfinished queue
 
@@ -60,6 +65,8 @@
 - PR-420-MANUAL-SHOT — blocked:first-tap49 acceptance unresolved; stale-fix
   merits independent. Review exact new head or explicit scope correction.
 - PR-418-AUDIT-SCAFFOLD — evidence-open:draft;diagnostics are not product fixes.
+- ISSUE-FEEDBACK-WAITER — queued:publish tested own-receipt filter as a scoped
+  operations PR;Claude reviews. Existing supported collection option enabled.
 - PR-FEEDBACK-CONTINUOUS — queued:resume deduplicated feedback after audit.
 - NATIVE-FIXTURE-LAYOUT-STABILITY — queued:nonblocking #416 variation.
 - IOS-STATUS-CONTRAST — queued:nonblocking dark status/navigation text.
@@ -107,6 +114,12 @@
 - operations/watch417-feedback-20261012 retains before instance env,
   change manifest and baseline receipt. One added option remains active;
   collector invocation25454 closed0,no persistent session was created.
+- Feedback runner:operations/blocking-waits/codex-watch417-66000eba-wait_for_conclusion.sh,
+  owned repository waiter;conventional top-level source path absent.
+  Owned copy expires goal cutoff;current cursor/event source/behavior retained.
+- /dev/shm/garmin-ai-caddie-watch417-feedbackwait-20261012 removed44 KiB;
+  no open files/install/container/service. Offline tests/log/manifests retained
+  in operations/watch417-feedback-20261012. Feedback81342 closed0;no pending wait.
 - Other persistent evidence under /home/jason/garmin-ai-caddie-data/operations:
   watch417-simulator-audit-20261011,pr419-4cfb1588-20261011,
   watch417-wide-audit-20261012,watch417-control-recheck-20261012,
@@ -120,12 +133,12 @@
   download closed0. No live waiter/service/
   tunnel/container/volume/port/new environment;gh-feedback timer/cursor unchanged.
 - Historical ledgers preserved verbatim in dated docs/archive files;
-  latest PROJECT_STATE-2026-10-12-watch417-capability.historical.md.
+  latest PROJECT_STATE-2026-10-12-watch417-feedback-recovery.historical.md.
 
 ## Next action and stop conditions
 
-1. Commit/push W36 report + actual feedback configuration recovery evidence,
-   state/archive;then start one same-turn blocking --feedback waiter.
+1. Commit/push tested waiter change/evidence;open scoped operations PR for
+   Claude review;update only owned runner,then one same-turn --feedback wait.
    Known own comments/CI are deduped;do not create CI-result-only commits.
 2. Process Claude reply/new #420 head once;exact-source/Native review and
    original five taps/undo required for W01. Keep #418 draft.

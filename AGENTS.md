@@ -144,6 +144,9 @@ before accepting a repository-wide CI event; real code or PR CI remains actionab
 Terminal manually dispatched TestFlight releases and Apple operations remain
 actionable even on a Codex head. Verify their workflow name and dispatch event
 from Actions; this exception does not include ordinary or manual Native CI.
+Own signed comments and audit commit/head receipts must also stay quiet;
+preserve Claude and unsigned feedback, including plain-issue comments.
+Identify the writer by attribution, never the shared GitHub account name.
 
 ### New pull requests
 
