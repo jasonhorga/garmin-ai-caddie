@@ -1062,6 +1062,8 @@ public struct WatchHoleMapView: View {
         let pl = showPlaysLike && !rangeUnavailable
         let d = pl ? playsLikeDelta : 0
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
+        // IA prototype faces (≤ 42 mm) tighten the facts so a corner control fits below them.
+        let compactFacts = lastShotPlacement == .facts && size.height < 230
         return ZStack(alignment: .topLeading) {
             Color.clear
             if fullMap {
@@ -1077,26 +1079,32 @@ public struct WatchHoleMapView: View {
                     holeIdentity
                     if lastShotPlacement == .facts, let shot = WatchGeoMath.usefulGolfYards(lastShot), shot > 0 {
                         // The distance walked from the last shot: what finds the ball.
-                        Text("上一杆 \(shot)")
-                            .font(.system(size: 15, weight: .black, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(touchTargetCyan)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                            .padding(.top, 2)
-                            .accessibilityIdentifier("watch-hole-last-shot")
+                        HStack(spacing: 3) {
+                            Image(systemName: "figure.walk")
+                                .font(.system(size: 13, weight: .black))
+                            Text("\(shot)")
+                                .font(.system(size: 16, weight: .black, design: .rounded))
+                                .monospacedDigit()
+                        }
+                        .foregroundStyle(touchTargetCyan)
+                        .lineLimit(1)
+                        .padding(.top, 2)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("距上一杆 \(shot) 码")
+                        .accessibilityIdentifier("watch-hole-last-shot")
                     }
 
                     if showTextOverlay, let centerGreen {
-                        Spacer().frame(height: lastShotPlacement == .facts ? 6 : 11)
+                        Spacer().frame(height: lastShotPlacement == .facts ? (compactFacts ? 2 : 6) : 11)
                         if let backGreen {
-                            distanceValue(backGreen + d, color: .white.opacity(0.92), big: false)
+                            distanceValue(backGreen + d, color: .white.opacity(0.92), big: false, compact: compactFacts)
                         }
                         distanceValue(
                             centerGreen + d,
                             color: golfYellow,
                             big: true,
-                            slopeArrow: pl ? (playsLikeDelta >= 0 ? "↑" : "↓") : nil
+                            slopeArrow: pl ? (playsLikeDelta >= 0 ? "↑" : "↓") : nil,
+                            compact: compactFacts
                         )
                         if rangeUnavailable {
                             Text("等待定位")
@@ -1105,13 +1113,13 @@ public struct WatchHoleMapView: View {
                                 .lineLimit(1)
                         }
                         if let frontGreen {
-                            distanceValue(frontGreen + d, color: .white.opacity(0.92), big: false)
+                            distanceValue(frontGreen + d, color: .white.opacity(0.92), big: false, compact: compactFacts)
                         }
                     }
                 }
                 .frame(width: size.width * 0.30, alignment: .leading)
                 .padding(.leading, size.width * 0.07)
-                .padding(.top, size.height * 0.09)
+                .padding(.top, size.height * (compactFacts ? (size.height < 206 ? 0.05 : 0.07) : 0.09))
 
                 if showTextOverlay, showCaddieRecommendation, showsRootCaddieChip {
                     // Its own high-priority tap, not a Button: on the 本洞 方案 page the map's
@@ -1230,11 +1238,12 @@ public struct WatchHoleMapView: View {
         _ value: Int,
         color: Color,
         big: Bool,
-        slopeArrow: String? = nil
+        slopeArrow: String? = nil,
+        compact: Bool = false
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 2) {
             Text(WatchGeoMath.greenRangeText(value))
-                .font(.system(size: big ? 32 : 23, weight: .black, design: .rounded))
+                .font(.system(size: big ? (compact ? 28 : 32) : (compact ? 20 : 23), weight: .black, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(color)
                 .lineLimit(1)
@@ -1245,7 +1254,7 @@ public struct WatchHoleMapView: View {
                     .foregroundStyle(golfYellow.opacity(0.82))
             }
         }
-        .frame(height: big ? 37 : 28, alignment: .leading)
+        .frame(height: big ? (compact ? 32 : 37) : (compact ? 24 : 28), alignment: .leading)
     }
 
     // MARK: - Canvas drawing

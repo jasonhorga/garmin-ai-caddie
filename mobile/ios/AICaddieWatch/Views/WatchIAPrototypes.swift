@@ -93,6 +93,7 @@ public struct WatchHoleFacePrototype: View {
         WatchProtoCanvas(bottomInset: bottomInset, showsGuide: showsGuide) { size, interactiveBottom in
             let anchor = min(0.86, max(0.70, (interactiveBottom - 8) / size.height))
             let controlY = interactiveBottom - WatchProtoFace.controlHit / 2
+            let chipHeight: CGFloat = size.height < 206 ? 40 : 44
             ZStack(alignment: .topLeading) {
                 WatchHoleMapView(
                     lastShot: lastShot,
@@ -116,7 +117,7 @@ public struct WatchHoleFacePrototype: View {
                             .opacity(0.75)
                     }
                     .foregroundStyle(.black)
-                    .frame(width: 58, height: 44)
+                    .frame(width: 58, height: chipHeight)
                     .background(Capsule().fill(AICaddieDesignTokens.hudGreen))
                     .frame(width: 62, height: WatchProtoFace.controlHit)
                     .contentShape(Rectangle())
@@ -231,11 +232,12 @@ public struct WatchScoreBoxesPrototype: View {
             let top: CGFloat = 4
             let title: CGFloat = 20
             let row: CGFloat = 44
-            let box = max(56, interactiveBottom - top - title - row * 2 - gap * 3)
+            let box = max(48, interactiveBottom - top - title - row * 2 - gap * 3)
             ZStack(alignment: .topLeading) {
                 VStack(spacing: gap) {
                     HStack(spacing: 6) {
-                        Text("第 \(hole) 洞 · Par \(par)")
+                        // Same identity as the hole face.
+                        Text("H\(hole) · P\(par)")
                             .font(.system(size: 15, weight: .black))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
@@ -434,13 +436,17 @@ public struct WatchNineTurnPrototype: View {
     public var body: some View {
         WatchProtoCanvas(bottomInset: bottomInset, showsGuide: showsGuide) { size, _ in
             VStack(alignment: .leading, spacing: 4) {
-                Text("A 场打完")
-                    .font(.system(size: 14, weight: .heavy))
-                    .foregroundStyle(.secondary)
-                    .frame(height: 18)
-                Text("42 杆 · +6")
-                    .font(.system(size: 20, weight: .black, design: .rounded))
-                    .frame(height: 24)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("A 场打完")
+                        .font(.system(size: 14, weight: .heavy))
+                        .foregroundStyle(.secondary)
+                    Text("42 杆 +6")
+                        .font(.system(size: 18, weight: .black, design: .rounded))
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(height: 24)
+                .padding(.trailing, 40)
                 if showsAll {
                     ForEach(others, id: \.self) { option in
                         row(option, filled: false, id: "proto-turn-\(option)") {
