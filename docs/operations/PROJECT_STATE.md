@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. History is preserved in dated archives.
 
-**Updated:** 2026-10-12 05:30 UTC
+**Updated:** 2026-10-12 05:39 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
 
@@ -10,7 +10,7 @@
 
 - #417 owner audit6111380071/6111790655 and probe6117411661 read fully.
   Test scaffolding only; Claude implements product fixes. No new TestFlight.
-- 35-finding report:2 P1/16 P2/17 P3, published fdebb6f1/comment6117399134.
+- 36-finding report:2 P1/16 P2/18 P3;original35 published fdebb6f1/6117399134.
   docs/reviews/2026-10-12-watch417-wrist-ux-audit.md contains twelve element
   tables, physical/reference review and runtime/hardware boundaries.
 - #418 draft codex/watch417-simulator-audit at477eaab6. Keep immutable W/C/I/M
@@ -39,11 +39,24 @@
 - Capability supplement method20 prepared:five fresh unsupported-setting
   centre/right8 pt taps per face, visible text/screenshot/off-state evidence.
   Nine collector tests1.681 s/126 mobile contracts15.960 s passed remotely.
+- Capability38207654935/3d29e56e completed/collected. Each face remains
+  correctly disabled/off5/5,visible reason0/5. All18 screenshots/contact
+  sheet and calibrated mm/glare proxy checked. W36 P3 posted6118384187;
+  docs/reviews/2026-10-12-watch417-capability-supplement.md. Capability is
+  injected;not a hardware-support inference. No product edit.
+- #417 delivery gap:installed collector excluded plain issues by default.
+  Enabled existing per-instance GH_FEEDBACK_EXTENDED_EVENTS=1 at05:27;
+  silent baseline confirmed05:30:42,complete scan/no failures05:39:02.
+  Existing timer/toolkit/project waiter/cursor unchanged,no second monitor.
+  Recovery:docs/operations/2026-10-12-watch417-feedback-collection.md.
+  Catch-up read found no new external #417 reply. Issue delivery will be
+  confirmed from completed feedback event;legacy summary may say prall.
 
 ## Unfinished queue
 
-- WATCH417-ELEMENT-AUDIT — in-progress:dispatch capability-recheck, inspect
-  screenshots/receipts; continue remaining runtime gaps and Claude feedback.
+- WATCH417-ELEMENT-AUDIT — in-progress:remaining hardware/runtime gaps and
+  numbered Claude feedback. Diagnostics/capability adjudication complete;
+  wait for correction/new PR;do not recollect the same evidence.
 - PR-420-MANUAL-SHOT — blocked:first-tap49 acceptance unresolved; stale-fix
   merits independent. Review exact new head or explicit scope correction.
 - PR-418-AUDIT-SCAFFOLD — evidence-open:draft;diagnostics are not product fixes.
@@ -89,7 +102,11 @@
 - /dev/shm/garmin-ai-caddie-watch417-capability-20261012 removed(31 MiB);
   no open files/named --rm container. Mount setup127 retained:mounting /app
   hid image venv;corrected to /review. No dependency install.
-  Persistent operations/watch417-capability-20261012:manifest/test logs.
+  Persistent operations/watch417-capability-20261012:manifest/test logs,
+  runtime38207654935/artifacts,public review and physical-inspection proxy.
+- operations/watch417-feedback-20261012 retains before instance env,
+  change manifest and baseline receipt. One added option remains active;
+  collector invocation25454 closed0,no persistent session was created.
 - Other persistent evidence under /home/jason/garmin-ai-caddie-data/operations:
   watch417-simulator-audit-20261011,pr419-4cfb1588-20261011,
   watch417-wide-audit-20261012,watch417-control-recheck-20261012,
@@ -98,17 +115,18 @@
   All originals/manifests/diagnostics retained; prior snapshots removed.
 - Local /tmp/garmin-watch417-images-20261012-GCqa8Y:viewed copies only,
   expiryOct13 08:30 or after review;remote originals retained.
-- Delegated waiter wait_release_38083089271 completed38205917630 success;
-  terminal91528 closed0. Download18239 closed0. No live waiter/service/
+- Delegated waiter wait_release_38083089271 completed38207654935 success;
+  terminal78491 closed0;download97940 closed0. Prior38205917630 waiter/
+  download closed0. No live waiter/service/
   tunnel/container/volume/port/new environment;gh-feedback timer/cursor unchanged.
 - Historical ledgers preserved verbatim in dated docs/archive files;
-  latest PROJECT_STATE-2026-10-12-watch417-input-probe.historical.md.
+  latest PROJECT_STATE-2026-10-12-watch417-capability.historical.md.
 
 ## Next action and stop conditions
 
-1. Commit/push actual diagnostic report + capability scaffold/state/archive;
-   dispatch capability-recheck on exact commit, use blocking wait. Never
-   infer unsupported simulator hardware from the injected capability state.
+1. Commit/push W36 report + actual feedback configuration recovery evidence,
+   state/archive;then start one same-turn blocking --feedback waiter.
+   Known own comments/CI are deduped;do not create CI-result-only commits.
 2. Process Claude reply/new #420 head once;exact-source/Native review and
    original five taps/undo required for W01. Keep #418 draft.
 3. Continue independent audit gaps;when exhausted use one same-turn blocking
