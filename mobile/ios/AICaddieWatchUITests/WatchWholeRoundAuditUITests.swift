@@ -1498,4 +1498,51 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             try capture("input-probe", trial + "-after", collectControls: false)
         }
     }
+
+    /// Cover the disabled setting through the production view, rather than inferring its visible
+    /// explanation from an accessibility hint or treating supported-fixture taps as this coverage.
+    func test20UnsupportedAutoShotVisibleFeedback() throws {
+        for attempt in 1...5 {
+            try launch("audit-phone-18", supportsAutoShot: false, modelScreen: "settings")
+            let toggle = element("自动记杆")
+            XCTAssertTrue(toggle.waitForExistence(timeout: 8))
+            // A disabled row need not be semantically hittable. Scroll by measured visibility,
+            // then deliver the actual finger coordinate; do not skip the very state being tested.
+            for _ in 0..<8 {
+                let row = toggle.frame
+                let visible = app.frame.insetBy(dx: 8, dy: 8)
+                if visible.contains(CGPoint(x: row.midX, y: row.midY)) { break }
+                let scroll = app.scrollViews.firstMatch
+                scrollContainer(scroll.exists ? scroll : app, towardTop: row.midY > visible.midY)
+            }
+            let frame = toggle.frame
+            XCTAssertTrue(app.frame.insetBy(dx: 8, dy: 8).contains(CGPoint(x: frame.midX, y: frame.midY)))
+            let metrics = controlMetrics(toggle, role: "unsupported-setting")
+            let before = stateLabel()
+            let valueBefore = String(describing: toggle.value ?? "")
+            let enabled = toggle.isEnabled
+            let visibleReasonBefore = app.staticTexts["本机不支持"].exists
+            if attempt == 1 {
+                try capture("unsupported-auto", "01-before", input: "injected-capability-production-setting")
+            }
+            let appFrame = app.frame
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                dx: frame.midX + (attempt.isMultiple(of: 2) ? 8 : 0) - appFrame.minX,
+                dy: frame.midY - appFrame.minY)).tap()
+            let after = stateLabel()
+            let valueAfter = String(describing: toggle.value ?? "")
+            try writeAuditJSON([
+                "kind": "unsupported-setting-input", "face": face, "attempt": attempt,
+                "capability": "synthetic unsupported fixture; not simulator hardware inference",
+                "metrics": metrics, "enabledBefore": enabled,
+                "before": before, "after": after, "valueBefore": valueBefore, "valueAfter": valueAfter,
+                "remainedOff": after.contains("auto=false;") && valueBefore == valueAfter,
+                "staticReasonBefore": visibleReasonBefore,
+                "staticReasonAfter": app.staticTexts["本机不支持"].exists,
+                "gesture": attempt.isMultiple(of: 2) ? "tap-8pt-off-centre" : "tap-centre",
+                "physicalHapticProven": false, "uiFeedbackMs": NSNull(),
+            ], stem: "unsupported-auto--tap-\(attempt)")
+            try capture("unsupported-auto", "after-\(attempt)", collectControls: false)
+        }
+    }
 }

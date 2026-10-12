@@ -85,6 +85,10 @@ jobs:
             audit_tests=(
               -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test19NativeInputDispatchAndControlCoordinates
             )
+          elif [[ "$AUDIT_SELECTION" == "capability-recheck" ]]; then
+            audit_tests=(
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test20UnsupportedAutoShotVisibleFeedback
+            )
           fi
           xcodebuild test-without-building \
             -project mobile/ios/AICaddieNative.xcodeproj \

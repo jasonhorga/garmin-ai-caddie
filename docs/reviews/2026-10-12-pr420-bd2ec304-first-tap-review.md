@@ -7,6 +7,12 @@ The observed input path has not passed; its failure does not yet identify GPS
 as the cause or invalidate the independent stale-fix change. Raw touch/action
 diagnostics requested in #417 are in progress before adjudicating W01/W02.
 
+Input probe now complete: [6118223337](https://github.com/jasonhorga/garmin-ai-caddie/pull/420#issuecomment-6118223337),
+[per-point report](2026-10-12-watch417-input-dispatch-probe.md).49 mm centre
+touches arrive with zero coordinate error but no rail action; y−8/y−16 actions
+work and accept eligible fixes. The original first-tap acceptance remains
+failed; it no longer supports diagnosing the centre failure as stale GPS.
+
 P1 — #420 尚未解决 49 mm 的首次记杆死路，审查未通过，暂不合并。
 
 审查生产 head：`bd2ec304794d17dee644279df3e4d30f9f0dd544`。普通 CI `38190513760` / Native CI `38190513917` 均通过；精确源码的 126 项 mobile contracts 通过。该次 Native artifact 的 47 张 Watch / 97 张 iOS 图已检查，已有 #417 的布局问题另按原编号处理。
