@@ -2,6 +2,11 @@ name: Watch Whole Round Simulator Audit
 
 on:
   workflow_call:
+    inputs:
+      audit_selection:
+        type: string
+        default: full
+        required: false
 
 permissions:
   contents: read
@@ -41,6 +46,7 @@ jobs:
         env:
           TEST_RUNNER_UITEST_WATCH_FULL_AUDIT: '1'
           TEST_RUNNER_UITEST_AUDIT_FACE: ${{ matrix.face }}
+          AUDIT_SELECTION: ${{ inputs.audit_selection }}
         run: |
           set -euo pipefail
           xcodebuild build-for-testing \
@@ -54,11 +60,20 @@ jobs:
           video_pid=$!
           stop_video() { kill -INT "$video_pid" 2>/dev/null || true; wait "$video_pid" || true; }
           trap stop_video EXIT
+          audit_tests=(-only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests)
+          if [[ "$AUDIT_SELECTION" == "control-recheck" ]]; then
+            audit_tests=(
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test09PhoneDeliveryAndFlagDirectionBoundaries
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test11ElementLevelScorePickersAndAdversarialInput
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test13RepeatedPageAndPlanGestures
+              -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests/test17FirstTryManualShotAndUndo
+            )
+          fi
           xcodebuild test-without-building \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -destination "platform=watchOS Simulator,id=$AUDIT_UDID" \
-            -only-testing:AICaddieWatchUITests/WatchWholeRoundAuditUITests \
+            "${audit_tests[@]}" \
             -resultBundlePath "$RUNNER_TEMP/WatchAudit.xcresult" \
             -derivedDataPath "$RUNNER_TEMP/WatchAuditDerivedData" \
             >> "$RUNNER_TEMP/watch-audit-xcode.log" 2>&1
@@ -67,6 +82,7 @@ jobs:
         env:
           AUDIT_FACE: ${{ matrix.face }}
           AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+          AUDIT_SELECTION: ${{ inputs.audit_selection }}
         run: |
           # The test driver intentionally redirects xcodebuild output so the simulator video does
           # not drown the Actions log. Preserve that exact log and an xcresult summary before the

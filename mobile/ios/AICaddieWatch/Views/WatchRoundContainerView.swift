@@ -791,7 +791,7 @@ public struct WatchRoundContainerView: View {
         TabView(selection: $holePage) {
             GeometryReader { proxy in
                 holeMapView(s, geometry)
-                    .watchZoomPan($planViewport, size: proxy.size)
+                    .watchZoomPan($planViewport, size: proxy.size, auditTag: "plan")
             }
             .tag(0)
             // Always three pages (README §3): with nothing ahead the hazard page says 前方无障碍

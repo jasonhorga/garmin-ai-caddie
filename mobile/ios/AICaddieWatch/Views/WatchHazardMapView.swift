@@ -306,7 +306,7 @@ public struct WatchHazardMapView: View {
                 emptyState
             case .hazard:
                 hazardMap(upcoming[selectedIndex], index: selectedIndex, size: geo.size)
-                    .watchZoomPan($viewport, size: geo.size)
+                    .watchZoomPan($viewport, size: geo.size, auditTag: "hazard")
             }
         }
         .background(Color.black)

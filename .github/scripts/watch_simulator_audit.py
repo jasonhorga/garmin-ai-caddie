@@ -17,9 +17,9 @@ FACE_TYPES = {
     "49mm": ("Apple Watch Ultra 2 (49mm)", "Apple Watch Ultra (49mm)"),
 }
 FACES = tuple(FACE_TYPES)
-# Ten original whole-round methods plus six element/tempo/recovery passes.
+# Ten original whole-round methods plus seven element/tempo/recovery passes.
 # Keep this explicit so a silently filtered XCTest run cannot be reported as a complete audit.
-EXPECTED_AUDIT_TESTS = 16
+EXPECTED_AUDIT_TESTS = 17
 
 
 def newest_watch_runtime(runtimes: list[dict]) -> dict:
@@ -92,16 +92,20 @@ def collect(face: str, udid: str, outcome: str, output: Path) -> None:
     counts = test_counts(log.read_text(errors="replace")) if log.exists() else test_counts("")
     if log.exists():
         (output / "test.log").write_text(sanitize(log.read_text(errors="replace")))
+    selection = os.environ.get("AUDIT_SELECTION", "full")
+    expected = 4 if selection == "control-recheck" else EXPECTED_AUDIT_TESTS
     (output / "result.json").write_text(json.dumps({
         "face": face, "outcome": outcome,
         "screenshots": len(list(output.glob("*--*.png"))),
         "source": os.environ.get("GITHUB_SHA", "unknown"),
         "run": os.environ.get("GITHUB_RUN_ID", "unknown"),
         "tests": counts,
+        "selection": selection,
+        "expectedMethods": expected,
         "observations": len(list(output.glob("observation--*.json"))),
     }, indent=2) + "\n")
-    if counts["executed"] != EXPECTED_AUDIT_TESTS or counts["skipped"] or not list(output.glob("*--*.png")):
-        raise ValueError(f"Incomplete actual simulator evidence: expected={EXPECTED_AUDIT_TESTS} tests={counts}")
+    if counts["executed"] != expected or counts["skipped"] or not list(output.glob("*--*.png")):
+        raise ValueError(f"Incomplete actual simulator evidence: selection={selection} expected={expected} tests={counts}")
 
 
 def grouped_steps(root: Path) -> dict[str, dict[str, dict[str, Path]]]:

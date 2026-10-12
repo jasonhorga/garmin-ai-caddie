@@ -20,6 +20,14 @@ on:
         type: string
         required: false
         default: ''
+      audit_selection:
+        description: Whole audit or focused control evidence recheck (simulator-audit only)
+        type: choice
+        required: false
+        default: full
+        options:
+          - full
+          - control-recheck
       backend_revision:
         description: Expected deployed backend Git revision (40 hex characters); falls back to protected AI_CADDIE_BACKEND_REVISION
         type: string
@@ -51,6 +59,8 @@ jobs:
   simulator-audit:
     if: github.event_name == 'workflow_dispatch' && inputs.runtime_scope == 'simulator-audit'
     uses: ./.github/workflows/watch-simulator-audit.yml
+    with:
+      audit_selection: ${{ inputs.audit_selection || 'full' }}
 
   watch-runtime:
     if: github.event_name != 'workflow_dispatch' || (inputs.runtime_scope != 'web-only' && inputs.runtime_scope != 'simulator-audit')

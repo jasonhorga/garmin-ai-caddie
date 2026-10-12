@@ -92,17 +92,22 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
     }
 
     private func controlMetrics(_ target: XCUIElement, role: String) -> [String: Any] {
-        guard target.exists else {
+        guard let snapshot = try? target.snapshot() else {
             return ["role": role, "exists": false, "identifier": "unavailable",
                     "hittable": false, "frameEvidence": "absent; not a measured hit target"]
         }
-        let frame = target.frame
+        let frame = snapshot.frame
+        guard [frame.minX, frame.minY, frame.width, frame.height].allSatisfy({ $0.isFinite }) else {
+            return ["role": role, "exists": true, "identifier": snapshot.identifier,
+                    "label": snapshot.label, "frameEvidence": "not currently rendered; non-finite accessibility frame"]
+        }
         return [
             "role": role,
-            "label": target.label,
-            "identifier": target.identifier,
-            "hittable": target.isHittable,
-            "exists": target.exists,
+            "label": snapshot.label,
+            "identifier": snapshot.identifier,
+            "hittable": NSNull(),
+            "hitTestEvidence": "immutable accessibility snapshot; actual activation is measured separately",
+            "exists": true,
             "framePt": [Double(frame.minX), Double(frame.minY), Double(frame.width), Double(frame.height)],
             "minDimensionPt": Double(min(frame.width, frame.height)),
             "under44Pt": frame.width < 44 || frame.height < 44,
@@ -167,15 +172,17 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         ], stem: "boundary--\(flow)--\(step)")
     }
 
-    private func waitForValue(_ key: String, _ expected: Int, timeout: TimeInterval = 0.8) -> Bool {
-        XCTWaiter().wait(for: [XCTNSPredicateExpectation(
+    private func waitForValue(_ key: String, _ expected: Int, timeout: TimeInterval = 2) -> Bool {
+        if stateValue(key) == expected { return true }
+        return XCTWaiter().wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label CONTAINS %@", "\(key)=\(expected);"),
             object: element("watch-audit-state")
         )], timeout: timeout) == .completed
     }
 
     private func waitForFragment(_ fragment: String, timeout: TimeInterval = 1.2) -> Bool {
-        XCTWaiter().wait(for: [XCTNSPredicateExpectation(
+        if stateLabel().contains(fragment) { return true }
+        return XCTWaiter().wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label CONTAINS %@", fragment),
             object: element("watch-audit-state")
         )], timeout: timeout) == .completed
@@ -314,12 +321,16 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         let switches = interactive.filter { ($0["role"] as? String) == "switch" }
         let readableText: [[String: Any]] = inventory
             ? app.staticTexts.allElementsBoundByIndex.map {
-                let frame = $0.frame
+                guard let snapshot = try? $0.snapshot() else { return ["exists": false] as [String: Any] }
+                let frame = snapshot.frame
+                guard [frame.minX, frame.minY, frame.width, frame.height].allSatisfy({ $0.isFinite }) else {
+                    return ["label": snapshot.label, "frameEvidence": "not currently rendered"] as [String: Any]
+                }
                 return [
-                    "label": $0.label,
-                    "identifier": $0.identifier,
+                    "label": snapshot.label,
+                    "identifier": snapshot.identifier,
                     "framePt": [Double(frame.minX), Double(frame.minY), Double(frame.width), Double(frame.height)],
-                    "hittable": $0.isHittable,
+                    "hittable": NSNull(),
                     // XCTest exposes the rendered frame, not SwiftUI's font token. Font sizes are
                     // cross-checked against the source token and 1:1 physical render downstream.
                     "fontEvidence": "frame-only; source-token-and-physical-render-required",
@@ -327,7 +338,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
             }
             : []
         let cgImage = screenshot.image.cgImage
-        let viewport = element("watch-audit-viewport")
+        let viewport = activeViewport()
         let metadata: [String: Any] = ["flow": flow, "step": step, "inputMode": input,
                                        "trace": root.exists ? root.label : "not-instrumented",
                                        "shownPage": page.exists ? page.label : "not-instrumented",
@@ -356,9 +367,16 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
 
     private func waitForPage(_ name: String, timeout: TimeInterval = 5) -> Bool {
         let marker = element("watch-hole-page-current")
+        if marker.exists && marker.label == name { return true }
         return XCTWaiter().wait(for: [XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "label == %@", name), object: marker
         )], timeout: timeout) == .completed
+    }
+
+    private func activeViewport() -> XCUIElement {
+        let page = element("watch-hole-page-current")
+        let id = page.exists && page.label == "障碍" ? "hazard" : "plan"
+        return element("watch-audit-viewport-\(id)")
     }
 
     private func swipePage(up: Bool, to name: String, flow: String, step: String) throws -> Bool {
@@ -892,9 +910,9 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         for attempt in 1...5 {
             let before = String(describing: chip.value ?? chip.label)
             chip.tap()
-            let changed = XCTWaiter().wait(for: [XCTNSPredicateExpectation(
+            let changed = String(describing: chip.value ?? chip.label) != before || XCTWaiter().wait(for: [XCTNSPredicateExpectation(
                 predicate: NSPredicate(format: "value != %@", before), object: chip
-            )], timeout: 0.8) == .completed
+            )], timeout: 2) == .completed
             if changed { planSuccesses += 1 }
             try writeAuditJSON(["kind": "repeated-gesture", "screen": "方案", "control": "club-plan-chip",
                                 "attempt": attempt, "before": before, "after": String(describing: chip.value ?? chip.label),
@@ -931,7 +949,7 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
         for page in [0, 1] {
             try launch("audit-phone-18", page: page, zoom: 2)
             try capture("map-elements", "page-\(page)-zoom2", input: "injected-zoom-real-pan")
-            let viewport = element("watch-audit-viewport")
+            let viewport = activeViewport()
             for attempt in 1...5 {
                 let before = viewport.exists ? viewport.label : "not-instrumented"
                 let expectedPage = page == 0 ? "方案" : "障碍"
@@ -1219,6 +1237,38 @@ final class WatchWholeRoundAuditUITests: XCTestCase {
                     gesture: "tap", expected: "hole=9;screen=home;", action: { back.tap() },
                     success: { _ in self.waitForFragment("screen=home;") && self.stateValue("hole") == 9 })
             }
+        }
+    }
+
+    /// Do not spend the four-second undo window capturing/reading a complete tree. Record the
+    /// first pointer tap and undo immediately, then attach evidence after the state transition.
+    func test17FirstTryManualShotAndUndo() throws {
+        for attempt in 1...5 {
+            try launch("audit-phone-18")
+            let record = element("watch-hole-record-shot")
+            let metrics = controlMetrics(record, role: "manual-record")
+            let frame = record.frame
+            let before = stateLabel()
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                dx: frame.midX + (attempt.isMultiple(of: 2) ? 8 : 0), dy: frame.midY)).tap()
+            let afterRecord = stateLabel()
+            var undone = false
+            var undoFrame: [Double] = []
+            let undo = element("watch-shot-undo")
+            if afterRecord.contains("pending=true;"), undo.exists {
+                let frame = undo.frame
+                undoFrame = [Double(frame.minX), Double(frame.minY), Double(frame.width), Double(frame.height)]
+                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
+                undone = waitForValue("shots", 0) && stateLabel().contains("pending=false;")
+            }
+            try writeAuditJSON(["kind": "first-try-shot", "face": face, "attempt": attempt,
+                "control": metrics, "gesture": attempt.isMultiple(of: 2) ? "tap-8pt-off-centre" : "tap-centre",
+                "before": before, "afterRecord": afterRecord, "afterUndo": stateLabel(),
+                "recordSucceeded": afterRecord.contains("pending=true;"),
+                "undoSucceeded": undone, "undoFramePt": undoFrame,
+                "capturedBeforeUndo": false, "realWatchProven": false],
+                stem: "first-try--manual--\(attempt)")
+            try capture("first-try-shots", "attempt-\(attempt)", collectControls: false)
         }
     }
 }

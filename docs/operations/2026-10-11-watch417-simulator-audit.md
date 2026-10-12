@@ -109,3 +109,17 @@ Expanded source 2f746a23 / run 38182426066 also stopped before any UI method: a 
 metadata assignment was incorrectly in teardown (no aod parameter). It is moved into launch.
 The exact failure log/artifacts are retained at operations/watch417-run38182426066; no product
 verdict is inferred from that compile failure. Other new Swift declarations produced no errors.
+
+The corrected full run 38182935895 / exact scaffold head 1ef62984 completed all sixteen methods
+on every face, with zero skips. 41/46/49 mm retained 252/343/334 PNGs and 11/14/12 passed methods.
+Failures and 132/131/61 raw observations remain visible. Evidence, motion, physical/glare exports
+and public comparison receipts live under operations/watch417-wide-audit-20261012.
+
+Before publishing product success rates, the follow-up fixes three collection errors: sub-second
+predicate waits produced false negatives despite correct recorded final values; repeated live frame
+queries outlasted the 49 mm picker timeout; identical viewport identifiers could read the other page.
+The new driver uses immediate state checks, immutable accessibility snapshots, rejects non-finite
+frames, names each page's telemetry and tries shot/undo without spending the undo window on capture.
+An explicit control-recheck runs four methods (09/11/13/17) and is recorded as partial coverage;
+it cannot pass the full seventeen-method collector gate. Timers/product controls remain unchanged.
+Nine remote preparation checks pass; two workflow YAML files and thirty Bash sections validate.

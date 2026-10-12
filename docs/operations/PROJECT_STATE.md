@@ -3,7 +3,7 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Completed/history is preserved verbatim in dated docs/archive files.
 
-**Updated:** 2026-10-11 23:04 UTC
+**Updated:** 2026-10-12 00:27 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
 
@@ -19,11 +19,19 @@
   full-screen putts/penalty pickers are the required current product baseline.
 - #418 remains draft on codex/watch417-simulator-audit. Existing editing worktree
   is reused; no second implementation checkout. Exact pushed head
-  2f746a23bff793685dadb9b2a437914f802f4c3d corrects draft telemetry, transient
+  1ef62984a00f30d67f34828183120e86954b79db corrects draft telemetry, transient
   capture, honest latency labels and expands to 16 UI methods. Eight remote
   preparation checks pass. Run 38182426066 failed before any UI methods:
   injectedAOD assignment was in teardown instead of launch (fixed locally).
-  Failed exact-head artifacts are retained; corrected dispatch is next.
+  Full run 38182935895 completed: all faces ran 16 methods with zero skips;
+  41/46/49 mm pass/fail 11/5, 14/2, 12/4; 252/343/334 PNGs. All artifacts,
+  calibrated physical images and motion recordings downloaded remotely.
+  Current scaffold fixes predicate sampling, immutable frame snapshots,
+  page-specific viewport telemetry and adds immediate first-try shot/undo.
+  A four-method control-recheck is next; it is explicitly partial coverage.
+  Nine remote preparation checks and 2 YAML / 30 Bash sections pass.
+  Raw 0/5 flags cannot be product claims when recorded final values changed
+  correctly. Preserve raw evidence and publish adjudication separately.
 - Expanded runs 38179866784 / 38180807102 failed compilation, zero UI tests.
   String.putts / unsupported app.suspend were corrected. Preserve failures as
   harness diagnostics; neither is evidence of a product defect.
@@ -78,11 +86,17 @@
   /home/jason/garmin-ai-caddie-data/operations/watch417-simulator-audit-20261011
   /home/jason/garmin-ai-caddie-data/operations/watch417-run38180807102/artifacts
   /home/jason/garmin-ai-caddie-data/operations/pr419-4cfb1588-20261011
+  /home/jason/garmin-ai-caddie-data/operations/watch417-wide-audit-20261012
+  (all 38182935895 artifacts, immutable raw JSON, adjudicated summary and
+  fetched public comparison references; analysis helper retained there).
   Build failures and blocking-wait logs are retained under operations.
 - Old /dev/shm verification snapshot and local contact-sheet copies removed
   2026-10-11 15:52 UTC. #419 screenshot copies moved to Trash.
 - No live audit service, container, tunnel, timer or dependency environment.
-  CI terminal 18942 returned failure and closed. No pending waiter;
+  CI terminal 18942 and 24512 closed; download 23816 / references 99645
+  completed. No pending wait/terminal. Local image-review copies under
+  /tmp/garmin-watch417-images-20261012-GCqa8Y, owned by Codex; expiry
+  2026-10-13 08:30 UTC or after review. Preserve remote originals.
   no feedback waiter. gh-feedback timer/cursor unchanged.
 - Shared remote checkout
   /home/jason/codex-runs/garmin-ai-caddie-claude-takeover-20261005 untouched.
@@ -92,10 +106,11 @@
 
 ## Next action and stop conditions
 
-1. Commit/push the AOD driver scope fix and dispatch corrected exact head;
-   use the homeserver blocking waiter in this same turn. No CI polling.
+1. Finish/push test-only reliability corrections and run the explicit
+   four-method control-recheck on all faces; block in the same turn.
 2. Preparation snapshot (56 KiB) was removed after eight passing checks and
-   persistent log/manifest retention. No temporary verification resources left.
+   persistent log/manifest retention. Focused snapshot (124 KiB) is removed
+   after nine checks / workflow validation and persistent manifest retention.
 3. After terminal result, remote-download/inspect artifacts, read current
    comparison references, publish #417 findings and honest unproved boundaries.
 4. Keep #418 draft until coverage and triage are sufficient; return to feedback

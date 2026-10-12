@@ -5,6 +5,7 @@ import SwiftUI
 struct WatchZoomPanModifier: ViewModifier {
     @Binding var viewport: WatchHoleViewport
     let size: CGSize
+    let auditTag: String
     @State private var crown: Double = 1
     @State private var dragStart: CGSize?
 
@@ -47,7 +48,7 @@ struct WatchZoomPanModifier: ViewModifier {
                     Text("zoom=\(viewport.zoom);panX=\(viewport.pan.width);panY=\(viewport.pan.height);")
                         .font(.system(size: 1)).foregroundStyle(.clear)
                         .frame(width: 2, height: 2).allowsHitTesting(false)
-                        .accessibilityIdentifier("watch-audit-viewport")
+                        .accessibilityIdentifier("watch-audit-viewport-\(auditTag)")
                 }
             }
             #endif
@@ -55,7 +56,7 @@ struct WatchZoomPanModifier: ViewModifier {
 }
 
 extension View {
-    func watchZoomPan(_ viewport: Binding<WatchHoleViewport>, size: CGSize) -> some View {
-        modifier(WatchZoomPanModifier(viewport: viewport, size: size))
+    func watchZoomPan(_ viewport: Binding<WatchHoleViewport>, size: CGSize, auditTag: String = "default") -> some View {
+        modifier(WatchZoomPanModifier(viewport: viewport, size: size, auditTag: auditTag))
     }
 }
