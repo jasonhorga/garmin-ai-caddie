@@ -6,23 +6,39 @@ import SwiftUI
 // 40/41/42/45/46/49 mm by `WatchDesignSnapshotTests` and routed by `-uitest-screen proto-*` for the
 // #417 element harness. Nothing here is wired into a round; production views are unchanged.
 
-/// The bottom strip of every face where touches arrive but fire no control (#417, watchOS 26.2).
+/// Safe-area geometry per face (#417/#422, watchOS 26.2 simulator). The production hierarchy lost
+/// touches in the bottom inset on 41/46/49 mm; whether this full-window hierarchy does is being
+/// rechecked, so controls stay above it for now. The top inset is the band the system clock (top
+/// right) shares with a title (top left).
 public enum WatchProtoFace {
-    /// Bottom safe-area inset in points by face height. 41/46/49 mm are measured; 40/42/45 mm are
-    /// estimates until the harness measures them.
+    /// Bottom safe-area inset in points by face height; measured except 40 mm.
     public static func bottomInset(forHeight height: CGFloat) -> CGFloat {
         switch height {
         case ..<206: return 24     // 40 mm (estimate)
-        case ..<219: return 26     // 41 mm (measured)
-        case ..<232: return 30     // 42 / 44 mm (estimate)
-        case ..<245: return 35     // 45 mm (estimate)
-        case ..<249.5: return 36   // 46 mm (measured)
-        default: return 39         // 49 mm (measured)
+        case ..<219: return 26     // 41 mm
+        case ..<232: return 31     // 42 / 44 mm
+        case ..<245: return 27     // 45 mm
+        case ..<249.5: return 36   // 46 mm
+        default: return 39         // 49 mm
+        }
+    }
+
+    /// Top safe-area inset (the clock band) in points by face height; measured except 40 mm.
+    public static func topInset(forHeight height: CGFloat) -> CGFloat {
+        switch height {
+        case ..<206: return 44     // 40 mm (estimate)
+        case ..<219: return 46     // 41 mm
+        case ..<232: return 48     // 42 / 44 mm
+        case ..<245: return 51     // 45 mm
+        case ..<249.5: return 53   // 46 mm
+        default: return 55         // 49 mm
         }
     }
 
     static let edgeInset: CGFloat = 10
     static let controlHit: CGFloat = 50
+    /// Room the system clock takes at the right of the top band.
+    static let clockWidth: CGFloat = 56
 }
 
 /// Full-window canvas that hands its content the window size and the lowest y a control may use.
@@ -30,9 +46,10 @@ public enum WatchProtoFace {
 struct WatchProtoCanvas<Content: View>: View {
     let bottomInset: CGFloat?
     let showsGuide: Bool
-    let content: (CGSize, CGFloat) -> Content
+    /// Window size, the clock band's height and the lowest y a control may use.
+    let content: (CGSize, CGFloat, CGFloat) -> Content
 
-    init(bottomInset: CGFloat?, showsGuide: Bool, @ViewBuilder content: @escaping (CGSize, CGFloat) -> Content) {
+    init(bottomInset: CGFloat?, showsGuide: Bool, @ViewBuilder content: @escaping (CGSize, CGFloat, CGFloat) -> Content) {
         self.bottomInset = bottomInset
         self.showsGuide = showsGuide
         self.content = content
@@ -44,9 +61,21 @@ struct WatchProtoCanvas<Content: View>: View {
             GeometryReader { full in
                 let size = full.size
                 let interactiveBottom = size.height - inset
+                // Snapshots (explicit inset) take the measured band; a running app reads its own,
+                // falling back to the table if a container ever reports none.
+                let liveTop = outer.safeAreaInsets.top
+                let safeTop = bottomInset == nil && liveTop > 0 ? liveTop : WatchProtoFace.topInset(forHeight: size.height)
                 ZStack(alignment: .topLeading) {
-                    content(size, interactiveBottom)
+                    content(size, safeTop, interactiveBottom)
                     if showsGuide {
+                        // Where the system clock draws (ImageRenderer omits it).
+                        Text("时间")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .frame(width: WatchProtoFace.clockWidth, height: safeTop)
+                            .background(Rectangle().fill(Color.blue.opacity(0.30)))
+                            .offset(x: size.width - WatchProtoFace.clockWidth)
+                            .allowsHitTesting(false)
                         Rectangle()
                             .fill(Color.red.opacity(0.30))
                             .frame(width: size.width, height: max(0, size.height - interactiveBottom))
@@ -90,7 +119,7 @@ public struct WatchHoleFacePrototype: View {
     }
 
     public var body: some View {
-        WatchProtoCanvas(bottomInset: bottomInset, showsGuide: showsGuide) { size, interactiveBottom in
+        WatchProtoCanvas(bottomInset: bottomInset, showsGuide: showsGuide) { size, _, interactiveBottom in
             let anchor = min(0.86, max(0.70, (interactiveBottom - 8) / size.height))
             let controlY = interactiveBottom - WatchProtoFace.controlHit / 2
             let chipHeight: CGFloat = size.height < 206 ? 40 : 44
@@ -158,7 +187,6 @@ public struct WatchMoreMenuPrototype: View {
     /// snapshot draws the rows directly, at the top (false) or scrolled to the end (true).
     public let snapshotScrolledToEnd: Bool?
     private let rows = ["计分卡", "换洞", "本洞记录", "设置", "结束本场"]
-    private static let top: CGFloat = 34
     private static let rowHeight: CGFloat = 44
     private static let spacing: CGFloat = 4
 
@@ -169,27 +197,28 @@ public struct WatchMoreMenuPrototype: View {
     }
 
     public var body: some View {
-        WatchProtoCanvas(bottomInset: bottomInset, showsGuide: showsGuide) { size, interactiveBottom in
-            // Every row is reachable: the list scrolls, and the last row scrolls clear of the dead strip.
+        WatchProtoCanvas(bottomInset: bottomInset, showsGuide: showsGuide) { size, safeTop, interactiveBottom in
+            // Every row is reachable: the list starts below the clock band and scrolls, and the last
+            // row scrolls clear of the bottom inset.
             let bottom = size.height - interactiveBottom + 4
             if let end = snapshotScrolledToEnd {
                 let count = CGFloat(rows.count)
-                let content = Self.top + count * Self.rowHeight + (count - 1) * Self.spacing + bottom
-                list(bottom: bottom)
+                let content = safeTop + count * Self.rowHeight + (count - 1) * Self.spacing + bottom
+                list(top: safeTop, bottom: bottom)
                     .frame(width: size.width, alignment: .top)
                     .offset(y: end ? min(0, size.height - content) : 0)
                     .frame(width: size.width, height: size.height, alignment: .top)
                     .clipped()
             } else {
                 ScrollView {
-                    list(bottom: bottom)
+                    list(top: safeTop, bottom: bottom)
                 }
                 .frame(width: size.width, height: size.height)
             }
         }
     }
 
-    private func list(bottom: CGFloat) -> some View {
+    private func list(top: CGFloat, bottom: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: Self.spacing) {
             ForEach(rows, id: \.self) { row in
                 Text(row)
@@ -202,7 +231,7 @@ public struct WatchMoreMenuPrototype: View {
             }
         }
         .padding(.horizontal, WatchProtoFace.edgeInset)
-        .padding(.top, Self.top)
+        .padding(.top, top)
         .padding(.bottom, bottom)
     }
 }
@@ -259,16 +288,17 @@ public struct WatchScoreBoxesPrototype: View {
     }
 
     public var body: some View {
-        WatchProtoCanvas(bottomInset: bottomInset, showsGuide: showsGuide) { size, interactiveBottom in
+        WatchProtoCanvas(bottomInset: bottomInset, showsGuide: showsGuide) { size, safeTop, interactiveBottom in
             let gap: CGFloat = 4
-            let top: CGFloat = 4
-            let title: CGFloat = 20
-            let row: CGFloat = 44
+            // The title shares the clock band (#422 PIA03); every control sits between the band
+            // and the bottom inset.
+            let available = interactiveBottom - safeTop
             ZStack(alignment: .topLeading) {
+                watchProtoTitleBand(titleRow, size: size, safeTop: safeTop)
                 VStack(spacing: gap) {
-                    titleRow.frame(height: title)
                     if layout == .row {
-                        let box = max(48, interactiveBottom - top - title - row * 2 - gap * 3)
+                        let row = min(44, max(34, available * 0.3))
+                        let box = available - row * 2 - gap * 2
                         HStack(spacing: 5) {
                             ForEach(Field.allCases, id: \.self) { field in
                                 valueBox(field, height: box)
@@ -282,23 +312,20 @@ public struct WatchScoreBoxesPrototype: View {
                         .frame(height: row)
                         bottomRow.frame(height: row)
                     } else {
-                        // Three steppers and the save row share what is above the dead strip; on
-                        // 40/41 mm every row gives a little (41 mm: 37 + 39, 40 mm: 33 + 35).
-                        let available = interactiveBottom - top - title - gap * 4
-                        let bottom = min(row, max(32, available * 0.26))
-                        let line = min(row, max(30, (available - bottom) / 3))
+                        // Three steppers and the save row share the space equally (41 mm: 33 each).
+                        let line = (available - gap * 3) / 4
                         ForEach(Field.allCases, id: \.self) { field in
                             stackRow(field, height: line)
                         }
-                        bottomRow.frame(height: bottom)
+                        bottomRow.frame(height: line)
                     }
                 }
                 .padding(.horizontal, WatchProtoFace.edgeInset)
-                .padding(.top, top)
-                .frame(width: size.width, height: size.height, alignment: .top)
+                .frame(width: size.width, height: available, alignment: .top)
+                .offset(y: safeTop)
 
                 if showsFairway {
-                    fairwaySheet(size: size)
+                    fairwaySheet(size: size, safeTop: safeTop, available: available)
                 }
             }
         }
@@ -318,14 +345,12 @@ public struct WatchScoreBoxesPrototype: View {
             // Same identity as the hole face.
             Text("H\(hole) · P\(par)")
                 .font(.system(size: 15, weight: .black))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
             Text(toParText)
                 .font(.system(size: 15, weight: .black, design: .rounded))
                 .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: total - par))
-            Spacer(minLength: 0)
         }
-        .padding(.trailing, 44)
+        .lineLimit(1)
+        .minimumScaleFactor(0.75)
     }
 
     private var bottomRow: some View {
@@ -433,15 +458,22 @@ public struct WatchScoreBoxesPrototype: View {
                 selected = field
                 adjust(field, -1)
             }
-            VStack(spacing: -2) {
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
                 Text(name(field))
                     .font(.system(size: 11, weight: .heavy))
                     .foregroundStyle(.secondary)
                 Text("\(value(field))")
-                    .font(.system(size: min(30, height * 0.7), weight: .black, design: .rounded))
+                    .font(.system(size: min(28, height * 0.8), weight: .black, design: .rounded))
                     .monospacedDigit()
             }
-            .frame(maxWidth: .infinity)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The Crown changes the selected row (#422 PIA04).
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(selected == field ? AICaddieDesignTokens.hudGreen : Color.clear, lineWidth: 2)
+            )
             .contentShape(Rectangle())
             .onTapGesture { selected = field }
             .accessibilityIdentifier(identifier(field))
@@ -465,12 +497,14 @@ public struct WatchScoreBoxesPrototype: View {
         .accessibilityLabel(label)
     }
 
-    private func fairwaySheet(size: CGSize) -> some View {
-        VStack(spacing: 6) {
-            Text("开球落点")
-                .font(.system(size: 15, weight: .black))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, 44)
+    private func fairwaySheet(size: CGSize, safeTop: CGFloat, available: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color.black
+            watchProtoTitleBand(
+                Text("开球落点").font(.system(size: 15, weight: .black)).lineLimit(1),
+                size: size,
+                safeTop: safeTop
+            )
             HStack(spacing: 6) {
                 ForEach(["左", "中", "右"], id: \.self) { side in
                     Button {
@@ -490,13 +524,23 @@ public struct WatchScoreBoxesPrototype: View {
                     .accessibilityIdentifier("proto-score-fairway-\(side)")
                 }
             }
-            .frame(height: 56)
+            .frame(height: min(56, available))
+            .padding(.horizontal, WatchProtoFace.edgeInset)
+            .offset(y: safeTop)
         }
-        .padding(.horizontal, WatchProtoFace.edgeInset)
-        .padding(.top, 4)
-        .frame(width: size.width, height: size.height, alignment: .top)
-        .background(Color.black)
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
+}
+
+/// A title in the top band, left of the system clock (watchOS puts navigation titles there).
+func watchProtoTitleBand(_ title: some View, size: CGSize, safeTop: CGFloat) -> some View {
+    title
+        .frame(
+            width: max(0, size.width - WatchProtoFace.clockWidth - WatchProtoFace.edgeInset - 4),
+            height: safeTop,
+            alignment: .leading
+        )
+        .padding(.leading, WatchProtoFace.edgeInset + 4)
 }
 
 // MARK: - End of nine
@@ -518,46 +562,54 @@ public struct WatchNineTurnPrototype: View {
     }
 
     public var body: some View {
-        WatchProtoCanvas(bottomInset: bottomInset, showsGuide: showsGuide) { size, _ in
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("A 场打完")
-                        .font(.system(size: 14, weight: .heavy))
-                        .foregroundStyle(.secondary)
-                    Text("42 杆 +6")
-                        .font(.system(size: 18, weight: .black, design: .rounded))
-                }
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(height: 24)
-                .padding(.trailing, 40)
-                if showsAll {
-                    ForEach(others, id: \.self) { option in
-                        row(option, filled: false, id: "proto-turn-\(option)") {
-                            next = option
-                            showsAll = false
-                        }
+        WatchProtoCanvas(bottomInset: bottomInset, showsGuide: showsGuide) { size, safeTop, interactiveBottom in
+            let available = interactiveBottom - safeTop
+            let height = min(44, (available - 8) / 3)
+            ZStack(alignment: .topLeading) {
+                // The summary shares the clock band (#422 PIA03).
+                watchProtoTitleBand(
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text("A 场")
+                            .font(.system(size: 14, weight: .heavy))
+                            .foregroundStyle(.secondary)
+                        Text("42 杆 +6")
+                            .font(.system(size: 17, weight: .black, design: .rounded))
                     }
-                } else {
-                    row("继续 \(next)", filled: true, id: "proto-turn-continue") {}
-                    row("换一个 9 洞", filled: false, id: "proto-turn-change") { showsAll = true }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75),
+                    size: size,
+                    safeTop: safeTop
+                )
+                VStack(alignment: .leading, spacing: 4) {
+                    if showsAll {
+                        ForEach(others, id: \.self) { option in
+                            row(option, filled: false, height: height, id: "proto-turn-\(option)") {
+                                next = option
+                                showsAll = false
+                            }
+                        }
+                    } else {
+                        row("继续 \(next)", filled: true, height: height, id: "proto-turn-continue") {}
+                        row("换一个 9 洞", filled: false, height: height, id: "proto-turn-change") { showsAll = true }
+                    }
+                    row("结束本场 · 9 洞", filled: false, height: height, id: "proto-turn-finish") {}
                 }
-                row("结束本场 · 9 洞", filled: false, id: "proto-turn-finish") {}
+                .padding(.horizontal, WatchProtoFace.edgeInset)
+                .frame(width: size.width, alignment: .top)
+                .offset(y: safeTop)
             }
-            .padding(.horizontal, WatchProtoFace.edgeInset)
-            .padding(.top, 4)
-            .frame(width: size.width, height: size.height, alignment: .top)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
         }
     }
 
-    private func row(_ title: String, filled: Bool, id: String, action: @escaping () -> Void) -> some View {
+    private func row(_ title: String, filled: Bool, height: CGFloat, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 16, weight: .black))
                 .foregroundStyle(filled ? Color.black : Color.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
                         .fill(filled ? AICaddieDesignTokens.hudGreen : Color.white.opacity(0.16))
