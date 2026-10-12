@@ -2,7 +2,7 @@
 
 > Short authoritative live ledger. History is preserved in dated archives.
 
-**Updated:** 2026-10-12 02:58 UTC
+**Updated:** 2026-10-12 03:40 UTC
 **Canonical baseline:** main 3e785b14 / product merge 95b5694e (#419)
 **Current slice:** WATCH417-ELEMENT-AUDIT — in-progress
 
@@ -33,12 +33,21 @@
   Remote nine audit regressions pass (1.120 s). New exact native/runtime
   evidence still required. Partial runs cannot masquerade as full coverage.
 - Immediate-picker 38194936812 / 7155607d plus required/Native
-  38194820494 / 38194820350 succeeded; artifacts downloaded to a separate
-  immutable root. Adjudicate fresh-open rates and all start/target pairs.
-- Review correction: plan-pan raw 0/5 conflicts with visible movement;
-  withhold a plan-pan defect. Earlier hazard-pan trials 2–5 ran on 果岭,
-  so only the first is valid. Scoped map-recheck resets before every pan,
-  reads fresh snapshots and captures settled images; no product edits.
+  38194820494 / 38194820350 succeeded. Every repeated picker gesture and
+  Done 5/5 per control/face; 183/183 valid start/target pairs within two
+  gestures. Idle 4.5 s closes both pickers on every face. Raw retained.
+- Map recheck 38197809368 / 32b45ba6 plus required/Native
+  38197705918 / 38197705896 succeeded, one method per face, zero skips.
+  Independent hazard pans 0/5 per face: up -> 果岭, down -> 方案.
+  Zoomed hazard next: 41 mm 5/5, 46/49 mm 0/5 with unchanged image.
+  Plan chip: latest 41 mm 4/5, 46/49 mm 5/5 (earlier C all 5/5).
+  Plan pans 0/5 per face: fifteen settled image pairs confirm zero map
+  movement; one pair differs only at system clock. Short 24–28 pt drags.
+  Each trial now resets page/zoom; no product edits.
+- Substantive report: docs/reviews/2026-10-12-watch417-wrist-ux-audit.md,
+  35 distinct findings (2 P1 / 16 P2 / 17 P3), twelve screen tables,
+  task counts, physical/glare/reference review and explicit hardware gaps.
+  Publishing this completed review, then #420 review is the next slice.
 - Nine map collector regressions pass (2.060 s). Thirty-four distinct
   states inspected in nine calibrated normal/glare pages; physical wrist,
   display ruler calibration and sunlight remain unproved.
@@ -48,8 +57,11 @@
 ## Unfinished queue
 
 - WATCH417-ELEMENT-AUDIT — in-progress: complete calibrated image review,
-  fresh-open picker supplement, per-screen tables, task counts and distinct
-  evidence-backed P1–P3 findings on #417.
+  adjudicate settled map pairs and publish drafted per-screen tables,
+  task counts and evidence-backed P1–P3 findings on #417.
+- PR-420-MANUAL-SHOT — queued: head bd2ec304, CI 38190513760 / Native
+  38190513917 green. Review diff/artifacts and five first-pointer taps with
+  immediate undo on every face after publishing the current audit report.
 - PR-418-AUDIT-SCAFFOLD — evidence-open: draft; collection is not a UX pass.
 - PR-FEEDBACK-CONTINUOUS — queued: resume deduplicated feedback after #417.
 - NATIVE-FIXTURE-LAYOUT-STABILITY — queued: nonblocking #416 variation.
@@ -89,6 +101,8 @@
   reference receipts, diagnostics and waiter logs retained.
 - New persistent operations root: watch417-immediate-picker-20261012;
   exact 7155607d artifacts, no old evidence overwritten.
+- Map evidence root: watch417-map-recheck-20261012; exact 32b45ba6
+  artifacts and settled-image comparisons. No live waiter or service.
 - Local /tmp/garmin-watch417-images-20261012-GCqa8Y expires Oct 13 08:30 UTC
   or after review; preserve remote originals.
 - No live audit service, dependency environment, volume, port, tunnel or timer.
@@ -109,10 +123,11 @@
 
 ## Next action and stop conditions
 
-1. Push scoped map-recheck scaffold and dispatch after picker run closure;
-   adjudicate exact-head picker evidence, keep all raw results immutable.
-2. Finish physical/normal/glare evidence, publish tables and distinct
-   findings on #417 with Actions links and no internal hosts/paths.
+1. Finish settled map adjudication; update and publish substantive review
+   docs/reviews/2026-10-12-watch417-wrist-ux-audit.md on #417. Commit it
+   with this ledger/archive; no separate CI-result bookkeeping commit.
+2. Review #420 exact head, Native artifacts and the five first-tap/undo
+   check; post/resolve blockers on PR, then continue #417 remaining gaps.
 3. Keep #418 draft until sufficient coverage/triage; return to feedback.
    Never commit CI bookkeeping alone or loop on own CI events.
 
