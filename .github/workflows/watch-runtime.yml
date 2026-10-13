@@ -14,6 +14,14 @@ on:
           - real-course-visual
           - recovery-only
           - web-only
+          - simulator-audit
+      audit_selection:
+        description: Opt-in production element audit
+        type: choice
+        required: false
+        default: production-elements
+        options:
+          - production-elements
       api_base_url:
         description: Optional public API origin shared by Watch and Web evidence
         type: string
@@ -47,8 +55,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  simulator-audit:
+    if: github.event_name == 'workflow_dispatch' && inputs.runtime_scope == 'simulator-audit'
+    uses: ./.github/workflows/watch-simulator-audit.yml
+    with:
+      audit_selection: ${{ inputs.audit_selection || 'production-elements' }}
+
   watch-runtime:
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.runtime_scope != 'web-only'
+    if: github.event_name != 'workflow_dispatch' || (github.event.inputs.runtime_scope != 'web-only' && github.event.inputs.runtime_scope != 'simulator-audit')
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
