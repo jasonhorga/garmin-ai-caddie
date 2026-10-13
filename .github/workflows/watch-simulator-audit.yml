@@ -16,7 +16,7 @@ jobs:
     name: Watch audit ${{ matrix.face }}
     runs-on: macos-15
     env:
-      PRODUCTION_BASE_SHA: f37660249108c327dcce57dfdceb1ebcb39ffb56
+      PRODUCTION_BASE_SHA: 27c9ad361907096949aa17ac03a5edca05bb3fbb
       AUDIT_FACE: ${{ matrix.face }}
     timeout-minutes: 180
     strategy:
