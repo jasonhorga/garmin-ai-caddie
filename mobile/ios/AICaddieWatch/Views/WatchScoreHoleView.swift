@@ -27,7 +27,9 @@ enum WatchScoreHoleLayout {
 
 /// 本洞成绩 (owner choice 2026-10-12, layout B of the #422 prototypes): 总杆, 推杆 and 罚杆 each on a
 /// row with − on the left and + on the right, one tap per change, no picker. The Crown changes the
-/// outlined row (the last one touched; 总杆 at first). 开球 opens 左 / 中 / 右 (not on a Par 3).
+/// outlined row (the last one touched; 总杆 at first). 开球 (preselected from where the tee shot
+/// landed; not on a Par 3) turns its own row into 左 / 中 / 右 in place: one tap picks and the row
+/// returns to 开球 / 保存 (owner request 2026-10-13: no separate page).
 /// The values follow the rule the phone uses (`HoleScoreValues`, README §3). Presentational and
 /// driven by `WatchRoundModel`.
 public struct WatchScoreHoleView: View {
@@ -106,10 +108,6 @@ public struct WatchScoreHoleView: View {
                 .padding(.horizontal, WatchFaceInsets.edge)
                 .frame(width: size.width, height: available, alignment: .top)
                 .offset(y: safeTop)
-
-                if showsFairway {
-                    fairwaySheet(size: size, safeTop: safeTop, available: available)
-                }
             }
         }
         .focusable()
@@ -119,8 +117,6 @@ public struct WatchScoreHoleView: View {
             let steps = Int((value - crownBase).rounded())
             guard steps != 0 else { return }
             crownBase += Double(steps)
-            // Focus stays on the screen so the Crown works again after 开球; it does nothing there.
-            guard !showsFairway else { return }
             adjust(selected, by: steps)
         }
     }
@@ -247,7 +243,21 @@ public struct WatchScoreHoleView: View {
         }
     }
 
+    @ViewBuilder
     private var bottomRow: some View {
+        if showsFairway {
+            // 开球 opened in place: the same row offers 左 / 中 / 右; a tap picks and closes it.
+            HStack(spacing: 6) {
+                fairwayCell("左", .left)
+                fairwayCell("中", .hit)
+                fairwayCell("右", .right)
+            }
+        } else {
+            chipAndSaveRow
+        }
+    }
+
+    private var chipAndSaveRow: some View {
         HStack(spacing: 6) {
             if par != 3 {
                 Button { showsFairway = true } label: {
@@ -275,46 +285,14 @@ public struct WatchScoreHoleView: View {
         }
     }
 
-    private func fairwaySheet(size: CGSize, safeTop: CGFloat, available: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
-            Color.black
-            watchTitleBand(
-                HStack(spacing: 4) {
-                    Button { showsFairway = false } label: {
-                        Image(systemName: "chevron.backward")
-                            .font(.system(size: 15, weight: .black))
-                            .frame(width: 26, height: 34)
-                            .contentShape(Rectangle().inset(by: -8))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("返回")
-                    .accessibilityIdentifier("watch-score-fairway-back")
-                    // Tapping the chosen side again clears it.
-                    Text("开球落点").font(.system(size: 15, weight: .black)).lineLimit(1)
-                },
-                size: size,
-                safeTop: safeTop
-            )
-            HStack(spacing: 6) {
-                fairwayCell("左", .left)
-                fairwayCell("中", .hit)
-                fairwayCell("右", .right)
-            }
-            .frame(height: min(56, available))
-            .padding(.horizontal, WatchFaceInsets.edge)
-            .offset(y: safeTop)
-        }
-        .frame(width: size.width, height: size.height, alignment: .topLeading)
-    }
-
-    /// Tapping the chosen side again clears it (the model toggles).
+    /// Picking the side already chosen keeps it (the model's tap-to-clear would empty it).
     private func fairwayCell(_ label: String, _ result: WatchFairwayResult) -> some View {
         Button {
-            onFairway(result)
+            if fairway != result { onFairway(result) }
             showsFairway = false
         } label: {
             Text(label)
-                .font(.system(size: 19, weight: .black))
+                .font(.system(size: 17, weight: .black))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(

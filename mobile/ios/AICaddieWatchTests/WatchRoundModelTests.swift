@@ -1960,6 +1960,9 @@ final class WatchRoundModelTests: XCTestCase {
         }
         final class Requests { var keys: [String?] = [] }
         let requests = Requests()
+        final class Tables { var starts: [WatchRoundStart] = [] }
+        let tables = Tables()
+        model.onRoundTableChanged = { tables.starts.append($0) }
         model.secondLoopLoader = { request in
             requests.keys.append(request.loopKey)
             guard let key = request.loopKey, let second = request.secondNineLoopGlobalId else {
@@ -2010,6 +2013,56 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.round?.loopKey, "100:all+300:all")
         XCTAssertTrue(model.canChangeSecondNine, "a same-round seed keeps the turn provenance")
         XCTAssertEqual(model.round?.secondNineAddedAtTurn, true, "persisted, so a relaunch keeps it")
+
+        // #424 review: every committed change goes to the phone, and a phone seed sent before it
+        // heard (still naming B) cannot undo the Watch's C, or bring back a dropped nine.
+        XCTAssertEqual(tables.starts.map(\.loopKey), ["100:all+200:all", "100:all+300:all", "100:all+300:all"],
+                       "add, replace, then re-sent after the one-nine seed")
+        model.applyRoundSeed(WatchRoundSeed(
+            roundId: "r1", courseName: "黑骑士 · A 场", activeHole: 10,
+            holes: courseSeedHoles("100:all+200:all", []), loopKey: "100:all+200:all"
+        ))
+        XCTAssertEqual(model.round?.loopKey, "100:all+300:all")
+        XCTAssertEqual(model.round?.holeStates.first { $0.hole == 10 }?.globalId, 300)
+        XCTAssertEqual(tables.starts.last?.loopKey, "100:all+300:all", "told again")
+        XCTAssertEqual(tables.starts.map(\.tableRevision), [1, 2, 2, 2], "one revision per committed change")
+
+        func phoneSeed(_ key: String, ack: Int?) -> WatchRoundSeed {
+            WatchRoundSeed(
+                roundId: "r1", courseName: "黑骑士 · A 场", activeHole: 10,
+                holes: courseSeedHoles(key, []), loopKey: key, acknowledgedTableRevision: ack
+            )
+        }
+        // An echo without the current revision does not end the wait; the acknowledgement does,
+        // and keeps 换一个 9 洞.
+        model.applyRoundSeed(phoneSeed("100:all+300:all", ack: nil))
+        XCTAssertEqual(model.round?.tableAwaitingPhone, true)
+        model.applyRoundSeed(phoneSeed("100:all+300:all", ack: 2))
+        XCTAssertNil(model.round?.tableAwaitingPhone)
+        XCTAssertTrue(model.canChangeSecondNine, "the echo keeps the second nine changeable")
+
+        // #424 review: C → B (r3), then the phone's delayed seeds arrive B(r1), C(r2), B(r3).
+        model.openChangeSecondNine()
+        model.chooseTurnSecond(.loop("200:all"))
+        await model.confirmTurn()
+        XCTAssertEqual(tables.starts.last?.tableRevision, 3)
+        model.applyRoundSeed(phoneSeed("100:all+200:all", ack: 1))
+        XCTAssertEqual(model.round?.tableAwaitingPhone, true, "an older echo of the same table")
+        model.applyRoundSeed(phoneSeed("100:all+300:all", ack: 2))
+        XCTAssertEqual(model.round?.loopKey, "100:all+200:all", "a delayed older choice cannot win")
+        XCTAssertTrue(model.canChangeSecondNine)
+        model.applyRoundSeed(phoneSeed("100:all+200:all", ack: 3))
+        XCTAssertNil(model.round?.tableAwaitingPhone)
+        XCTAssertEqual(model.round?.loopKey, "100:all+200:all")
+
+        model.openChangeSecondNine()
+        model.chooseTurnSecond(.stopAfterNine)
+        await model.confirmTurn()
+        XCTAssertEqual(tables.starts.last?.loopKey, "100:all")
+        XCTAssertEqual(tables.starts.last?.tableRevision, 4)
+        model.applyRoundSeed(phoneSeed("100:all+200:all", ack: 3))
+        XCTAssertEqual(model.round?.loopKey, "100:all", "a dropped nine stays dropped")
+        XCTAssertEqual(model.round?.holeStates.count, 9)
     }
 
     /// Owner request 2026-10-12: 开球 is preselected from where the tee shot landed (the second
@@ -2051,6 +2104,21 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(scoredFairway(secondLongitude: 116.0001, par: 4), .left, "west of a northbound hole")
         XCTAssertEqual(scoredFairway(secondLongitude: 116.0009, par: 5), .right)
         XCTAssertNil(scoredFairway(secondLongitude: 116.0005, par: 3))
+
+        // The second shot marked on the phone: its position arrives with the phone's hole snapshot.
+        let phoneMarked = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: nil, selectedClub: nil,
+            holeImageProjection: projection, holeMap: map, fairwayOutline: fairway,
+            teeShotLandingLatitude: 40.001, teeShotLandingLongitude: 116.0009,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [courseHole(1, par: 4), courseHole(2, par: 4)])
+        // The real path: the phone's snapshot as JSON, decoded and merged by receivePhoneState.
+        let wire = try! JSONDecoder().decode(WatchRoundState.self, from: JSONEncoder().encode(phoneMarked))
+        XCTAssertEqual(wire.teeShotLandingLongitude, 116.0009)
+        model.receivePhoneState(wire)
+        model.startScoringActiveHole()
+        XCTAssertEqual(model.draftFairway, .right)
     }
 
     func testAdjustDraftClampsAtLowerBounds() {

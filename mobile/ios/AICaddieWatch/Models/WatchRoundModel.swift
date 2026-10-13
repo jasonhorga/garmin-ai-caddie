@@ -236,6 +236,14 @@ public final class WatchRoundModel: ObservableObject {
     /// A nine-hole-loop venue's loops (A / B / C, the played one included) for a loop's course id,
     /// from the course library: the choices at its turn. Nil or empty offers the same loop again.
     public var nineLoopSiblings: ((Int) -> [NineLoop])?
+    /// The Watch changed this round's hole table (second nine added, changed or dropped): the app
+    /// sends it to the phone so its same round follows (#424).
+    public var onRoundTableChanged: ((WatchRoundStart) -> Void)?
+
+    private func publishRoundTable() {
+        guard let round, let start = WatchRoundStart.currentTable(of: round, courseName: courseName) else { return }
+        onRoundTableChanged?(start)
+    }
 
     /// Backend connection info delivered from the phone (round-12 P3.4, WCSession). When nil the watch
     /// can still score offline; uploads just fail and events stay queued.
@@ -846,7 +854,23 @@ public final class WatchRoundModel: ObservableObject {
         // Whether holes 10–18 kept here are the second nine this Watch added at the turn (still
         // changeable until played); a seed that names the whole table itself takes them over.
         var keepsWatchSecondNine = false
-        if let existingKey = existing?.loopKey,
+        // A phone seed that still names another second nine (sent before the phone heard of the
+        // Watch's change) must not undo a second nine the Watch chose and has not played.
+        let overridesWatchChoice: Bool = {
+            guard let existing, existing.tableAwaitingPhone == true,
+                  let existingKey = existing.loopKey, existingKey != seed.loopKey,
+                  let watchFirst = existingKey.split(separator: "+").first,
+                  seed.loopKey.split(separator: "+").first == watchFirst else { return false }
+            return true
+        }()
+        if overridesWatchChoice, let existing, let existingKey = existing.loopKey {
+            let seededFirstNine = seededStates.filter { $0.hole <= 9 }
+            let seededHoles = Set(seededFirstNine.map(\.hole))
+            states = seededFirstNine + existing.holeStates.filter { !seededHoles.contains($0.hole) }
+            states.sort { $0.hole < $1.hole }
+            loopKey = existingKey
+            keepsWatchSecondNine = existing.secondNineAddedAtTurn == true
+        } else if let existingKey = existing?.loopKey,
            existingKey.hasPrefix(seed.loopKey + "+"),
            let existing {
             let seededHoles = Set(seededStates.map(\.hole))
@@ -890,10 +914,25 @@ public final class WatchRoundModel: ObservableObject {
             greenPlacements: retainedGreenPlacements,
             phoneShots: retainedPhoneShots
         )
-        persisted.secondNineAddedAtTurn = keepsWatchSecondNine ? true : nil
+        // The phone's echo of the Watch's table (same loop key) keeps the second nine changeable and
+        // ends the wait; a different table the phone chose itself makes the phone the owner.
+        let echoesWatchTable = existing?.loopKey == loopKey && existing?.loopKey == seed.loopKey
+        persisted.secondNineAddedAtTurn = keepsWatchSecondNine
+            || (echoesWatchTable && existing?.secondNineAddedAtTurn == true) ? true : nil
+        persisted.tableRevision = existing?.tableRevision
+        // Only the phone's acknowledgement of the current revision ends the wait: an older echo of
+        // the same table (the player went B → C → B) must not.
+        let acknowledged = (seed.acknowledgedTableRevision ?? 0) >= (existing?.tableRevision ?? 0)
+        let unacknowledgedEcho = echoesWatchTable && existing?.tableAwaitingPhone == true && !acknowledged
+        persisted.tableAwaitingPhone = overridesWatchChoice || unacknowledgedEcho ? true : nil
         guard persisted.hasValidIdentity else { return }
         try? store.save(persisted)
         round = persisted
+        if overridesWatchChoice || unacknowledgedEcho {
+            // Tell the phone again: it answers with a seed naming (and acknowledging) the Watch's
+            // table, which ends the wait. An acknowledging seed never re-publishes, so this cannot loop.
+            publishRoundTable()
+        }
         let removedCurrentInteraction =
             (existing?.scoreDraft != nil && retainedScoreDraft == nil)
             || (existing?.pendingManualShot != nil && retainedManualShot == nil)
@@ -1151,15 +1190,22 @@ public final class WatchRoundModel: ObservableObject {
 
     /// 左 / 中 / 右 from the second shot's origin on this hole against the fairway outline (the shared
     /// `TeeResultClassifier`, as the phone does). Nil on a Par 3, without an outline or without a
-    /// second shot recorded on this Watch.
+    /// known position for the second shot (this Watch's own mark, else the phone's).
     func teeResultPreselection(for hole: WatchRoundState) -> WatchFairwayResult? {
         guard hole.par != 3, let outline = hole.fairwayOutline, let round else { return nil }
-        // The hole's second shot in the order both devices know (a phone shot counts in place); only
-        // a Watch-recorded second shot has its position here.
+        // The hole's second shot in the order both devices know (a phone shot counts in place): its
+        // position from this Watch's own mark, else the one the phone sent (owner 2026-10-13: "第二杆是
+        // 手机记得也有 gps 数据").
         let ids = knownShotEventIds(for: hole.hole)
-        guard ids.count >= 2,
-              let event = round.pendingEvents.first(where: { $0.eventId == ids[1] && $0.kind == .location }),
-              let second = WatchShotLocationValue(encodedValue: event.value) else { return nil }
+        let watchMark = ids.count >= 2
+            ? round.pendingEvents.first(where: { $0.eventId == ids[1] && $0.kind == .location })
+                .flatMap { WatchShotLocationValue(encodedValue: $0.value) }
+                .map { (latitude: $0.latitude, longitude: $0.longitude) }
+            : nil
+        let phoneMark = hole.teeShotLandingLatitude.flatMap { latitude in
+            hole.teeShotLandingLongitude.map { (latitude: latitude, longitude: $0) }
+        }
+        guard let second = watchMark ?? phoneMark else { return nil }
         let refs = (hole.holeImageProjection?.refs ?? []).map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
         let route: [[Double]] = (hole.holeMap?.route ?? []).compactMap { row in
             guard row.count >= 2,
@@ -1895,6 +1941,8 @@ public final class WatchRoundModel: ObservableObject {
         current.loopKey = loopKey
         current.activeHole = 10
         current.secondNineAddedAtTurn = true
+        current.tableRevision = (current.tableRevision ?? 0) + 1
+        current.tableAwaitingPhone = true
         do {
             try store.save(current)
         } catch {
@@ -1906,6 +1954,7 @@ public final class WatchRoundModel: ObservableObject {
             holeEndDetector = nil
             pendingHoleEnd = nil
         }
+        publishRoundTable()
         return true
     }
 
@@ -1925,6 +1974,8 @@ public final class WatchRoundModel: ObservableObject {
         current.loopKey = String(first)
         current.activeHole = 9
         current.secondNineAddedAtTurn = nil
+        current.tableRevision = (current.tableRevision ?? 0) + 1
+        current.tableAwaitingPhone = true
         do {
             try store.save(current)
         } catch {
@@ -1934,6 +1985,7 @@ public final class WatchRoundModel: ObservableObject {
         holeEndDetector = nil
         pendingHoleEnd = nil
         isChangingSecondNine = false
+        publishRoundTable()
         return true
     }
 

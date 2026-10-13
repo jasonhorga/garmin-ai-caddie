@@ -1184,6 +1184,34 @@ public enum WatchSecondLoopResult: Equatable {
 }
 
 extension WatchRoundStart {
+    /// The round's current hole table, sent again when the Watch adds, changes or drops its second
+    /// nine so the phone's same round follows (#424). Nil without a loop key.
+    public static func currentTable(of round: WatchRoundStore.PersistedRound, courseName: String) -> WatchRoundStart? {
+        guard let loopKey = round.loopKey else { return nil }
+        let states = round.holeStates.sorted { $0.hole < $1.hole }
+        return WatchRoundStart(
+            roundId: round.roundId,
+            courseName: courseName,
+            teeBox: round.teeBox ?? "",
+            loopKey: loopKey,
+            globalId: round.courseGlobalId ?? states.first?.globalId,
+            activeHole: round.activeHole,
+            holes: states.map { state in
+                WatchRoundSeedHole(
+                    hole: state.hole,
+                    par: state.par,
+                    distanceM: state.distanceM,
+                    teeLatitude: state.teeLatitude,
+                    teeLongitude: state.teeLongitude,
+                    globalId: state.globalId,
+                    localHole: state.sourceLocalHole,
+                    courseHoleNumber: state.courseHoleNumber
+                )
+            },
+            tableRevision: round.tableRevision
+        )
+    }
+
     /// The reverse Watch → iPhone start relay for a round the Watch just created. Every hole carries
     /// its complete physical identity — round `hole` → (`globalId`, `localHole`, `courseHoleNumber`) —
     /// so the phone never has to re-derive which physical half the Watch started on.

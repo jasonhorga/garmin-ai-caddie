@@ -120,6 +120,12 @@ public final class WatchRoundStore {
         /// Holes 10–18 were added on this Watch at the turn (not seeded as an 18-hole round): only
         /// such a second nine can still be changed or dropped. Optional for older rounds.
         public var secondNineAddedAtTurn: Bool?
+        /// Bumped each time this Watch changes the round's hole table (second nine added, replaced or
+        /// dropped) and sent with it, so the phone applies only a newer table. Optional.
+        public var tableRevision: Int?
+        /// The phone has not yet echoed that table: until it does, a same-round seed still naming the
+        /// old table (sent before it heard) cannot undo the Watch's choice. Optional.
+        public var tableAwaitingPhone: Bool?
 
         public init(
             roundId: String,

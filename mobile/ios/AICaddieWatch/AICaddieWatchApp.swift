@@ -224,6 +224,9 @@ public struct AICaddieWatchApp: App {
                     roundModel.secondLoopLoader = { [courseLibrary, syncClient] request in
                         await courseLibrary.secondLoop(request, config: syncClient.config)
                     }
+                    roundModel.onRoundTableChanged = { [syncClient] start in
+                        syncClient.sendRoundStart(start)
+                    }
                     // An A / B / C venue's loops for its turn, named by the course's own loop label.
                     roundModel.nineLoopSiblings = { [courseLibrary] globalId in
                         courseLibrary.nineLoopSiblings(of: globalId).map { option in

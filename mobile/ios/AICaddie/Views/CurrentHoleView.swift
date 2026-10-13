@@ -3967,7 +3967,8 @@ public struct CurrentHoleView: View {
             phoneShotEventIds: markedShots.map(\.eventId),
             lastShotLatitude: lastShot?.latitude,
             lastShotLongitude: lastShot?.longitude,
-            lastShotCapturedAt: lastShot?.capturedAt
+            lastShotCapturedAt: lastShot?.capturedAt,
+            teeShotLanding: Self.secondShotCoordinate(in: markedShots)
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)
@@ -4205,6 +4206,14 @@ public struct CurrentHoleView: View {
     /// This hole's location events (phone-recorded, and Watch-recorded ones under their Watch ids).
     private var recordedShotEventIds: [String] {
         markedShotsOnHole.map(\.eventId)
+    }
+
+    /// The hole's second marked shot (Watch shots included): where the tee shot landed.
+    static func secondShotCoordinate(in shots: [LiveRoundEvent]) -> (latitude: Double, longitude: Double)? {
+        guard shots.count >= 2,
+              case .number(let latitude)? = shots[1].payload["latitude"],
+              case .number(let longitude)? = shots[1].payload["longitude"] else { return nil }
+        return (latitude, longitude)
     }
 
     private var markedShotsOnHole: [LiveRoundEvent] {
