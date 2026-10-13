@@ -235,17 +235,20 @@ final class WatchProductionElementAuditUITests: XCTestCase {
 
     func test02FairwayAndScoreSave() throws {
         var specs = [
-            Spec("fairway-open", target: "watch-score-fairway", visibleAfter: "watch-score-fairway-back"),
-            Spec("fairway-back", target: "watch-score-fairway-back", prepare: ["watch-score-fairway"],
-                 absentAfter: "watch-score-fairway-back"),
+            // The current owner-approved interaction expands the bottom row in place. There is no
+            // separate page or back control: all three choices must be visible after one tap.
+            Spec("fairway-open", target: "watch-score-fairway", expected: ["fairway": "none"],
+                 visibleAfter: "watch-score-fairway-HIT", absentAfter: "watch-score-save"),
         ]
         for side in ["LEFT", "HIT", "RIGHT"] {
             specs.append(Spec("fairway-\(side)", target: "watch-score-fairway-\(side)",
                               prepare: ["watch-score-fairway"], expected: ["fairway": side],
-                              absentAfter: "watch-score-fairway-back"))
-            specs.append(Spec("fairway-clear-\(side)", target: "watch-score-fairway-\(side)",
-                              prepare: ["watch-score-fairway", "watch-score-fairway-\(side)", "watch-score-fairway"],
-                              expected: ["fairway": "none"], absentAfter: "watch-score-fairway-back"))
+                              absentAfter: "watch-score-fairway-\(side)"))
+            // Picking the already selected side is intentionally idempotent, not a clear toggle.
+            specs.append(Spec("fairway-keep-\(side)", target: "watch-score-fairway-\(side)",
+                              prepare: ["watch-score-fairway", "watch-score-fairway-\(side)",
+                                        "watch-score-fairway"], expected: ["fairway": side],
+                              absentAfter: "watch-score-fairway-\(side)"))
         }
         for route in ["audit-phone-18", "audit-score-par3"] {
             specs.append(Spec("\(route)-save", target: "watch-score-save", route: route,
