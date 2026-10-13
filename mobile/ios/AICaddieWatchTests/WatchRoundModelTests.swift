@@ -1997,6 +1997,19 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.round?.loopKey, "100:all+300:all")
         XCTAssertEqual(model.round?.holeStates.filter { $0.hole >= 10 }.compactMap(\.globalId), Array(repeating: 300, count: 9))
         XCTAssertEqual(model.round?.holeStates.count, 18)
+
+        // #424 review: the phone re-sending its one-nine seed for the same round keeps the
+        // Watch's second nine and its right to change it.
+        model.applyRoundSeed(WatchRoundSeed(
+            roundId: "r1",
+            courseName: "黑骑士 · A 场",
+            activeHole: 10,
+            holes: courseSeedHoles("100:all", []),
+            loopKey: "100:all"
+        ))
+        XCTAssertEqual(model.round?.loopKey, "100:all+300:all")
+        XCTAssertTrue(model.canChangeSecondNine, "a same-round seed keeps the turn provenance")
+        XCTAssertEqual(model.round?.secondNineAddedAtTurn, true, "persisted, so a relaunch keeps it")
     }
 
     /// Owner request 2026-10-12: 开球 is preselected from where the tee shot landed (the second

@@ -843,6 +843,9 @@ public final class WatchRoundModel: ObservableObject {
         // shorten the ordered loop key.
         var states = seededStates
         var loopKey = seed.loopKey
+        // Whether holes 10–18 kept here are the second nine this Watch added at the turn (still
+        // changeable until played); a seed that names the whole table itself takes them over.
+        var keepsWatchSecondNine = false
         if let existingKey = existing?.loopKey,
            existingKey.hasPrefix(seed.loopKey + "+"),
            let existing {
@@ -850,6 +853,7 @@ public final class WatchRoundModel: ObservableObject {
             states += existing.holeStates.filter { !seededHoles.contains($0.hole) }
             states.sort { $0.hole < $1.hole }
             loopKey = existingKey
+            keepsWatchSecondNine = existing.secondNineAddedAtTurn == true
         }
         let holeNumbers = Set(states.map(\.hole))
         let retainedActiveHole = existing?.activeHole
@@ -871,7 +875,7 @@ public final class WatchRoundModel: ObservableObject {
         // The phone's shots and snapshot order are round-owned: a same-round seed never forgets
         // them (that would bring a played plan back).
         let retainedPhoneShots = existing?.phoneShots?.filter { holeNumbers.contains($0.hole) }
-        let persisted = WatchRoundStore.PersistedRound(
+        var persisted = WatchRoundStore.PersistedRound(
             roundId: seed.roundId,
             activeHole: activeHole,
             holeStates: states,
@@ -886,6 +890,7 @@ public final class WatchRoundModel: ObservableObject {
             greenPlacements: retainedGreenPlacements,
             phoneShots: retainedPhoneShots
         )
+        persisted.secondNineAddedAtTurn = keepsWatchSecondNine ? true : nil
         guard persisted.hasValidIdentity else { return }
         try? store.save(persisted)
         round = persisted
