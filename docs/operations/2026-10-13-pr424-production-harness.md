@@ -39,3 +39,8 @@ The physical-scale exports retain the original pixels and calibrated dimensions.
 Remote Python preflight: existing release image, no dependency installation;
 collector 11 tests, mobile contracts 126 tests, visual parity 12 tests passed.
 Native CI on the production base: `38382863562`; ordinary CI: `38382863189`.
+
+Initial runtime `38388376104` failed to compile the DEBUG fixture because its
+new trace string incorrectly escaped a quote inside Swift interpolation.
+It executed no control trials and supplies no product acceptance evidence.
+The corrected trace is committed before rerunning the same production base.

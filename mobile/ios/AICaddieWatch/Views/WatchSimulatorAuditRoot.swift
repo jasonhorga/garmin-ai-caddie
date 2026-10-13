@@ -36,7 +36,7 @@ struct WatchSimulatorAuditRoot: View {
             + "pending=\(model.pendingManualShot != nil);auto=\(model.autoShotEnabled);"
             + "round=\(model.round != nil);map=\(geometry != nil);"
             + "ready=\(ready);headingWanted=\(Self.headingUpdatesWanted);"
-            + "holes=\(model.holeCount);loop=\(model.round?.loopKey ?? \"none\");"
+            + "holes=\(model.holeCount);loop=\(model.round?.loopKey ?? "none");"
             + "changeSecond=\(model.canChangeSecondNine);changing=\(model.isChangingSecondNine);"
     }
 
