@@ -273,11 +273,17 @@ final class WatchProductionElementAuditUITests: XCTestCase {
                 let details = metrics(record)
                 let before = state()
                 let point = pointerTap(record, offset: offset)
+                let recorded = NSPredicate { _, _ in self.state().contains("pending=true;") }
+                _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: recorded, object: app)], timeout: 3)
                 let afterRecord = state()
                 var undone = false
                 let undo = element("watch-shot-undo")
                 if afterRecord.contains("pending=true;"), undo.exists {
                     _ = pointerTap(undo)
+                    let removed = NSPredicate { _, _ in
+                        self.matches(self.state(), ["pending": "false", "shots": "0"])
+                    }
+                    _ = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: removed, object: app)], timeout: 3)
                     undone = state().contains("pending=false;") && state().contains("shots=0;")
                 }
                 try write(["kind": "first-try-shot", "face": face, "trial": trial, "attempt": attempt,

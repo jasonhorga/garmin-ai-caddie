@@ -16,7 +16,8 @@ jobs:
     name: Watch audit ${{ matrix.face }}
     runs-on: macos-15
     env:
-      PRODUCTION_BASE_SHA: 6eef9e13cfe191e2668dfd41cd80c5c94a6e9e97
+      PRODUCTION_BASE_SHA: f37660249108c327dcce57dfdceb1ebcb39ffb56
+      AUDIT_FACE: ${{ matrix.face }}
     timeout-minutes: 180
     strategy:
       fail-fast: false
@@ -65,7 +66,7 @@ jobs:
             watch-audit-evidence/interactions.mp4 > "$RUNNER_TEMP/watch-audit-video.log" 2>&1 &
           video_pid=$!
           stop_video() { kill -INT "$video_pid" 2>/dev/null || true; wait "$video_pid" || true; }
-          trap stop_video EXIT
+          trap 'audit_exit=$?; stop_video; exit "$audit_exit"' EXIT
           test "$AUDIT_SELECTION" = "production-elements"
           if [[ "$AUDIT_FACE" == "46mm" ]]; then
             set +e

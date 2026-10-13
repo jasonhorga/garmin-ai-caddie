@@ -1,6 +1,6 @@
 # PR424 production element acceptance
 
-Review base: `6eef9e13cfe191e2668dfd41cd80c5c94a6e9e97`.
+Review base: `f37660249108c327dcce57dfdceb1ebcb39ffb56`.
 Owner: Codex, findings/test scaffolding only. Claude implements product fixes.
 
 The DEBUG fixture uses `WatchRoundContainerView` and `WatchRoundModel`
@@ -44,3 +44,12 @@ Initial runtime `38388376104` failed to compile the DEBUG fixture because its
 new trace string incorrectly escaped a quote inside Swift interpolation.
 It executed no control trials and supplies no product acceptance evidence.
 The corrected trace is committed before rerunning the same production base.
+
+Second runtime `38390603419` compiled all faces but executed zero controls:
+`AUDIT_FACE` was scoped to device resolution rather than the test-driving step.
+The matrix face now belongs to job-level environment, and video cleanup preserves
+the test command's failure status. Both invalid attempts remain in the evidence
+history. The harness includes Claude's phone-reseed fix `f3766024`; Native CI
+`38389567637` and ordinary CI `38389567724` on that production head passed.
+Manual-shot/undo receipts wait up to three seconds for the real model transition,
+so deferred UI updates are not mistaken for a failed first pointer tap.
