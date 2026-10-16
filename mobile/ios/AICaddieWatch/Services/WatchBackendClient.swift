@@ -381,7 +381,9 @@ public final class WatchBackendClient {
         teeBox: String,
         loops: String,
         ensureGeometry: Bool = false,
-        backgroundGeometry: Bool = false
+        backgroundGeometry: Bool = false,
+        mapOnly: Bool = false,
+        priorityHole: Int? = nil
     ) throws -> URLRequest {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
@@ -398,13 +400,17 @@ public final class WatchBackendClient {
             URLQueryItem(name: "ensure_geometry", value: ensureGeometry ? "true" : "false"),
             URLQueryItem(name: "background_geometry", value: backgroundGeometry ? "true" : "false"),
         ]
+        // #426: the factual map package (no player history or planning) answers a cold course
+        // in seconds with the playing hole's vector map; the server prepares that hole first.
+        if mapOnly { queryItems.append(URLQueryItem(name: "map_only", value: "true")) }
+        if let priorityHole { queryItems.append(URLQueryItem(name: "priority_hole", value: String(priorityHole))) }
         components.queryItems = queryItems
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         // The Watch can start a never-downloaded course without the phone. Its first package has
         // the same factual courseData cold path as iPhone, so it must not retain URLSession's 60 s
         // default merely because ensureGeometry is false.
-        request.timeoutInterval = ensureGeometry ? 900 : Self.coursePackageTimeoutInterval
+        request.timeoutInterval = ensureGeometry ? 900 : (mapOnly ? 25 : Self.coursePackageTimeoutInterval)
         applyAuth(&request)
         return request
     }
@@ -592,7 +598,9 @@ public final class WatchBackendClient {
         teeBox: String,
         loops: String,
         ensureGeometry: Bool = false,
-        backgroundGeometry: Bool = false
+        backgroundGeometry: Bool = false,
+        mapOnly: Bool = false,
+        priorityHole: Int? = nil
     ) async throws -> WatchCoursePackage {
         let request = try makeCoursePackageRequest(
             globalId: globalId,
@@ -600,9 +608,12 @@ public final class WatchBackendClient {
             teeBox: teeBox,
             loops: loops,
             ensureGeometry: ensureGeometry,
-            backgroundGeometry: backgroundGeometry
+            backgroundGeometry: backgroundGeometry,
+            mapOnly: mapOnly,
+            priorityHole: priorityHole
         )
-        let data = try await sendForData(request, retryingTransientFailures: true)
+        // The factual first-map request is a fast, single try: the full package follows anyway.
+        let data = try await sendForData(request, retryingTransientFailures: !mapOnly)
         return try decodeCoursePackage(data)
     }
 

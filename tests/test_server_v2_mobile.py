@@ -717,7 +717,7 @@ class ServerV2MobileTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.executor = ThreadPoolExecutor(max_workers=2)
 
-            def submit(self, function, *args):
+            def submit(self, function, *args, **kwargs):
                 nonlocal submitted, completed, maximum_outstanding
                 with state_lock:
                     submitted += 1

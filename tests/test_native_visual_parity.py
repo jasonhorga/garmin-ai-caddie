@@ -49,12 +49,11 @@ class NativeVisualParityTests(unittest.TestCase):
 
     def test_watch_score_header_reserves_system_time_area(self) -> None:
         source = (WATCH_VIEWS / "WatchScoreHoleView.swift").read_text(encoding="utf-8")
+        canvas = (WATCH_VIEWS / "WatchFullWindowCanvas.swift").read_text(encoding="utf-8")
 
-        self.assertIn("WatchScoreHoleLayout.systemTimeTrailingClearance", source)
-        self.assertIn(
-            "Spacer(minLength: WatchScoreHoleLayout.systemTimeTrailingClearance)",
-            source,
-        )
+        # The title sits in the top band, left of the system clock (#422 PIA03).
+        self.assertIn("watchTitleBand(titleBand, size: size, safeTop: safeTop)", source)
+        self.assertIn("size.width - WatchFaceInsets.clockWidth", canvas)
 
     def test_watch_round_tools_expose_a_visible_menu_and_keep_long_press_as_a_shortcut(self) -> None:
         source = (WATCH_VIEWS / "WatchRoundContainerView.swift").read_text(encoding="utf-8")

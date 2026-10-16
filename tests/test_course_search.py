@@ -443,7 +443,7 @@ class CourseSearchEndpointTests(unittest.TestCase):
         )]
         with (
             patch.object(server_main.course_search, "courseview_nearby", return_value=canned) as nearby,
-            patch.object(server_main, "_prewarm_course_tees"),
+            patch("server_v2.map_startup.enqueue_nearby"),
         ):
             response = self._client().get(
                 "/api/v2/courses/nearby",
@@ -483,7 +483,7 @@ class CourseSearchEndpointTests(unittest.TestCase):
                 "_reconcile_player_course_matches",
                 return_value=canned,
             ) as reconcile,
-            patch.object(server_main, "_prewarm_course_tees"),
+            patch("server_v2.map_startup.enqueue_nearby"),
         ):
             response = self._client().get(
                 "/api/v2/courses/nearby",
@@ -504,7 +504,7 @@ class CourseSearchEndpointTests(unittest.TestCase):
         self.assertFalse(kwargs["overlay_coordinates"])
         self.assertFalse(kwargs["append_history"])
 
-    def test_nearby_endpoint_prewarms_the_nearest_course_tees(self) -> None:
+    def test_nearby_endpoint_enqueues_full_maps_for_all_provider_matches(self) -> None:
         from ai_caddie.courses import course_search
         from server_v2 import main as server_main
 
@@ -515,7 +515,7 @@ class CourseSearchEndpointTests(unittest.TestCase):
         with (
             patch.object(server_main.course_search, "courseview_nearby", return_value=canned),
             patch.object(server_main, "_reconcile_player_course_matches", return_value=canned),
-            patch.object(server_main, "_prewarm_course_tees") as prewarm,
+            patch("server_v2.map_startup.enqueue_nearby") as prewarm,
         ):
             response = self._client().get(
                 "/api/v2/courses/nearby",
@@ -523,23 +523,17 @@ class CourseSearchEndpointTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        prewarm.assert_called_once_with(list(range(1, server_main.NEARBY_TEE_PREWARM_LIMIT + 1)))
+        prewarm.assert_called_once_with(canned)
 
-    def test_tee_prewarm_fetches_only_uncached_releases(self) -> None:
+    def test_mobile_options_discovery_uses_30km_and_enqueues_without_waiting_for_maps(self) -> None:
         from server_v2 import main as server_main
-
-        calls: list[tuple[int, bool]] = []
-
-        def fake_tees(gid: int, *, allow_fetch: bool = True) -> list[dict]:
-            calls.append((gid, allow_fetch))
-            if gid == 2 and allow_fetch:
-                raise OSError("garmin down")
-            return [{"name": "Blue", "index": 1}] if gid == 1 else []
-
-        with patch("ai_caddie.courses.course_reference.courseview_tees", side_effect=fake_tees):
-            server_main._prewarm_course_tees([1, 2, 3])
-
-        self.assertEqual(calls, [(1, False), (2, False), (2, True), (3, False), (3, True)])
+        canned = [cs.CourseMatch(1, "Golf", 9, None, None, 1, distance_km=1)]
+        with (patch.object(server_main.course_search, "courseview_nearby", return_value=canned) as discover,
+              patch("server_v2.map_startup.enqueue_nearby") as enqueue,
+              patch.object(server_main, "record_courseview_catalogue_names")):
+            server_main._discover_nearby_maps(47.0, 12.0)
+        discover.assert_called_once_with(latitude=47.0, longitude=12.0, radius_km=30)
+        enqueue.assert_called_once_with(canned)
 
     def test_nearby_endpoint_bounds_radius(self) -> None:
         response = self._client().get(

@@ -351,6 +351,13 @@ class DeploymentManifestTests(unittest.TestCase):
         workflow_text = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
 
         self.assertIn("COPY contracts/canonical/ ./contracts/canonical/", docker_text)
+        self.assertIn("COPY mobile/contracts/ ./mobile/contracts/", docker_text)
+        for contract in [
+            "mobile/contracts/live_round_package.schema.json",
+            "mobile/contracts/live_round_event.schema.json",
+        ]:
+            self.assertTrue(Path(contract).is_file(), f"missing readiness contract: {contract}")
+            self.assertIn(f"test -s /app/{contract}", workflow_text)
         for required in [
             "docker exec -i aicaddie-api /app/.venv/bin/python -",
             "from ai_caddie.contracts.typed_ids import typed_id",

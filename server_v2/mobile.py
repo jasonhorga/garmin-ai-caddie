@@ -29,7 +29,7 @@ from ai_caddie.caddie.mobile_live import (
     replay_event_log,
     round_events,
 )
-from ai_caddie.history.history import OWNER_ID
+from ai_caddie.history.history import OWNER_ID, HistoryData
 from ai_caddie.rounds import round_ingest
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.llm.weather_context import WeatherTransport, weather_snapshot_for_time
@@ -424,8 +424,22 @@ def build_mobile_course_package_response(
     loops: list[tuple[int, str]],
     include_event_cursor: bool = True,
     player_id: str = OWNER_ID,
+    prepare_map: bool = False,
+    priority_hole: int = 1,
+    map_only: bool = False,
 ) -> LiveRoundPackageResponse:
-    data, mode = load_history_data_for_mode(player_id=player_id)
+    if prepare_map:
+        from server_v2.map_startup import prepare_priority_hole
+
+        prepare_priority_hole(loops, priority_hole=priority_hole, tee_box=tee_box)
+        mark_request_stage("priority_vector")
+    if map_only:
+        from ai_caddie.core.config import get_settings
+
+        data = HistoryData(raw_rounds=[], rounds=[], shots=[])
+        mode = "fixture" if get_settings().data_mode == "fixture" else "local"
+    else:
+        data, mode = load_history_data_for_mode(player_id=player_id)
     mark_request_stage("history_load")
     key = (
         "course",
@@ -435,8 +449,10 @@ def build_mobile_course_package_response(
         # The ordered loop identity: 前→前 / 前→后 / 后→前 / 后→后 never share a result.
         round_loop_key(loops),
         bool(ensure_geometry),
+        bool(map_only),
+        int(priority_hole),
         _package_time_bucket(captured_at),
-        _history_package_signature(data),
+        ("deferred",) if map_only else _history_package_signature(data),
     )
 
     def build() -> LiveRoundPackageResponse:
@@ -473,6 +489,7 @@ def build_mobile_course_package_response(
             # sourceCoverage.playerStatsWindow.
             stats_window="last20",
             defer_non_priority_enrichment=True,
+            map_only=map_only,
         )
         mark_request_stage("facts_package")
         # Keep immediately drawable factual CourseView seeds for every playable hole while the
@@ -482,6 +499,7 @@ def build_mobile_course_package_response(
         package["coursePrep"] = first_hole_lightweight_course_prep(
             package,
             player_id=player_id,
+            **({"map_only": True} if map_only else {}),
         )
         if package.get("coursePrep"):
             package["caddieContextSeeds"] = attach_canonical_prep_plan_to_caddie_seeds(

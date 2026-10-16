@@ -92,12 +92,11 @@ final class WatchCourseDownloadTests: XCTestCase {
     }
 
     func testPreciseMapUpgradeUsesBoundedRetrySchedule() {
-        XCTAssertEqual(WatchCourseLibrary.preciseUpgradeMaximumAttempts, 6)
+        // Owner report 2026-10-14: a never-prepared course needs longer than ~3 minutes. Six full
+        // attempts with backoff, then a cheap status poll each minute (the last delay) to ~27 min.
+        XCTAssertEqual(WatchCourseLibrary.preciseUpgradeMaximumAttempts, 30)
+        XCTAssertEqual(WatchCourseLibrary.preciseUpgradeFullFetchAttempts, 6)
         XCTAssertEqual(WatchCourseLibrary.preciseUpgradeRetryDelaysSeconds, [5, 10, 20, 40, 60])
-        XCTAssertEqual(
-            WatchCourseLibrary.preciseUpgradeRetryDelaysSeconds.count,
-            WatchCourseLibrary.preciseUpgradeMaximumAttempts - 1
-        )
     }
 
     func testProgressSnapshotsDoNotPublishPlaceholderOverAnEarlierDrawableMap() {
@@ -461,6 +460,93 @@ final class WatchCourseDownloadTests: XCTestCase {
         XCTAssertEqual(hole.score, 0)
         XCTAssertEqual(hole.putts, 0)
         XCTAssertEqual(hole.penaltyCount, 0)
+    }
+
+    /// #425 P1 (Jason's 2026-10-14 cold Watch-only start): the server's route-only seed has
+    /// `"map": {"image": null, ...}` — a vector map with no raster yet. The Watch required a string,
+    /// failed to decode every ready package, retried silently and never drew a map.
+    func testRouteOnlySeedWithNullImageDecodesAndDrawsAVectorMap() throws {
+        let option = WatchCourseOption(globalId: 31669, name: "北京丽宫", holes: 18, teeBox: "Blue")
+        let seed = #"{"schema":"ai-caddie-course-prep-v1","globalId":31669,"holeCount":1,"clubs":[],"holes":[{"hole":1,"par":4,"geometryCoverage":"ready","geometryRevision":"0123456789abcdef","hazards":{},"map":{"image":null,"overlay":{"w":1000,"h":800,"route":[[100.0,700.0,0.0],[500.0,400.0,200.0],[600.0,100.0,400.0]],"surfaces":[{"kind":"Fairway","polygons":[{"outerPx":[[450.0,500.0],[560.0,500.0],[560.0,300.0],[450.0,300.0]],"holesPx":[]}]},{"kind":"Bunker","polygons":[{"outerPx":[[600.0,350.0],[630.0,350.0],[620.0,330.0]]}]},{"kind":"Lake","polygons":[{"outerPx":[[200.0,600.0],[300.0,600.0],[300.0,500.0],[200.0,500.0]],"holesPx":[[[240.0,560.0],[260.0,560.0],[250.0,540.0]]]}]}]}},"greenDistances":{"available":true,"frontM":350.0,"middleM":360.0,"backM":370.0,"frontLat":40.0035,"frontLon":116.005,"middleLat":40.0036,"middleLon":116.0051,"backLat":40.0037,"backLon":116.0052},"holeImageProjection":{"available":true,"widthPx":1000,"heightPx":800,"refs":[{"lat":40.0,"lon":116.0,"px":100.0,"py":700.0},{"lat":40.0,"lon":116.001,"px":200.0,"py":700.0},{"lat":40.001,"lon":116.0,"px":100.0,"py":600.0}]}}]}"#
+        let package = try client.decodeCoursePackage(WatchPackageFixture.packageData(
+            roundId: "watch-cold-1",
+            course: #"{"globalId":31669,"name":"北京丽宫","teeBox":"Blue"}"#,
+            loops: [.init(31669, "front")],
+            overrides: [1: #"{"number":1,"par":4,"yards":404,"geometryCoverage":"ready","geometryRevision":"0123456789abcdef","sourceGlobalId":31669,"sourceLocalHole":1,"courseHoleNumber":1}"#],
+            extra: "\"coursePrep\":" + seed
+        ))
+        XCTAssertNil(package.coursePrep?.holes.first?.map?.image)
+
+        let download = try WatchCourseTemplateBuilder.build(
+            option: option,
+            package: package,
+            prepsByGlobalId: WatchCourseTemplateBuilder.seededPreps(from: package),
+            topoImagesByGlobalId: [:],
+            cachedAt: "2026-10-14T00:00:00Z"
+        )
+        let hole = try XCTUnwrap(download.template.makeRound(roundId: "watch-cold-1").holeStates.first)
+        XCTAssertEqual(hole.holeMap?.route?.count, 3, "the vector map is there before any raster")
+        // #425 review: the factual surfaces reach the drawable geometry (fairway, bunker, lake + island).
+        XCTAssertEqual(hole.holeMap?.surfaces?.map(\.kind), ["Fairway", "Bunker", "Lake"])
+        let geometry = try XCTUnwrap(WatchHoleMapGeometry.from(holeMap: hole.holeMap, image: nil))
+        XCTAssertEqual(geometry.surfaces.map(\.kind), ["fairway", "bunker", "lake"])
+        XCTAssertEqual(geometry.surfaces.last?.holes.count, 1)
+        XCTAssertEqual(hole.centerGreenM, 360)
+        XCTAssertTrue(download.images.isEmpty, "no raster yet")
+    }
+
+    /// #425 review (26557): the catalogue retained 18 holes while the release is one nine. The Tee
+    /// list is the release's authority, so the selection asks for `:all`, not a `:front` the server
+    /// rejects with 422.
+    func testReleaseTeesCorrectAStaleHoleCount() {
+        let stale = WatchCourseOption(globalId: 26557, name: "Golfclub", holes: 18, teeBox: nil)
+        let tees = [
+            WatchCourseTee(teeBox: "Gelb", name: "Gelb", geometrySet: 1, yards: 2900, holeCount: 9, isDefault: true),
+            WatchCourseTee(teeBox: "Rot", name: "Rot", geometrySet: 2, yards: 2600, holeCount: 9, isDefault: false),
+        ]
+        let corrected = stale.withTees(tees, selectedTee: "Gelb")
+        XCTAssertEqual(corrected.playableHoleCount, 9)
+        XCTAssertEqual(WatchCourseSelection(front: corrected, teeBox: "Gelb").loopKey, "26557:all")
+
+        // Agreeing tees leave a correct row alone; disagreeing or missing counts change nothing.
+        XCTAssertEqual(stale.withTees([tees[0]].map { _ in
+            WatchCourseTee(teeBox: "Gelb", name: "Gelb", geometrySet: 1, yards: 5800, holeCount: 18, isDefault: true)
+        }).playableHoleCount, 18)
+        XCTAssertEqual(stale.withTees([
+            WatchCourseTee(teeBox: "A", name: "A", geometrySet: 1, yards: 1, holeCount: 9, isDefault: true),
+            WatchCourseTee(teeBox: "B", name: "B", geometrySet: 2, yards: 1, holeCount: 18, isDefault: false),
+        ]).playableHoleCount, 18)
+    }
+
+    /// 2026-10-15 cold-start capture: a precise hole dropped back to the vector "地图准备中" view for
+    /// one retry because the package's route-only seed was republished over it.
+    func testALighterRowForTheSameReleaseNeverReplacesAPreciseMap() {
+        func row(_ coverage: String, _ revision: String?, club: String?) -> WatchRoundState {
+            WatchRoundState(
+                roundId: "r", hole: 1, par: 4, distanceM: 350, suggestedClub: club, selectedClub: nil,
+                globalId: 31669, sourceLocalHole: 1, courseHoleNumber: 1,
+                geometryCoverage: coverage, geometryRevision: revision,
+                score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+            )
+        }
+        let precise = row("ready", "rev-a", club: "7I")
+        XCTAssertEqual(precise.applyingCourseMapUpgrade(row("partial", nil, club: nil)), precise)
+        XCTAssertEqual(precise.applyingCourseMapUpgrade(row("partial", "rev-a", club: nil)), precise)
+        // A new release still takes over (its raster follows).
+        XCTAssertEqual(precise.applyingCourseMapUpgrade(row("partial", "rev-b", club: nil)).geometryRevision, "rev-b")
+        // And a ready row always applies.
+        XCTAssertEqual(row("partial", nil, club: nil).applyingCourseMapUpgrade(precise).geometryCoverage, "ready")
+        // Rows without a course identity cannot prove they are the same hole: the refresh applies.
+        let anonymous = WatchRoundState(
+            roundId: "r", hole: 1, par: 4, distanceM: 350, selectedClub: nil,
+            geometryCoverage: "ready",
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        XCTAssertEqual(anonymous.applyingCourseMapUpgrade(WatchRoundState(
+            roundId: "r", hole: 1, par: 4, distanceM: nil, selectedClub: nil,
+            geometryCoverage: "partial",
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )).geometryCoverage, "partial")
     }
 
     func testBuildPrefersSharedTopoBitmapOverLegacyPrepJPEG() throws {

@@ -30,6 +30,7 @@ from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize
 from ai_caddie.connectors.snapshot import snapshot_to_payload, write_connector_status
 from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 from ai_caddie.core.data import ROOT
+from ai_caddie.core.priority_work import NEARBY, SELECTED_COURSE, PriorityExecutor
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
 from . import course_install
@@ -1507,23 +1508,6 @@ def _course_match_payload(match: course_search.CourseMatch) -> dict:
     return payload
 
 
-# 开始一场 lists nearby courses; the tap then waits on the course's Tee list. On a course whose
-# CourseView release is not cached yet that wait is a cold Garmin fetch (device: 华彬 B 场 spun
-# for a long time). Warm the nearest rows' releases while the player is still reading the list.
-NEARBY_TEE_PREWARM_LIMIT = 8
-
-
-def _prewarm_course_tees(global_ids: list[int]) -> None:
-    from ai_caddie.courses.course_reference import courseview_tees
-
-    for gid in global_ids:
-        try:
-            if not courseview_tees(gid, allow_fetch=False):
-                courseview_tees(gid, allow_fetch=True)
-        except Exception as exc:  # best effort: the tap still fetches on demand
-            logger.warning("nearby_tee_prewarm failed gid=%s error=%s", gid, type(exc).__name__)
-
-
 @app.get("/api/v2/courses/nearby")
 def course_nearby_endpoint(
     background_tasks: BackgroundTasks,
@@ -1568,9 +1552,12 @@ def course_nearby_endpoint(
         overlay_coordinates=False,
         append_history=False,
     )
-    prewarm_ids = list(dict.fromkeys(int(match.global_id) for match in matches if int(match.global_id) > 0))
-    if prewarm_ids:
-        background_tasks.add_task(_prewarm_course_tees, prewarm_ids[:NEARBY_TEE_PREWARM_LIMIT])
+    if matches:
+        # Durable full map prep replaces metadata-only warming. All provider courses in 30 km
+        # enter the bounded low-priority lane; this response never waits for downloads/renders.
+        from server_v2.map_startup import enqueue_nearby
+
+        background_tasks.add_task(enqueue_nearby, matches)
     return {
         "schema": "ai-caddie-course-nearby-v1",
         "radiusKm": radius_km,
@@ -1789,8 +1776,31 @@ def mobile_round_package(
 
 
 @app.get("/api/v2/mobile/courses/options", response_model=MobileCourseOptionsResponse)
-def mobile_course_options(player_id: str = Depends(current_player_id)) -> MobileCourseOptionsResponse:
+def mobile_course_options(
+    background_tasks: BackgroundTasks,
+    latitude: float | None = Query(default=None, ge=-90, le=90),
+    longitude: float | None = Query(default=None, ge=-180, le=180),
+    player_id: str = Depends(current_player_id),
+) -> MobileCourseOptionsResponse:
+    if (latitude is None) != (longitude is None):
+        raise HTTPException(status_code=422, detail="latitude and longitude must be supplied together")
+    if latitude is not None:
+        # Keep the recent-course response unchanged. Catalogue discovery and asset enqueue run
+        # after it; the phone/Watch can still use /nearby to obtain the actual nearby list.
+        background_tasks.add_task(_discover_nearby_maps, latitude, longitude)
     return build_mobile_course_options_response(player_id=player_id)
+
+
+def _discover_nearby_maps(latitude: float, longitude: float) -> None:
+    from server_v2.map_startup import enqueue_nearby
+
+    try:
+        result = course_search.courseview_nearby(latitude=latitude, longitude=longitude, radius_km=30)
+        matches = result.matches if isinstance(result, course_search.NearbyCourseResult) else result
+        record_courseview_catalogue_names(matches, root=ROOT)
+        enqueue_nearby(matches)
+    except Exception:
+        logger.exception("nearby_prewarm discovery_failed")
 
 
 _GEOMETRY_UPGRADE_LOCK = threading.Lock()
@@ -1801,7 +1811,7 @@ _GEOMETRY_UPGRADE_INFLIGHT: dict[int, set[int]] = {}
 # render in the overlap lane so geometry and rasterisation can make progress together without
 # multiplying the shared homeserver's peak memory.  The renderer itself still single-flights a
 # duplicate path and validates the revision before publishing its PNG.
-_TOPO_PIPELINE_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="course-topo-pipeline")
+_TOPO_PIPELINE_POOL = PriorityExecutor(max_workers=1, name="course-topo-pipeline")
 
 
 def _normalise_authority_observation(evidence: dict[str, Any]) -> str:
@@ -1920,13 +1930,36 @@ def run_course_install_job(identifier: str) -> None:
     state = course_install.state_for_worker(identifier)
     if state is None:
         return
+    if str(state.get("loopKey") or "").endswith(":nearby-assets"):
+        from ai_caddie.courses.course_reference import courseview_release_info
+        from server_v2.map_startup import ensure_startup_course_data
+
+        gid = int(state["globalId"])
+        try:
+            release = courseview_release_info(gid, allow_fetch=True)
+        except Exception:
+            release = None
+        if not release:
+            course_install.update(identifier, phase="queued", stage="metadata", clear_error=True)
+            return
+        course_install.bind_nearby_holes(identifier, [int(h["hole"]) for h in release.get("holes") or []])
+        # Optional CourseView route authority selects the correct layout on shared A/B greens.
+        # Missing courseData is a normal Garmin shape; precise vectors remain the fallback.
+        ensure_startup_course_data(gid)
+        state = course_install.state_for_worker(identifier) or state
     rows = [row for row in (state.get("holes") or {}).values() if isinstance(row, dict)]
     if not rows:
         course_install.update(identifier, phase="failed", stage="error", error="course has no holes")
         return
 
-    state = course_install.state_for_worker(identifier) or state
-    rows = [row for row in (state.get("holes") or {}).values() if isinstance(row, dict)]
+    # A coordinator pass owns at most two holes. Once they finish it returns to the priority
+    # queue, allowing newly selected courses to overtake an entire regional install.
+    priority = int(state.get("priority", SELECTED_COURSE))
+    rows = sorted(rows, key=lambda row: int(row.get("displayHole") or row.get("localHole") or 0))
+    window = 1 if priority == NEARBY else 2  # Reserve a geometry worker for an opening hole.
+    rows = [row for row in rows if row.get("geometry") in {"queued", "running"}
+            or (course_install._geometry_ready(row) and row.get("topo") in {"queued", "running"})][:window]
+
     topo_futures: dict[Any, tuple[int, int, str, int]] = {}
     topo_completion_events: dict[Any, threading.Event] = {}
 
@@ -1984,7 +2017,7 @@ def run_course_install_job(identifier: str) -> None:
             return
         if course_install._topo_ready(current_row):
             return
-        future = _TOPO_PIPELINE_POOL.submit(_render_course_topo_one, gid, hole, geometry_revision)
+        future = _TOPO_PIPELINE_POOL.submit(_render_course_topo_one, gid, hole, geometry_revision, priority=priority)
         work_revision = int(current_row.get("workRevision") or 1)
         topo_futures[future] = (gid, hole, geometry_revision, work_revision)
         completion_event = threading.Event()
@@ -2091,6 +2124,14 @@ def run_course_install_job(identifier: str) -> None:
             expected_work_revision=expected_work_revision,
         )
         if ok and not retryable:
+            # Persist the full factual vector map before submitting any raster work. This cache
+            # is public course geometry, with no club history or personalized recommendation.
+            from ai_caddie.courses.vector_prep import cached_vector_hole
+
+            try:
+                cached_vector_hole(gid, hole)
+            except Exception:
+                logger.exception("course_install stage=vector gid=%s hole=%s", gid, hole)
             queue_topo({
                 "globalId": gid,
                 "localHole": hole,
@@ -2102,11 +2143,10 @@ def run_course_install_job(identifier: str) -> None:
         if course_install.cancellation_requested(identifier):
             return
         try:
-            summary = _ensure_geometry_for_course(
-                gid,
-                holes=sorted(set(holes)),
-                on_hole_complete=on_geometry_complete,
-            )
+            geometry_kwargs = {"holes": sorted(set(holes)), "on_hole_complete": on_geometry_complete}
+            if priority == NEARBY:
+                geometry_kwargs["priority"] = priority
+            summary = _ensure_geometry_for_course(gid, **geometry_kwargs)
             # A legacy/test implementation may omit the callback. Reconcile from its deterministic
             # result list so the journal never remains permanently queued.
             for result in summary.get("results") or []:
@@ -2146,6 +2186,8 @@ def run_course_install_job(identifier: str) -> None:
     final_rows = [row for row in (final.get("holes") or {}).values() if isinstance(row, dict)]
     if final_rows and course_install._all_assets_ready(final):
         course_install.update(identifier, phase="ready", stage="complete", clear_error=True)
+    elif course_install._has_queued_work(final):
+        course_install.update(identifier, phase="queued", stage="queued", clear_error=True)
     elif any(
         row.get("geometry") == "failed" or row.get("topo") == "failed"
         for row in final_rows
@@ -2180,10 +2222,16 @@ def mobile_course_package(
     ensure_geometry: bool = False,
     background_geometry: bool = False,
     include_event_cursor: bool = True,
+    priority_hole: int = 1,
+    map_only: bool = False,
     loops: str = Query(..., description="Ordered round loops, G:H[,G2:H2] with H = all|front|back"),
     player_id: str = Depends(current_player_id),
 ) -> LiveRoundPackageResponse:
     round_loops = _parse_round_loops_or_422(loops, global_id)
+    if map_only and ensure_geometry:
+        raise HTTPException(status_code=422, detail="map_only uses background geometry, not a whole-course foreground install")
+    if not 1 <= priority_hole <= len(round_loops) * 9:
+        raise HTTPException(status_code=422, detail="priority_hole is outside the selected round")
     try:
         package = build_mobile_course_package_response(
             global_id,
@@ -2193,6 +2241,9 @@ def mobile_course_package(
             client_id=client_id,
             ensure_geometry=ensure_geometry,
             include_event_cursor=include_event_cursor,
+            prepare_map=(background_geometry or map_only) and not ensure_geometry,
+            priority_hole=priority_hole,
+            map_only=map_only,
             loops=round_loops,
             player_id=player_id,
         )

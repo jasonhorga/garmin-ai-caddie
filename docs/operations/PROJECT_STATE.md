@@ -1,108 +1,79 @@
 # Garmin AI Caddie Project State
 
-> Short durable continuity ledger. Only this file is authoritative.
-> Completed/history is preserved verbatim in dated `docs/archive/` files.
+> **FROZEN AT THE AGENTHUB CUTOVER — HISTORICAL, NON-AUTHORITATIVE.** Since
+> the cutover this ledger is no longer updated, and the rule that it is
+> authoritative no longer applies. Current state lives in GitHub issues and
+> pull requests; the execution contract is `AGENTS.md`. Below is the last state
+> recorded by the previous workflow, kept unchanged as history together with
+> `docs/archive/`.
 
-**Updated:** 2026-10-11 19:18 UTC
-**Canonical baseline:** main `0882c41c` / released source `b662572e`
+> Short durable continuity ledger. Only this file is authoritative.
+> Completed/history is preserved in dated `docs/archive/` files.
+
+**Updated:** 2026-10-16 12:39 UTC; #430 activation scope accepted; live gate open
+**Canonical baseline:** main `ac357006`; #430 review head `4a469d5a52d87dc14c52c6c304037df502dd329b`
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
-## Current state
+## Current state and unfinished work
 
-- #404–#416 were reviewed, merged, and (where required) deployed. Do not
-  repeat those reviews, tests, comments, or Build 86 upload.
-- #417 whole-round Watch audit is complete as an evidence pass. Final issue
-  findings comment: [#6110771081](https://github.com/jasonhorga/garmin-ai-caddie/issues/417#issuecomment-6110771081).
-- #418 remains a draft test-only scaffold at `715b6ddb`. Required CI and Native
-  CI are green, but exact-head Watch audit run [38158983899](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38158983899)
-  failed with the retained 49 mm P1 candidate and incomplete control coverage;
-  hold merge. Latest PR comment: [#6112194367](https://github.com/jasonhorga/garmin-ai-caddie/pull/418#issuecomment-6112194367).
-- #419 exact head `4cfb1588` passed required CI/Native artifact review, received
-  [PASS](https://github.com/jasonhorga/garmin-ai-caddie/pull/419#issuecomment-6112715912),
-  merged as `95b5694e`, and had its source branch deleted. Evidence is recorded
-  in `docs/operations/2026-10-11-pr419-review-4cfb1588.md`.
-- Product fixes are outside the audit scope and await Jason/Claude triage.
-
-## Unfinished queue
-
-- `PR-FEEDBACK-CONTINUOUS` — `in-progress`: resume the single blocking
-  `ops/wait_for_conclusion.sh --feedback` waiter after this state commit.
-- `PR-418-AUDIT-SCAFFOLD` — `evidence-open`: keep draft until the audit
-  findings and the remaining scorecard/manual-control coverage are triaged.
-- `NATIVE-FIXTURE-LAYOUT-STABILITY` — `queued`: nonblocking #416 variation.
-- `IOS-STATUS-CONTRAST` — `queued`: nonblocking dark status/navigation text.
-- `OWNER-DEVICE-BUILD86` — `evidence-open`: paired-device validation remains
-  owner work; package evidence is not a physical-install claim.
-
-## Watch audit evidence
-
-- Exact source `715b6ddb31ddbf550fc7819e2a5576fefe377206`; Xcode 26.3,
-  watchOS 26.2; 41/46/49 mm. Run [38158983899](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38158983899).
-- All ten methods ran on every face with zero skips: 41 mm 8/2, 46 mm 8/2,
-  49 mm 8/2 passed/failed. 156/212/215 screenshots; contact sheets and face
-  artifacts are retained for 30 days.
-- CI [38158970598](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38158970598)
-  and Native [38158970597](https://github.com/jasonhorga/garmin-ai-caddie/actions/runs/38158970597)
-  passed. Preparation checks: 145 passed (7 audit-tool, 12 native visual,
-  126 mobile contracts).
-- P1 candidate: 49 mm `手动记杆` leaves `shots=0; pending=false` on the
-  hole root in the real first-tap path; the injected candidate is explicitly
-  not a recovery proof.
-- P2/control coverage: 46 mm undo evidence misses the four-second action
-  window after delayed attachment capture; 46/49 mm 9→18 continuation remains
-  not hittable; 41 mm scorecard navigation fails at row 4. Existing visual
-  findings remain: 41 mm F/M/B `575` clips to `5…`, 46/49 mm score `11` clips
-  to `…`, zoom-2 hazard pan changes to 果岭 on 41/49, and post-measure page
-  swipes are swallowed on all faces.
-- This remains a coverage/control investigation, not a silently passing
-  result. Simulator evidence cannot prove real GPS, battery, WCSession timing,
-  physical Crown, or wrist motion.
-- Design references checked: `docs/design/2026-09-25-ui-redesign/README.md`
-  §3 and `watch.html`; October 10 full-bleed/floating F/M/B direction wins.
+- `PR430-REVIEW` — `evidence-open`: exact head `4a469d5a` fixes the fixture
+  mode typo and routing wording; CI run `38896984359` backend/frontend/docker
+  is green. Claude adopted the exact 8-path equality, authorization ordering,
+  and hard c+ conditions. Review:
+  https://github.com/jasonhorga/garmin-ai-caddie/pull/430#issuecomment-6215676217.
+  No P1/P2 remains in the scope definition. Keep review-only until live
+  activation evidence is complete.
+- **Agenthub K10 / step-5 entry prerequisite: satisfied.** Agenthub #60 head
+  `f4c257c73192c8ad30514390ab4ecf8ed9ac9f4d` merged as `6d6c6d9`; exact-head
+  K10 slice passed 84/84. Real API fetch for check `116365912538` / run
+  `38718182080` on head `0d837d73` downloaded design 97 files, watch 47,
+  evidence 1; second fetch reused the verified copy and a wrong head was
+  rejected before download.
+- **Step-6 activation/cutover: open.** The acceptance scope is sufficient:
+  the merged policy parses and asserts the exact 8-path set; authorization
+  refusals occur before release gates with no run; and c+ is hard-gated on one
+  owner-local TestFlight dispatch plus read-only Apple evidence. Completion
+  still requires those live records (plus exact-head gate and same-run artifact
+  observations); a deferred owner request leaves step 6 open.
+- `BACKEND-READINESS-428`, `TESTFLIGHT-89`, `APPLE-READONLY-89`, #425/#427,
+  `MAIN-PROVENANCE-FIX`, and `PR429-REVIEW` remain done in dated archives.
+  #417 evidence-open; #418 draft/evidence-open; #420 awaits 49 mm transitions;
+  #422 draft/test-only and must not merge.
 
 ## Live verification baselines
 
-- Production API/sync: `cbc17f4e76f085229c3bdb3c74a5067951b217a6`; health,
-  history, sync, precise prep and topo PNG gates passed; manual sync reported
-  `sync ok` and `done`.
-- #404/#406 deployment evidence: 237 related tests, five existing geometry
-  skips; nine-hole workload 35.49 s → 22.93 s; two render workers observed;
-  report `docs/operations/2026-10-10-pr404-406-backend-deploy.md`.
-- Internal TestFlight 0.1.0 (86) was independently Apple-checked as
-  `VALID/IN_BETA_TESTING`; no new upload is authorized by this audit.
+- Production revision `e1243ba9c516f2983a56aab1cdbd032d4595ab9c`, container
+  `aicaddie-release-e1243ba9-production-20261015`, public
+  `https://caddie.taile36706.ts.net`; matching sync image exists.
+- Release evidence: `/home/jason/garmin-ai-caddie-data/operations/release-readiness-428-20261015`;
+  Apple waiter log:
+  `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-38750039805-20261015T142108Z-3379555.log`.
+- Cold-start baseline: nearby 28242 vector package `3.241 s`; cold 28214
+  first drawable package `6.453 s` through the homeserver Funnel.
+- Build 89 is the current verified release candidate; Build 87 is historical.
 
 ## Owned resources and cleanup
 
-- Audit worktree: `/home/ubuntu/claude-web-data/repo/garmin-ai-caddie-watch417-20261011`,
-  Codex-owned, created 2026-10-11 08:30 UTC, expiry 2026-10-18 08:30 UTC.
-- Remote verification snapshot: `/dev/shm/garmin-ai-caddie-watch417-verify-20261011`,
-  expiry 2026-10-12 08:30 UTC; no dependencies or service left running.
-- Persistent evidence: `/home/jason/garmin-ai-caddie-data/operations/watch417-simulator-audit-20261011`;
-  artifacts, run receipts, final comments and manifests retained. Test
-  containers and download terminals were removed; no tunnel/service/timer was
-  created. Local contact-sheet copies and the `/dev/shm` verification snapshot
-  were removed 2026-10-11 15:52 UTC after artifact retention was confirmed.
-- #419 review evidence is retained at
-  `/home/jason/garmin-ai-caddie-data/operations/pr419-4cfb1588-20261011`;
-  local screenshot copies were moved to Trash after inspection, and no
-  service, tunnel, container, or dependency environment was created.
-- Historical pre-final ledger is preserved verbatim at
-  `docs/archive/PROJECT_STATE-2026-10-11-watch417-final-audit-preclose.historical.md`.
-- Shared checkout `/home/jason/codex-runs/garmin-ai-caddie-claude-takeover-20261005`
-  remains untouched. `gh-feedback` timer/cursor are unchanged.
+- The same-turn feedback waiter runs in a read-only copied script under
+  `/home/jason/codex-runs/codex-feedback-wait-20261016/`, with a per-turn
+  terminal handle retained in the control turn and an exact allow-list expiry;
+  remove that directory after each terminal conclusion before starting the next
+  same-turn wait. Do not create a persistent independent monitor.
+- K10 review snapshot `/dev/shm/codex-agenthub-k10-f4c257c` and isolated fetch
+  directory were removed after verification; no container, service, port,
+  tunnel, dependency install, or worktree was created by that review.
+- Existing Watch #417 worktree remains owned by its prior task and expires
+  2026-10-18 08:30 UTC; do not delete without its allow-list.
 
 ## Next action and stop conditions
 
-1. Commit/push this ledger and the dated archive on the audit branch; keep
-   #418 draft and do not dispatch another Watch audit.
-2. Close the owned snapshot/contact-sheet copies after their expiry or once
-   evidence is no longer needed, then launch one blocking feedback waiter in
-   the same control turn. Observe only by `sleep 300000` then one
-   `write_stdin`; its one-line result is the only wake-up signal.
-3. Process new external PR events once, ignoring Codex-owned docs/state CI.
-
-Stop at 2026-10-13 08:22:16 UTC, or earlier after 48 hours with no external
-PR events and no open PRs. Owner stop instruction overrides this condition.
-Every GitHub comment/review ends `_Generated by Codex_`; every Codex commit
-ends `Generated-by: Codex`. Keep this file at 200 lines or fewer and archive
-completed detail by date without deleting information.
+1. Continue the existing same-turn waiter; when it returns, process only its
+   one-line actionable conclusion. Re-review #430 only after the P2 path-set
+   correction and live activation evidence. Do not merge from this review.
+2. For each new code PR, review exact head, run required remote tests, inspect
+   Native artifacts when applicable, and post P1/P2/non-blocking evidence.
+3. Owner stop condition: explicit owner stop, or 48 hours with no new external
+   PR event and no open PR. The old 2026-10-09 cutoff is historical; newer
+   owner requests keep this slice authorized.
+4. Every Codex GitHub comment/review ends `_Generated by Codex_`; every Codex
+   commit ends `Generated-by: Codex`.

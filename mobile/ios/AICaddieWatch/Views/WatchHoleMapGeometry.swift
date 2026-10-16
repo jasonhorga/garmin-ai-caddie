@@ -16,6 +16,19 @@ public struct WatchHoleMapHazardGeometry {
     }
 }
 
+/// One filled course surface in image pixels (outer ring plus the rings it must leave open).
+public struct WatchHoleMapSurfaceGeometry {
+    public let kind: String
+    public let outer: [CGPoint]
+    public let holes: [[CGPoint]]
+
+    public init(kind: String, outer: [CGPoint], holes: [[CGPoint]] = []) {
+        self.kind = kind
+        self.outer = outer
+        self.holes = holes
+    }
+}
+
 /// watch P1: the per-hole map GEOMETRY `WatchHoleMapView` renders — the topo image plus the overlay
 /// anchor points (you / pin / lay-up / apex / green-control) in IMAGE-pixel space. #218 hard-coded
 /// these to one baked sample; this makes them a value the view takes, so the real playing view can
@@ -36,6 +49,8 @@ public struct WatchHoleMapGeometry {
     public let routePx: [CGPoint]
     public let greenOutlinePx: [CGPoint]
     public let hazardSpans: [WatchHoleMapHazardGeometry]
+    /// Real surfaces for the vector map, drawn only while no bitmap is (empty when the server sent none).
+    public let surfaces: [WatchHoleMapSurfaceGeometry]
 
     public init(
         image: UIImage?,
@@ -49,7 +64,8 @@ public struct WatchHoleMapGeometry {
         greenCtrlPx: CGPoint,
         routePx: [CGPoint] = [],
         greenOutlinePx: [CGPoint] = [],
-        hazardSpans: [WatchHoleMapHazardGeometry] = []
+        hazardSpans: [WatchHoleMapHazardGeometry] = [],
+        surfaces: [WatchHoleMapSurfaceGeometry] = []
     ) {
         self.image = image
         self.greenDetailImage = greenDetailImage
@@ -63,6 +79,7 @@ public struct WatchHoleMapGeometry {
         self.routePx = routePx
         self.greenOutlinePx = greenOutlinePx
         self.hazardSpans = hazardSpans
+        self.surfaces = surfaces
     }
 
     /// watch P3: a copy with YOU relocated — used when the watch's own GPS places the player (the pin /
@@ -72,7 +89,7 @@ public struct WatchHoleMapGeometry {
                              greenDetailRectPx: greenDetailRectPx, imageSize: imageSize, youPx: px, pinPx: pinPx,
                              layupPx: layupPx, apexPx: apexPx, greenCtrlPx: greenCtrlPx,
                              routePx: routePx, greenOutlinePx: greenOutlinePx,
-                             hazardSpans: hazardSpans)
+                             hazardSpans: hazardSpans, surfaces: surfaces)
     }
 }
 
@@ -138,6 +155,17 @@ extension WatchHoleMapGeometry {
                     frontPx: front,
                     backPx: back
                 )
+            },
+            surfaces: (hm.surfaces ?? []).flatMap { surface in
+                surface.polygons.compactMap { polygon -> WatchHoleMapSurfaceGeometry? in
+                    let outer = polygon.outerPx.compactMap(validPoint)
+                    guard outer.count >= 3 else { return nil }
+                    return WatchHoleMapSurfaceGeometry(
+                        kind: surface.kind.lowercased(),
+                        outer: outer,
+                        holes: (polygon.holesPx ?? []).map { $0.compactMap(validPoint) }.filter { $0.count >= 3 }
+                    )
+                }
             }
         )
     }

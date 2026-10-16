@@ -1,13 +1,16 @@
 import SwiftUI
 import AICaddieDomain
 
-/// The Watch turn (B4b-2 §7): the first half of an 18-hole course is finished, choose the second
-/// nine with the shared `NineLoopPlan` — 前九 / 后九 (the other half preselected, the same half
-/// allowed) or 只打 9 洞. The chosen half continues the same round on holes 10–18.
+/// The Watch turn (B4b-2 §7): the first nine is finished — half of an 18-hole course or one loop of
+/// an A / B / C venue — choose the second with the shared `NineLoopPlan`: 前九 / 后九 or the venue's
+/// loops (the next one preselected, the same one allowed), or 只打 9 洞. The choice continues the
+/// same round on holes 10–18, and can still change until hole 10 is played.
 public struct WatchTurnView: View {
     public let plan: NineLoopPlan
     public let isLoading: Bool
     public let message: String?
+    /// Changing an unplayed second nine from the menu rather than at the turn.
+    public let isChange: Bool
     public let onChoose: (NineLoopPlan.Second) -> Void
     public let onConfirm: () -> Void
     public let onBack: () -> Void
@@ -16,6 +19,7 @@ public struct WatchTurnView: View {
         plan: NineLoopPlan,
         isLoading: Bool = false,
         message: String? = nil,
+        isChange: Bool = false,
         onChoose: @escaping (NineLoopPlan.Second) -> Void = { _ in },
         onConfirm: @escaping () -> Void = {},
         onBack: @escaping () -> Void = {}
@@ -23,6 +27,7 @@ public struct WatchTurnView: View {
         self.plan = plan
         self.isLoading = isLoading
         self.message = message
+        self.isChange = isChange
         self.onChoose = onChoose
         self.onConfirm = onConfirm
         self.onBack = onBack
@@ -31,11 +36,14 @@ public struct WatchTurnView: View {
     /// One row per half in course order, then 只打 9 洞. `id` is the accessibility identifier.
     static func choices(for plan: NineLoopPlan) -> [WatchRoundSetupChoicePresentation] {
         let halves = plan.course.loops.map { loop -> WatchRoundSetupChoicePresentation in
-            let half = loop.id.split(separator: ":").last.map(String.init) ?? loop.id
-            // The printed (physical) holes of the half, never the round positions 10–18.
-            let printed = half == "back" ? "第 10–18 洞" : "第 1–9 洞"
+            let fields = loop.id.split(separator: ":").map(String.init)
+            let half = fields.last ?? loop.id
+            // The printed (physical) holes of a half, never the round positions 10–18; a nine-hole
+            // loop of an A / B / C venue is just its nine holes.
+            let printed = half == "all" ? "9 洞" : (half == "back" ? "第 10–18 洞" : "第 1–9 洞")
+            let id = half == "all" ? "watch-turn-loop-\(fields.first ?? loop.id)" : "watch-turn-half-\(half)"
             return WatchRoundSetupChoicePresentation(
-                id: "watch-turn-half-\(half)",
+                id: id,
                 title: loop.displayName,
                 detail: loop.id == plan.first ? "再打一次 · \(printed)" : printed,
                 isSelected: plan.second == .loop(loop.id)
@@ -48,6 +56,11 @@ public struct WatchTurnView: View {
             isSelected: plan.second == .stopAfterNine
         )
         return halves + [stop]
+    }
+
+    private var actionTitle: String {
+        guard isChange, let loop = plan.secondLoop else { return plan.turnActionTitle }
+        return "改打 \(loop.displayName)"
     }
 
     public var body: some View {
@@ -63,7 +76,11 @@ public struct WatchTurnView: View {
     /// ImageRenderer does not materialize ScrollView contents).
     var content: some View {
             VStack(alignment: .leading, spacing: 6) {
-                WatchInstrumentHeader(plan.turnTitle, backLabel: "返回第 9 洞", onBack: onBack)
+                WatchInstrumentHeader(
+                    isChange ? "换第二个 9 洞" : plan.turnTitle,
+                    backLabel: isChange ? "不换" : "返回第 9 洞",
+                    onBack: onBack
+                )
 
                 ForEach(Self.choices(for: plan)) { choice in
                     Button {
@@ -116,7 +133,7 @@ public struct WatchTurnView: View {
                             ProgressView()
                                 .controlSize(.small)
                         }
-                        Text(isLoading ? "正在准备" : (message == nil ? plan.turnActionTitle : "重试 · \(plan.turnActionTitle)"))
+                        Text(isLoading ? "正在准备" : (message == nil ? actionTitle : "重试 · \(actionTitle)"))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                     }
@@ -141,6 +158,10 @@ public struct WatchTurnView: View {
 
     private func second(for choiceId: String) -> NineLoopPlan.Second {
         guard choiceId != "watch-turn-stop-after-nine" else { return .stopAfterNine }
+        if choiceId.hasPrefix("watch-turn-loop-") {
+            let id = "\(choiceId.dropFirst("watch-turn-loop-".count)):all"
+            return plan.course.hasLoop(id) ? .loop(id) : .stopAfterNine
+        }
         let half = String(choiceId.dropFirst("watch-turn-half-".count))
         let loop = plan.course.loops.first { $0.id.hasSuffix(":\(half)") }
         return loop.map { .loop($0.id) } ?? .stopAfterNine

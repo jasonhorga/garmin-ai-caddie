@@ -434,26 +434,16 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testRenderWatchScoreHole() throws {
         let view = WatchScoreHoleView(
-            hole: 7, par: 4, score: 5, putts: 2, penalty: 0
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0, snapshotInsets: true
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-hole")
     }
 
-    /// B6 本洞成绩 rules: wheels wrap, the total never drops below putts + penalties + 1.
-    func testScoreRulesWrapTheWheelsAndRaiseTheTotal() {
-        XCTAssertEqual(WatchScoreRules.wrap(6, in: WatchScoreRules.puttRange), 0, "5 rolls over to 0")
-        XCTAssertEqual(WatchScoreRules.wrap(-1, in: WatchScoreRules.puttRange), 5, "0 sits under 5")
-        XCTAssertEqual(WatchScoreRules.wrap(-1, in: WatchScoreRules.penaltyRange), 4)
-        XCTAssertEqual(WatchScoreRules.score(3, putts: 3, penalty: 1), 5, "raised to putts + penalties + 1")
-        XCTAssertEqual(WatchScoreRules.score(6, putts: 2, penalty: 0), 6)
-        XCTAssertEqual(WatchScoreRules.score(40, putts: 2, penalty: 0), 15)
-    }
-
     @MainActor
     func testRenderWatchScoreTotalStep() throws {
         let view = WatchScoreHoleView(
-            hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .hit
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .hit, snapshotInsets: true
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-total")
@@ -463,7 +453,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchScorePuttsStep() throws {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-            openWheel: .putts
+            selected: .putts, snapshotInsets: true
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-putts")
@@ -472,7 +462,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
     func testRenderWatchScoreFairwayStep() throws {
         let view = WatchScoreHoleView(
-            hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .left
+            hole: 7, par: 4, score: 5, putts: 2, penalty: 0, fairway: .left,
+            showsFairway: true, snapshotInsets: true
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-fairway")
@@ -482,7 +473,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchScorePenaltyStep() throws {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-            openWheel: .penalty
+            selected: .penalty, snapshotInsets: true
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-penalty")
@@ -492,7 +483,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     func testRenderWatchScoreWithNextTeeCandidate() throws {
         let view = WatchScoreHoleView(
             hole: 7, par: 4, score: 5, putts: 2, penalty: 0,
-            candidateNextHole: 8
+            candidateNextHole: 8, snapshotInsets: true
         )
         .watchSnapshotFrame(width: 198, height: 242)
         try render(view, named: "watch-score-next-tee-candidate")
@@ -532,10 +523,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(view.editScoreActionLabel, "编辑成绩")
         XCTAssertEqual(view.secondaryActionLabel, "继续打球")
         XCTAssertFalse(view.initiallyShowSecondaryAction)
-        XCTAssertGreaterThanOrEqual(
-            WatchFinishRoundLayout.systemTimeTrailingClearance,
-            WatchScoreHoleLayout.systemTimeTrailingClearance
-        )
         XCTAssertLessThan(
             WatchFinishRoundLayout.secondaryActionHeight,
             WatchFinishRoundLayout.primaryActionHeight
@@ -1028,7 +1015,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let frontFirst = try XCTUnwrap(WatchRoundModel.makeTurnPlan(loopKey: "31795:front"))
         XCTAssertEqual(frontFirst.second, .loop("31795:back"))
         XCTAssertNil(WatchRoundModel.makeTurnPlan(loopKey: "31795:front+31795:back"))
-        XCTAssertNil(WatchRoundModel.makeTurnPlan(loopKey: "301:all"))
+        // A nine-hole loop has a turn too (#424): with no known siblings, the same loop again or 只打 9 洞.
+        let nine = try XCTUnwrap(WatchRoundModel.makeTurnPlan(loopKey: "301:all"))
+        XCTAssertEqual(nine.course.loops.map(\.id), ["301:all"])
     }
 
     @MainActor
@@ -1480,20 +1469,21 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 putts: 3,
                 penalty: 2,
                 fairway: .right,
-                candidateNextHole: 1
+                candidateNextHole: 1,
+                snapshotInsets: true
             )
             .watchSnapshotFrame(width: 176, height: 215),
             named: "watch-compact-score-fairway"
         )
-        // The open 推 / 罚 wheels on the 41 mm face: inside their chips, nothing else covered.
-        for wheel in [WatchScoreWheel.putts, .penalty] {
+        // 推杆 / 罚杆 selected (the Crown's row) on the 41 mm face.
+        for field in [WatchScoreField.putts, .penalty] {
             try render(
                 WatchScoreHoleView(
                     hole: 7, par: 4, score: 5, putts: 2, penalty: 1, fairway: .hit,
-                    openWheel: wheel
+                    selected: field, snapshotInsets: true
                 )
                 .watchSnapshotFrame(width: 176, height: 215),
-                named: "watch-compact-score-\(wheel.rawValue)"
+                named: "watch-compact-score-\(field.rawValue)"
             )
         }
         try render(

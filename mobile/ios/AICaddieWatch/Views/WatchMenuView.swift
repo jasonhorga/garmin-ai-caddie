@@ -8,6 +8,7 @@ public struct WatchMenuView: View {
         case caddie = "球童建议"
         case hazards = "障碍"
         case holeSelect = "选洞"
+        case changeSecondNine = "换一个 9 洞"
         case scorecard = "计分卡"
         case flagDirection = "旗向指引"
         case clubStats = "球杆数据"
@@ -21,6 +22,8 @@ public struct WatchMenuView: View {
     public let hasHazards: Bool
     public let hasClubStats: Bool
     public let hasFlagDirection: Bool
+    /// The second nine has nothing recorded yet and can still change (the phone's rule).
+    public let canChangeSecondNine: Bool
     public let onViewGreen: () -> Void
     public let onCaddie: () -> Void
     public let onHazards: () -> Void
@@ -30,6 +33,7 @@ public struct WatchMenuView: View {
     public let onSettings: () -> Void
     public let onFlagDirection: () -> Void
     public let onFinish: () -> Void
+    public let onChangeSecondNine: () -> Void
     public let onBack: () -> Void
 
     @State private var showingMoreTools = false
@@ -40,6 +44,7 @@ public struct WatchMenuView: View {
         hasHazards: Bool = false,
         hasClubStats: Bool = false,
         hasFlagDirection: Bool = false,
+        canChangeSecondNine: Bool = false,
         onViewGreen: @escaping () -> Void = {},
         onCaddie: @escaping () -> Void = {},
         onHazards: @escaping () -> Void = {},
@@ -49,6 +54,7 @@ public struct WatchMenuView: View {
         onSettings: @escaping () -> Void = {},
         onFlagDirection: @escaping () -> Void = {},
         onFinish: @escaping () -> Void = {},
+        onChangeSecondNine: @escaping () -> Void = {},
         onBack: @escaping () -> Void = {}
     ) {
         self.hasCaddie = hasCaddie
@@ -56,6 +62,8 @@ public struct WatchMenuView: View {
         self.hasHazards = hasHazards
         self.hasClubStats = hasClubStats
         self.hasFlagDirection = hasFlagDirection
+        self.canChangeSecondNine = canChangeSecondNine
+        self.onChangeSecondNine = onChangeSecondNine
         self.onViewGreen = onViewGreen
         self.onCaddie = onCaddie
         self.onHazards = onHazards
@@ -128,7 +136,8 @@ public struct WatchMenuView: View {
             hasCaddie: hasCaddie,
             hasHazards: hasHazards,
             hasClubStats: hasClubStats,
-            hasFlagDirection: hasFlagDirection
+            hasFlagDirection: hasFlagDirection,
+            canChangeSecondNine: canChangeSecondNine
         )
     }
 
@@ -139,9 +148,12 @@ public struct WatchMenuView: View {
         hasCaddie: Bool,
         hasHazards: Bool,
         hasClubStats: Bool,
-        hasFlagDirection: Bool
+        hasFlagDirection: Bool,
+        canChangeSecondNine: Bool = false
     ) -> [Item] {
         var items: [Item] = []
+        // A wrong pick at the turn is fixed here, first, while it still can be.
+        if canChangeSecondNine { items.append(.changeSecondNine) }
         if hasViewGreen { items.append(.viewGreen) }
         if hasCaddie { items.append(.caddie) }
         items += [.holeSelect, .scorecard]
@@ -197,6 +209,7 @@ public struct WatchMenuView: View {
         case .settings: return onSettings
         case .moreTools: return { showingMoreTools = true }
         case .finish: return onFinish
+        case .changeSecondNine: return onChangeSecondNine
         }
     }
 

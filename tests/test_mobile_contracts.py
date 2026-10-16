@@ -2778,7 +2778,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("puttChoices", model)
         # README 3: the total never drops below putts + penalty + 1.
         self.assertIn("public var minimumScore: Int { putts + penalty + 1 }", model)
-        self.assertEqual(model.count("score = max(score, minimumScore)"), 2)
+        # One rule for phone and Watch: the draft delegates to the shared domain type.
+        shared = _read_required_source(self, IOS_DIR.parent / "AICaddieDomain" / "HoleScoreValues.swift")
+        self.assertEqual(shared.count("score = max(score, minimumScore)"), 2)
+        self.assertIn("var values = HoleScoreValues(score: score, putts: putts, penalty: penalty)", model)
         # No source hints and no multi-step flow.
         for removed in ["手动确认", "接受推荐", "手表测到", "GPS 建议", "默认标准杆", "下一步"]:
             self.assertNotIn(removed, sheet)
@@ -5172,7 +5175,7 @@ class MobileContractTests(unittest.TestCase):
         model = _read_required_source(self, WATCH_DIR / "Models" / "WatchRoundModel.swift")
         self.assertNotIn("case clubPrompt", model)
         for token in ["func undoPendingManualShot()", "var undoableShotText", "func observeLocation(",
-                      "enum WatchScoreRules", "func setDraftPutts(", "func setDraftPenalty(",
+                      "applyDraftValues { $0.selectPutts(value) }", "func setDraftPutts(", "func setDraftPenalty(",
                       "if scoringHole == hole.hole, advanceAfterScoring"]:
             self.assertIn(token, model)
         container = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundContainerView.swift")
@@ -6037,24 +6040,21 @@ class WatchHolePagesContractTests(unittest.TestCase):
         bad = dict(state, caddieOptions=[dict(state["caddieOptions"][0], routeOffsetBasis="green")])
         _assert_json_schema_rejects(self, schema, bad)
 
-    def test_score_wheels_open_a_full_screen_picker(self) -> None:
-        # Owner feedback 2026-10-11 supersedes the in-chip wheel: it opened tiny and could not be
-        # rolled on the wrist. Putts / penalties open a full-screen picker with - / + and 完成.
+    def test_score_is_three_stepper_rows_inside_the_full_window(self) -> None:
+        # Owner choice 2026-10-12 (#422 layout B) supersedes the full-screen putts/penalty picker:
+        # 总杆 / 推杆 / 罚杆 rows with - and +, the Crown on the outlined row, every control between
+        # the clock band and the bottom inset of a full-window canvas.
         score = self.read("Views/WatchScoreHoleView.swift")
-        self.assertIn("wheelPicker(openWheel, size: proxy.size)", score)
-        self.assertIn('pickerStep("minus"', score)
-        self.assertIn('pickerStep("plus"', score)
-        self.assertIn("watch-score-wheel-done", score)
-        self.assertNotIn("wheelDigits(", score)
-        self.assertNotIn("m.chip * 2.24", score)
-        self.assertNotIn("inlineWheel(", score)
-        self.assertIn("wheelSettled = true", score)
-        # Runtime evidence holds the open wheel (production still folds it back).
-        self.assertIn("guard openWheel != nil, !holdsOpenWheel, !wheelDragging else { return }", score)
-        self.assertIn("holdsOpenWheel: Bool = false", score)
-        root = self.read("Views/WatchUITestRoot.swift")
-        self.assertEqual(root.count("holdsOpenWheel: true"), 2)
-
+        self.assertIn("WatchFullWindowCanvas(snapshotInsets: snapshotInsets)", score)
+        self.assertIn("ForEach(WatchScoreField.allCases, id: \\.self)", score)
+        self.assertIn("adjust(selected, by: steps)", score)
+        self.assertIn('"watch-score-\\(field.rawValue)-plus"', score)
+        for removed in ["wheelPicker(", "holdsOpenWheel", "WatchScoreWheel", "scoreRange"]:
+            self.assertNotIn(removed, score)
+        canvas = self.read("Views/WatchFullWindowCanvas.swift")
+        self.assertIn(".ignoresSafeArea()", canvas)
+        model = self.read("Models/WatchRoundModel.swift")
+        self.assertNotIn("enum WatchScoreRules", model)
 
 if __name__ == "__main__":
     unittest.main()

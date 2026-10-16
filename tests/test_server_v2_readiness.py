@@ -6,13 +6,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
-from server_v2.readiness import build_readiness_response
+from server_v2.readiness import PACKAGING_LABELS, build_readiness_response
 from tests.round_loop_authority import fixture_course_authority
 
 
@@ -290,7 +291,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertNotIn("token", str(payload).lower())
         checks = {check["label"]: check for check in payload["checks"]}
         self.assertEqual(checks["mobile_package"]["state"], "degraded")
-        self.assertIn("offline package", checks["mobile_package"]["detail"])
+        self.assertIn("runtime", checks["mobile_package"]["detail"])
         self.assertNotIn("source coverage", checks["mobile_package"]["detail"])
         self.assertEqual(checks["mobile_events"]["state"], "ready")
         self.assertEqual(checks["media_context"]["state"], "ready")
@@ -307,6 +308,7 @@ class ServerV2ReadinessTests(unittest.TestCase):
             checks["private_snapshot_acceptance"]["evidence"]["failureLabels"],
             ["accepted_snapshot_evidence"],
         )
+        self.assertIn("private_snapshot_acceptance", PACKAGING_LABELS)
         self.assertEqual(checks["native_mobile"]["evidence"]["nativeBuild"], "environment_blocked")
         self.assertIn("mobile/ios/project.yml", checks["native_mobile"]["evidence"]["projectManifest"])
         self.assertIn("xcodebuild test", checks["native_mobile"]["evidence"]["macosCommands"][0])
@@ -404,6 +406,34 @@ class ServerV2ReadinessTests(unittest.TestCase):
         self.assertEqual(checks["course_reference"]["state"], "degraded")
         self.assertEqual(checks["course_reference"]["evidence"]["pct"], 50.0)
         self.assertEqual(checks["course_reference"]["evidence"]["missingGlobalIds"], [31936])
+
+    def test_readiness_mobile_package_weather_is_evidence_not_runtime_gate(self) -> None:
+        package = SimpleNamespace(
+            schema_="ai-caddie-live-round-package-v2",
+            roundId="historical-round",
+            holes=[{"number": 1}],
+            caddieDecisionEndpoint="/api/v2/caddie/decision",
+            sourceCoverage={"state": "ready", "roundFound": True},
+            geometryCoverage={"state": "ready", "readyHoles": 18, "totalHoles": 18},
+            readinessChecks=[
+                {"label": "source", "state": "ready"},
+                {"label": "geometry", "state": "ready", "ready": 18, "total": 18},
+                {"label": "weather", "state": "missing", "ready": 0, "total": 18},
+            ],
+            offlinePackageStatus={"state": "degraded"},
+            caddieContextSeeds=[],
+            cachedCaddieRules={"offlineCapable": True},
+            missingData=[{"label": "weather", "reason": "historical weather is not cached"}],
+        )
+
+        with patch("server_v2.readiness.build_mobile_round_package_response", return_value=package):
+            payload = build_readiness_response()
+
+        check = next(row for row in payload["checks"] if row["label"] == "mobile_package")
+        self.assertEqual(check["state"], "ready")
+        self.assertEqual(check["evidence"]["offlinePackageStatus"]["state"], "degraded")
+        self.assertEqual(check["evidence"]["weatherEvidence"]["state"], "missing")
+        self.assertEqual(check["evidence"]["runtimeGate"]["required"], ["schema", "sourceCoverage", "geometryCoverage"])
 
     def test_readiness_sync_evidence_includes_freshness_and_coverage(self) -> None:
         class Snapshot:

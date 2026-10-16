@@ -1,6 +1,7 @@
 import CoreLocation
 import Foundation
 import XCTest
+import AICaddieDomain
 @testable import AICaddieWatch
 
 @MainActor
@@ -882,6 +883,103 @@ final class WatchRoundModelTests: XCTestCase {
 
         XCTAssertEqual(model.scoreFlowStep, .penalty)
         XCTAssertNil(model.draftFairway)
+    }
+
+    /// Battery report 2026-10-12: an idle round is set aside (workout + GPS stop) without losing
+    /// anything; resuming brings back the same hole and the pending shot.
+    func testPausingAnIdleRoundKeepsEverythingForResume() {
+        let model = seededModel(holes: [hole(1, par: 4), hole(2)])
+        model.beginManualShot(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 5, capturedAt: "2026-07-26T08:00:00Z")
+        XCTAssertNotNil(model.pendingManualShot)
+
+        model.pauseForIdle()
+        XCTAssertEqual(model.screen, .resume)
+        XCTAssertEqual(model.round?.pendingManualShot?.hole, 1, "the undoable shot is persisted")
+
+        model.resumeRound()
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertNotNil(model.pendingManualShot)
+        XCTAssertEqual(model.activeHole, 1)
+    }
+
+    /// Owner request 2026-10-12: an app quit by accident mid-round comes straight back to it.
+    func testAnAppQuitMidPlayComesStraightBackToTheRound() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wmodel-\(UUID().uuidString)", isDirectory: true)
+        let suite = "inplay-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let marker = WatchRoundInPlayMarker(defaults: defaults)
+        func launch() -> WatchRoundModel {
+            WatchRoundModel(
+                store: WatchRoundStore(directoryURL: directory),
+                persistAutoShotEnabled: { _ in },
+                inPlayMarker: marker
+            )
+        }
+        let model = launch()
+        model.seedRound([hole(1, par: 4), hole(2)], activeHole: 1)
+        model.startScoringActiveHole()
+        XCTAssertEqual(model.screen, .scoring)
+        model.noteInPlay()
+
+        let relaunched = launch()
+        XCTAssertEqual(relaunched.screen, .scoring, "the open score draft comes back as it was")
+        XCTAssertEqual(relaunched.scoringHole, 1)
+
+        relaunched.requestFinish()
+        relaunched.noteInPlay()
+        XCTAssertEqual(launch().screen, .resume, "quit while ending: Save & End is offered again")
+
+        relaunched.keepPlaying()
+        relaunched.noteInPlay()
+        relaunched.pauseForIdle()
+        XCTAssertEqual(launch().screen, .resume, "a round set aside as idle asks to resume")
+
+        marker.mark(roundId: "r1", at: Date().addingTimeInterval(-(WatchRoundInPlayMarker.resumeWindow + 60)))
+        XCTAssertEqual(launch().screen, .resume, "a round left longer asks to resume")
+        XCTAssertFalse(marker.wasInPlay(roundId: "other"))
+    }
+
+    /// #423 review: a pause whose durable write fails keeps the round in play (workout and GPS on).
+    func testAnIdlePauseThatCannotSaveKeepsTheRoundInPlay() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wmodel-\(UUID().uuidString)", isDirectory: true)
+        let suite = "inplay-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let marker = WatchRoundInPlayMarker(defaults: defaults)
+        let model = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            persistAutoShotEnabled: { _ in },
+            inPlayMarker: marker
+        )
+        model.seedRound([hole(1, par: 4), hole(2)], activeHole: 1)
+        model.startScoringActiveHole()
+        model.noteInPlay()
+
+        // The round file's path becomes a non-empty directory: every write fails.
+        let file = directory.appendingPathComponent("round.json")
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: file.appendingPathComponent("block"))
+
+        XCTAssertFalse(model.pauseForIdle())
+        XCTAssertEqual(model.screen, .scoring, "still in play: the caller does not stop workout or GPS")
+        XCTAssertTrue(marker.wasInPlay(roundId: "r1"), "the marker is kept for an accidental quit")
+
+        try FileManager.default.removeItem(at: file)
+        XCTAssertTrue(model.pauseForIdle(), "the next check succeeds once the file can be written")
+        XCTAssertEqual(model.screen, .resume)
+    }
+
+    func testLastActivityIsTheNewestRecordedInput() {
+        let model = seededModel(holes: [hole(1, par: 4), hole(2)])
+        XCTAssertNil(model.lastActivityAt)
+        model.beginManualShot(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 5, capturedAt: "2026-07-26T08:00:00Z")
+        model.completePendingManualShot(clubName: nil)
+        XCTAssertEqual(model.lastActivityAt, ISO8601DateFormatter().date(from: "2026-07-26T08:00:00Z"))
+        XCTAssertFalse(model.allPlannedHolesScored)
     }
 
     func testManualShotRecordsClubThenLocationAndFeedsRecommendedScore() {
@@ -1914,24 +2012,210 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.undoableShotText, "第 1 杆")
     }
 
-    func testOneScreenScoreRaisesTheTotalAndWrapsTheWheels() {
+    /// The phone's rule (`HoleScoreValues`, README §3), not wheels: no wrapping, no cap on the total.
+    func testScoreFollowsTheSameRuleAsThePhone() {
         let model = seededModel(holes: [hole(1, par: 4), hole(2)])
         model.startScoringActiveHole()
         model.setDraftScore(3)
         model.setDraftPutts(3)
         XCTAssertEqual(model.draftScore, 4, "total ≥ putts + penalties + 1")
         model.setDraftPenalty(-1)
-        XCTAssertEqual(model.draftPenalty, 4, "0 sits under 4")
-        XCTAssertEqual(model.draftScore, 8)
-        model.setDraftPutts(6)
-        XCTAssertEqual(model.draftPutts, 0, "5 rolls over to 0")
-        XCTAssertEqual(model.draftScore, 8, "lowering putts never lowers the total")
+        XCTAssertEqual(model.draftPenalty, 0, "0 is the floor; it does not wrap")
+        model.setDraftPenalty(1)
+        XCTAssertEqual(model.draftScore, 5, "raised only because it must")
+        model.setDraftPutts(2)
+        XCTAssertEqual(model.draftScore, 5, "lowering putts never lowers the total")
+        model.setDraftScore(17)
+        XCTAssertEqual(model.draftScore, 17, "no cap at 15 (#417 W03)")
+        model.setDraftScore(8)
+        model.setDraftPutts(12)
+        XCTAssertEqual(model.draftPutts, 9, "same maximum as the phone")
+        XCTAssertEqual(model.draftScore, 11)
+        model.setDraftScore(4)
+        XCTAssertEqual(model.draftPutts, 2, "a lower total gives way: putts first")
+        XCTAssertEqual(model.draftPenalty, 1)
+        model.setDraftScore(8)
         model.setDraftFairway(.left)
         model.setDraftFairway(.left)
         XCTAssertNil(model.draftFairway, "tapping the chosen cell clears it")
         model.saveManualScore()
         XCTAssertEqual(model.allHoleStates.first?.score, 8)
         XCTAssertEqual(model.activeHole, 2)
+    }
+
+    /// Owner request 2026-10-12: an A / B / C venue started as one nine gets the turn too (S70 ends
+    /// the round there), and a wrong second loop can be changed until it is played.
+    func testANineHoleLoopVenueTurnsToAnotherLoopAndTheChoiceCanChange() async {
+        let model = WatchRoundModel(
+            store: makeStore(),
+            persistAutoShotEnabled: { _ in },
+            makeEventId: sequentialIds(),
+            now: { "2026-10-13T00:00:00Z" }
+        )
+        model.nineLoopSiblings = { _ in
+            [NineLoop(id: "100:all", name: "A"), NineLoop(id: "200:all", name: "B"), NineLoop(id: "300:all", name: "C")]
+        }
+        final class Requests { var keys: [String?] = [] }
+        let requests = Requests()
+        final class Tables { var starts: [WatchRoundStart] = [] }
+        let tables = Tables()
+        model.onRoundTableChanged = { tables.starts.append($0) }
+        model.secondLoopLoader = { request in
+            requests.keys.append(request.loopKey)
+            guard let key = request.loopKey, let second = request.secondNineLoopGlobalId else {
+                return .unavailable("no")
+            }
+            let states = (10...18).map {
+                WatchRoundState(
+                    roundId: "server", hole: $0, par: 4, distanceM: nil, selectedClub: nil,
+                    globalId: second, sourceLocalHole: $0 - 9, courseHoleNumber: $0,
+                    score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+                )
+            }
+            return .ready(loopKey: key, holeStates: states)
+        }
+        model.seedRound(courseHoles("100:all"), activeHole: 9, courseName: "黑骑士 · A 场", loopKey: "100:all")
+        XCTAssertFalse(model.isAtTurn)
+        model.startScoringActiveHole()
+        model.startManualScoreEntry()
+        model.saveManualScore()
+        XCTAssertEqual(model.screen, .turn, "the turn, not the end of the round")
+        XCTAssertEqual(model.turnPlan?.course.loops.map(\.id), ["100:all", "200:all", "300:all"])
+        XCTAssertEqual(model.turnPlan?.second, .loop("200:all"), "the next loop is preselected")
+
+        await model.confirmTurn()
+        XCTAssertEqual(requests.keys.last, "100:all+200:all")
+        XCTAssertEqual(model.round?.loopKey, "100:all+200:all")
+        XCTAssertEqual(model.activeHole, 10)
+        XCTAssertEqual(model.round?.holeStates.first { $0.hole == 10 }?.globalId, 200)
+
+        XCTAssertTrue(model.canChangeSecondNine)
+        model.openChangeSecondNine()
+        XCTAssertEqual(model.turnPlan?.second, .loop("200:all"))
+        model.chooseTurnSecond(.loop("300:all"))
+        await model.confirmTurn()
+        XCTAssertEqual(model.round?.loopKey, "100:all+300:all")
+        XCTAssertEqual(model.round?.holeStates.filter { $0.hole >= 10 }.compactMap(\.globalId), Array(repeating: 300, count: 9))
+        XCTAssertEqual(model.round?.holeStates.count, 18)
+
+        // #424 review: the phone re-sending its one-nine seed for the same round keeps the
+        // Watch's second nine and its right to change it.
+        model.applyRoundSeed(WatchRoundSeed(
+            roundId: "r1",
+            courseName: "黑骑士 · A 场",
+            activeHole: 10,
+            holes: courseSeedHoles("100:all", []),
+            loopKey: "100:all"
+        ))
+        XCTAssertEqual(model.round?.loopKey, "100:all+300:all")
+        XCTAssertTrue(model.canChangeSecondNine, "a same-round seed keeps the turn provenance")
+        XCTAssertEqual(model.round?.secondNineAddedAtTurn, true, "persisted, so a relaunch keeps it")
+
+        // #424 review: every committed change goes to the phone, and a phone seed sent before it
+        // heard (still naming B) cannot undo the Watch's C, or bring back a dropped nine.
+        XCTAssertEqual(tables.starts.map(\.loopKey), ["100:all+200:all", "100:all+300:all", "100:all+300:all"],
+                       "add, replace, then re-sent after the one-nine seed")
+        model.applyRoundSeed(WatchRoundSeed(
+            roundId: "r1", courseName: "黑骑士 · A 场", activeHole: 10,
+            holes: courseSeedHoles("100:all+200:all", []), loopKey: "100:all+200:all"
+        ))
+        XCTAssertEqual(model.round?.loopKey, "100:all+300:all")
+        XCTAssertEqual(model.round?.holeStates.first { $0.hole == 10 }?.globalId, 300)
+        XCTAssertEqual(tables.starts.last?.loopKey, "100:all+300:all", "told again")
+        XCTAssertEqual(tables.starts.map(\.tableRevision), [1, 2, 2, 2], "one revision per committed change")
+
+        func phoneSeed(_ key: String, ack: Int?) -> WatchRoundSeed {
+            WatchRoundSeed(
+                roundId: "r1", courseName: "黑骑士 · A 场", activeHole: 10,
+                holes: courseSeedHoles(key, []), loopKey: key, acknowledgedTableRevision: ack
+            )
+        }
+        // An echo without the current revision does not end the wait; the acknowledgement does,
+        // and keeps 换一个 9 洞.
+        model.applyRoundSeed(phoneSeed("100:all+300:all", ack: nil))
+        XCTAssertEqual(model.round?.tableAwaitingPhone, true)
+        model.applyRoundSeed(phoneSeed("100:all+300:all", ack: 2))
+        XCTAssertNil(model.round?.tableAwaitingPhone)
+        XCTAssertTrue(model.canChangeSecondNine, "the echo keeps the second nine changeable")
+
+        // #424 review: C → B (r3), then the phone's delayed seeds arrive B(r1), C(r2), B(r3).
+        model.openChangeSecondNine()
+        model.chooseTurnSecond(.loop("200:all"))
+        await model.confirmTurn()
+        XCTAssertEqual(tables.starts.last?.tableRevision, 3)
+        model.applyRoundSeed(phoneSeed("100:all+200:all", ack: 1))
+        XCTAssertEqual(model.round?.tableAwaitingPhone, true, "an older echo of the same table")
+        model.applyRoundSeed(phoneSeed("100:all+300:all", ack: 2))
+        XCTAssertEqual(model.round?.loopKey, "100:all+200:all", "a delayed older choice cannot win")
+        XCTAssertTrue(model.canChangeSecondNine)
+        model.applyRoundSeed(phoneSeed("100:all+200:all", ack: 3))
+        XCTAssertNil(model.round?.tableAwaitingPhone)
+        XCTAssertEqual(model.round?.loopKey, "100:all+200:all")
+
+        model.openChangeSecondNine()
+        model.chooseTurnSecond(.stopAfterNine)
+        await model.confirmTurn()
+        XCTAssertEqual(tables.starts.last?.loopKey, "100:all")
+        XCTAssertEqual(tables.starts.last?.tableRevision, 4)
+        model.applyRoundSeed(phoneSeed("100:all+200:all", ack: 3))
+        XCTAssertEqual(model.round?.loopKey, "100:all", "a dropped nine stays dropped")
+        XCTAssertEqual(model.round?.holeStates.count, 9)
+    }
+
+    /// Owner request 2026-10-12: 开球 is preselected from where the tee shot landed (the second
+    /// shot's origin) against the fairway outline, the phone's B0 rule; Par 3 never.
+    func testTeeResultIsPreselectedFromTheSecondShot() {
+        // Image px → lat/lon: x 0…100 = lon 116.000…116.001, y 0…−100 = lat 40.000…40.001.
+        let projection = WatchHoleImageProjection(widthPx: 100, heightPx: 300, refs: [
+            WatchProjectionRef(lat: 40.0, lon: 116.0, px: 0, py: 0),
+            WatchProjectionRef(lat: 40.0, lon: 116.001, px: 100, py: 0),
+            WatchProjectionRef(lat: 40.001, lon: 116.0, px: 0, py: -100),
+        ])
+        let map = WatchHoleMap(
+            w: 100, h: 300, you: [50, 0], pin: [50, -200], layup: [50, -120], apex: [50, -100],
+            greenCtrl: [50, -180], route: [[50, 0, 0], [50, -200, 222]]
+        )
+        // The fairway runs north along the route, lon 116.0004–116.0006, lat 40.0003–40.0015.
+        let fairway = FairwayOutline(version: 1, polygons: [FairwayPolygon(outerLatLon: [
+            [40.0003, 116.0004], [40.0003, 116.0006], [40.0015, 116.0006], [40.0015, 116.0004],
+        ])])
+        func courseHole(_ n: Int, par: Int) -> WatchRoundState {
+            WatchRoundState(
+                roundId: "r1", hole: n, par: par, distanceM: nil, selectedClub: nil,
+                holeImageProjection: projection, holeMap: map, fairwayOutline: fairway,
+                score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+            )
+        }
+        func scoredFairway(secondLongitude: Double, par: Int) -> WatchFairwayResult? {
+            let model = seededModel(holes: [courseHole(1, par: par), courseHole(2, par: 4)])
+            model.beginManualShot(latitude: 40.0, longitude: 116.0005, horizontalAccuracyM: 5,
+                                  capturedAt: "2026-10-13T08:00:00Z")
+            model.completePendingManualShot(clubName: nil)
+            model.beginManualShot(latitude: 40.001, longitude: secondLongitude, horizontalAccuracyM: 5,
+                                  capturedAt: "2026-10-13T08:02:00Z")
+            model.completePendingManualShot(clubName: nil)
+            model.startScoringActiveHole()
+            return model.draftFairway
+        }
+        XCTAssertEqual(scoredFairway(secondLongitude: 116.0005, par: 4), .hit)
+        XCTAssertEqual(scoredFairway(secondLongitude: 116.0001, par: 4), .left, "west of a northbound hole")
+        XCTAssertEqual(scoredFairway(secondLongitude: 116.0009, par: 5), .right)
+        XCTAssertNil(scoredFairway(secondLongitude: 116.0005, par: 3))
+
+        // The second shot marked on the phone: its position arrives with the phone's hole snapshot.
+        let phoneMarked = WatchRoundState(
+            roundId: "r1", hole: 1, par: 4, distanceM: nil, selectedClub: nil,
+            holeImageProjection: projection, holeMap: map, fairwayOutline: fairway,
+            teeShotLandingLatitude: 40.001, teeShotLandingLongitude: 116.0009,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let model = seededModel(holes: [courseHole(1, par: 4), courseHole(2, par: 4)])
+        // The real path: the phone's snapshot as JSON, decoded and merged by receivePhoneState.
+        let wire = try! JSONDecoder().decode(WatchRoundState.self, from: JSONEncoder().encode(phoneMarked))
+        XCTAssertEqual(wire.teeShotLandingLongitude, 116.0009)
+        model.receivePhoneState(wire)
+        model.startScoringActiveHole()
+        XCTAssertEqual(model.draftFairway, .right)
     }
 
     func testAdjustDraftClampsAtLowerBounds() {

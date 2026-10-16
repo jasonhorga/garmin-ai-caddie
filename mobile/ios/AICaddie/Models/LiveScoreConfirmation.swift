@@ -1,4 +1,5 @@
 import Foundation
+import AICaddieDomain
 
 public enum LiveFairwayResult: String, CaseIterable, Codable, Equatable {
     case hit
@@ -50,8 +51,8 @@ public struct LiveScoreDraft: Codable, Equatable, Identifiable {
     /// adjusted with its own −/+; stats read the actual number.
     public static let puttSegments = [0, 1, 2, 3, 4]
     public static let fourPlusSegment = 4
-    public static let maximumPutts = 9
-    public static let maximumPenalty = 9
+    public static let maximumPutts = HoleScoreValues.maximumPutts
+    public static let maximumPenalty = HoleScoreValues.maximumPenalty
 
     /// The putt segment shown selected: the count itself, or `4+` for four or more.
     public var puttSegment: Int { min(putts, Self.fourPlusSegment) }
@@ -119,21 +120,12 @@ public struct LiveScoreDraft: Codable, Equatable, Identifiable {
     /// The chosen total wins: putts, then the penalty, give way so that at least one full shot
     /// remains inside it.
     public mutating func selectScore(_ value: Int) {
-        let next = max(1, value)
-        guard next != score else { return }
-        score = next
-        putts = min(putts, max(0, score - penalty - 1))
-        penalty = min(penalty, max(0, score - putts - 1))
-        edited = true
+        apply { $0.selectScore(value) }
     }
 
     /// More putts than the total allows raise the total with them.
     public mutating func selectPutts(_ value: Int) {
-        let next = min(max(0, value), Self.maximumPutts)
-        guard next != putts else { return }
-        putts = next
-        score = max(score, minimumScore)
-        edited = true
+        apply { $0.selectPutts(value) }
     }
 
     /// The `4+` segment: selecting it sets 4 (or keeps a larger count already chosen).
@@ -159,10 +151,17 @@ public struct LiveScoreDraft: Codable, Equatable, Identifiable {
     }
 
     public mutating func adjustPenalty(by delta: Int) {
-        let next = min(max(0, penalty + delta), Self.maximumPenalty)
-        guard next != penalty else { return }
-        penalty = next
-        score = max(score, minimumScore)
+        let next = penalty + delta
+        apply { $0.selectPenalty(next) }
+    }
+
+    /// One shared rule for phone and Watch (`HoleScoreValues`).
+    private mutating func apply(_ change: (inout HoleScoreValues) -> Bool) {
+        var values = HoleScoreValues(score: score, putts: putts, penalty: penalty)
+        guard change(&values) else { return }
+        score = values.score
+        putts = values.putts
+        penalty = values.penalty
         edited = true
     }
 }

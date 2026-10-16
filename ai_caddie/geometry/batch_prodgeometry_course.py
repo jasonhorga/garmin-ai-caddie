@@ -15,12 +15,15 @@ output/prodgeometry*/. Secrets are not printed.
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
 import hashlib
 import json
+import logging
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -41,6 +44,16 @@ OUT_ROOT = ROOT / "output" / "prodgeometry"
 HAZARD_ROOT = ROOT / "output" / "prodgeometry_hazards"
 SUMMARY_ROOT = ROOT / "output" / "prodgeometry_batch"
 DEFAULT_SNAPSHOT = ROOT / "logs" / "probe_map_bodies" / "snapshot_400065_hole.json"
+logger = logging.getLogger(__name__)
+
+
+def _finish_stage(row: dict, stage: str, started: float, *, course_id: int) -> float:
+    now = time.perf_counter()
+    duration_ms = round((now - started) * 1000, 1)
+    row["steps"][stage]["durationMs"] = duration_ms
+    row["steps"][stage]["finishedAt"] = datetime.now(UTC).isoformat()
+    logger.info("course_asset gid=%s hole=%s stage=%s duration_ms=%.1f", course_id, row["hole"], stage, duration_ms)
+    return now
 
 
 # node/python children here are network- AND CPU-bound (download + Draco decode). Without a
@@ -159,6 +172,7 @@ def process_hole(
     }
 
     try:
+        stage_started = time.perf_counter()
         zip_path.parent.mkdir(parents=True, exist_ok=True)
         if force_download or not zip_path.exists():
             data = fetch_bytes(geometry_url)
@@ -171,6 +185,7 @@ def process_hole(
             row["steps"]["download"] = {"ok": True, "bytes": len(data)}
         else:
             row["steps"]["download"] = {"ok": True, "cached": True, "bytes": zip_path.stat().st_size}
+        stage_started = _finish_stage(row, "download", stage_started, course_id=course_id)
         row["geometry_zip_sha256"] = file_sha256(zip_path)
 
         key_cmd = [
@@ -193,6 +208,7 @@ def process_hole(
             "zipPasswordWorks": key_result.get("zipPasswordWorks"),
             "passwordLength": key_result.get("passwordLength"),
         }
+        stage_started = _finish_stage(row, "extract", stage_started, course_id=course_id)
 
         # Build every derivative privately. If any build step fails, readers
         # continue seeing the complete previous version. The authority sidecar
@@ -222,6 +238,7 @@ def process_hole(
             ok, out = run(decode_cmd)
             decode_result = json.loads(out)
             row["steps"]["decode"] = {"ok": ok, "meshCount": decode_result.get("meshCount")}
+            stage_started = _finish_stage(row, "decode", stage_started, course_id=course_id)
 
             distance_cmd = [
                 sys.executable,
@@ -234,6 +251,7 @@ def process_hole(
             ]
             ok, out = run(distance_cmd)
             row["steps"]["distances"] = {"ok": ok}
+            stage_started = _finish_stage(row, "distances", stage_started, course_id=course_id)
 
             hazard_cmd = [
                 sys.executable,
@@ -246,6 +264,7 @@ def process_hole(
             ]
             ok, out = run(hazard_cmd)
             row["steps"]["hazards"] = {"ok": ok, "output_tail": out.strip().splitlines()[-1:]}
+            stage_started = _finish_stage(row, "hazards", stage_started, course_id=course_id)
 
             if not skip_overlay and snapshot:
                 overlay_cmd = [
@@ -277,6 +296,7 @@ def process_hole(
                 target.parent.mkdir(parents=True, exist_ok=True)
                 os.replace(staged, target)
             row["steps"]["install"] = {"ok": True, "files": len(installs)}
+            _finish_stage(row, "install", stage_started, course_id=course_id)
 
         row["ok"] = all(step.get("ok") for step in row["steps"].values())
     except Exception as exc:

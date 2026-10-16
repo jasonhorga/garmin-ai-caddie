@@ -45,28 +45,6 @@ public enum WatchFairwayResult: String, CaseIterable, Codable, Equatable {
     case right = "RIGHT"
 }
 
-/// B6 本洞成绩 rules (README §3): putts and penalties are wheels that wrap (0 sits under the
-/// maximum), and the total never drops below putts + penalties + 1.
-public enum WatchScoreRules {
-    public static let puttRange = 0...5
-    public static let penaltyRange = 0...4
-    public static let scoreRange = 1...15
-
-    public static func wrap(_ value: Int, in range: ClosedRange<Int>) -> Int {
-        let count = range.count
-        return range.lowerBound + ((value - range.lowerBound) % count + count) % count
-    }
-
-    public static func minimumScore(putts: Int, penalty: Int) -> Int {
-        putts + penalty + 1
-    }
-
-    /// The total for a requested value: inside `scoreRange` and never below the minimum.
-    public static func score(_ requested: Int, putts: Int, penalty: Int) -> Int {
-        min(scoreRange.upperBound, max(requested, minimumScore(putts: putts, penalty: penalty), scoreRange.lowerBound))
-    }
-}
-
 public struct WatchOutcomeSummary: Equatable {
     public let hits: Int
     public let recorded: Int
@@ -247,18 +225,32 @@ public final class WatchRoundModel: ObservableObject {
     /// same half allowed, 只打 9 洞). Nil outside the turn.
     @Published public private(set) var turnPlan: NineLoopPlan?
     @Published public private(set) var isLoadingSecondLoop = false
+    /// The turn screen is open to change (or drop) a second nine that has not been played yet.
+    @Published public private(set) var isChangingSecondNine = false
     /// Honest reason the chosen second nine could not be prepared (offline without a whole-course
     /// download, network failure). The round stays at the turn; nothing is invented.
     @Published public private(set) var turnMessage: String?
 
     /// Resolves round holes 10–18 for the turn (the app wires `WatchCourseLibrary.secondLoop`).
     public var secondLoopLoader: ((WatchSecondLoopRequest) async -> WatchSecondLoopResult)?
+    /// A nine-hole-loop venue's loops (A / B / C, the played one included) for a loop's course id,
+    /// from the course library: the choices at its turn. Nil or empty offers the same loop again.
+    public var nineLoopSiblings: ((Int) -> [NineLoop])?
+    /// The Watch changed this round's hole table (second nine added, changed or dropped): the app
+    /// sends it to the phone so its same round follows (#424).
+    public var onRoundTableChanged: ((WatchRoundStart) -> Void)?
+
+    private func publishRoundTable() {
+        guard let round, let start = WatchRoundStart.currentTable(of: round, courseName: courseName) else { return }
+        onRoundTableChanged?(start)
+    }
 
     /// Backend connection info delivered from the phone (round-12 P3.4, WCSession). When nil the watch
     /// can still score offline; uploads just fail and events stay queued.
     public var config: WatchRoundConfig?
 
     private let store: WatchRoundStore
+    private let inPlayMarker: WatchRoundInPlayMarker
     private let clientId: String
     private let makeEventId: () -> String
     private let now: () -> String
@@ -286,9 +278,11 @@ public final class WatchRoundModel: ObservableObject {
         makeEventId: @escaping () -> String = { UUID().uuidString },
         now: @escaping () -> String = { ISO8601DateFormatter().string(from: Date()) },
         uploader: (([WatchInputEvent], String) async throws -> [String])? = nil,
-        finisher: ((String, WatchRoundFinishMetadata) async throws -> Void)? = nil
+        finisher: ((String, WatchRoundFinishMetadata) async throws -> Void)? = nil,
+        inPlayMarker: WatchRoundInPlayMarker = WatchRoundInPlayMarker(defaults: nil)
     ) {
         self.store = store
+        self.inPlayMarker = inPlayMarker
         self.clientId = clientId
         self.config = config
         self.autoShotEnabled = autoShotEnabled
@@ -301,9 +295,13 @@ public final class WatchRoundModel: ObservableObject {
         self.round = persisted
         if persisted == nil {
             restoreInteractionState(from: nil)
+        } else if let persisted, inPlayMarker.wasInPlay(roundId: persisted.roundId) {
+            // In play moments ago (the app was quit or stopped): straight back to the round,
+            // including a score draft that was open.
+            restoreInteractionState(from: persisted)
         } else {
-            // A restored or update-migrated round never throws the player directly into an old score
-            // draft. The draft remains intact and is restored only after explicit Resume.
+            // A round restored later (or set aside as idle) never throws the player directly into an
+            // old score draft. The draft remains intact and is restored only after explicit Resume.
             pendingManualShot = persisted?.pendingManualShot
             pendingAutoShotCandidate = persisted?.pendingAutoShotCandidate
             screen = .resume
@@ -312,7 +310,15 @@ public final class WatchRoundModel: ObservableObject {
 
     /// Default standalone model backed by the on-watch document store (for `@StateObject` in the app).
     public convenience init() {
-        self.init(store: WatchRoundStore())
+        self.init(store: WatchRoundStore(), inPlayMarker: WatchRoundInPlayMarker(defaults: Self.inPlayDefaults))
+    }
+
+    private static var inPlayDefaults: UserDefaults? {
+#if DEBUG
+        // UI-test launches seed and relaunch within seconds to exercise the resume screen itself.
+        if ProcessInfo.processInfo.arguments.contains("-uitest-screen") { return nil }
+#endif
+        return .standard
     }
 
     // MARK: - derived state (drives the views)
@@ -860,13 +866,33 @@ public final class WatchRoundModel: ObservableObject {
         // shorten the ordered loop key.
         var states = seededStates
         var loopKey = seed.loopKey
-        if let existingKey = existing?.loopKey,
+        // Whether holes 10–18 kept here are the second nine this Watch added at the turn (still
+        // changeable until played); a seed that names the whole table itself takes them over.
+        var keepsWatchSecondNine = false
+        // A phone seed that still names another second nine (sent before the phone heard of the
+        // Watch's change) must not undo a second nine the Watch chose and has not played.
+        let overridesWatchChoice: Bool = {
+            guard let existing, existing.tableAwaitingPhone == true,
+                  let existingKey = existing.loopKey, existingKey != seed.loopKey,
+                  let watchFirst = existingKey.split(separator: "+").first,
+                  seed.loopKey.split(separator: "+").first == watchFirst else { return false }
+            return true
+        }()
+        if overridesWatchChoice, let existing, let existingKey = existing.loopKey {
+            let seededFirstNine = seededStates.filter { $0.hole <= 9 }
+            let seededHoles = Set(seededFirstNine.map(\.hole))
+            states = seededFirstNine + existing.holeStates.filter { !seededHoles.contains($0.hole) }
+            states.sort { $0.hole < $1.hole }
+            loopKey = existingKey
+            keepsWatchSecondNine = existing.secondNineAddedAtTurn == true
+        } else if let existingKey = existing?.loopKey,
            existingKey.hasPrefix(seed.loopKey + "+"),
            let existing {
             let seededHoles = Set(seededStates.map(\.hole))
             states += existing.holeStates.filter { !seededHoles.contains($0.hole) }
             states.sort { $0.hole < $1.hole }
             loopKey = existingKey
+            keepsWatchSecondNine = existing.secondNineAddedAtTurn == true
         }
         let holeNumbers = Set(states.map(\.hole))
         let retainedActiveHole = existing?.activeHole
@@ -888,7 +914,7 @@ public final class WatchRoundModel: ObservableObject {
         // The phone's shots and snapshot order are round-owned: a same-round seed never forgets
         // them (that would bring a played plan back).
         let retainedPhoneShots = existing?.phoneShots?.filter { holeNumbers.contains($0.hole) }
-        let persisted = WatchRoundStore.PersistedRound(
+        var persisted = WatchRoundStore.PersistedRound(
             roundId: seed.roundId,
             activeHole: activeHole,
             holeStates: states,
@@ -903,9 +929,25 @@ public final class WatchRoundModel: ObservableObject {
             greenPlacements: retainedGreenPlacements,
             phoneShots: retainedPhoneShots
         )
+        // The phone's echo of the Watch's table (same loop key) keeps the second nine changeable and
+        // ends the wait; a different table the phone chose itself makes the phone the owner.
+        let echoesWatchTable = existing?.loopKey == loopKey && existing?.loopKey == seed.loopKey
+        persisted.secondNineAddedAtTurn = keepsWatchSecondNine
+            || (echoesWatchTable && existing?.secondNineAddedAtTurn == true) ? true : nil
+        persisted.tableRevision = existing?.tableRevision
+        // Only the phone's acknowledgement of the current revision ends the wait: an older echo of
+        // the same table (the player went B → C → B) must not.
+        let acknowledged = (seed.acknowledgedTableRevision ?? 0) >= (existing?.tableRevision ?? 0)
+        let unacknowledgedEcho = echoesWatchTable && existing?.tableAwaitingPhone == true && !acknowledged
+        persisted.tableAwaitingPhone = overridesWatchChoice || unacknowledgedEcho ? true : nil
         guard persisted.hasValidIdentity else { return }
         try? store.save(persisted)
         round = persisted
+        if overridesWatchChoice || unacknowledgedEcho {
+            // Tell the phone again: it answers with a seed naming (and acknowledging) the Watch's
+            // table, which ends the wait. An acknowledging seed never re-publishes, so this cannot loop.
+            publishRoundTable()
+        }
         let removedCurrentInteraction =
             (existing?.scoreDraft != nil && retainedScoreDraft == nil)
             || (existing?.pendingManualShot != nil && retainedManualShot == nil)
@@ -1048,6 +1090,62 @@ public final class WatchRoundModel: ObservableObject {
         restoreInteractionState(from: round)
     }
 
+    /// Sets a round left open aside (owner battery report 2026-10-12): everything is kept, including
+    /// a score draft or an undoable shot, and the resume screen stops the workout session and GPS
+    /// until the player chooses to continue, save or abandon.
+    /// Returns false (and the round stays in play, with workout and GPS) when the draft could not be
+    /// written durably; the caller tries again on its next check.
+    @discardableResult
+    public func pauseForIdle() -> Bool {
+        guard round != nil, screen != .resume else { return false }
+        guard persistInteractionState() else { return false }
+        inPlayMarker.clear()
+        screen = .resume
+        return true
+    }
+
+    /// Called about once a minute and on every screen change (see `WatchRoundInPlayMarker`).
+    public func noteInPlay(at now: Date = Date()) {
+        guard let round else { return }
+        switch screen {
+        case .resume:
+            return
+        case .finishing, .finishConfirmation, .abandonConfirmation:
+            // Ending the round: a relaunch offers Save & End again rather than going back into play.
+            inPlayMarker.clear()
+        default:
+            inPlayMarker.mark(roundId: round.roundId, at: now)
+        }
+    }
+
+    /// The newest recorded input of the round (shot, score, putt, ...), from its event times.
+    public var lastActivityAt: Date? {
+        guard let round else { return nil }
+        return round.pendingEvents
+            .compactMap { Self.fractionalTime.date(from: $0.createdAt) ?? Self.plainTime.date(from: $0.createdAt) }
+            .max()
+    }
+
+    private static let fractionalTime: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let plainTime = ISO8601DateFormatter()
+
+    /// Every hole of the round has a score.
+    public var allPlannedHolesScored: Bool { holeCount > 0 && scoredHoles >= holeCount }
+
+    /// Tees and green centres of the round's holes: where "on the course" is.
+    public var roundHolePoints: [(latitude: Double, longitude: Double)] {
+        (round?.holeStates ?? []).flatMap { state -> [(latitude: Double, longitude: Double)] in
+            var points: [(latitude: Double, longitude: Double)] = []
+            if let lat = state.teeLatitude, let lon = state.teeLongitude { points.append((lat, lon)) }
+            if let lat = state.centerGreenLat, let lon = state.centerGreenLon { points.append((lat, lon)) }
+            return points
+        }
+    }
+
     private func restoreInteractionState(from persisted: WatchRoundStore.PersistedRound?) {
         pendingManualShot = persisted?.pendingManualShot
         pendingAutoShotCandidate = persisted?.pendingAutoShotCandidate
@@ -1077,8 +1175,10 @@ public final class WatchRoundModel: ObservableObject {
         screen = .scoring
     }
 
-    private func persistInteractionState() {
-        guard var current = round else { return }
+    /// Writes the draft and staged shot into the round file; false when the durable write failed.
+    @discardableResult
+    private func persistInteractionState() -> Bool {
+        guard var current = round else { return false }
         current.pendingManualShot = pendingManualShot
         current.pendingAutoShotCandidate = pendingAutoShotCandidate
         if let scoringHole {
@@ -1094,8 +1194,9 @@ public final class WatchRoundModel: ObservableObject {
         } else {
             current.scoreDraft = nil
         }
-        try? store.save(current)
+        let saved = (try? store.save(current)) != nil
         round = current
+        return saved
     }
 
     /// Start a self-contained practice round on the watch (no phone needed) — `holeCount` blank holes at
@@ -1139,17 +1240,64 @@ public final class WatchRoundModel: ObservableObject {
     ) {
         let unscored = hole.score == 0
         let shotCount = recordedShotCount(for: hole.hole)
-        draftScore = unscored
-            ? (shotCount > 0 ? shotCount + 2 : (hole.geometryCoverage == "pending" ? 1 : hole.par))
-            : hole.score
-        draftPutts = unscored ? 2 : hole.putts
-        draftPenalty = hole.penaltyCount
+        // Opened already inside the shared rule (total ≥ putts + penalty + 1, putts/penalty ≤ 9).
+        let values = HoleScoreValues(
+            score: unscored
+                ? (shotCount > 0 ? shotCount + 2 : (hole.geometryCoverage == "pending" ? 1 : hole.par))
+                : hole.score,
+            putts: unscored ? 2 : hole.putts,
+            penalty: hole.penaltyCount
+        )
+        draftScore = values.score
+        draftPutts = values.putts
+        draftPenalty = values.penalty
         draftFairway = hole.fairwayResult.flatMap { WatchFairwayResult(rawValue: $0.uppercased()) }
+            // Owner request 2026-10-12: preselected from where the tee shot landed (the second
+            // shot's origin), the phone's B0 rule; 开球 changes it.
+            ?? (unscored ? teeResultPreselection(for: hole) : nil)
         scoringHole = hole.hole
         self.advanceAfterScoring = advanceAfterSave
         scoreFlowStep = offerRecommendation ? .recommendation : .score
         screen = .scoring
         persistInteractionState()
+    }
+
+    /// 左 / 中 / 右 from the second shot's origin on this hole against the fairway outline (the shared
+    /// `TeeResultClassifier`, as the phone does). Nil on a Par 3, without an outline or without a
+    /// known position for the second shot (this Watch's own mark, else the phone's).
+    func teeResultPreselection(for hole: WatchRoundState) -> WatchFairwayResult? {
+        guard hole.par != 3, let outline = hole.fairwayOutline, let round else { return nil }
+        // The hole's second shot in the order both devices know (a phone shot counts in place): its
+        // position from this Watch's own mark, else the one the phone sent (owner 2026-10-13: "第二杆是
+        // 手机记得也有 gps 数据").
+        let ids = knownShotEventIds(for: hole.hole)
+        let watchMark = ids.count >= 2
+            ? round.pendingEvents.first(where: { $0.eventId == ids[1] && $0.kind == .location })
+                .flatMap { WatchShotLocationValue(encodedValue: $0.value) }
+                .map { (latitude: $0.latitude, longitude: $0.longitude) }
+            : nil
+        let phoneMark = hole.teeShotLandingLatitude.flatMap { latitude in
+            hole.teeShotLandingLongitude.map { (latitude: latitude, longitude: $0) }
+        }
+        guard let second = watchMark ?? phoneMark else { return nil }
+        let refs = (hole.holeImageProjection?.refs ?? []).map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
+        let route: [[Double]] = (hole.holeMap?.route ?? []).compactMap { row in
+            guard row.count >= 2,
+                  let point = WatchGeoMath.coordinate(fromImagePx: row[0], py: row[1], refs: refs) else { return nil }
+            return [point.latitude, point.longitude]
+        }
+        let result = TeeResultClassifier.classify(
+            point: [second.latitude, second.longitude],
+            outline: outline,
+            route: route,
+            par: hole.par
+        )
+        switch result {
+        case .hit?: return .hit
+        case .left?: return .left
+        case .right?: return .right
+        default: return nil
+        }
     }
 
     // MARK: - hole end (B6)
@@ -1454,39 +1602,32 @@ public final class WatchRoundModel: ObservableObject {
         knownShotEventIds(for: hole).count
     }
 
-    public func adjustDraftScore(_ delta: Int) {
-        draftScore = max(1, draftScore + delta)
-        persistInteractionState()
-    }
+    public func adjustDraftScore(_ delta: Int) { setDraftScore(draftScore + delta) }
+    public func adjustDraftPutts(_ delta: Int) { setDraftPutts(draftPutts + delta) }
+    public func adjustDraftPenalty(_ delta: Int) { setDraftPenalty(draftPenalty + delta) }
 
-    public func adjustDraftPutts(_ delta: Int) {
-        draftPutts = max(0, draftPutts + delta)
-        persistInteractionState()
-    }
-
-    public func adjustDraftPenalty(_ delta: Int) {
-        draftPenalty = max(0, draftPenalty + delta)
-        persistInteractionState()
-    }
-
-    // B6 one-screen 本洞成绩.
+    // 本洞成绩: the rule the phone uses (`HoleScoreValues`, README §3). The total is what the
+    // player chose: more putts or penalties raise it only when they must, fewer never lower it, and
+    // a lower total gives way by lowering putts, then penalties. No wrapping and no cap on the total.
 
     public func setDraftScore(_ value: Int) {
-        draftScore = WatchScoreRules.score(value, putts: draftPutts, penalty: draftPenalty)
-        persistInteractionState()
+        applyDraftValues { $0.selectScore(value) }
     }
 
-    /// Putts wrap 0–5; the total is raised when it would fall below putts + penalties + 1.
     public func setDraftPutts(_ value: Int) {
-        draftPutts = WatchScoreRules.wrap(value, in: WatchScoreRules.puttRange)
-        draftScore = WatchScoreRules.score(draftScore, putts: draftPutts, penalty: draftPenalty)
-        persistInteractionState()
+        applyDraftValues { $0.selectPutts(value) }
     }
 
-    /// Penalties wrap 0–4; the total is raised when it would fall below putts + penalties + 1.
     public func setDraftPenalty(_ value: Int) {
-        draftPenalty = WatchScoreRules.wrap(value, in: WatchScoreRules.penaltyRange)
-        draftScore = WatchScoreRules.score(draftScore, putts: draftPutts, penalty: draftPenalty)
+        applyDraftValues { $0.selectPenalty(value) }
+    }
+
+    private func applyDraftValues(_ change: (inout HoleScoreValues) -> Bool) {
+        var values = HoleScoreValues(score: draftScore, putts: draftPutts, penalty: draftPenalty)
+        guard change(&values) else { return }
+        draftScore = values.score
+        draftPutts = values.putts
+        draftPenalty = values.penalty
         persistInteractionState()
     }
 
@@ -1665,13 +1806,14 @@ public final class WatchRoundModel: ObservableObject {
 
     // MARK: - the turn (B4b-2 §7)
 
-    /// The round is one half of an 18-hole course (`G:front` / `G:back`) and its ninth hole is the
-    /// scored live hole: the second nine can be chosen.
+    /// The round is one nine — half of an 18-hole course (`G:front` / `G:back`) or one loop of an
+    /// A / B / C venue (`G:all`) — and its ninth hole is the scored live hole: the second nine can
+    /// be chosen (S70 ends the round here instead).
     public var isAtTurn: Bool {
         guard let round,
               let loopKey = round.loopKey,
-              let loop = WatchCourseSelection.halfLoop(loopKey: loopKey),
-              loop.halves.count == 1,
+              WatchCourseSelection.halfLoop(loopKey: loopKey)?.halves.count == 1
+                || WatchCourseSelection.nineLoopIds(loopKey: loopKey)?.count == 1,
               round.holeStates.map(\.hole).max() == 9,
               activeHole == 9,
               (round.holeStates.first(where: { $0.hole == 9 })?.score ?? 0) > 0 else {
@@ -1682,7 +1824,22 @@ public final class WatchRoundModel: ObservableObject {
 
     /// The shared plan for a one-half round at its turn: loops 前九 / 后九 (ids `G:front` /
     /// `G:back`), the other half preselected.
-    public static func makeTurnPlan(loopKey: String) -> NineLoopPlan? {
+    public static func makeTurnPlan(loopKey: String, nineLoopSiblings: [NineLoop] = []) -> NineLoopPlan? {
+        if let ids = WatchCourseSelection.nineLoopIds(loopKey: loopKey), ids.count == 1 {
+            // A nine-hole-loop venue (B4b-2 §7, the phone's `NineLoopTurn`): its loops in course
+            // order, the played one always included so it can be played again.
+            let firstId = "\(ids[0]):all"
+            var loops = nineLoopSiblings
+            if !loops.contains(where: { $0.id == firstId }) {
+                loops.insert(NineLoop(id: firstId, name: "这 9 洞"), at: 0)
+            }
+            guard var plan = NineLoopPlan(course: NineLoopCourse(id: firstId, loops: loops), first: firstId) else {
+                return nil
+            }
+            plan.beginFirstLoop()
+            plan.reachTurn()
+            return plan
+        }
         guard let loop = WatchCourseSelection.halfLoop(loopKey: loopKey), loop.halves.count == 1 else {
             return nil
         }
@@ -1700,10 +1857,42 @@ public final class WatchRoundModel: ObservableObject {
 
     public func openTurn() {
         guard isAtTurn, let loopKey = round?.loopKey else { return }
-        if turnPlan == nil {
-            turnPlan = Self.makeTurnPlan(loopKey: loopKey)
+        if turnPlan == nil || isChangingSecondNine {
+            turnPlan = Self.makeTurnPlan(loopKey: loopKey, nineLoopSiblings: siblingLoops(of: loopKey))
         }
         guard turnPlan != nil else { return }
+        isChangingSecondNine = false
+        turnMessage = nil
+        screen = .turn
+    }
+
+    /// The second nine can still change, or be dropped, until anything is recorded on it: the
+    /// phone's rule (README §8, `NineLoopPlan.canChangeSecond`; the phone locks on any event on a
+    /// round hole from 10). A wrong tap at the turn is therefore never final.
+    public var canChangeSecondNine: Bool {
+        guard let round, round.secondNineAddedAtTurn == true, let loopKey = round.loopKey,
+              WatchCourseSelection.roundRows(loopKey: loopKey)?.count == 18,
+              Set(round.holeStates.map(\.hole)) == Set(1...18) else { return false }
+        let secondHoles = 10...18
+        let started = round.holeStates.contains { secondHoles.contains($0.hole) && $0.score > 0 }
+            || round.pendingEvents.contains { secondHoles.contains($0.hole) }
+            || secondHoles.contains { !knownShotEventIds(for: $0).isEmpty }
+            || pendingManualShot.map { secondHoles.contains($0.hole) } == true
+            || scoringHole.map { secondHoles.contains($0) } == true
+        return !started
+    }
+
+    /// 换一个 9 洞: the turn screen again, with the current second nine selected.
+    public func openChangeSecondNine() {
+        guard canChangeSecondNine, let loopKey = round?.loopKey else { return }
+        let parts = loopKey.split(separator: "+").map(String.init)
+        guard parts.count == 2,
+              var plan = Self.makeTurnPlan(loopKey: parts[0], nineLoopSiblings: siblingLoops(of: parts[0])) else {
+            return
+        }
+        plan.chooseSecond(.loop(parts[1]))
+        turnPlan = plan
+        isChangingSecondNine = true
         turnMessage = nil
         screen = .turn
     }
@@ -1714,9 +1903,14 @@ public final class WatchRoundModel: ObservableObject {
         turnMessage = nil
     }
 
-    /// Back to the ninth hole (e.g. to fix its score); the turn is offered again on 下一洞.
+    /// Back to the ninth hole (e.g. to fix its score); the turn is offered again on 下一洞. When
+    /// changing the second nine, back to the round as it was.
     public func leaveTurn() {
         guard screen == .turn, !isLoadingSecondLoop else { return }
+        if isChangingSecondNine {
+            isChangingSecondNine = false
+            turnPlan = nil
+        }
         turnMessage = nil
         screen = .home
     }
@@ -1726,15 +1920,32 @@ public final class WatchRoundModel: ObservableObject {
         guard screen == .turn, !isLoadingSecondLoop,
               var plan = turnPlan,
               let current = round,
-              let firstLoopKey = current.loopKey else { return }
+              let currentLoopKey = current.loopKey else { return }
+        let changing = isChangingSecondNine
+        let firstLoopKey = changing
+            ? String(currentLoopKey.split(separator: "+").first ?? Substring(currentLoopKey))
+            : currentLoopKey
         guard case .loop(let secondId) = plan.second else {
+            if changing {
+                guard dropSecondNine() else {
+                    turnMessage = "暂时无法改成只打 9 洞，请重试"
+                    return
+                }
+            }
             plan.finishAfterNine()
             turnPlan = nil
             requestFinish()
             return
         }
-        guard let half = secondId.split(separator: ":").last.map(String.init),
-              let loader = secondLoopLoader else {
+        if changing, currentLoopKey == "\(firstLoopKey)+\(secondId)" {
+            // The same nine: nothing to change.
+            isChangingSecondNine = false
+            turnPlan = nil
+            screen = .home
+            return
+        }
+        let secondFields = secondId.split(separator: ":").map(String.init)
+        guard secondFields.count == 2, let loader = secondLoopLoader else {
             turnMessage = "暂时无法准备第二个 9 洞，请重试"
             return
         }
@@ -1743,16 +1954,18 @@ public final class WatchRoundModel: ObservableObject {
         let result = await loader(WatchSecondLoopRequest(
             roundId: current.roundId,
             firstLoopKey: firstLoopKey,
-            secondHalf: half,
-            teeBox: current.teeBox
+            secondHalf: secondFields[1],
+            teeBox: current.teeBox,
+            secondNineLoopGlobalId: secondFields[1] == "all" ? Int(secondFields[0]) : nil
         ))
         isLoadingSecondLoop = false
         guard round?.roundId == current.roundId, screen == .turn else { return }
         switch result {
         case .ready(let loopKey, let states):
-            if applySecondLoop(states, loopKey: loopKey) {
+            if applySecondLoop(states, loopKey: loopKey, replacingSecondNine: changing) {
                 plan.beginSecondLoop()
                 turnPlan = nil
+                isChangingSecondNine = false
                 screen = .home
             } else {
                 turnMessage = "第二个 9 洞数据不完整，请重试"
@@ -1765,33 +1978,88 @@ public final class WatchRoundModel: ObservableObject {
     /// Append the second nine to the same round: holes 1–9, every score and every pending event
     /// stay; holes 10–18 are the chosen half's physical holes in play order; the round's loop key
     /// becomes `G:first+G:second` so a relaunch restores the ordered table.
+    /// With `replacingSecondNine` an unplayed second nine (`canChangeSecondNine`) is swapped for
+    /// the new one.
     @discardableResult
-    public func applySecondLoop(_ states: [WatchRoundState], loopKey: String) -> Bool {
-        guard var current = round,
-              let firstLoopKey = current.loopKey,
+    public func applySecondLoop(
+        _ states: [WatchRoundState],
+        loopKey: String,
+        replacingSecondNine: Bool = false
+    ) -> Bool {
+        guard var current = round else { return false }
+        if replacingSecondNine {
+            guard canChangeSecondNine, let first = current.loopKey?.split(separator: "+").first else {
+                return false
+            }
+            current.holeStates = current.holeStates.filter { $0.hole <= 9 }
+            current.greenPlacements = current.greenPlacements?.filter { $0.hole <= 9 }
+            current.loopKey = String(first)
+        }
+        // The canonical table for the pair (halves of one course, or two nine-hole loops).
+        guard let firstLoopKey = current.loopKey,
               loopKey.hasPrefix(firstLoopKey + "+"),
-              let loop = WatchCourseSelection.halfLoop(loopKey: loopKey),
-              loop.halves.count == 2,
+              let rows = WatchCourseSelection.roundRows(loopKey: loopKey), rows.count == 18,
               Set(current.holeStates.map(\.hole)) == Set(1...9) else {
             return false
         }
         let second = states.sorted { $0.hole < $1.hole }
-        let start = WatchCourseSelection.physicalStartHole(loop.halves[1])
-        guard second.map(\.hole) == Array(10...18) else { return false }
-        for (offset, state) in second.enumerated() {
-            guard state.globalId == loop.globalId, state.sourceLocalHole == start + offset else {
+        let secondRows = rows.filter { $0.number >= 10 }
+        guard second.map(\.hole) == secondRows.map(\.number) else { return false }
+        for (state, row) in zip(second, secondRows) {
+            guard state.globalId == row.globalId,
+                  (state.sourceLocalHole ?? row.sourceLocalHole) == row.sourceLocalHole else {
                 return false
             }
         }
         current.holeStates += second.map { $0.replacingRoundId(current.roundId) }
         current.loopKey = loopKey
         current.activeHole = 10
+        current.secondNineAddedAtTurn = true
+        current.tableRevision = (current.tableRevision ?? 0) + 1
+        current.tableAwaitingPhone = true
         do {
             try store.save(current)
         } catch {
             return false
         }
         round = current
+        if replacingSecondNine {
+            // Hole 10 is a different hole now: its green and next tee are rebuilt.
+            holeEndDetector = nil
+            pendingHoleEnd = nil
+        }
+        publishRoundTable()
+        return true
+    }
+
+    /// The venue's nine-hole loops for a `G:all` loop key (empty for halves).
+    private func siblingLoops(of loopKey: String) -> [NineLoop] {
+        guard let ids = WatchCourseSelection.nineLoopIds(loopKey: loopKey), ids.count == 1 else { return [] }
+        return nineLoopSiblings?(ids[0]) ?? []
+    }
+
+    /// 只打 9 洞 after a second nine was added but not played: holes 10–18 go, the round is the first
+    /// nine again (its loop key too), on its ninth hole.
+    private func dropSecondNine() -> Bool {
+        guard canChangeSecondNine, var current = round,
+              let first = current.loopKey?.split(separator: "+").first else { return false }
+        current.holeStates = current.holeStates.filter { $0.hole <= 9 }
+        current.greenPlacements = current.greenPlacements?.filter { $0.hole <= 9 }
+        current.loopKey = String(first)
+        current.activeHole = 9
+        current.secondNineAddedAtTurn = nil
+        current.tableRevision = (current.tableRevision ?? 0) + 1
+        current.tableAwaitingPhone = true
+        do {
+            try store.save(current)
+        } catch {
+            return false
+        }
+        round = current
+        holeEndDetector = nil
+        pendingHoleEnd = nil
+        isChangingSecondNine = false
+        publishRoundTable()
         return true
     }
 

@@ -178,6 +178,12 @@ jobs:
               if actual != expected:
                   raise SystemExit(f"typed ID mismatch for {domain}: {actual} != {expected}")
           PY
+          # Readiness imports these mobile contracts at runtime; keep the image and
+          # the repository's contract paths in lockstep.
+          docker exec aicaddie-api sh -eu -c '
+            test -s /app/mobile/contracts/live_round_package.schema.json
+            test -s /app/mobile/contracts/live_round_event.schema.json
+          '
           # The geometry read path resolves ROOT and imports the node-subprocess toolchain inside the
           # container; with no data it must return a STRUCTURED response, never a 500 crash.
           code=$(curl -s -o /tmp/geo.json -w '%{http_code}' --max-time 30 http://127.0.0.1:9000/api/v2/geometry/hole/31795/1)

@@ -360,7 +360,8 @@ public struct WatchRoundContainerView: View {
             )
         } else {
             activeScreen
-                .overlay(alignment: .bottom) { undoableShotStrip }
+                // 本洞成绩 uses the whole window down to 保存: the strip goes to the top there.
+                .overlay(alignment: model.screen == .scoring ? .top : .bottom) { undoableShotStrip }
                 .task(id: model.pendingManualShot?.capturedAt) {
                     // B6: a detected shot is recorded once its undo window passes.
                     guard model.undoableShotText != nil else { return }
@@ -420,6 +421,7 @@ public struct WatchRoundContainerView: View {
                 hasHazards: model.hazardDetailAvailable,
                 hasClubStats: model.clubStatsAvailable,
                 hasFlagDirection: activeFlagCoordinate != nil,
+                canChangeSecondNine: model.canChangeSecondNine,
                 onViewGreen: { model.openViewGreen() },
                 onCaddie: { model.openCaddie() },
                 onHazards: { model.openHazards() },
@@ -429,6 +431,7 @@ public struct WatchRoundContainerView: View {
                 onSettings: { model.openSettings() },
                 onFlagDirection: { model.openFlagDirection() },
                 onFinish: { model.requestFinish() },
+                onChangeSecondNine: { model.openChangeSecondNine() },
                 onBack: { model.backToHome() }
             )
         case .viewGreen:
@@ -542,6 +545,7 @@ public struct WatchRoundContainerView: View {
                     plan: plan,
                     isLoading: model.isLoadingSecondLoop,
                     message: model.turnMessage,
+                    isChange: model.isChangingSecondNine,
                     onChoose: { model.chooseTurnSecond($0) },
                     onConfirm: { Task { await model.confirmTurn() } },
                     onBack: { model.leaveTurn() }
@@ -774,6 +778,12 @@ public struct WatchRoundContainerView: View {
             showPlaysLike: s.elevationDeltaM != nil && hasQualifiedRangeFix,
             fullMap: false,
             mapScale: CGFloat(WatchHoleMapView.restingCrownScale),
+            // Owner choice 2026-10-12 (#422 prototypes): the player at the bottom, between the two
+            // corner controls, the screen given to what is ahead; S70's chevron instead of a blue
+            // dot; the distance walked from the last shot up in the facts (it finds the ball).
+            restingPlayerAnchorFraction: nil,
+            playerMarker: .chevron,
+            lastShotPlacement: .facts,
             geometry: renderedGeometry,
             pinImagePoint: selectedPin,
             measuredPxOverride: measuredPxOverride,
@@ -1214,7 +1224,9 @@ public struct WatchRoundContainerView: View {
                 }
             }
             .frame(width: safeRect.width)
-            .position(x: safeRect.midX, y: safeRect.maxY - controlHalf)
+            // Above the face's bottom inset: in this paged hierarchy taps there were lost on 49 mm
+            // (#417 W01 记一杆 / W02 菜单, 0/5); the measured 41 mm cut-off is exactly that inset.
+            .position(x: safeRect.midX, y: WatchHoleMapView.rootRailBottom(in: proxy.size) - controlHalf)
         }
     }
 

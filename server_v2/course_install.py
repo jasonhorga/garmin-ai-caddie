@@ -13,7 +13,6 @@ verified by the iOS ``OfflineStore``; they are not written to this shared job jo
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
@@ -23,6 +22,7 @@ import threading
 from typing import Any
 
 from ai_caddie.core.data import ROOT
+from ai_caddie.core.priority_work import SELECTED_COURSE, PriorityExecutor
 
 _LOCK = threading.RLock()
 _ACTIVE: set[str] = set()
@@ -39,7 +39,7 @@ _HEARTBEAT_INTERVAL_SECONDS = 5.0
 _TERMINAL_PHASES = frozenset({"ready", "failed", "cancelled"})
 # One job coordinator at a time keeps a four-core shared homeserver from multiplying the existing
 # two-hole geometry pool and one-hole topo pipeline across simultaneous course selections.
-_WORKER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="course-install-job")
+_WORKER = PriorityExecutor(max_workers=1, name="course-install-job")
 
 
 def _root() -> Path:
@@ -269,7 +269,7 @@ def _launch(identifier: str) -> None:
         if not state or state.get("phase") in _TERMINAL_PHASES or state.get("cancelRequested"):
             return
         _ACTIVE.add(identifier)
-    _WORKER.submit(_run, identifier)
+    _WORKER.submit(_run, identifier, priority=int(state.get("priority", SELECTED_COURSE)))
 
 
 def _schedule_retry(identifier: str) -> None:
@@ -334,6 +334,7 @@ def enqueue(
     refs: list[dict[str, Any]],
     requested: dict[int, list[int]],
     ready: dict[int, list[int]],
+    priority: int = SELECTED_COURSE,
 ) -> dict[str, Any]:
     tee = tee_box.strip().lower() or "blue"
     identifier = job_id(
@@ -502,6 +503,9 @@ def enqueue(
                 state["cancellable"] = True
                 state["generation"] = max(1, int(state.get("generation") or 1)) + 1
                 state["progress"] = 0
+        # A user selecting a course promotes its queued work. Regional discovery can never
+        # demote an existing foreground job or change its player/loop/Tee identity.
+        state["priority"] = min(int(state.get("priority", priority)), int(priority))
         _recount(state)
         if _all_assets_ready(state):
             state["phase"] = "ready"
@@ -815,7 +819,12 @@ def _run(identifier: str) -> None:
                 # off after releasing the active slot so it is never stranded.
                 relaunch = bool(state and _has_queued_work(state))
         if relaunch:
-            _schedule_retry(identifier)
+            if made_progress and state and state.get("phase") == "queued":
+                # A healthy small-window pass yields back to the priority queue immediately.
+                # Backoff is for provider failure, never an artificial delay between holes.
+                _launch(identifier)
+            else:
+                _schedule_retry(identifier)
         elif not state or state.get("phase") != "cancelled":
             with _LOCK:
                 _RETRY_ATTEMPTS.pop(identifier, None)
@@ -869,7 +878,7 @@ def resume_pending_jobs() -> None:
         paths = list(root.glob("course-*.json"))
     except OSError:
         return
-    pending: list[tuple[float, str]] = []
+    pending: list[tuple[int, float, str]] = []
     terminal_cutoff = datetime.now(UTC) - timedelta(days=_retention_days())
     for path in paths:
         identifier = path.stem
@@ -899,15 +908,41 @@ def resume_pending_jobs() -> None:
             state["stage"] = "queued"
             state["updatedAt"] = _now()
             _write(state)
-            pending.append((updated_timestamp, identifier))
+            pending.append((int(state.get("priority", SELECTED_COURSE)), updated_timestamp, identifier))
     with _LOCK:
         # Only the newest recovered job enters the single-worker executor now. The rest are handed
         # off one-by-one after completion, so a course explicitly selected after restart is queued
         # ahead of old recovery work rather than behind an unbounded executor backlog.
-        _RESUME_BACKLOG = [identifier for _stamp, identifier in sorted(pending, reverse=True)]
+        _RESUME_BACKLOG = [identifier for _priority, _stamp, identifier in
+                           sorted(pending, key=lambda row: (row[0], -row[1]))]
     _launch_next_resumed_job()
 
 
 def state_for_worker(identifier: str) -> dict[str, Any] | None:
     with _LOCK:
         return _read(identifier)
+
+
+def bind_nearby_holes(identifier: str, published_holes: list[int]) -> None:
+    """Replace a provider catalogue's approximate hole count with the actual release table.
+
+    Only the dedicated public nearby journal may shrink this way. Player-selected loop journals
+    keep their proven ordered identity and union/rebind behavior untouched.
+    """
+    with _LOCK:
+        state = _read(identifier)
+        if not state or not str(state.get("loopKey") or "").endswith(":nearby-assets"):
+            return
+        gid = int(state["globalId"])
+        numbers = sorted({int(h) for h in published_holes if 0 < int(h) <= 36})
+        old = state.get("holes") or {}
+        state["holes"] = {
+            f"{gid}:{h}": old.get(f"{gid}:{h}") or {
+                "globalId": gid, "localHole": h, "displayHole": h,
+                "geometry": "queued", "topo": "queued", "geometryRevision": None,
+                "topoRevision": None, "workRevision": int(state.get("workRevision") or 1),
+            } for h in numbers
+        }
+        state["requested"] = {str(gid): numbers}
+        _recount(state)
+        _write(state)

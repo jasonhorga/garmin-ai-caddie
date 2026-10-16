@@ -880,6 +880,9 @@ class MobilePackageAdminOnlyTests(unittest.TestCase):
             client_id=None,
             ensure_geometry=False,
             include_event_cursor=True,
+            prepare_map=False,
+            priority_hole=1,
+            map_only=False,
             loops=[(31795, "all")],
             player_id=self.member_id,
         )

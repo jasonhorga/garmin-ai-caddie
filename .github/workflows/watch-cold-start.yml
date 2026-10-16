@@ -1,0 +1,161 @@
+name: Watch Cold Start Timing
+
+# Owner report 2026-10-14: a round started on the Watch only (phone app never opened) at a course the
+# server had never prepared showed no hole map. This measures that exact case against the production
+# backend: from the start tap to the first hole's vector map and raster, with a screenshot every few
+# seconds. It reports numbers; it does not judge them yet.
+on:
+  workflow_dispatch:
+    inputs:
+      latitude:
+        description: Where to look for a never-prepared course (default Salzkammergut, Austria)
+        type: string
+        required: false
+        default: '47.71'
+      longitude:
+        description: Longitude of that point
+        type: string
+        required: false
+        default: '13.53'
+      global_id:
+        description: Optional Garmin course id to force (must be near the point)
+        type: string
+        required: false
+        default: ''
+      api_base_url:
+        description: Optional API origin
+        type: string
+        required: false
+        default: ''
+  # Self-test on the branch that introduces it (workflow_dispatch needs the default branch).
+  push:
+    branches:
+      - claude/watch-cold-start-timing-20261014
+    paths:
+      - '.github/workflows/watch-cold-start.yml'
+      - 'mobile/ios/AICaddieWatch/**'
+
+concurrency:
+  group: ai-caddie-watch-cold-start
+  cancel-in-progress: false
+
+jobs:
+  cold-start:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate native project
+        run: xcodegen generate --spec mobile/ios/project.yml --project-root .
+
+      - name: Create a 46mm Watch simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          TYPE=$(xcrun simctl list devicetypes -j | jq -er '[.devicetypes[] | select(.name | test("Apple Watch Series (10|11) \\(46mm\\)")) | .identifier] | first')
+          RUNTIME=$(xcrun simctl list runtimes available -j | jq -er '[.runtimes[] | select(.isAvailable == true) | select(.identifier | contains(".watchOS-"))] | sort_by(.version | split(".") | map(tonumber)) | last | .identifier')
+          UDID=$(xcrun simctl create "AI Caddie Cold Start" "$TYPE" "$RUNTIME")
+          echo "WATCH_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Build Watch app
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/WatchDerivedData" | tail -5
+
+      - name: Start a round on a never-prepared course and time it
+        env:
+          API_BASE_URL: ${{ github.event.inputs.api_base_url || vars.AI_CADDIE_API_BASE_URL || 'https://caddie.taile36706.ts.net' }}
+          PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+          # Each run warms the course it picks, so push self-tests rotate through regions the
+          # server is unlikely to have prepared (by run number) unless a point is given.
+          COLD_LAT: ${{ github.event.inputs.latitude }}
+          COLD_LON: ${{ github.event.inputs.longitude }}
+          RUN_NUMBER: ${{ github.run_number }}
+          COLD_GID: ${{ github.event.inputs.global_id }}
+        run: |
+          set -euo pipefail
+          test "${#PLAYER_TOKEN}" -ge 32
+          if [ -z "$COLD_LAT" ] || [ -z "$COLD_LON" ]; then
+            REGIONS=("38.27 140.87" "26.21 127.68" "35.18 129.08" "-37.81 144.96" "-33.92 18.42" "38.72 -9.14" "53.35 -6.26" "49.28 -123.12" "-36.85 174.76" "55.95 -3.19" "45.50 -73.57" "-34.60 -58.38")
+            read -r COLD_LAT COLD_LON <<< "${REGIONS[$((RUN_NUMBER % ${#REGIONS[@]}))]}"
+          fi
+          echo "Looking for a cold course near $COLD_LAT,$COLD_LON"
+          APP="$RUNNER_TEMP/WatchDerivedData/Build/Products/Debug-watchsimulator/AICaddieWatch.app"
+          BID=com.ai-caddie.mobile.watchkitapp
+          xcrun simctl install "$WATCH_UDID" "$APP"
+          xcrun simctl privacy "$WATCH_UDID" grant location "$BID" || true
+          mkdir -p cold-start
+          env \
+            SIMCTL_CHILD_AI_CADDIE_API_BASE_URL="$API_BASE_URL" \
+            SIMCTL_CHILD_AI_CADDIE_PLAYER_TOKEN="$PLAYER_TOKEN" \
+            SIMCTL_CHILD_COLD_START_LAT="$COLD_LAT" \
+            SIMCTL_CHILD_COLD_START_LON="$COLD_LON" \
+            SIMCTL_CHILD_COLD_START_GLOBAL_ID="$COLD_GID" \
+            xcrun simctl launch "$WATCH_UDID" "$BID" -uitest-screen cold-start-timing
+          START=$(date +%s)
+          START_MS=$(python3 -c 'import time; print(int(time.time()*1000))')
+          RESULT=""
+          # Up to 17 minutes (the fixture itself stops at 15); a frame as often as the simulator
+          # allows for the first 30 s (the first map lands within seconds), every 5 s to 2 minutes,
+          # then every 30 s.
+          while true; do
+            NOW=$(date +%s); ELAPSED=$((NOW - START))
+            CONTAINER=$(xcrun simctl get_app_container "$WATCH_UDID" "$BID" data 2>/dev/null || true)
+            NOW_MS=$(python3 -c 'import time; print(int(time.time()*1000))')
+            xcrun simctl io "$WATCH_UDID" screenshot "cold-start/ms$(printf '%07d' "$((NOW_MS - START_MS))").png" >/dev/null 2>&1 || true
+            for marker in cold-start-timing-ready cold-start-timing-failed; do
+              if [ -f "$CONTAINER/Documents/$marker" ]; then RESULT="$CONTAINER/Documents/$marker"; fi
+            done
+            [ -n "$RESULT" ] && break
+            [ "$ELAPSED" -ge 1020 ] && break
+            if [ "$ELAPSED" -lt 30 ]; then sleep 0.5; elif [ "$ELAPSED" -lt 120 ]; then sleep 5; else sleep 30; fi
+          done
+          if [ -z "$RESULT" ]; then
+            echo "::error::no timing result after 17 minutes"
+            exit 1
+          fi
+          cp "$RESULT" cold-start/result.json
+          cat cold-start/result.json
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          r = json.load(open("cold-start/result.json"))
+          def s(v): return "never" if v is None or v < 0 else f"{v:.1f} s"
+          print("## Watch cold start (Watch only, never-prepared course, production backend)")
+          if "error" in r:
+              print(f"Failed: {r['error']}")
+          else:
+              print(f"Course {r['course']} ({r['global_id']}), server install before: {r['install_before']}")
+              print("")
+              print("| From the start tap | Time |")
+              print("|---|---|")
+              print(f"| Hole 1 map (vector) | {s(r['hole1_map_vector_s'])} |")
+              print(f"| Hole 1 map (picture) | {s(r['hole1_map_raster_s'])} |")
+              print(f"| Every hole has a map | {s(r['all_holes_vector_s'])} |")
+              print(f"| Upgrade complete | {r['complete']} |")
+          print("")
+          print("Events: " + ", ".join(f"{e['event']}@{e['t']}s" for e in r.get("events", [])))
+          PY
+          grep -q '"error"' cold-start/result.json && exit 1 || true
+
+      - name: Scan evidence for secret bytes
+        if: always()
+        env:
+          ARTIFACT_PLAYER_TOKEN: ${{ secrets.AI_CADDIE_CI_PLAYER_TOKEN }}
+        run: python3 .github/scripts/scan_artifacts_for_secrets.py --secret-env ARTIFACT_PLAYER_TOKEN cold-start
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: watch-cold-start
+          path: cold-start/
+          if-no-files-found: warn

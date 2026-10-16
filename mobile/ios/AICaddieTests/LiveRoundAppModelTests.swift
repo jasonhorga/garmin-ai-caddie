@@ -1392,6 +1392,46 @@ final class LiveRoundAppModelTests: XCTestCase {
             ),
             "removing a loop from this round must leave its immutable installed topo available"
         )
+
+        // #424: the Watch adds or drops the second nine at its turn and re-sends the same round's
+        // table; the phone's package follows through its own second-loop path.
+        func watchTable(_ loopKey: String, revision: Int?) -> WatchRoundStartPayload {
+            WatchRoundStartPayload(
+                roundId: roundId, courseName: "黑骑士", teeBox: "blue", loopKey: loopKey,
+                globalId: 31794, activeHole: 10,
+                holes: [WatchRoundSeedHolePayload(hole: 1, par: 4, distanceM: nil, globalId: 31794,
+                                                  localHole: 1, courseHoleNumber: 1)],
+                tableRevision: revision
+            )
+        }
+        await model.handleWatchRoundStart(watchTable("31794:all+31795:all", revision: nil))
+        XCTAssertEqual(model.package?.loopKey, "31794:all", "a start without a table revision never changes the table")
+        await model.handleWatchRoundStart(watchTable("31794:all+31795:all", revision: 1))
+        XCTAssertEqual(model.package?.loopKey, "31794:all+31795:all")
+        XCTAssertEqual(model.package?.holes.first(where: { $0.number == 10 })?.sourceGlobalId, 31795)
+        await model.handleWatchRoundStart(watchTable("31794:all", revision: 2))
+        XCTAssertEqual(model.package?.loopKey, "31794:all", "a dropped second nine follows")
+        await model.handleWatchRoundStart(watchTable("31794:all+31795:all", revision: 1))
+        XCTAssertEqual(model.package?.loopKey, "31794:all", "an older table (re-sent or delayed) never undoes a later one")
+        await model.handleWatchRoundStart(watchTable("31795:all+31794:all", revision: 3))
+        XCTAssertEqual(model.package?.loopKey, "31794:all", "a different first loop is never a second-nine change")
+
+        // Offline with C not installed: the first delivery cannot apply, so the same revision is
+        // retried on its re-delivery once C is available (no relaunch).
+        await model.handleWatchRoundStart(watchTable("31794:all+31796:all", revision: 4))
+        XCTAssertEqual(model.package?.loopKey, "31794:all")
+        let cTemplate = try blackKnightLoopPackage(source: source, globalId: 31796, label: "C")
+        try store.saveCourseTemplate(cTemplate)
+        for hole in cTemplate.holes {
+            _ = try store.saveCourseTopoImage(
+                minimalPNGData(),
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
+                geometryRevision: hole.geometryRevision
+            )
+        }
+        await model.handleWatchRoundStart(watchTable("31794:all+31796:all", revision: 4))
+        XCTAssertEqual(model.package?.loopKey, "31794:all+31796:all", "the same revision retried and applied")
     }
 
     /// B4 turn: choosing the second loop adds it to this round AND opens its first hole. The model

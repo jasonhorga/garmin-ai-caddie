@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, wait
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 import json
@@ -42,6 +42,7 @@ from ai_caddie.caddie.round_loops import (
 from ai_caddie.rounds.score_source import SCORE_EVENT_KINDS, fold_score_source
 from ai_caddie.reports.annotations import annotations_for_target, list_annotations
 from ai_caddie.core.data import hazard_path, read_json
+from ai_caddie.core.priority_work import PriorityExecutor, SELECTED_COURSE
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.geometry.geometry_evidence import build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.geometry.shot_projection import local_to_world
@@ -82,10 +83,7 @@ CADDIE_ALTERNATIVE_CARRY_GAP_M = 45.0
 # overlap so the precise upgrade completes in the background, but leave half of a four-core shared
 # homeserver available for the API, database, and other users.  This process-wide pool also prevents
 # simultaneous users/courses from multiplying the CPU-heavy Node/Python children without bound.
-_GEOMETRY_INSTALL_POOL = ThreadPoolExecutor(
-    max_workers=2,
-    thread_name_prefix="course-geometry-install",
-)
+_GEOMETRY_INSTALL_POOL = PriorityExecutor(max_workers=2, name="course-geometry-install")
 logger = logging.getLogger(__name__)
 _EVENT_CURSOR_CACHE_LOCK = threading.Lock()
 _EVENT_CURSOR_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -899,6 +897,7 @@ def _ensure_geometry_for_course(
     holes: list[int] | None = None,
     *,
     on_hole_complete: Callable[[dict[str, Any]], None] | None = None,
+    priority: int = SELECTED_COURSE,
 ) -> dict[str, Any]:
     from ai_caddie.geometry.geometry_sync import ensure_prodgeometry
 
@@ -938,7 +937,7 @@ def _ensure_geometry_for_course(
 
     for _ in range(min(2, len(indexed_holes))):
         index, local_hole = next(iterator)
-        pending[_GEOMETRY_INSTALL_POOL.submit(ensure_one, local_hole)] = index
+        pending[_GEOMETRY_INSTALL_POOL.submit(ensure_one, local_hole, priority=priority)] = index
 
     while pending:
         completed, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
@@ -962,7 +961,7 @@ def _ensure_geometry_for_course(
                 index, local_hole = next(iterator)
             except StopIteration:
                 break
-            pending[_GEOMETRY_INSTALL_POOL.submit(ensure_one, local_hole)] = index
+            pending[_GEOMETRY_INSTALL_POOL.submit(ensure_one, local_hole, priority=priority)] = index
 
     results = [results_by_index[index] for index in range(len(indexed_holes))]
     # Both loaders cache missing files. A first course download must be visible to the package
@@ -1197,6 +1196,7 @@ def first_hole_lightweight_course_prep(
     package: dict[str, Any],
     *,
     player_id: str = OWNER_ID,
+    map_only: bool = False,
 ) -> dict[str, Any] | None:
     """Return immediately drawable CourseView-only seeds for the live course package.
 
@@ -1214,7 +1214,7 @@ def first_hole_lightweight_course_prep(
     # The package already contains the player's filtered club medians. Reuse them when available;
     # omitting the optional argument preserves the authoritative fallback for old/fixture callers.
     ladder = _package_club_ladder(package)
-    if ladder is None and len(holes) > 1:
+    if not map_only and ladder is None and len(holes) > 1:
         # `lightweight_prep_hole` accepts a ladder precisely so callers preparing several holes do
         # not rescan every shot file once per hole. Resolve the player-scoped fallback once here;
         # on the real Black Knight package this changes nine-hole seed generation from ~8s to <1s.
@@ -1229,6 +1229,8 @@ def first_hole_lightweight_course_prep(
     # Composite rounds can show the same physical local hole twice (A+A). Build it once and
     # renumber the returned factual row for each display hole instead of doing duplicate work.
     by_source: dict[tuple[int, int], dict[str, Any] | None] = {}
+    tee_sets: dict[int, int | None] = {}
+    priority_display_holes = set((package.get("enrichmentState") or {}).get("priorityHoles") or [1])
     seeded_rows: list[dict[str, Any]] = []
     missing_rows: list[dict[str, Any]] = []
     for package_hole in holes:
@@ -1239,12 +1241,33 @@ def first_hole_lightweight_course_prep(
             continue
         source_key = (source_global_id, source_local_hole)
         if source_key not in by_source:
+            vector = None
+            # The install/foreground path already persisted factual vectors. Reuse them before
+            # trying the optional CourseView catalogue or rebuilding a frame for every package.
+            from ai_caddie.core.data import mesh_path
+            if mesh_path(source_global_id, source_local_hole).exists():
+                try:
+                    from ai_caddie.courses.vector_prep import cached_vector_hole
+                    from ai_caddie.caddie.analysis import tee_set_for_box
+
+                    if source_global_id not in tee_sets:
+                        tee_sets[source_global_id] = tee_set_for_box(
+                            source_global_id, str(course.get("teeBox") or "blue"), colour_fallback=False,
+                        )
+                    vector = cached_vector_hole(
+                        source_global_id, source_local_hole, tee_set=tee_sets[source_global_id],
+                        build_if_missing=round_hole in priority_display_holes,
+                    )
+                except Exception:
+                    pass
             try:
-                by_source[source_key] = course_prep.lightweight_prep_hole(
-                    source_global_id,
-                    source_local_hole,
-                    **prep_kwargs,
-                )
+                by_source[source_key] = vector
+                if vector is None and not map_only:
+                    by_source[source_key] = course_prep.lightweight_prep_hole(
+                        source_global_id,
+                        source_local_hole,
+                        **prep_kwargs,
+                    )
             except Exception:
                 # A missing CourseView cache is a per-hole degradation. Do not throw away routes
                 # that were successfully extracted for the other holes in the same package.
@@ -2805,6 +2828,7 @@ def _caddie_context_seeds(
     player_id: str = OWNER_ID,
     priority_holes: list[int] | None = None,
     defer_non_priority_enrichment: bool = False,
+    defer_all_enrichment: bool = False,
 ) -> list[dict[str, Any]]:
     course_name = str(round_row.get("course") or round_row.get("courseName") or "Unknown course")
     identity = select_garmin_name_identity([round_row])
@@ -2830,7 +2854,7 @@ def _caddie_context_seeds(
         number = int(hole.get("number") or 0)
         if not number:
             continue
-        if defer_non_priority_enrichment and number not in priority:
+        if defer_all_enrichment or (defer_non_priority_enrichment and number not in priority):
             seeds.append(
                 _deferred_caddie_context_seed(
                     round_id=round_id,
@@ -3313,10 +3337,11 @@ def build_live_round_package(
     stats_window: str = "all",
     priority_holes: list[int] | None = None,
     defer_non_priority_enrichment: bool = False,
+    map_only: bool = False,
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
-    annotations = list_annotations(root=annotation_lookup_root, player_id=player_id)
+    annotations = [] if map_only else list_annotations(root=annotation_lookup_root, player_id=player_id)
     scored_source = _effective_score_data(source, annotations)
     # History stats are about the player's PAST rounds — independent of which course is being
     # prepared. For a never-played course the caller augments `data` with a synthetic template
@@ -3325,7 +3350,9 @@ def build_live_round_package(
     # (turning every course switch back into a ~8s cold rebuild). So build stats from the
     # ORIGINAL un-augmented history when the caller provides it.
     stats_source = stats_data if stats_data is not None else source
-    stats = cached_build_history_stats(
+    # First-map requests have no personal projection. Do not fingerprint/read history or make
+    # a statistical default look like a recommendation; clients fetch the full package separately.
+    stats = {"clubs": [], "courses": [], "holes": []} if map_only else cached_build_history_stats(
         stats_source,
         data_mode=data_mode,
         player_id=player_id,
@@ -3387,13 +3414,13 @@ def build_live_round_package(
     # full list if the bag is unknown or the intersection is too small (see club_bag.restrict_to_bag).
     from ai_caddie.caddie.club_bag import apply_manual_carries, manual_roster_tokens, restrict_to_bag
 
-    club_profiles = restrict_to_bag(club_profiles, lambda c: c.get("clubName"), player_id=player_id)
-    # A carry typed in 球包 is the one the caddie uses: every package consumer (seeds, phone, Watch)
-    # reads these rows, so project it here once (same rule as iOS ``ClubBagStore.effectiveProfiles``).
-    club_profiles = apply_manual_carries(club_profiles, player_id=player_id)
+    if not map_only:
+        club_profiles = restrict_to_bag(club_profiles, lambda c: c.get("clubName"), player_id=player_id)
+        # A carry typed in 球包 is the one the caddie uses: every package consumer reads these rows.
+        club_profiles = apply_manual_carries(club_profiles, player_id=player_id)
     # The placeholder 8I keeps a player with no bag and no history playable; it never stands in
     # for a roster the player chose (a putter-only roster gets no hitting recommendation).
-    if not club_profiles and manual_roster_tokens(player_id) is None:
+    if not map_only and not club_profiles and manual_roster_tokens(player_id) is None:
         club_profiles = [{"clubName": "8I", "sampleSize": 0, "median_m": 140.0, "p10_m": 130.0, "p90_m": 150.0}]
     ready_holes = sum(1 for hole in holes if hole["geometryCoverage"] == "ready")
     geometry_coverage = {
@@ -3409,7 +3436,7 @@ def build_live_round_package(
         longitude=course_longitude,
         root=root,
         transport=weather_transport,
-        allow_fetch=allow_weather_fetch,
+        allow_fetch=allow_weather_fetch and not map_only,
         player_id=player_id,
     )
     weather_coverage, weather_by_hole = _weather_coverage_for_package(
@@ -3452,8 +3479,10 @@ def build_live_round_package(
         # Startup packages intentionally use a bounded player-history window. The complete
         # history projection remains available from the history/statistics routes and is warmed
         # independently, so a cold full-history geometry audit can never block the first hole.
-        "playerStatsWindow": str(stats_window or "all"),
+        "playerStatsWindow": "deferred" if map_only else str(stats_window or "all"),
     }
+    if map_only:
+        source_coverage["playerEnrichment"] = "deferred"
     if preparation_mode != "round":
         source_coverage.update(
             {
@@ -3479,6 +3508,7 @@ def build_live_round_package(
         player_id=player_id,
         priority_holes=priority_holes,
         defer_non_priority_enrichment=defer_non_priority_enrichment,
+        defer_all_enrichment=map_only,
     )
     enrichment_state = _package_enrichment_state(
         holes,
@@ -3944,6 +3974,7 @@ def build_live_round_package_for_course(
     stats_window: str = "all",
     priority_holes: list[int] | None = None,
     defer_non_priority_enrichment: bool = False,
+    map_only: bool = False,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     """The whole authoritative course (a 9-hole loop is capped to its nine holes). Round order
@@ -4008,6 +4039,7 @@ def build_live_round_package_for_course(
         stats_window=stats_window,
         priority_holes=priority_holes,
         defer_non_priority_enrichment=defer_non_priority_enrichment,
+        map_only=map_only,
     )
     if template_round is not None and selected_round_id is None:
         package["sourceCoverage"] = {

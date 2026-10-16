@@ -121,7 +121,13 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
         _ teeOptions: [WatchCourseTee],
         selectedTee: String? = nil
     ) -> WatchCourseOption {
-        WatchCourseOption(
+        // The Tee list comes from the course's current release: when its tees agree on 9 or 18
+        // holes, that count wins over a retained catalogue row (26557 was listed as 18 holes while
+        // its release is one nine; a stale 18 asked the server for `:front` and got 422).
+        let teeHoleCounts = Set(teeOptions.compactMap(\.holeCount).filter { $0 == 9 || $0 == 18 })
+        let releaseHoles = teeHoleCounts.count == 1 ? teeHoleCounts.first : nil
+        let correctedSegmentHoles = releaseHoles.flatMap { $0 == playableHoleCount ? nil : $0 } ?? segmentHoles
+        return WatchCourseOption(
             globalId: globalId,
             name: name,
             holes: holes,
@@ -129,7 +135,7 @@ public struct WatchCourseOption: Codable, Equatable, Identifiable {
             venueName: venueName,
             venueNameSource: venueNameSource,
             segmentLabel: segmentLabel,
-            segmentHoles: segmentHoles,
+            segmentHoles: correctedSegmentHoles,
             latitude: latitude,
             longitude: longitude,
             tees: teeOptions.map(\.teeBox),
@@ -413,6 +419,19 @@ public struct WatchCourseSelection: Equatable {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
               halves.contains(value) else { return nil }
         return value
+    }
+
+    /// One or two nine-hole loops (`A:all`, `A:all+B:all`): their course ids in play order, else nil.
+    public static func nineLoopIds(loopKey: String) -> [Int]? {
+        let parts = loopKey.split(separator: "+", omittingEmptySubsequences: false)
+        guard (1...2).contains(parts.count) else { return nil }
+        var ids: [Int] = []
+        for part in parts {
+            let fields = part.split(separator: ":", omittingEmptySubsequences: false)
+            guard fields.count == 2, fields[1] == "all", let id = Int(fields[0]), id > 0 else { return nil }
+            ids.append(id)
+        }
+        return ids
     }
 
     /// One or two halves of one 18-hole course (`G:back`, `G:back+G:front`, ...), else nil.
@@ -896,7 +915,7 @@ public struct WatchCoursePrepHazardDetail: Decodable, Equatable {
 }
 
 public struct WatchCoursePrepMap: Decodable, Equatable {
-    public let image: String
+    public let image: String?
     public let overlay: WatchCoursePrepOverlay
 }
 
@@ -904,6 +923,31 @@ public struct WatchCoursePrepOverlay: Decodable, Equatable {
     public let w: Int
     public let h: Int
     public let route: [[Double]]
+    /// The hole's real surfaces in the same pixel frame (#426): fairway, fringe, tee, green, bunker
+    /// and lake boundaries from the course mesh. Drawn before any raster exists. Older servers omit it.
+    public let surfaces: [WatchMapSurface]?
+}
+
+/// One kind of course surface and its boundary polygons (`outerPx` with optional `holesPx`).
+public struct WatchMapSurface: Codable, Equatable {
+    public let kind: String
+    public let polygons: [WatchMapSurfacePolygon]
+
+    public init(kind: String, polygons: [WatchMapSurfacePolygon]) {
+        self.kind = kind
+        self.polygons = polygons
+    }
+}
+
+public struct WatchMapSurfacePolygon: Codable, Equatable {
+    public let outerPx: [[Double]]
+    /// Interior rings (an island in a lake, a hole in a fairway) the fill must leave open.
+    public let holesPx: [[[Double]]]?
+
+    public init(outerPx: [[Double]], holesPx: [[[Double]]]? = nil) {
+        self.outerPx = outerPx
+        self.holesPx = holesPx
+    }
 }
 
 public struct WatchCoursePrepGreenDistances: Decodable, Equatable {
@@ -1133,16 +1177,29 @@ public struct WatchSecondLoopRequest: Equatable {
     /// `"front"` / `"back"`; the same half as the first loop is allowed.
     public let secondHalf: String
     public let teeBox: String?
+    /// A nine-hole-loop venue (A / B / C): the second loop's course id, with `firstLoopKey` `G:all`.
+    public let secondNineLoopGlobalId: Int?
 
-    public init(roundId: String, firstLoopKey: String, secondHalf: String, teeBox: String?) {
+    public init(
+        roundId: String,
+        firstLoopKey: String,
+        secondHalf: String,
+        teeBox: String?,
+        secondNineLoopGlobalId: Int? = nil
+    ) {
         self.roundId = roundId
         self.firstLoopKey = firstLoopKey
         self.secondHalf = secondHalf
         self.teeBox = teeBox
+        self.secondNineLoopGlobalId = secondNineLoopGlobalId
     }
 
-    /// `G:first+G:second`, or nil when `firstLoopKey` is not one half of an 18-hole course.
+    /// `G:first+G:second` for halves, `A:all+B:all` for nine-hole loops, else nil.
     public var loopKey: String? {
+        if let second = secondNineLoopGlobalId {
+            guard WatchCourseSelection.nineLoopIds(loopKey: firstLoopKey)?.count == 1 else { return nil }
+            return "\(firstLoopKey)+\(second):all"
+        }
         guard let loop = WatchCourseSelection.halfLoop(loopKey: firstLoopKey),
               loop.halves.count == 1,
               let second = WatchCourseSelection.normalizedHalf(secondHalf) else { return nil }
@@ -1158,6 +1215,34 @@ public enum WatchSecondLoopResult: Equatable {
 }
 
 extension WatchRoundStart {
+    /// The round's current hole table, sent again when the Watch adds, changes or drops its second
+    /// nine so the phone's same round follows (#424). Nil without a loop key.
+    public static func currentTable(of round: WatchRoundStore.PersistedRound, courseName: String) -> WatchRoundStart? {
+        guard let loopKey = round.loopKey else { return nil }
+        let states = round.holeStates.sorted { $0.hole < $1.hole }
+        return WatchRoundStart(
+            roundId: round.roundId,
+            courseName: courseName,
+            teeBox: round.teeBox ?? "",
+            loopKey: loopKey,
+            globalId: round.courseGlobalId ?? states.first?.globalId,
+            activeHole: round.activeHole,
+            holes: states.map { state in
+                WatchRoundSeedHole(
+                    hole: state.hole,
+                    par: state.par,
+                    distanceM: state.distanceM,
+                    teeLatitude: state.teeLatitude,
+                    teeLongitude: state.teeLongitude,
+                    globalId: state.globalId,
+                    localHole: state.sourceLocalHole,
+                    courseHoleNumber: state.courseHoleNumber
+                )
+            },
+            tableRevision: round.tableRevision
+        )
+    }
+
     /// The reverse Watch → iPhone start relay for a round the Watch just created. Every hole carries
     /// its complete physical identity — round `hole` → (`globalId`, `localHole`, `courseHoleNumber`) —
     /// so the phone never has to re-derive which physical half the Watch started on.

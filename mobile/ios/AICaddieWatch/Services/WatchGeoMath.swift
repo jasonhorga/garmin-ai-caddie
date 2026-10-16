@@ -27,6 +27,29 @@ public enum WatchGeoMath {
                        y: o.py + s * (r1.py - o.py) + t * (r2.py - o.py))
     }
 
+    /// The inverse of `projectToTopoPx`: an image pixel back to latitude / longitude through the same
+    /// three projection references (the phone's `WatchEventBridge.projectFromTopoPx`).
+    public static func coordinate(
+        fromImagePx px: Double,
+        py: Double,
+        refs: [(lat: Double, lon: Double, px: Double, py: Double)]
+    ) -> (latitude: Double, longitude: Double)? {
+        guard refs.count >= 3, px.isFinite, py.isFinite else { return nil }
+        let o = refs[0], r1 = refs[1], r2 = refs[2]
+        let a = r1.px - o.px, b = r2.px - o.px
+        let c = r1.py - o.py, d = r2.py - o.py
+        let det = a * d - b * c
+        guard abs(det) > 1e-12 else { return nil }
+        let dx = px - o.px, dy = py - o.py
+        let s = (dx * d - b * dy) / det
+        let t = (a * dy - dx * c) / det
+        let latitude = o.lat + s * (r1.lat - o.lat) + t * (r2.lat - o.lat)
+        let longitude = o.lon + s * (r1.lon - o.lon) + t * (r2.lon - o.lon)
+        guard latitude.isFinite, (-90...90).contains(latitude),
+              longitude.isFinite, (-180...180).contains(longitude) else { return nil }
+        return (latitude, longitude)
+    }
+
     /// Haversine great-circle distance in metres between two WGS84 points.
     public static func metres(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
         let earthR = 6_371_000.0

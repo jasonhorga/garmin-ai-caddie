@@ -268,19 +268,28 @@ while :; do
       pullRequests:$prs
     }' <<<"$run_row")"
     old_run="$(state_value --arg id "$run_id" '.workflowRuns[$id] // empty')"
+    workflow_changed=0
     if [ "$workflow_initialized" = "true" ]; then
       if [ -z "$old_run" ] || [ "$old_run" = "null" ]; then
+        workflow_changed=1
         record_event "$(jq -c --argjson run "$current_run" '{kind:"ci_run_added",runId:$run.id,name:$run.name,event:$run.event,status:$run.status,conclusion:$run.conclusion,headBranch:$run.headBranch,headSha:$run.headSha,runAttempt:$run.runAttempt,createdAt:$run.createdAt,updatedAt:$run.updatedAt,pullRequests:$run.pullRequests,url:$run.url}' <<<"{}")"
-      elif jq -n -e --argjson old "$old_run" --argjson new "$current_run" '$old.status != $new.status or $old.conclusion != $new.conclusion or $old.runAttempt != $new.runAttempt or $old.headSha != $new.headSha' >/dev/null 2>&1; then
-        record_event "$(jq -cn --argjson old "$old_run" --argjson new "$current_run" '{kind:"ci_run_changed",runId:$new.id,name:$new.name,event:$new.event,status:$new.status,conclusion:$new.conclusion,headBranch:$new.headBranch,headSha:$new.headSha,runAttempt:$new.runAttempt,createdAt:$new.createdAt,updatedAt:$new.updatedAt,pullRequests:$new.pullRequests,previous:{status:$old.status,conclusion:$old.conclusion,runAttempt:$old.runAttempt,headSha:$old.headSha},url:$new.url}')"
+      elif jq -n -e --argjson old "$old_run" --argjson new "$current_run" '$old != $new' >/dev/null 2>&1; then
+        workflow_changed=1
+        if jq -n -e --argjson old "$old_run" --argjson new "$current_run" '$old.status != $new.status or $old.conclusion != $new.conclusion or $old.runAttempt != $new.runAttempt or $old.headSha != $new.headSha' >/dev/null 2>&1; then
+          record_event "$(jq -cn --argjson old "$old_run" --argjson new "$current_run" '{kind:"ci_run_changed",runId:$new.id,name:$new.name,event:$new.event,status:$new.status,conclusion:$new.conclusion,headBranch:$new.headBranch,headSha:$new.headSha,runAttempt:$new.runAttempt,createdAt:$new.createdAt,updatedAt:$new.updatedAt,pullRequests:$new.pullRequests,previous:{status:$old.status,conclusion:$old.conclusion,runAttempt:$old.runAttempt,headSha:$old.headSha},url:$new.url}')"
+        fi
       fi
+    else
+      workflow_changed=1
     fi
-    state_update --arg id "$run_id" --argjson run "$current_run" '
-      .workflowRuns = (((.workflowRuns // {}) + {($id):$run})
-        | to_entries
-        | sort_by(.value.updatedAt // .value.createdAt // "")
-        | .[-5000:]
-        | from_entries)'
+    if [ "$workflow_changed" -eq 1 ]; then
+      state_update --arg id "$run_id" --argjson run "$current_run" '
+        .workflowRuns = (((.workflowRuns // {}) + {($id):$run})
+          | to_entries
+          | sort_by(.value.updatedAt // .value.createdAt // "")
+          | .[-5000:]
+          | from_entries)'
+    fi
   done < <(jq -c '.[]' "$workflow_runs_file")
   if [ "$workflow_fetch_failed" -eq 0 ]; then
     state_update --arg now "$scan_started" '.workflowRunsInitialized = true | .lastWorkflowScanAt = $now'
@@ -323,8 +332,9 @@ while :; do
     merge_commit="$(jq -r '.mergeCommit.oid // ""' <<<"$pr_row")"
     [ "$number" != "null" ] || continue
 
-    old_head="$(state_value --arg n "$number" '.openPulls[$n].head // ""')"
-    old_updated="$(state_value --arg n "$number" '.openPulls[$n].updatedAt // ""')"
+    old_record="$(state_value --arg n "$number" '.openPulls[$n] // empty')"
+    old_head="$(jq -r '.head // empty' <<<"$old_record" 2>/dev/null || printf '')"
+    old_updated="$(jq -r '.updatedAt // empty' <<<"$old_record" 2>/dev/null || printf '')"
     commit_initialized="$(state_value --arg n "$number" '.pullCommits[$n].initialized // false')"
     if [ -n "$head" ] && [ -n "$old_head" ] && [ "$head" != "$old_head" ]; then
       record_event "$(jq -cn --arg n "$number" --arg old "$old_head" --arg new "$head" \
@@ -335,13 +345,18 @@ while :; do
     # its metadata and known checks current without spending three API calls
     # on every historical PR on every poll. Open PRs are always scanned.
     if [ "$pr_state" != "OPEN" ] && [ -n "$old_updated" ] && [ "$updated" = "$old_updated" ] && [ "$commit_initialized" = "true" ] && [[ "$updated" < "$previous_scan" ]]; then
-      old_checks="$(state_value --arg n "$number" '.openPulls[$n].checks // []' | jq -c '.' 2>/dev/null || printf '[]')"
-      state_update --arg n "$number" --arg head "$head" --arg updated "$updated" --arg state "$pr_state" --arg merge "$merge_commit" --argjson checks "$old_checks" \
-        '.openPulls[$n] = ((.openPulls[$n] // {}) + {head:$head,updatedAt:$updated,state:$state,mergeCommit:$merge,checks:$checks})
-         | if $state == "MERGED" then .openPulls[$n].reviewState = "merged" else . end
-         | if $state == "MERGED" or $state == "CLOSED" then
-             .recentlyClosed[$n] = ((.recentlyClosed[$n] // {}) + {head:$head,state:(if $state == "MERGED" then "merged" else "closed" end),mergeCommit:$merge})
-           else . end'
+      old_checks="$(jq -c '.checks // []' <<<"$old_record" 2>/dev/null || printf '[]')"
+      if ! jq -n -e --argjson old "$old_record" --arg head "$head" --arg updated "$updated" --arg state "$pr_state" --arg merge "$merge_commit" --argjson checks "$old_checks" '
+        ($old.head == $head and $old.updatedAt == $updated and $old.state == $state and
+         ($old.mergeCommit // "") == $merge and ($old.checks // []) == $checks and
+         ($state != "MERGED" or ($old.reviewState // "") == "merged"))' >/dev/null 2>&1; then
+        state_update --arg n "$number" --arg head "$head" --arg updated "$updated" --arg state "$pr_state" --arg merge "$merge_commit" --argjson checks "$old_checks" \
+          '.openPulls[$n] = ((.openPulls[$n] // {}) + {head:$head,updatedAt:$updated,state:$state,mergeCommit:$merge,checks:$checks})
+           | if $state == "MERGED" then .openPulls[$n].reviewState = "merged" else . end
+           | if $state == "MERGED" or $state == "CLOSED" then
+               .recentlyClosed[$n] = ((.recentlyClosed[$n] // {}) + {head:$head,state:(if $state == "MERGED" then "merged" else "closed" end),mergeCommit:$merge})
+             else . end'
+      fi
       continue
     fi
 
@@ -381,7 +396,7 @@ while :; do
       else
         known_global_commits="$(state_value '.seenCommitShas // []' | jq -c 'map(tostring)' 2>/dev/null || printf '[]')"
         known_pr_commits="$(state_value --arg n "$number" '.pullCommits[$n].shas // []' | jq -c 'map(tostring)' 2>/dev/null || printf '[]')"
-        commit_shas="$(jq -c '[.[] | .sha? | select(type == "string") | select(length > 0)] | unique' "$commits_file" 2>/dev/null || printf '[]')"
+        commit_shas="$(jq -c '[.[] | .sha? | select(type == "string") | select(length > 0)] | unique | sort' "$commits_file" 2>/dev/null || printf '[]')"
 
         while IFS= read -r commit_row; do
           sha="$(jq -r '.sha // empty' <<<"$commit_row")"
@@ -398,13 +413,16 @@ while :; do
           known_global_commits="$(jq -c --arg sha "$sha" '. + [$sha] | unique' <<<"$known_global_commits")"
         done < <(jq -c '.[]' "$commits_file")
 
-        state_update --arg n "$number" --arg head "$head" --argjson shas "$commit_shas" \
-          '.seenCommitShas = (((.seenCommitShas // []) + $shas | map(tostring) | unique)[-20000:])
-           | .pullCommits[$n] = ((.pullCommits[$n] // {}) + {initialized:true,head:$head,shas:($shas[-5000:]),observedAt:(now|todateiso8601)})'
+        old_commit_shas="$(jq -c --arg n "$number" '.pullCommits[$n].shas // []' "$STATE" 2>/dev/null || printf '[]')"
+        if [ "$commit_initialized" != "true" ] || [ "$head" != "$(jq -r --arg n "$number" '.pullCommits[$n].head // empty' "$STATE" 2>/dev/null || printf '')" ] || [ "$commit_shas" != "$old_commit_shas" ]; then
+          state_update --arg n "$number" --arg head "$head" --argjson shas "$commit_shas" \
+            '.seenCommitShas = (((.seenCommitShas // []) + $shas | map(tostring) | unique)[-20000:])
+             | .pullCommits[$n] = ((.pullCommits[$n] // {}) + {initialized:true,head:$head,shas:($shas[-5000:]),observedAt:(now|todateiso8601)})'
+        fi
       fi
     fi
 
-    old_checks="$(state_value --arg n "$number" '.openPulls[$n].checks // []' | jq -c '.' 2>/dev/null || printf '[]')"
+    old_checks="$(jq -c '.checks // []' <<<"$old_record" 2>/dev/null || printf '[]')"
     if [ "$should_scan_reviews" -eq 1 ]; then
       checks_raw="$(retry_command "checks-${number}" gh pr checks "$number" --repo "$REPO" --json name,state,workflow,link || true)"
       if jq -e 'type == "array"' <<<"$checks_raw" >/dev/null 2>&1; then
@@ -422,12 +440,17 @@ while :; do
     if [ "$checks" != "$old_checks" ] && [ "$old_checks" != '[]' ]; then
       record_event "$(jq -cn --arg n "$number" --argjson checks "$checks" '{kind:"ci_changed",pr:($n|tonumber),checks:$checks,at:(now|todateiso8601)}')"
     fi
-    state_update --arg n "$number" --arg head "$head" --arg updated "$updated" --arg state "$pr_state" --arg merge "$merge_commit" --argjson checks "$checks" \
-      '.openPulls[$n] = ((.openPulls[$n] // {}) + {head:$head,updatedAt:$updated,state:$state,mergeCommit:$merge,checks:$checks})
-       | if $state == "MERGED" then .openPulls[$n].reviewState = "merged" else . end
-       | if $state == "MERGED" or $state == "CLOSED" then
-           .recentlyClosed[$n] = ((.recentlyClosed[$n] // {}) + {head:$head,state:(if $state == "MERGED" then "merged" else "closed" end),mergeCommit:$merge})
-         else . end'
+    if ! jq -n -e --argjson old "${old_record:-null}" --arg head "$head" --arg updated "$updated" --arg state "$pr_state" --arg merge "$merge_commit" --argjson checks "$checks" '
+      ($old != null and $old.head == $head and $old.updatedAt == $updated and $old.state == $state and
+       ($old.mergeCommit // "") == $merge and ($old.checks // []) == $checks and
+       ($state != "MERGED" or ($old.reviewState // "") == "merged"))' >/dev/null 2>&1; then
+      state_update --arg n "$number" --arg head "$head" --arg updated "$updated" --arg state "$pr_state" --arg merge "$merge_commit" --argjson checks "$checks" \
+        '.openPulls[$n] = ((.openPulls[$n] // {}) + {head:$head,updatedAt:$updated,state:$state,mergeCommit:$merge,checks:$checks})
+         | if $state == "MERGED" then .openPulls[$n].reviewState = "merged" else . end
+         | if $state == "MERGED" or $state == "CLOSED" then
+             .recentlyClosed[$n] = ((.recentlyClosed[$n] // {}) + {head:$head,state:(if $state == "MERGED" then "merged" else "closed" end),mergeCommit:$merge})
+           else . end'
+    fi
   done < <(jq -c '.[]' <<<"$prs")
 
   # Keep the scan start as the cursor. Comments created while this scan was

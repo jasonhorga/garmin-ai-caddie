@@ -327,6 +327,8 @@ public struct WatchHoleMap: Codable, Equatable {
     public let route: [[Double]]?
     /// Drawing-only CourseView outline used by a vector map before the precise bitmap arrives.
     public let greenOutline: [[Double]]?
+    /// Real surfaces (fairway, bunkers, lakes, …) for the vector map before the bitmap arrives.
+    public let surfaces: [WatchMapSurface]?
 
     public init(
         w: Int,
@@ -337,7 +339,8 @@ public struct WatchHoleMap: Codable, Equatable {
         apex: [Double],
         greenCtrl: [Double],
         route: [[Double]]? = nil,
-        greenOutline: [[Double]]? = nil
+        greenOutline: [[Double]]? = nil,
+        surfaces: [WatchMapSurface]? = nil
     ) {
         self.w = w
         self.h = h
@@ -348,6 +351,7 @@ public struct WatchHoleMap: Codable, Equatable {
         self.greenCtrl = greenCtrl
         self.route = route
         self.greenOutline = greenOutline
+        self.surfaces = surfaces
     }
 }
 
@@ -398,6 +402,9 @@ public struct WatchRoundSeed: Codable, Equatable {
     public let globalId: Int?
     public let teeBox: String?
     public let loopKey: String
+    /// The newest Watch table revision (`WatchRoundStart.tableRevision`) this seed's table reflects:
+    /// only that acknowledgement ends the Watch's wait for the phone (#424). Nil from older phones.
+    public let acknowledgedTableRevision: Int?
 
     public init(
         schema: String = "ai-caddie-watch-round-seed-v2",
@@ -407,7 +414,8 @@ public struct WatchRoundSeed: Codable, Equatable {
         holes: [WatchRoundSeedHole],
         globalId: Int? = nil,
         teeBox: String? = nil,
-        loopKey: String
+        loopKey: String,
+        acknowledgedTableRevision: Int? = nil
     ) {
         self.schema = schema
         self.roundId = roundId
@@ -417,6 +425,7 @@ public struct WatchRoundSeed: Codable, Equatable {
         self.globalId = globalId
         self.teeBox = teeBox
         self.loopKey = loopKey
+        self.acknowledgedTableRevision = acknowledgedTableRevision
     }
 }
 
@@ -434,6 +443,8 @@ public struct WatchRoundStart: Codable, Equatable {
     public let globalId: Int?
     public let activeHole: Int
     public let holes: [WatchRoundSeedHole]
+    /// Set when the Watch changed an existing round's table at its turn (#424); nil for the start.
+    public let tableRevision: Int?
 
     public init(
         schema: String = "ai-caddie-watch-round-start-v2",
@@ -443,7 +454,8 @@ public struct WatchRoundStart: Codable, Equatable {
         loopKey: String,
         globalId: Int? = nil,
         activeHole: Int,
-        holes: [WatchRoundSeedHole]
+        holes: [WatchRoundSeedHole],
+        tableRevision: Int? = nil
     ) {
         self.schema = schema
         self.roundId = roundId
@@ -453,6 +465,7 @@ public struct WatchRoundStart: Codable, Equatable {
         self.globalId = globalId
         self.activeHole = activeHole
         self.holes = holes
+        self.tableRevision = tableRevision
     }
 }
 
@@ -558,6 +571,10 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     public let lastShotLatitude: Double?
     public let lastShotLongitude: Double?
     public let lastShotCapturedAt: String?
+    /// Where the hole's second shot (in the phone's order, Watch shots included) was marked: where the
+    /// tee shot landed, for the 开球 preselection when the phone marked it (#424).
+    public let teeShotLandingLatitude: Double?
+    public let teeShotLandingLongitude: Double?
     public let greenInRegulation: Bool?
     public let fairwayResult: String?
     public let geometryCoverage: String?
@@ -648,6 +665,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         case lastShotLatitude
         case lastShotLongitude
         case lastShotCapturedAt
+        case teeShotLandingLatitude
+        case teeShotLandingLongitude
         case greenInRegulation
         case fairwayResult
         case geometryCoverage
@@ -709,6 +728,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         lastShotLatitude: Double? = nil,
         lastShotLongitude: Double? = nil,
         lastShotCapturedAt: String? = nil,
+        teeShotLandingLatitude: Double? = nil,
+        teeShotLandingLongitude: Double? = nil,
         greenInRegulation: Bool? = nil,
         fairwayResult: String? = nil,
         geometryCoverage: String? = nil,
@@ -768,6 +789,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.lastShotLatitude = lastShotLatitude
         self.lastShotLongitude = lastShotLongitude
         self.lastShotCapturedAt = lastShotCapturedAt
+        self.teeShotLandingLatitude = teeShotLandingLatitude
+        self.teeShotLandingLongitude = teeShotLandingLongitude
         self.greenInRegulation = greenInRegulation
         self.fairwayResult = fairwayResult
         self.geometryCoverage = geometryCoverage
@@ -833,6 +856,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
         self.lastShotLatitude = try container.decodeIfPresent(Double.self, forKey: .lastShotLatitude)
         self.lastShotLongitude = try container.decodeIfPresent(Double.self, forKey: .lastShotLongitude)
         self.lastShotCapturedAt = try container.decodeIfPresent(String.self, forKey: .lastShotCapturedAt)
+        self.teeShotLandingLatitude = try container.decodeIfPresent(Double.self, forKey: .teeShotLandingLatitude)
+        self.teeShotLandingLongitude = try container.decodeIfPresent(Double.self, forKey: .teeShotLandingLongitude)
         self.greenInRegulation = try container.decodeIfPresent(Bool.self, forKey: .greenInRegulation)
         self.fairwayResult = try container.decodeIfPresent(String.self, forKey: .fairwayResult)
         self.geometryCoverage = try container.decodeIfPresent(String.self, forKey: .geometryCoverage)
@@ -924,6 +949,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             lastShotLatitude: lastShotLatitude,
             lastShotLongitude: lastShotLongitude,
             lastShotCapturedAt: lastShotCapturedAt,
+            teeShotLandingLatitude: teeShotLandingLatitude,
+            teeShotLandingLongitude: teeShotLandingLongitude,
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: geometryCoverage,
@@ -943,6 +970,20 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
     /// precise prodgeometry map in the same persisted round.
     public func applyingCourseMapUpgrade(_ upgraded: WatchRoundState) -> WatchRoundState {
         guard upgraded.hole == hole else { return self }
+        // A lighter row for the same physical hole and release (the package's route-only seed,
+        // republished at the start of every retry) never replaces a map that is already precise:
+        // the 2026-10-15 cold-start capture showed the drawn hole drop back to "地图准备中" for one
+        // attempt. A different release (new revision) still takes over, as below. Rows without a
+        // course identity cannot prove they are the same hole, so they keep the refresh rule below.
+        if geometryCoverage?.caseInsensitiveCompare("ready") == .orderedSame,
+           let incoming = upgraded.geometryCoverage,
+           incoming.caseInsensitiveCompare("ready") != .orderedSame,
+           upgraded.globalId != nil,
+           upgraded.globalId == globalId,
+           upgraded.sourceLocalHole == sourceLocalHole,
+           upgraded.geometryRevision == nil || upgraded.geometryRevision == geometryRevision {
+            return self
+        }
         // A background refresh is not always monotonic: Garmin may have published a new release,
         // making the formerly precise cache partial until replacement bytes arrive. When the
         // refresh carries coverage, it owns every geometry-derived optional exactly (including
@@ -994,6 +1035,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             lastShotLatitude: lastShotLatitude,
             lastShotLongitude: lastShotLongitude,
             lastShotCapturedAt: lastShotCapturedAt,
+            teeShotLandingLatitude: teeShotLandingLatitude,
+            teeShotLandingLongitude: teeShotLandingLongitude,
             greenInRegulation: greenInRegulation,
             fairwayResult: fairwayResult,
             geometryCoverage: upgraded.geometryCoverage ?? geometryCoverage,
@@ -1085,6 +1128,8 @@ public struct WatchRoundState: Codable, Equatable, Identifiable {
             lastShotLatitude: lastShotLatitude,
             lastShotLongitude: lastShotLongitude,
             lastShotCapturedAt: lastShotCapturedAt,
+            teeShotLandingLatitude: teeShotLandingLatitude,
+            teeShotLandingLongitude: teeShotLandingLongitude,
             greenInRegulation: greenInRegulation,
             fairwayResult: nextFairwayResult,
             geometryCoverage: geometryCoverage,

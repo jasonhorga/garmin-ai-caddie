@@ -69,8 +69,10 @@ final class WatchHoleMapViewportTests: XCTestCase {
                 WatchDisplayGeometry.contains(CGPoint(x: frame.minX, y: frame.minY), in: size),
                 "club chip must not enter the rounded corner on \(size)"
             )
-            let railTop = WatchDisplayGeometry.contentRect(in: size).maxY
-                - WatchDisplayGeometry.instrumentControlSize
+            // The rail (menu / 记一杆) ends above the face's bottom inset (#417 W01/W02).
+            let railBottom = WatchHoleMapView.rootRailBottom(in: size)
+            XCTAssertLessThanOrEqual(railBottom, size.height - WatchFaceInsets.bottom(forHeight: size.height))
+            let railTop = railBottom - WatchDisplayGeometry.instrumentControlSize
             XCTAssertLessThanOrEqual(
                 frame.maxY,
                 railTop - 6,

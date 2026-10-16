@@ -2437,24 +2437,27 @@ def precise_route_seed_hole(
     *,
     par_record=None,
     coverage: dict | None = None,
+    tee_set: int | None = None,
+    include_facts: bool = False,
 ) -> dict | None:
-    """Build only the drawable route projection from installed prodgeometry.
+    """Build drawable factual vectors from installed prodgeometry, without a raster or strategy.
 
     Some Garmin releases have no cached CourseView ``courseData`` even though their precise
     ``hole.json``/mesh bundle is already installed.  The normal lightweight prep consequently
     returns no row and the phone shows a blank hole until the expensive full prep request finishes.
-    This fallback intentionally does *not* calculate hazards, a recommendation, or a raster map;
-    it extracts the same tee-to-green route and frame used by the precise renderer, then marks the
-    row partial so the active-hole loader can replace it with complete facts.  It is therefore a
-    visual bootstrap, not a second source of caddie truth.
+    The shared renderer frame, actual surface boundaries, hazards and green F/M/B are course
+    facts, independent of a player's shot history. Recommendations remain the active-hole
+    planner's responsibility; map startup must not wait for that or for topo rendering.
     """
     try:
         md, by = hole_render.load_mesh(int(global_id), int(local_hole))
-        route, route_len = derive_route(md)
+        display_route, display_route_len = derive_route(md)
+        resolved_tee_set = tee_set if tee_set is not None and _hole_has_tee_set(md.get("hole") or {}, tee_set) else None
+        route, route_len = derive_route(md, resolved_tee_set) if resolved_tee_set is not None else (display_route, display_route_len)
         if not route or not route_len:
             return None
-        frame = hole_render._frame(by, route)
-        projection = _hole_image_projection(by, route, md, frame=frame)
+        frame = hole_render._frame(by, display_route or route)
+        projection = _hole_image_projection(by, display_route or route, md, frame=frame)
         frame_project, frame_scale, frame_width, frame_height, _frame_margin = frame
         route_px = []
         cumulative = 0.0
@@ -2480,6 +2483,34 @@ def precise_route_seed_hole(
             "ln": round(float(route_len), 1),
             "route": route_px,
         }
+        def to_px(point):
+            x, y = frame_project((float(point[0]), float(point[1])))
+            return (x / hole_render.SS, y / hole_render.SS)
+
+        green_boundary = _selected_green_boundary(by, route) if include_facts else []
+        hazards = route_hazards(by, route, to_px=to_px) if include_facts else {"water_carry": [], "bunkers": [], "details": []}
+        # These are mesh boundaries, never fitted ellipses. Keep interior rings so a vector
+        # renderer does not fill a lake island or a hole in the fairway.
+        surfaces = []
+        for kind in (("Fairway", "Fringe", "Teebox", "Green", "Bunker", "Lake") if include_facts else ()):
+            mesh = by.get(kind + ".drc")
+            if not isinstance(mesh, dict):
+                continue
+            polygons = []
+            for component in _mesh_components_near_route(mesh, display_route or route, hole_render.FRAME_ROUTE_CORRIDOR_M):
+                loops = _component_boundary_loops(component.get("triangles") or [])
+                if not loops:
+                    continue
+                rings = [
+                    [[round(x, 1), round(y, 1)] for x, y in
+                     (to_px(point) for point in _compact_boundary_points(ring, maximum=MAX_FAIRWAY_RING_POINTS))]
+                    for ring in loops
+                ]
+                if len(rings[0]) >= 3:
+                    polygons.append({"outerPx": rings[0], "holesPx": [ring for ring in rings[1:] if len(ring) >= 3]})
+            if polygons:
+                surfaces.append({"kind": kind, "polygons": polygons})
+        map_overlay["surfaces"] = surfaces
         if coverage is None:
             # Coverage metadata is useful for deciding when to upgrade the partial row, but it
             # must never be able to suppress the factual route itself.  An authority/index read
@@ -2533,7 +2564,9 @@ def precise_route_seed_hole(
         hole=int(local_hole),
         par=par,
         par_source=par_source,
-        blue_yards=yd(route_len),
+        blue_yards=yd(display_route_len or route_len),
+        teeSet=resolved_tee_set,
+        teeYards=yd(route_len) if resolved_tee_set is not None else None,
         route_len_m=round(route_len, 1),
         route=_route_with_cumulative(route),
         # Keep this partial even when the mesh is already ready: this row deliberately omits the
@@ -2552,13 +2585,18 @@ def precise_route_seed_hole(
         cautions=[],
         landing_m=None,
         tee_club=None,
-        hazards={"water_carry": [], "bunkers": [], "details": []},
+        hazards=hazards,
         map={"image": None, "overlay": map_overlay},
         playsLike={"available": False},
-        greenDistances={"available": False},
+        greenDistances=_green_distances(by, route, md) if include_facts else {"available": False},
         greenSlope={"available": False},
         holeImageProjection=projection,
-        greenOutline={"available": False, "pointsPx": []},
+        greenOutline={
+            "available": bool(green_boundary),
+            "source": "prodgeometry.Green.drc.boundary",
+            "pointsPx": [[round(x, 1), round(y, 1)] for x, y in (to_px(point) for point in green_boundary)],
+        },
+        fairwayOutline=_fairway_outline(by, route, md, to_px) if include_facts else None,
     ).to_dict()
 
 

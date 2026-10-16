@@ -502,7 +502,8 @@ public struct WatchHazardMapView: View {
                 }
             }
             .padding(.top, safeInset)
-            .padding(.bottom, safeInset)
+            // Above the face's bottom inset, where taps were lost on 46/49 mm (#417 W34).
+            .padding(.bottom, max(safeInset, WatchFaceInsets.bottom(forHeight: size.height) + 2))
 
         }
     }

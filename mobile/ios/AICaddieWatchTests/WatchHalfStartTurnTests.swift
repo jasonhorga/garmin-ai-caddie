@@ -456,6 +456,89 @@ final class WatchHalfStartTurnTests: XCTestCase {
         XCTAssertEqual(table(relaunched.round?.holeStates ?? []), try serverTable("31795:back,31795:front"))
     }
 
+    /// Owner question 2026-10-12 "点错 9 洞可以换么": until anything is recorded on the second nine it
+    /// can change or be dropped from the menu, the phone's rule; then it is locked.
+    func testAWrongSecondNineCanBeChangedOrDroppedUntilItsFirstHoleIsPlayed() async throws {
+        let directory = makeDirectory("watch-turn-change")
+        let store = WatchCourseStore(directoryURL: directory)
+        let whole = try WatchBackendClient(baseURL: Self.config.baseURL)
+            .decodeCoursePackage(Self.packageData(loops: "31795:front,31795:back", roundId: "download"))
+        try store.save(WatchCourseTemplateBuilder.build(
+            option: Self.blackKnight,
+            package: whole,
+            prepsByGlobalId: [:],
+            selectedTee: "blue",
+            cachedAt: "2026-09-28T00:00:00Z"
+        ).template)
+        let library = makeLibrary(directory: directory, log: RequestLog(), roundId: "watch-change-round")
+        let selection = WatchCourseSelection(front: Self.blackKnight, teeBox: "blue", firstHalf: "back")
+        let prepared = try XCTUnwrap(library.startCourseImmediately(selection))
+        let roundDirectory = makeDirectory("watch-turn-change-round")
+        let model = makeModel(directory: roundDirectory)
+        model.secondLoopLoader = { request in await library.secondLoop(request, config: nil) }
+        model.seedRound(prepared.holeStates, activeHole: 1, courseGlobalId: Self.courseId,
+                        teeBox: "blue", loopKey: selection.loopKey)
+        finishFirstNine(model)
+
+        // The wrong nine: 后九 again.
+        model.chooseTurnSecond(.loop("31795:back"))
+        await model.confirmTurn()
+        XCTAssertEqual(model.round?.loopKey, "31795:back+31795:back")
+        XCTAssertTrue(model.canChangeSecondNine)
+
+        // 换一个 9 洞 → 前九: holes 10–18 are replaced; holes 1–9 and their score stay.
+        model.openChangeSecondNine()
+        XCTAssertEqual(model.screen, .turn)
+        XCTAssertTrue(model.isChangingSecondNine)
+        XCTAssertEqual(model.turnPlan?.second, .loop("31795:back"), "the current second nine is selected")
+        model.chooseTurnSecond(.loop("31795:front"))
+        await model.confirmTurn()
+        XCTAssertEqual(model.round?.loopKey, "31795:back+31795:front")
+        XCTAssertEqual(table(model.round?.holeStates ?? []), try serverTable("31795:back,31795:front"))
+        XCTAssertEqual(model.activeHole, 10)
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertFalse(model.isChangingSecondNine)
+        XCTAssertGreaterThan(model.round?.holeStates.first { $0.hole == 9 }?.score ?? 0, 0)
+
+        // Backing out changes nothing.
+        model.openChangeSecondNine()
+        model.chooseTurnSecond(.stopAfterNine)
+        model.leaveTurn()
+        XCTAssertEqual(model.round?.loopKey, "31795:back+31795:front")
+
+        // 只打 9 洞: the second nine goes and the round ends after nine.
+        model.openChangeSecondNine()
+        model.chooseTurnSecond(.stopAfterNine)
+        await model.confirmTurn()
+        XCTAssertEqual(model.round?.loopKey, "31795:back")
+        XCTAssertEqual(model.round?.holeStates.map(\.hole), Array(1...9))
+        XCTAssertEqual(model.screen, .finishing)
+    }
+
+    func testTheSecondNineLocksOnceAnythingIsRecordedOnIt() async throws {
+        let directory = makeDirectory("watch-turn-lock")
+        let library = makeLibrary(directory: directory, log: RequestLog())
+        let selection = WatchCourseSelection(front: Self.blackKnight, teeBox: "blue", firstHalf: "back")
+        let started = await library.startCourse(selection, config: Self.config)
+        let prepared = try XCTUnwrap(started)
+        let model = makeModel(directory: makeDirectory("watch-turn-lock-round"))
+        model.secondLoopLoader = { request in await library.secondLoop(request, config: nil) }
+        model.seedRound(prepared.holeStates, activeHole: 1, courseGlobalId: Self.courseId,
+                        teeBox: "blue", loopKey: selection.loopKey)
+        XCTAssertFalse(model.canChangeSecondNine, "nothing added at a turn yet")
+        finishFirstNine(model)
+        model.chooseTurnSecond(.loop("31795:back"))
+        await model.confirmTurn()
+        XCTAssertTrue(model.canChangeSecondNine)
+
+        model.beginManualShot(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 5,
+                              capturedAt: "2026-09-29T00:10:00Z")
+        XCTAssertEqual(model.pendingManualShot?.hole, 10)
+        XCTAssertFalse(model.canChangeSecondNine, "a shot on hole 10 locks it, as on the phone")
+        model.openChangeSecondNine()
+        XCTAssertNotEqual(model.screen, .turn)
+    }
+
     func testOfflineTurnWithoutInstalledHolesStaysAtTheTurnWithAClearMessage() async throws {
         let directory = makeDirectory("watch-turn-unavailable")
         // The background whole-course template install fails, so nothing but 后九 is installed.

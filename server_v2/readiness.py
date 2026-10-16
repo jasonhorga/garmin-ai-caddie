@@ -43,6 +43,15 @@ ROADMAP_COMPLETION_PLAN = Path("docs/superpowers/plans/2026-06-05-roadmap-and-te
 ROADMAP_COMPLETION_STATUS_SCHEMA = "ai-caddie-roadmap-completion-status-v1"
 
 VISION_CONFIRMATION_STATES = ["unconfirmed", "confirmed", "player_confirmed", "manual_confirmed", "rejected"]
+PACKAGING_LABELS = frozenset(
+    {
+        "external_release",
+        "native_mobile",
+        "operations",
+        "private_snapshot_acceptance",
+        "roadmap_completion",
+    }
+)
 
 
 def _check(label: str, state: str, detail: str, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -101,6 +110,24 @@ def _contract_event_kinds() -> list[str]:
     kind = contract.get("properties", {}).get("kind", {})
     values = kind.get("enum", [])
     return [str(value) for value in values if str(value).strip()]
+
+
+def _mobile_package_runtime_ready(package: Any) -> bool:
+    """Return whether the package can support the runtime path.
+
+    Weather is useful evidence for a prepared round, but a historical round can
+    legitimately have no cached observation. Runtime readiness therefore only
+    gates the contract, source round and course geometry required to draw and
+    use a round; the complete offline package state remains visible in evidence.
+    """
+
+    source_coverage = getattr(package, "sourceCoverage", {}) or {}
+    geometry_coverage = getattr(package, "geometryCoverage", {}) or {}
+    return bool(
+        getattr(package, "schema_", None) == "ai-caddie-live-round-package-v2"
+        and source_coverage.get("state") == "ready"
+        and geometry_coverage.get("state") == "ready"
+    )
 
 
 def _smoke_covers() -> list[str]:
@@ -1040,19 +1067,19 @@ def build_readiness_response() -> dict[str, Any]:
         round_id = _first_round_id(stats) if stats is not None else "live-round-1"
         package = build_mobile_round_package_response(round_id)
         seed_quality = _offline_seed_quality(package)
-        package_ready = (
-            package.schema_ == "ai-caddie-live-round-package-v2"
-            and package.offlinePackageStatus.get("state") == "ready"
-            and package.sourceCoverage.get("state") == "ready"
-            and not package.missingData
+        package_ready = _mobile_package_runtime_ready(package)
+        readiness_checks = list(getattr(package, "readinessChecks", []) or [])
+        weather_evidence = next(
+            (row for row in readiness_checks if isinstance(row, dict) and row.get("label") == "weather"),
+            {},
         )
         checks.append(
             _check(
                 "mobile_package",
                 "ready" if package_ready else "degraded",
-                "Live round package generation is contract-backed for offline-first iOS use."
+                "Live round package generation is contract-backed for runtime map and caddie use."
                 if package_ready
-                else "Live round package generation is available but offline package dependencies are incomplete.",
+                else "Live round package generation is missing a runtime contract, source round, or course geometry.",
                 {
                     "contractSchema": LIVE_ROUND_PACKAGE_CONTRACT.as_posix(),
                     "roundId": package.roundId,
@@ -1060,7 +1087,13 @@ def build_readiness_response() -> dict[str, Any]:
                     "caddieDecisionEndpoint": package.caddieDecisionEndpoint,
                     "offlinePackageStatus": package.offlinePackageStatus,
                     "sourceCoverage": package.sourceCoverage,
+                    "geometryCoverage": package.geometryCoverage,
                     "readinessChecks": package.readinessChecks,
+                    "runtimeGate": {
+                        "state": "ready" if package_ready else "degraded",
+                        "required": ["schema", "sourceCoverage", "geometryCoverage"],
+                    },
+                    "weatherEvidence": weather_evidence,
                     "caddieSeedCount": len(package.caddieContextSeeds),
                     "offlineSeedQuality": seed_quality,
                     "cachedCaddieRules": package.cachedCaddieRules,
@@ -1201,8 +1234,7 @@ def build_readiness_response() -> dict[str, Any]:
         )
     )
 
-    packaging_labels = {"external_release", "roadmap_completion", "operations", "native_mobile"}
-    runtime_checks = [check for check in checks if check.get("label") not in packaging_labels]
+    runtime_checks = [check for check in checks if check.get("label") not in PACKAGING_LABELS]
     runtime_status = "ready" if runtime_checks and all(check["state"] in {"ready", "manual_asserted"} for check in runtime_checks) else "degraded"
     overall = "ready" if all(check["state"] in {"ready", "manual_asserted"} for check in checks) else "degraded"
     return {

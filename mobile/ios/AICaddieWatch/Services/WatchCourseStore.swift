@@ -605,8 +605,23 @@ public enum WatchCourseTemplateBuilder {
             apex: interpolate(route, atM: landing * 0.5),
             greenCtrl: interpolate(route, atM: landing + (total - landing) * 0.5),
             route: route,
-            greenOutline: greenOutline?.available == true ? greenOutline?.pointsPx : nil
+            greenOutline: greenOutline?.available == true ? greenOutline?.pointsPx : nil,
+            surfaces: compactSurfaces(overlay.surfaces)
         )
+    }
+
+    /// What the Watch keeps of the server's surfaces: no fringe rings (the fairway already reads),
+    /// and the 12 largest polygons per kind, so a hole stays a few kilobytes in round.json.
+    static func compactSurfaces(_ surfaces: [WatchMapSurface]?) -> [WatchMapSurface]? {
+        let kept = (surfaces ?? []).compactMap { surface -> WatchMapSurface? in
+            guard surface.kind.lowercased() != "fringe" else { return nil }
+            let polygons = surface.polygons
+                .filter { $0.outerPx.count >= 3 }
+                .sorted { $0.outerPx.count > $1.outerPx.count }
+                .prefix(12)
+            return polygons.isEmpty ? nil : WatchMapSurface(kind: surface.kind, polygons: Array(polygons))
+        }
+        return kept.isEmpty ? nil : kept
     }
 
     private static func prepOverlay(
@@ -644,7 +659,7 @@ public enum WatchCourseTemplateBuilder {
                 cumulative,
             ])
         }
-        return WatchCoursePrepOverlay(w: width, h: height, route: pixelRoute)
+        return WatchCoursePrepOverlay(w: width, h: height, route: pixelRoute, surfaces: nil)
     }
 
     private static func interpolate(_ route: [[Double]], atM: Double) -> [Double] {

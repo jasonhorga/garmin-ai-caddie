@@ -16,7 +16,15 @@ public enum WatchCourseDiscoveryState: Equatable {
 /// that has completed package + prep download is advertised as cached and can start with no config.
 @MainActor
 public final class WatchCourseLibrary: ObservableObject {
-    static let preciseUpgradeMaximumAttempts = 6
+    /// A course never prepared before is drawn by the server in the background, which can take far
+    /// longer than a minute or two (owner report 2026-10-14: a Watch-only start waited and the map
+    /// never came; the Watch had stopped asking after ~3 minutes). The active round keeps asking
+    /// once a minute for about half an hour, and again when the app comes back to the front. After
+    /// the first `preciseUpgradeFullFetchAttempts` it only reads the cheap install status each
+    /// minute and fetches the package again when the server has more drawable holes (vector or
+    /// raster), started a new job generation, or is ready.
+    static let preciseUpgradeMaximumAttempts = 30
+    static let preciseUpgradeFullFetchAttempts = 6
     static let preciseUpgradeRetryDelaysSeconds: [UInt64] = [5, 10, 20, 40, 60]
     /// Keep the Watch responsive on cellular/Bluetooth while still overlapping the independent
     /// course requests. The active-hole batch is run alone first; the remaining batches use this
@@ -39,6 +47,15 @@ public final class WatchCourseLibrary: ObservableObject {
     /// geometry without making green.png part of the all-hole startup critical path.
     @Published public private(set) var lastGreenDetailKey: String?
     public private(set) var diagnosticErrorMessage: String?
+    /// The active round's precise-map upgrade gave up its retries; the app restarts it when it comes
+    /// back to the front.
+    public private(set) var preciseUpgradePaused = false
+    /// Status keys (course, tee, loops, server, credential) whose install journal refused this player
+    /// (403): no progress hints, so their status-only phase fetches the package every
+    /// `preciseUpgradeBlindFetchEvery` attempts instead of every minute. Keyed, not library-wide, so
+    /// another course or a refreshed credential asks again (#425 review).
+    private var installStatusForbiddenKeys = Set<String>()
+    static let preciseUpgradeBlindFetchEvery = 3
 
     private let store: WatchCourseStore
     private let imageStore: WatchHoleImageStore
@@ -472,9 +489,10 @@ public final class WatchCourseLibrary: ObservableObject {
     }
 
     /// Continue the already-queued precise download without holding up play. The caller applies the
-    /// returned map facts to the same round id. Failures and service cooldowns retry six times with
-    /// bounded backoff; exhaustion stops the task so it cannot drain the Watch indefinitely. A later
-    /// app entry starts a fresh bounded attempt from the persisted partial cache.
+    /// returned map facts to the same round id. Failures and service cooldowns retry with bounded
+    /// backoff (six full attempts, then a status poll each minute up to `preciseUpgradeMaximumAttempts`);
+    /// a failed server job or exhaustion stops the task so it cannot drain the Watch indefinitely. A
+    /// later app entry starts a fresh bounded attempt from the persisted partial cache.
     public func upgradeCourseWhenReady(
         _ selection: WatchCourseSelection,
         roundId: String,
@@ -484,6 +502,10 @@ public final class WatchCourseLibrary: ObservableObject {
         onFirstAttemptFinished: (() -> Void)? = nil
     ) async -> WatchPreparedCourse? {
         guard let config else { return nil }
+        preciseUpgradePaused = false
+        // The first map before anything else: the factual map-only package draws the playing hole's
+        // vector map in seconds on a cold course; the full package below adds the player's data.
+        await publishFactualMap(selection, roundId: roundId, config: config, priorityHole: priorityHole, onProgress: onProgress)
         var shouldQueueGeometry = true
         // Lower-priority follow-up work (the whole-course template) is released once this round's
         // own first pass — priority hole first — has genuinely finished, successfully or not, and
@@ -505,9 +527,13 @@ public final class WatchCourseLibrary: ObservableObject {
         }
         defer { finishFirstPass(releasingFollowUp: true) }
 
+        var fetchPackage = true
+        // Server progress last seen: any newly drawable hole (vector geometry first, raster later)
+        // or a new job generation is worth a package fetch (#425 P2).
+        var lastProgress: (generation: Int?, geometry: Int, topo: Int)?
         for attempt in 0..<Self.preciseUpgradeMaximumAttempts {
             guard !Task.isCancelled else { return nil }
-            do {
+            if fetchPackage { do {
                 let download = try await fetchCourseDownload(
                     selection,
                     roundId: roundId,
@@ -551,34 +577,106 @@ public final class WatchCourseLibrary: ObservableObject {
                 // The lightweight template remains playable. Retry below without replacing the
                 // active-round screen with a transient network error. The status probe below is
                 // read-only, so a failed attempt never clears a partial Watch cache.
-            }
+            } }
             finishFirstPass(releasingFollowUp: true)
+            // Unless the status below says the server drew more, later attempts only poll it.
+            fetchPackage = attempt + 1 < Self.preciseUpgradeFullFetchAttempts
 
             // The server journal is a scheduler hint, not a second local package store. When the
             // precise upgrade has to retry, consult it best-effort so a durable queued/running job
             // does not get re-enqueued on every Watch attempt. A missing route/404 or any transport
             // error leaves the existing retry and partial-cache behavior unchanged.
-            if attempt < Self.preciseUpgradeMaximumAttempts - 1,
-               let status = await fetchInstallStatus(selection: selection, config: config) {
+            let status = attempt < Self.preciseUpgradeMaximumAttempts - 1
+                ? await fetchInstallStatus(selection: selection, config: config)
+                : nil
+            if status == nil {
+                // Without a progress hint: every attempt while it may be the journal's absence, but
+                // only every few minutes when the journal refused us (a full fetch is not free).
+                fetchPackage = !installStatusForbidden(selection: selection, config: config)
+                    || attempt + 1 < Self.preciseUpgradeFullFetchAttempts
+                    || (attempt + 1) % Self.preciseUpgradeBlindFetchEvery == 0
+            }
+            if let status {
                 let phase = status.phase.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 if ["queued", "running", "ready"].contains(phase) {
                     shouldQueueGeometry = false
                 }
+                if phase == "failed" {
+                    diagnosticErrorMessage = "服务器暂时无法绘制这座球场的地图"
+                    preciseUpgradePaused = true
+                    return nil
+                }
+                let progress = (generation: status.generation, geometry: status.geometryReady, topo: status.topoReady)
+                if let last = lastProgress, last.generation == progress.generation {
+                    if progress.geometry > last.geometry || progress.topo > last.topo || phase == "ready" {
+                        fetchPackage = true
+                    }
+                } else {
+                    fetchPackage = true
+                }
+                lastProgress = progress
                 let total = max(status.totalHoles, status.holes.count)
                 diagnosticErrorMessage = total > 0
                     ? "地图后台补齐中：服务器 \(status.topoReady)/\(total) 洞"
                     : "地图后台补齐中"
             }
 
-            guard attempt < Self.preciseUpgradeRetryDelaysSeconds.count else { break }
+            guard attempt < Self.preciseUpgradeMaximumAttempts - 1 else { break }
+            let delays = Self.preciseUpgradeRetryDelaysSeconds
             do {
-                try await retrySleep(Self.preciseUpgradeRetryDelaysSeconds[attempt] * 1_000_000_000)
+                try await retrySleep(delays[min(attempt, delays.count - 1)] * 1_000_000_000)
             } catch {
                 return nil
             }
         }
-        diagnosticErrorMessage = "地图后台补齐已暂停；下次进入本局时自动重试"
+        diagnosticErrorMessage = "地图后台补齐已暂停；回到 App 时自动重试"
+        preciseUpgradePaused = true
         return nil
+    }
+
+    /// #426 client contract: `map_only=true&background_geometry=true` returns the factual package
+    /// (route, surfaces, F/M/B, GPS projection; `map.image` may be null) without waiting for player
+    /// history. Its drawable rows are published, never persisted (the full package that follows owns
+    /// the cache), and a failure here only means the ordinary path draws the map.
+    private func publishFactualMap(
+        _ selection: WatchCourseSelection,
+        roundId: String,
+        config: WatchRoundConfig,
+        priorityHole: Int?,
+        onProgress: (([WatchRoundState]) -> Void)?
+    ) async {
+        guard let onProgress, !Task.isCancelled else { return }
+        // Only a course without a drawable playing hole needs it; an installed course already has
+        // its map and its player data, which a factual row must not stand in for.
+        let hole = priorityHole ?? 1
+        if store.course(selection: selection)?.holeStates.first(where: { $0.hole == hole })?.holeMap != nil {
+            return
+        }
+        guard let package = try? await makeClient(config).fetchCoursePackage(
+            globalId: selection.front.globalId,
+            roundId: roundId,
+            teeBox: selection.teeBox,
+            loops: selection.loopsQuery,
+            backgroundGeometry: true,
+            mapOnly: true,
+            priorityHole: priorityHole
+        ), package.loopKey == selection.loopKey else { return }
+        let preps = WatchCourseTemplateBuilder.seededPreps(from: package)
+        guard !preps.isEmpty, let built = try? WatchCourseTemplateBuilder.build(
+            option: selection.front,
+            backOption: selection.back,
+            loopKey: selection.loopKey,
+            package: package,
+            prepsByGlobalId: preps,
+            topoImagesByGlobalId: [:],
+            selectedTee: selection.teeBox,
+            cachedAt: now()
+        ) else { return }
+        // Only the playing hole: a factual row stands in for nothing the round already has elsewhere
+        // (its partial coverage would reset another hole's precise geometry and caddie data).
+        let drawable = Self.drawableHoleStates(from: built.template.makeRound(roundId: roundId).holeStates)
+            .filter { $0.hole == hole }
+        if !drawable.isEmpty { onProgress(drawable) }
     }
 
     /// Resume a precise-map download for an already-started/restored round. The immutable cached
@@ -816,6 +914,9 @@ public final class WatchCourseLibrary: ObservableObject {
         _ request: WatchSecondLoopRequest,
         config: WatchRoundConfig?
     ) async -> WatchSecondLoopResult {
+        if request.secondNineLoopGlobalId != nil {
+            return await secondNineLoop(request, config: config)
+        }
         guard let loopKey = request.loopKey,
               let loop = WatchCourseSelection.halfLoop(loopKey: loopKey),
               loop.halves.count == 2 else {
@@ -877,6 +978,140 @@ public final class WatchCourseLibrary: ObservableObject {
         }
         return .unavailable(config == nil
             ? "离线：本机没有这座球场的整场下载，暂时无法接着打\(secondName)。联网后重试。"
+            : "无法获取\(secondName)的球场数据，请检查网络后重试。")
+    }
+
+    /// Every option this Watch knows: the catalogue and the installed templates' own options.
+    private var knownOptions: [WatchCourseOption] {
+        courses + store.loadCourses().flatMap { [$0.option] + ($0.backOption.map { [$0] } ?? []) }
+    }
+
+    /// The venue's nine-hole loops for a nine-hole course (itself included) in loop-label order,
+    /// from the catalogue and installed templates: the choices at a nine-hole-loop venue's turn.
+    public func nineLoopSiblings(of globalId: Int) -> [WatchCourseOption] {
+        let known = knownOptions
+        guard let first = known.first(where: { $0.globalId == globalId }),
+              first.playableHoleCount == 9 else { return [] }
+        func venue(_ option: WatchCourseOption) -> String {
+            GarminCourseNameAuthority.canonicalVenueName(
+                providerName: option.name,
+                venueName: option.venueName,
+                venueNameSource: option.venueNameSource,
+                segmentLabel: option.segmentLabel
+            )
+        }
+        let name = venue(first)
+        var seen = Set<Int>()
+        return known
+            .filter { $0.playableHoleCount == 9 && venue($0) == name && seen.insert($0.globalId).inserted }
+            .sorted { lhs, rhs in
+                let left = lhs.resolvedSegmentLabel?.lowercased() ?? ""
+                let right = rhs.resolvedSegmentLabel?.lowercased() ?? ""
+                return left == right ? lhs.globalId < rhs.globalId : left < right
+            }
+    }
+
+    /// The second loop of a nine-hole-loop venue (`A:all` → `A:all+B:all`, B may be A again): the
+    /// ordered pairing package online, else an installed pairing, else the installed loop itself
+    /// renumbered 10–18. Holes are never invented.
+    private func secondNineLoop(
+        _ request: WatchSecondLoopRequest,
+        config: WatchRoundConfig?
+    ) async -> WatchSecondLoopResult {
+        guard let loopKey = request.loopKey,
+              let ids = WatchCourseSelection.nineLoopIds(loopKey: loopKey), ids.count == 2,
+              let rows = WatchCourseSelection.roundRows(loopKey: loopKey) else {
+            return .unavailable("这一局不能接着打第二个 9 洞")
+        }
+        let known = knownOptions
+        let secondOption = known.first { $0.globalId == ids[1] }
+        let secondName = secondOption?.segmentDisplayTitle ?? "第二个 9 洞"
+        let firstTemplate = store.course(loopKey: request.firstLoopKey, teeBox: request.teeBox)
+        let teeBox = request.teeBox ?? firstTemplate?.teeBox
+        let secondRows = rows.filter { $0.number >= 10 }
+
+        func checked(_ states: [WatchRoundState]) -> [WatchRoundState]? {
+            let second = states.filter { $0.hole >= 10 }.sorted { $0.hole < $1.hole }
+            guard second.map(\.hole) == secondRows.map(\.number) else { return nil }
+            for (state, row) in zip(second, secondRows) {
+                guard state.globalId == row.globalId,
+                      (state.sourceLocalHole ?? row.sourceLocalHole) == row.sourceLocalHole else { return nil }
+            }
+            return second
+        }
+
+        if let config,
+           let first = firstTemplate?.option ?? known.first(where: { $0.globalId == ids[0] }),
+           let second = secondOption {
+            let selection = WatchCourseSelection(
+                front: first,
+                back: second,
+                teeBox: teeBox ?? first.preferredTee
+            )
+            do {
+                let download = try await fetchCourseDownload(
+                    selection,
+                    roundId: request.roundId,
+                    config: config,
+                    backgroundGeometry: true,
+                    includePreparedGeometry: false
+                )
+                try persist(download)
+                if let states = checked(download.template.makeRound(roundId: request.roundId).holeStates) {
+                    errorMessage = nil
+                    return .ready(loopKey: loopKey, holeStates: states)
+                }
+            } catch {
+                diagnosticErrorMessage = "第二个 9 洞下载失败: \(error.localizedDescription)"
+            }
+        }
+
+        if let installed = store.course(loopKey: loopKey, teeBox: teeBox),
+           let states = checked(installed.makeRound(roundId: request.roundId).holeStates) {
+            errorMessage = nil
+            return .ready(loopKey: loopKey, holeStates: states)
+        }
+        if let single = store.course(loopKey: "\(ids[1]):all", teeBox: teeBox) {
+            // The loop on its own is round holes 1–9; as the second loop it is 10–18 (printed
+            // 10–18, the server's rule for a nine-hole loop in second place).
+            let renumbered = single.holeStates
+                .filter { $0.globalId == ids[1] && (1...9).contains($0.hole) }
+                .sorted { $0.hole < $1.hole }
+                .map { state -> WatchRoundState in
+                    let number = state.hole + 9
+                    if let revision = state.geometryRevision,
+                       !revision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       let data = imageStore.data(globalId: ids[1], hole: state.hole, geometryRevision: revision) {
+                        try? imageStore.store(data: data, globalId: ids[1], hole: number, geometryRevision: revision)
+                    }
+                    return state.replacingRoundId(
+                        request.roundId,
+                        hole: number,
+                        sourceLocalHole: state.sourceLocalHole ?? state.hole,
+                        courseHoleNumber: number
+                    )
+                }
+            if let states = checked(renumbered) {
+                // Keep the pairing as its own template so the round's later precise-map upgrade
+                // (keyed by the round's loop key) finds it, as `projectedTemplate` does for halves.
+                if let firstTemplate, let secondOption {
+                    let firstNine = firstTemplate.holeStates.filter { (1...9).contains($0.hole) }
+                    try? store.save(WatchCourseTemplate(
+                        option: firstTemplate.option,
+                        backOption: secondOption,
+                        loopKey: loopKey,
+                        courseName: firstTemplate.courseName,
+                        teeBox: firstTemplate.teeBox,
+                        holeStates: firstNine + states.map { $0.replacingRoundId("template") },
+                        cachedAt: now()
+                    ))
+                }
+                errorMessage = nil
+                return .ready(loopKey: loopKey, holeStates: states)
+            }
+        }
+        return .unavailable(config == nil
+            ? "离线：本机没有\(secondName)的下载，暂时无法接着打。联网后重试。"
             : "无法获取\(secondName)的球场数据，请检查网络后重试。")
     }
 
@@ -1442,17 +1677,41 @@ public final class WatchCourseLibrary: ObservableObject {
         )
     }
 
-    private func fetchInstallStatus(
+    func installStatusForbidden(selection: WatchCourseSelection, config: WatchRoundConfig) -> Bool {
+        installStatusForbiddenKeys.contains(Self.installStatusKey(selection: selection, config: config))
+    }
+
+    private static func installStatusKey(selection: WatchCourseSelection, config: WatchRoundConfig) -> String {
+        // The credential enters only as a hash: the key lives in memory, but never holds a token.
+        var credential = Hasher()
+        credential.combine(config.sessionToken)
+        credential.combine(config.adminToken)
+        return [
+            String(selection.front.globalId),
+            selection.teeBox,
+            selection.loopsQuery,
+            config.baseURL.absoluteString,
+            String(credential.finalize()),
+        ].joined(separator: "|")
+    }
+
+    func fetchInstallStatus(
         selection: WatchCourseSelection,
         config: WatchRoundConfig
     ) async -> WatchCourseInstallStatus? {
-        guard !Task.isCancelled else { return nil }
+        let key = Self.installStatusKey(selection: selection, config: config)
+        guard !Task.isCancelled, !installStatusForbiddenKeys.contains(key) else { return nil }
         do {
             return try await makeClient(config).fetchCourseInstallStatus(
                 globalId: selection.front.globalId,
                 teeBox: selection.teeBox,
                 loops: selection.loopsQuery
             )
+        } catch WatchBackendClientError.http(status: 403, body: _) {
+            // A player token may not read the install journal (#425 review): stop asking for this
+            // course and credential this launch.
+            installStatusForbiddenKeys.insert(key)
+            return nil
         } catch {
             // The endpoint is additive and older deployments may not have it. The local Watch
             // package/image stores remain authoritative when this probe is unavailable.

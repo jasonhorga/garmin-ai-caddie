@@ -328,6 +328,9 @@ public struct WatchRoundSeedPayload: Codable, Equatable {
     public let globalId: Int?
     public let teeBox: String?
     public let loopKey: String
+    /// The Watch table revision this seed's table reflects (#424), so the Watch tells a current
+    /// acknowledgement from an older echo of the same table.
+    public let acknowledgedTableRevision: Int?
 
     public init(
         roundId: String,
@@ -336,7 +339,8 @@ public struct WatchRoundSeedPayload: Codable, Equatable {
         holes: [WatchRoundSeedHolePayload],
         globalId: Int? = nil,
         teeBox: String? = nil,
-        loopKey: String
+        loopKey: String,
+        acknowledgedTableRevision: Int? = nil
     ) {
         self.roundId = roundId
         self.courseName = courseName
@@ -345,6 +349,7 @@ public struct WatchRoundSeedPayload: Codable, Equatable {
         self.globalId = globalId
         self.teeBox = teeBox
         self.loopKey = loopKey
+        self.acknowledgedTableRevision = acknowledgedTableRevision
     }
 }
 
@@ -361,6 +366,8 @@ public struct WatchRoundStartPayload: Codable, Equatable {
     public let globalId: Int?
     public let activeHole: Int
     public let holes: [WatchRoundSeedHolePayload]
+    /// Set when the Watch changed an existing round's table at its turn (#424); nil for the start.
+    public let tableRevision: Int?
 
     public init(
         schema: String = "ai-caddie-watch-round-start-v2",
@@ -370,7 +377,8 @@ public struct WatchRoundStartPayload: Codable, Equatable {
         loopKey: String,
         globalId: Int? = nil,
         activeHole: Int,
-        holes: [WatchRoundSeedHolePayload]
+        holes: [WatchRoundSeedHolePayload],
+        tableRevision: Int? = nil
     ) {
         self.schema = schema
         self.roundId = roundId
@@ -380,6 +388,7 @@ public struct WatchRoundStartPayload: Codable, Equatable {
         self.globalId = globalId
         self.activeHole = activeHole
         self.holes = holes
+        self.tableRevision = tableRevision
     }
 }
 
@@ -497,6 +506,10 @@ public struct WatchRoundStatePayload: Codable, Equatable {
     /// That shot's own capture time: the Watch orders it against its own marks by time, since a
     /// Watch mark the phone has not received yet can still be the older one.
     public let lastShotCapturedAt: String?
+    /// Where the hole's second shot was marked (where the tee shot landed): the Watch preselects 开球
+    /// from it with the shared classifier even when the phone marked that shot (#424).
+    public var teeShotLandingLatitude: Double? = nil
+    public var teeShotLandingLongitude: Double? = nil
     /// Strictly increasing per phone (`WatchEventBridge.nextSnapshotRevision`): the Watch applies a
     /// hole snapshot only if it is newer than the last one it applied, so a late (transferUserInfo)
     /// snapshot never rolls back a newer decision or shot set.
@@ -618,7 +631,8 @@ public final class WatchEventBridge: NSObject {
         phoneShotEventIds: [String]? = nil,
         lastShotLatitude: Double? = nil,
         lastShotLongitude: Double? = nil,
-        lastShotCapturedAt: String? = nil
+        lastShotCapturedAt: String? = nil,
+        teeShotLanding: (latitude: Double, longitude: Double)? = nil
     ) -> WatchRoundStatePayload {
         let selected = selectedOption(from: decision)
         let offlineSelected = selectedOfflineOption(from: offlineOption)
@@ -701,6 +715,8 @@ public final class WatchEventBridge: NSObject {
             lastShotLatitude: lastShotLatitude,
             lastShotLongitude: lastShotLongitude,
             lastShotCapturedAt: lastShotCapturedAt,
+            teeShotLandingLatitude: teeShotLanding?.latitude,
+            teeShotLandingLongitude: teeShotLanding?.longitude,
             snapshotRevision: nextSnapshotRevision()
         )
     }
@@ -717,7 +733,8 @@ public final class WatchEventBridge: NSObject {
 
     public func makeWatchRoundSeedPayload(
         package: LiveRoundPackage,
-        activeHole: Int
+        activeHole: Int,
+        acknowledgedTableRevision: Int? = nil
     ) -> WatchRoundSeedPayload {
         WatchRoundSeedPayload(
             roundId: package.roundId,
@@ -740,7 +757,8 @@ public final class WatchEventBridge: NSObject {
                 },
             globalId: package.course.globalId,
             teeBox: package.course.teeBox,
-            loopKey: package.loopKey
+            loopKey: package.loopKey,
+            acknowledgedTableRevision: acknowledgedTableRevision
         )
     }
 
