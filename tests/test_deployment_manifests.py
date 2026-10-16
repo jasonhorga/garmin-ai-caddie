@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import fnmatch
 import json
+import os
 from pathlib import Path
+import shlex
+import sys
 import tomllib
 import unittest
 import yaml
@@ -10,6 +14,146 @@ import yaml
 class DeploymentManifestTests(unittest.TestCase):
     def _load_compose(self) -> dict:
         return yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
+
+    def test_readiness_runtime_paths_are_copied_into_image(self) -> None:
+        """Every repository file read by runtime readiness is in the API image.
+
+        The path set is observed while readiness runs, rather than duplicated here.  This keeps
+        the guard aligned with future readiness checks and makes a moved contract fail with the
+        moved path in the assertion instead of silently preserving an old allow-list.
+        """
+        from server_v2 import readiness
+
+        root = Path(__file__).resolve().parents[1]
+        observed: set[str] = set()
+        active = True
+
+        def record(value: object) -> None:
+            if not active or isinstance(value, int):
+                return
+            try:
+                raw = os.fspath(value)
+            except TypeError:
+                return
+            if not isinstance(raw, str):
+                return
+            absolute = os.path.realpath(raw if os.path.isabs(raw) else os.path.join(os.getcwd(), raw))
+            root_text = os.path.realpath(os.fspath(root))
+            try:
+                relative = os.path.relpath(absolute, root_text)
+            except ValueError:
+                return
+            if relative == os.curdir or relative == os.pardir or relative.startswith(os.pardir + os.sep):
+                return
+            observed.add(Path(relative).as_posix())
+
+        # Path.exists/is_file cover checks that only inspect a manifest, while the audit hook and
+        # read/open wrappers cover files consumed by imported readiness helpers.
+        original_methods = {
+            name: getattr(Path, name)
+            for name in ("exists", "is_file", "is_symlink", "is_dir", "stat", "open", "read_text", "read_bytes")
+        }
+
+        def wrap(name: str):
+            original = original_methods[name]
+
+            def traced(path: Path, *args, **kwargs):
+                record(path)
+                return original(path, *args, **kwargs)
+
+            return traced
+
+        audit_hook = lambda event, args: record(args[0]) if event == "open" and args else None
+        sys.addaudithook(audit_hook)
+        for name in original_methods:
+            setattr(Path, name, wrap(name))
+        try:
+            readiness.build_readiness_response()
+        finally:
+            active = False
+            for name, original in original_methods.items():
+                setattr(Path, name, original)
+
+        private_roots = {
+            "data",
+            ".garmin_tokens",
+            "output",
+            "logs",
+            "backups",
+            "clubs.json",
+            ".venv",
+            "node_modules",
+        }
+        packaging_roots = {
+            "docs",
+            "mobile/ios",
+            "render.yaml",
+            "web_v2/vercel.json",
+            "ops",
+        }
+
+        def excluded(path: str) -> bool:
+            parts = path.split("/")
+            if parts[0] in private_roots or path in private_roots:
+                return True
+            if any(path == prefix or path.startswith(prefix + "/") for prefix in packaging_roots):
+                return True
+            if parts[0] in {".git", "__pycache__", ".pytest_cache"} or path.endswith((".pyc", ".pyo")):
+                return True
+            return False
+
+        runtime_paths = sorted(path for path in observed if not excluded(path))
+        dockerfile = root / "Dockerfile"
+        dockerignore = root / ".dockerignore"
+        docker_lines = dockerfile.read_text(encoding="utf-8").splitlines()
+        final_from = max(
+            (index for index, line in enumerate(docker_lines) if line.strip().upper().startswith("FROM ")),
+            default=-1,
+        )
+        copied_sources: list[str] = []
+        stage = -1
+        for index, line in enumerate(docker_lines):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped.upper().startswith("FROM "):
+                stage += 1
+                continue
+            if stage < 0 or index < final_from or not stripped.upper().startswith("COPY "):
+                continue
+            try:
+                tokens = shlex.split(stripped)
+            except ValueError:
+                continue
+            if any(token.startswith("--from=") for token in tokens[1:]):
+                continue
+            copied_sources.extend(token.removeprefix("./").rstrip("/") or "." for token in tokens[1:-1])
+
+        ignored_patterns: list[str] = []
+        if dockerignore.exists():
+            for line in dockerignore.read_text(encoding="utf-8").splitlines():
+                pattern = line.strip()
+                if pattern and not pattern.startswith("#") and not pattern.startswith("!"):
+                    ignored_patterns.append(pattern.removeprefix("./").rstrip("/"))
+
+        def is_ignored(path: str) -> bool:
+            ancestors = [path]
+            parent = Path(path).parent
+            while str(parent) not in {".", ""}:
+                ancestors.append(parent.as_posix())
+                parent = parent.parent
+            return any(fnmatch.fnmatch(candidate, pattern) for candidate in ancestors for pattern in ignored_patterns)
+
+        def is_copied(path: str) -> bool:
+            path_obj = Path(path)
+            ancestors = {path_obj.as_posix(), *(parent.as_posix() for parent in path_obj.parents)}
+            return any(source == "." or source in ancestors for source in copied_sources)
+
+        uncovered = [path for path in runtime_paths if not is_copied(path) or is_ignored(path)]
+        self.assertFalse(
+            uncovered,
+            "readiness runtime paths are not shipped by the final Docker stage: " + ", ".join(uncovered),
+        )
 
     def test_compose_has_postgres_and_api_database_url(self) -> None:
         compose = self._load_compose()
