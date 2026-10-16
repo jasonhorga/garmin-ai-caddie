@@ -3,8 +3,8 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Completed/history is preserved in dated `docs/archive/` files.
 
-**Updated:** 2026-10-16 12:11 UTC; #430 head event rechecked; waiter restarted
-**Canonical baseline:** main `b0ed0e70`; #430 review head `4a469d5a52d87dc14c52c6c304037df502dd329b`
+**Updated:** 2026-10-16 12:20 UTC; #431 coordination acknowledged; waiter restarted
+**Canonical baseline:** main `406011e2`; #430 review head `4a469d5a52d87dc14c52c6c304037df502dd329b`
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and unfinished work
@@ -49,9 +49,9 @@
 
 ## Owned resources and cleanup
 
-- Active same-turn feedback waiter terminal `39399` runs the read-only copied
+- Active same-turn feedback waiter terminal `99361` runs the read-only copied
   script at `/home/jason/codex-runs/codex-feedback-wait-20261016/` with manifest
-  and expiry 2026-10-17 12:11 UTC; do not start another waiter. Remove the
+  and expiry 2026-10-17 12:20 UTC; do not start another waiter. Remove the
   exact directory after the waiter prints its one-line conclusion.
 - K10 review snapshot `/dev/shm/codex-agenthub-k10-f4c257c` and isolated fetch
   directory were removed after verification; no container, service, port,
