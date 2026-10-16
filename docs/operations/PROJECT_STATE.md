@@ -3,33 +3,31 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Completed/history is preserved in dated `docs/archive/` files.
 
-**Updated:** 2026-10-16 12:29 UTC; #430 same-head CI terminal rechecked
-**Canonical baseline:** main `7ef2be85`; #430 review head `4a469d5a52d87dc14c52c6c304037df502dd329b`
+**Updated:** 2026-10-16 12:39 UTC; #430 activation scope accepted; live gate open
+**Canonical baseline:** main `ac357006`; #430 review head `4a469d5a52d87dc14c52c6c304037df502dd329b`
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and unfinished work
 
 - `PR430-REVIEW` — `evidence-open`: exact head `4a469d5a` fixes the fixture
   mode typo and routing wording; CI run `38896984359` backend/frontend/docker
-  is green. Review comment:
-  https://github.com/jasonhorga/garmin-ai-caddie/pull/430#issuecomment-6215025611.
-  No P1. **P2 remains:** the proposed activation config says nine Native paths,
-  while `native-mobile.yml` currently lists eight; use the exact set or add a
-  drift check. Keep review-only until activation evidence is complete.
+  is green. Claude adopted the exact 8-path equality, authorization ordering,
+  and hard c+ conditions. Review:
+  https://github.com/jasonhorga/garmin-ai-caddie/pull/430#issuecomment-6215676217.
+  No P1/P2 remains in the scope definition. Keep review-only until live
+  activation evidence is complete.
 - **Agenthub K10 / step-5 entry prerequisite: satisfied.** Agenthub #60 head
   `f4c257c73192c8ad30514390ab4ecf8ed9ac9f4d` merged as `6d6c6d9`; exact-head
   K10 slice passed 84/84. Real API fetch for check `116365912538` / run
   `38718182080` on head `0d837d73` downloaded design 97 files, watch 47,
   evidence 1; second fetch reused the verified copy and a wrong head was
   rejected before download.
-- **Step-6 activation/cutover: open.** The proposed scope is sufficient after
-  the path correction, but completion still requires live evidence: exact-head
-  gate before/after plus backend-only unaffected; same-run check/run/head and
-  hashes with read-only per-artifact observations; authorization-specific
-  refusal for missing/GitHub/foreign/expired/reused grants with no workflow
-  run; and one valid local-channel grant dispatched exactly once. K10 tests
-  cover the remaining synthetic negative/race cases; a deferred owner request
-  leaves step 6 open.
+- **Step-6 activation/cutover: open.** The acceptance scope is sufficient:
+  the merged policy parses and asserts the exact 8-path set; authorization
+  refusals occur before release gates with no run; and c+ is hard-gated on one
+  owner-local TestFlight dispatch plus read-only Apple evidence. Completion
+  still requires those live records (plus exact-head gate and same-run artifact
+  observations); a deferred owner request leaves step 6 open.
 - `BACKEND-READINESS-428`, `TESTFLIGHT-89`, `APPLE-READONLY-89`, #425/#427,
   `MAIN-PROVENANCE-FIX`, and `PR429-REVIEW` remain done in dated archives.
   #417 evidence-open; #418 draft/evidence-open; #420 awaits 49 mm transitions;
