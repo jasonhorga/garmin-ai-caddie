@@ -197,8 +197,9 @@ Claude writes target cards and specs, writes the acceptance tests in
 rejected Codex attempts. The Codex main session implements, self-checks, and
 asks agenthub to publish, review and merge. Codex never edits
 `tests/acceptance/`: a Codex-trailer commit touching it fails the acceptance
-guard. `.agent/routing.yml` (added by agenthub's bootstrap PR) decides risk
-tiers and review effort; changing it is an L2 change.
+guard. agenthub's routing table for this project decides risk tiers and
+review effort; it is the owner's configuration, not a file in this repository.
+A change to it (or adding a repository routing file) is an L2 change.
 
 **Acceptance tests.** `tests/acceptance/` is a package (`__init__.py`) so that
 `unittest discover -s tests` and the gate both run it. Acceptance tests run

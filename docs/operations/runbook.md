@@ -356,7 +356,7 @@ every host binding: a different `AICADDIE_API_PORT`, a different
 `AICADDIE_PRIVATE_VOLUME`, `AICADDIE_DEPLOY_NETWORK=bridge`, a private
 `AICADDIE_SYNC_LOCK`, no `AICADDIE_DEPLOY_PUBLIC_HEALTH_URL`, and a
 `AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE` with fixture-only settings (for example a
-SQLite `AI_CADDIE_DATABASE_URL`, `AI_CADDIE_DATA_MODE=fixture_only`, a
+SQLite `AI_CADDIE_DATABASE_URL`, `AI_CADDIE_DATA_MODE=fixture`, a
 throwaway admin token) for the first run. Images are keyed by revision and
 are shared with production; cleanup never removes an image that a remaining
 container uses, but do not run a drill concurrently with a production
