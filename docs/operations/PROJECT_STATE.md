@@ -3,19 +3,22 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Completed/history is preserved in dated `docs/archive/` files.
 
-**Updated:** 2026-10-16 06:13 UTC; #430 reviewed, three P2 findings posted
-**Canonical baseline:** main `19691617`; #430 review head `36449d4048dfa6385b8fc8db42809dd4dd06ab1d`
+**Updated:** 2026-10-16 06:23 UTC; #430 revised contract wording accepted
+**Canonical baseline:** main `8a8b463f`; #430 review head `e9ae8eb05ff211db0c8dd214fe6451f74f9f21d8`
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and unfinished work
 
-- `PR430-REVIEW` — `evidence-open`: draft reviewed at exact head `36449d40`.
-  Comment: https://github.com/jasonhorga/garmin-ai-caddie/pull/430#issuecomment-6209326656.
-  Three P2s: preserve exact-head Native CI/artifact acceptance; require trusted
-  owner-channel TestFlight authority; describe player/Apple/owner credential
-  boundaries correctly. Required CI `38859007391` is green; diff check passed.
-  All four files read and compared read-only with current agenthub code and
-  cutover playbook. Release-failure wake wording remains provisional.
+- `PR430-REVIEW` — `evidence-open`: exact head `e9ae8eb0` resolves the three
+  P2s in the contract text and clarifies attempted restore/exit-3 escalation.
+  Re-review: https://github.com/jasonhorga/garmin-ai-caddie/pull/430#issuecomment-6209466726.
+  Required CI `38860343487` is green; incremental diff and diff check passed.
+  **Cutover prerequisites remain open:** implemented path-based Native gate
+  with exact-run read-only artifacts; executor validation of owner-channel
+  build grants; final release-failure wake/prompt agreement. Author confirms
+  the first two mechanisms are still being built in agenthub. Need their
+  implementation heads and positive/negative evidence before step 5.
+  Non-blocking auth precision: permitted open-dev setup versus actual fallback.
   **Review only; do not merge.** Merge belongs to cutover step 5 after freeze
   and explicit handoff of unresolved evidence. Current main policy remains active.
 - `BACKEND-READINESS-428` — `done`: revision `e1243ba9` deployed as
@@ -96,11 +99,13 @@
   container remains. Persistent release evidence above is retained.
 - #430 review created no worktree, service or container. Public review text:
   `/home/jason/garmin-ai-caddie-data/operations/pr430-review-20261016/review-36449d40.md`.
+  Re-review body in the same directory: `review-e9ae8eb0.md`.
   Remote `/tmp/codex-pr429-review.LzZ8jB` (601 bytes, failed formal approval's
   public body) awaits exact allow-list cleanup; no credentials in that file.
-- Feedback terminal 4865 ended normally on #430's `pr_opened` event. That
-  event and review request are handled once; own signed review needs no reply.
-  Resume the existing cursor; do not reset it or start a second monitor.
+- Feedback terminals 4865 and 94729 ended normally (#430 opened / initial CI).
+  #430's `e9ae8eb0` direct request and reply are handled once; an event for
+  the same reviewed head needs no duplicate review. Own signed reviews stay
+  quiet. Resume the existing cursor; do not reset it or start a second monitor.
 - Existing review worktree
   `/home/ubuntu/claude-web-data/repo/garmin-ai-caddie-watch417-20261011`
   expires 2026-10-18 08:30 UTC. Historical `.codex-*` evidence is retained.
@@ -108,8 +113,8 @@
 
 ## Next action and stop conditions
 
-1. Await #430 revisions through the same-turn feedback waiter; re-review a
-   changed head once. Do not merge #430 before the agreed cutover step 5.
+1. Await #430 revisions and executor evidence through the same-turn feedback
+   waiter; re-review a changed head once. Do not merge before cutover step 5.
    Continue other external events; do not poll CI, processes or monitor state,
    and ignore Codex-only docs/state CI and signed self-receipts.
 2. For a new code PR: review the exact head, run required remote tests, inspect
