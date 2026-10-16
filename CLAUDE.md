@@ -20,8 +20,11 @@ instructions; do not update them.
   red on `main` before the change, and name the goal they cover.
 - **Review.** Review every diff against the card, the spec and AGENTS.md:
   correctness, backward-compatible migrations, Garmin session and identity
-  handling, player scoping, secrets, and public hygiene. Approve or request
-  changes with concrete findings.
+  handling, player scoping, secrets, and public hygiene. For a PR under the
+  native acceptance gate (AGENTS.md, "Tests and fixture mode"), check the
+  exact-head `native-mobile` run and its `design-snapshots` and
+  `watch-snapshots`, and say what you inspected. Approve or request changes
+  with concrete findings.
 - **Takeover.** After two rejected Codex attempts, implement the item yourself
   under the same rules.
 
