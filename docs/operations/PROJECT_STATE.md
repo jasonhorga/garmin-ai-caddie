@@ -3,12 +3,21 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Completed/history is preserved in dated `docs/archive/` files.
 
-**Updated:** 2026-10-15 22:23 UTC; #429 reviewed, merged and branch deleted
-**Canonical baseline:** main `ec8cddfe1e9ed517202acc62750f7f72b01068e4`
+**Updated:** 2026-10-16 06:13 UTC; #430 reviewed, three P2 findings posted
+**Canonical baseline:** main `19691617`; #430 review head `36449d4048dfa6385b8fc8db42809dd4dd06ab1d`
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and unfinished work
 
+- `PR430-REVIEW` — `evidence-open`: draft reviewed at exact head `36449d40`.
+  Comment: https://github.com/jasonhorga/garmin-ai-caddie/pull/430#issuecomment-6209326656.
+  Three P2s: preserve exact-head Native CI/artifact acceptance; require trusted
+  owner-channel TestFlight authority; describe player/Apple/owner credential
+  boundaries correctly. Required CI `38859007391` is green; diff check passed.
+  All four files read and compared read-only with current agenthub code and
+  cutover playbook. Release-failure wake wording remains provisional.
+  **Review only; do not merge.** Merge belongs to cutover step 5 after freeze
+  and explicit handoff of unresolved evidence. Current main policy remains active.
 - `BACKEND-READINESS-428` — `done`: revision `e1243ba9` deployed as
   `aicaddie-release-e1243ba9-production-20261015`; authenticated readiness
   reports `runtimeStatus=ready`, `mobile_events=ready`, and
@@ -85,6 +94,13 @@
   production rollback container were left untouched.
 - Release and Apple waiters are terminal; no temporary build or review
   container remains. Persistent release evidence above is retained.
+- #430 review created no worktree, service or container. Public review text:
+  `/home/jason/garmin-ai-caddie-data/operations/pr430-review-20261016/review-36449d40.md`.
+  Remote `/tmp/codex-pr429-review.LzZ8jB` (601 bytes, failed formal approval's
+  public body) awaits exact allow-list cleanup; no credentials in that file.
+- Feedback terminal 4865 ended normally on #430's `pr_opened` event. That
+  event and review request are handled once; own signed review needs no reply.
+  Resume the existing cursor; do not reset it or start a second monitor.
 - Existing review worktree
   `/home/ubuntu/claude-web-data/repo/garmin-ai-caddie-watch417-20261011`
   expires 2026-10-18 08:30 UTC. Historical `.codex-*` evidence is retained.
@@ -92,9 +108,10 @@
 
 ## Next action and stop conditions
 
-1. Resume the retained feedback waiter in the same control turn for the next
-   external PR/comment event; do not poll CI, processes, or monitor state.
-   Process each event once and ignore Codex-only docs/state CI.
+1. Await #430 revisions through the same-turn feedback waiter; re-review a
+   changed head once. Do not merge #430 before the agreed cutover step 5.
+   Continue other external events; do not poll CI, processes or monitor state,
+   and ignore Codex-only docs/state CI and signed self-receipts.
 2. For a new code PR: review the exact head, run required remote tests, inspect
    Native artifacts when applicable, and comment with P1/P2/non-blocking evidence.
 3. Owner stop condition: stop at the explicit owner stop, or after 48 hours with
