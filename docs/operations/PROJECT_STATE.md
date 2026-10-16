@@ -3,23 +3,21 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Completed/history is preserved in dated `docs/archive/` files.
 
-**Updated:** 2026-10-16 08:33 UTC; #430 release-failure/open-config follow-up reviewed
-**Canonical baseline:** main `15ae8d51`; #430 review head `388fce48edd6c8a1e5b1019832c44b0fc7dc865d`
+**Updated:** 2026-10-16 09:50 UTC; #430 rollback-outcome wording re-reviewed
+**Canonical baseline:** main `e36bcadc`; #430 review head `ac09f259d71ac5598d22173221492e4ab9ea6e01`
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and unfinished work
 
-- `PR430-REVIEW` — `evidence-open`: exact head `388fce48` addresses the
-  release-failure wording against merged agenthub #59 and clarifies the
-  permitted open configuration. Re-review:
-  https://github.com/jasonhorga/garmin-ai-caddie/pull/430#issuecomment-6211448426.
-  Required CI `38872022471` is green; incremental diff and diff check passed.
-  No new P1/P2. A non-blocking P3 notes that rollback-failed/not-attempted
-  outcomes can leave the failed version live, so the opening production-state
-  sentence could be outcome-dependent. **Cutover prerequisites remain open:**
-  implemented path-based Native gate with exact-run read-only artifacts;
-  executor validation of owner-channel build grants; and positive/negative
-  evidence for both. Need their implementation heads and evidence before step 5.
+- `PR430-REVIEW` — `evidence-open`: exact head `ac09f259` resolves the P3
+  by making production state depend on the reported rollback outcome.
+  Re-review: https://github.com/jasonhorga/garmin-ai-caddie/pull/430#issuecomment-6212829129.
+  Required CI `38874531344` is green; incremental diff and diff check passed.
+  No P1/P2. **Cutover prerequisites remain open:** implemented path-based
+  Native gate with exact-run read-only artifacts; executor validation of
+  owner-channel build grants; and positive/negative evidence for both. Need
+  their implementation heads and evidence before step 5. **Review only; do not
+  merge.**
   **Review only; do not merge.** Merge belongs to cutover step 5 after freeze
   and explicit handoff of unresolved evidence. Current main policy remains active.
 - `BACKEND-READINESS-428` — `done`: revision `e1243ba9` deployed as
@@ -100,14 +98,16 @@
   container remains. Persistent release evidence above is retained.
 - #430 review created no worktree, service or container. Public review text:
   `/home/jason/garmin-ai-caddie-data/operations/pr430-review-20261016/review-36449d40.md`.
-  Re-review bodies: `review-e9ae8eb0.md` and `review-388fce48.md`.
+  Re-review bodies: `review-e9ae8eb0.md`, `review-388fce48.md`, and
+  `review-ac09f259.md`.
   Remote `/tmp/codex-pr429-review.LzZ8jB` (601 bytes, failed formal approval's
   public body) awaits exact allow-list cleanup; no credentials in that file.
-- Feedback terminals 4865, 94729, 65571 and 38715 ended normally while
-  consuming #430's opening, CI, head and follow-up events. The `388fce48`
-  direct request and reply are handled once; an event for the same reviewed
-  head needs no duplicate review. Own signed reviews stay quiet. Resume the
-  existing cursor; do not reset it or start a second monitor.
+- Feedback terminals 4865, 94729, 65571, 38715, 57418, 93019, 27601,
+  89126, 50269, 6900, and 75026 ended normally while consuming #430's
+  opening, CI, head and follow-up events. The `ac09f259` direct request and
+  reply are handled once; an event for the same reviewed head needs no
+  duplicate review. Own signed reviews stay quiet. Resume the existing
+  cursor; do not reset it or start a second monitor.
 - Existing review worktree
   `/home/ubuntu/claude-web-data/repo/garmin-ai-caddie-watch417-20261011`
   expires 2026-10-18 08:30 UTC. Historical `.codex-*` evidence is retained.
