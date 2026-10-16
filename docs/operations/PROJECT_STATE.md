@@ -1,5 +1,12 @@
 # Garmin AI Caddie Project State
 
+> **FROZEN AT THE AGENTHUB CUTOVER — HISTORICAL, NON-AUTHORITATIVE.** Since
+> the cutover this ledger is no longer updated, and the rule that it is
+> authoritative no longer applies. Current state lives in GitHub issues and
+> pull requests; the execution contract is `AGENTS.md`. Below is the last state
+> recorded by the previous workflow, kept unchanged as history together with
+> `docs/archive/`.
+
 > Short durable continuity ledger. Only this file is authoritative.
 > Completed/history is preserved in dated `docs/archive/` files.
 
