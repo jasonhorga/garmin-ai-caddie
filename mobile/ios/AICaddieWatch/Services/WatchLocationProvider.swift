@@ -189,9 +189,30 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
     /// Hole-root F/M/B is a live rangefinder, not a generic cached-location consumer. Keep the
     /// provider's longer Core Location acceptance window for continuity, but never label an old fix
     /// as the player's current distance.
+    /// A shot mark may use a slightly older fix than the live rangefinder: the golfer taps + at the
+    /// ball, where a standing player's fix is republished every few seconds, but a brief GPS gap
+    /// must not silently drop the shot (audit #417: 49 mm + did nothing, 5/5).
+    public static let maximumShotOriginAgeSeconds: TimeInterval = 30
+
+    public static func isShotOriginFix(_ fix: WatchLocationFix, now: Date = Date()) -> Bool {
+        if isLiveRangefinderFix(fix, now: now) { return true }
+        // Past the live window only a fix taken at walking pace: an older fix from a moving cart
+        // could put the shot origin 100 m from the ball.
+        guard isLiveRangefinderFix(fix, now: now, maximumAge: maximumShotOriginAgeSeconds) else { return false }
+        return (fix.speedMps ?? 0) <= WatchSwingFeatureExtractor.ridingSpeedMps
+    }
+
     public static func isLiveRangefinderFix(
         _ fix: WatchLocationFix,
         now: Date = Date()
+    ) -> Bool {
+        isLiveRangefinderFix(fix, now: now, maximumAge: maximumLiveRangefinderAgeSeconds)
+    }
+
+    static func isLiveRangefinderFix(
+        _ fix: WatchLocationFix,
+        now: Date,
+        maximumAge: TimeInterval
     ) -> Bool {
         guard fix.coordinate.latitude.isFinite,
               (-90...90).contains(fix.coordinate.latitude),
@@ -203,7 +224,7 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
             return false
         }
         let age = now.timeIntervalSince(capturedAt)
-        return age >= 0 && age <= maximumLiveRangefinderAgeSeconds
+        return age >= 0 && age <= maximumAge
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
