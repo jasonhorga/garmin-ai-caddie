@@ -1,5 +1,11 @@
 # Operations Runbook
 
+> **Since the agenthub cutover, production backend deploys are made only by the
+> agenthub executor after a merge** (see "agenthub executor deploy" below and
+> agenthub's RELEASE documentation). The candidate and manual switch steps in
+> "Build the Sync Image" are kept as reference for the pre-cutover flow and for
+> owner-run recovery; agents do not run them.
+
 ## Start Services
 
 Fixture-only API:
