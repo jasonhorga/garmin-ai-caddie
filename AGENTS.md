@@ -244,8 +244,10 @@ never print, log, commit or persist a credential. Report `verified` with `ok`
 and what was checked.
 
 **When a release fails.** A failed or rolled-back release leaves `main`
-containing the change while production serves the previous release (after an
-unrecovered failure, whatever the owner restores). agenthub then reopens the
+containing the change. Where production ends up depends on the rollback
+outcome the event reports: after a successful rollback it serves the previous
+release; when rollback is `failed` or `not_attempted` it may still be running
+the failed version until the owner restores it. agenthub then reopens the
 failed card as a fresh round, sends a `release_failed` wake (failed SHA,
 reasons, whether production was rolled back, the card) and holds merges of
 every other card until a fix of that card is released or the owner lifts the
