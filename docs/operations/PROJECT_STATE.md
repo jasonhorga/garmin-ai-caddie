@@ -3,36 +3,37 @@
 > Short durable continuity ledger. Only this file is authoritative.
 > Completed/history is preserved in dated `docs/archive/` files.
 
-**Updated:** 2026-10-16 11:08 UTC; #430 K10 prerequisite review
-**Canonical baseline:** main `61dd7570`; #430 review head `ac09f259d71ac5598d22173221492e4ab9ea6e01`
+**Updated:** 2026-10-16 12:01 UTC; #430 activation-preflight scope review
+**Canonical baseline:** main `a9773a22`; #430 review head `4a469d5a52d87dc14c52c6c304037df502dd329b`
 **Current slice:** `PR-FEEDBACK-CONTINUOUS` — `in-progress`
 
 ## Current state and unfinished work
 
-- `PR430-REVIEW` — `evidence-open`: exact head `ac09f259` has green CI
-  `38874531344`, and the latest review confirms no P1/P2 on the docs diff:
-  https://github.com/jasonhorga/garmin-ai-caddie/pull/430#issuecomment-6212829129.
-  Review-only; do not merge before cutover step 5.
-- **Agenthub K10 implementation prerequisite: satisfied.** Agenthub #60 head
+- `PR430-REVIEW` — `evidence-open`: exact head `4a469d5a` fixes the fixture
+  mode typo and routing wording; CI run `38896984359` backend/frontend/docker
+  is green. Review comment:
+  https://github.com/jasonhorga/garmin-ai-caddie/pull/430#issuecomment-6215025611.
+  No P1. **P2 remains:** the proposed activation config says nine Native paths,
+  while `native-mobile.yml` currently lists eight; use the exact set or add a
+  drift check. Keep review-only until activation evidence is complete.
+- **Agenthub K10 / step-5 entry prerequisite: satisfied.** Agenthub #60 head
   `f4c257c73192c8ad30514390ab4ecf8ed9ac9f4d` merged as `6d6c6d9`; exact-head
-  K10 slice passed 84/84, including positive/negative exact Native checks,
-  same-run artifact binding, and owner-channel grant enforcement. Real API
-  fetch for native check `116365912538` / run `38718182080` on head `0d837d73`
-  downloaded design 97 files, watch 47, evidence 1; second fetch reused the
-  verified copy and an altered head was rejected before download.
-- **Caddie cutover step 5: still open.** #430 says the project-specific
-  `native-mobile` path/artifact conditional config and TestFlight owner-grant
-  config are planned for step 5 and are not active. Before activation, pin
-  those settings and run a caddie-context positive/negative preflight proving
-  exact-head gating, same-run read-only report handoff, and owner grant
-  acceptance/rejection. Latest conclusion comment:
-  https://github.com/jasonhorga/garmin-ai-caddie/pull/430#issuecomment-6214091777.
+  K10 slice passed 84/84. Real API fetch for check `116365912538` / run
+  `38718182080` on head `0d837d73` downloaded design 97 files, watch 47,
+  evidence 1; second fetch reused the verified copy and a wrong head was
+  rejected before download.
+- **Step-6 activation/cutover: open.** The proposed scope is sufficient after
+  the path correction, but completion still requires live evidence: exact-head
+  gate before/after plus backend-only unaffected; same-run check/run/head and
+  hashes with read-only per-artifact observations; authorization-specific
+  refusal for missing/GitHub/foreign/expired/reused grants with no workflow
+  run; and one valid local-channel grant dispatched exactly once. K10 tests
+  cover the remaining synthetic negative/race cases; a deferred owner request
+  leaves step 6 open.
 - `BACKEND-READINESS-428`, `TESTFLIGHT-89`, `APPLE-READONLY-89`, #425/#427,
-  `MAIN-PROVENANCE-FIX`, and `PR429-REVIEW` remain done as recorded in the
-  dated archives. #417 remains evidence-open; #418 draft/evidence-open; #420
-  awaits 49 mm transitions; #422 is draft/test-only and must not merge.
-- Owner target remains seconds for nearby maps and under 30 s for unseen
-  courses; keep Watch cold-start and caddie evidence explicit.
+  `MAIN-PROVENANCE-FIX`, and `PR429-REVIEW` remain done in dated archives.
+  #417 evidence-open; #418 draft/evidence-open; #420 awaits 49 mm transitions;
+  #422 draft/test-only and must not merge.
 
 ## Live verification baselines
 
@@ -43,27 +44,26 @@
   Apple waiter log:
   `/home/jason/garmin-ai-caddie-data/operations/blocking-waits/wait-ci-38750039805-20261015T142108Z-3379555.log`.
 - Cold-start baseline: nearby 28242 vector package `3.241 s`; cold 28214
-  first drawable package `6.453 s` through the homeserver Funnel. These are
-  server/Funnel timings, not wrist/Tokyo/Austria timings.
+  first drawable package `6.453 s` through the homeserver Funnel.
 - Build 89 is the current verified release candidate; Build 87 is historical.
 
 ## Owned resources and cleanup
 
-- K10 review snapshot `/dev/shm/codex-agenthub-k10-f4c257c` was read-only and
-  removed after verification (`4.8M` before cleanup; path absent afterward).
-  The isolated real-fetch data directory was trapped and removed on exit.
-- No container, service, port, tunnel, dependency install, or worktree was
-  created by this review. Existing Watch #417 worktree remains owned by its
-  prior task and expires 2026-10-18 08:30 UTC; do not delete without its
-  allow-list.
-- Existing feedback cursor/terminals are retained; resume the same-turn
-  waiter and do not reset its cursor or start a second monitor.
+- Active same-turn feedback waiter terminal `96461` runs the read-only copied
+  script at `/home/jason/codex-runs/codex-feedback-wait-20261016/` with manifest
+  and expiry 2026-10-17 11:08 UTC; do not start another waiter. Remove the
+  exact directory after the waiter prints its one-line conclusion.
+- K10 review snapshot `/dev/shm/codex-agenthub-k10-f4c257c` and isolated fetch
+  directory were removed after verification; no container, service, port,
+  tunnel, dependency install, or worktree was created by that review.
+- Existing Watch #417 worktree remains owned by its prior task and expires
+  2026-10-18 08:30 UTC; do not delete without its allow-list.
 
 ## Next action and stop conditions
 
-1. Wait for #430's caddie config/preflight evidence through the required
-   same-turn feedback waiter; re-review a changed head once. Do not merge or
-   activate step 5 from this review.
+1. Continue the existing same-turn waiter; when it returns, process only its
+   one-line actionable conclusion. Re-review #430 only after the P2 path-set
+   correction and live activation evidence. Do not merge from this review.
 2. For each new code PR, review exact head, run required remote tests, inspect
    Native artifacts when applicable, and post P1/P2/non-blocking evidence.
 3. Owner stop condition: explicit owner stop, or 48 hours with no new external
