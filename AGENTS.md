@@ -141,8 +141,12 @@ when you touch them and why.
     configured but missing or wrong).
   - Under the `private`, `staging` and `production` security profiles a missing
     admin token fails closed (the API refuses to boot; requests get 503), and
-    `ops/start_api.sh` refuses to start without an auth posture. Only a local
-    setup with neither an admin token nor a profile is open.
+    `ops/start_api.sh` refuses to start without an auth posture. The only
+    permitted open configuration is a local development setup with neither an
+    admin token nor a profile; this is an operating rule, not something the
+    code enforces everywhere (other profile values and the explicit
+    `AI_CADDIE_ALLOW_OPEN` override in `ops/start_api.sh` also run open), so
+    never deploy or test against shared data that way.
   - Never widen an owner grant to make a test pass, and do not regress the
     member and Watch authorization paths (see #425). Tests stub Sign in with
     Apple verification.
@@ -241,14 +245,18 @@ and what was checked.
 
 **When a release fails.** A failed or rolled-back release leaves `main`
 containing the change while production serves the previous release (after an
-unrecovered failure, whatever the owner restores). Every
-later merge deploys `main` again, and TestFlight requests are refused until
-`main` is deployed. On a `verify_failed` wake, or when a wake or owner message
-reports a failed release, do not retry or redeploy anything: open a PR that
-reverts the merge (`git revert -m 1 <merge-sha>`) or fixes the cause, and send
-it through the normal review, CI and gate. Name the failed release and the
-reported stage in the PR body. Restoring data from the pre-release dump is the
-owner's decision.
+unrecovered failure, whatever the owner restores). agenthub then reopens the
+failed card as a fresh round, sends a `release_failed` wake (failed SHA,
+reasons, whether production was rolled back, the card) and holds merges of
+every other card until a fix of that card is released or the owner lifts the
+hold; a `merge_refused` with reason `release_hold` for another card is expected
+meanwhile. TestFlight requests are refused until `main` is deployed. On a
+`release_failed` wake (or a `verify_failed` wake, or an owner message reporting
+a failed release), do not retry or redeploy anything: open a PR for that card
+that reverts the merge (`git revert -m 1 <merge-sha>`) or fixes the cause, and
+send it through the normal review, CI and gate. Name the failed release and
+the reported stage in the PR body. Restoring data from the pre-release dump is
+the owner's decision.
 
 **TestFlight builds (`dispatch_workflow`).** Only the owner's local channel
 authorizes a build: an owner message asking for it, or a standing authorization
