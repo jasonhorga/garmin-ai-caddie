@@ -79,7 +79,12 @@ class DeploymentManifestTests(unittest.TestCase):
 
             return traced
 
-        audit_hook = lambda event, args: record(args[0]) if event == "open" and args else None
+        audit_events = {"open", "os.listdir", "os.scandir"}
+
+        def audit_hook(event, args):
+            if event in audit_events and args:
+                record(args[0])
+
         # Audit hooks cannot be removed; `active` disables this one after tracing finishes.
         sys.addaudithook(audit_hook)
         original_check = readiness._check
@@ -139,28 +144,69 @@ class DeploymentManifestTests(unittest.TestCase):
         # A missing image manifest ships no sources. Report the uncovered paths via the same
         # assertion as an omitted COPY, instead of raising FileNotFoundError.
         docker_lines = dockerfile.read_text(encoding="utf-8").splitlines() if dockerfile.exists() else []
-        final_from = max(
-            (index for index, line in enumerate(docker_lines) if line.strip().upper().startswith("FROM ")),
-            default=-1,
-        )
-        copied_sources: list[str] = []
+        copied_sources: list[tuple[str, str, bool, bool, str]] = []
         stage = -1
-        for index, line in enumerate(docker_lines):
+        final_stage = sum(line.strip().upper().startswith("FROM ") for line in docker_lines) - 1
+        workdir = "/"
+        stage_root = "/"
+
+        def normalise_path(value: str) -> str:
+            normalised = value.removeprefix("./").rstrip("/")
+            return normalised or "."
+
+        def destination_path(value: str) -> str | None:
+            raw = value.rstrip("/") or "."
+            if raw.startswith("/"):
+                destination = Path(raw)
+                base = Path(workdir)
+                try:
+                    return destination.relative_to(base).as_posix() or "."
+                except ValueError:
+                    return None
+            relative_workdir = Path(workdir).relative_to(Path(stage_root))
+            combined = relative_workdir / raw
+            return combined.as_posix() or "."
+
+        for line in docker_lines:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
             if stripped.upper().startswith("FROM "):
                 stage += 1
+                workdir = "/"
+                stage_root = "/"
                 continue
-            if stage < 0 or index < final_from or not stripped.upper().startswith("COPY "):
+            if stage != final_stage:
+                continue
+            if stripped.upper().startswith("WORKDIR "):
+                raw_workdir = shlex.split(stripped, comments=False)[1]
+                if raw_workdir.startswith("/"):
+                    workdir = os.path.normpath(raw_workdir)
+                    if stage_root == "/":
+                        stage_root = workdir
+                else:
+                    workdir = os.path.normpath(str(Path(workdir) / raw_workdir))
+                continue
+            if not stripped.upper().startswith("COPY "):
                 continue
             try:
                 tokens = shlex.split(stripped)
             except ValueError:
                 continue
-            if any(token.startswith("--from=") for token in tokens[1:]):
+            arguments = [token for token in tokens[1:] if not token.startswith("--")]
+            if len(arguments) < 2 or any(token.startswith("--from=") for token in tokens[1:]):
                 continue
-            copied_sources.extend(token.removeprefix("./").rstrip("/") or "." for token in tokens[1:-1])
+            raw_destination = arguments[-1]
+            destination = destination_path(raw_destination)
+            if destination is None:
+                continue
+            sources = [normalise_path(token) for token in arguments[:-1]]
+            multiple_sources = len(sources) > 1
+            for source in sources:
+                source_path = root / source
+                copied_sources.append(
+                    (source, destination, source_path.is_dir() or source == ".", multiple_sources, raw_destination)
+                )
 
         ignored_patterns: list[str] = []
         if dockerignore.exists():
@@ -179,8 +225,25 @@ class DeploymentManifestTests(unittest.TestCase):
 
         def is_copied(path: str) -> bool:
             path_obj = Path(path)
-            ancestors = {path_obj.as_posix(), *(parent.as_posix() for parent in path_obj.parents)}
-            return any(source == "." or source in ancestors for source in copied_sources)
+            for source, destination, source_is_dir, multiple_sources, raw_destination in copied_sources:
+                source_path = Path(source)
+                if source_is_dir:
+                    try:
+                        path_obj.relative_to(source_path)
+                    except ValueError:
+                        continue
+                    # A directory COPY places its contents under the destination. The source
+                    # remains at its repository-relative location only when those locations match.
+                    if destination == source:
+                        return True
+                    continue
+                if multiple_sources or raw_destination.endswith("/") or raw_destination in {"", "."}:
+                    landed = Path(destination) / source_path.name
+                else:
+                    landed = Path(destination)
+                if landed.as_posix() == path_obj.as_posix():
+                    return True
+            return False
 
         uncovered = [path for path in runtime_paths if not is_copied(path) or is_ignored(path)]
         self.assertFalse(
