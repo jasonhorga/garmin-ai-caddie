@@ -4,7 +4,9 @@ The guard under test is the repository test named by GUARD_TEST. Each case runs 
 subprocess on a temporary copy of the checkout's tracked files, either unchanged or with one
 deliberate change, and checks that it passes on the real tree, fails (naming the path) on each
 defect, and stays green for reads that belong to packaging/evidence checks or to the private
-runtime root.
+runtime root. Dockerfile/.dockerignore syntax outside what the repository uses today must fail
+closed with the single assertion
+`unsupported Dockerfile/.dockerignore syntax: <line>; extend the guard`.
 """
 
 from __future__ import annotations
@@ -149,6 +151,7 @@ def _run_guard(root: Path, *, warm_first: bool = False) -> tuple[int, str]:
         env=env,
         capture_output=True,
         text=True,
+        errors="replace",
         timeout=900,
     )
     return proc.returncode, proc.stdout + proc.stderr
@@ -213,6 +216,14 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self.assertIn("Ran 1 test", output)
         self.assertIn("FAILED (failures=1)", output)
         self.assertIn(needle, output)
+
+    def _assert_guard_rejected_syntax(self, code: int, output: str, line: str) -> None:
+        # G3: the single fail-closed assertion for unsupported syntax, naming the offending line once.
+        self.assertNotEqual(code, 0, output)
+        self.assertIn("Ran 1 test", output)
+        self.assertIn("FAILED (failures=1)", output)
+        message = f"unsupported Dockerfile/.dockerignore syntax: {line}; extend the guard"
+        self.assertEqual(output.count(message), 1, output)
 
     def _assert_guard_passed(self, code: int, output: str) -> None:
         # G1 G2: the single guard test ran and passed without skipping.
@@ -453,34 +464,107 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
 
         self._assert_guard_failed(code, output, "runtime_probe/after_final_check.json")
 
-    def test_guard_normalises_dockerignore_patterns_like_docker(self) -> None:
-        # G1: Docker cleans each pattern (`.` elements, repeated and trailing `/`, then one leading
-        # `/`), so this line excludes mobile/contracts from the build context.
+    def test_guard_rejects_an_unclean_dockerignore_pattern(self) -> None:
+        # G3: `.`/empty segments and leading or trailing `/` are not the repository's syntax, so the
+        # guard refuses the line instead of normalising it.
         tree = self._tree_copy()
         self._append_dockerignore(tree, "/./mobile/./contracts//")
 
         code, output = _run_guard(tree)
 
-        self._assert_guard_failed(code, output, "mobile/contracts")
+        self._assert_guard_rejected_syntax(code, output, "/./mobile/./contracts//")
 
-    def test_guard_matches_double_star_dockerignore_patterns_like_docker(self) -> None:
-        # G1: in .dockerignore, `**/` matches zero or more directories, so `mobile/**/contracts`
-        # excludes mobile/contracts itself.
+    def test_guard_rejects_a_double_star_dockerignore_pattern(self) -> None:
+        # G3: `**` is outside the supported .dockerignore syntax.
         tree = self._tree_copy()
         self._append_dockerignore(tree, "mobile/**/contracts")
 
         code, output = _run_guard(tree)
 
-        self._assert_guard_failed(code, output, "mobile/contracts")
+        self._assert_guard_rejected_syntax(code, output, "mobile/**/contracts")
 
-    def test_guard_accepts_a_json_array_copy(self) -> None:
-        # G1: the exec (JSON-array) form of COPY ships the same directory as the shell form.
+    def test_guard_rejects_a_dockerignore_character_class(self) -> None:
+        # G3: character classes are outside the supported .dockerignore syntax.
         tree = self._tree_copy()
-        self._replace_mobile_contracts_copy(tree, 'COPY ["mobile/contracts/", "./mobile/contracts/"]')
+        self._append_dockerignore(tree, "mobile/[c]ontracts")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected_syntax(code, output, "mobile/[c]ontracts")
+
+    def test_guard_rejects_a_dockerignore_backslash_escape(self) -> None:
+        # G3: backslash escapes are outside the supported .dockerignore syntax.
+        tree = self._tree_copy()
+        self._append_dockerignore(tree, "mobile/contract\\s")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected_syntax(code, output, "mobile/contract\\s")
+
+    def test_guard_rejects_a_json_array_copy(self) -> None:
+        # G3: the exec (JSON-array) form of COPY is outside the supported Dockerfile syntax.
+        tree = self._tree_copy()
+        line = 'COPY ["mobile/contracts/", "./mobile/contracts/"]'
+        self._replace_mobile_contracts_copy(tree, line)
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected_syntax(code, output, line)
+
+    def test_guard_rejects_an_unsupported_instruction(self) -> None:
+        # G3: an instruction word outside the supported set (here ADD) fails closed.
+        tree = self._tree_copy()
+        line = "ADD mobile/contracts/ ./mobile/contracts/"
+        self._replace_mobile_contracts_copy(tree, line)
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected_syntax(code, output, line)
+
+    def test_guard_rejects_an_indented_dockerfile_comment(self) -> None:
+        # G3: comments are detected on the raw line, so an indented `#` line is not a comment; its
+        # instruction word `#` is unsupported.
+        tree = self._tree_copy()
+        copy_line = self._mobile_contracts_copy_line(tree)
+        self._replace_mobile_contracts_copy(tree, "    # card432 indented comment\n" + copy_line)
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected_syntax(code, output, "# card432 indented comment")
+
+    def test_guard_skips_column_one_comments_in_both_files(self) -> None:
+        # G3: a raw line starting with `#` is a comment in Dockerfile and .dockerignore alike.
+        tree = self._tree_copy()
+        copy_line = self._mobile_contracts_copy_line(tree)
+        self._replace_mobile_contracts_copy(tree, "# card432 comment\n" + copy_line)
+        self._append_dockerignore(tree, "#mobile/contracts")
 
         code, output = _run_guard(tree)
 
         self._assert_guard_passed(code, output)
+
+    def test_guard_turns_a_dockerfile_parse_error_into_the_syntax_assertion(self) -> None:
+        # G3: a WORKDIR without an argument is reported with the syntax assertion, not an error.
+        tree = self._tree_copy()
+        copy_line = self._mobile_contracts_copy_line(tree)
+        self._replace_mobile_contracts_copy(tree, "WORKDIR\n" + copy_line)
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected_syntax(code, output, "WORKDIR")
+
+    def test_guard_turns_an_undecodable_dockerignore_into_the_syntax_assertion(self) -> None:
+        # G3: a .dockerignore that is not UTF-8 fails closed with the syntax assertion, not an error.
+        tree = self._tree_copy()
+        dockerignore = tree / ".dockerignore"
+        dockerignore.write_bytes(dockerignore.read_bytes().rstrip(b"\n") + b"\n\xff\xfe\n")
+
+        code, output = _run_guard(tree)
+
+        self.assertNotEqual(code, 0, output)
+        self.assertIn("Ran 1 test", output)
+        self.assertIn("FAILED (failures=1)", output)
+        self.assertRegex(output, r"unsupported Dockerfile/\.dockerignore syntax: [^\n]*; extend the guard")
 
 
 if __name__ == "__main__":
