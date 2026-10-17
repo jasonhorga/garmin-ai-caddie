@@ -310,25 +310,32 @@ print("CARD432-TRACE:" + json.dumps({
         self.assertIsNone(_relative_copy_destination("/other", "/app", "./mobile/contracts"))
 
     def test_no_argument_directory_listing_records_current_repository_directory(self) -> None:
-        recorded: list[str] = []
-        original_directory = os.getcwd()
         repository_subdirectory = Path(__file__).resolve().parent
+        script = """
+import os
+import sys
 
-        def record(value: object) -> None:
-            recorded.append(os.fsdecode(os.fspath(value)))
+recorded = []
 
-        def audit_hook(event: str, args: tuple[object, ...]) -> None:
-            if event in {"os.listdir", "os.scandir"} and args:
-                record(args[0] if args[0] is not None else os.getcwd())
+def record(value):
+    recorded.append(os.fsdecode(os.fspath(value)))
 
-        sys.addaudithook(audit_hook)
-        try:
-            os.chdir(repository_subdirectory)
-            os.listdir()
-        finally:
-            os.chdir(original_directory)
+def audit_hook(event, args):
+    if event in {\"os.listdir\", \"os.scandir\"} and args:
+        record(args[0] if args[0] is not None else os.getcwd())
 
-        self.assertIn(str(repository_subdirectory), recorded)
+sys.addaudithook(audit_hook)
+os.chdir(sys.argv[1])
+os.listdir()
+assert sys.argv[1] in recorded, (sys.argv[1], recorded)
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(repository_subdirectory)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
     def test_compose_has_postgres_and_api_database_url(self) -> None:
         compose = self._load_compose()
