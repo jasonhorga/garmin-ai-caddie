@@ -48,19 +48,43 @@ def _dockerignore_matches(path: str, pattern: str) -> bool:
             parts.append("[^/]")
         elif character == "[":
             end = index + 1
-            if end < len(pattern) and pattern[end] in "!^":
-                end += 1
             if end < len(pattern) and pattern[end] == "]":
                 end += 1
-            while end < len(pattern) and pattern[end] != "]":
+            while end < len(pattern):
+                if pattern[end] == "\\" and end + 1 < len(pattern):
+                    end += 2
+                    continue
+                if pattern[end] == "]":
+                    break
                 end += 1
             if end >= len(pattern):
                 parts.append(r"\[")
             else:
-                character_class = pattern[index + 1 : end]
-                if character_class.startswith("!"):
-                    character_class = "^" + character_class[1:]
-                parts.append("[" + character_class + "]")
+                raw_class = pattern[index + 1 : end]
+                class_tokens: list[tuple[str, bool]] = []
+                token_index = 0
+                while token_index < len(raw_class):
+                    if raw_class[token_index] == "\\" and token_index + 1 < len(raw_class):
+                        class_tokens.append((raw_class[token_index + 1], True))
+                        token_index += 2
+                    else:
+                        class_tokens.append((raw_class[token_index], False))
+                        token_index += 1
+                negated = bool(class_tokens and not class_tokens[0][1] and class_tokens[0][0] in "!^")
+                if negated:
+                    class_tokens = class_tokens[1:]
+                if not class_tokens:
+                    parts.append(re.escape(pattern[index : end + 1]))
+                else:
+                    class_body = []
+                    for token, escaped in class_tokens:
+                        if escaped:
+                            class_body.append(re.escape(token))
+                        elif token == "-":
+                            class_body.append("-")
+                        else:
+                            class_body.append(re.escape(token))
+                    parts.append("[" + ("^" if negated else "") + "".join(class_body) + "]")
                 index = end
         elif character == "\\" and index + 1 < len(pattern):
             index += 1
@@ -68,7 +92,10 @@ def _dockerignore_matches(path: str, pattern: str) -> bool:
         else:
             parts.append(re.escape(character))
         index += 1
-    return re.fullmatch("".join(parts), path) is not None
+    try:
+        return re.fullmatch("".join(parts), path) is not None
+    except re.error:
+        return False
 
 
 def _docker_instructions(lines: list[str]) -> list[str]:
@@ -297,7 +324,10 @@ print("CARD432-TRACE:" + json.dumps({
                 continue
             try:
                 if argument_text.startswith("["):
-                    parsed = json.loads(argument_text)
+                    try:
+                        parsed = json.loads(argument_text)
+                    except (json.JSONDecodeError, TypeError):
+                        parsed = None
                     if (
                         isinstance(parsed, list)
                         and len(parsed) >= 2
@@ -309,8 +339,6 @@ print("CARD432-TRACE:" + json.dumps({
                 else:
                     arguments = shlex.split(argument_text)
             except ValueError:
-                continue
-            except (json.JSONDecodeError, TypeError):
                 continue
             if len(arguments) < 2:
                 continue
@@ -332,8 +360,10 @@ print("CARD432-TRACE:" + json.dumps({
         ignored_patterns: list[str] = []
         if dockerignore.exists():
             for line in dockerignore.read_text(encoding="utf-8").splitlines():
+                if line.startswith("#"):
+                    continue
                 pattern = line.strip()
-                if pattern and not pattern.startswith("#") and not pattern.startswith("!"):
+                if pattern and not pattern.startswith("!"):
                     ignored_patterns.append(_normalise_dockerignore_pattern(pattern))
 
         def is_ignored(path: str) -> bool:
