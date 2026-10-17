@@ -16,6 +16,13 @@ def _normalise_dockerignore_pattern(value: str) -> str:
     return value.removeprefix("./").removeprefix("/").rstrip("/")
 
 
+def _docker_instruction_word(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    return stripped.split(None, 1)[0].upper()
+
+
 def _relative_copy_destination(workdir: str, stage_root: str, value: str) -> str | None:
     raw = value.rstrip("/") or "."
     if raw.startswith("/"):
@@ -215,7 +222,7 @@ print("CARD432-TRACE:" + json.dumps({
         copied_sources: list[tuple[str, Path, bool, bool, str]] = []
         stage = -1
         instructions = _docker_instructions(docker_lines)
-        final_stage = sum(line.split(None, 1)[0].upper() == "FROM" for line in instructions) - 1
+        final_stage = sum(_docker_instruction_word(line) == "FROM" for line in instructions) - 1
         workdir = Path("/")
 
         def normalise_path(value: str) -> str:
@@ -224,7 +231,7 @@ print("CARD432-TRACE:" + json.dumps({
 
         for line in instructions:
             stripped = line.strip()
-            instruction = stripped.split(None, 1)[0].upper() if stripped else ""
+            instruction = _docker_instruction_word(line)
             if instruction == "FROM":
                 stage += 1
                 workdir = Path("/")
@@ -306,6 +313,10 @@ print("CARD432-TRACE:" + json.dumps({
 
     def test_dockerignore_root_pattern_is_normalized(self) -> None:
         self.assertEqual(_normalise_dockerignore_pattern("/mobile/contracts/"), "mobile/contracts")
+
+    def test_docker_instruction_word_accepts_tab_separated_from_and_copy(self) -> None:
+        self.assertEqual(_docker_instruction_word("FROM\tbase"), "FROM")
+        self.assertEqual(_docker_instruction_word("COPY\tmobile/contracts/\t./mobile/contracts/"), "COPY")
 
     def test_copy_outside_stage_root_is_uncovered(self) -> None:
         self.assertIsNone(_relative_copy_destination("/other", "/app", "./mobile/contracts"))
