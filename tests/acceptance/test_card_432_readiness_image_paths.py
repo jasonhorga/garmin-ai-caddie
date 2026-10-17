@@ -27,6 +27,8 @@ GUARD_TEST = (
 MOBILE_CONTRACTS_COPY = re.compile(r"^COPY\s+mobile/contracts/?\s+\S+\s*$", re.MULTILINE)
 OPS_COPY = re.compile(r"^COPY\s+ops/?\s+\S+\s*$", re.MULTILINE)
 EVENT_CONTRACT_CONSTANT = re.compile(r"^LIVE_ROUND_EVENT_CONTRACT\s*=.*$", re.MULTILINE)
+# The first statement after the final `_check` of build_readiness_response (runtimeStatus is computed here).
+RUNTIME_STATUS_STATEMENT = re.compile(r"^    runtime_checks = \[", re.MULTILINE)
 # Runtime check (label mobile_events) and packaging check (label external_release).
 RUNTIME_READER = "_contract_event_kinds"
 PACKAGING_READER = "_external_release_evidence"
@@ -199,6 +201,12 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self.assertIsNotNone(match, "expected a COPY of mobile/contracts in Dockerfile")
         return match.group(0)
 
+    def _append_dockerignore(self, tree: Path, pattern: str) -> None:
+        # G1: adds one exclusion line to the copy's .dockerignore.
+        dockerignore = tree / ".dockerignore"
+        text = dockerignore.read_text(encoding="utf-8") if dockerignore.exists() else ""
+        dockerignore.write_text(text.rstrip("\n") + f"\n{pattern}\n", encoding="utf-8")
+
     def _assert_guard_failed(self, code: int, output: str, needle: str) -> None:
         # G1: an assertion failure of the single guard test that names the path.
         self.assertNotEqual(code, 0, output)
@@ -278,9 +286,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
     def test_guard_fails_when_dockerignore_excludes_a_runtime_path(self) -> None:
         # G1: a COPY whose source the build context drops does not ship the path.
         tree = self._tree_copy()
-        dockerignore = tree / ".dockerignore"
-        text = dockerignore.read_text(encoding="utf-8") if dockerignore.exists() else ""
-        dockerignore.write_text(text.rstrip("\n") + "\nmobile/contracts\n", encoding="utf-8")
+        self._append_dockerignore(tree, "mobile/contracts")
 
         code, output = _run_guard(tree)
 
@@ -429,6 +435,52 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         code, output = _run_guard(tree, warm_first=True)
 
         self._assert_guard_failed(code, output, "runtime_probe/cached.json")
+
+    def test_guard_reports_a_read_after_the_final_check(self) -> None:
+        # G1: a read made after the last `_check` call, where runtimeStatus is computed, has no
+        # later check to be attributed to. It must stay in scope instead of being dropped.
+        tree = self._tree_copy()
+        self._write_probe(tree, "runtime_probe/after_final_check.json")
+        readiness = tree / "server_v2" / "readiness.py"
+        statement = '    Path("runtime_probe/after_final_check.json").read_text(encoding="utf-8")\n'
+        text, count = RUNTIME_STATUS_STATEMENT.subn(
+            lambda m: statement + m.group(0), readiness.read_text(encoding="utf-8"), count=1
+        )
+        self.assertEqual(count, 1, "expected one `runtime_checks = [` statement in readiness")
+        readiness.write_text(text, encoding="utf-8")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_failed(code, output, "runtime_probe/after_final_check.json")
+
+    def test_guard_normalises_dockerignore_patterns_like_docker(self) -> None:
+        # G1: Docker cleans each pattern (`.` elements, repeated and trailing `/`, then one leading
+        # `/`), so this line excludes mobile/contracts from the build context.
+        tree = self._tree_copy()
+        self._append_dockerignore(tree, "/./mobile/./contracts//")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_failed(code, output, "mobile/contracts")
+
+    def test_guard_matches_double_star_dockerignore_patterns_like_docker(self) -> None:
+        # G1: in .dockerignore, `**/` matches zero or more directories, so `mobile/**/contracts`
+        # excludes mobile/contracts itself.
+        tree = self._tree_copy()
+        self._append_dockerignore(tree, "mobile/**/contracts")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_failed(code, output, "mobile/contracts")
+
+    def test_guard_accepts_a_json_array_copy(self) -> None:
+        # G1: the exec (JSON-array) form of COPY ships the same directory as the shell form.
+        tree = self._tree_copy()
+        self._replace_mobile_contracts_copy(tree, 'COPY ["mobile/contracts/", "./mobile/contracts/"]')
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_passed(code, output)
 
 
 if __name__ == "__main__":
