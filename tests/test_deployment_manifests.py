@@ -224,20 +224,21 @@ print("CARD432-TRACE:" + json.dumps({
 
         for line in instructions:
             stripped = line.strip()
-            if stripped.upper().startswith("FROM "):
+            instruction = stripped.split(None, 1)[0].upper() if stripped else ""
+            if instruction == "FROM":
                 stage += 1
                 workdir = Path("/")
                 continue
             if stage != final_stage:
                 continue
-            if stripped.upper().startswith("WORKDIR "):
+            if instruction == "WORKDIR":
                 raw_workdir = shlex.split(stripped, comments=False)[1]
                 if raw_workdir.startswith("/"):
                     workdir = Path(os.path.normpath(raw_workdir))
                 else:
                     workdir = Path(os.path.normpath(str(workdir / raw_workdir)))
                 continue
-            if not stripped.upper().startswith("COPY "):
+            if instruction != "COPY":
                 continue
             try:
                 tokens = shlex.split(stripped)
