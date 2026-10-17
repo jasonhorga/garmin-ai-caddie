@@ -7,50 +7,50 @@ the failure mode (`mobile/contracts/` missing from the image, readiness
 
 Touches: `tests/test_deployment_manifests.py`, `Dockerfile`, `tests/acceptance/test_card_432_readiness_image_paths.py`, `.agent/contracts/card-432.md`
 
-Acceptance tests: `tests/acceptance/test_card_432_readiness_image_paths.py` (22 cases)
+Acceptance tests: `tests/acceptance/test_card_432_readiness_image_paths.py` (33 cases)
 
-## Revision 5 (after review of edc640d)
+## Revision 7: narrowed syntax, fail closed
 
-At `edc640d` the guard passes all 18 revision-4 cases (CI green). Re-reading
-`tests/test_deployment_manifests.py` at that head turned up four more real
-defects and some dead test code. Cases 19–22 are new and cover the defects;
-G2.5 covers the dead code.
+This revision replaces the revision 5 and 6 rules that asked the guard to copy
+Docker's parser: the JSON (exec) form of `COPY`, `filepath.Clean`
+normalisation, and the full `.dockerignore` glob language (`**`, `?`, `[...]`
+classes, `\` escapes). The owner asked for the opposite. The guard supports
+**only the Dockerfile and `.dockerignore` syntax this repository uses today**.
+Any other construct it meets, and any internal parse error, makes it fail
+closed with exactly this sentence:
 
-1. **Reads after the final `_check` are dropped.** The trace gives every path
-   recorded since the previous `_check` call to the next call's label. Anything
-   recorded after the last `_check` (today `operations`), such as a read while
-   `runtime_checks` / `runtimeStatus` is computed, is still in `observed` when
-   readiness returns, and the guard throws it away (condition 19).
-2. **`.dockerignore` patterns are not normalised the way Docker does it.**
-   `_normalise_dockerignore_pattern` removes one leading `./`, then one `/`,
-   then trailing `/`. Docker runs `filepath.Clean` first. So
-   `/./mobile/./contracts//` excludes `mobile/contracts` in Docker, but the
-   guard reads it as `./mobile/./contracts` and finds no match (condition 20).
-3. **`.dockerignore` matching uses `fnmatch`, not Docker's matcher.** In Docker,
-   `**/` matches zero or more directories, so `mobile/**/contracts` excludes
-   `mobile/contracts`. `fnmatch` needs at least one directory between them and
-   finds no match (condition 21). Also, Docker's `*` and `?` never match `/`,
-   while `fnmatch`'s do.
-4. **The JSON-array form of `COPY` is split with `shlex`.**
-   `COPY ["mobile/contracts/", "./mobile/contracts/"]` is valid and ships the
-   directory. The guard gets the tokens `[mobile/contracts/,` and
-   `./mobile/contracts/]`, so it rejects a correct Dockerfile (condition 22).
-5. **Dead helpers and helper tests.**
-   - `_relative_copy_destination` is never used by the guard, and
-     `test_copy_outside_stage_root_is_uncovered` tests only that helper.
-   - `test_no_argument_directory_listing_records_current_repository_directory`
-     tests its own copy of an audit hook, not the guard's trace script.
+```
+unsupported Dockerfile/.dockerignore syntax: <line>; extend the guard
+```
 
-   Both pass whatever the guard does (G2.5).
+**Out of scope when rejected.** The guard does not need to interpret JSON/exec
+`COPY`, bracket character classes, escapes, heredocs, variable substitutions,
+parser directives, `**` or `?` patterns, uncleaned patterns, unknown
+instructions or `COPY` flags, or any other construct not listed under
+"Supported syntax". Rejecting them with the sentence above is the required
+behaviour. Supporting one of them later means extending the guard and this
+contract in a new card.
 
-Codex must not touch `tests/acceptance/`. Revision 3 already replaced the edits
-Codex commit `9d07b30` made there.
+These stay as they were: the core goal (runtime-path `COPY` coverage, G1 and
+G2), instruction-word parsing (the first word of each joined line, compared
+case-insensitively), and the `.dockerignore` comment rule (a comment is a line
+whose **raw** first character is `#`).
 
-All 22 cases fail on `main`, where the guard test does not exist (unittest
-reports `FAILED (errors=1)`). By reading the code, conditions 19–22 also fail on
-`edc640d`: the guard passes where 19–21 expect a failure, and fails where 22
-expects a pass. Conditions 1–18 should still pass there. I could not run Python
-in the contract sandbox, so these results are traced by hand, not observed.
+Changes to the acceptance cases:
+
+- Conditions 20–22 are inverted. `/./mobile/./contracts//`, `mobile/**/contracts`
+  and `COPY ["mobile/contracts/", "./mobile/contracts/"]` must now be
+  **rejected** with the sentence. They are no longer emulated or accepted.
+- G3 conditions 23–33 are new.
+
+Codex must not touch `tests/acceptance/`.
+
+All 33 cases fail on `main`, where the guard test does not exist (unittest
+reports `FAILED (errors=1)`). Reading the code at `8f3bba1`, the guard there
+fails conditions 20–30 and 32: it accepts or emulates the construct, or for
+condition 30 raises `IndexError` (an error, not a failure). It should pass
+conditions 1–19, 31 and 33. I could not run Python in the contract sandbox, so
+these results are traced by hand, not observed.
 
 ## Interface
 
@@ -104,16 +104,19 @@ acceptance tests locally, or the copy will not contain it. The guard must:
 - attribute each recorded path to a check label:
   - a path recorded since the previous `_check` call goes to the label of the
     next `_check` call;
-  - **new in revision 5:** a path recorded after the last `_check` call, still
-    pending when `build_readiness_response()` returns, is in scope. Report it
-    under a label that is not in `readiness.PACKAGING_LABELS` (for example
-    `<after-final-check>`). Never drop it;
+  - a path recorded after the last `_check` call, still pending when
+    `build_readiness_response()` returns, is in scope. Report it under a label
+    that is not in `readiness.PACKAGING_LABELS`. Never drop it;
   - keep only paths whose label is **not** in `readiness.PACKAGING_LABELS`. A
     path used by both a runtime and a packaging check stays in scope;
 - be a single test. When it fails, use an assertion failure (unittest reports
-  `FAILED (failures=1)`), not an error, and name every uncovered path,
-  repository-relative and POSIX (for example
-  `mobile/contracts/live_round_event.schema.json`).
+  `FAILED (failures=1)`), not an error. The failure message must
+  - name every uncovered path, repository-relative and POSIX (for example
+    `mobile/contracts/live_round_event.schema.json`);
+  - contain the unsupported-syntax sentence verbatim for every rejected line,
+    in file order. Build the message as plain text (for example with
+    `self.fail("\n".join(...))`), not as the `repr` of a list, so that
+    backslashes and tabs are not escaped.
 
 Do not edit `server_v2/readiness.py`. The acceptance tests rewrite these lines
 of a copy, so they must stay as they are:
@@ -129,7 +132,8 @@ of a copy, so they must stay as they are:
 
 In `Dockerfile`, keep the explicit `COPY mobile/contracts/ ./mobile/contracts/`
 and `COPY ops/ ./ops/` lines, each on one line, and do not widen either. Keep
-`WORKDIR /app` as the only `WORKDIR` of the runtime stage.
+`WORKDIR /app` as the only `WORKDIR` of the runtime stage. Do not introduce any
+construct outside "Supported syntax" into `Dockerfile` or `.dockerignore`.
 
 ## Scope rules for the guard
 
@@ -156,81 +160,121 @@ and `COPY ops/ ./ops/` lines, each on one line, and do not widen either. Keep
   - the repository root itself and paths outside it.
 
   No other prefix lists (no `ops`, `docs`, `mobile/ios`, …).
-- **Reading `Dockerfile`.** Before interpreting instructions, apply Docker's
-  default line handling:
-  - join a line that ends in `\` with the following line, and keep joining
-    while the joined line still ends in `\`;
-  - inside a continuation, drop empty lines and lines whose first non-blank
-    character is `#`;
-  - outside a continuation, skip comment lines and empty lines.
 
-  The instruction is the first word of each joined line, compared
-  case-insensitively. A line that a continuation swallows is part of the
-  previous instruction, never an instruction of its own.
-- **Reading `COPY` arguments** (*JSON form new in revision 5*):
-  - First take the leading `--` flags off the arguments (`--from=`,
-    `--chown=`, `--chmod=`, `--link` and any other `--` flag). Flags are never
-    sources. A `COPY` with `--from=` ships nothing from the context.
-  - If what is left starts with `[` and parses with `json.loads` as a list of
-    two or more strings, that list is the sources followed by the destination
-    (exec form). For example, `COPY ["mobile/contracts/", "./mobile/contracts/"]`
-    has source `mobile/contracts/` and destination `./mobile/contracts/`.
-  - Otherwise split it into words the shell way. If that fails, the `COPY`
-    ships nothing.
-- **Shipped.** A path `P` counts as shipped only when both of these hold:
-  1. There is a `COPY` instruction in the **final** `FROM` stage, without
-     `--from=`, with a source `S` equal to `P` or a parent directory of `P`.
-     That `COPY` must place `P` at `<runtime root>/P`:
-     - The **runtime root** is the `WORKDIR` in effect at the end of the final
-       stage (`/` if there is none). Track `WORKDIR` through the stage: an
-       absolute value replaces it, a relative value joins onto it.
-     - Normalise each source: drop a leading `./` and a trailing `/`, and treat
-       an empty result as `.`.
-     - Resolve the destination `D` to an absolute path. Join a relative `D`
-       onto the `WORKDIR` in effect at that `COPY`, then normalise it.
-     - Directory source (`S` is a directory in the tree, or `.`): its contents
-       land in `D`, so `P` lands at `D/<P relative to S>`.
-     - File source: if the raw destination ends in `/`, is `.`, or the `COPY`
-       has several sources, the file lands at `D/<basename of S>`. Otherwise
-       it lands at `D`.
-     - Examples with `WORKDIR /app`:
-       - these qualify: `COPY mobile/contracts/ ./mobile/contracts/`,
-         `COPY mobile/contracts /app/mobile/contracts`,
-         `COPY ["mobile/contracts/", "./mobile/contracts/"]`,
-         `COPY alembic.ini ./`, and a COPY split over two lines with `\`;
-       - these do not: `COPY mobile/contracts/ ./`, and
-         `WORKDIR /srv` + `COPY mobile/contracts/ /srv/mobile/contracts/` +
-         `WORKDIR /app`;
-       - a `COPY` in an earlier build stage does not count.
-  2. No `.dockerignore` exclusion pattern matches `P` or one of its parent
-     directories. Docker's rules apply (*new in revision 5*; this replaces
-     `fnmatch`):
-     - **Reading lines.** A line whose first character is `#` is a comment.
-       Otherwise strip surrounding whitespace and skip empty lines. A line
-       that starts with `!` is a re-inclusion; the guard ignores it (known
-       limit below).
-     - **Normalising.** Clean the pattern the way Go's `filepath.Clean` does:
-       collapse repeated `/`, remove `.` elements, resolve `..` lexically, and
-       drop the trailing `/`. Then, if the result is longer than one character
-       and starts with `/`, drop that `/`. For example,
-       `/./mobile/./contracts//`, `./mobile//contracts/` and `/mobile/contracts`
-       all become `mobile/contracts`. Note that `posixpath.normpath` keeps a
-       leading `//`; collapse that too.
-     - **Matching.** Match the cleaned pattern against the whole
-       repo-relative POSIX path, anchored at both ends:
-       - `**` followed by `/` matches zero or more whole directories
-         (regex `(.*/)?`, with the `/` consumed);
-       - `**` at the end matches anything (`.*`);
-       - `*` matches any run of characters except `/` (`[^/]*`);
-       - `?` matches one character except `/` (`[^/]`);
-       - `[...]` is a character class and `\` escapes the next character, as
-         in Go's `filepath.Match`;
-       - every other character matches itself.
+## Supported syntax (revision 7)
 
-       So `mobile/**/contracts` matches `mobile/contracts` and
-       `mobile/a/b/contracts`. `*/live_round_event.schema.json` matches only
-       one directory level, and `__pycache__` matches only the top-level
-       directory.
+This is the whole language the guard understands. It covers every construct in
+today's `Dockerfile` and `.dockerignore`. Everything else is rejected.
+
+### `Dockerfile` lines
+
+- **Joining.** A line whose text ends in `\` (after trailing whitespace is
+  removed) is joined with the following line, and joining continues while the
+  joined line still ends in `\`. Inside a continuation, empty lines and lines
+  whose first non-blank character is `#` are dropped. The joined *logical
+  line* is each part stripped of surrounding whitespace, with the trailing `\`
+  removed, joined by single spaces.
+- **Skipped.** Outside a continuation, empty lines and lines whose first
+  non-blank character is `#` are skipped. Exception: a comment line before the
+  first instruction that has the parser-directive form `# <name>=<value>`
+  (for example `# syntax=…`, `# escape=…`) is **rejected**.
+- **Instruction word.** The instruction is the first whitespace-separated word
+  (spaces or tabs) of the logical line, compared case-insensitively. A line a
+  continuation swallows is part of the previous instruction, never an
+  instruction of its own. The arguments are the remaining words, split on runs
+  of whitespace (no shell quoting, no `shlex`, no JSON).
+- **Supported instructions:** `FROM`, `WORKDIR`, `COPY`, `RUN`, `ENV`,
+  `EXPOSE` and `CMD`. Any other instruction word (`ADD`, `ARG`, `USER`,
+  `LABEL`, `SHELL`, `ONBUILD`, `VOLUME`, `ENTRYPOINT`, a stray word, …) is
+  rejected.
+- **Heredocs.** A logical line of any instruction that contains `<<` is
+  rejected.
+- **Opaque instructions.** `RUN`, `ENV`, `EXPOSE` and `CMD` are otherwise not
+  interpreted. Their arguments may contain anything, for example `&&`, `$`,
+  or `CMD ["sh", "ops/start_api.sh"]`.
+- A **plain word** matches `[A-Za-z0-9_./-]+`. `FROM`, `WORKDIR` and `COPY`
+  accept only these forms; anything else in them is rejected. That includes
+  `$`/`${…}` substitutions, quotes, `\` escapes, `[`/JSON exec form, glob
+  characters `*` `?` `[` `]`, and a missing or extra argument:
+  - `FROM <image>` or `FROM <image> AS <name>` (`AS` in any case). `<image>`
+    matches `[A-Za-z0-9_./:@-]+` and `<name>` is a plain word. A `FROM` starts
+    a new stage and resets `WORKDIR` to `/`;
+  - `WORKDIR <plain word>`, with exactly one argument. An absolute value
+    replaces the current `WORKDIR` and a relative one joins onto it;
+  - `COPY [--from=<plain word>] <source plain word>… <destination plain word>`.
+    That is at most one leading flag, and the only supported flag is
+    `--from=`. Then at least two plain words. Any other `--` flag
+    (`--chown`, `--chmod`, `--link`, `--exclude`, `--parents`, …) is rejected.
+    A `COPY --from=` ships nothing from the build context.
+- These rules apply to every stage, not only the final one.
+
+### `.dockerignore` lines
+
+- **Comments (raw rule).** A line whose first character, before any
+  whitespace is removed, is `#` is a comment. A `#` after leading whitespace is
+  pattern text, and pattern text cannot contain `#`, so that line is rejected.
+- Otherwise strip surrounding whitespace and skip empty lines.
+- A leading `!` marks a re-inclusion. The rest of the line must still be a
+  supported pattern. The guard then ignores it, so the path stays excluded
+  (a known limit that errs on the side of failing).
+- A **supported pattern** is one or more segments joined by single `/`. Each
+  segment matches `[A-Za-z0-9_.*-]+`, is not `.` or `..`, and does not contain
+  `**`. So a leading or trailing `/`, `//`, `./`, `**`, `?`, `[`, `]`, `\`,
+  `#`, spaces and every other character are rejected.
+- **Matching.** A pattern excludes a path when it fully matches the path or
+  one of its parent directories, as a repository-relative POSIX path. `*`
+  matches any run of characters except `/`. Every other character matches
+  itself. For example, `data` excludes `data/x.json` but not `ops/data`, and
+  `*.pyc` excludes only top-level `.pyc` names.
+
+### Fail-closed reporting
+
+- A rejected line is reported as
+  `unsupported Dockerfile/.dockerignore syntax: <line>; extend the guard`.
+  `<line>` is the `Dockerfile` logical line as defined above, or the
+  `.dockerignore` line stripped of surrounding whitespace (with its `!`, if it
+  has one).
+- **Internal parse errors** are reported the same way: any exception raised
+  while reading or interpreting one `Dockerfile` logical line or `.dockerignore`
+  line. Catch it per line and report that line with the same sentence. The
+  test must never end as an error. A file that is not valid UTF-8 also fails as
+  an assertion; the message names the file.
+- Any rejected line fails the guard, even when every runtime path would
+  otherwise be covered. The guard may also report uncovered paths in the same
+  failure.
+- A missing `Dockerfile` fails the guard. A missing `.dockerignore` means no
+  exclusions.
+
+### Shipped
+
+A path `P` counts as shipped only when both of these hold, given that no line
+was rejected:
+
+1. There is a `COPY` in the **final** `FROM` stage, without `--from=`, with a
+   source `S` equal to `P` or to a parent directory of `P`. That `COPY` must
+   place `P` at `<runtime root>/P`:
+   - The **runtime root** is the `WORKDIR` in effect at the end of the final
+     stage (`/` if there is none).
+   - Normalise each source: drop a leading `./` and a trailing `/`, and treat
+     an empty result as `.`.
+   - Resolve the destination `D` to an absolute path. Join a relative `D` onto
+     the `WORKDIR` in effect at that `COPY`, then normalise it.
+   - Directory source (`S` is a directory in the tree, or `.`): its contents
+     land in `D`, so `P` lands at `D/<P relative to S>`.
+   - File source: if the raw destination ends in `/`, is `.`, or the `COPY`
+     has several sources, the file lands at `D/<basename of S>`. Otherwise it
+     lands at `D`.
+   - Examples with `WORKDIR /app`:
+     - these qualify: `COPY mobile/contracts/ ./mobile/contracts/`,
+       `COPY mobile/contracts /app/mobile/contracts`, `COPY alembic.ini ./`,
+       `copy<TAB>mobile/contracts/<TAB>./mobile/contracts/`, and a `COPY` split
+       over two lines with `\`;
+     - these do not: `COPY mobile/contracts/ ./`, and
+       `WORKDIR /srv` + `COPY mobile/contracts/ /srv/mobile/contracts/` +
+       `WORKDIR /app`;
+     - a `COPY` in an earlier build stage does not count.
+2. No supported `.dockerignore` exclusion pattern matches `P` or one of its
+   parent directories.
 
 ## Dockerfile
 
@@ -300,20 +344,17 @@ the given path. "Passes" means: exit 0, `Ran 1 test`, not skipped.
     `Path("runtime_probe/after_final_check.json").read_text(encoding="utf-8")`
     directly above `    runtime_checks = [`, after the final `_check` call (the
     file exists, nothing copies it), it fails the same way and names
-    `runtime_probe/after_final_check.json`. *(new in revision 5)*
-20. On a copy where `.dockerignore` gains the line `/./mobile/./contracts//`,
-    it fails the same way and names `mobile/contracts`. *(new)*
-21. On a copy where `.dockerignore` gains the line `mobile/**/contracts`, it
-    fails the same way and names `mobile/contracts`. *(new)*
-22. On a copy where the `COPY mobile/contracts/ …` line becomes
-    `COPY ["mobile/contracts/", "./mobile/contracts/"]`, it passes. *(new)*
+    `runtime_probe/after_final_check.json`.
+
+Condition 33 (instruction words, below) also covers G1.
 
 ### G2 — The production image ships every runtime path readiness reads
 
 Pass conditions:
 
 1. On an unchanged copy of the checkout's tracked files, the guard passes
-   (exit 0, `Ran 1 test`, not skipped).
+   (exit 0, `Ran 1 test`, not skipped). This also proves that today's
+   `Dockerfile` and `.dockerignore` sit entirely inside "Supported syntax".
 2. Any path it reported was fixed by adding a `COPY` to the runtime stage of
    `Dockerfile`, not by adding the path to an exclusion list.
 3. The existing `tests/test_deployment_manifests.py` tests and the rest of the
@@ -323,28 +364,70 @@ Pass conditions:
    readiness `runtimeStatus` is still `ready`. The release-tier run checks this
    read-only.
 5. **No dead helpers or dead helper tests** in
-   `tests/test_deployment_manifests.py` (*new in revision 5*; the reviewer
-   checks this, there is no acceptance case for it):
-   - every module-level helper added for this card is called by the guard;
-   - every helper unit test exercises a helper the guard calls, or the
-     guard's own trace script;
-   - remove `_relative_copy_destination` and
-     `test_copy_outside_stage_root_is_uncovered`;
-   - remove `test_no_argument_directory_listing_records_current_repository_directory`,
-     or rewrite it to run the guard's real trace script, for example by moving
-     the script into a module-level constant that both the guard and the test
-     use, rather than a copy of the hook;
-   - update `test_dockerignore_root_pattern_is_normalized` to the
-     Docker-style normalisation. Helper tests for the new `.dockerignore`
-     matcher and the JSON-form `COPY` parser are welcome.
+   `tests/test_deployment_manifests.py`. There is no acceptance case for this;
+   the reviewer checks it.
+   - Every module-level helper added for this card is called by the guard.
+   - Every helper unit test exercises a helper the guard calls, or the guard's
+     own trace script.
+   - Remove the code that revision 7 makes unnecessary: JSON parsing of
+     `COPY`, `shlex` splitting of `COPY`/`WORKDIR`, `posixpath.normpath`
+     pattern cleaning (`_normalise_dockerignore_pattern`), and the `**`, `?`,
+     character-class and escape branches of `_dockerignore_matches`. Drop the
+     `json`/`shlex`/`posixpath` imports if nothing else uses them. (`json`
+     stays if the trace payload still needs it.)
+   - Remove `test_dockerignore_root_pattern_is_normalized`, or rewrite it to
+     assert that the uncleaned pattern is rejected. Helper tests for the
+     supported-syntax validator are welcome.
+
+### G3 — Unsupported Dockerfile/.dockerignore syntax fails closed
+
+"Rejected" means: non-zero exit, `Ran 1 test`, `FAILED (failures=1)`, and the
+output contains verbatim
+`unsupported Dockerfile/.dockerignore syntax: <line>; extend the guard` for the
+given `<line>`. "Passes" is as in G1.
+
+20. `.dockerignore` gains `/./mobile/./contracts//`: rejected, line
+    `/./mobile/./contracts//`.
+21. `.dockerignore` gains `mobile/**/contracts`: rejected, line
+    `mobile/**/contracts`.
+22. The `COPY mobile/contracts/ …` line becomes
+    `COPY ["mobile/contracts/", "./mobile/contracts/"]` (JSON/exec form):
+    rejected, line `COPY ["mobile/contracts/", "./mobile/contracts/"]`.
+23. `.dockerignore` gains `mobile/[c]ontracts` (bracket class): rejected, line
+    `mobile/[c]ontracts`.
+24. `.dockerignore` gains `mobile/contract\s` (escape): rejected, line
+    `mobile/contract\s`.
+25. That `COPY` line becomes `COPY mobile/contracts/ ./mobile/contract\s/`
+    (escape): rejected, that line.
+26. That `COPY` line becomes the three lines `RUN <<EOF`, the original `COPY`
+    line and `EOF` (heredoc): rejected, line `RUN <<EOF`.
+27. That `COPY` line becomes `COPY mobile/contracts/ ${APP_DIR}/mobile/contracts/`
+    (substitution): rejected, that line.
+28. That `COPY` line becomes `ADD mobile/contracts/ ./mobile/contracts/`
+    (unsupported instruction): rejected, that line.
+29. That `COPY` line becomes `COPY --exclude=*.md mobile/contracts/ ./mobile/contracts/`
+    (unsupported flag): rejected, that line.
+30. A bare `WORKDIR` line is inserted directly above the unchanged `COPY` line
+    (malformed instruction, an internal parse error at `8f3bba1`): rejected,
+    line `WORKDIR`.
+31. `.dockerignore` gains `#mobile/contracts` (raw leading `#`, a comment):
+    passes.
+32. `.dockerignore` gains `  #mobile/contracts` (`#` after whitespace, pattern
+    text): rejected, line `#mobile/contracts`.
+33. That `COPY` line becomes `copy<TAB>mobile/contracts/<TAB>./mobile/contracts/`
+    (instruction word in lower case, tab-separated words): passes.
 
 ## Not in scope
 
 No app, Watch, web, migration, auth or deploy-script changes, and no change to
 `server_v2/readiness.py`. Do not edit the pinned files or `tests/acceptance/`.
-Known limits this card does not cover:
+Out of scope for the parser, provided the guard rejects them as G3 requires:
+JSON/exec `COPY`, bracket classes, escapes, heredocs, substitutions, parser
+directives, `**`/`?`/uncleaned `.dockerignore` patterns, unknown instructions
+and flags, and any other construct not under "Supported syntax". Known limits
+this card does not cover:
 
 - `RUN` steps that delete copied files;
-- `ADD` instructions (treated as not shipping anything);
-- `.dockerignore` re-inclusion with `!` (treated as still excluded);
+- `.dockerignore` re-inclusion with `!` (validated, then treated as still
+  excluded);
 - reads that happen while modules import.

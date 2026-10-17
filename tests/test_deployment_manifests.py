@@ -5,7 +5,6 @@ import os
 import posixpath
 from pathlib import Path
 import re
-import shlex
 import subprocess
 import sys
 import tomllib
@@ -13,13 +12,14 @@ import unittest
 import yaml
 
 
-def _normalise_dockerignore_pattern(value: str) -> str:
-    normalised = posixpath.normpath(value.strip())
-    if normalised.startswith("//"):
-        normalised = "/" + normalised.lstrip("/")
-    if len(normalised) > 1 and normalised.startswith("/"):
-        normalised = normalised[1:]
-    return normalised
+# The readiness image guard understands only the Dockerfile/.dockerignore syntax this repository
+# uses (card #432). Anything else is rejected with this sentence instead of being emulated.
+UNSUPPORTED_SYNTAX = "unsupported Dockerfile/.dockerignore syntax: {line}; extend the guard"
+_PLAIN_WORD = re.compile(r"[A-Za-z0-9_./-]+")
+_IMAGE_WORD = re.compile(r"[A-Za-z0-9_./:@-]+")
+_DOCKERIGNORE_SEGMENT = re.compile(r"[A-Za-z0-9_.*-]+")
+_PARSER_DIRECTIVE = re.compile(r"#\s*[A-Za-z0-9_-]+\s*=.*")
+_OPAQUE_INSTRUCTIONS = {"RUN", "ENV", "EXPOSE", "CMD"}
 
 
 def _docker_instruction_word(line: str) -> str | None:
@@ -30,93 +30,131 @@ def _docker_instruction_word(line: str) -> str | None:
 
 
 def _dockerignore_matches(path: str, pattern: str) -> bool:
-    parts: list[str] = []
-    index = 0
-    while index < len(pattern):
-        if pattern.startswith("**/", index):
-            parts.append("(?:.*/)?")
-            index += 3
-            continue
-        if pattern.startswith("**", index):
-            parts.append(".*")
-            index += 2
-            continue
-        character = pattern[index]
-        if character == "*":
-            parts.append("[^/]*")
-        elif character == "?":
-            parts.append("[^/]")
-        elif character == "[":
-            end = index + 1
-            if end < len(pattern) and pattern[end] == "]":
-                end += 1
-            while end < len(pattern):
-                if pattern[end] == "\\" and end + 1 < len(pattern):
-                    end += 2
-                    continue
-                if pattern[end] == "]":
-                    break
-                end += 1
-            if end >= len(pattern):
-                parts.append(r"\[")
-            else:
-                raw_class = pattern[index + 1 : end]
-                class_tokens: list[tuple[str, bool]] = []
-                token_index = 0
-                while token_index < len(raw_class):
-                    if raw_class[token_index] == "\\" and token_index + 1 < len(raw_class):
-                        class_tokens.append((raw_class[token_index + 1], True))
-                        token_index += 2
-                    else:
-                        class_tokens.append((raw_class[token_index], False))
-                        token_index += 1
-                negated = bool(class_tokens and not class_tokens[0][1] and class_tokens[0][0] in "!^")
-                if negated:
-                    class_tokens = class_tokens[1:]
-                if not class_tokens:
-                    parts.append(re.escape(pattern[index : end + 1]))
-                else:
-                    class_body = []
-                    for token, escaped in class_tokens:
-                        if escaped:
-                            class_body.append(re.escape(token))
-                        elif token == "-":
-                            class_body.append("-")
-                        else:
-                            class_body.append(re.escape(token))
-                    parts.append("[" + ("^" if negated else "") + "".join(class_body) + "]")
-                index = end
-        elif character == "\\" and index + 1 < len(pattern):
-            index += 1
-            parts.append(re.escape(pattern[index]))
-        else:
-            parts.append(re.escape(character))
-        index += 1
-    try:
-        return re.fullmatch("".join(parts), path) is not None
-    except re.error:
-        return False
+    return re.fullmatch("[^/]*".join(re.escape(part) for part in pattern.split("*")), path) is not None
 
 
 def _docker_instructions(lines: list[str]) -> list[str]:
+    """Join `\\` continuations into logical lines.
+
+    A parser-directive comment before the first instruction is kept as a logical line, so that
+    the caller rejects it like any other unsupported instruction.
+    """
     instructions: list[str] = []
     index = 0
     while index < len(lines):
         current = lines[index].strip()
         index += 1
-        if not current or current.startswith("#"):
+        if not current:
+            continue
+        if current.startswith("#"):
+            if not instructions and _PARSER_DIRECTIVE.fullmatch(current):
+                instructions.append(current)
             continue
         parts = [current]
         while parts[-1].endswith("\\"):
-            parts[-1] = parts[-1][:-1].rstrip()
+            parts[-1] = parts[-1][:-1].strip()
             while index < len(lines):
                 continuation = lines[index].strip()
                 index += 1
                 if continuation and not continuation.startswith("#"):
                     parts.append(continuation)
                     break
+            else:
+                break
         instructions.append(" ".join(parts))
     return instructions
+
+
+def _plain_words(words: list[str]) -> list[str]:
+    if not all(_PLAIN_WORD.fullmatch(word) for word in words):
+        raise ValueError("not a plain word")
+    return words
+
+
+def _docker_destination(workdir: str, raw: str) -> str:
+    return posixpath.normpath(raw if raw.startswith("/") else posixpath.join(workdir, raw))
+
+
+def _dockerfile_copies(
+    lines: list[str], root: Path
+) -> tuple[list[tuple[str, str, bool, bool, str]], str, list[str]]:
+    """Return the final stage's context COPY sources, its runtime root and the rejected lines."""
+    copies: list[tuple[int, str, str, bool, bool, str]] = []
+    rejected: list[str] = []
+    stage = -1
+    workdir = "/"
+    for line in _docker_instructions(lines):
+        try:
+            instruction = _docker_instruction_word(line)
+            arguments = line.split()[1:]
+            if "<<" in line or (stage < 0 and instruction != "FROM"):
+                raise ValueError("heredoc or instruction before FROM")
+            if instruction in _OPAQUE_INSTRUCTIONS:
+                continue
+            if instruction == "FROM":
+                if not (
+                    len(arguments) in (1, 3)
+                    and _IMAGE_WORD.fullmatch(arguments[0])
+                    and (len(arguments) == 1 or (arguments[1].upper() == "AS" and _plain_words(arguments[2:])))
+                ):
+                    raise ValueError("FROM")
+                stage += 1
+                workdir = "/"
+            elif instruction == "WORKDIR":
+                if len(arguments) != 1:
+                    raise ValueError("WORKDIR")
+                workdir = _docker_destination(workdir, _plain_words(arguments)[0])
+            elif instruction == "COPY":
+                from_stage = bool(arguments) and arguments[0].startswith("--from=")
+                if from_stage:
+                    _plain_words([arguments[0].removeprefix("--from=")])
+                    arguments = arguments[1:]
+                if len(arguments) < 2 or any(word.startswith("--") for word in arguments):
+                    raise ValueError("COPY")
+                _plain_words(arguments)
+                if from_stage:
+                    continue
+                raw_destination = arguments[-1]
+                destination = _docker_destination(workdir, raw_destination)
+                sources = [source.removeprefix("./").rstrip("/") or "." for source in arguments[:-1]]
+                for source in sources:
+                    copies.append(
+                        (stage, source, destination, source == "." or (root / source).is_dir(), len(sources) > 1, raw_destination)
+                    )
+            else:
+                raise ValueError("instruction")
+        except Exception:
+            rejected.append(UNSUPPORTED_SYNTAX.format(line=line))
+    final_copies = [copy[1:] for copy in copies if copy[0] == stage]
+    return final_copies, workdir, rejected
+
+
+def _dockerignore_patterns(lines: list[str]) -> tuple[list[str], list[str]]:
+    """Return the exclusion patterns and the rejected lines of a `.dockerignore`.
+
+    Re-inclusions (`!pattern`) are validated, then ignored, so the path stays excluded.
+    """
+    patterns: list[str] = []
+    rejected: list[str] = []
+    for raw in lines:
+        if raw.startswith("#"):
+            continue
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            pattern = line.removeprefix("!")
+            segments = pattern.split("/")
+            if not all(
+                _DOCKERIGNORE_SEGMENT.fullmatch(segment) and segment not in {".", ".."} and "**" not in segment
+                for segment in segments
+            ):
+                raise ValueError("pattern")
+            if not line.startswith("!"):
+                patterns.append(pattern)
+        except Exception:
+            rejected.append(UNSUPPORTED_SYNTAX.format(line=line))
+    return patterns, rejected
 
 
 class DeploymentManifestTests(unittest.TestCase):
@@ -131,6 +169,23 @@ class DeploymentManifestTests(unittest.TestCase):
         moved path in the assertion instead of silently preserving an old allow-list.
         """
         root = Path(__file__).resolve().parents[1]
+        dockerfile = root / "Dockerfile"
+        dockerignore = root / ".dockerignore"
+        self.assertTrue(dockerfile.is_file(), "Dockerfile is missing, so the image ships no readiness paths")
+        manifest_lines: dict[str, list[str]] = {}
+        for manifest in (dockerfile, dockerignore):
+            if not manifest.exists():
+                manifest_lines[manifest.name] = []
+                continue
+            try:
+                manifest_lines[manifest.name] = manifest.read_bytes().decode("utf-8").split("\n")
+            except (OSError, UnicodeError) as exc:
+                self.fail(UNSUPPORTED_SYNTAX.format(line=f"{manifest.name} could not be read as UTF-8 ({exc})"))
+        copied_sources, runtime_root, rejected_docker = _dockerfile_copies(manifest_lines["Dockerfile"], root)
+        ignored_patterns, rejected_ignore = _dockerignore_patterns(manifest_lines[".dockerignore"])
+        if rejected_docker or rejected_ignore:
+            self.fail("\n".join(rejected_docker + rejected_ignore))
+
         trace_script = r'''
 import json
 import os
@@ -214,7 +269,7 @@ finally:
         setattr(os, name, original)
 
 if observed:
-    paths_by_label.setdefault("runtime", set()).update(observed)
+    paths_by_label.setdefault("<after-final-check>", set()).update(observed)
 
 print("CARD432-TRACE:" + json.dumps({
     "labels": {label: sorted(paths) for label, paths in paths_by_label.items()},
@@ -223,14 +278,17 @@ print("CARD432-TRACE:" + json.dumps({
 '''
         env = dict(os.environ)
         env["PYTHONPATH"] = os.pathsep.join(part for part in (str(root), env.get("PYTHONPATH", "")) if part)
-        trace = subprocess.run(
-            [sys.executable, "-c", trace_script],
-            cwd=root,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=900,
-        )
+        try:
+            trace = subprocess.run(
+                [sys.executable, "-c", trace_script],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.fail(f"readiness trace child did not complete: {exc}")
         marker = "CARD432-TRACE:"
         result_lines = [line for line in trace.stdout.splitlines() if line.startswith(marker)]
         self.assertEqual(
@@ -276,95 +334,6 @@ print("CARD432-TRACE:" + json.dumps({
                 if not excluded(path)
             }
         )
-        dockerfile = root / "Dockerfile"
-        dockerignore = root / ".dockerignore"
-        # A missing image manifest ships no sources. Report the uncovered paths via the same
-        # assertion as an omitted COPY, instead of raising FileNotFoundError.
-        docker_lines = dockerfile.read_text(encoding="utf-8").splitlines() if dockerfile.exists() else []
-        copied_sources: list[tuple[str, Path, bool, bool, str]] = []
-        stage = -1
-        instructions = _docker_instructions(docker_lines)
-        final_stage = sum(_docker_instruction_word(line) == "FROM" for line in instructions) - 1
-        workdir = Path("/")
-
-        def normalise_path(value: str) -> str:
-            normalised = value.removeprefix("./").rstrip("/")
-            return normalised or "."
-
-        for line in instructions:
-            stripped = line.strip()
-            instruction = _docker_instruction_word(line)
-            if instruction == "FROM":
-                stage += 1
-                workdir = Path("/")
-                continue
-            if stage != final_stage:
-                continue
-            if instruction == "WORKDIR":
-                raw_workdir = shlex.split(stripped, comments=False)[1]
-                if raw_workdir.startswith("/"):
-                    workdir = Path(os.path.normpath(raw_workdir))
-                else:
-                    workdir = Path(os.path.normpath(str(workdir / raw_workdir)))
-                continue
-            if instruction != "COPY":
-                continue
-            instruction_parts = stripped.split(None, 1)
-            if len(instruction_parts) < 2:
-                continue
-            argument_text = instruction_parts[1]
-            flags: list[str] = []
-            while argument_text.startswith("--"):
-                flag_match = re.match(r"(\S+)(?:\s+|$)", argument_text)
-                if flag_match is None:
-                    break
-                flags.append(flag_match.group(1))
-                argument_text = argument_text[flag_match.end() :]
-            if any(flag.startswith("--from=") for flag in flags):
-                continue
-            try:
-                if argument_text.startswith("["):
-                    try:
-                        parsed = json.loads(argument_text)
-                    except (json.JSONDecodeError, TypeError):
-                        parsed = None
-                    if (
-                        isinstance(parsed, list)
-                        and len(parsed) >= 2
-                        and all(isinstance(token, str) for token in parsed)
-                    ):
-                        arguments = parsed
-                    else:
-                        arguments = shlex.split(argument_text)
-                else:
-                    arguments = shlex.split(argument_text)
-            except ValueError:
-                continue
-            if len(arguments) < 2:
-                continue
-            raw_destination = arguments[-1]
-            if raw_destination.startswith("/"):
-                destination = Path(os.path.normpath(raw_destination))
-            else:
-                destination = Path(os.path.normpath(str(workdir / raw_destination)))
-            sources = [normalise_path(token) for token in arguments[:-1]]
-            multiple_sources = len(sources) > 1
-            for source in sources:
-                source_path = root / source
-                copied_sources.append(
-                    (source, workdir / destination, source_path.is_dir() or source == ".", multiple_sources, raw_destination)
-                )
-
-        runtime_root = workdir
-
-        ignored_patterns: list[str] = []
-        if dockerignore.exists():
-            for line in dockerignore.read_text(encoding="utf-8").splitlines():
-                if line.startswith("#"):
-                    continue
-                pattern = line.strip()
-                if pattern and not pattern.startswith("!"):
-                    ignored_patterns.append(_normalise_dockerignore_pattern(pattern))
 
         def is_ignored(path: str) -> bool:
             ancestors = [path]
@@ -376,7 +345,7 @@ print("CARD432-TRACE:" + json.dumps({
 
         def is_copied(path: str) -> bool:
             path_obj = Path(path)
-            target = runtime_root / path_obj
+            target = Path(runtime_root) / path_obj
             for source, destination, source_is_dir, multiple_sources, raw_destination in copied_sources:
                 source_path = Path(source)
                 if source_is_dir:
@@ -384,10 +353,10 @@ print("CARD432-TRACE:" + json.dumps({
                         relative = path_obj.relative_to(source_path)
                     except ValueError:
                         continue
-                    if destination / relative == target:
+                    if Path(destination) / relative == target:
                         return True
                     continue
-                if multiple_sources or raw_destination.endswith("/") or raw_destination in {"", "."}:
+                if multiple_sources or raw_destination.endswith("/") or raw_destination == ".":
                     landed = Path(destination) / source_path.name
                 else:
                     landed = Path(destination)
@@ -396,13 +365,39 @@ print("CARD432-TRACE:" + json.dumps({
             return False
 
         uncovered = [path for path in runtime_paths if not is_copied(path) or is_ignored(path)]
-        self.assertFalse(
-            uncovered or not dockerfile.exists(),
-            "readiness runtime paths are not shipped by the final Docker stage: " + ", ".join(uncovered),
-        )
+        if uncovered:
+            self.fail("readiness runtime paths are not shipped by the final Docker stage: " + ", ".join(uncovered))
 
-    def test_dockerignore_root_pattern_is_normalized(self) -> None:
-        self.assertEqual(_normalise_dockerignore_pattern("/./mobile//./contracts//"), "mobile/contracts")
+    def test_dockerignore_rejects_patterns_outside_the_supported_syntax(self) -> None:
+        patterns, rejected = _dockerignore_patterns(
+            ["# comment", "data", "!.env.example", "*.pyc", "/./mobile//./contracts//", "  #indented", "a/**/b"]
+        )
+        self.assertEqual(patterns, ["data", "*.pyc"])
+        self.assertEqual(
+            rejected,
+            [UNSUPPORTED_SYNTAX.format(line=line) for line in ("/./mobile//./contracts//", "#indented", "a/**/b")],
+        )
+        self.assertTrue(_dockerignore_matches("x.pyc", "*.pyc"))
+        self.assertFalse(_dockerignore_matches("ops/x.pyc", "*.pyc"))
+
+    def test_dockerfile_copies_reject_unsupported_instructions_per_line(self) -> None:
+        copies, runtime_root, rejected = _dockerfile_copies(
+            [
+                "FROM base AS build",
+                "COPY build/ ./build/",
+                "FROM base",
+                "WORKDIR /app",
+                "WORKDIR",
+                "COPY --from=build /app/build ./build",
+                "COPY ops/ \\",
+                "    ./ops/",
+                'COPY ["a", "b"]',
+            ],
+            Path(__file__).resolve().parents[1],
+        )
+        self.assertEqual(copies, [("ops", "/app/ops", True, False, "./ops/")])
+        self.assertEqual(runtime_root, "/app")
+        self.assertEqual(rejected, [UNSUPPORTED_SYNTAX.format(line=line) for line in ("WORKDIR", 'COPY ["a", "b"]')])
 
     def test_docker_instruction_word_accepts_tab_separated_from_and_copy(self) -> None:
         self.assertEqual(_docker_instruction_word("FROM\tbase"), "FROM")

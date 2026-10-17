@@ -5,6 +5,11 @@ subprocess on a temporary copy of the checkout's tracked files, either unchanged
 deliberate change, and checks that it passes on the real tree, fails (naming the path) on each
 defect, and stays green for reads that belong to packaging/evidence checks or to the private
 runtime root.
+
+The guard understands only the Dockerfile/.dockerignore syntax the repository uses today. Any
+other construct (JSON/exec COPY, bracket classes, escapes, heredocs, substitutions, unknown
+instructions or flags, malformed instructions) is out of scope for the parser: the guard rejects
+it, failing closed with UNSUPPORTED_SYNTAX naming the line.
 """
 
 from __future__ import annotations
@@ -24,6 +29,8 @@ GUARD_TEST = (
     "tests.test_deployment_manifests.DeploymentManifestTests."
     "test_readiness_runtime_paths_are_copied_into_image"
 )
+# Exact fail-closed sentence for a rejected Dockerfile/.dockerignore line (or an internal parse error).
+UNSUPPORTED_SYNTAX = "unsupported Dockerfile/.dockerignore syntax: {line}; extend the guard"
 MOBILE_CONTRACTS_COPY = re.compile(r"^COPY\s+mobile/contracts/?\s+\S+\s*$", re.MULTILINE)
 OPS_COPY = re.compile(r"^COPY\s+ops/?\s+\S+\s*$", re.MULTILINE)
 EVENT_CONTRACT_CONSTANT = re.compile(r"^LIVE_ROUND_EVENT_CONTRACT\s*=.*$", re.MULTILINE)
@@ -213,6 +220,10 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self.assertIn("Ran 1 test", output)
         self.assertIn("FAILED (failures=1)", output)
         self.assertIn(needle, output)
+
+    def _assert_guard_rejected(self, code: int, output: str, line: str) -> None:
+        # G3: a fail-closed assertion failure that quotes the rejected line verbatim.
+        self._assert_guard_failed(code, output, UNSUPPORTED_SYNTAX.format(line=line))
 
     def _assert_guard_passed(self, code: int, output: str) -> None:
         # G1 G2: the single guard test ran and passed without skipping.
@@ -453,30 +464,138 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
 
         self._assert_guard_failed(code, output, "runtime_probe/after_final_check.json")
 
-    def test_guard_normalises_dockerignore_patterns_like_docker(self) -> None:
-        # G1: Docker cleans each pattern (`.` elements, repeated and trailing `/`, then one leading
-        # `/`), so this line excludes mobile/contracts from the build context.
+    def test_guard_rejects_an_uncleaned_dockerignore_pattern(self) -> None:
+        # G3: leading `/`, `.` elements and repeated or trailing `/` are not used by the repository's
+        # .dockerignore. The guard rejects the line instead of normalising it.
         tree = self._tree_copy()
         self._append_dockerignore(tree, "/./mobile/./contracts//")
 
         code, output = _run_guard(tree)
 
-        self._assert_guard_failed(code, output, "mobile/contracts")
+        self._assert_guard_rejected(code, output, "/./mobile/./contracts//")
 
-    def test_guard_matches_double_star_dockerignore_patterns_like_docker(self) -> None:
-        # G1: in .dockerignore, `**/` matches zero or more directories, so `mobile/**/contracts`
-        # excludes mobile/contracts itself.
+    def test_guard_rejects_a_double_star_dockerignore_pattern(self) -> None:
+        # G3: `**` is not a construct the repository uses; it is rejected, not emulated.
         tree = self._tree_copy()
         self._append_dockerignore(tree, "mobile/**/contracts")
 
         code, output = _run_guard(tree)
 
-        self._assert_guard_failed(code, output, "mobile/contracts")
+        self._assert_guard_rejected(code, output, "mobile/**/contracts")
 
-    def test_guard_accepts_a_json_array_copy(self) -> None:
-        # G1: the exec (JSON-array) form of COPY ships the same directory as the shell form.
+    def test_guard_rejects_a_json_array_copy(self) -> None:
+        # G3: the exec (JSON-array) form of COPY is out of scope; the guard fails closed on it.
         tree = self._tree_copy()
-        self._replace_mobile_contracts_copy(tree, 'COPY ["mobile/contracts/", "./mobile/contracts/"]')
+        line = 'COPY ["mobile/contracts/", "./mobile/contracts/"]'
+        self._replace_mobile_contracts_copy(tree, line)
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected(code, output, line)
+
+    def test_guard_rejects_a_dockerignore_bracket_class(self) -> None:
+        # G3: character classes are out of scope in .dockerignore.
+        tree = self._tree_copy()
+        self._append_dockerignore(tree, "mobile/[c]ontracts")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected(code, output, "mobile/[c]ontracts")
+
+    def test_guard_rejects_a_dockerignore_escape(self) -> None:
+        # G3: a backslash escape in .dockerignore is out of scope.
+        tree = self._tree_copy()
+        self._append_dockerignore(tree, "mobile/contract\\s")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected(code, output, "mobile/contract\\s")
+
+    def test_guard_rejects_a_dockerfile_escape(self) -> None:
+        # G3: a backslash that is not a line continuation is an escape, out of scope in COPY.
+        tree = self._tree_copy()
+        line = "COPY mobile/contracts/ ./mobile/contract\\s/"
+        self._replace_mobile_contracts_copy(tree, line)
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected(code, output, line)
+
+    def test_guard_rejects_a_heredoc(self) -> None:
+        # G3: a heredoc changes which lines are instructions, so the COPY-looking body line must not
+        # be trusted. The guard rejects the heredoc instruction.
+        tree = self._tree_copy()
+        copy_line = self._mobile_contracts_copy_line(tree)
+        self._replace_mobile_contracts_copy(tree, "RUN <<EOF\n" + copy_line + "\nEOF")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected(code, output, "RUN <<EOF")
+
+    def test_guard_rejects_a_variable_substitution_in_copy(self) -> None:
+        # G3: `$`/`${…}` substitutions are out of scope; the guard does not expand them.
+        tree = self._tree_copy()
+        line = "COPY mobile/contracts/ ${APP_DIR}/mobile/contracts/"
+        self._replace_mobile_contracts_copy(tree, line)
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected(code, output, line)
+
+    def test_guard_rejects_an_instruction_the_repository_does_not_use(self) -> None:
+        # G3: ADD (like any instruction outside the supported set) is rejected, not ignored.
+        tree = self._tree_copy()
+        line = "ADD mobile/contracts/ ./mobile/contracts/"
+        self._replace_mobile_contracts_copy(tree, line)
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected(code, output, line)
+
+    def test_guard_rejects_a_copy_flag_the_repository_does_not_use(self) -> None:
+        # G3: only `--from=<stage>` is supported; `--exclude` (and any other flag) is rejected.
+        tree = self._tree_copy()
+        line = "COPY --exclude=*.md mobile/contracts/ ./mobile/contracts/"
+        self._replace_mobile_contracts_copy(tree, line)
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected(code, output, line)
+
+    def test_guard_fails_closed_on_a_malformed_workdir(self) -> None:
+        # G3: an instruction the parser cannot read (a bare WORKDIR) is an assertion failure that
+        # names the line, never an exception that errors the test.
+        tree = self._tree_copy()
+        copy_line = self._mobile_contracts_copy_line(tree)
+        self._replace_mobile_contracts_copy(tree, "WORKDIR\n" + copy_line)
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected(code, output, "WORKDIR")
+
+    def test_guard_skips_a_raw_leading_hash_dockerignore_comment(self) -> None:
+        # G3: a .dockerignore line whose first character is `#` is a comment, so it excludes nothing.
+        tree = self._tree_copy()
+        self._append_dockerignore(tree, "#mobile/contracts")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_passed(code, output)
+
+    def test_guard_rejects_an_indented_hash_dockerignore_line(self) -> None:
+        # G3: only a raw leading `#` makes a comment. After whitespace, `#` is pattern text, which is
+        # outside the supported pattern syntax.
+        tree = self._tree_copy()
+        self._append_dockerignore(tree, "  #mobile/contracts")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_rejected(code, output, "#mobile/contracts")
+
+    def test_guard_reads_instruction_words_case_insensitively_across_tabs(self) -> None:
+        # G1 G3: the instruction is the first whitespace-separated word, compared case-insensitively.
+        tree = self._tree_copy()
+        self._replace_mobile_contracts_copy(tree, "copy\tmobile/contracts/\t./mobile/contracts/")
 
         code, output = _run_guard(tree)
 
