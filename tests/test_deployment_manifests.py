@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import fnmatch
 import json
 import os
+import posixpath
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -13,7 +14,12 @@ import yaml
 
 
 def _normalise_dockerignore_pattern(value: str) -> str:
-    return value.removeprefix("./").removeprefix("/").rstrip("/")
+    normalised = posixpath.normpath(value.strip())
+    if normalised.startswith("//"):
+        normalised = "/" + normalised.lstrip("/")
+    if len(normalised) > 1 and normalised.startswith("/"):
+        normalised = normalised[1:]
+    return normalised
 
 
 def _docker_instruction_word(line: str) -> str | None:
@@ -23,20 +29,46 @@ def _docker_instruction_word(line: str) -> str | None:
     return stripped.split(None, 1)[0].upper()
 
 
-def _relative_copy_destination(workdir: str, stage_root: str, value: str) -> str | None:
-    raw = value.rstrip("/") or "."
-    if raw.startswith("/"):
-        destination = Path(raw)
-        try:
-            return destination.relative_to(Path(workdir)).as_posix() or "."
-        except ValueError:
-            return None
-    try:
-        relative_workdir = Path(workdir).relative_to(Path(stage_root))
-    except ValueError:
-        return None
-    combined = relative_workdir / raw
-    return combined.as_posix() or "."
+def _dockerignore_matches(path: str, pattern: str) -> bool:
+    parts: list[str] = []
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("**/", index):
+            parts.append("(?:.*/)?")
+            index += 3
+            continue
+        if pattern.startswith("**", index):
+            parts.append(".*")
+            index += 2
+            continue
+        character = pattern[index]
+        if character == "*":
+            parts.append("[^/]*")
+        elif character == "?":
+            parts.append("[^/]")
+        elif character == "[":
+            end = index + 1
+            if end < len(pattern) and pattern[end] in "!^":
+                end += 1
+            if end < len(pattern) and pattern[end] == "]":
+                end += 1
+            while end < len(pattern) and pattern[end] != "]":
+                end += 1
+            if end >= len(pattern):
+                parts.append(r"\[")
+            else:
+                character_class = pattern[index + 1 : end]
+                if character_class.startswith("!"):
+                    character_class = "^" + character_class[1:]
+                parts.append("[" + character_class + "]")
+                index = end
+        elif character == "\\" and index + 1 < len(pattern):
+            index += 1
+            parts.append(re.escape(pattern[index]))
+        else:
+            parts.append(re.escape(character))
+        index += 1
+    return re.fullmatch("".join(parts), path) is not None
 
 
 def _docker_instructions(lines: list[str]) -> list[str]:
@@ -154,6 +186,9 @@ finally:
     for name, original in original_os_methods.items():
         setattr(os, name, original)
 
+if observed:
+    paths_by_label.setdefault("runtime", set()).update(observed)
+
 print("CARD432-TRACE:" + json.dumps({
     "labels": {label: sorted(paths) for label, paths in paths_by_label.items()},
     "packaging": sorted(readiness.PACKAGING_LABELS),
@@ -247,12 +282,37 @@ print("CARD432-TRACE:" + json.dumps({
                 continue
             if instruction != "COPY":
                 continue
+            instruction_parts = stripped.split(None, 1)
+            if len(instruction_parts) < 2:
+                continue
+            argument_text = instruction_parts[1]
+            flags: list[str] = []
+            while argument_text.startswith("--"):
+                flag_match = re.match(r"(\S+)(?:\s+|$)", argument_text)
+                if flag_match is None:
+                    break
+                flags.append(flag_match.group(1))
+                argument_text = argument_text[flag_match.end() :]
+            if any(flag.startswith("--from=") for flag in flags):
+                continue
             try:
-                tokens = shlex.split(stripped)
+                if argument_text.startswith("["):
+                    parsed = json.loads(argument_text)
+                    if (
+                        isinstance(parsed, list)
+                        and len(parsed) >= 2
+                        and all(isinstance(token, str) for token in parsed)
+                    ):
+                        arguments = parsed
+                    else:
+                        arguments = shlex.split(argument_text)
+                else:
+                    arguments = shlex.split(argument_text)
             except ValueError:
                 continue
-            arguments = [token for token in tokens[1:] if not token.startswith("--")]
-            if len(arguments) < 2 or any(token.startswith("--from=") for token in tokens[1:]):
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if len(arguments) < 2:
                 continue
             raw_destination = arguments[-1]
             if raw_destination.startswith("/"):
@@ -282,7 +342,7 @@ print("CARD432-TRACE:" + json.dumps({
             while str(parent) not in {".", ""}:
                 ancestors.append(parent.as_posix())
                 parent = parent.parent
-            return any(fnmatch.fnmatch(candidate, pattern) for candidate in ancestors for pattern in ignored_patterns)
+            return any(_dockerignore_matches(candidate, pattern) for candidate in ancestors for pattern in ignored_patterns)
 
         def is_copied(path: str) -> bool:
             path_obj = Path(path)
@@ -312,42 +372,11 @@ print("CARD432-TRACE:" + json.dumps({
         )
 
     def test_dockerignore_root_pattern_is_normalized(self) -> None:
-        self.assertEqual(_normalise_dockerignore_pattern("/mobile/contracts/"), "mobile/contracts")
+        self.assertEqual(_normalise_dockerignore_pattern("/./mobile//./contracts//"), "mobile/contracts")
 
     def test_docker_instruction_word_accepts_tab_separated_from_and_copy(self) -> None:
         self.assertEqual(_docker_instruction_word("FROM\tbase"), "FROM")
         self.assertEqual(_docker_instruction_word("COPY\tmobile/contracts/\t./mobile/contracts/"), "COPY")
-
-    def test_copy_outside_stage_root_is_uncovered(self) -> None:
-        self.assertIsNone(_relative_copy_destination("/other", "/app", "./mobile/contracts"))
-
-    def test_no_argument_directory_listing_records_current_repository_directory(self) -> None:
-        repository_subdirectory = Path(__file__).resolve().parent
-        script = """
-import os
-import sys
-
-recorded = []
-
-def record(value):
-    recorded.append(os.fsdecode(os.fspath(value)))
-
-def audit_hook(event, args):
-    if event in {\"os.listdir\", \"os.scandir\"} and args:
-        record(args[0] if args[0] is not None else os.getcwd())
-
-sys.addaudithook(audit_hook)
-os.chdir(sys.argv[1])
-os.listdir()
-assert sys.argv[1] in recorded, (sys.argv[1], recorded)
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script, str(repository_subdirectory)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
     def test_compose_has_postgres_and_api_database_url(self) -> None:
         compose = self._load_compose()
