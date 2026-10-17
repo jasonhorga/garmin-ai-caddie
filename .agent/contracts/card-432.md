@@ -7,7 +7,34 @@ the failure mode (`mobile/contracts/` missing from the image, readiness
 
 Touches: `tests/test_deployment_manifests.py`, `Dockerfile`, `tests/acceptance/test_card_432_readiness_image_paths.py`, `.agent/contracts/card-432.md`
 
-Acceptance tests: `tests/acceptance/test_card_432_readiness_image_paths.py` (33 cases)
+Acceptance tests: `tests/acceptance/test_card_432_readiness_image_paths.py` (41 cases)
+
+## Revision 8: closing gaps the gate's adversarial check can exploit
+
+The gate failed `red` and `adversarial` at `db52df0`. Its report was not
+readable from the contract sandbox, so this revision answers the gaps a review
+of the tests against this contract finds. The rules below are unchanged; only
+the acceptance cases grow. Cases 1–33 are unchanged.
+
+- **Blocklist guards.** The rejection cases named only one instruction (`ADD`)
+  and one flag (`--exclude`), so a guard that rejected just those strings
+  passed. New cases 34–38 reject `?`, quotes, `--chown`, an unknown
+  instruction in a **build** stage (the rules apply to every stage), and a
+  parser directive.
+- **`COPY --from=` in the runtime stage** was untested, so a guard that
+  ignored the flag passed. Case 39 covers it (G1).
+- **Recorders.** Only `read_text`, `os.path.isfile`, `Path.iterdir` and
+  `os.access` were exercised. Case 41 adds builtin `open`, `os.listdir` and
+  `glob.glob` (G1).
+- **Every rejected line, in file order** was required but untested. Case 40
+  covers it (G3).
+- The subprocess helper is now `_run_guard_subprocess`, so each test body
+  visibly calls the real entry point. The nested copy filter now carries its
+  goal comment.
+
+Reading the code at `db52df0`, its guard passes all 41 cases. All 41 fail on
+`main`, where the guard test does not exist. I could not run Python in the
+contract sandbox, so both results are traced by hand, not observed.
 
 ## Revision 7: narrowed syntax, fail closed
 
@@ -346,6 +373,17 @@ the given path. "Passes" means: exit 0, `Ran 1 test`, not skipped.
     file exists, nothing copies it), it fails the same way and names
     `runtime_probe/after_final_check.json`.
 
+39. On a copy where that `COPY` line becomes
+    `COPY --from=node-deps mobile/contracts/ ./mobile/contracts/`, it fails the
+    same way and names `mobile/contracts`.
+41. On a copy where `_contract_event_kinds()` first runs
+    `__import__("glob").glob("runtime_probe_glob/*.json")`,
+    `__import__("os").listdir("runtime_probe_listdir")` and
+    `open("runtime_probe/builtin_open.json", encoding="utf-8").close()` (each
+    target exists, nothing copies it), it fails the same way and names
+    `runtime_probe/builtin_open.json`, `runtime_probe_listdir` and
+    `runtime_probe_glob`.
+
 Condition 33 (instruction words, below) also covers G1.
 
 ### G2 — The production image ships every runtime path readiness reads
@@ -416,6 +454,21 @@ given `<line>`. "Passes" is as in G1.
     text): rejected, line `#mobile/contracts`.
 33. That `COPY` line becomes `copy<TAB>mobile/contracts/<TAB>./mobile/contracts/`
     (instruction word in lower case, tab-separated words): passes.
+34. `.dockerignore` gains `mobile/contract?`: rejected, line `mobile/contract?`.
+35. That `COPY` line becomes `COPY "mobile/contracts/" ./mobile/contracts/`
+    (quotes): rejected, that line.
+36. That `COPY` line becomes `COPY --chown=app mobile/contracts/ ./mobile/contracts/`
+    (a flag other than `--from=`): rejected, that line.
+37. `USER app` is inserted directly after the first `FROM` line (the
+    `node-deps` build stage): rejected, line `USER app`. The rules apply to
+    every stage, and a rejected line fails the guard even though it cannot
+    change what the runtime stage ships.
+38. `# syntax=docker/dockerfile:1` is prepended as the first line of
+    `Dockerfile` (parser directive): rejected, line
+    `# syntax=docker/dockerfile:1`.
+40. `.dockerignore` gains the two lines `first_rejected/[a]` and
+    `second_rejected/b?`: rejected, and the output contains both sentences with
+    the `first_rejected/[a]` one first.
 
 ## Not in scope
 

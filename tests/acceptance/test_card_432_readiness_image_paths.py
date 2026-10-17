@@ -103,6 +103,7 @@ def _copy_checkout(tree: Path) -> None:
     listed = _listed_files()
     if listed is None:
         def ignore(directory: str, names: list[str]) -> set[str]:
+            # G1 G2: the fallback copy skips the same names as the tracked-file copy.
             relative_dir = os.path.relpath(directory, REPO_ROOT)
             skipped: set[str] = set()
             for name in names:
@@ -130,7 +131,7 @@ def _copy_checkout(tree: Path) -> None:
             shutil.copy2(source, target)
 
 
-def _run_guard(root: Path, *, warm_first: bool = False) -> tuple[int, str]:
+def _run_guard_subprocess(root: Path, *, warm_first: bool = False) -> tuple[int, str]:
     # G1 G2: runs the repository guard test as a real unittest subprocess.
     # With warm_first, the same interpreter evaluates readiness once before the guard runs, as
     # the full CI suite does, so in-process caches are already populated.
@@ -237,7 +238,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         # that may sit inside a sandboxed checkout cannot leak into the traced path set.
         tree = self._tree_copy()
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_passed(code, output)
 
@@ -246,7 +247,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         tree = self._tree_copy()
         self._replace_mobile_contracts_copy(tree, "")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "mobile/contracts")
 
@@ -269,7 +270,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         )
         dockerfile.write_text(moved, encoding="utf-8")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "mobile/contracts")
 
@@ -278,7 +279,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         tree = self._tree_copy()
         self._replace_mobile_contracts_copy(tree, "COPY mobile/contracts/ ./")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "mobile/contracts")
 
@@ -290,7 +291,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self.assertRegex(final_stage, r"(?m)^WORKDIR\s+/app\s*$", "expected WORKDIR /app in the runtime stage")
         self._replace_mobile_contracts_copy(tree, "COPY mobile/contracts /app/mobile/contracts")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_passed(code, output)
 
@@ -299,7 +300,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         tree = self._tree_copy()
         self._append_dockerignore(tree, "mobile/contracts")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "mobile/contracts")
 
@@ -318,7 +319,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self.assertEqual(count, 1, "expected one LIVE_ROUND_EVENT_CONTRACT assignment in readiness")
         readiness.write_text(text, encoding="utf-8")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "relocated_contracts")
 
@@ -328,7 +329,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self._write_probe(tree, "runtime_probe/extra.json")
         self._inject_read(tree, RUNTIME_READER, "runtime_probe/extra.json")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "runtime_probe/extra.json")
 
@@ -338,7 +339,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self._write_probe(tree, "runtime_probe/stat_only.json")
         self._inject(tree, RUNTIME_READER, '__import__("os").path.isfile("runtime_probe/stat_only.json")')
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "runtime_probe/stat_only.json")
 
@@ -348,7 +349,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self._write_probe(tree, "runtime_probe_dir/item.json")
         self._inject(tree, RUNTIME_READER, 'list(Path("runtime_probe_dir").iterdir())')
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "runtime_probe_dir")
 
@@ -362,7 +363,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self.assertEqual(count, 1, "expected exactly one COPY of ops in Dockerfile")
         dockerfile.write_text(text, encoding="utf-8")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "ops/start_api.sh")
 
@@ -372,7 +373,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self._write_probe(tree, "packaging_probe/extra.json")
         self._inject_read(tree, PACKAGING_READER, "packaging_probe/extra.json")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_passed(code, output)
 
@@ -382,7 +383,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self._write_probe(tree, "data/card432_probe.json")
         self._inject_read(tree, RUNTIME_READER, "data/card432_probe.json")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_passed(code, output)
 
@@ -391,7 +392,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         tree = self._tree_copy()
         self._replace_mobile_contracts_copy(tree, "COPY mobile/contracts/ \\\n    ./mobile/contracts/")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_passed(code, output)
 
@@ -401,7 +402,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         copy_line = self._mobile_contracts_copy_line(tree)
         self._replace_mobile_contracts_copy(tree, "RUN true \\\n" + copy_line)
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "mobile/contracts")
 
@@ -413,7 +414,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
             "WORKDIR /srv\nCOPY mobile/contracts/ /srv/mobile/contracts/\nWORKDIR /app",
         )
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "mobile/contracts")
 
@@ -423,7 +424,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self._write_probe(tree, "runtime_probe/access_only.json")
         self._inject(tree, RUNTIME_READER, '__import__("os").access("runtime_probe/access_only.json", 4)')
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "runtime_probe/access_only.json")
 
@@ -443,7 +444,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         )
         self._inject(tree, RUNTIME_READER, "_card432_cached_probe()")
 
-        code, output = _run_guard(tree, warm_first=True)
+        code, output = _run_guard_subprocess(tree, warm_first=True)
 
         self._assert_guard_failed(code, output, "runtime_probe/cached.json")
 
@@ -460,7 +461,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self.assertEqual(count, 1, "expected one `runtime_checks = [` statement in readiness")
         readiness.write_text(text, encoding="utf-8")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_failed(code, output, "runtime_probe/after_final_check.json")
 
@@ -470,7 +471,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         tree = self._tree_copy()
         self._append_dockerignore(tree, "/./mobile/./contracts//")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, "/./mobile/./contracts//")
 
@@ -479,7 +480,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         tree = self._tree_copy()
         self._append_dockerignore(tree, "mobile/**/contracts")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, "mobile/**/contracts")
 
@@ -489,7 +490,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         line = 'COPY ["mobile/contracts/", "./mobile/contracts/"]'
         self._replace_mobile_contracts_copy(tree, line)
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, line)
 
@@ -498,7 +499,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         tree = self._tree_copy()
         self._append_dockerignore(tree, "mobile/[c]ontracts")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, "mobile/[c]ontracts")
 
@@ -507,7 +508,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         tree = self._tree_copy()
         self._append_dockerignore(tree, "mobile/contract\\s")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, "mobile/contract\\s")
 
@@ -517,7 +518,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         line = "COPY mobile/contracts/ ./mobile/contract\\s/"
         self._replace_mobile_contracts_copy(tree, line)
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, line)
 
@@ -528,7 +529,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         copy_line = self._mobile_contracts_copy_line(tree)
         self._replace_mobile_contracts_copy(tree, "RUN <<EOF\n" + copy_line + "\nEOF")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, "RUN <<EOF")
 
@@ -538,7 +539,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         line = "COPY mobile/contracts/ ${APP_DIR}/mobile/contracts/"
         self._replace_mobile_contracts_copy(tree, line)
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, line)
 
@@ -548,7 +549,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         line = "ADD mobile/contracts/ ./mobile/contracts/"
         self._replace_mobile_contracts_copy(tree, line)
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, line)
 
@@ -558,7 +559,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         line = "COPY --exclude=*.md mobile/contracts/ ./mobile/contracts/"
         self._replace_mobile_contracts_copy(tree, line)
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, line)
 
@@ -569,7 +570,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         copy_line = self._mobile_contracts_copy_line(tree)
         self._replace_mobile_contracts_copy(tree, "WORKDIR\n" + copy_line)
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, "WORKDIR")
 
@@ -578,7 +579,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         tree = self._tree_copy()
         self._append_dockerignore(tree, "#mobile/contracts")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_passed(code, output)
 
@@ -588,7 +589,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         tree = self._tree_copy()
         self._append_dockerignore(tree, "  #mobile/contracts")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_rejected(code, output, "#mobile/contracts")
 
@@ -597,9 +598,103 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         tree = self._tree_copy()
         self._replace_mobile_contracts_copy(tree, "copy\tmobile/contracts/\t./mobile/contracts/")
 
-        code, output = _run_guard(tree)
+        code, output = _run_guard_subprocess(tree)
 
         self._assert_guard_passed(code, output)
+
+    def test_guard_ignores_a_from_stage_copy_of_a_runtime_path(self) -> None:
+        # G1: `COPY --from=<stage>` in the runtime stage ships nothing from the build context.
+        tree = self._tree_copy()
+        self._replace_mobile_contracts_copy(tree, "COPY --from=node-deps mobile/contracts/ ./mobile/contracts/")
+
+        code, output = _run_guard_subprocess(tree)
+
+        self._assert_guard_failed(code, output, "mobile/contracts")
+
+    def test_guard_reports_builtin_open_listdir_and_glob_probes(self) -> None:
+        # G1: reads through builtin open, os.listdir and glob.glob are traced like Path reads.
+        tree = self._tree_copy()
+        self._write_probe(tree, "runtime_probe/builtin_open.json")
+        self._write_probe(tree, "runtime_probe_listdir/item.json")
+        self._write_probe(tree, "runtime_probe_glob/item.json")
+        self._inject(tree, RUNTIME_READER, 'open("runtime_probe/builtin_open.json", encoding="utf-8").close()')
+        self._inject(tree, RUNTIME_READER, '__import__("os").listdir("runtime_probe_listdir")')
+        self._inject(tree, RUNTIME_READER, '__import__("glob").glob("runtime_probe_glob/*.json")')
+
+        code, output = _run_guard_subprocess(tree)
+
+        self._assert_guard_failed(code, output, "runtime_probe/builtin_open.json")
+        self.assertIn("runtime_probe_listdir", output)
+        self.assertIn("runtime_probe_glob", output)
+
+    def test_guard_rejects_a_dockerignore_question_mark(self) -> None:
+        # G3: `?` is not part of the supported .dockerignore pattern syntax.
+        tree = self._tree_copy()
+        self._append_dockerignore(tree, "mobile/contract?")
+
+        code, output = _run_guard_subprocess(tree)
+
+        self._assert_guard_rejected(code, output, "mobile/contract?")
+
+    def test_guard_rejects_a_quoted_copy_source(self) -> None:
+        # G3: quotes are not plain words; the guard does not unquote them.
+        tree = self._tree_copy()
+        line = 'COPY "mobile/contracts/" ./mobile/contracts/'
+        self._replace_mobile_contracts_copy(tree, line)
+
+        code, output = _run_guard_subprocess(tree)
+
+        self._assert_guard_rejected(code, output, line)
+
+    def test_guard_rejects_a_copy_chown_flag(self) -> None:
+        # G3: every COPY flag other than `--from=` is rejected, not only `--exclude`.
+        tree = self._tree_copy()
+        line = "COPY --chown=app mobile/contracts/ ./mobile/contracts/"
+        self._replace_mobile_contracts_copy(tree, line)
+
+        code, output = _run_guard_subprocess(tree)
+
+        self._assert_guard_rejected(code, output, line)
+
+    def test_guard_rejects_an_unsupported_instruction_in_a_build_stage(self) -> None:
+        # G3: the supported syntax applies to every stage, and any instruction outside it is
+        # rejected, even when it cannot change what the runtime stage ships.
+        tree = self._tree_copy()
+        dockerfile = tree / "Dockerfile"
+        lines = dockerfile.read_text(encoding="utf-8").splitlines()
+        froms = [i for i, line in enumerate(lines) if line.strip().upper().startswith("FROM ")]
+        self.assertGreater(len(froms), 1, "expected a build stage before the runtime stage")
+        lines.insert(froms[0] + 1, "USER app")
+        dockerfile.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        code, output = _run_guard_subprocess(tree)
+
+        self._assert_guard_rejected(code, output, "USER app")
+
+    def test_guard_rejects_a_parser_directive(self) -> None:
+        # G3: a `# <name>=<value>` comment before the first instruction is a parser directive.
+        tree = self._tree_copy()
+        dockerfile = tree / "Dockerfile"
+        dockerfile.write_text(
+            "# syntax=docker/dockerfile:1\n" + dockerfile.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+
+        code, output = _run_guard_subprocess(tree)
+
+        self._assert_guard_rejected(code, output, "# syntax=docker/dockerfile:1")
+
+    def test_guard_reports_every_rejected_line_in_file_order(self) -> None:
+        # G3: the failure names each rejected line, in file order, not only the first one.
+        tree = self._tree_copy()
+        self._append_dockerignore(tree, "first_rejected/[a]\nsecond_rejected/b?")
+
+        code, output = _run_guard_subprocess(tree)
+
+        first = UNSUPPORTED_SYNTAX.format(line="first_rejected/[a]")
+        second = UNSUPPORTED_SYNTAX.format(line="second_rejected/b?")
+        self._assert_guard_rejected(code, output, "first_rejected/[a]")
+        self.assertIn(second, output)
+        self.assertLess(output.index(first), output.index(second))
 
 
 if __name__ == "__main__":
