@@ -11,6 +11,26 @@ import unittest
 import yaml
 
 
+def _normalise_dockerignore_pattern(value: str) -> str:
+    return value.removeprefix("./").removeprefix("/").rstrip("/")
+
+
+def _relative_copy_destination(workdir: str, stage_root: str, value: str) -> str | None:
+    raw = value.rstrip("/") or "."
+    if raw.startswith("/"):
+        destination = Path(raw)
+        try:
+            return destination.relative_to(Path(workdir)).as_posix() or "."
+        except ValueError:
+            return None
+    try:
+        relative_workdir = Path(workdir).relative_to(Path(stage_root))
+    except ValueError:
+        return None
+    combined = relative_workdir / raw
+    return combined.as_posix() or "."
+
+
 class DeploymentManifestTests(unittest.TestCase):
     def _load_compose(self) -> dict:
         return yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
@@ -155,17 +175,7 @@ class DeploymentManifestTests(unittest.TestCase):
             return normalised or "."
 
         def destination_path(value: str) -> str | None:
-            raw = value.rstrip("/") or "."
-            if raw.startswith("/"):
-                destination = Path(raw)
-                base = Path(workdir)
-                try:
-                    return destination.relative_to(base).as_posix() or "."
-                except ValueError:
-                    return None
-            relative_workdir = Path(workdir).relative_to(Path(stage_root))
-            combined = relative_workdir / raw
-            return combined.as_posix() or "."
+            return _relative_copy_destination(workdir, stage_root, value)
 
         for line in docker_lines:
             stripped = line.strip()
@@ -213,7 +223,7 @@ class DeploymentManifestTests(unittest.TestCase):
             for line in dockerignore.read_text(encoding="utf-8").splitlines():
                 pattern = line.strip()
                 if pattern and not pattern.startswith("#") and not pattern.startswith("!"):
-                    ignored_patterns.append(pattern.removeprefix("./").rstrip("/"))
+                    ignored_patterns.append(_normalise_dockerignore_pattern(pattern))
 
         def is_ignored(path: str) -> bool:
             ancestors = [path]
@@ -250,6 +260,12 @@ class DeploymentManifestTests(unittest.TestCase):
             uncovered or not dockerfile.exists(),
             "readiness runtime paths are not shipped by the final Docker stage: " + ", ".join(uncovered),
         )
+
+    def test_dockerignore_root_pattern_is_normalized(self) -> None:
+        self.assertEqual(_normalise_dockerignore_pattern("/mobile/contracts/"), "mobile/contracts")
+
+    def test_copy_outside_stage_root_is_uncovered(self) -> None:
+        self.assertIsNone(_relative_copy_destination("/other", "/app", "./mobile/contracts"))
 
     def test_compose_has_postgres_and_api_database_url(self) -> None:
         compose = self._load_compose()
