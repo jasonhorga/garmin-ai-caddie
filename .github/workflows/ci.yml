@@ -148,6 +148,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build API image
         run: docker build -f Dockerfile -t garmin-ai-caddie-api:latest .
+      - name: Collect readiness runtime paths from the checkout
+        run: |
+          docker run --rm -v "$PWD:/src" -v "$RUNNER_TEMP:/evidence" -w /src garmin-ai-caddie-api:latest \
+            /app/.venv/bin/python ops/readiness_runtime_paths.py collect --root /src --output /evidence/readiness-runtime-paths.json
+      - name: Verify readiness runtime paths inside the built API image
+        run: |
+          docker run --rm -i garmin-ai-caddie-api:latest \
+            /app/.venv/bin/python /app/ops/readiness_runtime_paths.py verify --manifest - --image-root /app < "$RUNNER_TEMP/readiness-runtime-paths.json"
       - name: Build sync image (thin extension of the API image — keeps the sync pipeline from drifting)
         run: docker build -f Dockerfile.sync --build-arg API_IMAGE=garmin-ai-caddie-api:latest -t aicaddie-sync:latest .
       - name: API container — start, health, and geometry read smoke
