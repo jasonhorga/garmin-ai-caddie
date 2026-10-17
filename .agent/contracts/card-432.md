@@ -9,46 +9,52 @@ Touches: `tests/test_deployment_manifests.py`, `Dockerfile`, `tests/acceptance/t
 
 Acceptance tests: `tests/acceptance/test_card_432_readiness_image_paths.py`
 
-## Revision 4 (after gate on 4d691cd: red, adversarial)
+## Revision 5 (after gate on dbb5b0a: red, adversarial)
 
-I still could not read the gate report from the contract sandbox, so this
-revision comes from re-reading the guard at `4d691cd` against the card. These
-real defects still get past it, and the new cases cover them:
+I could not read the gate report from the contract sandbox, and I could not run
+Python there either. This revision comes from reading the guard at `dbb5b0a`
+against the spec. These defects still get past it, and four new cases cover
+them:
 
-1. **Line continuations.** The guard reads `Dockerfile` line by line. A
-   `RUN true \` line followed by the unchanged `COPY mobile/contracts/ …` line
-   makes Docker treat the COPY as an argument of `RUN`, so nothing is copied,
-   but the guard counts it as shipped (condition 15). The opposite also
-   happens: a valid COPY split over two lines with `\` makes `shlex` fail, and
-   the guard rejects a correct Dockerfile (condition 14).
-2. **Absolute destination under a different WORKDIR.** With `WORKDIR /srv`,
-   `COPY mobile/contracts/ /srv/mobile/contracts/` and then `WORKDIR /app`, the
-   files land in `/srv`. Readiness runs from `/app`, but the guard counts the
-   path as shipped (condition 16).
-3. **`os.access` probes are not recorded** (condition 17).
-4. **Warm caches hide reads.** The guard traces readiness inside the test
-   process. In the full CI suite readiness and its `lru_cache` loaders have
-   already run, so a runtime read behind a cache is never seen.
-   `canonical_objects._schema_registry` and `analysis.load_geometry` already
-   have this shape. Condition 18 runs readiness once in the same interpreter
-   before the guard.
+1. **Reads after the last `_check` are dropped.** The trace gives each path to
+   the next `_check` call. A path read after the final `_check` (`operations`)
+   is never given to any label, so the guard ignores it. Readiness still reads it
+   on every request, and if the file is missing the response fails. Such reads
+   now count as runtime (condition 19).
+2. **`.dockerignore` patterns are not cleaned.** Docker runs each pattern through
+   `filepath.Clean`, so `mobile//contracts/` excludes `mobile/contracts`. The
+   guard only strips a prefix and a suffix, so it counts the path as shipped
+   (condition 20).
+3. **`**/` must also match zero directories.** In Docker,
+   `**/mobile/contracts` excludes `mobile/contracts` at the context root.
+   `fnmatch` needs a `/` before `mobile`, so the guard counts the path as
+   shipped (condition 21).
+4. **The JSON form of `COPY` is rejected.** For
+   `COPY ["mobile/contracts/", "./mobile/contracts/"]`, `shlex` yields the
+   sources `[mobile/contracts/,`, so the guard rejects a correct Dockerfile
+   (condition 22).
 
-**A likely cause of the red result.** Condition G2.1 used to run the guard on
-the live checkout. In a sandboxed run, the agent home, temp area, tool caches or
-runtime can sit inside the checkout. If readiness touches any of them, the
-guard reports a non-image path. Every case, including the baseline, now runs on
-a temporary copy of the checkout's **tracked** files. The copy step uses
-`git ls-files --cached`. When git is unavailable it falls back to a filtered
-copy that leaves out top-level hidden directories and any temp or home
-directory inside the checkout.
+Two review findings are not mechanical, but they are part of G2 (condition
+G2.5):
 
-**History note.** Codex commit `9d07b30` edited
-`tests/acceptance/test_card_432_readiness_image_paths.py`. Revision 3
-superseded those edits. Codex must not touch `tests/acceptance/` again.
+- `_relative_copy_destination` is not used by the guard, and
+  `test_copy_outside_stage_root_is_uncovered` tests only that unused helper;
+- `test_no_argument_directory_listing_records_current_repository_directory`
+  tests its own copy of the audit hook, not the hook the guard uses.
 
-All 18 cases fail on `main`, where the guard test does not exist. On `4d691cd`,
-conditions 14–18 fail. The baseline (G2.1) should pass on `4d691cd` unless the
-live-checkout environment was the red cause.
+**On the red result.** Reading the code, I expect conditions 1–18 to pass on
+`dbb5b0a` and all 22 to fail on `main`, where the guard test does not exist. I
+cannot confirm what made the gate red. One possibility I cannot measure is the
+total runtime: the module runs readiness in a subprocess once per case, and the
+recorders call `os.path.realpath` on every stat. G2.6 asks Codex to keep the
+trace cheap and to report the module's wall time. If the gate report names a
+failing case, that report wins over this note.
+
+Earlier revisions: revision 4 added conditions 14–18 (line continuations,
+WORKDIR tracking, `os.access`, warm caches) and moved every case, including the
+baseline, onto a copy of the tracked files. Codex commit `9d07b30` once edited
+`tests/acceptance/`. Revision 3 superseded those edits. Codex must not touch
+`tests/acceptance/`.
 
 ## Interface
 
@@ -57,9 +63,6 @@ Add this test method, exactly this id:
 ```
 tests.test_deployment_manifests.DeploymentManifestTests.test_readiness_runtime_paths_are_copied_into_image
 ```
-
-Small helper unit tests next to it, such as the existing
-`test_dockerignore_root_pattern_is_normalized`, are fine if they stay green.
 
 The acceptance tests run that id in a subprocess
 (`AI_CADDIE_DATA_MODE=fixture`, no `AI_CADDIE_PRIVATE_ROOT`, cwd and
@@ -80,15 +83,13 @@ acceptance tests locally, or the copy will not contain it. The guard must:
 - read `Dockerfile` and `.dockerignore` from that root;
 - **run** `build_readiness_response()` in a fresh child interpreter
   (`subprocess.run([sys.executable, "-c", <script>], cwd=root, …)`). Pass on the
-  parent's environment and put the root first on `PYTHONPATH`. Running in a
-  child keeps caches, imports and patches from the test process out of the
-  trace. The child imports `server_v2.readiness` normally, then installs the
-  recorders, then runs readiness. It reports `{label: [paths]}` to the parent
-  on stdout, behind a marker line so log output cannot confuse the parser. Only
-  reads made while readiness runs count; reads made while modules import do
-  not. If the child exits non-zero or prints no result, the guard fails with
-  an assertion that includes the end of the child's stderr. It never raises an
-  error and never skips;
+  parent's environment and put the root first on `PYTHONPATH`. The child
+  imports `server_v2.readiness` normally, installs the recorders, and runs
+  readiness. It reports its result to the parent on stdout, behind a marker
+  line. Only reads made while readiness runs count; reads made while modules
+  import do not. If the child exits non-zero or prints no result, the guard
+  fails with an assertion that includes the end of the child's stderr. It never
+  raises an error and never skips;
 - in the child, record every repository path the run
   - **opens**: any `open`, including `Path.read_text`/`read_bytes`/`open`,
     builtin `open` and `os.open`;
@@ -96,39 +97,55 @@ acceptance tests locally, or the copy will not contain it. The guard must:
     `Path.exists`/`is_file`/`is_dir`/`stat`/`lstat`,
     `os.path.exists`/`isfile`/`isdir`/`islink`, `os.stat`, `os.lstat` and
     `os.access`;
-  - **lists**: `Path.iterdir`/`glob`/`rglob`, `os.listdir`, `os.scandir`,
-    `os.walk` and `glob.glob`. Record the listed directory.
+  - **lists**: `Path.iterdir`/`glob`/`rglob`, `os.listdir` (also with no
+    argument), `os.scandir`, `os.walk` and `glob.glob`. Record the listed
+    directory.
 
   Inspecting the module's path constants alone is not enough. The acceptance
-  tests insert plain statements into readiness helpers;
-- attribute each recorded path to the check label it was used for. Keep only
-  paths used for labels **not** in `readiness.PACKAGING_LABELS`. A path used by
-  both a runtime and a packaging check stays in scope;
+  tests insert plain statements into readiness;
+- attribute each recorded path to the label of the next `_check` call. Paths
+  recorded after the last `_check` call of the run have no label and count as
+  **runtime**. Keep every path whose label is not in
+  `readiness.PACKAGING_LABELS`, plus the unlabelled ones. A path used by both a
+  runtime and a packaging check stays in scope;
 - be a single test. When it fails, use an assertion failure (unittest reports
-  `FAILED (failures=1)`), not an error, and name every uncovered path,
+  `FAILED (failures=1)`), not an error. Name every uncovered path,
   repository-relative and POSIX (for example
   `mobile/contracts/live_round_event.schema.json`).
 
+Helper unit tests next to the guard are allowed only if they call the code the
+guard itself uses (a module-level helper, or the trace script held as a
+module-level constant). Delete helpers the guard does not call, and tests that
+check a copy of guard logic.
+
 Suggested approach (not mandatory):
 
-- Keep the current recorders (the gated `sys.addaudithook` for `open`,
-  `os.listdir` and `os.scandir`, the `os.stat`/`os.lstat` wrappers, the `Path`
-  method wrappers and the re-entry guard). Add an `os.access` wrapper and move
-  all of it into the child script.
-- Keep the `_check` attribution: every path recorded since the previous `_check`
-  call goes to the next call's label.
-- The child can print `json.dumps({"labels": …})` after a fixed marker line,
-  for example `CARD432-TRACE:`. The parent takes the last such line.
+- Keep the recorders cheap. Store each recorded path as
+  `os.path.normpath(os.path.join(os.getcwd(), raw))` in a set, and run
+  `realpath` and the root-relative mapping once per unique path after
+  readiness returns, instead of on every call.
+- After `build_readiness_response()` returns, move whatever is still pending
+  into an unlabelled bucket. Report it to the parent, for example as label
+  `null` or under a separate key, and have the parent treat it as runtime.
+- `.dockerignore`: parse each pattern the way Docker does. Strip it, skip
+  comments and `!` lines, run `posixpath.normpath`, and drop a leading `/`.
+  Then match with a translated regex in which `**/` stands for zero or more
+  directories, or with fnmatch over the pattern and its variants that drop
+  `**/` segments.
+- `COPY` JSON form: after the leading `--` flags, if the rest starts with `[`,
+  parse it with `json.loads` into a list of strings. If that fails, treat the
+  line as shell form.
 
 Do not edit `server_v2/readiness.py`. The acceptance tests rewrite these lines
-of a copy, so they must stay as they are:
+of a copy, so keep them exactly as they are:
 
 - the module-level line `LIVE_ROUND_EVENT_CONTRACT = Path("mobile/contracts/live_round_event.schema.json")`;
 - `def _contract_event_kinds() -> …:` (runtime, label `mobile_events`) and
   `def _external_release_evidence() -> …:` (packaging, label
   `external_release`), each a one-line signature with no arguments;
-- `from pathlib import Path` stays imported at module level. Condition 18
-  appends a module-level function that uses `Path`.
+- the line `    runtime_checks = [check for check in checks if check.get("label") not in PACKAGING_LABELS]`
+  in `build_readiness_response()`, after the last `_check` call;
+- `from pathlib import Path` stays imported at module level.
 
 In `Dockerfile`, keep the explicit `COPY mobile/contracts/ ./mobile/contracts/`
 and `COPY ops/ ./ops/` lines, each on one line, and do not widen either. Keep
@@ -137,25 +154,26 @@ and `COPY ops/ ./ops/` lines, each on one line, and do not widen either. Keep
 ## Scope rules for the guard
 
 - **In scope:** every repository path opened, probed or listed while readiness
-  evaluates a check whose label is not in `readiness.PACKAGING_LABELS` (today:
-  service, mobile, secret_handling, history, sync, course_reference,
-  mobile_package, mobile_events, media_context, reports). This holds whatever
-  directory the path is in, including directories that packaging checks also
-  use, such as `ops/`.
-- **Out of scope (packaging/evidence):** paths used only for checks in
-  `PACKAGING_LABELS` (`native_mobile`, `external_release`, `roadmap_completion`,
-  `operations`, `private_snapshot_acceptance`), such as `mobile/ios/**`,
-  `docs/**`, `render.yaml` and `web_v2/vercel.json`. They are excluded by
-  label, not by a path list. These must not fail the guard.
+  runs, unless every use of it belongs to a check whose label is in
+  `readiness.PACKAGING_LABELS`. Today the runtime labels are service, mobile,
+  secret_handling, history, sync, course_reference, mobile_package,
+  mobile_events, media_context and reports. Reads after the last `_check` call
+  are in scope too. The directory does not matter: `ops/` counts even though
+  packaging checks also use it.
+- **Out of scope (packaging/evidence):** paths used only by checks in
+  `PACKAGING_LABELS` (`native_mobile`, `external_release`,
+  `roadmap_completion`, `operations`, `private_snapshot_acceptance`), such as
+  `mobile/ios/**`, `docs/**`, `render.yaml` and `web_v2/vercel.json`. They are
+  excluded by label, not by a path list, and must not fail the guard.
 - **The only path-based exclusions allowed:**
-  - the private runtime root `data`, `.garmin_tokens`, `output`, `logs`,
-    `backups` and `clubs.json` and everything below them. `ops/start_api.sh`
+  - the private runtime root: `data`, `.garmin_tokens`, `output`, `logs`,
+    `backups`, `clubs.json` and everything below them. `ops/start_api.sh`
     symlinks these into `AI_CADDIE_PRIVATE_ROOT`, so they are not image
     content;
-  - image-built environments (`.venv`, `node_modules`);
+  - environments the image builds itself (`.venv`, `node_modules`);
   - Python bytecode caches (`__pycache__/`, `*.pyc`), since the image compiles
     its own;
-  - the repository root itself and paths outside it.
+  - the repository root itself, and paths outside it.
 
   No other prefix lists (no `ops`, `docs`, `mobile/ios`, …).
 - **Reading `Dockerfile`.** Before interpreting instructions, apply Docker's
@@ -166,9 +184,12 @@ and `COPY ops/ ./ops/` lines, each on one line, and do not widen either. Keep
     character is `#`;
   - outside a continuation, skip comment lines and empty lines.
 
-  The instruction is the first word of each joined line, compared
-  case-insensitively. A line that a continuation swallows is part of the
-  previous instruction, never an instruction of its own.
+  The instruction is the first whitespace-separated word of each joined line,
+  compared case-insensitively. A line that a continuation swallows is part of
+  the previous instruction, never an instruction of its own. The arguments of
+  `COPY` come in two forms. In shell form they are split like `shlex.split`. In
+  JSON form the text after the leading `--` flags starts with `[` and is
+  parsed as a JSON array of strings.
 - **Shipped.** A path `P` counts as shipped only when both of these hold:
   1. There is a `COPY` instruction in the **final** `FROM` stage, without
      `--from=`, with a source `S` equal to `P` or a parent directory of `P`.
@@ -183,21 +204,25 @@ and `COPY ops/ ./ops/` lines, each on one line, and do not widen either. Keep
        onto the `WORKDIR` in effect at that `COPY`, then normalise it.
      - Directory source (`S` is a directory in the tree, or `.`): its contents
        land in `D`, so `P` lands at `D/<P relative to S>`.
-     - File source: if the raw destination ends in `/`, is `.`, or the `COPY`
-       has several sources, the file lands at `D/<basename of S>`. Otherwise
-       it lands at `D`.
+     - File source: the file lands at `D/<basename of S>` if the raw
+       destination ends in `/`, is `.`, or the `COPY` has several sources.
+       Otherwise it lands at `D`.
      - Examples with `WORKDIR /app`:
        - these qualify: `COPY mobile/contracts/ ./mobile/contracts/`,
-         `COPY mobile/contracts /app/mobile/contracts`, `COPY alembic.ini ./`,
-         and a COPY split over two lines with `\`;
+         `COPY mobile/contracts /app/mobile/contracts`,
+         `COPY ["mobile/contracts/", "./mobile/contracts/"]`,
+         `COPY alembic.ini ./`, and a COPY split over two lines with `\`;
        - these do not: `COPY mobile/contracts/ ./`, and
          `WORKDIR /srv` + `COPY mobile/contracts/ /srv/mobile/contracts/` +
          `WORKDIR /app`;
        - a `COPY` in an earlier build stage does not count.
-  2. No non-negated, non-comment `.dockerignore` pattern matches `P` or one of
-     its parent directories. Use `fnmatch` against the repo-relative POSIX
-     path, after dropping a leading `/` or `./` and a trailing `/` from the
-     pattern.
+  2. No `.dockerignore` pattern excludes `P` or one of its parent directories.
+     Ignore empty lines, comments and `!` lines. Normalise each pattern the
+     way Docker does: strip it, run `posixpath.normpath`, and drop a leading
+     `/`. Match it against the repo-relative POSIX path with `fnmatch`
+     semantics, where `**/` also matches zero directories (so
+     `**/mobile/contracts` and `mobile/**/contracts` both match
+     `mobile/contracts`).
 
 ## Dockerfile
 
@@ -207,14 +232,14 @@ and `ops/` are all copied to their own paths under `/app`. In fixture mode the
 runtime checks also list and probe directories under `data/` and `output/`.
 Those are private-root paths and are excluded. If the guard reports any other
 path, add the missing `COPY <dir>/ ./<dir>/` to the runtime stage in this PR.
-Leave all other Dockerfile lines alone and do not change
+Leave all other Dockerfile lines alone, and do not change
 `.github/workflows/ci.yml`.
 
 ### G1 — A repository test guards readiness runtime paths against the image
 
 Pass conditions (each a case in the acceptance module). "Fails the same way"
 means: non-zero exit, `Ran 1 test`, `FAILED (failures=1)`, and the output names
-the given path. "Passes" means: exit 0, `Ran 1 test`, not skipped.
+the given path. "Passes" means: exit 0, `Ran 1 test`, no `skipped=`.
 
 1. The test id above exists, runs as one test, and does not skip.
 2. On a copy with the `COPY mobile/contracts/ …` line removed from `Dockerfile`,
@@ -248,23 +273,31 @@ the given path. "Passes" means: exit 0, `Ran 1 test`, not skipped.
     (exists, private root), it passes.
 14. On a copy where the `COPY mobile/contracts/ …` line is split into
     `COPY mobile/contracts/ \` and `    ./mobile/contracts/`, it passes.
-    *(new in revision 4)*
 15. On a copy where the line `RUN true \` is inserted directly above the
     unchanged `COPY mobile/contracts/ …` line, it fails the same way and names
-    `mobile/contracts`. *(new)*
+    `mobile/contracts`.
 16. On a copy where that line becomes the three lines `WORKDIR /srv`,
     `COPY mobile/contracts/ /srv/mobile/contracts/` and `WORKDIR /app`, it fails
-    the same way and names `mobile/contracts`. *(new)*
+    the same way and names `mobile/contracts`.
 17. On a copy where `_contract_event_kinds()` first runs
     `__import__("os").access("runtime_probe/access_only.json", 4)` (exists, not
     copied), it fails the same way and names `runtime_probe/access_only.json`.
-    *(new)*
 18. On a copy where readiness gains a module-level
     `functools.lru_cache`-wrapped `_card432_cached_probe()` that reads
     `runtime_probe/cached.json` (exists, not copied), and
     `_contract_event_kinds()` calls it first: run in the warm form, with
     readiness evaluated once in the same interpreter before the guard, it fails
-    the same way and names `runtime_probe/cached.json`. *(new)*
+    the same way and names `runtime_probe/cached.json`.
+19. On a copy where `build_readiness_response()` reads
+    `runtime_probe/tail.json` (exists, not copied) right before its
+    `runtime_checks = […]` line, after the last `_check` call, it fails the
+    same way and names `runtime_probe/tail.json`. *(new in revision 5)*
+20. On a copy where `.dockerignore` gains the line `mobile//contracts/`, it fails
+    the same way and names `mobile/contracts`. *(new)*
+21. On a copy where `.dockerignore` gains the line `**/mobile/contracts`, it
+    fails the same way and names `mobile/contracts`. *(new)*
+22. On a copy where the `COPY mobile/contracts/ …` line becomes
+    `COPY ["mobile/contracts/", "./mobile/contracts/"]`, it passes. *(new)*
 
 ### G2 — The production image ships every runtime path readiness reads
 
@@ -280,12 +313,30 @@ Pass conditions:
 4. After release, production `/api/v2/health` reports the merged revision, and
    readiness `runtimeStatus` is still `ready`. The release-tier run checks this
    read-only.
+5. (Review) No dead helpers and no tests of copied logic in
+   `tests/test_deployment_manifests.py`. Each helper test calls code the guard
+   itself uses.
+6. (Review) The PR body reports the wall time of one guard run and of the whole
+   acceptance module, or says exactly which of them could not run in the
+   session sandbox and why.
 
 ## Not in scope
 
 No app, Watch, web, migration, auth or deploy-script changes, and no change to
 `server_v2/readiness.py`. Do not edit the pinned files or `tests/acceptance/`.
-Known limits this card does not cover: `RUN` steps that delete copied files,
-`ADD` instructions (treated as not shipping anything), `.dockerignore`
-re-inclusion with `!` (treated as still excluded), and reads that happen
-while modules import.
+
+Known limits this card does not cover. The guard need not handle them, and a
+review should not fail it for them:
+
+- `RUN` steps that delete copied files;
+- `ADD` instructions (treated as not shipping anything);
+- `.dockerignore` re-inclusion with `!` (treated as still excluded);
+- the `# escape=` parser directive, heredocs, `COPY --parents`, and variable
+  expansion in `WORKDIR` or `COPY` (the guard may treat values literally);
+- a container command that changes directory before starting the API;
+- reads made while modules import, reads by threads or subprocesses readiness
+  starts, and reads made after `build_readiness_response()` returns;
+- attribution when a runtime read is followed by a packaging `_check` call
+  before its own `_check` (today's code has no such ordering);
+- repository symlinks whose target lies elsewhere in the repository (the
+  target path is recorded).
