@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
 import sys
 import tomllib
 import unittest
@@ -31,6 +32,27 @@ def _relative_copy_destination(workdir: str, stage_root: str, value: str) -> str
     return combined.as_posix() or "."
 
 
+def _docker_instructions(lines: list[str]) -> list[str]:
+    instructions: list[str] = []
+    index = 0
+    while index < len(lines):
+        current = lines[index].strip()
+        index += 1
+        if not current or current.startswith("#"):
+            continue
+        parts = [current]
+        while parts[-1].endswith("\\"):
+            parts[-1] = parts[-1][:-1].rstrip()
+            while index < len(lines):
+                continuation = lines[index].strip()
+                index += 1
+                if continuation and not continuation.startswith("#"):
+                    parts.append(continuation)
+                    break
+        instructions.append(" ".join(parts))
+    return instructions
+
+
 class DeploymentManifestTests(unittest.TestCase):
     def _load_compose(self) -> dict:
         return yaml.safe_load(Path("docker-compose.yml").read_text(encoding="utf-8"))
@@ -42,95 +64,121 @@ class DeploymentManifestTests(unittest.TestCase):
         the guard aligned with future readiness checks and makes a moved contract fail with the
         moved path in the assertion instead of silently preserving an old allow-list.
         """
-        from server_v2 import readiness
-
         root = Path(__file__).resolve().parents[1]
-        observed: set[str] = set()
-        paths_by_label: dict[str, set[str]] = {}
-        active = True
+        trace_script = r'''
+import json
+import os
+import sys
+from pathlib import Path
+from server_v2 import readiness
+
+root = Path.cwd().resolve()
+observed = set()
+paths_by_label = {}
+active = True
+recording = False
+
+def record(value):
+    global recording
+    if not active or recording or isinstance(value, int):
+        return
+    recording = True
+    try:
+        try:
+            raw = os.fsdecode(os.fspath(value))
+        except TypeError:
+            return
+        absolute = os.path.realpath(raw if os.path.isabs(raw) else os.path.join(os.getcwd(), raw))
+        root_text = os.path.realpath(os.fspath(root))
+        try:
+            relative = os.path.relpath(absolute, root_text)
+        except ValueError:
+            return
+        if relative in (os.curdir, os.pardir) or relative.startswith(os.pardir + os.sep):
+            return
+        observed.add(Path(relative).as_posix())
+    finally:
         recording = False
 
-        def record(value: object) -> None:
-            nonlocal recording
-            if not active or recording or isinstance(value, int):
-                return
-            recording = True
-            try:
-                try:
-                    raw = os.fspath(value)
-                except TypeError:
-                    return
-                raw = os.fsdecode(raw)
-                absolute = os.path.realpath(raw if os.path.isabs(raw) else os.path.join(os.getcwd(), raw))
-                root_text = os.path.realpath(os.fspath(root))
-                try:
-                    relative = os.path.relpath(absolute, root_text)
-                except ValueError:
-                    return
-                if relative == os.curdir or relative == os.pardir or relative.startswith(os.pardir + os.sep):
-                    return
-                observed.add(Path(relative).as_posix())
-            finally:
-                recording = False
+original_path_methods = {
+    name: getattr(Path, name)
+    for name in ("exists", "is_file", "is_symlink", "is_dir", "stat", "lstat", "open", "read_text", "read_bytes")
+}
+original_os_methods = {name: getattr(os, name) for name in ("stat", "lstat", "access")}
 
-        # Path.exists/is_file cover checks that only inspect a manifest, while the audit hook and
-        # read/open wrappers cover files consumed by imported readiness helpers.
-        original_methods = {
-            name: getattr(Path, name)
-            for name in ("exists", "is_file", "is_symlink", "is_dir", "stat", "open", "read_text", "read_bytes")
-        }
-        original_os_methods = {name: getattr(os, name) for name in ("stat", "lstat")}
+def wrap_path(name):
+    original = original_path_methods[name]
+    def traced(path, *args, **kwargs):
+        record(path)
+        return original(path, *args, **kwargs)
+    return traced
 
-        def wrap(name: str):
-            original = original_methods[name]
+def wrap_os(name):
+    original = original_os_methods[name]
+    def traced(path, *args, **kwargs):
+        record(path)
+        return original(path, *args, **kwargs)
+    return traced
 
-            def traced(path: Path, *args, **kwargs):
-                record(path)
-                return original(path, *args, **kwargs)
+def audit_hook(event, args):
+    if event in {"open", "os.listdir", "os.scandir", "os.walk"} and args:
+        record(args[0])
 
-            return traced
+sys.addaudithook(audit_hook)
+original_check = readiness._check
 
-        def wrap_os(name: str):
-            original = original_os_methods[name]
+def traced_check(label, *args, **kwargs):
+    paths_by_label.setdefault(label, set()).update(observed)
+    observed.clear()
+    return original_check(label, *args, **kwargs)
 
-            def traced(path, *args, **kwargs):
-                record(path)
-                return original(path, *args, **kwargs)
+for name in original_path_methods:
+    setattr(Path, name, wrap_path(name))
+for name in original_os_methods:
+    setattr(os, name, wrap_os(name))
+readiness._check = traced_check
+try:
+    readiness.build_readiness_response()
+finally:
+    active = False
+    readiness._check = original_check
+    for name, original in original_path_methods.items():
+        setattr(Path, name, original)
+    for name, original in original_os_methods.items():
+        setattr(os, name, original)
 
-            return traced
-
-        audit_events = {"open", "os.listdir", "os.scandir"}
-
-        def audit_hook(event, args):
-            if event in audit_events and args:
-                record(args[0])
-
-        # Audit hooks cannot be removed; `active` disables this one after tracing finishes.
-        sys.addaudithook(audit_hook)
-        original_check = readiness._check
-
-        def traced_check(label, *args, **kwargs):
-            # Each readiness check evaluates its file dependencies before emitting _check.
-            # Attribute that interval to the emitted label, including failed checks. A file
-            # used by both packaging and runtime checks remains in the runtime path set.
-            paths_by_label.setdefault(label, set()).update(observed)
-            observed.clear()
-            return original_check(label, *args, **kwargs)
-
-        for name in original_methods:
-            setattr(Path, name, wrap(name))
-        for name in original_os_methods:
-            setattr(os, name, wrap_os(name))
-        readiness._check = traced_check
+print("CARD432-TRACE:" + json.dumps({
+    "labels": {label: sorted(paths) for label, paths in paths_by_label.items()},
+    "packaging": sorted(readiness.PACKAGING_LABELS),
+}))
+'''
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(part for part in (str(root), env.get("PYTHONPATH", "")) if part)
+        trace = subprocess.run(
+            [sys.executable, "-c", trace_script],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=900,
+        )
+        marker = "CARD432-TRACE:"
+        result_lines = [line for line in trace.stdout.splitlines() if line.startswith(marker)]
+        self.assertEqual(
+            trace.returncode,
+            0,
+            "readiness trace child failed: " + (trace.stderr[-4000:] or trace.stdout[-4000:]),
+        )
+        self.assertTrue(result_lines, "readiness trace child produced no result")
         try:
-            readiness.build_readiness_response()
-        finally:
-            active = False
-            readiness._check = original_check
-            for name, original in original_methods.items():
-                setattr(Path, name, original)
-            for name, original in original_os_methods.items():
-                setattr(os, name, original)
+            trace_payload = json.loads(result_lines[-1][len(marker):])
+        except json.JSONDecodeError as exc:
+            self.fail(f"invalid readiness trace result: {exc}")
+        paths_by_label = {
+            str(label): set(paths)
+            for label, paths in (trace_payload.get("labels") or {}).items()
+        }
+        packaging_labels = set(trace_payload.get("packaging") or [])
 
         private_roots = {
             "data",
@@ -154,7 +202,7 @@ class DeploymentManifestTests(unittest.TestCase):
             {
                 path
                 for label, paths in paths_by_label.items()
-                if label not in readiness.PACKAGING_LABELS
+                if label not in packaging_labels
                 for path in paths
                 if not excluded(path)
             }
@@ -164,38 +212,30 @@ class DeploymentManifestTests(unittest.TestCase):
         # A missing image manifest ships no sources. Report the uncovered paths via the same
         # assertion as an omitted COPY, instead of raising FileNotFoundError.
         docker_lines = dockerfile.read_text(encoding="utf-8").splitlines() if dockerfile.exists() else []
-        copied_sources: list[tuple[str, str, bool, bool, str]] = []
+        copied_sources: list[tuple[str, Path, bool, bool, str]] = []
         stage = -1
-        final_stage = sum(line.strip().upper().startswith("FROM ") for line in docker_lines) - 1
-        workdir = "/"
-        stage_root = "/"
+        instructions = _docker_instructions(docker_lines)
+        final_stage = sum(line.split(None, 1)[0].upper() == "FROM" for line in instructions) - 1
+        workdir = Path("/")
 
         def normalise_path(value: str) -> str:
             normalised = value.removeprefix("./").rstrip("/")
             return normalised or "."
 
-        def destination_path(value: str) -> str | None:
-            return _relative_copy_destination(workdir, stage_root, value)
-
-        for line in docker_lines:
+        for line in instructions:
             stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
             if stripped.upper().startswith("FROM "):
                 stage += 1
-                workdir = "/"
-                stage_root = "/"
+                workdir = Path("/")
                 continue
             if stage != final_stage:
                 continue
             if stripped.upper().startswith("WORKDIR "):
                 raw_workdir = shlex.split(stripped, comments=False)[1]
                 if raw_workdir.startswith("/"):
-                    workdir = os.path.normpath(raw_workdir)
-                    if stage_root == "/":
-                        stage_root = workdir
+                    workdir = Path(os.path.normpath(raw_workdir))
                 else:
-                    workdir = os.path.normpath(str(Path(workdir) / raw_workdir))
+                    workdir = Path(os.path.normpath(str(workdir / raw_workdir)))
                 continue
             if not stripped.upper().startswith("COPY "):
                 continue
@@ -207,16 +247,19 @@ class DeploymentManifestTests(unittest.TestCase):
             if len(arguments) < 2 or any(token.startswith("--from=") for token in tokens[1:]):
                 continue
             raw_destination = arguments[-1]
-            destination = destination_path(raw_destination)
-            if destination is None:
-                continue
+            if raw_destination.startswith("/"):
+                destination = Path(os.path.normpath(raw_destination))
+            else:
+                destination = Path(os.path.normpath(str(workdir / raw_destination)))
             sources = [normalise_path(token) for token in arguments[:-1]]
             multiple_sources = len(sources) > 1
             for source in sources:
                 source_path = root / source
                 copied_sources.append(
-                    (source, destination, source_path.is_dir() or source == ".", multiple_sources, raw_destination)
+                    (source, workdir / destination, source_path.is_dir() or source == ".", multiple_sources, raw_destination)
                 )
+
+        runtime_root = workdir
 
         ignored_patterns: list[str] = []
         if dockerignore.exists():
@@ -235,23 +278,22 @@ class DeploymentManifestTests(unittest.TestCase):
 
         def is_copied(path: str) -> bool:
             path_obj = Path(path)
+            target = runtime_root / path_obj
             for source, destination, source_is_dir, multiple_sources, raw_destination in copied_sources:
                 source_path = Path(source)
                 if source_is_dir:
                     try:
-                        path_obj.relative_to(source_path)
+                        relative = path_obj.relative_to(source_path)
                     except ValueError:
                         continue
-                    # A directory COPY places its contents under the destination. The source
-                    # remains at its repository-relative location only when those locations match.
-                    if destination == source:
+                    if destination / relative == target:
                         return True
                     continue
                 if multiple_sources or raw_destination.endswith("/") or raw_destination in {"", "."}:
                     landed = Path(destination) / source_path.name
                 else:
                     landed = Path(destination)
-                if landed.as_posix() == path_obj.as_posix():
+                if landed == target:
                     return True
             return False
 
