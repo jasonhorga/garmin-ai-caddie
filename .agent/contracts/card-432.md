@@ -7,7 +7,40 @@ the failure mode (`mobile/contracts/` missing from the image, readiness
 
 Touches: `tests/test_deployment_manifests.py`, `Dockerfile`, `tests/acceptance/test_card_432_readiness_image_paths.py`, `.agent/contracts/card-432.md`
 
-Acceptance tests: `tests/acceptance/test_card_432_readiness_image_paths.py` (22 cases)
+Acceptance tests: `tests/acceptance/test_card_432_readiness_image_paths.py` (24 cases)
+
+## Revision 6 (after the gate on a7e9998)
+
+The gate on `a7e9998` failed `red` and `adversarial`. The contract sandbox
+cannot read the gate report or run Python, so this revision rests on a fresh
+reading of the guard at `a7e9998` and of the acceptance module:
+
+1. **Probe names were fixed and visible in the source.** Cases 7–10, 12, 13
+   and 17–19 used fixed names (`runtime_probe/…`, `relocated_contracts`), and
+   the injected statements wrote them as string literals. A guard that scans
+   `readiness.py` for path-like literals, or one that special-cases those
+   names, could pass those cases without tracing readiness. Each case now
+   builds a random name (`p<12 hex>`) for its run. The injected statements
+   build the path at run time (`bytes.fromhex("…").decode("utf-8")`), so the
+   path never appears in the source. The relocated contract constant (case 7)
+   stays a literal `Path("<random>/live_round_event.schema.json")`, and its
+   case now names the full file path. A guard that really traces readiness,
+   as `a7e9998` does, passes these cases unchanged.
+2. **COPY flags the guard does not model were dropped and the COPY counted.**
+   The guard strips every leading `--` flag and only rejects `--from=`. So
+   `COPY --exclude=mobile/contracts . ./` counts as shipping
+   `mobile/contracts`, but BuildKit leaves it out. `--parents` likewise
+   changes where files land. New rule: only `--chown=…`, `--chmod=…` and
+   `--link` / `--link=…` are understood. A `COPY` with any other flag
+   ships nothing (condition 23). Condition 24 makes sure the understood flags
+   still count.
+3. **Marker:** the nested `ignore` helper in the acceptance module now has a
+   `# G1 G2` comment like every other function there.
+
+At `a7e9998`, by reading the code, conditions 1–22 and 24 pass and condition
+23 fails. On `main` all 24 fail, because the guard test does not exist there
+and unittest reports `FAILED (errors=1)`. These results come from tracing the
+code by hand. I did not observe them.
 
 ## Revision 5 (after review of edc640d)
 
@@ -46,11 +79,8 @@ G2.5 covers the dead code.
 Codex must not touch `tests/acceptance/`. Revision 3 already replaced the edits
 Codex commit `9d07b30` made there.
 
-All 22 cases fail on `main`, where the guard test does not exist (unittest
-reports `FAILED (errors=1)`). By reading the code, conditions 19–22 also fail on
-`edc640d`: the guard passes where 19–21 expect a failure, and fails where 22
-expects a pass. Conditions 1–18 should still pass there. I could not run Python
-in the contract sandbox, so these results are traced by hand, not observed.
+(Revision 5 traced conditions 19–22 as failing on `edc640d`. `a7e9998` fixed
+them.)
 
 ## Interface
 
@@ -100,7 +130,8 @@ acceptance tests locally, or the copy will not contain it. The guard must:
     `os.walk` and `glob.glob`. Record the listed directory.
 
   Inspecting the module's path constants alone is not enough. The acceptance
-  tests insert plain statements into readiness;
+  tests insert plain statements into readiness. Those statements build their
+  paths at run time from random names, so the paths are not in the source;
 - attribute each recorded path to a check label:
   - a path recorded since the previous `_check` call goes to the label of the
     next `_check` call;
@@ -168,9 +199,11 @@ and `COPY ops/ ./ops/` lines, each on one line, and do not widen either. Keep
   case-insensitively. A line that a continuation swallows is part of the
   previous instruction, never an instruction of its own.
 - **Reading `COPY` arguments** (*JSON form new in revision 5*):
-  - First take the leading `--` flags off the arguments (`--from=`,
-    `--chown=`, `--chmod=`, `--link` and any other `--` flag). Flags are never
+  - First take the leading `--` flags off the arguments. Flags are never
     sources. A `COPY` with `--from=` ships nothing from the context.
+  - *Changed in revision 6:* only `--chown=…`, `--chmod=…`, `--link` and
+    `--link=…` are understood. A `COPY` with any other flag (for example
+    `--from=`, `--exclude=` or `--parents`) ships nothing.
   - If what is left starts with `[` and parses with `json.loads` as a list of
     two or more strings, that list is the sources followed by the destination
     (exec form). For example, `COPY ["mobile/contracts/", "./mobile/contracts/"]`
@@ -306,7 +339,21 @@ the given path. "Passes" means: exit 0, `Ran 1 test`, not skipped.
 21. On a copy where `.dockerignore` gains the line `mobile/**/contracts`, it
     fails the same way and names `mobile/contracts`. *(new)*
 22. On a copy where the `COPY mobile/contracts/ …` line becomes
-    `COPY ["mobile/contracts/", "./mobile/contracts/"]`, it passes. *(new)*
+    `COPY ["mobile/contracts/", "./mobile/contracts/"]`, it passes.
+23. On a copy where the `COPY mobile/contracts/ …` line becomes
+    `COPY --exclude=mobile/contracts . ./`, it fails the same way and names
+    `mobile/contracts`. *(new in revision 6)*
+24. On a copy where that line becomes
+    `COPY --chown=1000:1000 --chmod=644 --link mobile/contracts/ ./mobile/contracts/`,
+    it passes. *(new in revision 6)*
+
+In revision 6, cases 7–10, 12, 13 and 17–19 use a random path component
+(`p` + 12 hex digits) in place of the fixed names `runtime_probe`,
+`runtime_probe_dir`, `packaging_probe`, `relocated_contracts` and
+`card432_probe` shown above. Except for case 7's constant, the injected
+statement builds the path at run time. Each failing case names the full random
+path. In case 7 that is `<random>/live_round_event.schema.json`; in case 10 it
+is the random directory.
 
 ### G2 — The production image ships every runtime path readiness reads
 
@@ -337,6 +384,11 @@ Pass conditions:
    - update `test_dockerignore_root_pattern_is_normalized` to the
      Docker-style normalisation. Helper tests for the new `.dockerignore`
      matcher and the JSON-form `COPY` parser are welcome.
+   - *(revision 6)* At `a7e9998`, `except (json.JSONDecodeError, TypeError)`
+     comes after `except ValueError` and can never run, because
+     `JSONDecodeError` is a `ValueError`. Remove it. Also, a `[`-prefixed
+     argument that `json.loads` rejects must fall back to shell splitting, as
+     the "Reading `COPY` arguments" rule says. Today it ships nothing.
 
 ## Not in scope
 
@@ -347,4 +399,8 @@ Known limits this card does not cover:
 - `RUN` steps that delete copied files;
 - `ADD` instructions (treated as not shipping anything);
 - `.dockerignore` re-inclusion with `!` (treated as still excluded);
-- reads that happen while modules import.
+- reads that happen while modules import;
+- reads that only happen with private data (`local` mode), since the guard
+  traces readiness in `fixture` mode;
+- checks that are not built with `_check` (today every check is). Their reads
+  go to the next `_check` label.

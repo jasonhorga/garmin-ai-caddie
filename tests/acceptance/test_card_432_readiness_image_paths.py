@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 
@@ -38,6 +39,17 @@ SKIP_EVERYWHERE = {
 }
 # Private runtime root links (ops/start_api.sh); never copied out of the checkout.
 SKIP_AT_ROOT = {"data", ".garmin_tokens", "output", "logs", "backups", "clubs.json"}
+
+
+def _random_name() -> str:
+    # G1: a fresh, meaningless path component per case, so a guard cannot special-case probe names.
+    return "p" + uuid.uuid4().hex[:12]
+
+
+def _opaque(text: str) -> str:
+    # G1: a Python expression that builds `text` at run time. The path never appears as a literal
+    # in readiness, so a guard that scans the source instead of tracing readiness cannot see it.
+    return f'bytes.fromhex("{text.encode("utf-8").hex()}").decode("utf-8")'
 
 
 def _environment_roots_inside_checkout() -> list[Path]:
@@ -96,6 +108,7 @@ def _copy_checkout(tree: Path) -> None:
     listed = _listed_files()
     if listed is None:
         def ignore(directory: str, names: list[str]) -> set[str]:
+            # G1 G2: the same exclusions as the git-listed copy, applied while walking the tree.
             relative_dir = os.path.relpath(directory, REPO_ROOT)
             skipped: set[str] = set()
             for name in names:
@@ -185,8 +198,8 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         readiness.write_text(text, encoding="utf-8")
 
     def _inject_read(self, tree: Path, function: str, relative: str) -> None:
-        # G1: makes one readiness helper read `relative` as its first statement.
-        self._inject(tree, function, f'Path("{relative}").read_text(encoding="utf-8")')
+        # G1: makes one readiness helper read `relative` as its first statement (path built at run time).
+        self._inject(tree, function, f'Path({_opaque(relative)}).read_text(encoding="utf-8")')
 
     def _replace_mobile_contracts_copy(self, tree: Path, replacement: str) -> None:
         # G1: rewrites the single `COPY mobile/contracts/ …` line of the copy's Dockerfile.
@@ -295,13 +308,14 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
     def test_guard_follows_readiness_when_a_runtime_contract_moves(self) -> None:
         # G1: the paths come from readiness itself, not from a hard-coded list in the test.
         tree = self._tree_copy()
+        relocated_dir = _random_name()
         source = tree / "mobile" / "contracts" / "live_round_event.schema.json"
-        relocated = tree / "relocated_contracts" / "live_round_event.schema.json"
+        relocated = tree / relocated_dir / "live_round_event.schema.json"
         relocated.parent.mkdir(parents=True)
         shutil.copyfile(source, relocated)
         readiness = tree / "server_v2" / "readiness.py"
         text, count = EVENT_CONTRACT_CONSTANT.subn(
-            'LIVE_ROUND_EVENT_CONTRACT = Path("relocated_contracts/live_round_event.schema.json")',
+            f'LIVE_ROUND_EVENT_CONTRACT = Path("{relocated_dir}/live_round_event.schema.json")',
             readiness.read_text(encoding="utf-8"),
         )
         self.assertEqual(count, 1, "expected one LIVE_ROUND_EVENT_CONTRACT assignment in readiness")
@@ -309,37 +323,40 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
 
         code, output = _run_guard(tree)
 
-        self._assert_guard_failed(code, output, "relocated_contracts")
+        self._assert_guard_failed(code, output, f"{relocated_dir}/live_round_event.schema.json")
 
     def test_guard_reports_a_new_runtime_read_outside_the_image(self) -> None:
         # G1: a file a runtime check starts reading (not a path constant) is caught.
         tree = self._tree_copy()
-        self._write_probe(tree, "runtime_probe/extra.json")
-        self._inject_read(tree, RUNTIME_READER, "runtime_probe/extra.json")
+        probe = f"{_random_name()}/extra.json"
+        self._write_probe(tree, probe)
+        self._inject_read(tree, RUNTIME_READER, probe)
 
         code, output = _run_guard(tree)
 
-        self._assert_guard_failed(code, output, "runtime_probe/extra.json")
+        self._assert_guard_failed(code, output, probe)
 
     def test_guard_reports_an_os_path_probe_outside_the_image(self) -> None:
         # G1: an os.path existence probe gates readiness like a read does (the #428 shape).
         tree = self._tree_copy()
-        self._write_probe(tree, "runtime_probe/stat_only.json")
-        self._inject(tree, RUNTIME_READER, '__import__("os").path.isfile("runtime_probe/stat_only.json")')
+        probe = f"{_random_name()}/stat_only.json"
+        self._write_probe(tree, probe)
+        self._inject(tree, RUNTIME_READER, f'__import__("os").path.isfile({_opaque(probe)})')
 
         code, output = _run_guard(tree)
 
-        self._assert_guard_failed(code, output, "runtime_probe/stat_only.json")
+        self._assert_guard_failed(code, output, probe)
 
     def test_guard_reports_a_directory_listing_outside_the_image(self) -> None:
         # G1: a runtime check that lists a directory depends on that directory being shipped.
         tree = self._tree_copy()
-        self._write_probe(tree, "runtime_probe_dir/item.json")
-        self._inject(tree, RUNTIME_READER, 'list(Path("runtime_probe_dir").iterdir())')
+        probe_dir = _random_name()
+        self._write_probe(tree, f"{probe_dir}/item.json")
+        self._inject(tree, RUNTIME_READER, f"list(Path({_opaque(probe_dir)}).iterdir())")
 
         code, output = _run_guard(tree)
 
-        self._assert_guard_failed(code, output, "runtime_probe_dir")
+        self._assert_guard_failed(code, output, probe_dir)
 
     def test_guard_reports_runtime_read_under_a_directory_packaging_also_uses(self) -> None:
         # G1: scope follows the check label, so ops/ is not exempt when a runtime check reads it.
@@ -358,8 +375,9 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
     def test_guard_ignores_uncopied_reads_of_packaging_checks(self) -> None:
         # G1: a file read only by a PACKAGING_LABELS check never fails the guard.
         tree = self._tree_copy()
-        self._write_probe(tree, "packaging_probe/extra.json")
-        self._inject_read(tree, PACKAGING_READER, "packaging_probe/extra.json")
+        probe = f"{_random_name()}/extra.json"
+        self._write_probe(tree, probe)
+        self._inject_read(tree, PACKAGING_READER, probe)
 
         code, output = _run_guard(tree)
 
@@ -368,8 +386,9 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
     def test_guard_ignores_private_root_reads(self) -> None:
         # G1: private-root paths (data/ and friends) are not image content.
         tree = self._tree_copy()
-        self._write_probe(tree, "data/card432_probe.json")
-        self._inject_read(tree, RUNTIME_READER, "data/card432_probe.json")
+        probe = f"data/{_random_name()}.json"
+        self._write_probe(tree, probe)
+        self._inject_read(tree, RUNTIME_READER, probe)
 
         code, output = _run_guard(tree)
 
@@ -409,40 +428,43 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
     def test_guard_reports_an_os_access_probe_outside_the_image(self) -> None:
         # G1: os.access gates on a file's presence like a stat does.
         tree = self._tree_copy()
-        self._write_probe(tree, "runtime_probe/access_only.json")
-        self._inject(tree, RUNTIME_READER, '__import__("os").access("runtime_probe/access_only.json", 4)')
+        probe = f"{_random_name()}/access_only.json"
+        self._write_probe(tree, probe)
+        self._inject(tree, RUNTIME_READER, f'__import__("os").access({_opaque(probe)}, 4)')
 
         code, output = _run_guard(tree)
 
-        self._assert_guard_failed(code, output, "runtime_probe/access_only.json")
+        self._assert_guard_failed(code, output, probe)
 
     def test_guard_sees_cached_runtime_reads_after_readiness_already_ran(self) -> None:
         # G1: in the full suite readiness has usually run before the guard. A runtime read behind
         # an in-process cache must still be traced (the shape of lru_cache'd contract loaders).
         tree = self._tree_copy()
-        self._write_probe(tree, "runtime_probe/cached.json")
+        probe = f"{_random_name()}/cached.json"
+        self._write_probe(tree, probe)
         readiness = tree / "server_v2" / "readiness.py"
         readiness.write_text(
             readiness.read_text(encoding="utf-8").rstrip("\n")
             + "\n\n\n"
             + "@__import__(\"functools\").lru_cache(maxsize=1)\n"
             + "def _card432_cached_probe() -> str:\n"
-            + '    return Path("runtime_probe/cached.json").read_text(encoding="utf-8")\n',
+            + f'    return Path({_opaque(probe)}).read_text(encoding="utf-8")\n',
             encoding="utf-8",
         )
         self._inject(tree, RUNTIME_READER, "_card432_cached_probe()")
 
         code, output = _run_guard(tree, warm_first=True)
 
-        self._assert_guard_failed(code, output, "runtime_probe/cached.json")
+        self._assert_guard_failed(code, output, probe)
 
     def test_guard_reports_a_read_after_the_final_check(self) -> None:
         # G1: a read made after the last `_check` call, where runtimeStatus is computed, has no
         # later check to be attributed to. It must stay in scope instead of being dropped.
         tree = self._tree_copy()
-        self._write_probe(tree, "runtime_probe/after_final_check.json")
+        probe = f"{_random_name()}/after_final_check.json"
+        self._write_probe(tree, probe)
         readiness = tree / "server_v2" / "readiness.py"
-        statement = '    Path("runtime_probe/after_final_check.json").read_text(encoding="utf-8")\n'
+        statement = f'    Path({_opaque(probe)}).read_text(encoding="utf-8")\n'
         text, count = RUNTIME_STATUS_STATEMENT.subn(
             lambda m: statement + m.group(0), readiness.read_text(encoding="utf-8"), count=1
         )
@@ -451,7 +473,7 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
 
         code, output = _run_guard(tree)
 
-        self._assert_guard_failed(code, output, "runtime_probe/after_final_check.json")
+        self._assert_guard_failed(code, output, probe)
 
     def test_guard_normalises_dockerignore_patterns_like_docker(self) -> None:
         # G1: Docker cleans each pattern (`.` elements, repeated and trailing `/`, then one leading
@@ -477,6 +499,27 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         # G1: the exec (JSON-array) form of COPY ships the same directory as the shell form.
         tree = self._tree_copy()
         self._replace_mobile_contracts_copy(tree, 'COPY ["mobile/contracts/", "./mobile/contracts/"]')
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_passed(code, output)
+
+    def test_guard_rejects_a_copy_with_a_flag_it_does_not_model(self) -> None:
+        # G1: flags such as --exclude or --parents change what a COPY ships or where it lands.
+        # The guard only understands --chown, --chmod and --link; any other flag ships nothing.
+        tree = self._tree_copy()
+        self._replace_mobile_contracts_copy(tree, "COPY --exclude=mobile/contracts . ./")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_failed(code, output, "mobile/contracts")
+
+    def test_guard_accepts_ownership_mode_and_link_flags(self) -> None:
+        # G1: --chown, --chmod and --link do not change which files ship or where they land.
+        tree = self._tree_copy()
+        self._replace_mobile_contracts_copy(
+            tree, "COPY --chown=1000:1000 --chmod=644 --link mobile/contracts/ ./mobile/contracts/"
+        )
 
         code, output = _run_guard(tree)
 
