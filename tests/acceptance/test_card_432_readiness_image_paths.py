@@ -1,9 +1,10 @@
 """Card #432: every repository path readiness reads for runtimeStatus ships in the API image.
 
 The guard under test is the repository test named by GUARD_TEST. Each case runs it in a
-subprocess, either on the checkout itself or on a temporary copy with one deliberate change,
-and checks that it passes on the real tree, fails (naming the path) on each defect, and stays
-green for reads that belong to packaging/evidence checks or to the private runtime root.
+subprocess on a temporary copy of the checkout's tracked files, either unchanged or with one
+deliberate change, and checks that it passes on the real tree, fails (naming the path) on each
+defect, and stays green for reads that belong to packaging/evidence checks or to the private
+runtime root.
 """
 
 from __future__ import annotations
@@ -37,27 +38,35 @@ SKIP_EVERYWHERE = {
 SKIP_AT_ROOT = {"data", ".garmin_tokens", "output", "logs", "backups", "clubs.json"}
 
 
-def _temp_root_inside_checkout() -> Path | None:
-    # G1 G2: a temp directory inside the checkout must never be copied into itself.
-    temp_root = Path(tempfile.gettempdir()).resolve()
-    try:
-        temp_root.relative_to(REPO_ROOT)
-    except ValueError:
-        return None
-    return temp_root
+def _environment_roots_inside_checkout() -> list[Path]:
+    # G1 G2: temp and home directories inside the checkout must never be copied into a tree.
+    roots: list[Path] = []
+    for candidate in (tempfile.gettempdir(), os.environ.get("HOME", "")):
+        if not candidate:
+            continue
+        resolved = Path(candidate).resolve()
+        try:
+            resolved.relative_to(REPO_ROOT)
+        except ValueError:
+            continue
+        if resolved != REPO_ROOT:
+            roots.append(resolved)
+    return roots
 
 
-def _skipped(relative: str) -> bool:
-    # G1 G2: caches, runtime environments, private-root names and the temp area stay out of copies.
+def _skipped(relative: str, *, fallback: bool = False) -> bool:
+    # G1 G2: caches, runtime environments, private-root names and the temp/home area stay out of copies.
     parts = relative.split("/")
     if any(part in SKIP_EVERYWHERE for part in parts) or relative.endswith(".pyc"):
         return True
     if parts[0] in SKIP_AT_ROOT:
         return True
-    temp_root = _temp_root_inside_checkout()
-    if temp_root is not None:
+    # Without git, untracked top-level hidden directories (agent homes, tool caches) stay out.
+    if fallback and parts[0].startswith(".") and (REPO_ROOT / parts[0]).is_dir():
+        return True
+    for root in _environment_roots_inside_checkout():
         try:
-            (REPO_ROOT / relative).resolve().relative_to(temp_root)
+            (REPO_ROOT / relative).resolve().relative_to(root)
             return True
         except ValueError:
             pass
@@ -65,10 +74,10 @@ def _skipped(relative: str) -> bool:
 
 
 def _listed_files() -> list[str] | None:
-    # G1 G2: tracked plus untracked-but-not-ignored files; None when git cannot list them.
+    # G1 G2: tracked (and staged) files only; None when git cannot list them.
     try:
         proc = subprocess.run(
-            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            ["git", "ls-files", "-z", "--cached"],
             cwd=REPO_ROOT,
             capture_output=True,
             timeout=120,
@@ -90,7 +99,7 @@ def _copy_checkout(tree: Path) -> None:
             for name in names:
                 relative = name if relative_dir == os.curdir else f"{Path(relative_dir).as_posix()}/{name}"
                 path = os.path.join(directory, name)
-                if _skipped(relative):
+                if _skipped(relative, fallback=True):
                     skipped.add(name)
                 elif not (os.path.islink(path) or os.path.isdir(path) or os.path.isfile(path)):
                     skipped.add(name)
@@ -112,15 +121,28 @@ def _copy_checkout(tree: Path) -> None:
             shutil.copy2(source, target)
 
 
-def _run_guard(root: Path) -> tuple[int, str]:
+def _run_guard(root: Path, *, warm_first: bool = False) -> tuple[int, str]:
     # G1 G2: runs the repository guard test as a real unittest subprocess.
+    # With warm_first, the same interpreter evaluates readiness once before the guard runs, as
+    # the full CI suite does, so in-process caches are already populated.
     env = dict(os.environ)
     env["AI_CADDIE_DATA_MODE"] = "fixture"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env.pop("AI_CADDIE_PRIVATE_ROOT", None)
     env["PYTHONPATH"] = os.pathsep.join(part for part in (str(root), env.get("PYTHONPATH", "")) if part)
+    if warm_first:
+        command = [
+            sys.executable,
+            "-c",
+            "import unittest\n"
+            "from server_v2 import readiness\n"
+            "readiness.build_readiness_response()\n"
+            f"unittest.main(module=None, argv=['unittest', {GUARD_TEST!r}])\n",
+        ]
+    else:
+        command = [sys.executable, "-m", "unittest", GUARD_TEST]
     proc = subprocess.run(
-        [sys.executable, "-m", "unittest", GUARD_TEST],
+        command,
         cwd=root,
         env=env,
         capture_output=True,
@@ -132,7 +154,7 @@ def _run_guard(root: Path) -> tuple[int, str]:
 
 class ReadinessImagePathGuardTests(unittest.TestCase):
     def _tree_copy(self) -> Path:
-        # G1: temporary full copy of the checkout for one mutation.
+        # G1 G2: temporary copy of the checkout's tracked files, for the baseline or one mutation.
         holder = tempfile.TemporaryDirectory(prefix="card432-")
         self.addCleanup(holder.cleanup)
         tree = Path(holder.name) / "checkout"
@@ -167,9 +189,15 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
     def _replace_mobile_contracts_copy(self, tree: Path, replacement: str) -> None:
         # G1: rewrites the single `COPY mobile/contracts/ …` line of the copy's Dockerfile.
         dockerfile = tree / "Dockerfile"
-        text, count = MOBILE_CONTRACTS_COPY.subn(replacement, dockerfile.read_text(encoding="utf-8"))
+        text, count = MOBILE_CONTRACTS_COPY.subn(lambda _match: replacement, dockerfile.read_text(encoding="utf-8"))
         self.assertEqual(count, 1, "expected exactly one COPY of mobile/contracts in Dockerfile")
         dockerfile.write_text(text, encoding="utf-8")
+
+    def _mobile_contracts_copy_line(self, tree: Path) -> str:
+        # G1: the copy's current `COPY mobile/contracts/ …` line, exactly as written.
+        match = MOBILE_CONTRACTS_COPY.search((tree / "Dockerfile").read_text(encoding="utf-8"))
+        self.assertIsNotNone(match, "expected a COPY of mobile/contracts in Dockerfile")
+        return match.group(0)
 
     def _assert_guard_failed(self, code: int, output: str, needle: str) -> None:
         # G1: an assertion failure of the single guard test that names the path.
@@ -184,9 +212,14 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self.assertIn("Ran 1 test", output)
         self.assertNotIn("skipped", output)
 
-    def test_guard_passes_on_the_checkout(self) -> None:
+    def test_guard_passes_on_a_clean_copy_of_the_checkout(self) -> None:
         # G1 G2: the guard exists, really runs, and the shipped Dockerfile satisfies it.
-        code, output = _run_guard(REPO_ROOT)
+        # The copy holds the tracked files only, so agent homes, temp areas and tool caches
+        # that may sit inside a sandboxed checkout cannot leak into the traced path set.
+        tree = self._tree_copy()
+
+        code, output = _run_guard(tree)
+
         self._assert_guard_passed(code, output)
 
     def test_guard_fails_when_mobile_contracts_copy_is_removed(self) -> None:
@@ -335,6 +368,67 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         code, output = _run_guard(tree)
 
         self._assert_guard_passed(code, output)
+
+    def test_guard_accepts_a_copy_split_over_continuation_lines(self) -> None:
+        # G1: Docker joins `\`-continued lines, so a two-line COPY still ships the directory.
+        tree = self._tree_copy()
+        self._replace_mobile_contracts_copy(tree, "COPY mobile/contracts/ \\\n    ./mobile/contracts/")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_passed(code, output)
+
+    def test_guard_rejects_a_copy_line_swallowed_by_a_run_continuation(self) -> None:
+        # G1: after `RUN true \` the next line is an argument of RUN, not a COPY instruction.
+        tree = self._tree_copy()
+        copy_line = self._mobile_contracts_copy_line(tree)
+        self._replace_mobile_contracts_copy(tree, "RUN true \\\n" + copy_line)
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_failed(code, output, "mobile/contracts")
+
+    def test_guard_rejects_an_absolute_copy_outside_the_runtime_workdir(self) -> None:
+        # G1: an absolute destination under a different WORKDIR is not where readiness looks.
+        tree = self._tree_copy()
+        self._replace_mobile_contracts_copy(
+            tree,
+            "WORKDIR /srv\nCOPY mobile/contracts/ /srv/mobile/contracts/\nWORKDIR /app",
+        )
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_failed(code, output, "mobile/contracts")
+
+    def test_guard_reports_an_os_access_probe_outside_the_image(self) -> None:
+        # G1: os.access gates on a file's presence like a stat does.
+        tree = self._tree_copy()
+        self._write_probe(tree, "runtime_probe/access_only.json")
+        self._inject(tree, RUNTIME_READER, '__import__("os").access("runtime_probe/access_only.json", 4)')
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_failed(code, output, "runtime_probe/access_only.json")
+
+    def test_guard_sees_cached_runtime_reads_after_readiness_already_ran(self) -> None:
+        # G1: in the full suite readiness has usually run before the guard. A runtime read behind
+        # an in-process cache must still be traced (the shape of lru_cache'd contract loaders).
+        tree = self._tree_copy()
+        self._write_probe(tree, "runtime_probe/cached.json")
+        readiness = tree / "server_v2" / "readiness.py"
+        readiness.write_text(
+            readiness.read_text(encoding="utf-8").rstrip("\n")
+            + "\n\n\n"
+            + "@__import__(\"functools\").lru_cache(maxsize=1)\n"
+            + "def _card432_cached_probe() -> str:\n"
+            + '    return Path("runtime_probe/cached.json").read_text(encoding="utf-8")\n',
+            encoding="utf-8",
+        )
+        self._inject(tree, RUNTIME_READER, "_card432_cached_probe()")
+
+        code, output = _run_guard(tree, warm_first=True)
+
+        self._assert_guard_failed(code, output, "runtime_probe/cached.json")
 
 
 if __name__ == "__main__":
