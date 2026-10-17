@@ -28,24 +28,30 @@ class DeploymentManifestTests(unittest.TestCase):
         observed: set[str] = set()
         paths_by_label: dict[str, set[str]] = {}
         active = True
+        recording = False
 
         def record(value: object) -> None:
-            if not active or isinstance(value, int):
+            nonlocal recording
+            if not active or recording or isinstance(value, int):
                 return
+            recording = True
             try:
-                raw = os.fspath(value)
-            except TypeError:
-                return
-            raw = os.fsdecode(raw)
-            absolute = os.path.realpath(raw if os.path.isabs(raw) else os.path.join(os.getcwd(), raw))
-            root_text = os.path.realpath(os.fspath(root))
-            try:
-                relative = os.path.relpath(absolute, root_text)
-            except ValueError:
-                return
-            if relative == os.curdir or relative == os.pardir or relative.startswith(os.pardir + os.sep):
-                return
-            observed.add(Path(relative).as_posix())
+                try:
+                    raw = os.fspath(value)
+                except TypeError:
+                    return
+                raw = os.fsdecode(raw)
+                absolute = os.path.realpath(raw if os.path.isabs(raw) else os.path.join(os.getcwd(), raw))
+                root_text = os.path.realpath(os.fspath(root))
+                try:
+                    relative = os.path.relpath(absolute, root_text)
+                except ValueError:
+                    return
+                if relative == os.curdir or relative == os.pardir or relative.startswith(os.pardir + os.sep):
+                    return
+                observed.add(Path(relative).as_posix())
+            finally:
+                recording = False
 
         # Path.exists/is_file cover checks that only inspect a manifest, while the audit hook and
         # read/open wrappers cover files consumed by imported readiness helpers.
