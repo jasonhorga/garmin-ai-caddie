@@ -96,6 +96,18 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         self.assertEqual(count, 1, f"expected one `def {function}()` in readiness")
         readiness.write_text(text, encoding="utf-8")
 
+    def _inject_statement(self, tree: Path, function: str, statement: str) -> None:
+        # G1: inserts a deliberately chosen filesystem probe into a readiness helper.
+        readiness = tree / "server_v2" / "readiness.py"
+        pattern = re.compile(rf"^def {re.escape(function)}\(\)[^\n]*:\n", re.MULTILINE)
+        text, count = pattern.subn(
+            lambda m: m.group(0) + f"    {statement}\n",
+            readiness.read_text(encoding="utf-8"),
+            count=1,
+        )
+        self.assertEqual(count, 1, f"expected one `def {function}()` in readiness")
+        readiness.write_text(text, encoding="utf-8")
+
     def _assert_guard_failed(self, code: int, output: str, needle: str) -> None:
         # G1: an assertion failure of the single guard test that names the path.
         self.assertNotEqual(code, 0, output)
@@ -222,6 +234,40 @@ class ReadinessImagePathGuardTests(unittest.TestCase):
         code, output = _run_guard(tree)
 
         self._assert_guard_passed(code, output)
+
+    def test_guard_reports_bytes_path_runtime_read(self) -> None:
+        # G1: audit-hook open events may expose bytes paths and must remain attributable.
+        tree = self._tree_copy()
+        self._write_probe(tree, "bytes_probe/extra.json")
+        self._inject_statement(
+            tree,
+            RUNTIME_READER,
+            'open(b"bytes_probe/extra.json", "rb").read()',
+        )
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_failed(code, output, "bytes_probe/extra.json")
+
+    def test_guard_reports_os_path_isfile_runtime_probe(self) -> None:
+        # G1: os.path.isfile delegates to os.stat, which must be traced as a runtime dependency.
+        tree = self._tree_copy()
+        self._write_probe(tree, "stat_probe/extra.json")
+        self._inject_statement(tree, RUNTIME_READER, 'import os; os.path.isfile("stat_probe/extra.json")')
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_failed(code, output, "stat_probe/extra.json")
+
+    def test_guard_reports_pyo_runtime_file(self) -> None:
+        # G1: a runtime .pyo file is not an image-generated cache and must be covered.
+        tree = self._tree_copy()
+        self._write_probe(tree, "pyo_probe/extra.pyo")
+        self._inject_read(tree, RUNTIME_READER, "pyo_probe/extra.pyo")
+
+        code, output = _run_guard(tree)
+
+        self._assert_guard_failed(code, output, "pyo_probe/extra.pyo")
 
 
 if __name__ == "__main__":
