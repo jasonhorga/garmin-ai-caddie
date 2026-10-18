@@ -24,8 +24,9 @@ change needs it: that file builds the root and passes `planLegs` to it. The
 other additions are:
 - the native tests that must change and, if the UI-test fixture needs it,
   `WatchUITestRoot.swift`;
-- `tests/test_mobile_contracts.py`, where three existing contract tests assert
-  the behaviour this card removes (see "Existing contract tests to update").
+- `tests/test_mobile_contracts.py`, a necessary test-only touch: three existing
+  contract tests there assert the behaviour this card removes (see "Existing
+  contract tests to update").
 
 `WatchRoundState.swift` is on the card's line, but this contract needs no
 change there.
@@ -42,30 +43,50 @@ Dependency on #435: none. This contract needs no #435 work. If #435 touches any
 path on the Touches line above, the scheduler orders the two cards; #434 does
 not wait for it.
 
-## Revision (after Codex's implementation c64355fb)
+## Revision 2 (after Codex's implementation 8b3e6d3b)
 
-Codex reported two blockers, and this revision fixes both. The goals and the
-interface are unchanged.
+Codex reported that the published acceptance module was still byte-identical
+to the one with the parser bug: the previous revision's fix did not reach the
+branch. This revision writes the corrected module onto the current base. The
+goals, the interface and every behavioural and pinned assertion are unchanged.
 
-1. **Parser bug.** The acceptance helper `_body` started its bracket depth at 0
-   even when the declaration pattern had already consumed the parameter list's
-   `(`. The `)` then drove the depth negative, so a pattern such as
-   `func\s+example\s*\(` found no body, or an unrelated one. That broke the G2
-   `showsRootRecommendation` check and the G6 native-test checks, including
-   snapshot discovery.
-
-   `_body` now:
-   - counts the brackets the match leaves open;
+1. **Parser fix, in the module itself.** `_body` (the helper that finds a
+   declaration's `{ }` body):
+   - starts from the number of `(` and `[` the pattern match leaves open, so a
+     pattern that consumes the parameter list's `(` (such as
+     `func\s+example\s*\(`) no longer drives the depth negative;
    - returns `None` when a `)`, `]` or `}` closes an enclosing scope before a
-     body opens.
+     body opens;
+   - new: returns `None` when, outside brackets, the next declaration starts
+     (`func`, `var`, `let`, `init`, `struct`, `case`, an access modifier, …)
+     before a body opens, so a bodiless declaration never borrows the next
+     member's body. `async`, `throws`, `rethrows`, `->` types and `where`
+     clauses are skipped as part of the signature.
 
-   A new pinned test, `test_body_is_found_whether_or_not_the_pattern_consumes_the_parenthesis`,
-   checks the parser on inline Swift. The G6 test also asserts that the
-   snapshot test functions are discovered. No assertion was weakened.
-2. **Existing contract tests.** Three tests in `tests/test_mobile_contracts.py`
-   assert behaviour this card removes. That file is now on the Touches line,
-   and Codex updates the three tests exactly as described under "Existing
-   contract tests to update".
+   This makes the G2 `showsRootRecommendation` check, the G6 rule-test lookup,
+   snapshot discovery (`_test_functions`) and the UI-test lookup work.
+2. **Parser self-check, extended.** The pinned test
+   `SwiftBodyParserTests.test_body_is_found_whether_or_not_the_pattern_consumes_the_parenthesis`
+   runs `_body` and `_test_functions` on inline Swift (`PARSER_SAMPLE`,
+   `PARSER_TESTS_SAMPLE`). Each declaration is found with a name-only pattern,
+   a pattern that consumes `(`, and patterns that consume part of the
+   parameter list:
+   - empty arguments: `func example() { … }`;
+   - typed arguments with brackets and a closure default:
+     `func other(_ a: [Int], b: (Int) -> Int = { $0 }) -> Bool { … }`;
+   - typed arguments that throw: `func typed(_ shot: Shot, at index: Int) throws -> Int { … }`;
+   - a multi-line signature with a `")"` string default and `async throws -> [Leg]`;
+   - a bodiless `func bare()` followed by `var tail: Int { 1 }` (no body), and
+     `var tail` itself (found);
+   - test discovery: `testA()`, `testB() throws`,
+     `testC(_ unused: Int = 0) async throws` and `testAB()` are all found, in
+     order, with their own bodies (`testA` never takes `testAB`'s).
+
+   The G6 test still asserts that more than five snapshot test functions are
+   discovered, so a parser failure cannot pass silently.
+3. **`tests/test_mobile_contracts.py`** is recorded on the Touches line as a
+   necessary test-only touch. Codex's update of the three obsolete assertions
+   follows "Existing contract tests to update".
 
 ## How this is tested
 
@@ -272,10 +293,12 @@ workflow is not on the Touches line. It now shows the root without a club tag
    - `drawPreparedPlan` draws no p10/p90;
    - `WatchHoleMapRouteOverlay.resolve` returns measurement first, then current
      shot, then prepared plan.
-9. Pinned parser self-check (G2 and G6 depend on it): `_body` finds a
-   declaration's body whether or not the pattern consumes the `(`. It returns
-   `None` for a declaration without a body, and `_test_functions` discovers
-   every `func test…`.
+9. Pinned parser self-check (G2 and G6 depend on it):
+   - `_body` finds the body of empty-argument, typed-argument, throwing, async
+     and multi-line declarations, whether or not the pattern consumes the `(`;
+   - it returns `None` for a declaration without a body, also when another
+     member follows it;
+   - `_test_functions` discovers every `func test…`, each with its own body.
 
 ### G3 — Tapping the recommended club opens the caddie page, which holds the multi-shot plan
 
@@ -387,12 +410,20 @@ workflow is not on the Touches line. It now shows the root without a club tag
 - No change to the 999 / waiting-for-location state, to Touch Targeting, to
   `drawLightweightMapFacts` (README §8) or to the D02 / S70 review documents.
 
+## Expected results
+
 All 7 non-pinned tests fail on `main`, because the rule, the helper and the
 native tests don't exist there and the root still passes `planLegs`. The 4
 pinned tests pass on `main` and after the change.
 
-The sandbox would not let me run Python for this revision, so these results
-come from tracing the code by hand. I traced the fixed `_body` through
-Codex's reproduction (`func example() { return true }` with
-`func\s+example\s*\(` now returns the body), through the self-check cases, and
-through every declaration the pinned tests read on `main`.
+The sandbox again refused to run Python, so these results come from tracing
+the code by hand:
+- every self-check case through the corrected `_body` and `_test_functions`;
+- every declaration the pinned tests read on `main` (`holeMapView`,
+  `holeMapDetailView`, `currentShotLayout`, `distanceText`, `optionInstrument`,
+  `drawMap`, `drawCurrentShot`, `drawFullPlan`, `drawPreparedPlan`,
+  `centerRangeLabel`, `WatchHoleMapView`, `WatchCurrentShotLayout`,
+  `WatchHoleMapRouteOverlay.resolve`). None of them has a declaration keyword
+  between its name and its body outside brackets.
+
+The gate is the authority.

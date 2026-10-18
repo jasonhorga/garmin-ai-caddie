@@ -46,6 +46,39 @@ PAIRS = {"(": ")", "[": "]", "{": "}"}
 # A line ending like this continues on the next one; a line starting like this continues the last.
 CONTINUES_AFTER = (",", "&&", "||", "(", "=")
 CONTINUES_BEFORE = ("&&", "||", ",", ")", ".")
+# Outside brackets, none of these can follow a signature before its body: the next declaration began.
+DECLARATION_START = re.compile(
+    r"(?:func|var|let|init|deinit|subscript|struct|class|enum|protocol|extension|case|typealias"
+    r"|static|private|fileprivate|internal|public|open|override|mutating|nonmutating)\b"
+)
+
+# Inline Swift for the parser self-check: empty, typed, throwing, async, multi-line and bodiless
+# declarations, a closure default argument and a string holding a bracket.
+PARSER_SAMPLE = """struct S {
+    func example() { return true }
+    func other(_ a: [Int], b: (Int) -> Int = { $0 }) -> Bool {
+        a.isEmpty
+    }
+    func typed(_ shot: Shot, at index: Int) throws -> Int { index }
+    func spread(
+        over legs: [Leg],
+        label: String = ")"
+    ) async throws -> [Leg] {
+        legs
+    }
+    func bare()
+    var tail: Int { 1 }
+}
+"""
+PARSER_TESTS_SAMPLE = """final class T: XCTestCase {
+    func testA() { XCTAssert(true) }
+    func testB() throws {
+        try f("watch-x")
+    }
+    func testC(_ unused: Int = 0) async throws { await g(")") }
+    func testAB() { h() }
+}
+"""
 
 
 # --- Swift source reading -------------------------------------------------------------------------
@@ -197,7 +230,8 @@ def _body(code: str, pattern: str, start: int = 0, end: int | None = None) -> tu
 
     The pattern may stop anywhere in the signature, including just after the parameter list's `(`:
     brackets the match leaves open are counted, so the scan resumes at the right depth. A `)`, `]`
-    or `}` that closes a scope the declaration is inside means the declaration has no body."""
+    or `}` that closes a scope the declaration is inside, or the start of the next declaration,
+    means the declaration has no body."""
     match = re.compile(pattern).search(code, start, len(code) if end is None else end)
     if match is None:
         return None
@@ -207,6 +241,8 @@ def _body(code: str, pattern: str, start: int = 0, end: int | None = None) -> tu
         return None
     for k in range(match.end(), len(code)):
         c = code[k]
+        if depth == 0 and c.isalpha() and not (code[k - 1].isalnum() or code[k - 1] in "_@#.") and DECLARATION_START.match(code, k):
+            return None
         if c in "([":
             depth += 1
         elif c in ")]":
@@ -365,20 +401,39 @@ class SwiftBodyParserTests(unittest.TestCase):
         # pinned: parser self-check on inline Swift; the goal tests below exercise the real sources.
         listing = subprocess.run(GIT_LS_FILES, cwd=REPO_ROOT, capture_output=True, timeout=120, check=False)
         self.assertIn(CONTAINER, _Sources(listing).names)
-        source = "struct S {\n    func example() { return true }\n    func other(_ a: [Int], b: (Int) -> Int = { $0 }) -> Bool {\n        a.isEmpty\n    }\n    func bare()\n}\n"
-        code, _ = _lex(source)
-        for pattern in (r"func\s+example\s*\(", r"func\s+example\b", r"func\s+example\s*\(\s*\)"):
+        code, _ = _lex(PARSER_SAMPLE)
+
+        def body(pattern: str) -> str | None:
             span = _body(code, pattern)
-            self.assertIsNotNone(span, pattern)
-            self.assertEqual(code[span[0] : span[1] + 1], "{ return true }", pattern)
-        for pattern in (r"func\s+other\s*\(", r"func\s+other\b", r"func\s+other\s*\(_\s+a:\s*\["):
-            span = _body(code, pattern)
-            self.assertIsNotNone(span, pattern)
-            self.assertEqual(" ".join(code[span[0] : span[1] + 1].split()), "{ a.isEmpty }", pattern)
-        self.assertIsNone(_body(code, r"func\s+bare\s*\("), "a declaration without a body has none")
-        self.assertIsNone(_body(code, r"func\s+missing\s*\("))
-        names = [name for name, _ in _test_functions(_lex("final class T {\n    func testA() { XCTAssert(true) }\n    func testB() throws {\n        try f(\"watch-x\")\n    }\n}\n")[0])]
-        self.assertEqual(names, ["testA", "testB"])
+            return None if span is None else " ".join(code[span[0] : span[1] + 1].split())
+
+        expected = {
+            "example": "{ return true }",
+            "other": "{ a.isEmpty }",
+            "typed": "{ index }",
+            "spread": "{ legs }",
+        }
+        for name, braces in expected.items():
+            for pattern in (rf"func\s+{name}\s*\(", rf"func\s+{name}\b", rf"\bfunc\s+{name}\s*\(\s*"):
+                self.assertEqual(body(pattern), braces, pattern)
+        self.assertEqual(body(r"func\s+example\s*\(\s*\)"), "{ return true }")
+        self.assertEqual(body(r"func\s+other\s*\(_\s+a:\s*\["), "{ a.isEmpty }")
+        self.assertEqual(body(r"func\s+typed\s*\(_\s+shot:\s*Shot,"), "{ index }")
+        self.assertEqual(body(r"func\s+typed\s*\([^)]*\)\s*throws"), "{ index }")
+        self.assertEqual(body(r"func\s+spread\s*\(\s*over\s+legs:\s*\[Leg\]"), "{ legs }")
+        self.assertIsNone(body(r"func\s+bare\s*\("), "a declaration without a body has none")
+        self.assertIsNone(body(r"func\s+bare\b"), "a declaration without a body has none")
+        self.assertIsNone(body(r"func\s+missing\s*\("))
+        self.assertEqual(body(r"\bvar\s+tail\b"), "{ 1 }")
+
+        tests_code, tests_text = _lex(PARSER_TESTS_SAMPLE)
+        functions = _test_functions(tests_code)
+        self.assertEqual([name for name, _ in functions], ["testA", "testB", "testC", "testAB"])
+        bodies = {name: " ".join(tests_text[s : e + 1].split()) for name, (s, e) in functions}
+        self.assertEqual(bodies["testA"], "{ XCTAssert(true) }")
+        self.assertEqual(bodies["testB"], '{ try f("watch-x") }')
+        self.assertEqual(bodies["testC"], '{ await g(")") }')
+        self.assertEqual(bodies["testAB"], "{ h() }")
 
 
 class WatchRootOneAimLineTests(unittest.TestCase):
