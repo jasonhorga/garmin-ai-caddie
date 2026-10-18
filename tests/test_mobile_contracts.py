@@ -5190,10 +5190,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("WatchScoreFlowStep", score)
         self.assertIn("digitalCrownRotation", score)
         # 本洞 = 方案 / 障碍 / 果岭 vertical pages; the Crown only zooms (1–4×), a drag pans once
-        # zoomed; tap the club tag for the next plan, tap "1 / N" for the next hazard (zoom kept).
+        # zoomed; tap the club tag to open the caddie page (#434, D02), tap "1 / N" for the next
+        # hazard (zoom kept).
         for token in [".tabViewStyle(.verticalPage)", ".watchZoomPan($planViewport", "interactionMode: .measure",
-                      "onOpenCaddie: { cyclePlan(s) }", "measureOriginImagePx: teeImagePoint(s)"]:
+                      "onOpenCaddie: { model.openCaddie() }", "measureOriginImagePx: teeImagePoint(s)"]:
             self.assertIn(token, container)
+        self.assertNotIn("cyclePlan", container)
         zoom = _read_required_source(self, WATCH_DIR / "Views" / "WatchHoleZoom.swift")
         self.assertIn("public static let range: ClosedRange<CGFloat> = 1...4", zoom)
         hazard = _read_required_source(self, WATCH_DIR / "Views" / "WatchHazardMapView.swift")
@@ -5892,7 +5894,9 @@ class WatchHolePagesContractTests(unittest.TestCase):
         self.assertIn("beginManualShot(", propose)
 
     def test_whole_plan_real_outline_and_crown_only_zooms(self) -> None:
-        self.assertIn("let legs = planLegs(s, geometry: geometry)", self.read("Views/WatchRoundContainerView.swift"))
+        container = self.read("Views/WatchRoundContainerView.swift")
+        self.assertNotIn("planLegs(s, geometry: geometry)", container)
+        self.assertNotIn("WatchPlanLegs.resolve(", container)
         hazard = self.read("Views/WatchHazardMapView.swift")
         self.assertIn("WatchHazardMapLayout.outline(hazard)", hazard)
         self.assertNotIn("with: .color(.white.opacity(0.9))", hazard, "no white ring around the edge dots")
@@ -5970,9 +5974,10 @@ class WatchHolePagesContractTests(unittest.TestCase):
         self.assertIn("Self.planNote(caddieOption(s), stateRemainingM: s.caddieOptions.isEmpty ? s.expectedRemainingM : nil)", container)
         self.assertNotIn("originShotIndex", bridge + model + self.read("Models/WatchRoundState.swift"))
 
-    def test_a_current_plan_drives_the_club_tag_and_the_caddie_detail_draws_every_leg(self) -> None:
+    def test_a_real_recommendation_drives_the_club_tag_and_the_caddie_detail_draws_every_leg(self) -> None:
         container = self.read("Views/WatchRoundContainerView.swift")
-        self.assertIn("showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable || !legs.isEmpty", container)
+        self.assertIn("showCaddieRecommendation: showsRootRecommendation(s, geometry: geometry)", container)
+        self.assertNotIn("!legs.isEmpty", container)
         options = self.read("Views/WatchCaddieOptionsView.swift")
         self.assertIn("let legs = mappedGeometry.map { Self.planLegs(for: option, route: route, geometry: $0) } ?? []", options)
         self.assertIn("planLegs: legs", options)
@@ -5980,8 +5985,10 @@ class WatchHolePagesContractTests(unittest.TestCase):
         self.assertIn("points: [geometry.youPx] + legs.map(\\.landing) + [geometry.pinPx]", options)
         self.assertIn("fullMapFocusImagePx: viewport?.focusImage", options)
         ui = (Path("mobile") / "ios" / "AICaddieWatchUITests" / "WatchHolePagesUITests.swift").read_text(encoding="utf-8")
-        self.assertIn("standalone-course-page-plan-after-tee", ui)
-        self.assertIn("tag.tap()", ui)
+        self.assertIn("func testTappingThePlanTagOpensTheCaddiePage", ui)
+        self.assertIn('"watch-plan-club-tag"', ui)
+        self.assertIn('"watch-caddie-instrument"', ui)
+        self.assertNotIn("SwitchesPlans", ui)
 
     def test_the_watch_state_schema_covers_every_field_the_phone_encodes(self) -> None:
         """Strict schema vs the Swift payload: every stored property the phone encodes is declared."""
