@@ -438,8 +438,8 @@ public struct WatchUITestRoot: View {
             } else if screen == "standalone-course-live-home" {
                 model.backToHome()
             } else if screen == "standalone-course-page-plan-after-tee" {
-                // The prepared (offline) plan after the tee shot: the 方案 page must still offer
-                // the next club and switch plans (Codex review on #367).
+                // After leaving the tee, the root needs a live recommendation; prepared plans
+                // remain available in the caddie detail.
                 installStandaloneFixtureRound()
                 ensureStandaloneLastShot()
                 model.backToHome()
@@ -1698,12 +1698,12 @@ public struct WatchUITestRoot: View {
         return WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: 40.0454995, longitude: 116.5461531),
             horizontalAccuracyM: 5,
-            // The hazard page needs a live wrist fix (Codex runtime review on #367: a fixed July
-            // timestamp is stale on any later run and left the page on 等待定位). Stamp it at launch;
-            // the capture lands well inside the 15 s live window.
-            capturedAt: screen == "standalone-course-page-hazard-zoomed"
-                ? Self.launchFixTimestamp
-                : "2026-07-27T00:01:00Z"
+            // D02's club-tag journey needs a qualified wrist fix as well as the prepared tee plan.
+            capturedAt: screen == "standalone-course-page-plan"
+                ? ISO8601DateFormatter().string(from: Date())
+                : (screen == "standalone-course-page-hazard-zoomed"
+                    ? Self.launchFixTimestamp
+                    : "2026-07-27T00:01:00Z")
         )
     }
 

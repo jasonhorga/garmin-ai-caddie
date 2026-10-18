@@ -312,18 +312,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
             .watchSnapshotFrame(width: 198, height: 242),
             named: "watch-hole-page-green-3x"
         )
-        // 方案: the whole plan from the tee — D 224 → 7i 150 → 9i 126 — with landings and labels.
-        let geometry = WatchHoleMapSample.teeGeometry
-        let legs = WatchPlanLegs.resolve(
-            plan: [
-                WatchCaddiePlanStep(clubName: "1W", carryM: 205),
-                WatchCaddiePlanStep(clubName: "7I", carryM: 137),
-                WatchCaddiePlanStep(clubName: "9I", carryM: 115),
-            ],
-            route: route,
-            origin: geometry.youPx
+        // D02: the resting root shows only the prepared first-shot aim, never the full plan.
+        let tee = WatchHoleMapSample.teeGeometry
+        let geometry = WatchHoleMapGeometry(
+            image: tee.image, imageSize: tee.imageSize, youPx: tee.youPx, pinPx: tee.pinPx,
+            layupPx: try XCTUnwrap(WatchHazardMapLayout.imagePoint(on: route, atMetres: 205)),
+            apexPx: try XCTUnwrap(WatchHazardMapLayout.imagePoint(on: route, atMetres: 102.5)),
+            greenCtrlPx: tee.greenCtrlPx
         )
-        XCTAssertEqual(legs.map(\.label), ["D 224", "7i 150", "9i 126"])
         for (name, measured) in [("watch-hole-page-plan", nil), ("watch-hole-page-plan-measure", CGPoint(x: 520, y: 470))] as [(String, CGPoint?)] {
             try render(
                 WatchHoleMapView(
@@ -333,12 +329,13 @@ final class WatchDesignSnapshotTests: XCTestCase {
                     centerGreen: 567,
                     backGreen: 581,
                     lastShot: 0,
+                    showCaddieRecommendation: true,
+                    showPreparedPlan: true,
                     ringPips: [],
                     geometry: geometry,
                     measuredPxOverride: measured,
                     interactionMode: .measure,
-                    measureOriginImagePx: geometry.youPx,
-                    planLegs: legs
+                    measureOriginImagePx: geometry.youPx
                 )
                 .watchSnapshotFrame(width: 198, height: 242),
                 named: name
@@ -1287,6 +1284,103 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
         .watchSnapshotFrame(width: 198, height: 242)   // 45 mm Apple Watch logical size
         try render(view, named: "watch-holemap")
+    }
+
+    @MainActor
+    func testRenderWatchHoleRootAimLine() throws {
+        let geometry = WatchHoleMapSample.geometry
+        let layout = try XCTUnwrap(WatchCurrentShotLayout.resolve(
+            route: [
+                [435.0, 981.0, 0.0],
+                [504.0, 702.0, 200.0],
+                [556.0, 562.0, 303.0],
+                [506.0, 403.0, 419.0],
+                [435.0, 279.0, 518.8],
+            ],
+            playerImagePoint: geometry.youPx,
+            aimCarryM: 205,
+            carryP10M: 188,
+            carryP90M: 220
+        ))
+        let view = WatchHoleMapView(
+            holeNumber: 4, par: 5,
+            frontGreen: 248, centerGreen: 262, backGreen: 274,
+            caddieClub: "3号木",
+            showCaddieRecommendation: true,
+            currentShotLayout: layout,
+            fullMap: false,
+            restingPlayerAnchorFraction: nil,
+            playerMarker: .chevron,
+            lastShotPlacement: .facts,
+            geometry: geometry,
+            interactionMode: .measure
+        )
+        .watchSnapshotFrame(width: 198, height: 242)
+        try render(view, named: "watch-hole-root-aim-line")
+    }
+
+    @MainActor
+    func testRenderWatchContainerRootAimLine() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wsnap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Timestamps are not drawn. Use a current fix so the production rangefinder gate is real.
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        let timestamp = formatter.string(from: now)
+        let model = WatchRoundModel(store: WatchRoundStore(directoryURL: dir), now: { timestamp })
+        let fix = WatchLocationFix(
+            coordinate: CLLocationCoordinate2D(latitude: 40.0, longitude: 116.0),
+            horizontalAccuracyM: 5,
+            capturedAt: timestamp
+        )
+        let holeMap = WatchHoleMap(
+            w: Int(WatchHoleMapSample.imageSize.width), h: Int(WatchHoleMapSample.imageSize.height),
+            you: [504, 702], pin: [435, 279], layup: [506, 403], apex: [556, 562], greenCtrl: [498, 375],
+            route: [
+                [435, 981, 0], [504, 702, 200], [556, 562, 303],
+                [506, 403, 419], [435, 279, 518.8],
+            ]
+        )
+        let recommendation = WatchRootCaddieRecommendation(
+            decisionId: "decision-434", clubName: "3W",
+            aimCarryM: 205, carryP10M: 188, carryP90M: 220,
+            sampleSize: 24, confidence: "high", source: "live", mode: "automatic",
+            generatedAt: timestamp, validUntil: formatter.string(from: now.addingTimeInterval(12)),
+            originLatitude: 40.0, originLongitude: 116.0, originAccuracyM: 5,
+            maximumMovementM: 25, evidenceCount: 2
+        )
+        let state = WatchRoundState(
+            roundId: "root-434", hole: 4, par: 5, distanceM: 240,
+            suggestedClub: "3W", selectedClub: nil,
+            offlineOptionId: "stock", decisionId: "decision-434",
+            frontGreenM: 227, centerGreenM: 240, backGreenM: 251,
+            holeMap: holeMap,
+            caddieOptions: [WatchCaddieOption(
+                optionId: "stock", label: "标准", clubName: "3W",
+                plan: [
+                    WatchCaddiePlanStep(clubName: "3W", carryM: 205),
+                    WatchCaddiePlanStep(clubName: "9I", carryM: 114),
+                ]
+            )],
+            rootCaddieRecommendation: recommendation,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "high"
+        )
+        model.seedRound([state], activeHole: 4, courseName: "测试球场")
+        XCTAssertEqual(model.screen, .home)
+        XCTAssertTrue(model.rootCaddieLayerAvailable(at: fix))
+        XCTAssertTrue(WatchRoundContainerView.rangeFixIsQualified(
+            shotLocation: fix, watchGreenYards: (front: 248, center: 262, back: 274)
+        ))
+        let geometry = try XCTUnwrap(WatchHoleMapGeometry.from(holeMap: holeMap, image: WatchHoleMapSample.image))
+        let view = WatchRoundContainerView(
+            model: model,
+            holeGeometry: geometry,
+            watchGreenYards: (front: 248, center: 262, back: 274),
+            shotLocation: fix
+        )
+        .watchSnapshotFrame(width: 198, height: 242)
+        try render(view, named: "watch-container-root-aim-line")
     }
 
     @MainActor

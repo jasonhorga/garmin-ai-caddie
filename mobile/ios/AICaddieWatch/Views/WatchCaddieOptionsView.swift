@@ -72,6 +72,7 @@ public struct WatchCaddieOptionsView: View {
                 }
         )
         .accessibilityAction(named: Text("返回球洞")) { onBack?() }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("watch-caddie-instrument")
         .ignoresSafeArea()
     }

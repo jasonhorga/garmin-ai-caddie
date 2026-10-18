@@ -150,7 +150,7 @@ enum WatchTouchTargetMagnifierLayout {
     }
 }
 
-/// One leg of the selected caddie plan on the 方案 page (README §3: the AI caddie route with its
+/// One leg of the selected caddie plan on the full-map 球童 page (README §3), with its
 /// landings and "D 224" / "3W 205" labels): where it starts and lands in topo pixels, the route point
 /// that bends it, and its label.
 public struct WatchPlanLeg: Equatable {
@@ -600,7 +600,7 @@ public struct WatchHoleMapView: View {
     /// Offline Tee plan from the downloaded route/landing facts. Unlike a live decision it has no
     /// dispersion, so Hole Root draws only the grounded first shot and its prepared landing target.
     public let showPreparedPlan: Bool
-    /// The whole selected plan (方案 page); empty elsewhere.
+    /// The whole selected plan on a full-map instrument; empty on the resting hole root.
     public let planLegs: [WatchPlanLeg]
     /// Where plan labels may sit (the 球童 detail's rest frame); the content rect when nil.
     public let planLabelBounds: CGRect?
@@ -1150,7 +1150,7 @@ public struct WatchHoleMapView: View {
                 if showTextOverlay, showCaddieRecommendation, showsRootCaddieChip {
                     // Its own high-priority tap, not a Button: on the 本洞 方案 page the map's
                     // simultaneous measure tap and the page's recognizers otherwise take the touch
-                    // and the tag never switches plan.
+                    // and the tag never opens the caddie page.
                     HStack(spacing: 3) {
                         Text(WatchClubDisplay.shortCode(caddieClub))
                             .font(.system(size: 16, weight: .black, design: .rounded))
@@ -1283,6 +1283,10 @@ public struct WatchHoleMapView: View {
         .frame(height: big ? (compact ? 32 : 37) : (compact ? 24 : 28), alignment: .leading)
     }
 
+    /// D02 (#434, S70 parity): the resting hole root draws facts and at most this shot. Routes,
+    /// multi-shot plans, landing labels, leader lines and continuations belong to full maps.
+    static func drawsRouteAndPlan(fullMap: Bool) -> Bool { fullMap }
+
     // MARK: - Canvas drawing
     private func drawMap(_ context: inout GraphicsContext, size: CGSize) {
         context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
@@ -1309,11 +1313,8 @@ public struct WatchHoleMapView: View {
             context.fill(Path(CGRect(origin: .zero, size: size)),
                          with: .color(Color(red: 0.12, green: 0.28, blue: 0.16)))
             drawLightweightMapFacts(&context, transform: a.t, showsHazards: showsHazards)
-        } else {
-            // The topo image is only the factual course art. Keep the tee-to-green route as an
-            // independent vector layer so a hole remains legible when its caddie response is
-            // deferred or empty. This mirrors the phone map and prevents a downloaded bitmap from
-            // looking like a blank hole. Planned/current-shot overlays are layered above it below.
+        } else if Self.drawsRouteAndPlan(fullMap: fullMap) {
+            // Full-map instruments keep the tee-to-green route over the factual course art.
             drawFactualRoute(&context, transform: a.t)
         }
 
@@ -1327,9 +1328,8 @@ public struct WatchHoleMapView: View {
             drawReferenceFacts(&context, size: size, transform: a.t)
         }
 
-        // 方案 page: the whole plan — every leg, landing and label. It stays (dimmed) under a
-        // measurement instead of being replaced by it.
-        let drawsFullPlan = !planLegs.isEmpty
+        // The full-map caddie page keeps every leg, landing and label, dimmed under measurement.
+        let drawsFullPlan = Self.drawsRouteAndPlan(fullMap: fullMap) && !planLegs.isEmpty
         if drawsFullPlan {
             drawFullPlan(&context, size: size, transform: a.t, dimmed: measuredPx != nil)
             // Live dispersion still marks the next shot's measured depth on top of the plan.
@@ -1706,7 +1706,7 @@ public struct WatchHoleMapView: View {
             style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
         )
 
-        if !layout.continuation.isEmpty {
+        if Self.drawsRouteAndPlan(fullMap: fullMap), !layout.continuation.isEmpty {
             var remainingPlan = Path()
             remainingPlan.move(to: target)
             for point in layout.continuation {

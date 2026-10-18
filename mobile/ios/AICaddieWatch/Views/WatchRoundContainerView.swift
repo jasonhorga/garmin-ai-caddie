@@ -168,11 +168,9 @@ public struct WatchRoundContainerView: View {
     /// Map Detail owns the Crown. The resting position keeps the facts column and score ring; turning it
     /// enters the existing full-map presentation and continuously changes the real image transform.
     @State private var holeMapCrownScale: Double
-    /// B6 本洞: 方案 / 障碍 / 果岭 pages, the 方案 page's Crown zoom + pan, and the plan the player
-    /// picked by tapping the club tag (nil = the caddie's).
+    /// B6 本洞: 方案 / 障碍 / 果岭 pages and the 方案 page's Crown zoom + pan.
     @State private var holePage = 0
     @State private var planViewport = WatchHoleViewport()
-    @State private var selectedPlanId: String?
     /// DEBUG compatibility and deep-linking only; production opens the nearest upcoming obstacle.
     private let initialHazardID: String?
 
@@ -648,9 +646,6 @@ public struct WatchRoundContainerView: View {
     // player at that Tee. Away from the Tee, Root requires the stricter fresh live-decision contract.
     private func caddieOption(_ s: WatchRoundState) -> WatchCaddieOption? {
         let options = currentCaddieOptions(s)
-        if let selectedPlanId, let picked = options.first(where: { $0.optionId == selectedPlanId }) {
-            return picked
-        }
         if let optionId = s.offlineOptionId ?? s.strategyMode,
            let selected = options.first(where: { $0.optionId == optionId }) {
             return selected
@@ -738,7 +733,6 @@ public struct WatchRoundContainerView: View {
             : nil
         let preparedRootCaddieLayerAvailable = preparedGeometry != nil
         let renderedGeometry = preparedGeometry ?? geometry
-        let legs = planLegs(s, geometry: geometry)
         WatchHoleMapView(
             holeNumber: s.displayHoleNumber,
             par: s.par,
@@ -750,9 +744,7 @@ public struct WatchRoundContainerView: View {
             lastShot: latestShotDistanceM(s).map(WatchUnits.yards) ?? 0,
             caddieClub: caddieClub(s),
             caddieNote: caddieNote(s),
-            // A non-empty current plan is what shows the club tag (and so the plan switcher); live
-            // dispersion only adds its overlay.
-            showCaddieRecommendation: currentShot != nil || preparedRootCaddieLayerAvailable || !legs.isEmpty,
+            showCaddieRecommendation: showsRootRecommendation(s, geometry: geometry),
             currentShotLayout: currentShot,
             showPreparedPlan: preparedRootCaddieLayerAvailable,
             driverDistanceM: model.playerAtActiveTee(at: shotLocation) ? driverDistanceM(s) : nil,
@@ -782,9 +774,8 @@ public struct WatchRoundContainerView: View {
             userZoom: planViewport.zoom,
             userPan: planViewport.pan,
             measureOriginImagePx: teeImagePoint(s),
-            planLegs: legs,
             caddiePlanName: caddieOption(s)?.label ?? "",
-            onOpenCaddie: { cyclePlan(s) },
+            onOpenCaddie: { model.openCaddie() },
             onOpenMapDetail: {
                 holeMapCrownScale = WatchHoleMapView.restingCrownScale
                 model.openHoleMap()
@@ -833,32 +824,6 @@ public struct WatchRoundContainerView: View {
         case 2: return "果岭"
         default: return "方案"
         }
-    }
-
-    /// Tap the green club tag: the next caddie plan (wrapping).
-    private func cyclePlan(_ s: WatchRoundState) {
-        if let next = Self.nextPlanId(after: caddieOption(s)?.optionId, in: currentCaddieOptions(s).map(\.optionId)) {
-            selectedPlanId = next
-        }
-    }
-
-    /// The plan after `current` (wrapping); nil with fewer than two plans.
-    static func nextPlanId(after current: String?, in ids: [String]) -> String? {
-        guard ids.count > 1 else { return nil }
-        let index = current.flatMap { ids.firstIndex(of: $0) } ?? -1
-        return ids[(index + 1) % ids.count]
-    }
-
-    /// The selected plan as map legs: every remaining shot with its landing and label (README §3).
-    /// Before the tee shot the plan starts at the tee.
-    private func planLegs(_ s: WatchRoundState, geometry: WatchHoleMapGeometry) -> [WatchPlanLeg] {
-        // `caddieOption` is already the remaining plan, re-based on this origin.
-        guard let option = caddieOption(s), let route = s.holeMap?.route else { return [] }
-        return WatchPlanLegs.resolve(
-            plan: option.plan ?? [],
-            route: route,
-            origin: teeImagePoint(s) ?? geometry.youPx
-        )
     }
 
     /// Before the tee shot every range is measured from the tee (README §3).
@@ -1035,6 +1000,13 @@ public struct WatchRoundContainerView: View {
         )
     }
 
+    /// D02: the root recommendation layer (club tag + one aim line) is real and allowed.
+    private func showsRootRecommendation(_ s: WatchRoundState, geometry: WatchHoleMapGeometry) -> Bool {
+        currentShotLayout(for: s, geometry: geometry) != nil
+            || (model.preparedRootCaddieLayerAvailable(at: shotLocation)
+                && preparedRootGeometry(for: s, base: geometry) != nil)
+    }
+
     private func currentShotLayout(
         for state: WatchRoundState,
         geometry: WatchHoleMapGeometry
@@ -1134,7 +1106,7 @@ public struct WatchRoundContainerView: View {
             .contentShape(Rectangle())
             // Zoomed, a 0.5 s press measures on the map, so the menu press waits for the 1× page.
             // Simultaneous, not `.onLongPressGesture`: a parent long-press recognizer swallows the
-            // taps of the buttons inside (the 方案 page's club tag never switched plan).
+            // taps of the buttons inside, including the root's caddie entry.
             .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.6).onEnded { _ in
                     if !planViewport.isZoomed { model.openMenu() }
@@ -1145,7 +1117,6 @@ public struct WatchRoundContainerView: View {
                 holeMapCrownScale = WatchHoleMapView.restingCrownScale
                 holePage = 0
                 planViewport = WatchHoleViewport()
-                selectedPlanId = nil
             }
     }
 
@@ -1157,20 +1128,19 @@ public struct WatchRoundContainerView: View {
         }
     }
 
-    /// The 方案 page's club tag is drawn inside the vertical pager, where its touch never reached
-    /// it (the CI UI test tapped it repeatedly without a plan switch). Like the menu and manual
-    /// shot controls, its tap is taken here, above the pager, over the tag's own frame.
+    /// Take the club tag's tap above the vertical pager, like the menu and manual shot controls.
+    /// Its visibility follows the recommendation layer, including a single available plan.
     @ViewBuilder
     private var planTagTapTarget: some View {
-        if holeGeometry != nil, let s = model.activeHoleState, centerYd(s) != nil,
-           caddieOption(s) != nil, currentCaddieOptions(s).count > 1 {
+        if let geometry = holeGeometry, let s = model.activeHoleState, centerYd(s) != nil,
+           showsRootRecommendation(s, geometry: geometry) {
             GeometryReader { proxy in
                 let frame = WatchHoleMapView.rootCaddieChipFrame(in: proxy.size)
                 Color.clear
                     .contentShape(Rectangle())
                     .frame(width: frame.width, height: frame.height)
                     .position(x: frame.midX, y: frame.midY)
-                    .onTapGesture { cyclePlan(s) }
+                    .onTapGesture { model.openCaddie() }
                     .accessibilityHidden(true)
             }
         }
