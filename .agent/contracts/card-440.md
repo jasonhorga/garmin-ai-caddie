@@ -12,6 +12,25 @@ Touches: `.github/workflows/agenthub-native-mutant.yml`, `.github/scripts/agenth
 Acceptance tests: `tests/acceptance/test_card_440_native_mutant_workflow.py` (8 tests). Codex
 must not edit `tests/acceptance/`.
 
+## Revision 3: tests fixed after the gate's red check
+
+The gate's red check failed on head `b7f0936`; the adversarial check was not reported as failed.
+CI (`backend`, which runs `tests/acceptance`) is green on that head, so the tests pass against the
+implementation. The interface, the goals and the result format are unchanged; **no
+implementation change is needed for this revision.**
+
+- **Cause, as far as I can tell.** I could not read the gate report from the contract sandbox. Four
+  tests (apply failure, build failure, missing simulator, unrecognised result) ran every case
+  inside `self.subTest(...)`. On the base branch they failed only inside those subtests, never
+  in the test function itself, so a per-test check does not count them as failed.
+- **Fix.** Multi-case tests now label each case with a plain context manager (`_case`). A
+  failing case fails the test function itself: on the base branch, and for any mutant the case
+  catches. The checks are the same as before. The difference: a run now stops at the first
+  failing case, where subtests went on to run the remaining cases.
+- **One added check (G4).** One Watch Test Case in the mutant replay has no `nodeIdentifier`. Its
+  id must fall back to `<bundle>/<suite>/<name>` (already in "Result writer" below; until now no
+  test exercised it). Head `b7f0936`'s writer does this.
+
 ## About the agenthub template (revision 2)
 
 The card asks for agenthub's `templates/native-mutant/` at 3b89733, copied and adapted. **Neither
@@ -231,7 +250,9 @@ Linux CI has no Xcode, so the tests replay the single job offline:
     `AICaddieWatchUITests`) are listed as `passed`, with ids `<bundle>/<nodeIdentifier>`. The
     `Device` / `Test Case Run` nodes under a case are not counted.
 13. Mutant: each test gets its status: `Failed` maps to `failed`, `Skipped` to `skipped`, and
-    `Expected Failure` to `passed`.
+    `Expected Failure` to `passed`. A Test Case without `nodeIdentifier`
+    (`WatchDesignSnapshotTests/testTappingATeeStartsTheRoundWithThatTee()`) is listed under the
+    fallback id `AICaddieWatchTests/WatchDesignSnapshotTests/testTappingATeeStartsTheRoundWithThatTee()`.
 14. Cases 8 and 10 cover `build_failed` and failing closed.
 
 ## Not covered by these tests
@@ -250,7 +271,10 @@ Linux CI has no Xcode, so the tests replay the single job offline:
 
 ## Gate notes
 
-- On `main`, every test fails at its first check, because the workflow and the writer do not
-  exist. No test is pinned.
-- I checked the replay by reading it against a reference workflow and writer that follow this
-  contract. I have not run it against an implementation; CI and the gate will be the first run.
+- On `main`, every test fails at its first check, in the test function itself and not in a
+  subtest, because the workflow and the writer do not exist. No test is pinned, and no test uses
+  `subTest`.
+- The revision-2 tests passed in CI's `backend` job on head `b7f0936`. I could not run the
+  revision-3 tests in the contract sandbox (Python was refused). The change is case labelling
+  plus one sample tree without `nodeIdentifier`. I checked both by reading them against the
+  head's writer and workflow.

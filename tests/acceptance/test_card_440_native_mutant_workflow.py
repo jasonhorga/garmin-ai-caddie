@@ -32,6 +32,7 @@ import sys
 import tempfile
 import unittest
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -71,6 +72,16 @@ def _patch(old: str, new: str) -> str:
 def _b64(text: str) -> str:
     # G1 G3: the patch input is base64.
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+
+@contextmanager
+def _case(name: str):
+    # G1 G2 G3 G4: labels one case of a multi-case test. Unlike subTest, a failing case fails the test
+    # function itself, so the gate credits it on the base branch and for every mutant.
+    try:
+        yield
+    except AssertionError as exc:
+        raise AssertionError(f"[{name}] {exc}") from exc
 
 
 MUTANT_PATCH = _b64(_patch(HEAD_MARKER, MUTANT_MARKER))
@@ -200,6 +211,23 @@ def _tree(plan: str, cases: tuple, results: tuple, device: dict) -> dict:
     }
 
 
+def _without_identifier(tree: dict, name: str) -> dict:
+    # G4: a copy of `tree` whose Test Case `name` has no nodeIdentifier; its id falls back to
+    # `<bundle>/<suite>/<name>`, which is the same id as with the identifier.
+    copy = json.loads(json.dumps(tree))
+    stack = list(copy["testNodes"])
+    found = 0
+    while stack:
+        node = stack.pop()
+        if node.get("nodeType") == "Test Case" and node.get("name") == name:
+            node.pop("nodeIdentifier", None)
+            found += 1
+        stack.extend(node.get("children", []))
+    if found != 1:
+        raise AssertionError(f"card #440 sample tree: expected one Test Case {name!r}, found {found}")
+    return copy
+
+
 def _expected(cases: tuple, statuses: tuple) -> dict[str, str]:
     # G4: result.json test ids are `<bundle>/<nodeIdentifier>`.
     return {f"{bundle}/{suite}/{name}": status for (bundle, suite, name), status in zip(cases, statuses, strict=True)}
@@ -210,7 +238,9 @@ WATCH_PASSING = _tree("AICaddieWatch", WATCH_CASES, ("Passed",) * 3, WATCH_DEVIC
 IOS_MUTANT = _tree(
     "AICaddie", IOS_CASES, ("Passed", "Passed", "Failed", "Skipped", "Expected Failure"), IOS_DEVICE
 )
-WATCH_MUTANT = _tree("AICaddieWatch", WATCH_CASES, ("Passed", "Skipped", "Passed"), WATCH_DEVICE)
+WATCH_MUTANT = _without_identifier(
+    _tree("AICaddieWatch", WATCH_CASES, ("Passed", "Skipped", "Passed"), WATCH_DEVICE), WATCH_CASES[1][2]
+)
 WATCH_NO_TESTS = {
     "devices": [WATCH_DEVICE],
     "testNodes": [
@@ -1058,7 +1088,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         for call in runs:
             args = call["args"]
             scheme = _option(args, "-scheme") or ""
-            with self.subTest(scheme=scheme):
+            with _case(f"scheme {scheme}"):
                 self.assertEqual(_option(args, "-project"), PROJECT)
                 self.assertEqual(call["marker"], marker, "the head under test (plus the patch) must be tested")
                 self.assertTrue(_option(args, "-resultBundlePath"), "xcodebuild test needs -resultBundlePath")
@@ -1142,7 +1172,8 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
     def test_failing_native_test_is_reported_and_the_job_stays_green(self) -> None:
         # G2 G3 G4: the patch is applied before generate and test; the iOS run exits 65 with a failed
-        # test, the Watch run still happens, the job stays green and result.json has each status.
+        # test, the Watch run still happens, the job stays green and result.json has each status. One
+        # Watch case has no nodeIdentifier, so its id falls back to <bundle>/<suite>/<name>.
         run = self._replay(patch_b64=MUTANT_PATCH, ios=_scheme(65, tree=IOS_MUTANT), watch=_scheme(0, tree=WATCH_MUTANT))
 
         self.assertFalse(run.job_failed, run.describe())
@@ -1177,7 +1208,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
             "not a patch": _b64("this is not a unified diff\n"),
         }
         for name, patch in cases.items():
-            with self.subTest(name):
+            with _case(name):
                 run = self._replay(patch_b64=patch)
 
                 self.assertFalse(run.job_failed, run.describe())
@@ -1197,7 +1228,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
             "ios left no result bundle": (_scheme(65, bundle=False), PASSING_WATCH),
         }
         for name, (ios, watch) in cases.items():
-            with self.subTest(name):
+            with _case(name):
                 run = self._replay(patch_b64=MUTANT_PATCH, ios=ios, watch=watch)
 
                 self.assertFalse(run.job_failed, run.describe())
@@ -1214,7 +1245,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
             "no Apple Watch Series 10 (46mm)": _without(DEVICES, WATCH_UDID, WATCH_OLD),
         }
         for name, devices in cases.items():
-            with self.subTest(name):
+            with _case(name):
                 run = self._replay(patch_b64="", devices=devices)
 
                 self.assertTrue(run.job_failed, run.describe())
@@ -1235,7 +1266,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
             "missing result": ("Passed", None, "Passed", "Passed", "Passed"),
         }
         for name, results in cases.items():
-            with self.subTest(name):
+            with _case(name):
                 tree = _tree("AICaddie", IOS_CASES, results, IOS_DEVICE)
                 run = self._replay(patch_b64=MUTANT_PATCH, ios=_scheme(65, tree=tree))
 
