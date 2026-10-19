@@ -88,6 +88,47 @@ goals, the interface and every behavioural and pinned assertion are unchanged.
    necessary test-only touch. Codex's update of the three obsolete assertions
    follows "Existing contract tests to update".
 
+## Revision 3 (after the adversarial gate on 42b4f19)
+
+The gate's adversarial check failed on head `42b4f19`. Its report was not
+available to this contract job, so this revision closes every weak spot found by
+reading the acceptance module against the interface. In each of them, a change
+that breaks D02 could still have passed. The goals, the interface, the test
+count (11, 4 `# pinned`) and the pinned tests are unchanged. By hand tracing,
+the implementation on `42b4f19` already meets every stricter condition. No
+Swift change is expected from this revision.
+
+1. **Gates cannot be bypassed** (G1).
+   - A condition counts as gated only when it contains no `||`.
+   - The rule may not be compared (`== false`, `!=`) or used in a ternary.
+   - A rule-bound local may not be compared either.
+   - A `guard` counts only at the top level of the function body, not inside a
+     nested block.
+2. **No drawing moves elsewhere** (G1). Every `drawFullPlan(` and
+   `drawFactualRoute(` call in `WatchHoleMapView.swift` must sit in `drawMap`
+   and be gated. The other way to pass is for the callee to start with
+   `guard Self.drawsRouteAndPlan(fullMap: fullMap) else { return }`.
+   `drawMap` and `drawCurrentShot` must not shadow `fullMap`.
+3. **The root's arguments are exact** (G2, G3).
+   - `showCaddieRecommendation:` is exactly
+     `showsRootRecommendation(s, geometry: geometry)`.
+   - `onOpenCaddie:` is exactly `{ model.openCaddie() }`.
+4. **The helper is the two gates and nothing else** (G2).
+   `showsRootRecommendation` contains:
+   - `currentShotLayout(for: s, geometry: geometry) != nil`;
+   - `model.preparedRootCaddieLayerAvailable(at: shotLocation)`;
+   - `preparedRootGeometry(for: s, base: geometry) != nil`;
+   - exactly one `||` and at least one `&&`.
+
+   It contains no `true`, no prefix `!`, and no `caddieOption`, `.plan`,
+   `optionId`, `.count` or legs.
+5. **The tap target only opens the caddie page** (G3). In `planTagTapTarget`:
+   - the condition calls `showsRootRecommendation(s, geometry: geometry)`, with
+     no `||` and no options or count;
+   - its only `.onTapGesture` closure is exactly `model.openCaddie()`.
+
+   `selectedPlanId` is gone from the container.
+
 ## How this is tested
 
 The Watch app runs only on macOS. These acceptance tests run on Linux in the
@@ -260,11 +301,14 @@ workflow is not on the Touches line. It now shows the root without a club tag
      `WatchHoleMapView`;
    - has the body `fullMap`;
    - every call in `WatchHoleMapView.swift` passes exactly `fullMap: fullMap`.
-2. In `drawMap`, each `drawFullPlan(` call is gated by the rule, either at the
-   call site or by a guard inside `drawFullPlan`, and at least one call exists.
-3. In `drawMap`, `drawFactualRoute` is either removed entirely, or each call is
-   gated by the rule in the same way.
+2. Every `drawFullPlan(` call in the file is gated by the rule. That means
+   either a guard at the top level of `drawFullPlan`, or a call inside
+   `drawMap` under a condition (or top-level guard) that uses the rule, with no
+   `||`, negation or comparison. At least one call exists in `drawMap`.
+3. `drawFactualRoute` is either removed entirely, or each call is gated by the
+   rule in the same way.
 4. In `drawCurrentShot`, every `layout.continuation` use is gated by the rule.
+   Neither `drawMap` nor `drawCurrentShot` shadows `fullMap`.
 5. The root `WatchHoleMapView(` call in `holeMapView`:
    - has no `planLegs` argument;
    - has `fullMap: false`;
@@ -277,12 +321,13 @@ workflow is not on the Touches line. It now shows the root without a club tag
 
 7. `showsRootRecommendation(_:geometry:)`:
    - exists in the container;
-   - reads `currentShotLayout(` and `preparedRootCaddieLayerAvailable`;
-   - never reads plan legs, `caddieOptions` or `.count`.
+   - is `currentShotLayout(for: s, geometry: geometry) != nil || (model.preparedRootCaddieLayerAvailable(at: shotLocation) && preparedRootGeometry(for: s, base: geometry) != nil)`
+     (exactly one `||`, at least one `&&`);
+   - never reads plan legs, `caddieOption(s)`, `caddieOptions`, `.plan`,
+     `optionId` or `.count`, and has no `true` or prefix `!`.
 
-   The root call passes
-   `showCaddieRecommendation: showsRootRecommendation(...)`, which does not
-   depend on legs.
+   The root call passes exactly
+   `showCaddieRecommendation: showsRootRecommendation(s, geometry: geometry)`.
 8. Pinned (unchanged behaviour):
    - `WatchCurrentShotLayout` holds exactly `player`, `target`, `carryP10`,
      `carryP90` and `continuation`, and still requires
@@ -303,10 +348,12 @@ workflow is not on the Touches line. It now shows the root without a club tag
 ### G3 — Tapping the recommended club opens the caddie page, which holds the multi-shot plan
 
 10. On the root:
-    - `onOpenCaddie` calls `model.openCaddie()`;
-    - `planTagTapTarget` is gated by `showsRootRecommendation(` and calls
-      `model.openCaddie()`, with no `count > 1`;
-    - `cyclePlan` no longer exists in the container.
+    - `onOpenCaddie` is exactly `{ model.openCaddie() }`;
+    - `planTagTapTarget` is gated by
+      `showsRootRecommendation(s, geometry: geometry)`, with no `||`, no
+      `count > 1` and no options lookup. Its only `.onTapGesture` closure is
+      `model.openCaddie()`;
+    - `cyclePlan` and `selectedPlanId` no longer exist in the container.
 11. Pinned:
     - the caddie page's `WatchHoleMapView(` call passes `planLegs: legs`,
       `fullMap: true` and `showCaddieRecommendation: true`;
