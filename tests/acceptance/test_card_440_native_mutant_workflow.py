@@ -55,6 +55,8 @@ MAIN_MARKER = 'let agenthubMarker = "main"'
 MUTANT_MARKER = 'let agenthubMarker = "mutant"'
 CONTEXT = "mobile/ios/AICaddie/AgenthubContext.swift"
 CONTEXT_LINES = ("let agenthubFirst = 1", "let agenthubSecond = 2", "let agenthubThird = 3")
+WIDE_CONTEXT = "mobile/ios/AICaddie/AgenthubWideContext.swift"
+WIDE_CONTEXT_LINES = tuple(f"let agenthubWide{index} = {index}" for index in range(1, 8))
 SPEC = "mobile/ios/project.yml"
 SPEC_TEXT = "name: AICaddieNative"
 BROKEN_SPEC = "card440-broken-spec"
@@ -114,6 +116,31 @@ WHITESPACE_CONTEXT_PATCH = _b64(
         f" {CONTEXT_LINES[2]}",
     )
 )
+# Three lines of context on each side, as `git diff` writes them; only the outermost line on each side is
+# stale. `git apply` refuses it; `git apply -C1` / `-C2`, or `patch` with its default fuzz, drop the outer
+# lines and apply it.
+WIDE_CONTEXT_PATCH = _b64(
+    _diff(
+        WIDE_CONTEXT,
+        "@@ -1,7 +1,7 @@",
+        " let agenthubWide1 = 10",
+        f" {WIDE_CONTEXT_LINES[1]}",
+        f" {WIDE_CONTEXT_LINES[2]}",
+        f"-{WIDE_CONTEXT_LINES[3]}",
+        "+let agenthubWide4 = 40",
+        f" {WIDE_CONTEXT_LINES[4]}",
+        f" {WIDE_CONTEXT_LINES[5]}",
+        " let agenthubWide7 = 70",
+    )
+)
+# A valid mutant patch with one stray `*`, which is outside the base64 alphabet. Strict decoding refuses
+# it; lenient decoding (`base64.b64decode` without `validate=True`, `base64 --decode --ignore-garbage`)
+# drops the `*` and applies the patch.
+STRAY_CHARACTER_PATCH = MUTANT_PATCH[:8] + "*" + MUTANT_PATCH[8:]
+# A mutant line that ends in two spaces, a whitespace error to git. `git apply` applies it as written;
+# `--whitespace=error` / `error-all` refuse it and `--whitespace=fix` strips the spaces.
+TRAILING_SPACE_MARKER = MUTANT_MARKER + "  "
+TRAILING_SPACE_PATCH = _b64(_patch(HEAD_MARKER, TRAILING_SPACE_MARKER))
 # Applies cleanly, but the patched project spec does not generate: a build failure of the mutant.
 BROKEN_SPEC_PATCH = _b64(_diff(SPEC, "@@ -1 +1 @@", f"-{SPEC_TEXT}", f"+{SPEC_TEXT} # {BROKEN_SPEC}"))
 # A mutant that also adds a writer to the head under test, one that only fails. The verdict must still
@@ -363,6 +390,11 @@ def marker():
     return path.read_text(encoding="utf-8").strip() if path.is_file() else None
 
 
+def raw_marker():
+    path = Path.cwd() / CONFIG["marker"]
+    return path.read_text(encoding="utf-8") if path.is_file() else None
+
+
 def log(tool, args, **extra):
     entry = {"tool": tool, "args": args, "cwd": os.getcwd(), **extra}
     with (STATE / "calls.jsonl").open("a", encoding="utf-8") as handle:
@@ -430,7 +462,7 @@ def xcrun(args):
 
 
 def xcodebuild(args):
-    log("xcodebuild", args, marker=marker())
+    log("xcodebuild", args, marker=marker(), raw_marker=raw_marker())
     if "test-without-building" in args:
         print("card440 fake xcodebuild: run `xcodebuild test` (contract)", file=sys.stderr)
         return 64
@@ -510,17 +542,6 @@ def _destination(value: str | None) -> dict[str, str]:
         key, _, item = part.partition("=")
         fields[key.strip()] = item.strip()
     return fields
-
-
-def _skip_testing(args: list[str]) -> list[str]:
-    # G2: every -skip-testing target in a command line.
-    targets = []
-    for index, arg in enumerate(args):
-        if arg == "-skip-testing" and index + 1 < len(args):
-            targets.append(args[index + 1])
-        elif arg.startswith("-skip-testing:"):
-            targets.append(arg.split(":", 1)[1])
-    return targets
 
 
 def _text(value: object) -> str:
@@ -1075,6 +1096,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         (seed / MARKER).parent.mkdir(parents=True)
         (seed / MARKER).write_text(HEAD_MARKER + "\n", encoding="utf-8")
         (seed / CONTEXT).write_text("".join(f"{line}\n" for line in CONTEXT_LINES), encoding="utf-8")
+        (seed / WIDE_CONTEXT).write_text("".join(f"{line}\n" for line in WIDE_CONTEXT_LINES), encoding="utf-8")
         (seed / SPEC).write_text(SPEC_TEXT + "\n", encoding="utf-8")
         scripts = seed / ".github" / "scripts"
         scripts.mkdir(parents=True)
@@ -1175,7 +1197,8 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
     def _check_scheme_runs(self, run: _Outcome, marker: str) -> None:
         # G2: one `xcodebuild test` per scheme, on the generated project, on the resolved simulator by
-        # UDID, after the patch, each with its own result bundle, and never the AICaddieUITests target.
+        # UDID, after the patch, each with its own result bundle and its whole test action (nothing
+        # skipped, AICaddieWatchUITests included), and never the AICaddieUITests target.
         for call in run.calls:
             self.assertFalse([arg for arg in call["args"] if "AICaddieUITests" in arg], call)
         runs = run.scheme_runs()
@@ -1199,7 +1222,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                 self.assertTrue(_option(args, "-resultBundlePath"), "xcodebuild test needs -resultBundlePath")
                 narrowing = (
                     "-only-test",
-                    "-skip-test-configuration",
+                    "-skip-test",
                     "-testPlan",
                     "-test-iterations",
                     "-retry-tests-on-failure",
@@ -1207,16 +1230,11 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                 )
                 self.assertFalse(
                     [arg for arg in args if arg.startswith(narrowing)],
-                    "run each scheme's whole test action once (no -only-testing, test configuration, -testPlan, "
-                    f"retries or iterations): {args}",
+                    "run each scheme's whole test action once (no -only-testing, -skip-testing, test configuration, "
+                    f"-testPlan, retries or iterations; AICaddieWatchUITests runs too): {args}",
                 )
                 destinations = [arg for arg in args if arg == "-destination" or arg.startswith("-destination=")]
                 self.assertEqual(len(destinations), 1, f"exactly one -destination per scheme: {args}")
-                for target in _skip_testing(args):
-                    self.assertTrue(
-                        scheme == "AICaddieWatch" and target.split("/")[0] == "AICaddieWatchUITests",
-                        f"only AICaddieWatchUITests may be skipped: {args}",
-                    )
                 self.assertEqual(
                     _destination(_option(args, "-destination")),
                     {"platform": expected[scheme][0], "id": expected[scheme][1]},
@@ -1227,9 +1245,9 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
     def test_workflow_is_dispatch_only_read_only_and_named_by_request_id(self) -> None:
         # G1: trigger, permissions, run-name, inputs (the patch optional), single job on native-mobile's
-        # runner image without a concurrency group, values reach the shell through env, no secrets,
-        # checkouts keep no credentials, the writer is the one in .github/scripts, and one upload step
-        # names the artifact `agenthub-native-result` literally.
+        # runner image with a bounded timeout and without a concurrency group, values reach the shell
+        # through env, no secrets, checkouts keep no credentials, the writer is the one in .github/scripts,
+        # and one upload step names the artifact `agenthub-native-result` literally.
         workflow = self._workflow()
         text = WORKFLOW.read_text(encoding="utf-8")
         triggers = workflow.get("on", workflow.get(True))
@@ -1252,7 +1270,13 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         self.assertEqual(job.get("runs-on"), native_runner)
         self.assertNotIn("if", job)
         self.assertNotIn("continue-on-error", job)
-        self.assertNotIn("concurrency", workflow, "one run per mutant: a concurrency group cancels pending runs")
+        timeout = job.get("timeout-minutes")
+        self.assertTrue(
+            type(timeout) is int and 30 <= timeout <= 120,
+            f"the job's timeout-minutes must be a number from 30 to 120, not {timeout!r}: a hung simulator must "
+            "not hold a macOS runner for GitHub's six-hour default",
+        )
+        self.assertNotIn("concurrency", workflow,"one run per mutant: a concurrency group cancels pending runs")
         self.assertNotIn("concurrency", job, "one run per mutant: a concurrency group cancels pending runs")
         self.assertNotIn("secrets.", text)
         self.assertNotIn("AICaddieUITests", text)
@@ -1339,22 +1363,45 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         self.assertEqual(result.get("status"), "tested")
         self.assertEqual(self._statuses(result), BASELINE_STATUSES)
 
+    # G2 G3 — the patch is applied as written
+
+    def test_patch_with_a_whitespace_error_is_applied_as_written(self) -> None:
+        # G2 G3: the mutant line ends in two spaces. The patch is neither refused (`git apply
+        # --whitespace=error`) nor rewritten (`--whitespace=fix`): both schemes test the head with the line
+        # exactly as the patch wrote it, and the run is judged (`tested`), not apply_failed.
+        run = self._replay(patch_b64=TRAILING_SPACE_PATCH)
+
+        self.assertFalse(run.job_failed, run.describe())
+        self._check_scheme_runs(run, MUTANT_MARKER)
+        for call in run.scheme_runs():
+            self.assertEqual(call["raw_marker"], TRAILING_SPACE_MARKER + "\n", "apply the patch byte for byte")
+        result = self._result(run)
+        self.assertEqual(result.get("status"), "tested")
+        self.assertEqual(self._statuses(result), BASELINE_STATUSES)
+
     # G3 — apply and build failures are verdicts too
 
     def test_patch_that_does_not_apply_is_reported_as_apply_failed(self) -> None:
         # G1 G3: a patch whose changed line or surrounding context does not match the head (also by
-        # whitespace alone), input that is not base64, or is not a patch: no native test runs, the job
-        # stays green, result.json says apply_failed with no tests.
+        # whitespace alone, or only in the outer lines of git diff's three lines of context), input that is
+        # not base64 (also a single stray character in a valid patch), or is not a patch: no native test
+        # runs, the job stays green, result.json says apply_failed with no tests. The runner's state does not
+        # change that: after a failed apply nothing looks up a simulator or installs XcodeGen, so a missing
+        # simulator or a failing `brew` neither turns the job red nor withholds the verdict.
         cases = {
-            "stale changed line": STALE_PATCH,
-            "stale surrounding context": STALE_CONTEXT_PATCH,
-            "surrounding context differs only in whitespace": WHITESPACE_CONTEXT_PATCH,
-            "not base64": "not base64!",
-            "not a patch": _b64("this is not a unified diff\n"),
+            "stale changed line": (STALE_PATCH, {}),
+            "stale surrounding context": (STALE_CONTEXT_PATCH, {}),
+            "surrounding context differs only in whitespace": (WHITESPACE_CONTEXT_PATCH, {}),
+            "only the outer lines of three-line context are stale": (WIDE_CONTEXT_PATCH, {}),
+            "not base64": ("not base64!", {}),
+            "a valid patch with one character outside the base64 alphabet": (STRAY_CHARACTER_PATCH, {}),
+            "not a patch": (_b64("this is not a unified diff\n"), {}),
+            "stale patch, and no available iPhone 16": (STALE_PATCH, {"devices": _without_available(DEVICES, IPHONE)}),
+            "stale patch, and XcodeGen cannot be installed": (STALE_PATCH, {"fail": ("brew",)}),
         }
-        for name, patch in cases.items():
+        for name, (patch, options) in cases.items():
             with _case(name):
-                run = self._replay(patch_b64=patch)
+                run = self._replay(patch_b64=patch, **options)
 
                 self.assertFalse(run.job_failed, run.describe())
                 self.assertEqual(run.scheme_runs(), [], run.describe())
