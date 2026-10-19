@@ -11,6 +11,42 @@ import AICaddieDomain
 /// `Documents/watch-snapshots/*.png` after the Watch test. (Only real GPS / HealthKit / motion need a
 /// physical watch — the UI/scoring layout is fully reviewable here.)
 final class WatchDesignSnapshotTests: XCTestCase {
+    @MainActor
+    func testRoundSetupListsTheDefaultTeeFirstAndHighlighted() {
+        let tees = [
+            WatchCourseTee(teeBox: "Blue", name: "Blue", yards: 3200, holeCount: 9, isDefault: false),
+            WatchCourseTee(teeBox: "White", name: "White", yards: 3000, holeCount: 9, isDefault: false),
+            WatchCourseTee(teeBox: "Red", name: "Red", yards: 2800, holeCount: 9, isDefault: false),
+        ]
+        XCTAssertEqual(WatchRoundSetupView.orderedTeeChoices(tees, preselected: "white").map(\.id), ["tee:white", "tee:blue", "tee:red"])
+        XCTAssertEqual(WatchRoundSetupView.orderedTeeChoices(tees, preselected: "white").map(\.isSelected), [true, false, false])
+        let defaultRed = tees.map { $0.teeBox == "Red" ? WatchCourseTee(teeBox: $0.teeBox, name: $0.name, yards: $0.yards, holeCount: $0.holeCount, isDefault: true) : $0 }
+        XCTAssertEqual(WatchRoundSetupView.orderedTeeChoices(defaultRed, preselected: "unknown").first?.id, "tee:red")
+        XCTAssertEqual(WatchRoundSetupView.orderedTeeChoices([], preselected: "unknown"), [])
+    }
+
+    @MainActor
+    func testTeeTapSelectionCarriesTheChosenLoopHalfAndTee() {
+        let nine = WatchCourseOption(globalId: 301, name: "黑骑士 ~ A", holes: 9, teeBox: "White", venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9, tees: ["Blue", "White"])
+        let nineSetup = WatchRoundSetupView(front: nine, courses: [nine], ensureGeometry: true)
+        let nineSelection = nineSetup.startSelection(teeBox: "Red")
+        XCTAssertEqual(nineSelection.teeBox, "Red")
+        XCTAssertEqual(nineSelection.loopKey, "301:all")
+        XCTAssertNil(nineSelection.firstHalf)
+        let eighteen = WatchCourseOption(globalId: 31795, name: "黑骑士", holes: 18, teeBox: "White", venueName: "黑骑士", segmentHoles: 18, tees: ["Blue", "White"])
+        let eighteenSetup = WatchRoundSetupView(front: eighteen, courses: [eighteen], ensureGeometry: true)
+        let eighteenSelection = eighteenSetup.startSelection(teeBox: "Blue")
+        XCTAssertEqual(eighteenSelection.firstHalf, "front")
+        XCTAssertEqual(eighteenSelection.loopKey, "31795:front")
+    }
+
+    @MainActor
+    func testRenderWatchCourseSetupTees() throws {
+        let front = WatchCourseOption(globalId: 301, name: "黑骑士 ~ A", holes: 9, teeBox: "White", venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9, tees: ["Blue", "White", "Red"])
+        let setup = WatchRoundSetupView(front: front, courses: [front])
+        XCTAssertEqual(setup.teeChoices.map(\.id), ["tee:white", "tee:blue", "tee:red"])
+        try render(setup.teeSelectionContent.watchSnapshotFrame(width: 198, height: 242), named: "watch-course-setup-tees")
+    }
     func testWatchClubDisplayNamesMatchApprovedChineseCopy() {
         XCTAssertEqual(WatchClubDisplay.name("1W"), "一号木")
         XCTAssertEqual(WatchClubDisplay.name("3W"), "三号木")
@@ -889,7 +925,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
         XCTAssertEqual(cached.availabilityText, "已有离线版本")
         XCTAssertEqual(cached.availabilityDetail, "更换洞组或发球台时需要联网更新")
-        XCTAssertEqual(cached.startActionLabel, "开始")
 
         let firstDownload = WatchRoundSetupView(
             front: front,
@@ -898,7 +933,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
         XCTAssertEqual(firstDownload.availabilityText, "可立即开局")
         XCTAssertEqual(firstDownload.availabilityDetail, "球场与地图后台补齐")
-        XCTAssertEqual(firstDownload.startActionLabel, "立即开始")
     }
 
     /// B4b-2 §7 (owner P1): a normal 18-hole row from `/api/v2/mobile/courses/options` — the CI
@@ -930,7 +964,6 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(view.startSelection.loopKey, "31795:front")
         XCTAssertEqual(view.startSelection.loopsQuery, "31795:front")
         XCTAssertEqual(view.startSelection.holeCount, 9)
-        XCTAssertEqual(view.startActionLabel, "从 前九 开始 · 蓝 T")
         XCTAssertEqual(
             WatchRoundSetupView.halfStartTitle(globalId: 31795, half: "back", teeName: "蓝 T"),
             "从 后九 开始 · 蓝 T"

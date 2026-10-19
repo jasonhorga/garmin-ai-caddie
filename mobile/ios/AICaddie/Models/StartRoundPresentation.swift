@@ -26,6 +26,50 @@ struct StartCourseListRow: Equatable, Identifiable {
 /// Pure copy and list rules for 开始一场 and the home hero, kept out of the views so they are
 /// unit-testable without a SwiftUI host.
 enum StartRoundPresentation {
+    static func preselectedLoop(
+        in row: StartCourseListRow,
+        current: MobileCourseOption?,
+        recent: MobileCourseOption?
+    ) -> MobileCourseOption? {
+        guard !row.segments.isEmpty else { return nil }
+        if let current, row.segments.contains(where: { StartRoundView.samePhysicalVenue(current, $0) }) {
+            return row.segments.first(where: { $0.globalId == current.globalId }) ?? current
+        }
+        if let recent, let match = row.segments.first(where: { $0.globalId == recent.globalId }) {
+            return match
+        }
+        return row.segments.first
+    }
+
+    static func preselectedTee(
+        lastUsed: [String?],
+        offered: [String],
+        defaultTee: String?
+    ) -> String {
+        func known(_ value: String?) -> String? {
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed.caseInsensitiveCompare("unknown") != .orderedSame else {
+                return nil
+            }
+            return trimmed
+        }
+        for value in lastUsed.compactMap(known) {
+            if offered.isEmpty { return value }
+            if let match = offered.first(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
+                return match
+            }
+        }
+        if let value = known(defaultTee) {
+            if offered.isEmpty { return value }
+            if let match = offered.first(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
+                return match
+            }
+        }
+        return offered.first(where: { ["blue", "white"].contains($0.lowercased()) })
+            ?? offered.first
+            ?? ""
+    }
     /// Merge every course source into one list without duplicate venues. Order: nearby (already
     /// distance-sorted by the caller), then search, recent, downloaded.
     static func mergedCourseRows(

@@ -1971,6 +1971,10 @@ final class RealFlowUITests: XCTestCase {
         if scrollTo(row, maxSwipes: 24) {
             row.tap()
             settle(1)
+            XCTAssertTrue(
+                app.descendants(matching: .any)["start-round-setup-page"].waitForExistence(timeout: 8),
+                "tapping a venue opens the loop and tee setup page"
+            )
         }
         if scrollTo(tile, maxSwipes: 8), tile.value as? String != "已选择" {
             tile.tap()

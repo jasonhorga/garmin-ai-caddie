@@ -88,6 +88,41 @@ def _assert_json_schema_rejects(testcase: unittest.TestCase, schema: dict[str, o
 
 
 class MobileContractTests(unittest.TestCase):
+    def test_ios_start_round_has_course_and_setup_pages(self) -> None:
+        source = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
+        presentation = _read_required_source(self, IOS_DIR / "Models" / "StartRoundPresentation.swift")
+        self.assertIn("enum Page", source)
+        self.assertIn("case course", source)
+        self.assertIn("case setup", source)
+        self.assertIn("initialPage: Page? = nil", source)
+        self.assertIn("static func openingPage(initialPage: Page?, defaultCourseGlobalId: Int?) -> Page", source)
+        self.assertIn("private var coursePage: some View", source)
+        self.assertIn("private var setupPage: some View", source)
+        self.assertIn('"start-round-course-page"', source)
+        self.assertIn('"start-round-setup-page"', source)
+        self.assertIn('"start-round-pinned-actions"', source)
+        self.assertIn("private func showSetupPage()", source)
+        self.assertIn("StartRoundPresentation.preselectedLoop(", source)
+        self.assertIn("StartRoundPresentation.preselectedTee(", source)
+        self.assertIn("private func selectCourseRow", source)
+        self.assertIn("private func selectSearchResult", source)
+        self.assertIn("static func preselectedLoop(", presentation)
+        self.assertIn("static func preselectedTee(", presentation)
+
+    def test_watch_round_setup_tee_tap_starts_round(self) -> None:
+        source = _read_required_source(self, WATCH_DIR / "Views" / "WatchRoundSetupView.swift")
+        self.assertNotIn("watch-setup-start", source)
+        self.assertNotIn("var startAction", source)
+        self.assertIn("func start(teeBox: String)", source)
+        self.assertIn("onStart(startSelection(teeBox: teeBox))", source)
+        self.assertIn("func startSelection(teeBox: String)", source)
+        self.assertIn("static func orderedTeeChoices(", source)
+        self.assertIn("var teeSelectionContent: some View", source)
+        self.assertIn("start(teeBox:", source)
+        self.assertIn('"watch-setup-tee-default"', source)
+        self.assertIn(".disabled(isPreparing || didSubmitStart)", source)
+        self.assertIn('"watch-setup-half-', source)
+
     def test_user_facing_course_copy_never_uses_curriculum_wording(self) -> None:
         """Golf-course UI says 球场; internal `course` identifiers stay unchanged."""
         source_paths = [

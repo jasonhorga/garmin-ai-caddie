@@ -955,6 +955,10 @@ final class TeeSelectionUITests: XCTestCase {
         let row = app.buttons["start-round-venue-\(globalId)"]
         if row.waitForExistence(timeout: timeout), row.isHittable {
             row.tap()
+            XCTAssertTrue(
+                app.descendants(matching: .any)["start-round-setup-page"].waitForExistence(timeout: 8),
+                "tapping a venue opens the loop and tee setup page"
+            )
         }
         if tile.waitForExistence(timeout: 8), tile.value as? String != "已选择", tile.isHittable {
             tile.tap()
