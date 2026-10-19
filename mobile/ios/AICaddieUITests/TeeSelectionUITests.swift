@@ -647,6 +647,10 @@ final class TeeSelectionUITests: XCTestCase {
         )
         save("nearby-pending-01-downloaded-usable"); dump("nearby-pending-01-downloaded-usable")
         waitingRow.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8),
+            "tapping the downloaded venue opens the loop and tee setup page"
+        )
         XCTAssertTrue(waitForValue("已选择", on: waitingRow, timeout: 5))
         let pendingStart = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
@@ -955,6 +959,10 @@ final class TeeSelectionUITests: XCTestCase {
         let row = app.buttons["start-round-venue-\(globalId)"]
         if row.waitForExistence(timeout: timeout), row.isHittable {
             row.tap()
+            XCTAssertTrue(
+                app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8),
+                "tapping a venue opens the loop and tee setup page"
+            )
         }
         if tile.waitForExistence(timeout: 8), tile.value as? String != "已选择", tile.isHittable {
             tile.tap()
