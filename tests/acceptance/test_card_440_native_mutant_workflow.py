@@ -102,6 +102,18 @@ STALE_CONTEXT_PATCH = _b64(
         " let agenthubThird = 30",
     )
 )
+# The context matches the head except for a trailing space. `git apply` refuses it; `--whitespace=fix`,
+# `--ignore-whitespace` or `--ignore-space-change` would apply it.
+WHITESPACE_CONTEXT_PATCH = _b64(
+    _diff(
+        CONTEXT,
+        "@@ -1,3 +1,3 @@",
+        f" {CONTEXT_LINES[0]} ",
+        f"-{CONTEXT_LINES[1]}",
+        "+let agenthubSecond = 20",
+        f" {CONTEXT_LINES[2]}",
+    )
+)
 # Applies cleanly, but the patched project spec does not generate: a build failure of the mutant.
 BROKEN_SPEC_PATCH = _b64(_diff(SPEC, "@@ -1 +1 @@", f"-{SPEC_TEXT}", f"+{SPEC_TEXT} # {BROKEN_SPEC}"))
 # A mutant that also adds a writer to the head under test, one that only fails. The verdict must still
@@ -264,7 +276,7 @@ def _tree(plan: str, cases: tuple, results: tuple, device: dict) -> dict:
 
 def _without_identifier(tree: dict, name: str) -> dict:
     # G4: a copy of `tree` whose Test Case `name` has no nodeIdentifier; its id falls back to
-    # `<bundle>/<suite>/<name>`, which is the same id as with the identifier.
+    # `<bundle>/<nearest suite>/<name>`. In a flat suite that is the same id as with the identifier.
     copy = json.loads(json.dumps(tree))
     stack = list(copy["testNodes"])
     found = 0
@@ -286,8 +298,10 @@ def _expected(cases: tuple, statuses: tuple) -> dict[str, str]:
 
 IOS_PASSING = _tree("AICaddie", IOS_CASES, ("Passed",) * 5, IOS_DEVICE)
 WATCH_PASSING = _tree("AICaddieWatch", WATCH_CASES, ("Passed",) * 3, WATCH_DEVICE)
-IOS_MUTANT = _tree(
-    "AICaddie", IOS_CASES, ("Passed", "Passed", "Failed", "Skipped", "Expected Failure"), IOS_DEVICE
+# The nested iOS case has no nodeIdentifier here: its id falls back to the nearest suite, NearbyDiscovery.
+IOS_MUTANT = _without_identifier(
+    _tree("AICaddie", IOS_CASES, ("Passed", "Passed", "Failed", "Skipped", "Expected Failure"), IOS_DEVICE),
+    IOS_CASES[3][2],
 )
 WATCH_MUTANT = _without_identifier(
     _tree("AICaddieWatch", WATCH_CASES, ("Passed", "Skipped", "Passed"), WATCH_DEVICE), WATCH_CASES[1][2]
@@ -306,7 +320,9 @@ WATCH_NO_TESTS = {
 }
 BASELINE_STATUSES = {**_expected(IOS_CASES, ("passed",) * 5), **_expected(WATCH_CASES, ("passed",) * 3)}
 MUTANT_STATUSES = {
-    **_expected(IOS_CASES, ("passed", "passed", "failed", "skipped", "passed")),
+    **_expected(IOS_CASES[:3], ("passed", "passed", "failed")),
+    "AICaddieTests/NearbyDiscovery/testNearbyDiscoveryWaitsForLocation()": "skipped",
+    **_expected(IOS_CASES[4:], ("passed",)),
     **_expected(WATCH_CASES, ("passed", "skipped", "passed")),
 }
 # The iOS run fails StartRoundDiscoveryTests/testPreselectedTee…
@@ -393,8 +409,9 @@ def xcresulttool(args):
         return 1
     served = CONFIG["xcresult"].get(scheme) or {"exit": 1}
     if served.get("tree") is not None:
+        # A case can print a tree and still exit non-zero: xcresulttool failed.
         print(json.dumps(served["tree"], indent=2))
-        return 0
+        return int(served.get("exit", 0))
     if "raw" in served:
         print(served["raw"])
         return 0
@@ -1180,11 +1197,21 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                 self.assertEqual(_option(args, "-project"), PROJECT)
                 self.assertEqual(call["marker"], marker, "the head under test (plus the patch) must be tested")
                 self.assertTrue(_option(args, "-resultBundlePath"), "xcodebuild test needs -resultBundlePath")
-                narrowing = ("-only-test", "-skip-test-configuration", "-testPlan")
+                narrowing = (
+                    "-only-test",
+                    "-skip-test-configuration",
+                    "-testPlan",
+                    "-test-iterations",
+                    "-retry-tests-on-failure",
+                    "-run-tests-until-failure",
+                )
                 self.assertFalse(
                     [arg for arg in args if arg.startswith(narrowing)],
-                    f"run each scheme's whole test action (no -only-testing, test configuration or -testPlan): {args}",
+                    "run each scheme's whole test action once (no -only-testing, test configuration, -testPlan, "
+                    f"retries or iterations): {args}",
                 )
+                destinations = [arg for arg in args if arg == "-destination" or arg.startswith("-destination=")]
+                self.assertEqual(len(destinations), 1, f"exactly one -destination per scheme: {args}")
                 for target in _skip_testing(args):
                     self.assertTrue(
                         scheme == "AICaddieWatch" and target.split("/")[0] == "AICaddieWatchUITests",
@@ -1274,7 +1301,8 @@ class NativeMutantWorkflowTests(unittest.TestCase):
     def test_failing_native_test_is_reported_and_the_job_stays_green(self) -> None:
         # G2 G3 G4: the patch is applied before generate and test; the iOS run exits 65 with a failed
         # test, the Watch run still happens, the job stays green and result.json has each status. One
-        # Watch case has no nodeIdentifier, so its id falls back to <bundle>/<suite>/<name>.
+        # Watch case and the nested iOS case have no nodeIdentifier, so their ids fall back to
+        # <bundle>/<nearest suite>/<name>.
         run = self._replay(patch_b64=MUTANT_PATCH, ios=_scheme(65, tree=IOS_MUTANT), watch=_scheme(0, tree=WATCH_MUTANT))
 
         self.assertFalse(run.job_failed, run.describe())
@@ -1314,12 +1342,13 @@ class NativeMutantWorkflowTests(unittest.TestCase):
     # G3 — apply and build failures are verdicts too
 
     def test_patch_that_does_not_apply_is_reported_as_apply_failed(self) -> None:
-        # G1 G3: a patch whose changed line or surrounding context does not match the head, input that
-        # is not base64, or is not a patch: no native test runs, the job stays green, result.json says
-        # apply_failed with no tests.
+        # G1 G3: a patch whose changed line or surrounding context does not match the head (also by
+        # whitespace alone), input that is not base64, or is not a patch: no native test runs, the job
+        # stays green, result.json says apply_failed with no tests.
         cases = {
             "stale changed line": STALE_PATCH,
             "stale surrounding context": STALE_CONTEXT_PATCH,
+            "surrounding context differs only in whitespace": WHITESPACE_CONTEXT_PATCH,
             "not base64": "not base64!",
             "not a patch": _b64("this is not a unified diff\n"),
         }
@@ -1335,9 +1364,10 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
     def test_build_failure_is_reported_as_build_failed(self) -> None:
         # G2 G3 G4: a patched spec that does not generate, or a scheme without a usable result (no test
-        # case, no bundle, unreadable bundle, output that is not JSON), makes the run build_failed, with
-        # a green job and result.json uploaded. A failed test in the other scheme does not turn it into
-        # `tested`. When nothing was generated, no xcodebuild test runs; otherwise both schemes run.
+        # case, no bundle, unreadable bundle, xcresulttool exiting non-zero, output that is not JSON or
+        # has no test nodes), makes the run build_failed, with a green job and result.json uploaded. A
+        # failed test in the other scheme does not turn it into `tested`. When nothing was generated, no
+        # xcodebuild test runs; otherwise both schemes run.
         both = ["AICaddie", "AICaddieWatch"]
         cases = {
             "the patched project spec does not generate": (BROKEN_SPEC_PATCH, PASSING_IOS, PASSING_WATCH, []),
@@ -1348,6 +1378,18 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                 MUTANT_PATCH,
                 PASSING_IOS,
                 _scheme(65, xcresult={"raw": "error: malformed result"}),
+                both,
+            ),
+            "watch xcresulttool printed a tree and exited 1": (
+                MUTANT_PATCH,
+                PASSING_IOS,
+                _scheme(0, xcresult={"tree": WATCH_PASSING, "exit": 1}),
+                both,
+            ),
+            "watch output is JSON without testNodes": (
+                MUTANT_PATCH,
+                PASSING_IOS,
+                _scheme(65, xcresult={"raw": json.dumps({"devices": [WATCH_DEVICE]})}),
                 both,
             ),
             "ios left no result bundle": (MUTANT_PATCH, _scheme(65, bundle=False), PASSING_WATCH, both),
@@ -1395,9 +1437,9 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
     def test_result_that_cannot_be_judged_uploads_no_result(self) -> None:
         # G3 G4: a Test Case whose result is not Passed / Failed / Skipped / Expected Failure, in either
-        # scheme (also when the other scheme left no result), or a test id that occurs twice (across the
-        # schemes or within one, whatever the statuses), fails closed: the writer exits non-zero, the job
-        # fails, no result.json is uploaded.
+        # scheme, or a test id that occurs twice (across the schemes or within one, whatever the
+        # statuses), fails closed, also when the other scheme left no result: the writer exits non-zero,
+        # the job fails, no result.json is uploaded.
         unknown = _tree("AICaddie", IOS_CASES, ("Passed", "unknown", "Passed", "Passed", "Passed"), IOS_DEVICE)
         missing = _tree("AICaddie", IOS_CASES, ("Passed", None, "Passed", "Passed", "Passed"), IOS_DEVICE)
         watch_unknown = _tree("AICaddieWatch", WATCH_CASES, ("Passed", "Passed", "unknown"), WATCH_DEVICE)
@@ -1419,6 +1461,10 @@ class NativeMutantWorkflowTests(unittest.TestCase):
             ),
             "one test id in both schemes, passed twice": (PASSING_IOS, _scheme(0, tree=passed_again)),
             "one test id twice in the iOS scheme": (_scheme(0, tree=ios_twice), PASSING_WATCH),
+            "one test id twice in the iOS scheme, and the Watch scheme left no result bundle": (
+                _scheme(0, tree=ios_twice),
+                _scheme(65, bundle=False),
+            ),
         }
         for name, (ios, watch) in cases.items():
             with _case(name):
