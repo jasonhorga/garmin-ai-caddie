@@ -818,8 +818,8 @@ final class DesignSnapshotTests: XCTestCase {
             NavigationStack {
                 StartRoundView(
                     defaultCourseGlobalId: 31795,
-                    initialPage: .course,
-                    courseOptions: courses
+                    courseOptions: courses,
+                    initialPage: .course
                 )
             },
             named: "full-start-page-course"
@@ -830,9 +830,9 @@ final class DesignSnapshotTests: XCTestCase {
                     defaultCourseGlobalId: 31795,
                     defaultTeeBox: "blue",
                     initialCourseTees: loopBTees,
-                    initialPage: .setup,
                     courseOptions: courses,
-                    onLoadCourseTees: { _ in loopBTees }
+                    onLoadCourseTees: { _ in loopBTees },
+                    initialPage: .setup
                 )
             },
             named: "full-start-page-setup"

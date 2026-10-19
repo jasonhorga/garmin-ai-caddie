@@ -246,7 +246,7 @@ public struct WatchRoundSetupView: View {
         let selectedCourse = teeOptions.isEmpty
             ? selectedPrimary
             : selectedPrimary.withTees(teeOptions, selectedTee: teeBox)
-        WatchCourseSelection(
+        return WatchCourseSelection(
             front: selectedCourse,
             back: Self.playsHalves(front) ? nil : selectedBack,
             teeBox: teeBox,
