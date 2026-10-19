@@ -9,54 +9,83 @@ as caught when a native test fails. The gate stays as strict as before:
 
 Touches: `.github/workflows/agenthub-native-mutant.yml`, `.github/scripts/agenthub_native_result.py`, `tests/test_agenthub_native_result.py`, `tests/acceptance/test_card_440_native_mutant_workflow.py`, `.agent/contracts/card-440.md`
 
-Acceptance tests: `tests/acceptance/test_card_440_native_mutant_workflow.py` (9 tests). Codex
+Acceptance tests: `tests/acceptance/test_card_440_native_mutant_workflow.py` (10 tests). Codex
 must not edit `tests/acceptance/`.
 
-## Revision 6: the wrong implementations revision 5 still let through
+## Revision 7: the changes that still pass on `f353a60`
 
-The owner's resume request (adversarial 0/3 on head `6942203`) asked for "revision 5". The PR head
-`793bd98` already carries a revision 5 (`4a62a07`), so this delivery is revision 6, built on top of
-it. I still could not read the gate report. I read `b7f0936`'s workflow and writer against the
-revision-5 tests again, change by change, and found these wrong implementations that still pass.
-Revision 6 catches them. The goals, the interface and the result format are unchanged. The new
-pass conditions (marked **(rev 6)** below) state what the head already does, so **no
-implementation change is expected**. If a new case fails, check it against this contract first.
-Fix the workflow or the writer only if they break the contract. If the case itself is wrong (see
-"Gate notes"), report it on the card. Never edit the tests.
+The owner's local replay on head `f353a60` found three adversarial mutants (01, 03 and 04) that
+pass the revision-6 suite. **I could not see those mutants' patches.** The request gives only their
+numbers, and the contract job runs offline. So I read `f353a60`'s workflow and writer against the
+revision-6 tests again, change by change. These six wrong implementations still pass the
+revision-6 tests, and revision 7 catches all of them:
 
-Now caught:
-- **Lenient apply:** `git apply --whitespace=fix`, `--ignore-whitespace` or
-  `--ignore-space-change`. A patch whose context differs from the head only by a trailing space
-  must be `apply_failed`. (`--whitespace=fix` also rewrites the mutant's added lines.)
-- **xcresulttool exit code ignored:** the writer drops `check=True`, or otherwise reads stdout after
-  a non-zero exit. xcresulttool now prints a tree and exits 1 in one case; that is `build_failed`.
-- **Not a tree, read as empty:** output that is JSON but has no `testNodes` is read as zero tests
-  instead of an unusable result. That is `build_failed`.
-- **Wrong fallback suite:** the fallback id uses the outermost suite, or the whole suite path,
-  instead of the nearest suite. The nested iOS case now has no `nodeIdentifier` in the mutant tree.
-- **Duplicates skipped on a build failure:** the duplicate check runs only when the run is
-  `tested`. A duplicate id next to a scheme without a result must still fail closed.
-- **Retried or repeated tests:** `-retry-tests-on-failure`, `-test-iterations` or
-  `-run-tests-until-failure`. A retry lets a mutant's intermittent failure pass.
-- **A second destination:** an extra `-destination` (for example by `name=`) next to the UDID one.
+1. **Lenient base64.** The apply step drops `validate=True` from `base64.b64decode`, or decodes
+   with `base64 --decode --ignore-garbage`. A stray character outside the base64 alphabet is then
+   silently dropped, and the patch applies. The revision-6 case `not base64!` still fails with
+   lenient decoding, because after the garbage is dropped the length is wrong. Now caught: a valid
+   mutant patch with one `*` in it must be `apply_failed`.
+2. **Reduced context, `git apply -C1` / `-C2`.** The stale-context case had only one line of
+   context on each side, so only `-C0` applied it. Now caught: a hunk with three lines of context
+   on each side, as `git diff` writes it, whose outermost context lines are stale must be
+   `apply_failed`. GNU `patch`'s default fuzz also applies that hunk.
+3. **Runner steps after a failed apply.** The simulator step or the XcodeGen install step loses its
+   `if: steps.apply.outcome == 'success'`. When the patch does not apply and the runner also has no
+   simulator, or `brew` fails, the job turns red. Now caught: an apply failure is `apply_failed`
+   with a green job, whatever the runner's state.
+4. **Whitespace errors refused.** `git apply --whitespace=error` or `error-all` refuses a mutant
+   whose added line ends in spaces. That makes a valid mutant invalid. Now caught: such a patch is
+   applied as written, byte for byte, and the run is `tested`. The fake `xcodebuild` now records
+   the marker file's raw text.
+5. **Watch UI journeys skipped.** `-skip-testing:AICaddieWatchUITests` was allowed until revision 6.
+   It leaves a Watch mutant that only a UI journey catches unjudged, and `native-mobile.yml` runs
+   the whole `AICaddieWatch` scheme. **This changes the contract:** no `-skip-testing` at all.
+6. **No job timeout.** If `timeout-minutes` is removed, a hung simulator can hold a macOS runner
+   for GitHub's six-hour default. Now caught: the job sets `timeout-minutes` to a number from 30
+   to 120.
 
-Some changes stay uncaught because they behave the same in every run this contract defines, and on
+**No implementation change is expected.** The head already does all six. The goals, the
+interface and the result format stay as they were. New pass conditions are marked
+**(rev 7)** below. If a new case fails, check it against this contract first. Fix the workflow or
+the writer only if they break the contract. If the case itself is wrong (see "Gate notes"),
+report it on the card. Never edit the tests.
+
+I can't tell which of these are 01, 03 and 04. If one of the three changes a behaviour that is
+not on this list, the replay should name that mutant's patch (or the line it changes). I will
+then pin it.
+
+These changes still pass, because they behave the same in every run this contract defines and on
 every real runner:
 - `always()` instead of `!cancelled()`, or dropping one of the write or upload step's redundant
-  conditions (the job has already failed whenever they would matter);
-- `git apply --recount`: it differs only on a patch whose hunk counts are wrong, and agenthub's
-  patches come from `git diff`;
-- dropping the writer's removal of an old `result.json`: every run starts on a fresh runner (the
-  unit test in `tests/test_agenthub_native_result.py` still covers it);
-- taking the outermost instead of the nearest test bundle: bundles do not nest in xcresulttool's
-  output (the same unit test covers it);
-- dropping one of the two availability filters (`simctl list devices available` and
-  `isAvailable`): either one is enough.
-
-If the gate reports a survivor that is not on this list, it should name it. I will then either pin
-the behaviour it changes or record it as equivalent here.
+  conditions. Whenever such a condition would matter, the job has already failed.
+- `git apply --recount`. It differs only on a patch whose hunk counts are wrong, and agenthub's
+  patches come from `git diff`.
+- `git apply -C3`. It matches the default on `git diff`'s three lines of context.
+- `git apply --3way`. It needs the stale preimage blobs. A one-commit head checkout lacks them,
+  and the replay's patches carry no `index` line.
+- Dropping the writer's removal of an old `result.json`. Every run starts on a fresh runner, and
+  the unit test in `tests/test_agenthub_native_result.py` still covers it.
+- Taking the outermost instead of the nearest test bundle. Bundles do not nest in xcresulttool's
+  output, and the same unit test covers it.
+- Dropping one of the two availability filters (`simctl list devices available` and
+  `isAvailable`). Either one is enough.
+- `ref: main` on the tools checkout. agenthub dispatches the workflow on `main`.
 
 ## History
+
+Revision 6 (built on revision 5, for the same 0/3 report) caught:
+- **Lenient apply:** `git apply --whitespace=fix`, `--ignore-whitespace` or
+  `--ignore-space-change`. A patch whose context differs only by a trailing space is
+  `apply_failed`.
+- **xcresulttool exit code ignored:** the writer reads stdout after a non-zero exit. That is
+  `build_failed`.
+- **Not a tree, read as empty:** JSON without `testNodes` is `build_failed`, not zero tests.
+- **Wrong fallback suite:** the fallback id uses the outermost suite or the whole suite path.
+- **Duplicates skipped on a build failure:** the duplicate check runs only when the run is
+  `tested`.
+- **Retried or repeated tests:** `-retry-tests-on-failure`, `-test-iterations` or
+  `-run-tests-until-failure`.
+- **A second destination:** an extra `-destination` next to the UDID one.
 
 Revision 5 (adversarial 0/3 on `6942203`) caught:
 - **Writer stops early:** it stops at the first scheme without a usable result, so it never reads
@@ -129,6 +158,9 @@ The tests only check what the card and this contract ask for. The following stay
   mapping.
 - One job:
   - `runs-on` is the same value as the `native-mobile` job in `native-mobile.yml` (`macos-15`);
+  - `timeout-minutes` is a number from 30 to 120 (a literal, not an expression) **(rev 7)**. A
+    hung simulator must not hold a macOS runner for GitHub's six-hour default, and a normal
+    build-and-test run needs more than a few minutes;
   - no job-level `if:` or `continue-on-error`.
 - No `concurrency` at the workflow or job level. agenthub dispatches one run per mutant; a shared
   concurrency group cancels pending runs.
@@ -150,13 +182,27 @@ The tests only check what the card and this contract ask for. The following stay
 - Order of the steps:
   1. **Apply.** Decode the patch (`base64 --decode` or python3) and `git apply` it at the root of
      the head checkout. An empty patch is a baseline: there is nothing to apply, and the step
-     succeeds. A patch that does not decode, is not a patch, or does not apply cleanly is an
-     apply failure. "Cleanly" means `git apply`'s default: every context line must match, so no
-     fuzz and no reduced context (`git apply -C…`, `patch`). A context line that differs only in
-     whitespace does not match either: no `--whitespace=fix`, `--ignore-whitespace` or
-     `--ignore-space-change` **(rev 6)**. The step's outcome must carry the
-     failure (`continue-on-error: true` on this step is the expected way). When the apply fails,
-     no `xcodebuild test` runs.
+     succeeds.
+     - **Apply failures.** A patch that does not decode, is not a patch, or does not apply
+       cleanly is an apply failure.
+     - **Strict decoding.** Decoding is strict: a character outside the standard base64 alphabet
+       makes the input not decode, even when the rest is a valid patch. No `validate=False` and
+       no `--ignore-garbage` **(rev 7)**. Whether line breaks are accepted is up to the
+       implementation (see "Not covered").
+     - **What "cleanly" means.** It means `git apply`'s default: every context line must match.
+       So no fuzz and no reduced context: no `git apply -C…` and no `patch`. This holds on
+       `git diff`'s three lines of context too: a hunk whose outermost context lines are stale
+       does not apply **(rev 7)**.
+     - **Whitespace.** A context line that differs only in whitespace does not match: no
+       `--whitespace=fix`, `--ignore-whitespace` or `--ignore-space-change` **(rev 6)**.
+       Whitespace errors in the added lines (trailing spaces, for example) neither block nor
+       change the patch. It is applied as written, byte for byte: no `--whitespace=error`,
+       `error-all` or `fix` **(rev 7)**.
+     - **Carrying the failure.** The step's outcome must carry the failure.
+       `continue-on-error: true` on this step is the expected way.
+     - **After an apply failure.** The job goes straight to the writer: no simulator lookup, no
+       XcodeGen install, no generate and no `xcodebuild test`. The verdict is `apply_failed` with
+       a green job, even when the runner has no simulator or `brew` would fail **(rev 7)**.
   2. **Simulators by UDID.** Pick the simulators from
      `xcrun simctl list devices available -j`:
      - the `iPhone 16` on the newest iOS runtime that has one available;
@@ -189,8 +235,11 @@ The tests only check what the card and this contract ask for. The following stay
        `-run-tests-until-failure`. A retry would let a mutant's intermittent failure pass
        **(rev 6)**.
 
-     Only `-skip-testing:AICaddieWatchUITests` may be skipped. The Watch scheme's UI journeys run
-     against fixture screens without a backend, so keeping them is allowed. The `AICaddieUITests`
+     No `-skip-testing` at all **(rev 7; until revision 6, skipping `AICaddieWatchUITests` was
+     allowed)**. The `AICaddieWatch` scheme's whole test action runs, `AICaddieWatchUITests`
+     included, as in `native-mobile.yml`. Its UI journeys run against fixture screens without a
+     backend, so the card's reason for leaving out `AICaddieUITests` does not apply to them. A
+     Watch mutant that only a UI journey catches must not go unjudged. The `AICaddieUITests`
      scheme or target never runs. A test failure (exit 65) keeps the job green
      (`continue-on-error: true` on the test steps), and the Watch scheme still runs after an iOS
      failure. Use `xcodebuild test`, not `build-for-testing` / `test-without-building`.
@@ -258,7 +307,9 @@ Extra keys are allowed. Test ids are unique.
 |---|---|---|
 | baseline, all tests pass | green | `tested`, all `passed` |
 | a native test fails (exit 65) | green | `tested`, that test `failed` |
-| patch does not apply / decode (also context off by whitespace only, rev 6) | green | `apply_failed`, no xcodebuild test |
+| patch does not apply / decode (also context off by whitespace only, rev 6; outer lines of three-line context stale, or one stray non-base64 character, rev 7) | green | `apply_failed`, no xcodebuild test |
+| patch does not apply, and the runner has no simulator or `brew` fails (rev 7) | green | `apply_failed`, no xcodebuild test |
+| an added line has a whitespace error (rev 7) | green | applied as written; judged like any other run |
 | patched spec does not generate | green | `build_failed`, no xcodebuild test (rev 5) |
 | a scheme leaves no usable result (also next to a failed test, rev 5) | green | `build_failed` |
 | simulator missing (runner failure) | red | not uploaded |
@@ -276,8 +327,8 @@ Linux CI has no Xcode, so the tests replay the single job offline:
 - `actions/checkout` clones a throwaway origin:
   - `main` holds this workflow, the writer and `.github/scripts`;
   - the head under test is an older commit without the workflow and the writer, like #434's head.
-    It holds a one-line marker file, a three-line context file and a one-line
-    `mobile/ios/project.yml`;
+    It holds a one-line marker file, a three-line context file, a seven-line context file
+    **(rev 7)** and a one-line `mobile/ios/project.yml`;
   - `ref`: a SHA, a branch, or `refs/heads/…`; by default `github.sha`, the `main` commit;
   - `path` is supported; the target's contents are replaced.
 - `actions/upload-artifact` records `name` and `path`; other actions are no-ops.
@@ -286,7 +337,8 @@ Linux CI has no Xcode, so the tests replay the single job offline:
   - `xcodegen` exits 127 until `brew install xcodegen` has run **(rev 5)**;
   - `xcodegen generate` creates the project directory next to the spec, unless the spec carries
     the test's broken-spec marker; then it exits 1;
-  - `xcodebuild test` needs that project, and creates the result bundle;
+  - `xcodebuild test` needs that project, and creates the result bundle. Every `xcodebuild` call
+    records the marker file, both stripped and as raw text **(rev 7)**;
   - `xcresulttool` serves the case's tree, raw text or error; a case can make it print a tree and
     still exit 1 **(rev 6)**;
   - `simctl list` prints runtimes in the same unordered order as its JSON;
@@ -303,11 +355,14 @@ Linux CI has no Xcode, so the tests replay the single job offline:
 
 ### G1 — The workflow is dispatch-only and read-only, named `agenthub-native <request_id>`, with three inputs
 
-1. `test_workflow_is_dispatch_only_read_only_and_named_by_request_id`: the trigger, the inputs
-   (the patch input not required), permissions, run-name, a single job on native-mobile's runner
-   with no `concurrency`, no secrets, no `${{ }}` in `run:`, bash only, the writer is run, the head
-   is checked out by its input, every checkout sets `persist-credentials: false`, and exactly one
-   upload step, named `agenthub-native-result`.
+1. `test_workflow_is_dispatch_only_read_only_and_named_by_request_id` checks:
+   - the trigger, the inputs (the patch input not required), permissions and run-name;
+   - a single job on native-mobile's runner, with `timeout-minutes` from 30 to 120
+     **(rev 7)** and no `concurrency`;
+   - no secrets, no `${{ }}` in `run:`, and bash only;
+   - the writer is run, and the head is checked out by its input;
+   - every checkout sets `persist-credentials: false`;
+   - exactly one upload step, named `agenthub-native-result`.
 2. `test_baseline_run_tests_the_head_with_both_schemes_on_udid_simulators` (replay, also G2–G4) and
    `test_patch_that_does_not_apply_is_reported_as_apply_failed` (also G3) feed the three inputs
    and check that `request_id` and the head SHA come back in `result.json`.
@@ -326,12 +381,19 @@ Linux CI has no Xcode, so the tests replay the single job offline:
      picks another device: the first match, the last match, text order, major-only order, UDID
      order, or a prefix name match with any tie-break **(rev 5)**;
    - with exactly one `-destination` **(rev 6)**;
-   - with no `-only-testing`, test configuration or `-testPlan`, no retry or iteration option
-     **(rev 6)**, and no argument naming `AICaddieUITests`.
+   - with no `-only-testing`, no `-skip-testing` **(rev 7)**, no test configuration and no
+     `-testPlan`;
+   - with no retry or iteration option **(rev 6)**;
+   - with no argument naming `AICaddieUITests`.
+
+   Every replay that runs the schemes checks all of this.
 5. `test_failing_native_test_is_reported_and_the_job_stays_green`,
    `test_watch_only_failure_is_reported` and the writer-origin test: the patch is applied before
    generate and test (the marker file reads `"mutant"`), and both schemes still run after a
    failure.
+   - **(rev 7)** `test_patch_with_a_whitespace_error_is_applied_as_written`: the mutant line ends
+     in two spaces. Both schemes test the marker file with exactly that line, spaces included.
+     The job is green, and `result.json` is `tested` with every test `passed`.
 6. `test_runner_failure_is_red_and_uploads_no_result`: no test runs on a device other than the
    expected UDID.
 7. `test_build_failure_is_reported_as_build_failed`: a patched spec that does not generate gives
@@ -341,9 +403,17 @@ Linux CI has no Xcode, so the tests replay the single job offline:
 ### G3 — `result.json` is the verdict: green on test failures, apply/build failures recorded, nothing uploaded on a runner failure
 
 8. Failing iOS test, or failing Watch test: the job is green and `status` is `tested`.
-9. Stale changed line, stale surrounding context, **(rev 6)** surrounding context that differs only
-   by a trailing space, input that is not base64, input that is not a patch: green, no
-   `xcodebuild test`, `apply_failed`, `tests: []`.
+9. Each of these is green, with no `xcodebuild test`, `apply_failed` and `tests: []`:
+   - a stale changed line;
+   - stale surrounding context;
+   - **(rev 6)** surrounding context that differs only by a trailing space;
+   - **(rev 7)** a hunk with three lines of context on each side whose outermost line on each
+     side is stale;
+   - input that is not base64;
+   - **(rev 7)** a valid mutant patch with one `*` inserted into its base64;
+   - input that is not a patch;
+   - **(rev 7)** a stale patch, when no iPhone 16 is available;
+   - **(rev 7)** a stale patch, when `brew` fails.
 10. These runs are green with `build_failed`:
     - a spec that does not generate;
     - the Watch scheme ran no test;
@@ -396,11 +466,12 @@ Linux CI has no Xcode, so the tests replay the single job offline:
   `[adversarial.native]` turned on for this project. If the reader rejects the format, that is a
   follow-up card, not a reason to relax the gate.
 - The patch encoding agenthub actually sends. A baseline sends an empty patch, so it never decodes
-  one. This contract fixes the input as standard base64; whether the apply step accepts line
-  breaks in it is up to the implementation. I recommend that the console also dispatches one known
+  one. This contract fixes the input as strict standard base64 (rev 7). Whether the apply step
+  accepts line breaks in it is up to the implementation; `f353a60`'s `validate=True` refuses them. I recommend that the console also dispatches one known
   mutant before turning `[adversarial.native]` on, and checks that it comes back `tested` with a
   `failed` test, not `apply_failed`.
-- Behaviour on cancellation, and `timeout-minutes`. The replay never cancels a run.
+- Behaviour on cancellation or on reaching the timeout. The replay never cancels a run; only the
+  `timeout-minutes` value is checked, statically (rev 7).
 - `native-mobile.yml` and app code stay untouched (card step 3). The reviewer checks this in the
   diff; a hash pin would break later cards.
 - This PR changes no path under `native-mobile.yml`'s `pull_request.paths`, so the native
@@ -412,15 +483,20 @@ Linux CI has no Xcode, so the tests replay the single job offline:
 - On `main`, every test fails at its first check, in the test function itself, because the
   workflow and the writer do not exist. No test is pinned, no test uses `subTest`, and no helper's
   name starts with `test`.
-- The revision-5 tests passed on head `793bd98` in CI's `backend` job.
-- I could not run the revision-6 tests in the contract sandbox: Python runs were refused again.
-  I checked every new case by reading it against `b7f0936`'s workflow and writer:
-  - the apply step's `git apply --whitespace=nowarn`. It matches context lines exactly; only
-    `--whitespace=fix` and `--ignore-space-change` match a trailing-space difference;
-  - `read_bundle`'s `check=True`, which turns a non-zero xcresulttool exit into an unusable result;
-  - `test_cases`, which raises on a tree without `testNodes` and keeps the nearest suite;
-  - `verdict`, which checks duplicates before choosing `build_failed`;
-  - the test steps' single destination and their lack of retry options.
+- The revision-6 tests passed on head `f353a60` in CI's `backend` job.
+- I could not run the revision-7 tests in the contract sandbox: Python runs were refused again.
+  I checked every new case by reading it against `f353a60`'s workflow and writer:
+  - **Strict decoding.** The apply step calls `base64.b64decode(…, validate=True)`, which raises on
+    the `*`. The step fails, and the writer reports `apply_failed`.
+  - **Stale outer context.** `git apply` keeps every context line by default (no `-C`), so the
+    outer-stale three-line-context hunk does not apply. With `-C1` or `-C2`, git trims one line
+    from each end and applies it at line 2.
+  - **Whitespace errors.** `--whitespace=nowarn` applies the trailing-space line as written.
+  - **Order after a failed apply.** The simulator, install and generate steps run only
+    `if: steps.apply.outcome == 'success'`, so a failed apply never reaches `simctl` or `brew`.
+    The write step still runs on `steps.apply.outcome == 'failure'`.
+  - **Scheme flags.** The test steps pass no `-skip-testing`.
+  - **Timeout.** The job sets `timeout-minutes: 60`.
 
-  The gate's own run is the authority. If a revision-6 case fails on that head, the case is
+  The gate's own run is the authority. If a revision-7 case fails on that head, the case is
   probably wrong, not the implementation. Report it on the card and I will fix the test.
