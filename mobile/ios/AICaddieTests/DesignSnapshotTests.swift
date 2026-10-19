@@ -814,6 +814,29 @@ final class DesignSnapshotTests: XCTestCase {
             },
             named: "full-start-selected"
         )
+        try captureScreen(
+            NavigationStack {
+                StartRoundView(
+                    defaultCourseGlobalId: 31795,
+                    courseOptions: courses,
+                    initialPage: .course
+                )
+            },
+            named: "full-start-page-course"
+        )
+        try captureScreen(
+            NavigationStack {
+                StartRoundView(
+                    defaultCourseGlobalId: 31795,
+                    defaultTeeBox: "blue",
+                    initialCourseTees: loopBTees,
+                    courseOptions: courses,
+                    onLoadCourseTees: { _ in loopBTees },
+                    initialPage: .setup
+                )
+            },
+            named: "full-start-page-setup"
+        )
         // Field report 2026-10-10 (Arzaga Golf Club): an 18-hole Jack Nicklaus II beside a 9-hole
         // Gary Player. Both course tiles show whichever is selected; the selected 18-hole course
         // still offers 前九 / 后九. Provider labels and tee rows as production GET

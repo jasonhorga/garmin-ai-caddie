@@ -159,70 +159,63 @@ public struct WatchRoundSetupView: View {
 
     private var teeSelection: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 6) {
-                WatchInstrumentHeader("发球台", backLabel: "返回", onBack: handleBack)
-
-                if isLoadingTees {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("正在获取真实发球台")
-                    }
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .padding(7)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else if teeChoices.isEmpty {
-                        HStack(spacing: 6) {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .foregroundStyle(.yellow)
-                            Text("发球台资料稍后补齐 · 先按 \(teeSummary(selectedTee)) 开局")
-                    }
-                    .font(.system(size: 13, weight: .bold))
-                    .padding(7)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.orange.opacity(0.10))
-                    )
-                } else {
-                    ForEach(teeChoices) { choice in
-                        teeChoiceRow(choice) {
-                            guard let tee = teeOptions.first(where: {
-                                choice.id == "tee:\($0.teeBox.lowercased())"
-                            }) else { return }
-                            selectedTee = tee.teeBox
-                        }
-                    }
-                }
-
-                if teeLoadAttempted, teeChoices.isEmpty, !isLoadingTees {
-                    Text("真实发球台到达后会自动替换；现在仍可先开局。")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.secondary)
-                }
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.orange)
-                        .padding(7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color.orange.opacity(0.10))
-                        )
-                }
-
-                setupFooter
-                    .padding(.top, 42)
-            }
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
+            teeSelectionContent
         }
         .ignoresSafeArea(edges: .top)
         .scrollIndicators(.hidden)
+    }
+
+    var teeSelectionContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            WatchInstrumentHeader("发球台", backLabel: "返回", onBack: handleBack)
+
+            if isLoadingTees {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("正在获取真实发球台")
+                }
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.secondary)
+                .padding(7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if teeOptions.isEmpty {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.arrow.circlepath").foregroundStyle(.yellow)
+                    Text("发球台资料稍后补齐")
+                }
+                .font(.system(size: 13, weight: .bold))
+                .padding(7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            ForEach(teeChoices) { choice in
+                teeChoiceRow(choice) {
+                    let tee = teeOptions.first(where: { choice.id == "tee:\($0.teeBox.lowercased())" })?.teeBox ?? selectedTee
+                    start(teeBox: tee)
+                }
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.orange)
+                    .padding(7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack(spacing: 5) {
+                Circle().fill(hasCachedVersion ? AICaddieDesignTokens.par : .orange).frame(width: 5, height: 5)
+                Text("\(availabilityText) · \(availabilityDetail)")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 3)
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
     }
 
     private var setupFooter: some View {
@@ -239,46 +232,23 @@ public struct WatchRoundSetupView: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 3)
-            startAction
         }
-    }
-
-    private var startAction: some View {
-        Button {
-            guard !isPreparing, !didSubmitStart else { return }
-            didSubmitStart = true
-            onStart(startSelection)
-        } label: {
-            HStack(spacing: 5) {
-                if isPreparing {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-                Text(isPreparing ? "正在准备" : startActionLabel)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .font(.system(size: 16, weight: .black))
-            .foregroundStyle(.black)
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .background(
-                AICaddieDesignTokens.par,
-                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(isPreparing || didSubmitStart)
-        .opacity(isPreparing || didSubmitStart ? 0.52 : 1)
-        .accessibilityIdentifier("watch-setup-start")
     }
 
     /// Exactly what 开始 submits: the selected loop(s) or, for an 18-hole course, one ordered half
     /// (`G:front` / `G:back`); the second half is chosen at the turn.
     var startSelection: WatchCourseSelection {
-        WatchCourseSelection(
-            front: configuredFront,
+        selection(teeBox: selectedTee)
+    }
+
+    func selection(teeBox: String) -> WatchCourseSelection {
+        let selectedCourse = teeOptions.isEmpty
+            ? selectedPrimary
+            : selectedPrimary.withTees(teeOptions, selectedTee: teeBox)
+        return WatchCourseSelection(
+            front: selectedCourse,
             back: Self.playsHalves(front) ? nil : selectedBack,
-            teeBox: selectedTee,
+            teeBox: teeBox,
             ensureGeometry: ensureGeometry,
             firstHalf: Self.playsHalves(front) ? selectedHalf : nil
         )
@@ -331,6 +301,9 @@ public struct WatchRoundSetupView: View {
                     .font(.system(size: 13, weight: .black, design: .rounded))
                     .foregroundStyle(.primary)
                     .monospacedDigit()
+                if isPreparing || didSubmitStart {
+                    ProgressView().controlSize(.small)
+                }
                 if choice.isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 13, weight: .black))
@@ -347,6 +320,8 @@ public struct WatchRoundSetupView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("\(choice.title) \(choice.detail)")
         .accessibilityValue(choice.isSelected ? "已选择" : "未选择")
+        .accessibilityIdentifier(choice.id == "tee:default" ? "watch-setup-tee-default" : "watch-setup-tee-\(choice.id.dropFirst(4))")
+        .disabled(isPreparing || didSubmitStart)
     }
 
     /// The shared tee-colour mapping (`AICaddieDomain.TeeColor`, same as the phone's 开始一场).
@@ -383,13 +358,25 @@ public struct WatchRoundSetupView: View {
         return fullChoices + [frontChoice] + backChoices
     }
 
-    var teeChoices: [WatchRoundSetupChoicePresentation] {
-        teeOptions.map { tee in
-            Self.teeChoice(
-                for: tee,
-                isSelected: tee.teeBox.caseInsensitiveCompare(selectedTee) == .orderedSame
-            )
+    var orderedTeeChoices: [WatchRoundSetupChoicePresentation] {
+        guard !teeOptions.isEmpty else { return [] }
+        let selected = teeOptions.first(where: { $0.isDefault })
+            ?? teeOptions.first(where: { $0.teeBox.caseInsensitiveCompare(selectedPrimary.teeBox ?? "") == .orderedSame })
+            ?? teeOptions.first!
+        let ordered = [selected] + teeOptions.filter {
+            $0.teeBox.caseInsensitiveCompare(selected.teeBox) != .orderedSame
         }
+        return ordered.map { tee in
+            Self.teeChoice(for: tee, isSelected: tee.teeBox.caseInsensitiveCompare(selected.teeBox) == .orderedSame)
+        }
+    }
+
+    var teeChoices: [WatchRoundSetupChoicePresentation] {
+        let ordered = orderedTeeChoices
+        if !ordered.isEmpty { return ordered }
+        return [WatchRoundSetupChoicePresentation(
+            id: "tee:default", title: "球场默认 T", detail: "码数未知", isSelected: true
+        )]
     }
 
     static func teeChoice(
@@ -406,6 +393,13 @@ public struct WatchRoundSetupView: View {
         )
     }
 
+    func start(teeBox: String) {
+        guard !isPreparing, !didSubmitStart else { return }
+        selectedTee = teeBox
+        didSubmitStart = true
+        onStart(selection(teeBox: teeBox))
+    }
+
     var availabilityText: String {
         hasCachedVersion ? "已有离线版本" : "可立即开局"
     }
@@ -415,14 +409,6 @@ public struct WatchRoundSetupView: View {
             return "更换洞组或发球台时需要联网更新"
         }
         return ensureGeometry ? "球场与地图后台补齐" : "球场数据后台补齐"
-    }
-
-    var startActionLabel: String {
-        if Self.playsHalves(front) {
-            let teeName = WatchCourseSelection.hasExplicitTee(selectedTee) ? selectedTeeSummary : nil
-            return Self.halfStartTitle(globalId: front.globalId, half: selectedHalf, teeName: teeName)
-        }
-        return hasCachedVersion ? "开始" : "立即开始"
     }
 
     private var selectedBack: WatchCourseOption? {

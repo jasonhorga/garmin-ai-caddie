@@ -6,6 +6,11 @@ import AICaddieDomain
 /// 这个环的码数；按钮写明“从 B 场 开始 · 蓝 T”。第二个环在打完第一个环时选(NineLoopPlan)。
 /// 附近只有一个球场时自动选中，多个时由玩家选择；GPS 不可用时搜索照常可用。
 public struct StartRoundView: View {
+    public enum Page: Equatable {
+        case course
+        case setup
+    }
+
     struct CourseSelectionState: Equatable {
         let globalIdText: String
         let roundId: String
@@ -43,6 +48,9 @@ public struct StartRoundView: View {
     /// course in the background so Start, and every hole after it, is ready before the first tee.
     public let onCourseIntent: ([MobileCourseOption], String) -> Void
 
+    private let callerCourseGlobalId: Int?
+    private let callerTeeBox: String
+
     @StateObject private var locationProvider: LocationProvider
     @State private var roundId: String
     @State private var courseGlobalIdText: String
@@ -52,6 +60,7 @@ public struct StartRoundView: View {
     /// search can start the round immediately without weakening the nearby loading gate.
     @State private var selectedCourseWasManualSearch = false
     @State private var teeBox: String
+    @State private var userPickedTee = false
     /// The chosen half when the course is a single 18-hole course ("front" / "back", B4b-2).
     @State private var startHalf: String
     /// 所选球场的发球台列表(含码数/默认),来自 GET /courses/{id}/tees;为空则用球场自带 Tee 名。
@@ -70,6 +79,7 @@ public struct StartRoundView: View {
     @State private var nearbyRetryToken = 0
     @State private var teeRequestToken: UUID?
     @State private var nearbyRequestToken: UUID?
+    @State private var page: Page
 
     public init(
         // 不在消费者界面里写死可读的原始局号(如 900001):没显式传时生成一个不透明的本地局号,
@@ -95,6 +105,7 @@ public struct StartRoundView: View {
         onSearchCourses: @escaping (String, String?, Double?, Double?) async throws -> [MobileCourseSearchMatch] = { _, _, _, _ in [] },
         onNearbyCourses: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch] = { _, _, _ in [] },
         onCourseIntent: @escaping ([MobileCourseOption], String) -> Void = { _, _ in },
+        initialPage: Page? = nil,
         // Snapshot fixtures pass a provider with a fixed fix; the app reads CoreLocation.
         locationProvider: LocationProvider? = nil,
         // Snapshot fixtures seed the nearby phase the discovery task would reach (the in-process
@@ -114,6 +125,8 @@ public struct StartRoundView: View {
             break
         }
         self.defaultRoundId = defaultRoundId
+        self.callerCourseGlobalId = defaultCourseGlobalId
+        self.callerTeeBox = defaultTeeBox
         self.courseOptions = courseOptions
         self.preselectedVenueOptions = preselectedVenueOptions
         self.downloadedCourseOptions = downloadedCourseOptions
@@ -131,6 +144,10 @@ public struct StartRoundView: View {
         self.onSearchCourses = onSearchCourses
         self.onNearbyCourses = onNearbyCourses
         self.onCourseIntent = onCourseIntent
+        self._page = State(initialValue: Self.openingPage(
+            initialPage: initialPage,
+            defaultCourseGlobalId: defaultCourseGlobalId
+        ))
         // An explicit caller selection may be retained, but history alone is not a course picker.
         // Normal new-round entry waits for Garmin's nearby catalogue, matching S70 behaviour.
         let resolvedCourseId = defaultCourseGlobalId.map(String.init) ?? ""
@@ -150,7 +167,9 @@ public struct StartRoundView: View {
             Self.freshLiveRoundId(globalId: $0.globalId)
         } ?? defaultRoundId)
         self._teeBox = State(initialValue: Self.initialTee(
-            callerTee: defaultTeeBox,
+            callerTee: selected.flatMap {
+                Self.lastUsedTeeForCourse(for: $0, recent: recentCourseOption, caller: selected, callerTee: defaultTeeBox)
+            } ?? "",
             offered: selected?.tees ?? [],
             courseTee: selected?.teeBox
         ))
@@ -159,6 +178,13 @@ public struct StartRoundView: View {
         self._fetchedTees = State(initialValue: initialCourseTees)
         // A nine-hole loop is the unit; an 18-hole course starts on one of its halves (前九 first).
         self._startHalf = State(initialValue: "front")
+    }
+
+    static func openingPage(initialPage: Page?, defaultCourseGlobalId: Int?) -> Page {
+        if let initialPage {
+            return initialPage
+        }
+        return defaultCourseGlobalId == nil ? .course : .setup
     }
 
     private var courseGlobalId: Int? {
@@ -206,33 +232,11 @@ public struct StartRoundView: View {
     /// `pre-round.html` screen 2: one course list, the first nine-hole loop as big tiles, tee dots,
     /// and one primary action that names the choice. No location / download status prose.
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                searchEntry
-                courseList
-                if selectedSegment != nil {
-                    loopSection
-                    teeSection
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 24)
+        Group {
+            if page == .course { coursePage } else { setupPage }
         }
-        // The primary action stays in the lower action band while the list scrolls.
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            startCard
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-                .padding(.bottom, 8)
-                .background(Self.surface)
-                // The pinned band (padding included) covers the list scrolling under it; UI tests
-                // exclude this frame from the tappable viewport (live Native 37534118109).
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("start-round-pinned-actions")
-        }
-        .background(Self.surface)
         .navigationTitle("开始一场")
+        .navigationBarBackButtonHidden(page == .setup)
         .onAppear {
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()
@@ -272,6 +276,56 @@ public struct StartRoundView: View {
                 )
             }
         }
+    }
+
+    private var coursePage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                searchEntry
+                courseList
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+        .background(Self.surface)
+        .accessibilityIdentifier("start-round-page-course")
+    }
+
+    private var setupPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text(selectedVenueName)
+                    .font(.title2.weight(.bold))
+                    .padding(.top, 2)
+                loopSection
+                teeSection
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            startCard
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
+                .background(Self.surface)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("start-round-pinned-actions")
+        }
+        .background(Self.surface)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("返回") { page = .course }
+                    .accessibilityIdentifier("start-round-back-to-courses")
+            }
+        }
+        .accessibilityIdentifier("start-round-page-setup")
+    }
+
+    private func showSetupPage() {
+        page = .setup
     }
 
     /// The course and Tee Start would use, once the Tee request has settled; empty while there is
@@ -331,7 +385,20 @@ public struct StartRoundView: View {
             return
         }
         fetchedTees = tees
-        teeBox = Self.teeAfterRefresh(current: teeBox, rows: tees)
+        let pickedTee = userPickedTee ? teeBox : nil
+        teeBox = Self.teeAfterRefresh(
+            current: teeBox,
+            userPicked: userPickedTee,
+            lastUsed: lastUsedTee,
+            rows: tees
+        )
+        // If the response removed a manual pick, the fallback is automatic again.
+        userPickedTee = pickedTee.map { picked in
+            tees.contains {
+                $0.teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .caseInsensitiveCompare(picked.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+            }
+        } ?? false
     }
 
     /// The venue of the currently selected segment — the single source of truth (no separate state
@@ -612,27 +679,49 @@ public struct StartRoundView: View {
         return result
     }
 
-    /// The first tee: the caller's tee (the home card's last tee) when the course offers it or
-    /// lists no tees to check against; otherwise the course's Blue/White, its first tee, or its
-    /// stored tee. Unknown / blank is no tee.
-    static func initialTee(callerTee: String, offered: [String], courseTee: String?) -> String {
-        let caller = HubCourseSuggestion.knownTee(callerTee)
-        if let caller {
-            if let match = offered.first(where: { $0.caseInsensitiveCompare(caller) == .orderedSame }) {
-                return match
-            }
-            if offered.isEmpty { return caller }
-        }
-        return offered.first(where: { ["blue", "white"].contains($0.lowercased()) })
-            ?? offered.first
-            ?? HubCourseSuggestion.knownTee(courseTee)
-            ?? ""
+    /// Historical preferences belong to a physical venue, never to the current automatic guess.
+    static func lastUsedTeeForCourse(
+        for option: MobileCourseOption,
+        recent: MobileCourseOption?,
+        caller: MobileCourseOption?,
+        callerTee: String
+    ) -> String? {
+        StartRoundPresentation.lastUsedTee(
+            selectedVenue: courseVenueName(option),
+            recentVenue: recent.map(Self.courseVenueName), recentTee: recent?.teeBox,
+            callerVenue: caller.map(Self.courseVenueName), callerTee: callerTee
+        )
     }
 
-    /// After /tees answers: keep the current tee when the rows offer it, else the default row.
-    static func teeAfterRefresh(current: String, rows: [CourseTee]) -> String {
-        if rows.contains(where: { $0.teeBox.lowercased() == current.lowercased() }) { return current }
-        return rows.first(where: { $0.isDefault })?.teeBox ?? rows.first?.teeBox ?? current
+    private var lastUsedTee: String? {
+        guard let selectedSegment else { return nil }
+        let caller = (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId }
+        return StartRoundPresentation.lastUsedTee(
+            selectedVenue: Self.courseVenueName(selectedSegment),
+            recentVenue: recentCourseOption.map(Self.courseVenueName), recentTee: recentCourseOption?.teeBox,
+            callerVenue: caller.map(Self.courseVenueName), callerTee: callerTeeBox
+        )
+    }
+
+    /// Prefer the venue's last-used tee, then the course default, then a colour guess.
+    static func initialTee(callerTee: String, offered: [String], courseTee: String?) -> String {
+        StartRoundPresentation.preselectedTee(
+            lastUsed: callerTee, offered: offered, defaultTee: courseTee
+        )
+    }
+
+    /// A chip tapped while /tees was pending wins only if the response still offers it.
+    static func teeAfterRefresh(current: String, userPicked: Bool, lastUsed: String?, rows: [CourseTee]) -> String {
+        if userPicked, let picked = HubCourseSuggestion.knownTee(current),
+           let row = rows.first(where: {
+               $0.teeBox.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(picked) == .orderedSame
+           }) {
+            return row.teeBox
+        }
+        return StartRoundPresentation.preselectedTee(
+            lastUsed: lastUsed, offered: rows.map(\.teeBox),
+            defaultTee: rows.first(where: \.isDefault)?.teeBox
+        )
     }
 
     @ViewBuilder private var courseList: some View {
@@ -858,8 +947,9 @@ public struct StartRoundView: View {
 
     /// Choosing a venue selects its first loop; tapping the already-selected venue keeps the loop.
     private func selectCourseRow(_ row: StartCourseListRow) {
-        guard let first = row.segments.first else { return }
-        if let current = selectedSegment, Self.samePhysicalVenue(current, first) { return }
+        guard let first = StartRoundPresentation.preselectedLoop(
+            in: row.segments, current: selectedSegment, recent: recentResolvedCourseOption
+        ) else { return }
         userPickedVenue = true
         selectedCourseWasManualSearch = Self.preservesManualSearchProvenance(
             wasManualSearch: selectedCourseWasManualSearch,
@@ -869,6 +959,7 @@ public struct StartRoundView: View {
         fetchedTees = []
         teeLoadFailed = false
         applySelectedCourse(first)
+        showSetupPage()
     }
 
     // MARK: - First loop (README §8: only the first nine is chosen here)
@@ -1136,6 +1227,7 @@ public struct StartRoundView: View {
         let selected = tee.caseInsensitiveCompare(teeBox) == .orderedSame
         return Button {
             teeBox = tee
+            userPickedTee = true
         } label: {
             teeChipLabel(tee, selected: selected)
         }
@@ -1338,18 +1430,15 @@ public struct StartRoundView: View {
 
     static func selectionState(
         for option: MobileCourseOption,
-        currentTeeBox: String,
+        lastUsedTee: String?,
         uuid: UUID = UUID()
     ) -> CourseSelectionState {
-        var selectedTee = currentTeeBox
-        if let optionTeeBox = option.teeBox, optionTeeBox != "unknown" {
-            selectedTee = optionTeeBox
-        }
-        // Default to a sensible real tee for the chosen course (Blue/White, else the first).
         let tees = option.tees ?? []
-        if !tees.isEmpty, !tees.contains(where: { $0.lowercased() == selectedTee.lowercased() }) {
-            selectedTee = tees.first(where: { ["blue", "white"].contains($0.lowercased()) }) ?? tees.first ?? selectedTee
-        }
+        let selectedTee = StartRoundPresentation.preselectedTee(
+            lastUsed: lastUsedTee,
+            offered: tees,
+            defaultTee: option.teeBox
+        )
         return CourseSelectionState(
             globalIdText: String(option.globalId),
             roundId: Self.freshLiveRoundId(globalId: option.globalId, uuid: uuid),
@@ -1361,7 +1450,13 @@ public struct StartRoundView: View {
         if option.globalId != courseGlobalId {
             startHalf = "front"
         }
-        let state = Self.selectionState(for: option, currentTeeBox: teeBox)
+        let lastUsed = Self.lastUsedTeeForCourse(
+            for: option, recent: recentCourseOption,
+            caller: (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId },
+            callerTee: callerTeeBox
+        )
+        let state = Self.selectionState(for: option, lastUsedTee: lastUsed)
+        userPickedTee = false
         courseGlobalIdText = state.globalIdText
         roundId = state.roundId
         teeBox = state.teeBox
@@ -1719,6 +1814,7 @@ public struct StartRoundView: View {
         // Close only after all selection state has been written. The child search view deliberately
         // leaves dismissal to this parent so a no-GPS manual search is immediately startable.
         showingCourseSearch = false
+        showSetupPage()
     }
 
     /// Selecting one catalogue row returns to the compact start form, but the sibling loops from
