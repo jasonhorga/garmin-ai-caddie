@@ -171,6 +171,17 @@ public struct WatchRoundContainerView: View {
     /// B6 本洞: 方案 / 障碍 / 果岭 pages and the 方案 page's Crown zoom + pan.
     @State private var holePage = 0
     @State private var planViewport = WatchHoleViewport()
+#if DEBUG
+    private var rendersHoleRootSnapshot = false
+
+    /// ImageRenderer cannot capture the native vertical pager. Keep the container's model mapping,
+    /// recommendation gates and root controls, rendering the same first page without that host.
+    func snapshottingHoleRoot() -> Self {
+        var view = self
+        view.rendersHoleRootSnapshot = true
+        return view
+    }
+#endif
     /// DEBUG compatibility and deep-linking only; production opens the nearest upcoming obstacle.
     private let initialHazardID: String?
 
@@ -788,7 +799,20 @@ public struct WatchRoundContainerView: View {
 
     /// 方案 / 障碍 / 果岭 as vertical pages (dots on the right). Unzoomed a vertical swipe pages; the
     /// Crown only zooms the page in view and a drag pans it once zoomed.
+    @ViewBuilder
     private func holePages(_ s: WatchRoundState, _ geometry: WatchHoleMapGeometry) -> some View {
+#if DEBUG
+        if rendersHoleRootSnapshot {
+            holeMapView(s, geometry)
+        } else {
+            pagedHolePages(s, geometry)
+        }
+#else
+        pagedHolePages(s, geometry)
+#endif
+    }
+
+    private func pagedHolePages(_ s: WatchRoundState, _ geometry: WatchHoleMapGeometry) -> some View {
         TabView(selection: $holePage) {
             GeometryReader { proxy in
                 holeMapView(s, geometry)

@@ -1316,7 +1316,27 @@ final class WatchDesignSnapshotTests: XCTestCase {
             interactionMode: .measure
         )
         .watchSnapshotFrame(width: 198, height: 242)
-        try render(view, named: "watch-hole-root-aim-line")
+        try render(view, named: "watch-hole-root-aim-line", requiresMapPixels: true)
+    }
+
+    @MainActor
+    func testHoleRootPixelCheckRejectsPlaceholderWithGreenControls() throws {
+        // A native-view placeholder can still sit under real green root controls, so neither
+        // colour diversity nor the presence of a few green pixels proves that the map rendered.
+        let placeholder = ZStack {
+            Color.yellow
+            Image(systemName: "nosign")
+                .font(.system(size: 50))
+                .foregroundStyle(.red)
+            Circle().fill(.green)
+                .frame(width: 30, height: 30)
+                .offset(x: 60, y: 85)
+        }
+        .frame(width: 198, height: 242)
+        let image = try XCTUnwrap(ImageRenderer(content: placeholder).cgImage)
+        XCTAssertLessThanOrEqual(greenMapPixelFraction(image), 0.05)
+        let topo = try XCTUnwrap(WatchHoleMapSample.image?.cgImage)
+        XCTAssertGreaterThan(greenMapPixelFraction(topo), 0.05)
     }
 
     @MainActor
@@ -1379,8 +1399,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
             watchGreenYards: (front: 248, center: 262, back: 274),
             shotLocation: fix
         )
+        .snapshottingHoleRoot()
         .watchSnapshotFrame(width: 198, height: 242)
-        try render(view, named: "watch-container-root-aim-line")
+        try render(view, named: "watch-container-root-aim-line", requiresMapPixels: true)
     }
 
     @MainActor
@@ -1598,7 +1619,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    private func render(_ view: some View, named name: String) throws {
+    private func render(_ view: some View, named name: String, requiresMapPixels: Bool = false) throws {
         // watchOS UI is dark; render in dark mode so `.primary` text is white (not black-on-black).
         let renderer = ImageRenderer(content: view.environment(\.colorScheme, .dark))
         renderer.scale = 2
@@ -1633,6 +1654,15 @@ final class WatchDesignSnapshotTests: XCTestCase {
         } else {
             XCTFail("could not inspect rendered pixels for \(name)")
         }
+        if requiresMapPixels {
+            // The unsupported native TabView renders a yellow/red placeholder that passes the
+            // size and colour-diversity checks above. Require actual green topo content, beyond
+            // the small green club/menu controls, on both direct and container root snapshots.
+            XCTAssertGreaterThan(
+                greenMapPixelFraction(cgImage), 0.05,
+                "\(name) is missing the topo map; ImageRenderer may have captured a native-view placeholder"
+            )
+        }
         let dir = try FileManager.default
             .url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent("watch-snapshots", isDirectory: true)
@@ -1648,6 +1678,30 @@ final class WatchDesignSnapshotTests: XCTestCase {
             return
         }
         print("WROTE_WATCH_SNAPSHOT \(name)")
+    }
+
+    private func greenMapPixelFraction(_ image: CGImage) -> Double {
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let rendered = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        XCTAssertTrue(rendered, "could not decode snapshot pixels")
+        var greenPixels = 0
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            let red = Int(pixels[index]), green = Int(pixels[index + 1]), blue = Int(pixels[index + 2])
+            if green > 24, green * 5 > red * 6, green * 5 > blue * 6 {
+                greenPixels += 1
+            }
+        }
+        return Double(greenPixels) / Double(width * height)
     }
 }
 
