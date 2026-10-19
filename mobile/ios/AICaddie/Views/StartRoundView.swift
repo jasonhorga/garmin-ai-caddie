@@ -57,6 +57,7 @@ public struct StartRoundView: View {
     /// search can start the round immediately without weakening the nearby loading gate.
     @State private var selectedCourseWasManualSearch = false
     @State private var teeBox: String
+    @State private var userPickedTee = false
     /// The chosen half when the course is a single 18-hole course ("front" / "back", B4b-2).
     @State private var startHalf: String
     /// 所选球场的发球台列表(含码数/默认),来自 GET /courses/{id}/tees;为空则用球场自带 Tee 名。
@@ -174,7 +175,6 @@ public struct StartRoundView: View {
 
     static func openingPage(initialPage: Page?, defaultCourseGlobalId: Int?) -> Page {
         if let initialPage {
-            if initialPage == .setup, defaultCourseGlobalId == nil { return .course }
             return initialPage
         }
         return defaultCourseGlobalId == nil ? .course : .setup
@@ -229,6 +229,7 @@ public struct StartRoundView: View {
             if page == .course { coursePage } else { setupPage }
         }
         .navigationTitle("开始一场")
+        .navigationBarBackButtonHidden(page == .setup)
         .onAppear {
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()
@@ -281,12 +282,15 @@ public struct StartRoundView: View {
             .padding(.bottom, 24)
         }
         .background(Self.surface)
-        .accessibilityIdentifier("start-round-course-page")
+        .accessibilityIdentifier("start-round-page-course")
     }
 
     private var setupPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                Text(selectedVenueName)
+                    .font(.title2.weight(.bold))
+                    .padding(.top, 2)
                 loopSection
                 teeSection
             }
@@ -310,7 +314,7 @@ public struct StartRoundView: View {
                     .accessibilityIdentifier("start-round-back-to-courses")
             }
         }
-        .accessibilityIdentifier("start-round-setup-page")
+        .accessibilityIdentifier("start-round-page-setup")
     }
 
     private func showSetupPage() {
@@ -374,7 +378,9 @@ public struct StartRoundView: View {
             return
         }
         fetchedTees = tees
-        teeBox = Self.teeAfterRefresh(current: teeBox, rows: tees)
+        if !userPickedTee {
+            teeBox = Self.teeAfterRefresh(current: teeBox, rows: tees)
+        }
     }
 
     /// The venue of the currently selected segment — the single source of truth (no separate state
@@ -660,14 +666,14 @@ public struct StartRoundView: View {
     /// stored tee. Unknown / blank is no tee.
     static func initialTee(callerTee: String, offered: [String], courseTee: String?) -> String {
         StartRoundPresentation.preselectedTee(
-            lastUsed: [callerTee, courseTee], offered: offered, defaultTee: courseTee
+            lastUsed: callerTee, offered: offered, defaultTee: courseTee
         )
     }
 
     /// After /tees answers: keep the current tee when the rows offer it, else the default row.
     static func teeAfterRefresh(current: String, rows: [CourseTee]) -> String {
         StartRoundPresentation.preselectedTee(
-            lastUsed: [current], offered: rows.map(\.teeBox),
+            lastUsed: current, offered: rows.map(\.teeBox),
             defaultTee: rows.first(where: \.isDefault)?.teeBox
         )
     }
@@ -896,12 +902,8 @@ public struct StartRoundView: View {
     /// Choosing a venue selects its first loop; tapping the already-selected venue keeps the loop.
     private func selectCourseRow(_ row: StartCourseListRow) {
         guard let first = StartRoundPresentation.preselectedLoop(
-            in: row, current: selectedSegment, recent: recentResolvedCourseOption
+            in: row.segments, current: selectedSegment, recent: recentResolvedCourseOption
         ) else { return }
-        if let current = selectedSegment, Self.samePhysicalVenue(current, first) {
-            showSetupPage()
-            return
-        }
         userPickedVenue = true
         selectedCourseWasManualSearch = Self.preservesManualSearchProvenance(
             wasManualSearch: selectedCourseWasManualSearch,
@@ -910,6 +912,11 @@ public struct StartRoundView: View {
         )
         fetchedTees = []
         teeLoadFailed = false
+        let keepsCurrentTee = selectedSegment.map { Self.samePhysicalVenue($0, first) } == true
+        if !keepsCurrentTee {
+            teeBox = recentResolvedCourseOption
+                .flatMap { Self.samePhysicalVenue($0, first) ? $0.teeBox : nil } ?? ""
+        }
         applySelectedCourse(first)
         showSetupPage()
     }
@@ -1179,6 +1186,7 @@ public struct StartRoundView: View {
         let selected = tee.caseInsensitiveCompare(teeBox) == .orderedSame
         return Button {
             teeBox = tee
+            userPickedTee = true
         } label: {
             teeChipLabel(tee, selected: selected)
         }
@@ -1384,15 +1392,12 @@ public struct StartRoundView: View {
         currentTeeBox: String,
         uuid: UUID = UUID()
     ) -> CourseSelectionState {
-        var selectedTee = currentTeeBox
-        if let optionTeeBox = option.teeBox, optionTeeBox != "unknown" {
-            selectedTee = optionTeeBox
-        }
-        // Default to a sensible real tee for the chosen course (Blue/White, else the first).
         let tees = option.tees ?? []
-        if !tees.isEmpty, !tees.contains(where: { $0.lowercased() == selectedTee.lowercased() }) {
-            selectedTee = tees.first(where: { ["blue", "white"].contains($0.lowercased()) }) ?? tees.first ?? selectedTee
-        }
+        let selectedTee = StartRoundPresentation.preselectedTee(
+            lastUsed: currentTeeBox,
+            offered: tees,
+            defaultTee: option.teeBox
+        )
         return CourseSelectionState(
             globalIdText: String(option.globalId),
             roundId: Self.freshLiveRoundId(globalId: option.globalId, uuid: uuid),
@@ -1405,6 +1410,7 @@ public struct StartRoundView: View {
             startHalf = "front"
         }
         let state = Self.selectionState(for: option, currentTeeBox: teeBox)
+        userPickedTee = false
         courseGlobalIdText = state.globalIdText
         roundId = state.roundId
         teeBox = state.teeBox

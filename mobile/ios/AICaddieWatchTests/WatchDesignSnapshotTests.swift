@@ -12,39 +12,52 @@ import AICaddieDomain
 /// physical watch — the UI/scoring layout is fully reviewable here.)
 final class WatchDesignSnapshotTests: XCTestCase {
     @MainActor
-    func testRoundSetupListsTheDefaultTeeFirstAndHighlighted() {
-        let tees = [
-            WatchCourseTee(teeBox: "Blue", name: "Blue", yards: 3200, holeCount: 9, isDefault: false),
-            WatchCourseTee(teeBox: "White", name: "White", yards: 3000, holeCount: 9, isDefault: false),
-            WatchCourseTee(teeBox: "Red", name: "Red", yards: 2800, holeCount: 9, isDefault: false),
-        ]
-        XCTAssertEqual(WatchRoundSetupView.orderedTeeChoices(tees, preselected: "white").map(\.id), ["tee:white", "tee:blue", "tee:red"])
-        XCTAssertEqual(WatchRoundSetupView.orderedTeeChoices(tees, preselected: "white").map(\.isSelected), [true, false, false])
-        let defaultRed = tees.map { $0.teeBox == "Red" ? WatchCourseTee(teeBox: $0.teeBox, name: $0.name, yards: $0.yards, holeCount: $0.holeCount, isDefault: true) : $0 }
-        XCTAssertEqual(WatchRoundSetupView.orderedTeeChoices(defaultRed, preselected: "unknown").first?.id, "tee:red")
-        XCTAssertEqual(WatchRoundSetupView.orderedTeeChoices([], preselected: "unknown"), [])
+    func testTeeChoicesListTheDefaultTeeFirstAndHighlighted() {
+        let front = WatchCourseOption(
+            globalId: 301, name: "黑骑士 ~ A", holes: 9, teeBox: "White",
+            venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9,
+            tees: ["Blue", "White", "Red"]
+        )
+        let setup = WatchRoundSetupView(front: front, courses: [front])
+        XCTAssertEqual(setup.orderedTeeChoices.map(\.title), ["白 T", "蓝 T", "红 T"])
+        XCTAssertEqual(setup.orderedTeeChoices.map(\.isSelected), [true, false, false])
     }
 
     @MainActor
     func testTeeTapSelectionCarriesTheChosenLoopHalfAndTee() {
         let nine = WatchCourseOption(globalId: 301, name: "黑骑士 ~ A", holes: 9, teeBox: "White", venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9, tees: ["Blue", "White"])
         let nineSetup = WatchRoundSetupView(front: nine, courses: [nine], ensureGeometry: true)
-        let nineSelection = nineSetup.startSelection(teeBox: "Red")
+        let nineSelection = nineSetup.selection(teeBox: "Red")
         XCTAssertEqual(nineSelection.teeBox, "Red")
         XCTAssertEqual(nineSelection.loopKey, "301:all")
         XCTAssertNil(nineSelection.firstHalf)
         let eighteen = WatchCourseOption(globalId: 31795, name: "黑骑士", holes: 18, teeBox: "White", venueName: "黑骑士", segmentHoles: 18, tees: ["Blue", "White"])
         let eighteenSetup = WatchRoundSetupView(front: eighteen, courses: [eighteen], ensureGeometry: true)
-        let eighteenSelection = eighteenSetup.startSelection(teeBox: "Blue")
+        let eighteenSelection = eighteenSetup.selection(teeBox: "Blue")
         XCTAssertEqual(eighteenSelection.firstHalf, "front")
         XCTAssertEqual(eighteenSelection.loopKey, "31795:front")
+    }
+
+    @MainActor
+    func testTappingATeeStartsTheRoundWithThatTee() {
+        let front = WatchCourseOption(
+            globalId: 301, name: "黑骑士 ~ A", holes: 9, teeBox: "White",
+            venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9,
+            tees: ["Blue", "White", "Red"]
+        )
+        var captured: WatchCourseSelection?
+        let setup = WatchRoundSetupView(front: front, courses: [front], onStart: { captured = $0 })
+        setup.start(teeBox: "Red")
+        XCTAssertEqual(captured?.teeBox, "Red")
+        XCTAssertEqual(captured?.loopKey, "301:all")
+        XCTAssertNil(captured?.firstHalf)
     }
 
     @MainActor
     func testRenderWatchCourseSetupTees() throws {
         let front = WatchCourseOption(globalId: 301, name: "黑骑士 ~ A", holes: 9, teeBox: "White", venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9, tees: ["Blue", "White", "Red"])
         let setup = WatchRoundSetupView(front: front, courses: [front])
-        XCTAssertEqual(setup.teeChoices.map(\.id), ["tee:white", "tee:blue", "tee:red"])
+        XCTAssertEqual(setup.orderedTeeChoices.map(\.title), ["白 T", "蓝 T", "红 T"])
         try render(setup.teeSelectionContent.watchSnapshotFrame(width: 198, height: 242), named: "watch-course-setup-tees")
     }
     func testWatchClubDisplayNamesMatchApprovedChineseCopy() {

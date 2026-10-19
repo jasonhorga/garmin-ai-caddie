@@ -1972,7 +1972,7 @@ final class RealFlowUITests: XCTestCase {
             row.tap()
             settle(1)
             XCTAssertTrue(
-                app.descendants(matching: .any)["start-round-setup-page"].waitForExistence(timeout: 8),
+                app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8),
                 "tapping a venue opens the loop and tee setup page"
             )
         }

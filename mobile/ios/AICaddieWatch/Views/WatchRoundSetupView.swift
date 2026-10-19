@@ -188,7 +188,8 @@ public struct WatchRoundSetupView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            ForEach(teeChoices) { choice in
+            let choices = orderedTeeChoices.isEmpty ? teeChoices : orderedTeeChoices
+            ForEach(choices) { choice in
                 teeChoiceRow(choice) {
                     let tee = teeOptions.first(where: { choice.id == "tee:\($0.teeBox.lowercased())" })?.teeBox ?? selectedTee
                     start(teeBox: tee)
@@ -238,10 +239,10 @@ public struct WatchRoundSetupView: View {
     /// Exactly what 开始 submits: the selected loop(s) or, for an 18-hole course, one ordered half
     /// (`G:front` / `G:back`); the second half is chosen at the turn.
     var startSelection: WatchCourseSelection {
-        startSelection(teeBox: selectedTee)
+        selection(teeBox: selectedTee)
     }
 
-    func startSelection(teeBox: String) -> WatchCourseSelection {
+    func selection(teeBox: String) -> WatchCourseSelection {
         let selectedCourse = teeOptions.isEmpty
             ? selectedPrimary
             : selectedPrimary.withTees(teeOptions, selectedTee: teeBox)
@@ -301,6 +302,9 @@ public struct WatchRoundSetupView: View {
                     .font(.system(size: 13, weight: .black, design: .rounded))
                     .foregroundStyle(.primary)
                     .monospacedDigit()
+                if isPreparing || didSubmitStart {
+                    ProgressView().controlSize(.small)
+                }
                 if choice.isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 13, weight: .black))
@@ -355,26 +359,25 @@ public struct WatchRoundSetupView: View {
         return fullChoices + [frontChoice] + backChoices
     }
 
+    var orderedTeeChoices: [WatchRoundSetupChoicePresentation] {
+        guard !teeOptions.isEmpty else { return [] }
+        let selected = teeOptions.first(where: { $0.isDefault })
+            ?? teeOptions.first(where: { $0.teeBox.caseInsensitiveCompare(selectedPrimary.teeBox ?? "") == .orderedSame })
+            ?? teeOptions.first!
+        let ordered = [selected] + teeOptions.filter {
+            $0.teeBox.caseInsensitiveCompare(selected.teeBox) != .orderedSame
+        }
+        return ordered.map { tee in
+            Self.teeChoice(for: tee, isSelected: tee.teeBox.caseInsensitiveCompare(selected.teeBox) == .orderedSame)
+        }
+    }
+
     var teeChoices: [WatchRoundSetupChoicePresentation] {
-        let ordered = Self.orderedTeeChoices(teeOptions, preselected: selectedTee)
+        let ordered = orderedTeeChoices
         if !ordered.isEmpty { return ordered }
         return [WatchRoundSetupChoicePresentation(
             id: "tee:default", title: "球场默认 T", detail: "码数未知", isSelected: true
         )]
-    }
-
-    static func orderedTeeChoices(
-        _ tees: [WatchCourseTee],
-        preselected: String
-    ) -> [WatchRoundSetupChoicePresentation] {
-        guard !tees.isEmpty else { return [] }
-        let selected = tees.first(where: { $0.teeBox.caseInsensitiveCompare(preselected) == .orderedSame })
-            ?? tees.first(where: { $0.isDefault })
-            ?? tees.first!
-        let ordered = [selected] + tees.filter { $0.teeBox.caseInsensitiveCompare(selected.teeBox) != .orderedSame }
-        return ordered.map { tee in
-            Self.teeChoice(for: tee, isSelected: tee.teeBox.caseInsensitiveCompare(selected.teeBox) == .orderedSame)
-        }
     }
 
     static func teeChoice(
@@ -391,11 +394,11 @@ public struct WatchRoundSetupView: View {
         )
     }
 
-    private func start(teeBox: String) {
+    func start(teeBox: String) {
         guard !isPreparing, !didSubmitStart else { return }
         selectedTee = teeBox
         didSubmitStart = true
-        onStart(startSelection(teeBox: teeBox))
+        onStart(selection(teeBox: teeBox))
     }
 
     var availabilityText: String {

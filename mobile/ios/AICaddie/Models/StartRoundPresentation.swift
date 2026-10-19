@@ -27,22 +27,22 @@ struct StartCourseListRow: Equatable, Identifiable {
 /// unit-testable without a SwiftUI host.
 enum StartRoundPresentation {
     static func preselectedLoop(
-        in row: StartCourseListRow,
+        in loops: [MobileCourseOption],
         current: MobileCourseOption?,
         recent: MobileCourseOption?
     ) -> MobileCourseOption? {
-        guard !row.segments.isEmpty else { return nil }
-        if let current, row.segments.contains(where: { StartRoundView.samePhysicalVenue(current, $0) }) {
-            return row.segments.first(where: { $0.globalId == current.globalId }) ?? current
-        }
-        if let recent, let match = row.segments.first(where: { $0.globalId == recent.globalId }) {
+        guard !loops.isEmpty else { return nil }
+        if let current, let match = loops.first(where: { $0.globalId == current.globalId }) {
             return match
         }
-        return row.segments.first
+        if let recent, let match = loops.first(where: { $0.globalId == recent.globalId }) {
+            return match
+        }
+        return loops.first
     }
 
     static func preselectedTee(
-        lastUsed: [String?],
+        lastUsed: String?,
         offered: [String],
         defaultTee: String?
     ) -> String {
@@ -54,7 +54,7 @@ enum StartRoundPresentation {
             }
             return trimmed
         }
-        for value in lastUsed.compactMap(known) {
+        if let value = known(lastUsed) {
             if offered.isEmpty { return value }
             if let match = offered.first(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
                 return match

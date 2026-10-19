@@ -3,33 +3,33 @@ import AICaddieDomain
 @testable import AICaddie
 
 final class StartRoundDiscoveryTests: XCTestCase {
-    func testOpeningPageIsTheCoursePageUnlessACourseIsCarried() {
+    func testOpeningPageIsCourseUnlessACourseIsPassed() {
         XCTAssertEqual(StartRoundView.openingPage(initialPage: nil, defaultCourseGlobalId: nil), .course)
         XCTAssertEqual(StartRoundView.openingPage(initialPage: nil, defaultCourseGlobalId: 31795), .setup)
         XCTAssertEqual(StartRoundView.openingPage(initialPage: .course, defaultCourseGlobalId: 31795), .course)
-        XCTAssertEqual(StartRoundView.openingPage(initialPage: .setup, defaultCourseGlobalId: nil), .course)
+        XCTAssertEqual(StartRoundView.openingPage(initialPage: .setup, defaultCourseGlobalId: nil), .setup)
     }
 
-    func testTappingAVenuePreselectsItsLastUsedLoop() {
+    func testPreselectedLoopPrefersCurrentThenRecentThenFirst() {
         let loops = [blackKnight(31794, "A"), blackKnight(31795, "B"), blackKnight(31796, "C")]
-        let row = StartCourseListRow(venue: "黑骑士", segments: loops, source: .nearby)
-        XCTAssertEqual(StartRoundPresentation.preselectedLoop(in: row, current: nil, recent: loops[1])?.globalId, 31795)
-        XCTAssertEqual(StartRoundPresentation.preselectedLoop(in: row, current: loops[2], recent: loops[1])?.globalId, 31796)
+        XCTAssertEqual(StartRoundPresentation.preselectedLoop(in: loops, current: loops[2], recent: loops[1])?.globalId, 31796)
+        XCTAssertEqual(StartRoundPresentation.preselectedLoop(in: loops, current: nil, recent: loops[1])?.globalId, 31795)
         let otherVenue = MobileCourseOption(globalId: 400, name: "另一球场 ~ A", holes: 9, venueName: "另一球场", segmentLabel: "A", segmentHoles: 9)
-        XCTAssertEqual(StartRoundPresentation.preselectedLoop(in: row, current: otherVenue, recent: nil)?.globalId, 31794)
-        XCTAssertEqual(StartRoundPresentation.preselectedLoop(in: row, current: nil, recent: otherVenue)?.globalId, 31794)
+        XCTAssertEqual(StartRoundPresentation.preselectedLoop(in: loops, current: otherVenue, recent: nil)?.globalId, 31794)
+        XCTAssertNil(StartRoundPresentation.preselectedLoop(in: [], current: nil, recent: otherVenue))
     }
 
-    func testSetupPagePreselectsTheLastUsedTeeElseTheCourseDefault() {
-        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: ["white"], offered: ["gold", "blue", "white", "red"], defaultTee: "blue"), "white")
-        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: ["WHITE"], offered: ["White"], defaultTee: nil), "White")
-        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: ["black"], offered: ["gold", "blue", "white"], defaultTee: "blue"), "blue")
-        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: [nil, "unknown", ""], offered: ["gold", "blue", "white"], defaultTee: "white"), "white")
-        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: [], offered: ["gold", "blue", "white"], defaultTee: nil), "blue")
-        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: [], offered: ["gold", "red"], defaultTee: nil), "gold")
-        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: ["red", "white"], offered: ["white", "blue"], defaultTee: nil), "white")
-        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: ["blue"], offered: [], defaultTee: nil), "blue")
-        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: [], offered: [], defaultTee: nil), "")
+    func testPreselectedTeePrefersLastUsedThenCourseDefault() {
+        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: "white", offered: ["Gold", "Blue", "White"], defaultTee: "blue"), "White")
+        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: "red", offered: ["Gold", "Blue", "White"], defaultTee: "blue"), "Blue")
+        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: nil, offered: ["Gold", "Blue", "White"], defaultTee: "gold"), "Gold")
+        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: "unknown", offered: ["Gold", "Blue", "White"], defaultTee: "gold"), "Gold")
+        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: nil, offered: ["Gold", "Blue", "White"], defaultTee: "silver"), "Blue")
+        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: "  ", offered: ["Gold", "Blue", "White"], defaultTee: nil), "Blue")
+        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: nil, offered: ["Gold", "Red"], defaultTee: nil), "Gold")
+        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: "white", offered: [], defaultTee: "blue"), "white")
+        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: nil, offered: [], defaultTee: "blue"), "blue")
+        XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: nil, offered: [], defaultTee: nil), "")
     }
 
     func testEveryExplicitCourseStartUsesANewRoundIdentity() {
