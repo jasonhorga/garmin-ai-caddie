@@ -46,29 +46,47 @@ enum StartRoundPresentation {
         offered: [String],
         defaultTee: String?
     ) -> String {
-        func known(_ value: String?) -> String? {
-            guard let value else { return nil }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, trimmed.caseInsensitiveCompare("unknown") != .orderedSame else {
-                return nil
-            }
-            return trimmed
-        }
-        if let value = known(lastUsed) {
+        if let value = knownTee(lastUsed) {
             if offered.isEmpty { return value }
-            if let match = offered.first(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
+            if let match = offered.first(where: { knownTee($0)?.caseInsensitiveCompare(value) == .orderedSame }) {
                 return match
             }
         }
-        if let value = known(defaultTee) {
+        if let value = knownTee(defaultTee) {
             if offered.isEmpty { return value }
-            if let match = offered.first(where: { $0.caseInsensitiveCompare(value) == .orderedSame }) {
+            if let match = offered.first(where: { knownTee($0)?.caseInsensitiveCompare(value) == .orderedSame }) {
                 return match
             }
         }
-        return offered.first(where: { ["blue", "white"].contains($0.lowercased()) })
+        return offered.first(where: { ["blue", "white"].contains(knownTee($0)?.lowercased() ?? "") })
             ?? offered.first
             ?? ""
+    }
+
+    static func lastUsedTee(
+        selectedVenue: String,
+        recentVenue: String?,
+        recentTee: String?,
+        callerVenue: String?,
+        callerTee: String?
+    ) -> String? {
+        let selected = selectedVenue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selected.isEmpty else { return nil }
+        func matches(_ venue: String?) -> Bool {
+            guard let venue else { return false }
+            let trimmed = venue.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !trimmed.isEmpty && trimmed.caseInsensitiveCompare(selected) == .orderedSame
+        }
+        if matches(recentVenue), let tee = knownTee(recentTee) { return tee }
+        if matches(callerVenue), let tee = knownTee(callerTee) { return tee }
+        return nil
+    }
+
+    private static func knownTee(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.caseInsensitiveCompare("unknown") != .orderedSame else { return nil }
+        return trimmed
     }
     /// Merge every course source into one list without duplicate venues. Order: nearby (already
     /// distance-sorted by the caller), then search, recent, downloaded.

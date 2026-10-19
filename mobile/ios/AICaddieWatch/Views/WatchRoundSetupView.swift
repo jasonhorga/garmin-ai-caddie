@@ -188,8 +188,7 @@ public struct WatchRoundSetupView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            let choices = orderedTeeChoices.isEmpty ? teeChoices : orderedTeeChoices
-            ForEach(choices) { choice in
+            ForEach(teeChoices) { choice in
                 teeChoiceRow(choice) {
                     let tee = teeOptions.first(where: { choice.id == "tee:\($0.teeBox.lowercased())" })?.teeBox ?? selectedTee
                     start(teeBox: tee)

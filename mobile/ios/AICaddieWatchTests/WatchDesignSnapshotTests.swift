@@ -21,6 +21,33 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let setup = WatchRoundSetupView(front: front, courses: [front])
         XCTAssertEqual(setup.orderedTeeChoices.map(\.title), ["白 T", "蓝 T", "红 T"])
         XCTAssertEqual(setup.orderedTeeChoices.map(\.isSelected), [true, false, false])
+
+        let redDefault = WatchCourseOption(
+            globalId: 301, name: "黑骑士 ~ A", holes: 9, teeBox: "Red",
+            venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9,
+            tees: ["Blue", "White", "Red"]
+        )
+        let redSetup = WatchRoundSetupView(front: redDefault, courses: [redDefault])
+        XCTAssertEqual(redSetup.orderedTeeChoices.map(\.title), ["红 T", "蓝 T", "白 T"])
+        XCTAssertEqual(redSetup.orderedTeeChoices.map(\.isSelected), [true, false, false])
+
+        let noDefault = WatchCourseOption(
+            globalId: 301, name: "黑骑士 ~ A", holes: 9,
+            venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9,
+            tees: ["Blue", "White", "Red"]
+        )
+        let noDefaultSetup = WatchRoundSetupView(front: noDefault, courses: [noDefault])
+        XCTAssertEqual(noDefaultSetup.orderedTeeChoices.map(\.title), ["蓝 T", "白 T", "红 T"])
+        XCTAssertEqual(noDefaultSetup.orderedTeeChoices.map(\.isSelected), [true, false, false])
+    }
+
+    @MainActor
+    func testATeeLessCourseOffersTheCourseDefaultRow() {
+        let course = WatchCourseOption(globalId: 301, name: "测试球场", holes: 9)
+        let setup = WatchRoundSetupView(front: course, courses: [course])
+        XCTAssertTrue(setup.orderedTeeChoices.isEmpty)
+        XCTAssertEqual(setup.teeChoices.map(\.title), ["球场默认 T"])
+        XCTAssertEqual(setup.teeChoices.map(\.isSelected), [true])
     }
 
     @MainActor

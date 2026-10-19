@@ -48,8 +48,8 @@ public struct StartRoundView: View {
     /// course in the background so Start, and every hole after it, is ready before the first tee.
     public let onCourseIntent: ([MobileCourseOption], String) -> Void
 
-    private let defaultCourseGlobalId: Int?
-    private let defaultTeeBox: String
+    private let callerCourseGlobalId: Int?
+    private let callerTeeBox: String
 
     @StateObject private var locationProvider: LocationProvider
     @State private var roundId: String
@@ -125,8 +125,8 @@ public struct StartRoundView: View {
             break
         }
         self.defaultRoundId = defaultRoundId
-        self.defaultCourseGlobalId = defaultCourseGlobalId
-        self.defaultTeeBox = defaultTeeBox
+        self.callerCourseGlobalId = defaultCourseGlobalId
+        self.callerTeeBox = defaultTeeBox
         self.courseOptions = courseOptions
         self.preselectedVenueOptions = preselectedVenueOptions
         self.downloadedCourseOptions = downloadedCourseOptions
@@ -168,7 +168,7 @@ public struct StartRoundView: View {
         } ?? defaultRoundId)
         self._teeBox = State(initialValue: Self.initialTee(
             callerTee: selected.flatMap {
-                Self.lastUsedTee(for: $0, recent: recentCourseOption, caller: selected, callerTee: defaultTeeBox)
+                Self.lastUsedTeeForCourse(for: $0, recent: recentCourseOption, caller: selected, callerTee: defaultTeeBox)
             } ?? "",
             offered: selected?.tees ?? [],
             courseTee: selected?.teeBox
@@ -387,13 +387,17 @@ public struct StartRoundView: View {
         fetchedTees = tees
         let pickedTee = userPickedTee ? teeBox : nil
         teeBox = Self.teeAfterRefresh(
-            lastUsed: selectedSegment.flatMap { lastUsedTee(for: $0) },
-            pickedTee: pickedTee,
+            current: teeBox,
+            userPicked: userPickedTee,
+            lastUsed: lastUsedTee,
             rows: tees
         )
         // If the response removed a manual pick, the fallback is automatic again.
         userPickedTee = pickedTee.map { picked in
-            tees.contains { $0.teeBox.caseInsensitiveCompare(picked) == .orderedSame }
+            tees.contains {
+                $0.teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .caseInsensitiveCompare(picked.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+            }
         } ?? false
     }
 
@@ -676,28 +680,26 @@ public struct StartRoundView: View {
     }
 
     /// Historical preferences belong to a physical venue, never to the current automatic guess.
-    static func lastUsedTee(
+    static func lastUsedTeeForCourse(
         for option: MobileCourseOption,
         recent: MobileCourseOption?,
         caller: MobileCourseOption?,
         callerTee: String
     ) -> String? {
-        if let recent, samePhysicalVenue(recent, option),
-           let tee = HubCourseSuggestion.knownTee(recent.teeBox) {
-            return tee
-        }
-        if let caller, samePhysicalVenue(caller, option) {
-            return HubCourseSuggestion.knownTee(callerTee)
-        }
-        return nil
+        StartRoundPresentation.lastUsedTee(
+            selectedVenue: courseVenueName(option),
+            recentVenue: recent.map(Self.courseVenueName), recentTee: recent?.teeBox,
+            callerVenue: caller.map(Self.courseVenueName), callerTee: callerTee
+        )
     }
 
-    private func lastUsedTee(for option: MobileCourseOption) -> String? {
-        Self.lastUsedTee(
-            for: option,
-            recent: recentCourseOption,
-            caller: (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == defaultCourseGlobalId },
-            callerTee: defaultTeeBox
+    private var lastUsedTee: String? {
+        guard let selectedSegment else { return nil }
+        let caller = (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId }
+        return StartRoundPresentation.lastUsedTee(
+            selectedVenue: Self.courseVenueName(selectedSegment),
+            recentVenue: recentCourseOption.map(Self.courseVenueName), recentTee: recentCourseOption?.teeBox,
+            callerVenue: caller.map(Self.courseVenueName), callerTee: callerTeeBox
         )
     }
 
@@ -709,12 +711,15 @@ public struct StartRoundView: View {
     }
 
     /// A chip tapped while /tees was pending wins only if the response still offers it.
-    static func teeAfterRefresh(lastUsed: String?, pickedTee: String? = nil, rows: [CourseTee]) -> String {
-        let offeredPick = pickedTee.flatMap { picked in
-            rows.first { $0.teeBox.caseInsensitiveCompare(picked) == .orderedSame }?.teeBox
+    static func teeAfterRefresh(current: String, userPicked: Bool, lastUsed: String?, rows: [CourseTee]) -> String {
+        if userPicked, let picked = HubCourseSuggestion.knownTee(current),
+           let row = rows.first(where: {
+               $0.teeBox.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(picked) == .orderedSame
+           }) {
+            return row.teeBox
         }
         return StartRoundPresentation.preselectedTee(
-            lastUsed: offeredPick ?? lastUsed, offered: rows.map(\.teeBox),
+            lastUsed: lastUsed, offered: rows.map(\.teeBox),
             defaultTee: rows.first(where: \.isDefault)?.teeBox
         )
     }
@@ -1445,7 +1450,12 @@ public struct StartRoundView: View {
         if option.globalId != courseGlobalId {
             startHalf = "front"
         }
-        let state = Self.selectionState(for: option, lastUsedTee: lastUsedTee(for: option))
+        let lastUsed = Self.lastUsedTeeForCourse(
+            for: option, recent: recentCourseOption,
+            caller: (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId },
+            callerTee: callerTeeBox
+        )
+        let state = Self.selectionState(for: option, lastUsedTee: lastUsed)
         userPickedTee = false
         courseGlobalIdText = state.globalIdText
         roundId = state.roundId
