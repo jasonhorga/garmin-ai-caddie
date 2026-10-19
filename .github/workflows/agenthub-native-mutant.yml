@@ -1,0 +1,146 @@
+name: Agenthub Native Mutant
+run-name: agenthub-native ${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Agenthub request identifier
+        required: true
+        type: string
+      head_sha:
+        description: Head revision to test
+        required: true
+        type: string
+      patch_b64:
+        description: Base64 mutant patch, empty for a baseline
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  native-mutant:
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # The writer must exist even when the tested head predates this workflow.
+      - name: Check out workflow tools
+        uses: actions/checkout@v4
+        with:
+          path: native-tools
+          persist-credentials: false
+      - name: Check out head under test
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_sha }}
+          path: native-head
+          persist-credentials: false
+      - name: Apply mutant patch
+        id: apply
+        continue-on-error: true
+        working-directory: native-head
+        env:
+          PATCH_B64: ${{ inputs.patch_b64 }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          import subprocess
+
+          encoded = os.environ['PATCH_B64']
+          if encoded:
+              patch = base64.b64decode(encoded, validate=True)
+              subprocess.run(['git', 'apply', '--whitespace=nowarn', '-'], input=patch, check=True)
+          PY
+      - name: Select available simulators by UDID
+        id: simulators
+        if: ${{ steps.apply.outcome == 'success' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+
+          inventory = json.loads(subprocess.check_output(
+              ['xcrun', 'simctl', 'list', 'devices', 'available', '-j'], text=True
+          ))['devices']
+
+          def newest(platform, name):
+              candidates = []
+              for runtime, devices in inventory.items():
+                  version = re.search(rf'\.{platform}-(\d+)-(\d+)(?:-|$)', runtime)
+                  if version is None:
+                      continue
+                  for device in devices:
+                      if device.get('isAvailable') is True and device.get('name') == name:
+                          candidates.append((tuple(map(int, version.groups())), device['udid']))
+              if not candidates:
+                  raise SystemExit(f'No available simulator: {name}')
+              return max(candidates)[1]
+
+          ios = newest('iOS', 'iPhone 16')
+          watch = newest('watchOS', 'Apple Watch Series 10 (46mm)')
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as handle:
+              handle.write(f'IOS_UDID={ios}\nWATCH_UDID={watch}\n')
+          PY
+      - name: Install XcodeGen
+        id: install
+        if: ${{ steps.apply.outcome == 'success' }}
+        run: brew install xcodegen
+      - name: Generate native project
+        id: generate
+        if: ${{ steps.apply.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: native-head
+        run: xcodegen generate --spec mobile/ios/project.yml --project-root .
+      - name: Test iPhone scheme
+        id: ios
+        if: ${{ steps.generate.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: native-head
+        run: |
+          xcodebuild test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddie \
+            -destination "platform=iOS Simulator,id=$IOS_UDID" \
+            -resultBundlePath "$RUNNER_TEMP/native-ios.xcresult"
+      - name: Test Watch scheme
+        id: watch
+        if: ${{ steps.generate.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: native-head
+        run: |
+          xcodebuild test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieWatch \
+            -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
+            -resultBundlePath "$RUNNER_TEMP/native-watch.xcresult"
+      - name: Write native result
+        id: write_result
+        if: ${{ !cancelled() && (steps.apply.outcome == 'failure' || (steps.simulators.outcome == 'success' && steps.install.outcome == 'success' && (steps.generate.outcome == 'success' || steps.generate.outcome == 'failure'))) }}
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+        run: |
+          python3 native-tools/.github/scripts/agenthub_native_result.py \
+            --request-id "$REQUEST_ID" \
+            --head-sha "$HEAD_SHA" \
+            --apply-outcome "$APPLY_OUTCOME" \
+            --ios-result "$RUNNER_TEMP/native-ios.xcresult" \
+            --watch-result "$RUNNER_TEMP/native-watch.xcresult" \
+            --output native-verdict/result.json
+      - name: Upload native result
+        if: ${{ !cancelled() && steps.write_result.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: agenthub-native-result
+          path: native-verdict/result.json
+          if-no-files-found: error
