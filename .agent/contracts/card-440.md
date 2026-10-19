@@ -12,16 +12,53 @@ Touches: `.github/workflows/agenthub-native-mutant.yml`, `.github/scripts/agenth
 Acceptance tests: `tests/acceptance/test_card_440_native_mutant_workflow.py` (9 tests). Codex
 must not edit `tests/acceptance/`.
 
-## Revision 5: more wrong implementations caught
+## Revision 6: the wrong implementations revision 5 still let through
 
-The gate's adversarial check failed on head `6942203`, which holds the revision-4 tests and the
-implementation from `b7f0936`. I could not read the gate report. I read the head against the tests
-again and listed the wrong implementations that would still pass; revision 5 catches them. The
-goals, the interface and the result format are unchanged. The new pass conditions (marked
-**(rev 5)** below) state what the head already does, so **no implementation change is expected**.
-If a new case fails, fix the workflow or the writer, not the tests.
+The owner's resume request (adversarial 0/3 on head `6942203`) asked for "revision 5". The PR head
+`793bd98` already carries a revision 5 (`4a62a07`), so this delivery is revision 6, built on top of
+it. I still could not read the gate report. I read `b7f0936`'s workflow and writer against the
+revision-5 tests again, change by change, and found these wrong implementations that still pass.
+Revision 6 catches them. The goals, the interface and the result format are unchanged. The new
+pass conditions (marked **(rev 6)** below) state what the head already does, so **no
+implementation change is expected**. If a new case fails, check it against this contract first.
+Fix the workflow or the writer only if they break the contract. If the case itself is wrong (see
+"Gate notes"), report it on the card. Never edit the tests.
 
 Now caught:
+- **Lenient apply:** `git apply --whitespace=fix`, `--ignore-whitespace` or
+  `--ignore-space-change`. A patch whose context differs from the head only by a trailing space
+  must be `apply_failed`. (`--whitespace=fix` also rewrites the mutant's added lines.)
+- **xcresulttool exit code ignored:** the writer drops `check=True`, or otherwise reads stdout after
+  a non-zero exit. xcresulttool now prints a tree and exits 1 in one case; that is `build_failed`.
+- **Not a tree, read as empty:** output that is JSON but has no `testNodes` is read as zero tests
+  instead of an unusable result. That is `build_failed`.
+- **Wrong fallback suite:** the fallback id uses the outermost suite, or the whole suite path,
+  instead of the nearest suite. The nested iOS case now has no `nodeIdentifier` in the mutant tree.
+- **Duplicates skipped on a build failure:** the duplicate check runs only when the run is
+  `tested`. A duplicate id next to a scheme without a result must still fail closed.
+- **Retried or repeated tests:** `-retry-tests-on-failure`, `-test-iterations` or
+  `-run-tests-until-failure`. A retry lets a mutant's intermittent failure pass.
+- **A second destination:** an extra `-destination` (for example by `name=`) next to the UDID one.
+
+Some changes stay uncaught because they behave the same in every run this contract defines, and on
+every real runner:
+- `always()` instead of `!cancelled()`, or dropping one of the write or upload step's redundant
+  conditions (the job has already failed whenever they would matter);
+- `git apply --recount`: it differs only on a patch whose hunk counts are wrong, and agenthub's
+  patches come from `git diff`;
+- dropping the writer's removal of an old `result.json`: every run starts on a fresh runner (the
+  unit test in `tests/test_agenthub_native_result.py` still covers it);
+- taking the outermost instead of the nearest test bundle: bundles do not nest in xcresulttool's
+  output (the same unit test covers it);
+- dropping one of the two availability filters (`simctl list devices available` and
+  `isAvailable`): either one is enough.
+
+If the gate reports a survivor that is not on this list, it should name it. I will then either pin
+the behaviour it changes or record it as equivalent here.
+
+## History
+
+Revision 5 (adversarial 0/3 on `6942203`) caught:
 - **Writer stops early:** it stops at the first scheme without a usable result, so it never reads
   an unknown result in the other scheme. That must still fail closed.
 - **Failed test hides a build failure:** a failed test in one scheme is reported as `tested` when
@@ -43,12 +80,7 @@ Now caught:
 - **Writer from the head:** the workflow uses the head's writer when the head has one. A mutant
   patch now adds a writer that only fails.
 
-Some changes stay uncaught because they behave the same in every run this contract defines. For
-example, `always()` instead of `!cancelled()`, or dropping one of the write step's redundant
-conditions. If the gate reports such a survivor, it should name it. I will then either pin the
-behaviour it changes or record it as equivalent here.
-
-History:
+Earlier revisions:
 - Revision 4 renamed the helper `test_runs()` to `scheme_runs()`, because the gate counted it as a
   test. It also added the simulator-order, generate, install, duplicate, stale-context and static
   cases.
@@ -120,7 +152,9 @@ The tests only check what the card and this contract ask for. The following stay
      the head checkout. An empty patch is a baseline: there is nothing to apply, and the step
      succeeds. A patch that does not decode, is not a patch, or does not apply cleanly is an
      apply failure. "Cleanly" means `git apply`'s default: every context line must match, so no
-     fuzz and no reduced context (`git apply -C…`, `patch`). The step's outcome must carry the
+     fuzz and no reduced context (`git apply -C…`, `patch`). A context line that differs only in
+     whitespace does not match either: no `--whitespace=fix`, `--ignore-whitespace` or
+     `--ignore-space-change` **(rev 6)**. The step's outcome must carry the
      failure (`continue-on-error: true` on this step is the expected way). When the apply fails,
      no `xcodebuild test` runs.
   2. **Simulators by UDID.** Pick the simulators from
@@ -147,9 +181,13 @@ The tests only check what the card and this contract ask for. The following stay
      - with `-scheme AICaddieWatch` and
        `-destination "platform=watchOS Simulator,id=<Watch UDID>"`;
      - each destination has exactly these two fields: no `name=`, no `OS=` **(rev 5)**;
+     - exactly one `-destination` per scheme **(rev 6)**;
      - each with its own new `-resultBundlePath` (two different paths);
      - with the scheme's whole test action: no `-only-testing`, `-only-test-configuration`,
-       `-skip-test-configuration` or `-testPlan` **(rev 5)**.
+       `-skip-test-configuration` or `-testPlan` **(rev 5)**;
+     - each test runs once: no `-retry-tests-on-failure`, `-test-iterations` or
+       `-run-tests-until-failure`. A retry would let a mutant's intermittent failure pass
+       **(rev 6)**.
 
      Only `-skip-testing:AICaddieWatchUITests` may be skipped. The Watch scheme's UI journeys run
      against fixture screens without a backend, so keeping them is allowed. The `AICaddieUITests`
@@ -169,14 +207,17 @@ The tests only check what the card and this contract ask for. The following stay
 ### Result writer `.github/scripts/agenthub_native_result.py`
 
 - Python 3 standard library only. It reads each scheme's bundle with
-  `xcrun xcresulttool get test-results tests --path <bundle>` (Xcode 16; not `--legacy`).
+  `xcrun xcresulttool get test-results tests --path <bundle>` (Xcode 16; not `--legacy`). When
+  xcresulttool exits non-zero, the scheme has no usable result, even if it printed a tree
+  **(rev 6)**.
 - **Tests.** Every node with `nodeType == "Test Case"` in `testNodes`, at any depth, is one test.
   A Test Case can sit in a suite nested in another suite **(rev 5)**.
   - its `id` is `<bundle>/<nodeIdentifier>`, e.g.
     `AICaddieTests/StartRoundDiscoveryTests/testOpeningPageIsCourseUnlessACourseIsPassed()`;
   - `<bundle>` is the name of the nearest `Unit test bundle` / `UI test bundle` ancestor;
   - when `nodeIdentifier` is missing, the id falls back to `<bundle>/<suite>/<name>`, with the
-    nearest suite;
+    nearest suite. In a nested suite that is the inner suite alone, e.g.
+    `AICaddieTests/NearbyDiscovery/testNearbyDiscoveryWaitsForLocation()` **(rev 6)**;
   - nodes below a Test Case (`Device`, `Test Case Run`, `Failure Message`, …) are not tests.
 - **Status mapping:** `Passed` and `Expected Failure` map to `passed`, `Failed` to `failed`, and
   `Skipped` to `skipped`.
@@ -185,7 +226,8 @@ The tests only check what the card and this contract ask for. The following stay
   - any Test Case has another or missing `result`, in either scheme. This holds even when the
     other scheme left no usable result: the writer still reads both schemes **(rev 5)**;
   - two Test Cases get the same id, in one tree or across the two schemes, whatever their statuses
-    **(rev 5)**. Merging them could hide a failure behind a pass.
+    **(rev 5)**, and also when the other scheme left no usable result **(rev 6)**. Merging them
+    could hide a failure behind a pass.
 
   The step that runs the writer must therefore end in `failure` **(rev 5)**.
 
@@ -203,9 +245,10 @@ The tests only check what the card and this contract ask for. The following stay
 Extra keys are allowed. Test ids are unique.
 - `apply_failed`: the patch did not apply. `tests` is `[]`.
 - `build_failed`: the project did not generate, or some scheme has no usable result. The bundle
-  may be missing, xcresulttool may have failed, the output may not be JSON, or there may be no Test
-  Case at all. This holds even when the other scheme has a failed test **(rev 5)**. `tests` is
-  unchecked.
+  may be missing, xcresulttool may have failed (a non-zero exit, even with a tree on stdout,
+  **rev 6**), the output may not be JSON, the JSON may have no `testNodes` **(rev 6)**, or there may
+  be no Test Case at all. This holds even when the other scheme has a failed test **(rev 5)**.
+  `tests` is unchecked.
 - `tested`: otherwise. `tests` lists every Test Case of both schemes. A mutant is caught when one
   of them is `failed`.
 
@@ -215,12 +258,12 @@ Extra keys are allowed. Test ids are unique.
 |---|---|---|
 | baseline, all tests pass | green | `tested`, all `passed` |
 | a native test fails (exit 65) | green | `tested`, that test `failed` |
-| patch does not apply / decode | green | `apply_failed`, no xcodebuild test |
+| patch does not apply / decode (also context off by whitespace only, rev 6) | green | `apply_failed`, no xcodebuild test |
 | patched spec does not generate | green | `build_failed`, no xcodebuild test (rev 5) |
 | a scheme leaves no usable result (also next to a failed test, rev 5) | green | `build_failed` |
 | simulator missing (runner failure) | red | not uploaded |
 | `brew install xcodegen` fails (runner failure) | red | not uploaded |
-| unrecognised test result (also next to a scheme without a result, rev 5), or a duplicate test id | red | not uploaded |
+| unrecognised test result (also next to a scheme without a result, rev 5), or a duplicate test id (also next to a scheme without a result, rev 6) | red | not uploaded |
 
 ## Replay rules (how the acceptance tests run the workflow)
 
@@ -244,6 +287,8 @@ Linux CI has no Xcode, so the tests replay the single job offline:
   - `xcodegen generate` creates the project directory next to the spec, unless the spec carries
     the test's broken-spec marker; then it exits 1;
   - `xcodebuild test` needs that project, and creates the result bundle;
+  - `xcresulttool` serves the case's tree, raw text or error; a case can make it print a tree and
+    still exit 1 **(rev 6)**;
   - `simctl list` prints runtimes in the same unordered order as its JSON;
   - a case can make `brew` (or `xcode-select`) exit 1.
 - Supported `${{ }}` (in `env:`, `with:`, `if:`, `continue-on-error`):
@@ -280,8 +325,9 @@ Linux CI has no Xcode, so the tests replay the single job offline:
      `platform=watchOS Simulator,id=<newest Series 10 (46mm)>`. In the sample list, each of these
      picks another device: the first match, the last match, text order, major-only order, UDID
      order, or a prefix name match with any tie-break **(rev 5)**;
-   - with no `-only-testing`, test configuration or `-testPlan`, and no argument naming
-     `AICaddieUITests`.
+   - with exactly one `-destination` **(rev 6)**;
+   - with no `-only-testing`, test configuration or `-testPlan`, no retry or iteration option
+     **(rev 6)**, and no argument naming `AICaddieUITests`.
 5. `test_failing_native_test_is_reported_and_the_job_stays_green`,
    `test_watch_only_failure_is_reported` and the writer-origin test: the patch is applied before
    generate and test (the marker file reads `"mutant"`), and both schemes still run after a
@@ -295,14 +341,17 @@ Linux CI has no Xcode, so the tests replay the single job offline:
 ### G3 — `result.json` is the verdict: green on test failures, apply/build failures recorded, nothing uploaded on a runner failure
 
 8. Failing iOS test, or failing Watch test: the job is green and `status` is `tested`.
-9. Stale changed line, stale surrounding context, input that is not base64, input that is not a
-   patch: green, no `xcodebuild test`, `apply_failed`, `tests: []`.
+9. Stale changed line, stale surrounding context, **(rev 6)** surrounding context that differs only
+   by a trailing space, input that is not base64, input that is not a patch: green, no
+   `xcodebuild test`, `apply_failed`, `tests: []`.
 10. These runs are green with `build_failed`:
     - a spec that does not generate;
     - the Watch scheme ran no test;
     - the Watch or the iOS scheme left no bundle;
     - an unreadable bundle;
     - a tree that is not JSON;
+    - **(rev 6)** xcresulttool printed a whole passing Watch tree but exited 1;
+    - **(rev 6)** the Watch output is JSON without `testNodes`;
     - **(rev 5)** an iOS failed test next to a Watch scheme that left no bundle.
 11. The job is red and no `result.json` is uploaded in any artifact when:
     - no iPhone 16 is available;
@@ -315,7 +364,8 @@ Linux CI has no Xcode, so the tests replay the single job offline:
       **(rev 5)**;
     - one test id appears in both schemes, failed in one and passed in the other;
     - **(rev 5)** one test id appears in both schemes, passed in both;
-    - **(rev 5)** one test id appears twice in the iOS tree.
+    - **(rev 5)** one test id appears twice in the iOS tree;
+    - **(rev 6)** one test id appears twice in the iOS tree, and the Watch scheme left no bundle.
 13. Whenever a `result.json` is expected, it is uploaded exactly once, at the root of the artifact
     `agenthub-native-result` (checked in every replay that reads `result.json`).
 
@@ -332,6 +382,9 @@ Linux CI has no Xcode, so the tests replay the single job offline:
       (`WatchDesignSnapshotTests/testTappingATeeStartsTheRoundWithThatTee()`) is listed under the
       fallback id
       `AICaddieWatchTests/WatchDesignSnapshotTests/testTappingATeeStartsTheRoundWithThatTee()`.
+    - **(rev 6)** The nested iOS case has no `nodeIdentifier` either. It is listed under the
+      nearest suite, `AICaddieTests/NearbyDiscovery/testNearbyDiscoveryWaitsForLocation()`, as
+      `skipped`.
 16. Cases 10 and 12 cover `build_failed`, failing closed and duplicate ids.
 
 ## Not covered by these tests
@@ -359,14 +412,15 @@ Linux CI has no Xcode, so the tests replay the single job offline:
 - On `main`, every test fails at its first check, in the test function itself, because the
   workflow and the writer do not exist. No test is pinned, no test uses `subTest`, and no helper's
   name starts with `test`.
-- I could not run the revision-5 tests in the contract sandbox: Python test runs were refused.
+- The revision-5 tests passed on head `793bd98` in CI's `backend` job.
+- I could not run the revision-6 tests in the contract sandbox: Python runs were refused again.
   I checked every new case by reading it against `b7f0936`'s workflow and writer:
-  - the writer's loop over both schemes, its duplicate check and its exit code;
-  - the `brew install xcodegen` step before generate;
-  - the test steps' `if: steps.generate.outcome == 'success'`;
-  - the exact destinations;
-  - the exact-name simulator choice;
-  - the tools checkout in `native-tools`.
+  - the apply step's `git apply --whitespace=nowarn`. It matches context lines exactly; only
+    `--whitespace=fix` and `--ignore-space-change` match a trailing-space difference;
+  - `read_bundle`'s `check=True`, which turns a non-zero xcresulttool exit into an unusable result;
+  - `test_cases`, which raises on a tree without `testNodes` and keeps the nearest suite;
+  - `verdict`, which checks duplicates before choosing `build_failed`;
+  - the test steps' single destination and their lack of retry options.
 
-  The revision-4 tests passed on that head in CI's `backend` job. The gate's own run is the
-  authority.
+  The gate's own run is the authority. If a revision-6 case fails on that head, the case is
+  probably wrong, not the implementation. Report it on the card and I will fix the test.
