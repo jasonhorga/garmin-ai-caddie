@@ -31,8 +31,12 @@ WATCH_TESTS = "mobile/ios/AICaddieWatchTests/"
 WATCH_SWIFT = ("mobile/ios/AICaddieWatch/", "mobile/ios/AICaddieWatchTests/", "mobile/ios/AICaddieWatchUITests/")
 README = "docs/design/2026-09-25-ui-redesign/README.md"
 
-# Every call of the D02 rule, never negated: `Self.drawsRouteAndPlan(fullMap: fullMap)`.
-POLICY_CALL = re.compile(r"(?<![!\w.])(?:(?:Self|WatchHoleMapView)\.)?drawsRouteAndPlan\(\s*fullMap:\s*fullMap\s*\)")
+# Every call of the D02 rule, never negated or compared: `Self.drawsRouteAndPlan(fullMap: fullMap)`.
+POLICY_CALL = re.compile(
+    r"(?<![!\w.])(?:(?:Self|WatchHoleMapView)\.)?drawsRouteAndPlan\(\s*fullMap:\s*fullMap\s*\)(?!\s*(?:==|!=|\?))"
+)
+# A local that shadows the view's own `fullMap` inside a drawing function.
+FULL_MAP_SHADOW = re.compile(r"\b(?:let|var)\s+fullMap\b|\bfullMap\s+in\b|(?<![\w.])fullMap\s*=(?!=)")
 POLICY_DECL = re.compile(r"\bstatic\s+func\s+drawsRouteAndPlan\s*\(\s*fullMap:\s*Bool\s*\)\s*->\s*Bool")
 CURRENT_SHOT_FIELDS = {"player", "target", "carryP10", "carryP90", "continuation"}
 KEPT_SNAPSHOTS = (
@@ -345,10 +349,13 @@ def _gate_names(code: str, start: int, end: int) -> set[str]:
 
 
 def _mentions_gate(header: str, names: set[str]) -> bool:
-    # G1: the statement tests the rule itself or a local bound from it, not its negation.
+    # G1: the statement tests the rule itself or a local bound from it, not its negation, a
+    # comparison, or a disjunction that would run the code without it.
+    if "||" in header:
+        return False
     if POLICY_CALL.search(header):
         return True
-    return any(re.search(rf"(?<![!\w.]){re.escape(name)}\b(?!\s*=(?!=))", header) for name in names)
+    return any(re.search(rf"(?<![!\w.]){re.escape(name)}\b(?!\s*(?:=|!=))", header) for name in names)
 
 
 def _gated(code: str, span: tuple[int, int], index: int, *, own_statement: bool = False) -> bool:
@@ -365,10 +372,18 @@ def _gated(code: str, span: tuple[int, int], index: int, *, own_statement: bool 
         headers.append(_statement_before(code, brace if brace >= 0 else line_end))
     if any(_mentions_gate(header, names) for header in headers):
         return True
-    return any(
-        _mentions_gate(match.group(1), names)
-        for match in re.finditer(r"\bguard\b(.*?)\belse\b", code[start:index], re.S)
-    )
+    return any(_mentions_gate(guard, names) for guard in _top_level_guards(code, start, index))
+
+
+def _top_level_guards(code: str, start: int, end: int) -> list[str]:
+    # G1: the conditions of the `guard … else` statements directly in the body opening at `start`
+    # (not inside a nested block, which would not cover the rest of the body).
+    guards = []
+    for match in re.finditer(r"\bguard\b(.*?)\belse\b", code[start + 1 : end], re.S):
+        before = code[start + 1 : start + 1 + match.start()]
+        if before.count("{") == before.count("}"):
+            guards.append(match.group(1))
+    return guards
 
 
 def _callee_guarded(code: str, function: str) -> bool:
@@ -376,10 +391,16 @@ def _callee_guarded(code: str, function: str) -> bool:
     span = _body(code, rf"\bfunc\s+{function}\b")
     if span is None:
         return False
-    return any(
-        POLICY_CALL.search(match.group(1))
-        for match in re.finditer(r"\bguard\b(.*?)\belse\b", code[span[0] : span[1]], re.S)
-    )
+    return any(_mentions_gate(guard, set()) for guard in _top_level_guards(code, *span))
+
+
+def _call_sites(code: str, function: str) -> list[int]:
+    # G1: offsets of every `function(` call in the file, skipping its own declaration.
+    return [
+        match.start()
+        for match in re.finditer(rf"\b{function}\s*\(", code)
+        if not re.search(r"\bfunc\s+$", code[max(0, match.start() - 40) : match.start()])
+    ]
 
 
 def _test_functions(code: str) -> list[tuple[str, tuple[int, int]]]:
@@ -483,23 +504,25 @@ class WatchRootOneAimLineTests(unittest.TestCase):
             )
 
         draw_map = _required_body(code, r"\bfunc\s+drawMap\b")
-        full_plan_calls = [m.start() for m in re.finditer(r"\bdrawFullPlan\s*\(", code[: draw_map[1]]) if m.start() > draw_map[0]]
-        self.assertTrue(full_plan_calls, "drawMap still draws the plan for the caddie page")
-        for index in full_plan_calls:
-            self.assertTrue(
-                _gated(code, draw_map, index) or _callee_guarded(code, "drawFullPlan"),
-                "drawFullPlan is drawn only when drawsRouteAndPlan(fullMap:) holds",
+        current_shot = _required_body(code, r"\bfunc\s+drawCurrentShot\b")
+        for span in (draw_map, current_shot):
+            self.assertNotRegex(
+                code[span[0] : span[1]], FULL_MAP_SHADOW, "the rule is applied to the view's own fullMap"
             )
 
-        route_calls = [m.start() for m in re.finditer(r"\bdrawFactualRoute\s*\(", code[: draw_map[1]]) if m.start() > draw_map[0]]
-        if re.search(r"\bfunc\s+drawFactualRoute\b", code) or route_calls:
-            for index in route_calls:
-                self.assertTrue(
-                    _gated(code, draw_map, index) or _callee_guarded(code, "drawFactualRoute"),
-                    "the tee-to-green route over the topo image is drawn only when drawsRouteAndPlan(fullMap:) holds",
-                )
+        # Every call in the file, not only those in drawMap: neither drawing may move elsewhere ungated.
+        for function, message in (
+            ("drawFullPlan", "drawFullPlan is drawn only when drawsRouteAndPlan(fullMap:) holds"),
+            ("drawFactualRoute", "the tee-to-green route over the topo image is drawn only when drawsRouteAndPlan(fullMap:) holds"),
+        ):
+            if _callee_guarded(code, function):
+                continue
+            for index in _call_sites(code, function):
+                self.assertTrue(draw_map[0] < index < draw_map[1], f"{message}: call outside drawMap")
+                self.assertTrue(_gated(code, draw_map, index), message)
+        full_plan_calls = [index for index in _call_sites(code, "drawFullPlan") if draw_map[0] < index < draw_map[1]]
+        self.assertTrue(full_plan_calls, "drawMap still draws the plan for the caddie page")
 
-        current_shot = _required_body(code, r"\bfunc\s+drawCurrentShot\b")
         uses = [m.start() for m in re.finditer(r"\blayout\.continuation\b", code[: current_shot[1]]) if m.start() > current_shot[0]]
         for index in uses:
             self.assertTrue(
@@ -558,15 +581,32 @@ class WatchRootOneAimLineTests(unittest.TestCase):
 
         helper = _required_body(code, r"\bfunc\s+showsRootRecommendation\s*\(")
         body = code[helper[0] : helper[1]]
-        self.assertRegex(body, r"\bcurrentShotLayout\s*\(")
-        self.assertRegex(body, r"\bpreparedRootCaddieLayerAvailable\b")
-        for forbidden in (r"\bplanLegs\b", r"\blegs\b", r"\bcaddieOptions\b", r"\.count\b", r"\bcurrentCaddieOptions\b"):
+        # The live gate, or the prepared Tee plan with its geometry: nothing else can turn it on.
+        self.assertRegex(body, r"\bcurrentShotLayout\s*\(\s*for:\s*s\s*,\s*geometry:\s*geometry\s*\)\s*!=\s*nil")
+        self.assertRegex(body, r"\bmodel\.preparedRootCaddieLayerAvailable\s*\(\s*at:\s*shotLocation\s*\)")
+        self.assertRegex(body, r"\bpreparedRootGeometry\s*\(\s*for:\s*s\s*,\s*base:\s*geometry\s*\)\s*!=\s*nil")
+        self.assertEqual(body.count("||"), 1, "exactly two alternatives: the live gate or the prepared Tee gate")
+        self.assertIn("&&", body, "the prepared Tee gate needs both the model gate and the prepared geometry")
+        for forbidden in (
+            r"\bplanLegs\b",
+            r"\blegs\b",
+            r"\bcaddieOptions\b",
+            r"\bcaddieOption\b",
+            r"\bcurrentCaddieOptions\b",
+            r"\.count\b",
+            r"\.plan\b",
+            r"\boptionId\b",
+            r"\btrue\b",
+            r"!(?!=)",
+        ):
             self.assertNotRegex(body, forbidden, "the root layer gate never depends on the plan itself")
 
         root = self._root_call(code)
-        shows = _value(code, root, "showCaddieRecommendation") or ""
-        self.assertRegex(shows, r"\bshowsRootRecommendation\s*\(")
-        self.assertNotRegex(shows, r"\blegs\b|\bplanLegs\b|isEmpty")
+        self.assertEqual(
+            _value(code, root, "showCaddieRecommendation"),
+            "showsRootRecommendation(s, geometry: geometry)",
+            "the club tag and aim line follow the gate alone",
+        )
 
     def test_root_aim_line_keeps_real_dispersion_only(self) -> None:
         # G2
@@ -604,16 +644,25 @@ class WatchRootOneAimLineTests(unittest.TestCase):
         code, _ = sources.read(CONTAINER)
 
         root = self._root_call(code)
-        opens = _value(code, root, "onOpenCaddie") or ""
-        self.assertIn("model.openCaddie()", opens)
-        self.assertNotIn("cyclePlan", opens)
+        self.assertEqual(_value(code, root, "onOpenCaddie"), "{ model.openCaddie() }")
 
         target = _required_body(code, r"\bvar\s+planTagTapTarget\b")
         body = code[target[0] : target[1]]
-        self.assertRegex(body, r"\bshowsRootRecommendation\s*\(", "the tap target exists exactly when the tag does")
-        self.assertIn("model.openCaddie()", body)
-        self.assertNotRegex(body, r"count\s*>\s*1")
+        self.assertRegex(
+            body,
+            r"\bshowsRootRecommendation\s*\(\s*s\s*,\s*geometry:\s*geometry\s*\)",
+            "the tap target exists exactly when the tag does",
+        )
+        self.assertNotIn("||", body, "nothing but the recommendation gate shows the tap target")
+        for forbidden in (r"count\s*>\s*1", r"\bcaddieOption\b", r"\bcurrentCaddieOptions\b", r"!\s*showsRootRecommendation"):
+            self.assertNotRegex(body, forbidden)
+        taps = [
+            " ".join(code[match.end() : _match(code, match.end() - 1)].split())
+            for match in re.compile(r"\.onTapGesture\s*(?:\(\s*\))?\s*\{").finditer(code, target[0], target[1])
+        ]
+        self.assertEqual(taps, ["model.openCaddie()"], "the tap opens the caddie page and does nothing else")
         self.assertNotRegex(code, r"\bcyclePlan\b", "the root no longer switches plans in place")
+        self.assertNotRegex(code, r"\bselectedPlanId\b", "no in-place plan selection is left on the root")
 
     def test_caddie_page_keeps_the_multi_shot_plan(self) -> None:
         # G3
