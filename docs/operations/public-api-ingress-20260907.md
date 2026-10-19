@@ -10,8 +10,8 @@ its database, its Docker volume, or the existing Tailscale Funnel routes.
 | --- | --- | --- | --- | --- |
 | Cloudflare quick tunnel `suggests-kilometers-normal-insertion.trycloudflare.com` | Codex / Garmin AI Caddie | Temporary public HTTPS ingress to the candidate API and Build 52 | 2026-09-07 14:10 UTC | Keep through physical device validation; stop the exact tmux session during cleanup. No uptime guarantee. |
 | Homeserver tmux session `codex-aicaddie-quicktunnel-http2-20260907` | Codex / Garmin AI Caddie | Runs `cloudflared --protocol http2` against `http://127.0.0.1:39055` | 2026-09-07 14:10 UTC | Creator owns shutdown; do not kill other tmux sessions |
-| Homeserver -> Tokyo reverse SSH forward on Tokyo loopback `127.0.0.1:39056` | Codex / Garmin AI Caddie | Carries the candidate API to the Tokyo Caddy experiment | pre-existing for this operation | Stop only the named forward during cleanup |
-| Tokyo Caddy container `aicaddie-ingress-20260907` | Codex / Garmin AI Caddie | Candidate HTTPS/HTTP ingress experiment | pre-existing for this operation | Remove only during explicit cleanup; does not receive quick-tunnel traffic |
+| Homeserver -> Tokyo reverse SSH forward | Codex / Garmin AI Caddie | Carried the candidate API to the Tokyo Caddy experiment | pre-existing for this operation | Removed on 2026-10-19 |
+| Tokyo Caddy container `aicaddie-ingress-20260907` | Codex / Garmin AI Caddie | Candidate HTTPS/HTTP ingress experiment | pre-existing for this operation | Removed on 2026-10-19, together with its volume and directory |
 
 ## Protected resources
 
@@ -23,10 +23,12 @@ other projects' processes are outside this operation's cleanup scope.
 
 The quick-tunnel origin is written into the Build 52 TestFlight binary only after an
 external probe confirms HTTPS, the health schema, the exact backend revision,
-and an authenticated readiness response. The Lightsail `443/tcp` firewall is
-still closed; the Caddy experiment remains documented but is not the active
-release ingress. A failed experiment must be removed or explicitly recorded
-before another route is attempted.
+and an authenticated readiness response.
+
+The Tokyo Caddy ingress experiment was removed on 2026-10-19: its container,
+volume and directory were deleted, and the reverse SSH forward was removed.
+Tokyo's HTTP and HTTPS ports have been repurposed. Production continues on the
+homeserver, and the Lightsail HTTPS firewall remains closed.
 
 ## Handoff status
 
