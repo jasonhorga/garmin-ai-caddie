@@ -16,7 +16,8 @@ Linux CI has no Xcode. These tests read the workflow and then replay its job off
   and the writer) and the head under test (without them, like #434's head);
 - `actions/upload-artifact` records the artifact name and the files it would upload;
 - `xcrun`, `xcodebuild`, `xcodegen` and `brew` are fakes. They serve a sample simulator list and
-  sample xcresulttool trees, and record how they were called.
+  sample xcresulttool trees, and record how they were called. Like the real runner image, the fake
+  `xcodegen` is missing until `brew install xcodegen` has run.
 """
 
 from __future__ import annotations
@@ -103,15 +104,27 @@ STALE_CONTEXT_PATCH = _b64(
 )
 # Applies cleanly, but the patched project spec does not generate: a build failure of the mutant.
 BROKEN_SPEC_PATCH = _b64(_diff(SPEC, "@@ -1 +1 @@", f"-{SPEC_TEXT}", f"+{SPEC_TEXT} # {BROKEN_SPEC}"))
+# A mutant that also adds a writer to the head under test, one that only fails. The verdict must still
+# come from the workflow's own writer.
+HEAD_WRITER = ".github/scripts/agenthub_native_result.py"
+HEAD_WRITER_PATCH = _b64(
+    _patch(HEAD_MARKER, MUTANT_MARKER)
+    + f"diff --git a/{HEAD_WRITER} b/{HEAD_WRITER}\nnew file mode 100644\n--- /dev/null\n+++ b/{HEAD_WRITER}\n"
+    + "@@ -0,0 +1 @@\n"
+    + '+raise SystemExit("card #440: this writer comes from the head under test and must not run")\n'
+)
 
 # Simulators. The expected ones are the iPhone 16 and the Apple Watch Series 10 (46mm) on the newest
 # runtime (numeric version order) that has them available. Runtime keys are deliberately unordered:
 # the expected device is neither the first nor the last candidate of its platform, the newest
 # runtimes (iOS 26.1, watchOS 26.0) have none available, and watchOS 11.10 sorts before 11.5 and
-# 11.2 as text. Its UDID is neither the smallest nor the largest of its candidates.
+# 11.2 as text. Its UDID is neither the smallest nor the largest of its candidates. A similar name
+# shares each expected device's runtime: `iPhone 16 Plus` after the iPhone 16 with a smaller UDID,
+# `Series 10 (42mm)` before the Series 10 (46mm) with a larger one. A prefix or substring name match
+# picks a wrong device whether ties go to the first, the last, the smallest or the largest UDID.
 IOS_UDID = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B01"
 IOS_OLD = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B02"
-IOS_PLUS = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B03"
+IOS_PLUS = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5AFF"
 IOS_PRO = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B04"
 IOS_GONE = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B05"
 IOS_17 = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B06"
@@ -140,7 +153,7 @@ DEVICES = {
     _runtime("iOS", 18, 6): [_sim(IPHONE, IOS_OLD), _sim("iPhone 16 Pro", IOS_PRO)],
     _runtime("watchOS", 11, 2): [_sim(WATCH, WATCH_EARLY)],
     _runtime("watchOS", 26, 0): [_sim("Apple Watch Series 11 (46mm)", WATCH_11), _sim(WATCH, WATCH_GONE, False)],
-    _runtime("iOS", 26, 0): [_sim("iPhone 16 Plus", IOS_PLUS), _sim(IPHONE, IOS_UDID)],
+    _runtime("iOS", 26, 0): [_sim(IPHONE, IOS_UDID), _sim("iPhone 16 Plus", IOS_PLUS)],
     _runtime("watchOS", 11, 10): [_sim("Apple Watch Series 10 (42mm)", WATCH_42), _sim(WATCH, WATCH_UDID)],
     _runtime("iOS", 26, 1): [_sim(IPHONE, IOS_GONE, False), _sim("iPhone 17", IOS_17)],
     _runtime("watchOS", 11, 5): [_sim(WATCH, WATCH_OLD)],
@@ -154,12 +167,13 @@ def _without_available(devices: dict, name: str) -> dict:
     return {key: [d for d in value if not (d["name"] == name and d["isAvailable"])] for key, value in devices.items()}
 
 
-# xcresulttool `get test-results tests` trees (Xcode 16 shape).
+# xcresulttool `get test-results tests` trees (Xcode 16 shape). A suite path `Outer/Inner` is a suite
+# nested in another one, as Swift Testing reports it: its Test Case sits one level deeper.
 IOS_CASES = (
     ("AICaddieDomainTests", "CanonicalJSONTests", "testNumberVectorsMatchRFC8785()"),
     ("AICaddieTests", "StartRoundDiscoveryTests", "testOpeningPageIsCourseUnlessACourseIsPassed()"),
     ("AICaddieTests", "StartRoundDiscoveryTests", "testPreselectedTeePrefersLastUsedThenCourseDefault()"),
-    ("AICaddieTests", "StartRoundDiscoveryTests", "testNearbyDiscoveryWaitsForLocation()"),
+    ("AICaddieTests", "StartRoundDiscoveryTests/NearbyDiscovery", "testNearbyDiscoveryWaitsForLocation()"),
     ("AICaddieTests", "DesignSnapshotTests", "testKnownRenderingIssueIsExpected()"),
 )
 WATCH_CASES = (
@@ -176,10 +190,30 @@ def _aggregate(results: list[str]) -> str:
     return "Failed" if any(result not in {"Passed", "Skipped", "Expected Failure"} for result in results) else "Passed"
 
 
+def _suites(entries: list[tuple[list[str], dict]]) -> list[dict]:
+    # G4: Test Suite nodes for (suite path, Test Case) pairs; `Outer/Inner` nests Inner inside Outer.
+    groups: dict[str, list[tuple[list[str], dict]]] = {}
+    for path, node in entries:
+        groups.setdefault(path[0], []).append((path[1:], node))
+    suites = []
+    for name, members in groups.items():
+        children = [node for rest, node in members if not rest]
+        children += _suites([(rest, node) for rest, node in members if rest])
+        suites.append(
+            {
+                "name": name,
+                "nodeType": "Test Suite",
+                "result": _aggregate([str(child.get("result")) for child in children]),
+                "children": children,
+            }
+        )
+    return suites
+
+
 def _tree(plan: str, cases: tuple, results: tuple, device: dict) -> dict:
     # G4: an xcresulttool test tree; the first case carries Device / Test Case Run children that are
     # not tests themselves, failed cases carry a Failure Message.
-    bundles: dict[str, dict[str, list[dict]]] = {}
+    bundles: dict[str, list[tuple[list[str], dict]]] = {}
     for index, ((bundle, suite, name), result) in enumerate(zip(cases, results, strict=True)):
         node: dict = {"name": name, "nodeType": "Test Case", "nodeIdentifier": f"{suite}/{name}", "duration": "0,1s"}
         if result is not None:
@@ -197,23 +231,15 @@ def _tree(plan: str, cases: tuple, results: tuple, device: dict) -> dict:
         elif result == "Failed":
             node["children"] = [
                 {
-                    "name": f"{suite}.swift:42: XCTAssertEqual failed: (\"Blue\") is not equal to (\"Gold\")",
+                    "name": f"{suite.split('/')[-1]}.swift:42: XCTAssertEqual failed: (\"Blue\") is not equal to (\"Gold\")",
                     "nodeType": "Failure Message",
                     "result": "Failed",
                 }
             ]
-        bundles.setdefault(bundle, {}).setdefault(suite, []).append(node)
+        bundles.setdefault(bundle, []).append((suite.split("/"), node))
     bundle_nodes = []
-    for bundle, suites in bundles.items():
-        suite_nodes = [
-            {
-                "name": suite,
-                "nodeType": "Test Suite",
-                "result": _aggregate([str(case.get("result")) for case in suite_cases]),
-                "children": suite_cases,
-            }
-            for suite, suite_cases in suites.items()
-        ]
+    for bundle, entries in bundles.items():
+        suite_nodes = _suites(entries)
         bundle_nodes.append(
             {
                 "name": bundle,
@@ -283,6 +309,8 @@ MUTANT_STATUSES = {
     **_expected(IOS_CASES, ("passed", "passed", "failed", "skipped", "passed")),
     **_expected(WATCH_CASES, ("passed", "skipped", "passed")),
 }
+# The iOS run fails StartRoundDiscoveryTests/testPreselectedTee…
+IOS_FAILED_ONCE = _tree("AICaddie", IOS_CASES, ("Passed", "Passed", "Failed", "Passed", "Passed"), IOS_DEVICE)
 
 
 def _scheme(exit_code: int = 0, *, tree: dict | None = None, bundle: bool = True, xcresult: dict | None = None) -> dict:
@@ -416,6 +444,9 @@ def xcodebuild(args):
 
 def xcodegen(args):
     log("xcodegen", args, marker=marker())
+    if not (STATE / "xcodegen-installed").is_file():
+        print("xcodegen: command not found (the runner image has no XcodeGen: brew install xcodegen)", file=sys.stderr)
+        return 127
     if args[:1] != ["generate"]:
         return 0
     spec = option(args, "--spec") or "project.yml"
@@ -434,6 +465,8 @@ def other(tool, args):
     if tool in CONFIG["fail"]:
         print(f"card440 fake {tool}: failed (runner failure)", file=sys.stderr)
         return 1
+    if tool == "brew" and "install" in args and "xcodegen" in args:
+        (STATE / "xcodegen-installed").touch()
     return 0
 
 
@@ -642,6 +675,10 @@ class _Outcome:
         # G2: `xcodebuild test` invocations. (Not named test_*: the gate treats such names as tests.)
         return [call for call in self.tool("xcodebuild") if "test" in call["args"]]
 
+    def writer_steps(self) -> list[dict]:
+        # G3: the steps that ran and whose `run:` names the result writer.
+        return [step for step in self.steps if step["ran"] and step["writer"]]
+
     def result_files(self) -> list[str]:
         # G3 G4: every uploaded file named result.json, in any artifact and at any depth.
         return [
@@ -840,7 +877,16 @@ class _Replay:
         run_text = str(step.get("run") or "").strip()
         name = str(step.get("name") or step.get("uses") or (run_text.splitlines()[0] if run_text else f"step {index}"))
         step_id = str(step.get("id") or f"__card440_step_{index}")
-        record = {"name": name, "id": step.get("id"), "ran": False, "exit": None, "outcome": "skipped", "conclusion": "skipped", "output": ""}
+        record = {
+            "name": name,
+            "id": step.get("id"),
+            "writer": WRITER.name in run_text,
+            "ran": False,
+            "exit": None,
+            "outcome": "skipped",
+            "conclusion": "skipped",
+            "output": "",
+        }
         self.log.append(record)
         if not self._condition(step.get("if")):
             self.step_results[step_id] = {"outcome": "skipped", "conclusion": "skipped", "outputs": {}}
@@ -1134,16 +1180,21 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                 self.assertEqual(_option(args, "-project"), PROJECT)
                 self.assertEqual(call["marker"], marker, "the head under test (plus the patch) must be tested")
                 self.assertTrue(_option(args, "-resultBundlePath"), "xcodebuild test needs -resultBundlePath")
-                self.assertFalse([arg for arg in args if arg.startswith("-only-testing")], args)
+                narrowing = ("-only-test", "-skip-test-configuration", "-testPlan")
+                self.assertFalse(
+                    [arg for arg in args if arg.startswith(narrowing)],
+                    f"run each scheme's whole test action (no -only-testing, test configuration or -testPlan): {args}",
+                )
                 for target in _skip_testing(args):
                     self.assertTrue(
                         scheme == "AICaddieWatch" and target.split("/")[0] == "AICaddieWatchUITests",
                         f"only AICaddieWatchUITests may be skipped: {args}",
                     )
-                fields = _destination(_option(args, "-destination"))
-                self.assertEqual(fields.get("platform"), expected[scheme][0], args)
-                self.assertEqual(fields.get("id"), expected[scheme][1], args)
-                self.assertNotIn("name", fields, "pick the simulator by UDID, not by name")
+                self.assertEqual(
+                    _destination(_option(args, "-destination")),
+                    {"platform": expected[scheme][0], "id": expected[scheme][1]},
+                    f"-destination is exactly platform=…,id=<UDID>, never name= or OS=: {args}",
+                )
 
     # G1 — dispatch-only, read-only, named by the request id
 
@@ -1247,6 +1298,19 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         expected["AICaddieWatchTests/WatchDesignSnapshotTests/testTappingATeeStartsTheRoundWithThatTee()"] = "failed"
         self.assertEqual(self._statuses(result), expected)
 
+    # G1 G3 G4 — the verdict comes from the workflow's own writer
+
+    def test_the_writer_comes_from_the_workflow_revision_not_the_head(self) -> None:
+        # G1 G3 G4: the mutant patch also adds a writer to the head under test, one that only fails. The
+        # workflow still runs its own writer: the job stays green and result.json lists every test.
+        run = self._replay(patch_b64=HEAD_WRITER_PATCH)
+
+        self.assertFalse(run.job_failed, run.describe())
+        self._check_scheme_runs(run, MUTANT_MARKER)
+        result = self._result(run)
+        self.assertEqual(result.get("status"), "tested")
+        self.assertEqual(self._statuses(result), BASELINE_STATUSES)
+
     # G3 — apply and build failures are verdicts too
 
     def test_patch_that_does_not_apply_is_reported_as_apply_failed(self) -> None:
@@ -1272,24 +1336,35 @@ class NativeMutantWorkflowTests(unittest.TestCase):
     def test_build_failure_is_reported_as_build_failed(self) -> None:
         # G2 G3 G4: a patched spec that does not generate, or a scheme without a usable result (no test
         # case, no bundle, unreadable bundle, output that is not JSON), makes the run build_failed, with
-        # a green job and result.json uploaded.
+        # a green job and result.json uploaded. A failed test in the other scheme does not turn it into
+        # `tested`. When nothing was generated, no xcodebuild test runs; otherwise both schemes run.
+        both = ["AICaddie", "AICaddieWatch"]
         cases = {
-            "the patched project spec does not generate": (BROKEN_SPEC_PATCH, PASSING_IOS, PASSING_WATCH),
-            "watch ran no test": (MUTANT_PATCH, PASSING_IOS, _scheme(65, tree=WATCH_NO_TESTS)),
-            "watch left no result bundle": (MUTANT_PATCH, PASSING_IOS, _scheme(65, bundle=False)),
-            "watch bundle unreadable": (MUTANT_PATCH, PASSING_IOS, _scheme(65, xcresult={"exit": 1})),
+            "the patched project spec does not generate": (BROKEN_SPEC_PATCH, PASSING_IOS, PASSING_WATCH, []),
+            "watch ran no test": (MUTANT_PATCH, PASSING_IOS, _scheme(65, tree=WATCH_NO_TESTS), both),
+            "watch left no result bundle": (MUTANT_PATCH, PASSING_IOS, _scheme(65, bundle=False), both),
+            "watch bundle unreadable": (MUTANT_PATCH, PASSING_IOS, _scheme(65, xcresult={"exit": 1}), both),
             "watch tree is not JSON": (
                 MUTANT_PATCH,
                 PASSING_IOS,
                 _scheme(65, xcresult={"raw": "error: malformed result"}),
+                both,
             ),
-            "ios left no result bundle": (MUTANT_PATCH, _scheme(65, bundle=False), PASSING_WATCH),
+            "ios left no result bundle": (MUTANT_PATCH, _scheme(65, bundle=False), PASSING_WATCH, both),
+            "ios failed a test, watch left no result bundle": (
+                MUTANT_PATCH,
+                _scheme(65, tree=IOS_FAILED_ONCE),
+                _scheme(65, bundle=False),
+                both,
+            ),
         }
-        for name, (patch, ios, watch) in cases.items():
+        for name, (patch, ios, watch, schemes) in cases.items():
             with _case(name):
                 run = self._replay(patch_b64=patch, ios=ios, watch=watch)
 
                 self.assertFalse(run.job_failed, run.describe())
+                ran = sorted(_option(call["args"], "-scheme") or "" for call in run.scheme_runs())
+                self.assertEqual(ran, schemes, run.describe())
                 result = self._result(run)
                 self.assertEqual(result.get("status"), "build_failed", result)
 
@@ -1299,16 +1374,13 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         # G2 G3: without an available iPhone 16 or Series 10 (46mm), or when `brew install xcodegen`
         # fails, the job fails, no result.json is uploaded, and no test runs on another device.
         cases = {
-            "no available iPhone 16": ({"devices": _without_available(DEVICES, IPHONE)}, True),
-            "no available Apple Watch Series 10 (46mm)": ({"devices": _without_available(DEVICES, WATCH)}, True),
-            "XcodeGen cannot be installed": ({"fail": ("brew",)}, False),
+            "no available iPhone 16": {"devices": _without_available(DEVICES, IPHONE)},
+            "no available Apple Watch Series 10 (46mm)": {"devices": _without_available(DEVICES, WATCH)},
+            "XcodeGen cannot be installed": {"fail": ("brew",)},
         }
-        for name, (options, always_applies) in cases.items():
+        for name, options in cases.items():
             with _case(name):
                 run = self._replay(patch_b64="", **options)
-                if not always_applies and not run.tool("brew"):
-                    # The workflow installs XcodeGen without brew; this case has nothing to check.
-                    continue
 
                 self.assertTrue(run.job_failed, run.describe())
                 self.assertEqual(run.result_files(), [], run.describe())
@@ -1323,19 +1395,30 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
     def test_result_that_cannot_be_judged_uploads_no_result(self) -> None:
         # G3 G4: a Test Case whose result is not Passed / Failed / Skipped / Expected Failure, in either
-        # scheme, or a test id that occurs twice, fails closed: the writer exits non-zero, the job fails,
-        # no result.json is uploaded.
+        # scheme (also when the other scheme left no result), or a test id that occurs twice (across the
+        # schemes or within one, whatever the statuses), fails closed: the writer exits non-zero, the job
+        # fails, no result.json is uploaded.
         unknown = _tree("AICaddie", IOS_CASES, ("Passed", "unknown", "Passed", "Passed", "Passed"), IOS_DEVICE)
         missing = _tree("AICaddie", IOS_CASES, ("Passed", None, "Passed", "Passed", "Passed"), IOS_DEVICE)
         watch_unknown = _tree("AICaddieWatch", WATCH_CASES, ("Passed", "Passed", "unknown"), WATCH_DEVICE)
-        # The iOS run fails StartRoundDiscoveryTests/testPreselectedTee…; the Watch tree passes the same id.
-        failed_once = _tree("AICaddie", IOS_CASES, ("Passed", "Passed", "Failed", "Passed", "Passed"), IOS_DEVICE)
+        # The Watch tree also passes the iOS test StartRoundDiscoveryTests/testPreselectedTee….
         passed_again = _tree("AICaddieWatch", (*WATCH_CASES, IOS_CASES[2]), ("Passed",) * 4, WATCH_DEVICE)
+        # The iOS tree lists StartRoundDiscoveryTests/testOpeningPage… twice.
+        ios_twice = _tree("AICaddie", (*IOS_CASES, IOS_CASES[1]), ("Passed",) * 6, IOS_DEVICE)
         cases = {
             "unknown result": (_scheme(65, tree=unknown), PASSING_WATCH),
             "missing result": (_scheme(65, tree=missing), PASSING_WATCH),
             "unknown result in the Watch scheme": (PASSING_IOS, _scheme(65, tree=watch_unknown)),
-            "one test id in both schemes": (_scheme(65, tree=failed_once), _scheme(0, tree=passed_again)),
+            "unknown Watch result after the iOS scheme left no result bundle": (
+                _scheme(65, bundle=False),
+                _scheme(65, tree=watch_unknown),
+            ),
+            "one test id in both schemes, failed and passed": (
+                _scheme(65, tree=IOS_FAILED_ONCE),
+                _scheme(0, tree=passed_again),
+            ),
+            "one test id in both schemes, passed twice": (PASSING_IOS, _scheme(0, tree=passed_again)),
+            "one test id twice in the iOS scheme": (_scheme(0, tree=ios_twice), PASSING_WATCH),
         }
         for name, (ios, watch) in cases.items():
             with _case(name):
@@ -1343,6 +1426,10 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
                 self.assertTrue(run.job_failed, run.describe())
                 self.assertEqual(run.result_files(), [], run.describe())
+                self.assertTrue(
+                    [step for step in run.writer_steps() if step["outcome"] == "failure"],
+                    f"the writer must exit non-zero\n{run.describe()}",
+                )
 
 
 if __name__ == "__main__":
