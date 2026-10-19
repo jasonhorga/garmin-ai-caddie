@@ -48,6 +48,9 @@ public struct StartRoundView: View {
     /// course in the background so Start, and every hole after it, is ready before the first tee.
     public let onCourseIntent: ([MobileCourseOption], String) -> Void
 
+    private let defaultCourseGlobalId: Int?
+    private let defaultTeeBox: String
+
     @StateObject private var locationProvider: LocationProvider
     @State private var roundId: String
     @State private var courseGlobalIdText: String
@@ -122,6 +125,8 @@ public struct StartRoundView: View {
             break
         }
         self.defaultRoundId = defaultRoundId
+        self.defaultCourseGlobalId = defaultCourseGlobalId
+        self.defaultTeeBox = defaultTeeBox
         self.courseOptions = courseOptions
         self.preselectedVenueOptions = preselectedVenueOptions
         self.downloadedCourseOptions = downloadedCourseOptions
@@ -162,7 +167,9 @@ public struct StartRoundView: View {
             Self.freshLiveRoundId(globalId: $0.globalId)
         } ?? defaultRoundId)
         self._teeBox = State(initialValue: Self.initialTee(
-            callerTee: defaultTeeBox,
+            callerTee: selected.flatMap {
+                Self.lastUsedTee(for: $0, recent: recentCourseOption, caller: selected, callerTee: defaultTeeBox)
+            } ?? "",
             offered: selected?.tees ?? [],
             courseTee: selected?.teeBox
         ))
@@ -378,9 +385,16 @@ public struct StartRoundView: View {
             return
         }
         fetchedTees = tees
-        if !userPickedTee {
-            teeBox = Self.teeAfterRefresh(current: teeBox, rows: tees)
-        }
+        let pickedTee = userPickedTee ? teeBox : nil
+        teeBox = Self.teeAfterRefresh(
+            lastUsed: selectedSegment.flatMap { lastUsedTee(for: $0) },
+            pickedTee: pickedTee,
+            rows: tees
+        )
+        // If the response removed a manual pick, the fallback is automatic again.
+        userPickedTee = pickedTee.map { picked in
+            tees.contains { $0.teeBox.caseInsensitiveCompare(picked) == .orderedSame }
+        } ?? false
     }
 
     /// The venue of the currently selected segment — the single source of truth (no separate state
@@ -661,19 +675,46 @@ public struct StartRoundView: View {
         return result
     }
 
-    /// The first tee: the caller's tee (the home card's last tee) when the course offers it or
-    /// lists no tees to check against; otherwise the course's Blue/White, its first tee, or its
-    /// stored tee. Unknown / blank is no tee.
+    /// Historical preferences belong to a physical venue, never to the current automatic guess.
+    static func lastUsedTee(
+        for option: MobileCourseOption,
+        recent: MobileCourseOption?,
+        caller: MobileCourseOption?,
+        callerTee: String
+    ) -> String? {
+        if let recent, samePhysicalVenue(recent, option),
+           let tee = HubCourseSuggestion.knownTee(recent.teeBox) {
+            return tee
+        }
+        if let caller, samePhysicalVenue(caller, option) {
+            return HubCourseSuggestion.knownTee(callerTee)
+        }
+        return nil
+    }
+
+    private func lastUsedTee(for option: MobileCourseOption) -> String? {
+        Self.lastUsedTee(
+            for: option,
+            recent: recentCourseOption,
+            caller: (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == defaultCourseGlobalId },
+            callerTee: defaultTeeBox
+        )
+    }
+
+    /// Prefer the venue's last-used tee, then the course default, then a colour guess.
     static func initialTee(callerTee: String, offered: [String], courseTee: String?) -> String {
         StartRoundPresentation.preselectedTee(
             lastUsed: callerTee, offered: offered, defaultTee: courseTee
         )
     }
 
-    /// After /tees answers: keep the current tee when the rows offer it, else the default row.
-    static func teeAfterRefresh(current: String, rows: [CourseTee]) -> String {
-        StartRoundPresentation.preselectedTee(
-            lastUsed: current, offered: rows.map(\.teeBox),
+    /// A chip tapped while /tees was pending wins only if the response still offers it.
+    static func teeAfterRefresh(lastUsed: String?, pickedTee: String? = nil, rows: [CourseTee]) -> String {
+        let offeredPick = pickedTee.flatMap { picked in
+            rows.first { $0.teeBox.caseInsensitiveCompare(picked) == .orderedSame }?.teeBox
+        }
+        return StartRoundPresentation.preselectedTee(
+            lastUsed: offeredPick ?? lastUsed, offered: rows.map(\.teeBox),
             defaultTee: rows.first(where: \.isDefault)?.teeBox
         )
     }
@@ -912,11 +953,6 @@ public struct StartRoundView: View {
         )
         fetchedTees = []
         teeLoadFailed = false
-        let keepsCurrentTee = selectedSegment.map { Self.samePhysicalVenue($0, first) } == true
-        if !keepsCurrentTee {
-            teeBox = recentResolvedCourseOption
-                .flatMap { Self.samePhysicalVenue($0, first) ? $0.teeBox : nil } ?? ""
-        }
         applySelectedCourse(first)
         showSetupPage()
     }
@@ -1389,12 +1425,12 @@ public struct StartRoundView: View {
 
     static func selectionState(
         for option: MobileCourseOption,
-        currentTeeBox: String,
+        lastUsedTee: String?,
         uuid: UUID = UUID()
     ) -> CourseSelectionState {
         let tees = option.tees ?? []
         let selectedTee = StartRoundPresentation.preselectedTee(
-            lastUsed: currentTeeBox,
+            lastUsed: lastUsedTee,
             offered: tees,
             defaultTee: option.teeBox
         )
@@ -1409,7 +1445,7 @@ public struct StartRoundView: View {
         if option.globalId != courseGlobalId {
             startHalf = "front"
         }
-        let state = Self.selectionState(for: option, currentTeeBox: teeBox)
+        let state = Self.selectionState(for: option, lastUsedTee: lastUsedTee(for: option))
         userPickedTee = false
         courseGlobalIdText = state.globalIdText
         roundId = state.roundId

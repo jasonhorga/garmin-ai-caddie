@@ -2401,7 +2401,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("if let owned = replacingVenue(of: selected, in: nearby, with: selectedLoops) {", start_view_src)
         self.assertIn("} else if let owned = replacingVenue(of: selected, in: search, with: selectedLoops) {", start_view_src)
         self.assertIn("self._teeBox = State(initialValue: Self.initialTee(", start_view_src)
-        self.assertIn("teeBox = Self.teeAfterRefresh(current: teeBox, rows: tees)", start_view_src)
+        self.assertIn("teeBox = Self.teeAfterRefresh(", start_view_src)
+        self.assertIn("lastUsed: selectedSegment.flatMap { lastUsedTee(for: $0) }", start_view_src)
+        self.assertIn("let pickedTee = userPickedTee ? teeBox : nil", start_view_src)
+        self.assertIn("pickedTee: pickedTee,", start_view_src)
+        self.assertNotIn("if !userPickedTee {", start_view_src)
+        self.assertIn("Self.selectionState(for: option, lastUsedTee: lastUsedTee(for: option))", start_view_src)
         self.assertIn("func testTheCarriedVenueOwnsItsRowOverAPartialDownloadOfTheSameVenue()", _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "StartRoundDiscoveryTests.swift"))
         self.assertIn("func testChangeCourseKeepsTheCardsLastTeeWhenTheCourseOffersIt()", _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "StartRoundDiscoveryTests.swift"))
         selected_capture = snapshots.split('named: "full-start-selected"', 1)[0].rsplit("try captureScreen(", 1)[1]

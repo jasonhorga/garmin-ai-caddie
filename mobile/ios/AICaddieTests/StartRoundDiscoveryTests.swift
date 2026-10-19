@@ -390,7 +390,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
 
         let state = StartRoundView.selectionState(
             for: candidates.last!,
-            currentTeeBox: "",
+            lastUsedTee: nil,
             uuid: UUID(uuidString: "00000000-0000-0000-0000-000000000317")!
         )
 
@@ -1004,7 +1004,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
             CourseTee(teeBox: "blue", name: "Blue", yards: 3393, holeCount: 9, isDefault: true),
             CourseTee(teeBox: "white", name: "White", yards: 3019, holeCount: 9),
         ]
-        let refreshed = StartRoundView.teeAfterRefresh(current: tee, rows: rows)
+        let refreshed = StartRoundView.teeAfterRefresh(lastUsed: "white", rows: rows)
         XCTAssertEqual(refreshed.lowercased(), "white")
         let loopB = MobileCourseOption(
             globalId: 31795, name: "北京天竺黑骑士球员俱乐部", holes: 9,
@@ -1022,7 +1022,57 @@ final class StartRoundDiscoveryTests: XCTestCase {
         // No tee list to check against → the caller's tee (the /tees refresh corrects an invalid one).
         XCTAssertEqual(StartRoundView.initialTee(callerTee: "white", offered: [], courseTee: "blue"), "white")
         XCTAssertEqual(StartRoundView.initialTee(callerTee: "unknown", offered: [], courseTee: "blue"), "blue")
-        XCTAssertEqual(StartRoundView.teeAfterRefresh(current: "red", rows: rows), "blue")
+        XCTAssertEqual(StartRoundView.teeAfterRefresh(lastUsed: "red", rows: rows), "blue")
+    }
+
+    func testFetchedTeeDefaultReplacesAutomaticGuess() {
+        let course = MobileCourseOption(globalId: 401, name: "测试球场", holes: 9, tees: ["Blue", "Gold"])
+        let lastUsed = StartRoundView.lastUsedTee(for: course, recent: nil, caller: nil, callerTee: "unknown")
+        XCTAssertNil(lastUsed)
+        let selection = StartRoundView.selectionState(for: course, lastUsedTee: lastUsed)
+        XCTAssertEqual(selection.teeBox, "Blue", "a catalogue without a default initially guesses Blue")
+        let rows = [
+            CourseTee(teeBox: "Blue", name: "Blue"),
+            CourseTee(teeBox: "Gold", name: "Gold", isDefault: true),
+        ]
+        XCTAssertEqual(StartRoundView.teeAfterRefresh(lastUsed: lastUsed, rows: rows), "Gold")
+        XCTAssertEqual(StartRoundView.teeAfterRefresh(lastUsed: "blue", rows: rows), "Blue", "a real last-used tee still wins")
+    }
+
+    func testPendingTeeRefreshValidatesManualPick() {
+        // The player taps the bundled Blue chip while /tees is pending. Its response removes Blue.
+        let rows = [
+            CourseTee(teeBox: "White", name: "White"),
+            CourseTee(teeBox: "Red", name: "Red", isDefault: true),
+        ]
+        XCTAssertEqual(
+            StartRoundView.teeAfterRefresh(lastUsed: nil, pickedTee: "Blue", rows: rows),
+            "Red", "an unoffered pick falls back to the course default"
+        )
+        XCTAssertEqual(
+            StartRoundView.teeAfterRefresh(lastUsed: "white", pickedTee: "Blue", rows: rows),
+            "White", "an unoffered pick falls back through the historical preference rule"
+        )
+        XCTAssertEqual(
+            StartRoundView.teeAfterRefresh(lastUsed: nil, pickedTee: "white", rows: rows),
+            "White", "an offered manual pick wins and uses the response's spelling"
+        )
+    }
+
+    func testLastUsedTeeIsScopedToTheRecentOrCallerVenue() {
+        let caller = MobileCourseOption(globalId: 401, name: "测试球场 ~ A", holes: 9, venueName: "测试球场")
+        let sibling = MobileCourseOption(globalId: 402, name: "测试球场 ~ B", holes: 9, venueName: "测试球场")
+        let recent = MobileCourseOption(globalId: 403, name: "测试球场 ~ C", holes: 9, teeBox: "White", venueName: "测试球场")
+        let other = MobileCourseOption(globalId: 501, name: "另一球场", holes: 9, tees: ["Blue", "Gold"])
+        XCTAssertEqual(
+            StartRoundView.lastUsedTee(for: sibling, recent: recent, caller: caller, callerTee: "Gold"), "White"
+        )
+        XCTAssertEqual(
+            StartRoundView.lastUsedTee(for: sibling, recent: other, caller: caller, callerTee: "Gold"), "Gold"
+        )
+        let otherLastUsed = StartRoundView.lastUsedTee(for: other, recent: recent, caller: caller, callerTee: "White")
+        XCTAssertNil(otherLastUsed, "switching venues must not carry the previous venue's tee")
+        XCTAssertEqual(StartRoundView.selectionState(for: other, lastUsedTee: otherLastUsed).teeBox, "Blue")
     }
 
     func testADownloadedCourseFarFromHereStaysInTheListTail() {
