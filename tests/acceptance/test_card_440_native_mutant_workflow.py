@@ -52,21 +52,24 @@ MARKER = "mobile/ios/AICaddie/AgenthubMarker.swift"
 HEAD_MARKER = 'let agenthubMarker = "head"'
 MAIN_MARKER = 'let agenthubMarker = "main"'
 MUTANT_MARKER = 'let agenthubMarker = "mutant"'
+CONTEXT = "mobile/ios/AICaddie/AgenthubContext.swift"
+CONTEXT_LINES = ("let agenthubFirst = 1", "let agenthubSecond = 2", "let agenthubThird = 3")
+SPEC = "mobile/ios/project.yml"
+SPEC_TEXT = "name: AICaddieNative"
+BROKEN_SPEC = "card440-broken-spec"
 STATUSES = {"passed", "failed", "skipped"}
 STATUS_FUNCTIONS = re.compile(r"\b(?:success|failure|always|cancelled)\(\s*\)")
 BASH = shutil.which("bash") or "/bin/bash"
 
 
+def _diff(path: str, hunk: str, *lines: str) -> str:
+    # G2 G3: a unified diff of one file, as agenthub would send for a mutant.
+    return f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n{hunk}\n" + "".join(f"{line}\n" for line in lines)
+
+
 def _patch(old: str, new: str) -> str:
-    # G2 G3: a unified diff of the marker file, as agenthub would send for a one-line mutant.
-    return (
-        f"diff --git a/{MARKER} b/{MARKER}\n"
-        f"--- a/{MARKER}\n"
-        f"+++ b/{MARKER}\n"
-        "@@ -1 +1 @@\n"
-        f"-{old}\n"
-        f"+{new}\n"
-    )
+    # G2 G3: a one-line mutant of the marker file.
+    return _diff(MARKER, "@@ -1 +1 @@", f"-{old}", f"+{new}")
 
 
 def _b64(text: str) -> str:
@@ -86,20 +89,39 @@ def _case(name: str):
 
 MUTANT_PATCH = _b64(_patch(HEAD_MARKER, MUTANT_MARKER))
 STALE_PATCH = _b64(_patch('let agenthubMarker = "elsewhere"', MUTANT_MARKER))
+# The changed line matches the head; the lines around it do not. `git apply` refuses it; `patch` with
+# fuzz, or `git apply -C0`, would apply it.
+STALE_CONTEXT_PATCH = _b64(
+    _diff(
+        CONTEXT,
+        "@@ -1,3 +1,3 @@",
+        " let agenthubFirst = 10",
+        f"-{CONTEXT_LINES[1]}",
+        "+let agenthubSecond = 20",
+        " let agenthubThird = 30",
+    )
+)
+# Applies cleanly, but the patched project spec does not generate: a build failure of the mutant.
+BROKEN_SPEC_PATCH = _b64(_diff(SPEC, "@@ -1 +1 @@", f"-{SPEC_TEXT}", f"+{SPEC_TEXT} # {BROKEN_SPEC}"))
 
 # Simulators. The expected ones are the iPhone 16 and the Apple Watch Series 10 (46mm) on the newest
-# runtime (numeric version order) that has them available. Runtime keys are deliberately unordered.
+# runtime (numeric version order) that has them available. Runtime keys are deliberately unordered:
+# the expected device is neither the first nor the last candidate of its platform, the newest
+# runtimes (iOS 26.1, watchOS 26.0) have none available, and watchOS 11.10 sorts before 11.5 and
+# 11.2 as text. Its UDID is neither the smallest nor the largest of its candidates.
 IOS_UDID = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B01"
 IOS_OLD = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B02"
 IOS_PLUS = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B03"
 IOS_PRO = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B04"
 IOS_GONE = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B05"
 IOS_17 = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B06"
+IOS_OLDEST = "6C2B1E8A-3F4D-4E5A-9B7C-1D2E3F4A5B00"
 WATCH_UDID = "8A7B6C5D-4E3F-4A2B-8C1D-0E9F8A7B6C01"
 WATCH_OLD = "8A7B6C5D-4E3F-4A2B-8C1D-0E9F8A7B6C02"
 WATCH_42 = "8A7B6C5D-4E3F-4A2B-8C1D-0E9F8A7B6C03"
 WATCH_11 = "8A7B6C5D-4E3F-4A2B-8C1D-0E9F8A7B6C04"
 WATCH_GONE = "8A7B6C5D-4E3F-4A2B-8C1D-0E9F8A7B6C05"
+WATCH_EARLY = "8A7B6C5D-4E3F-4A2B-8C1D-0E9F8A7B6C00"
 IPHONE = "iPhone 16"
 WATCH = "Apple Watch Series 10 (46mm)"
 
@@ -115,18 +137,21 @@ def _runtime(platform: str, major: int, minor: int) -> str:
 
 
 DEVICES = {
-    _runtime("watchOS", 11, 10): [_sim("Apple Watch Series 10 (42mm)", WATCH_42), _sim(WATCH, WATCH_UDID)],
-    _runtime("iOS", 26, 0): [_sim("iPhone 16 Plus", IOS_PLUS), _sim(IPHONE, IOS_UDID)],
-    _runtime("watchOS", 26, 0): [_sim("Apple Watch Series 11 (46mm)", WATCH_11), _sim(WATCH, WATCH_GONE, False)],
     _runtime("iOS", 18, 6): [_sim(IPHONE, IOS_OLD), _sim("iPhone 16 Pro", IOS_PRO)],
-    _runtime("watchOS", 11, 5): [_sim(WATCH, WATCH_OLD)],
+    _runtime("watchOS", 11, 2): [_sim(WATCH, WATCH_EARLY)],
+    _runtime("watchOS", 26, 0): [_sim("Apple Watch Series 11 (46mm)", WATCH_11), _sim(WATCH, WATCH_GONE, False)],
+    _runtime("iOS", 26, 0): [_sim("iPhone 16 Plus", IOS_PLUS), _sim(IPHONE, IOS_UDID)],
+    _runtime("watchOS", 11, 10): [_sim("Apple Watch Series 10 (42mm)", WATCH_42), _sim(WATCH, WATCH_UDID)],
     _runtime("iOS", 26, 1): [_sim(IPHONE, IOS_GONE, False), _sim("iPhone 17", IOS_17)],
+    _runtime("watchOS", 11, 5): [_sim(WATCH, WATCH_OLD)],
+    _runtime("iOS", 17, 5): [_sim(IPHONE, IOS_OLDEST)],
 }
 
 
-def _without(devices: dict, *udids: str) -> dict:
-    # G2 G3: the sample simulator list minus some devices.
-    return {key: [d for d in value if d["udid"] not in udids] for key, value in devices.items()}
+def _without_available(devices: dict, name: str) -> dict:
+    # G2 G3: the sample simulator list without any available device called `name`; unavailable ones
+    # and devices with similar names (iPhone 16 Plus, Series 10 (42mm)) stay.
+    return {key: [d for d in value if not (d["name"] == name and d["isAvailable"])] for key, value in devices.items()}
 
 
 # xcresulttool `get test-results tests` trees (Xcode 16 shape).
@@ -320,7 +345,8 @@ def simctl(args):
         print(json.dumps({"devices": devices}, indent=2))
         return 0
     print("== Devices ==")
-    for key in sorted(devices, key=runtime_key):
+    # Same unordered runtime order as the JSON: the contract picks the simulators from the JSON.
+    for key in devices:
         platform, major, minor = runtime_key(key)
         print(f"-- {platform} {major}.{minor} --")
         for device in devices[key]:
@@ -396,12 +422,18 @@ def xcodegen(args):
     if not (Path.cwd() / spec).is_file():
         print(f"xcodegen: no spec at {spec}", file=sys.stderr)
         return 1
+    if CONFIG["broken_spec"] in (Path.cwd() / spec).read_text(encoding="utf-8"):
+        print(f"xcodegen: Spec validation error in {spec}", file=sys.stderr)
+        return 1
     (Path.cwd() / Path(spec).parent / "AICaddieNative.xcodeproj").mkdir(parents=True, exist_ok=True)
     return 0
 
 
 def other(tool, args):
     log(tool, args)
+    if tool in CONFIG["fail"]:
+        print(f"card440 fake {tool}: failed (runner failure)", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -606,8 +638,8 @@ class _Outcome:
         # G2: recorded calls of one fake tool.
         return [call for call in self.calls if call["tool"] == name]
 
-    def test_runs(self) -> list[dict]:
-        # G2: `xcodebuild test` invocations.
+    def scheme_runs(self) -> list[dict]:
+        # G2: `xcodebuild test` invocations. (Not named test_*: the gate treats such names as tests.)
         return [call for call in self.tool("xcodebuild") if "test" in call["args"]]
 
     def result_files(self) -> list[str]:
@@ -979,7 +1011,8 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         seed = root / "seed"
         (seed / MARKER).parent.mkdir(parents=True)
         (seed / MARKER).write_text(HEAD_MARKER + "\n", encoding="utf-8")
-        (seed / "mobile" / "ios" / "project.yml").write_text("name: AICaddieNative\n", encoding="utf-8")
+        (seed / CONTEXT).write_text("".join(f"{line}\n" for line in CONTEXT_LINES), encoding="utf-8")
+        (seed / SPEC).write_text(SPEC_TEXT + "\n", encoding="utf-8")
         scripts = seed / ".github" / "scripts"
         scripts.mkdir(parents=True)
         for path in sorted((REPO_ROOT / ".github" / "scripts").iterdir()):
@@ -1010,8 +1043,10 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         ios: dict = PASSING_IOS,
         watch: dict = PASSING_WATCH,
         devices: dict = DEVICES,
+        fail: tuple[str, ...] = (),
     ) -> _Outcome:
-        # G1 G2 G3 G4: one dispatch of the workflow, replayed offline.
+        # G1 G2 G3 G4: one dispatch of the workflow, replayed offline. `fail` names fake runner tools
+        # (brew, xcode-select) that exit non-zero.
         workflow = self._workflow()
         request_key, sha_key, patch_key = self._input_names(workflow)
         holder = tempfile.TemporaryDirectory(prefix="card440-")
@@ -1022,6 +1057,8 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         request_id = f"card440-{uuid.uuid4().hex[:12]}"
         config = {
             "marker": MARKER,
+            "broken_spec": BROKEN_SPEC,
+            "fail": list(fail),
             "devices": devices,
             "xcodebuild": {
                 "AICaddie": {"exit": ios["exit"], "bundle": ios["bundle"]},
@@ -1073,17 +1110,22 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         # G4: test id -> status.
         return {entry["id"]: entry["status"] for entry in result["tests"]}
 
-    def _check_test_runs(self, run: _Outcome, marker: str) -> None:
+    def _check_scheme_runs(self, run: _Outcome, marker: str) -> None:
         # G2: one `xcodebuild test` per scheme, on the generated project, on the resolved simulator by
-        # UDID, after the patch, with a result bundle, and never the AICaddieUITests target.
+        # UDID, after the patch, each with its own result bundle, and never the AICaddieUITests target.
         for call in run.calls:
             self.assertFalse([arg for arg in call["args"] if "AICaddieUITests" in arg], call)
-        runs = run.test_runs()
+        runs = run.scheme_runs()
         self.assertEqual(
             sorted(_option(call["args"], "-scheme") or "" for call in runs),
             ["AICaddie", "AICaddieWatch"],
             run.describe(),
         )
+        bundles = {
+            os.path.normpath(os.path.join(call["cwd"], _option(call["args"], "-resultBundlePath") or ""))
+            for call in runs
+        }
+        self.assertEqual(len(bundles), 2, f"each scheme needs its own -resultBundlePath: {sorted(bundles)}")
         expected = {"AICaddie": ("iOS Simulator", IOS_UDID), "AICaddieWatch": ("watchOS Simulator", WATCH_UDID)}
         for call in runs:
             args = call["args"]
@@ -1106,9 +1148,10 @@ class NativeMutantWorkflowTests(unittest.TestCase):
     # G1 — dispatch-only, read-only, named by the request id
 
     def test_workflow_is_dispatch_only_read_only_and_named_by_request_id(self) -> None:
-        # G1: trigger, permissions, run-name, inputs, single job on native-mobile's runner image,
-        # values reach the shell through env, no secrets, the writer is the one in .github/scripts,
-        # and one upload step names the artifact `agenthub-native-result` literally.
+        # G1: trigger, permissions, run-name, inputs (the patch optional), single job on native-mobile's
+        # runner image without a concurrency group, values reach the shell through env, no secrets,
+        # checkouts keep no credentials, the writer is the one in .github/scripts, and one upload step
+        # names the artifact `agenthub-native-result` literally.
         workflow = self._workflow()
         text = WORKFLOW.read_text(encoding="utf-8")
         triggers = workflow.get("on", workflow.get(True))
@@ -1120,6 +1163,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
             self.assertEqual((inputs[name] or {}).get("type", "string"), "string", name)
         self.assertIs(inputs[request].get("required"), True)
         self.assertIs(inputs[sha].get("required"), True)
+        self.assertIs((inputs[patch] or {}).get("required", False), False, "a baseline sends an empty patch")
         self.assertEqual(workflow.get("permissions"), {"contents": "read"})
         self.assertEqual(workflow.get("run-name"), RUN_NAME)
         jobs = workflow.get("jobs") or {}
@@ -1130,6 +1174,8 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         self.assertEqual(job.get("runs-on"), native_runner)
         self.assertNotIn("if", job)
         self.assertNotIn("continue-on-error", job)
+        self.assertNotIn("concurrency", workflow, "one run per mutant: a concurrency group cancels pending runs")
+        self.assertNotIn("concurrency", job, "one run per mutant: a concurrency group cancels pending runs")
         self.assertNotIn("secrets.", text)
         self.assertNotIn("AICaddieUITests", text)
         steps = job.get("steps") or []
@@ -1139,12 +1185,16 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                 self.assertIn(step.get("shell", "bash"), ("bash",), step.get("name"))
         self.assertTrue([step for step in steps if WRITER.name in str(step.get("run") or "")], "no step runs the writer")
         head_refs = {f"${{{{inputs.{sha}}}}}", f"${{{{github.event.inputs.{sha}}}}}"}
-        checkouts = [
-            re.sub(r"\s+", "", str((step.get("with") or {}).get("ref", "")))
-            for step in steps
-            if str(step.get("uses", "")).startswith("actions/checkout@")
-        ]
+        checkout_steps = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
+        checkouts = [re.sub(r"\s+", "", str((step.get("with") or {}).get("ref", ""))) for step in checkout_steps]
         self.assertTrue(head_refs & set(checkouts), f"checkout the head under test by its input: {checkouts}")
+        for step in checkout_steps:
+            # The patch is untrusted code that runs on the runner: no token left in .git/config.
+            self.assertIn(
+                (step.get("with") or {}).get("persist-credentials"),
+                (False, "false"),
+                f"{step.get('name') or step['uses']}: set persist-credentials: false",
+            )
         artifact_names = [
             (step.get("with") or {}).get("name")
             for step in steps
@@ -1163,7 +1213,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         generate = [call for call in run.tool("xcodegen") if call["args"][:1] == ["generate"]]
         self.assertEqual([call["args"] for call in generate], [XCODEGEN_ARGS], run.describe())
         self.assertEqual(generate[0]["marker"], HEAD_MARKER, "generate the project in the head checkout")
-        self._check_test_runs(run, HEAD_MARKER)
+        self._check_scheme_runs(run, HEAD_MARKER)
         result = self._result(run)
         self.assertEqual(result.get("status"), "tested")
         self.assertEqual(self._statuses(result), BASELINE_STATUSES)
@@ -1179,7 +1229,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         self.assertFalse(run.job_failed, run.describe())
         generate = [call for call in run.tool("xcodegen") if call["args"][:1] == ["generate"]]
         self.assertEqual([call["marker"] for call in generate], [MUTANT_MARKER], run.describe())
-        self._check_test_runs(run, MUTANT_MARKER)
+        self._check_scheme_runs(run, MUTANT_MARKER)
         result = self._result(run)
         self.assertEqual(result.get("status"), "tested")
         self.assertEqual(self._statuses(result), MUTANT_STATUSES)
@@ -1190,7 +1240,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         run = self._replay(patch_b64=MUTANT_PATCH, watch=_scheme(65, tree=watch_failing))
 
         self.assertFalse(run.job_failed, run.describe())
-        self._check_test_runs(run, MUTANT_MARKER)
+        self._check_scheme_runs(run, MUTANT_MARKER)
         result = self._result(run)
         self.assertEqual(result.get("status"), "tested")
         expected = dict(BASELINE_STATUSES)
@@ -1200,10 +1250,12 @@ class NativeMutantWorkflowTests(unittest.TestCase):
     # G3 — apply and build failures are verdicts too
 
     def test_patch_that_does_not_apply_is_reported_as_apply_failed(self) -> None:
-        # G1 G3: a patch that does not apply, is not base64, or is not a patch: no native test runs,
-        # the job stays green, result.json says apply_failed with no tests.
+        # G1 G3: a patch whose changed line or surrounding context does not match the head, input that
+        # is not base64, or is not a patch: no native test runs, the job stays green, result.json says
+        # apply_failed with no tests.
         cases = {
-            "stale context": STALE_PATCH,
+            "stale changed line": STALE_PATCH,
+            "stale surrounding context": STALE_CONTEXT_PATCH,
             "not base64": "not base64!",
             "not a patch": _b64("this is not a unified diff\n"),
         }
@@ -1212,24 +1264,30 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                 run = self._replay(patch_b64=patch)
 
                 self.assertFalse(run.job_failed, run.describe())
-                self.assertEqual(run.test_runs(), [], run.describe())
+                self.assertEqual(run.scheme_runs(), [], run.describe())
                 result = self._result(run)
                 self.assertEqual(result.get("status"), "apply_failed")
                 self.assertEqual(result.get("tests"), [])
 
     def test_build_failure_is_reported_as_build_failed(self) -> None:
-        # G3 G4: a scheme without a usable result (no test case, no bundle, unreadable bundle, output
-        # that is not JSON) makes the run build_failed, with a green job and result.json uploaded.
+        # G2 G3 G4: a patched spec that does not generate, or a scheme without a usable result (no test
+        # case, no bundle, unreadable bundle, output that is not JSON), makes the run build_failed, with
+        # a green job and result.json uploaded.
         cases = {
-            "watch ran no test": (PASSING_IOS, _scheme(65, tree=WATCH_NO_TESTS)),
-            "watch left no result bundle": (PASSING_IOS, _scheme(65, bundle=False)),
-            "watch bundle unreadable": (PASSING_IOS, _scheme(65, xcresult={"exit": 1})),
-            "watch tree is not JSON": (PASSING_IOS, _scheme(65, xcresult={"raw": "error: malformed result"})),
-            "ios left no result bundle": (_scheme(65, bundle=False), PASSING_WATCH),
+            "the patched project spec does not generate": (BROKEN_SPEC_PATCH, PASSING_IOS, PASSING_WATCH),
+            "watch ran no test": (MUTANT_PATCH, PASSING_IOS, _scheme(65, tree=WATCH_NO_TESTS)),
+            "watch left no result bundle": (MUTANT_PATCH, PASSING_IOS, _scheme(65, bundle=False)),
+            "watch bundle unreadable": (MUTANT_PATCH, PASSING_IOS, _scheme(65, xcresult={"exit": 1})),
+            "watch tree is not JSON": (
+                MUTANT_PATCH,
+                PASSING_IOS,
+                _scheme(65, xcresult={"raw": "error: malformed result"}),
+            ),
+            "ios left no result bundle": (MUTANT_PATCH, _scheme(65, bundle=False), PASSING_WATCH),
         }
-        for name, (ios, watch) in cases.items():
+        for name, (patch, ios, watch) in cases.items():
             with _case(name):
-                run = self._replay(patch_b64=MUTANT_PATCH, ios=ios, watch=watch)
+                run = self._replay(patch_b64=patch, ios=ios, watch=watch)
 
                 self.assertFalse(run.job_failed, run.describe())
                 result = self._result(run)
@@ -1237,38 +1295,51 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
     # G2 G3 — a runner failure judges nothing
 
-    def test_missing_simulator_is_a_runner_failure_without_result(self) -> None:
-        # G2 G3: without an available iPhone 16 or Series 10 (46mm) the job fails, no result.json is
-        # uploaded, and no test runs on another device.
+    def test_runner_failure_is_red_and_uploads_no_result(self) -> None:
+        # G2 G3: without an available iPhone 16 or Series 10 (46mm), or when `brew install xcodegen`
+        # fails, the job fails, no result.json is uploaded, and no test runs on another device.
         cases = {
-            "no iPhone 16": _without(DEVICES, IOS_UDID, IOS_OLD),
-            "no Apple Watch Series 10 (46mm)": _without(DEVICES, WATCH_UDID, WATCH_OLD),
+            "no available iPhone 16": ({"devices": _without_available(DEVICES, IPHONE)}, True),
+            "no available Apple Watch Series 10 (46mm)": ({"devices": _without_available(DEVICES, WATCH)}, True),
+            "XcodeGen cannot be installed": ({"fail": ("brew",)}, False),
         }
-        for name, devices in cases.items():
+        for name, (options, always_applies) in cases.items():
             with _case(name):
-                run = self._replay(patch_b64="", devices=devices)
+                run = self._replay(patch_b64="", **options)
+                if not always_applies and not run.tool("brew"):
+                    # The workflow installs XcodeGen without brew; this case has nothing to check.
+                    continue
 
                 self.assertTrue(run.job_failed, run.describe())
                 self.assertEqual(run.result_files(), [], run.describe())
-                available = {d["udid"] for entries in devices.values() for d in entries}
+                devices = options.get("devices", DEVICES)
+                available = {d["udid"] for entries in devices.values() for d in entries if d["isAvailable"]}
                 expected = {"AICaddie": IOS_UDID, "AICaddieWatch": WATCH_UDID}
-                for call in run.test_runs():
+                for call in run.scheme_runs():
                     scheme = _option(call["args"], "-scheme") or ""
                     udid = _destination(_option(call["args"], "-destination")).get("id")
                     self.assertEqual(udid, expected.get(scheme), call)
                     self.assertIn(udid, available, call)
 
-    def test_unrecognised_test_result_uploads_no_result(self) -> None:
-        # G3 G4: a Test Case whose result is not Passed / Failed / Skipped / Expected Failure fails closed:
-        # the writer exits non-zero, the job fails, no result.json is uploaded.
+    def test_result_that_cannot_be_judged_uploads_no_result(self) -> None:
+        # G3 G4: a Test Case whose result is not Passed / Failed / Skipped / Expected Failure, in either
+        # scheme, or a test id that occurs twice, fails closed: the writer exits non-zero, the job fails,
+        # no result.json is uploaded.
+        unknown = _tree("AICaddie", IOS_CASES, ("Passed", "unknown", "Passed", "Passed", "Passed"), IOS_DEVICE)
+        missing = _tree("AICaddie", IOS_CASES, ("Passed", None, "Passed", "Passed", "Passed"), IOS_DEVICE)
+        watch_unknown = _tree("AICaddieWatch", WATCH_CASES, ("Passed", "Passed", "unknown"), WATCH_DEVICE)
+        # The iOS run fails StartRoundDiscoveryTests/testPreselectedTee…; the Watch tree passes the same id.
+        failed_once = _tree("AICaddie", IOS_CASES, ("Passed", "Passed", "Failed", "Passed", "Passed"), IOS_DEVICE)
+        passed_again = _tree("AICaddieWatch", (*WATCH_CASES, IOS_CASES[2]), ("Passed",) * 4, WATCH_DEVICE)
         cases = {
-            "unknown result": ("Passed", "unknown", "Passed", "Passed", "Passed"),
-            "missing result": ("Passed", None, "Passed", "Passed", "Passed"),
+            "unknown result": (_scheme(65, tree=unknown), PASSING_WATCH),
+            "missing result": (_scheme(65, tree=missing), PASSING_WATCH),
+            "unknown result in the Watch scheme": (PASSING_IOS, _scheme(65, tree=watch_unknown)),
+            "one test id in both schemes": (_scheme(65, tree=failed_once), _scheme(0, tree=passed_again)),
         }
-        for name, results in cases.items():
+        for name, (ios, watch) in cases.items():
             with _case(name):
-                tree = _tree("AICaddie", IOS_CASES, results, IOS_DEVICE)
-                run = self._replay(patch_b64=MUTANT_PATCH, ios=_scheme(65, tree=tree))
+                run = self._replay(patch_b64=MUTANT_PATCH, ios=ios, watch=watch)
 
                 self.assertTrue(run.job_failed, run.describe())
                 self.assertEqual(run.result_files(), [], run.describe())
