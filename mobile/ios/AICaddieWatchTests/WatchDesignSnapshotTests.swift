@@ -1791,50 +1791,119 @@ final class WatchDesignSnapshotTests: XCTestCase {
             layupPx: WatchHoleMapSample.layupPx,
             apexPx: WatchHoleMapSample.apexPx,
             greenCtrlPx: WatchHoleMapSample.greenCtrlPx,
+            routePx: []
+        )
+        let routeGeometry = WatchHoleMapGeometry(
+            image: WatchHoleMapSample.image,
+            imageSize: WatchHoleMapSample.imageSize,
+            youPx: WatchHoleMapSample.youPx,
+            pinPx: WatchHoleMapSample.pinPx,
+            layupPx: WatchHoleMapSample.layupPx,
+            apexPx: WatchHoleMapSample.apexPx,
+            greenCtrlPx: WatchHoleMapSample.greenCtrlPx,
             routePx: route.map { CGPoint(x: $0[0], y: $0[1]) }
         )
-        let continuation = [CGPoint(x: 490, y: 650), CGPoint(x: 470, y: 520)]
         let shot = try XCTUnwrap(WatchCurrentShotLayout.resolve(
             route: route,
             playerImagePoint: geometry.youPx,
             aimCarryM: 205,
             carryP10M: 188,
             carryP90M: 220,
-            continuation: continuation
+        ))
+        let continuationShot = try XCTUnwrap(WatchCurrentShotLayout.resolve(
+            route: route,
+            playerImagePoint: geometry.youPx,
+            aimCarryM: 205,
+            carryP10M: 188,
+            carryP90M: 220,
+            continuation: [CGPoint(x: 490, y: 650), CGPoint(x: 470, y: 520)]
         ))
         let planLegs = [
             WatchPlanLeg(start: geometry.youPx, control: CGPoint(x: 470, y: 820), landing: CGPoint(x: 504, y: 702), label: "D 224"),
             WatchPlanLeg(start: CGPoint(x: 504, y: 702), control: CGPoint(x: 535, y: 620), landing: CGPoint(x: 556, y: 562), label: "3W 205"),
         ]
-        let restingWithEverything = WatchHoleMapView(
+        let rootBase = WatchHoleMapView(
             currentShotLayout: shot,
             fullMap: false,
             geometry: geometry,
-            planLegs: planLegs
-        )
-        let restingFactsOnly = WatchHoleMapView(
-            currentShotLayout: shot,
-            fullMap: false,
-            geometry: geometry,
+            interactionMode: .measure,
+            showCaddieRecommendation: true,
             planLegs: []
         )
-        let fullMap = WatchHoleMapView(
+        let rootWithRoute = WatchHoleMapView(
+            currentShotLayout: shot,
+            fullMap: false,
+            geometry: routeGeometry,
+            interactionMode: .measure,
+            showCaddieRecommendation: true,
+            planLegs: []
+        )
+        let rootWithPlan = WatchHoleMapView(
+            currentShotLayout: shot,
+            fullMap: false,
+            geometry: geometry,
+            interactionMode: .measure,
+            showCaddieRecommendation: true,
+            planLegs: planLegs
+        )
+        let rootWithContinuation = WatchHoleMapView(
+            currentShotLayout: continuationShot,
+            fullMap: false,
+            geometry: geometry,
+            interactionMode: .measure,
+            showCaddieRecommendation: true,
+            planLegs: []
+        )
+        let fullMapBase = WatchHoleMapView(
             currentShotLayout: shot,
             fullMap: true,
             geometry: geometry,
+            interactionMode: .measure,
+            showCaddieRecommendation: true,
+            planLegs: []
+        )
+        let fullMapWithRoute = WatchHoleMapView(
+            currentShotLayout: shot,
+            fullMap: true,
+            geometry: routeGeometry,
+            interactionMode: .measure,
+            showCaddieRecommendation: true,
+            planLegs: []
+        )
+        let fullMapWithPlan = WatchHoleMapView(
+            currentShotLayout: shot,
+            fullMap: true,
+            geometry: geometry,
+            interactionMode: .measure,
+            showCaddieRecommendation: true,
             planLegs: planLegs
         )
-        let rootWithEverything = try XCTUnwrap(ImageRenderer(content: restingWithEverything.watchSnapshotFrame(width: 198, height: 242)).cgImage)
-        let rootFactsOnly = try XCTUnwrap(ImageRenderer(content: restingFactsOnly.watchSnapshotFrame(width: 198, height: 242)).cgImage)
-        let fullMapImage = try XCTUnwrap(ImageRenderer(content: fullMap.watchSnapshotFrame(width: 198, height: 242)).cgImage)
-        XCTAssertEqual(renderedPixelBytes(rootWithEverything), renderedPixelBytes(rootFactsOnly))
-        XCTAssertNotEqual(renderedPixelBytes(rootWithEverything), renderedPixelBytes(fullMapImage))
+        let fullMapWithContinuation = WatchHoleMapView(
+            currentShotLayout: continuationShot,
+            fullMap: true,
+            geometry: geometry,
+            interactionMode: .measure,
+            showCaddieRecommendation: true,
+            planLegs: []
+        )
+        let rootBasePixels = renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: rootBase.watchSnapshotFrame(width: 198, height: 242)).cgImage))
+        let rootRoutePixels = renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: rootWithRoute.watchSnapshotFrame(width: 198, height: 242)).cgImage))
+        let rootPlanPixels = renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: rootWithPlan.watchSnapshotFrame(width: 198, height: 242)).cgImage))
+        let rootContinuationPixels = renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: rootWithContinuation.watchSnapshotFrame(width: 198, height: 242)).cgImage))
+        XCTAssertEqual(rootBasePixels, rootRoutePixels)
+        XCTAssertEqual(rootBasePixels, rootPlanPixels)
+        XCTAssertEqual(rootBasePixels, rootContinuationPixels)
+        let fullBasePixels = renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: fullMapBase.watchSnapshotFrame(width: 198, height: 242)).cgImage))
+        let fullRoutePixels = renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: fullMapWithRoute.watchSnapshotFrame(width: 198, height: 242)).cgImage))
+        let fullPlanPixels = renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: fullMapWithPlan.watchSnapshotFrame(width: 198, height: 242)).cgImage))
+        let fullContinuationPixels = renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: fullMapWithContinuation.watchSnapshotFrame(width: 198, height: 242)).cgImage))
+        XCTAssertNotEqual(fullBasePixels, fullRoutePixels)
+        XCTAssertNotEqual(fullBasePixels, fullPlanPixels)
+        XCTAssertNotEqual(fullBasePixels, fullContinuationPixels)
     }
 
     @MainActor
     func testRootRecommendationNeedsALiveOrPreparedTeeGateNotAPlan() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("d02-gate-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
         let timestamp = "2026-10-20T10:00:00Z"
         let fix = WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116),
@@ -1860,12 +1929,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
         let liveState = WatchRoundState(
             roundId: "d02", hole: 4, par: 5, distanceM: 240,
-            teeLatitude: 40, teeLongitude: 116, suggestedClub: "3W", selectedClub: nil,
+            teeLatitude: 41, teeLongitude: 116, suggestedClub: "3W", selectedClub: nil,
             decisionId: "d02-live", frontGreenM: 227, centerGreenM: 240, backGreenM: 251,
             holeMap: holeMap, geometryCoverage: "ready", caddieOptions: options,
             rootCaddieRecommendation: recommendation, score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "high"
         )
-        let liveModel = WatchRoundModel(store: WatchRoundStore(directoryURL: dir), now: { timestamp })
+        let liveDir = FileManager.default.temporaryDirectory.appendingPathComponent("d02-live-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: liveDir) }
+        let liveModel = WatchRoundModel(store: WatchRoundStore(directoryURL: liveDir), now: { timestamp })
         liveModel.seedRound([liveState], activeHole: 4, courseName: "测试球场")
         let liveContainer = WatchRoundContainerView(model: liveModel, holeGeometry: geometry, watchGreenYards: (227, 240, 251), shotLocation: fix)
         XCTAssertTrue(liveContainer.showsRootRecommendation(liveState, geometry: geometry))
@@ -1877,7 +1948,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
             holeMap: holeMap, geometryCoverage: "ready", caddieOptions: options,
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
         )
-        let preparedModel = WatchRoundModel(store: WatchRoundStore(directoryURL: dir), now: { timestamp })
+        let preparedDir = FileManager.default.temporaryDirectory.appendingPathComponent("d02-prepared-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: preparedDir) }
+        let preparedModel = WatchRoundModel(store: WatchRoundStore(directoryURL: preparedDir), now: { timestamp })
         preparedModel.seedRound([preparedState], activeHole: 4, courseName: "测试球场")
         let preparedContainer = WatchRoundContainerView(model: preparedModel, holeGeometry: geometry, watchGreenYards: (227, 240, 251), shotLocation: fix)
         XCTAssertTrue(preparedContainer.showsRootRecommendation(preparedState, geometry: geometry))
@@ -1889,17 +1962,30 @@ final class WatchDesignSnapshotTests: XCTestCase {
             holeMap: holeMap, geometryCoverage: "ready", caddieOptions: options,
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
         )
-        let planOnlyModel = WatchRoundModel(store: WatchRoundStore(directoryURL: dir), now: { timestamp })
+        let planOnlyDir = FileManager.default.temporaryDirectory.appendingPathComponent("d02-plan-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: planOnlyDir) }
+        let planOnlyModel = WatchRoundModel(store: WatchRoundStore(directoryURL: planOnlyDir), now: { timestamp })
         planOnlyModel.seedRound([planOnlyState], activeHole: 4, courseName: "测试球场")
         let planOnlyContainer = WatchRoundContainerView(model: planOnlyModel, holeGeometry: geometry, watchGreenYards: (227, 240, 251), shotLocation: fix)
         XCTAssertFalse(planOnlyContainer.showsRootRecommendation(planOnlyState, geometry: geometry))
-        XCTAssertFalse(planOnlyContainer.showsRootRecommendation(planOnlyState, geometry: geometry))
+
+        let noClubState = WatchRoundState(
+            roundId: "d02-no-club", hole: 4, par: 5, distanceM: 240,
+            teeLatitude: 40, teeLongitude: 116, suggestedClub: nil, selectedClub: nil,
+            frontGreenM: 227, centerGreenM: 240, backGreenM: 251,
+            holeMap: holeMap, geometryCoverage: "ready", caddieOptions: options,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let noClubDir = FileManager.default.temporaryDirectory.appendingPathComponent("d02-no-club-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: noClubDir) }
+        let noClubModel = WatchRoundModel(store: WatchRoundStore(directoryURL: noClubDir), now: { timestamp })
+        noClubModel.seedRound([noClubState], activeHole: 4, courseName: "测试球场")
+        let noClubContainer = WatchRoundContainerView(model: noClubModel, holeGeometry: geometry, watchGreenYards: (227, 240, 251), shotLocation: fix)
+        XCTAssertFalse(noClubContainer.showsRootRecommendation(noClubState, geometry: geometry))
     }
 
     @MainActor
     func testContainerRootWithoutAGateDrawsNoPlanAndNoClubTag() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("d02-pixels-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
         let timestamp = "2026-10-20T10:00:00Z"
         let fix = WatchLocationFix(coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116), horizontalAccuracyM: 5, capturedAt: timestamp)
         let holeMap = WatchHoleMap(
@@ -1934,13 +2020,15 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
         let liveState = WatchRoundState(
             roundId: "d02-live", hole: 4, par: 5, distanceM: 240,
-            teeLatitude: 40, teeLongitude: 116, suggestedClub: "3W", selectedClub: nil,
+            teeLatitude: 41, teeLongitude: 116, suggestedClub: "3W", selectedClub: nil,
             decisionId: "d02-pixels", frontGreenM: 227, centerGreenM: 240, backGreenM: 251, holeMap: holeMap,
             geometryCoverage: "ready", caddieOptions: options, rootCaddieRecommendation: recommendation,
             score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "high"
         )
         func renderRoot(_ state: WatchRoundState) throws -> [UInt8] {
-            let model = WatchRoundModel(store: WatchRoundStore(directoryURL: dir), now: { timestamp })
+            let stateDir = FileManager.default.temporaryDirectory.appendingPathComponent("d02-pixels-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: stateDir) }
+            let model = WatchRoundModel(store: WatchRoundStore(directoryURL: stateDir), now: { timestamp })
             model.seedRound([state], activeHole: 4, courseName: "测试球场")
             let view = WatchRoundContainerView(model: model, holeGeometry: geometry, watchGreenYards: (227, 240, 251), shotLocation: fix)
                 .snapshottingHoleRoot()
