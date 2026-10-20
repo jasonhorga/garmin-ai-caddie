@@ -761,6 +761,19 @@ public struct WatchHoleMapView: View {
     private let onOpenMapDetail: () -> Void
     private let onBack: () -> Void
 
+    /// Native tests invoke the same callbacks that the root map's gestures and accessibility
+    /// actions use. Keeping this seam on the concrete map view prevents a callback mutant from
+    /// being hidden behind a second test-only copy of the wiring.
+    @MainActor
+    func invokeOpenCaddieForTesting() {
+        onOpenCaddie()
+    }
+
+    @MainActor
+    func invokeOpenMapDetailForTesting() {
+        onOpenMapDetail()
+    }
+
     private func currentScale(_ size: CGSize) -> CGFloat {
         baseScale(size) * userZoom
     }

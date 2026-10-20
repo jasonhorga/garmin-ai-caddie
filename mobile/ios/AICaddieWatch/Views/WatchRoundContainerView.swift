@@ -734,8 +734,14 @@ public struct WatchRoundContainerView: View {
         return note.isEmpty ? club : "\(club) · \(note)"
     }
 
-    @ViewBuilder
-    private func holeMapView(_ s: WatchRoundState, _ geometry: WatchHoleMapGeometry) -> some View {
+    /// Invoke the same model action wired to the root rail's Golf Menu button.
+    @MainActor
+    func invokeRootMenuForTesting() {
+        model.openMenu()
+    }
+
+    /// The concrete return keeps the production callback closures reachable through `@testable`.
+    func holeMapView(_ s: WatchRoundState, _ geometry: WatchHoleMapGeometry) -> WatchHoleMapView {
         let selectedPin = selectedGreenPin(for: s, geometry: geometry)
         let currentShot = currentShotLayout(for: s, geometry: geometry)
         let preparedGeometry = currentShot == nil
@@ -744,7 +750,7 @@ public struct WatchRoundContainerView: View {
             : nil
         let preparedRootCaddieLayerAvailable = preparedGeometry != nil
         let renderedGeometry = preparedGeometry ?? geometry
-        WatchHoleMapView(
+        return WatchHoleMapView(
             holeNumber: s.displayHoleNumber,
             par: s.par,
             frontGreen: frontYd(s),
@@ -792,7 +798,6 @@ public struct WatchRoundContainerView: View {
                 model.openHoleMap()
             }
         )
-        .id(instrumentIdentity("root-map", state: s, geometry: renderedGeometry))
     }
 
     // MARK: B6 本洞 pages (README §3)
@@ -816,6 +821,7 @@ public struct WatchRoundContainerView: View {
         TabView(selection: $holePage) {
             GeometryReader { proxy in
                 holeMapView(s, geometry)
+                    .id(instrumentIdentity("root-map", state: s, geometry: geometry))
                     .watchZoomPan($planViewport, size: proxy.size)
             }
             .tag(0)

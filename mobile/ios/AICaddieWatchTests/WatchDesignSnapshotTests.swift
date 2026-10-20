@@ -2004,6 +2004,47 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRootCallbacksOpenTheirIntendedScreens() throws {
+        let timestamp = "2026-10-20T10:00:00Z"
+        let holeMap = WatchHoleMap(
+            w: Int(WatchHoleMapSample.imageSize.width), h: Int(WatchHoleMapSample.imageSize.height),
+            you: [435, 981], pin: [435, 279], layup: [506, 403], apex: [556, 562], greenCtrl: [498, 375],
+            route: [[435, 981, 0], [504, 702, 200], [556, 562, 303], [506, 403, 419], [435, 279, 518.8]]
+        )
+        let state = WatchRoundState(
+            roundId: "d02-callbacks", hole: 4, par: 5, distanceM: 240,
+            teeLatitude: 40, teeLongitude: 116, suggestedClub: "3W", selectedClub: nil,
+            frontGreenM: 227, centerGreenM: 240, backGreenM: 251,
+            holeMap: holeMap, geometryCoverage: "ready", caddieOptions: [WatchCaddieOption(
+                optionId: "stock", label: "标准", clubName: "3W",
+                plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 205)],
+                confidence: "offline", routeOffsetBasis: .tee
+            )],
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("d02-callbacks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = WatchRoundModel(store: WatchRoundStore(directoryURL: directory), now: { timestamp })
+        model.seedRound([state], activeHole: 4, courseName: "测试球场")
+        let container = WatchRoundContainerView(
+            model: model,
+            holeGeometry: WatchHoleMapSample.teeGeometry,
+            watchGreenYards: (227, 240, 251)
+        )
+        let rootMap = container.holeMapView(state, WatchHoleMapSample.teeGeometry)
+
+        rootMap.invokeOpenCaddieForTesting()
+        XCTAssertEqual(model.screen, .caddie)
+        model.screen = .home
+        rootMap.invokeOpenMapDetailForTesting()
+        XCTAssertEqual(model.screen, .holeMap)
+        model.screen = .home
+        container.invokeRootMenuForTesting()
+        XCTAssertEqual(model.screen, .menu)
+    }
+
+    @MainActor
     func testContainerRootWithoutAGateDrawsNoPlanAndNoClubTag() throws {
         let timestamp = "2026-10-20T10:00:00Z"
         let fix = WatchLocationFix(coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116), horizontalAccuracyM: 5, capturedAt: timestamp)
