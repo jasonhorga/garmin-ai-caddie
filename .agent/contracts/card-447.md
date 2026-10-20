@@ -158,7 +158,9 @@ agenthub-deploy: result=failed action=up part=<docker|database|api> container=<n
 3. `test_reboot_starts_database_first_then_serving_release` (database stopped with a stale
    `healthy` value; the release exited):
    - the starts are exactly `[db, SERVING]`, in that order;
-   - when the API started, the database was running and `healthy`.
+   - when the API started, the database was running and `healthy`;
+   - afterwards exactly the database and `SERVING` are running. This is a set check: the test
+     compares the sorted names with `sorted([db, SERVING])`. Only the starts list checks order.
 4. `test_unhealthy_database_never_starts_the_api`: the database never becomes healthy (timeout
    `0.6`), or its `docker start` fails. Either way the result is exit 1, `part=database`,
    `container=<db>`, and no API start.
@@ -206,7 +208,8 @@ agenthub-deploy: result=failed action=up part=<docker|database|api> container=<n
 
 13. `test_running_and_healthy_stack_is_only_read`: no `start` call, exit 0 with
     `container=SERVING`, health read for `SERVING`'s revision, and no state change.
-14. Re-running `up` after test 3's recovery makes no `start` call and exits 0.
+14. Re-running `up` after test 3's recovery makes no `start` call and exits 0. The same two
+    containers are still running.
 15. Test 6's running-database case does not start the database again.
 
 ### G5 — Exit codes, the result line, and configuration errors
@@ -241,3 +244,11 @@ agenthub-deploy: result=failed action=up part=<docker|database|api> container=<n
 - I could not run the tests in this sandbox, because shell commands are refused. I checked them by
   reading them against `main`'s script. The gate's run is the authority. If a case looks wrong
   against this contract, report it on the card. Never edit the tests.
+
+## Revisions
+
+- Codex reported a test bug. `running()` returns the running container names sorted, so the two
+  running-container checks in `test_reboot_starts_database_first_then_serving_release` could
+  never equal `[db, SERVING]`: `aicaddie-release-…` sorts before `garmin-ai-caddie-db-1`. Both
+  checks now compare with `sorted([db, SERVING])`. The ordered check on the starts list
+  (`[db, SERVING]`) is unchanged, and so is every other assertion.

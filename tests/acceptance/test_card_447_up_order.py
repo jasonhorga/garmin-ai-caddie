@@ -479,7 +479,7 @@ class UpOrderTest(unittest.TestCase):
         return next((c for c in self.state()["containers"] if c["Name"] == "/" + name), None)
 
     def running(self) -> list[str]:
-        # G2 G3 G4
+        # G2 G3 G4: names of the running containers, sorted (not in start order).
         return sorted(c["Name"][1:] for c in self.state()["containers"] if c["State"]["Running"])
 
     def health_reports(self, after: float = 0.0) -> list[str | None]:
@@ -506,7 +506,7 @@ class UpOrderTest(unittest.TestCase):
         self.assertIs(api["lock_free"], False, "the API was started without holding the sync lock")
         self.assertLess(state["starts"][0]["time"], api["time"])
         self.assertIn(SERVING_REV, self.health_reports(after=api["time"]))
-        self.assertEqual(self.running(), [DB, SERVING])
+        self.assertEqual(self.running(), sorted([DB, SERVING]))
         self.assertFalse(self.by_name(OLDER)["State"]["Running"])
         with open(self.lock, "a") as handle:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)  # released again
@@ -516,7 +516,7 @@ class UpOrderTest(unittest.TestCase):
         again = self.up()
         self.assert_ok(again, SERVING)
         self.assertNotIn("start", self.commands(before))
-        self.assertEqual(self.running(), [DB, SERVING])
+        self.assertEqual(self.running(), sorted([DB, SERVING]))
 
     # -- G2: database ------------------------------------------------------------
 
