@@ -4,6 +4,7 @@
 Usage:
     ops/agenthub_deploy.py deploy <40-hex-sha>
     ops/agenthub_deploy.py rollback <40-hex-sha>
+    ops/agenthub_deploy.py up
 
 The executor runs this file from a `git archive <sha>` tree (no `.git`) and
 then polls `/api/v2/health` for `revision == sha`. Exit codes:
@@ -12,6 +13,9 @@ then polls `/api/v2/health` for `revision == sha`. Exit codes:
     1  failed; the previous container is serving again (or was never stopped)
     2  invalid invocation or configuration; nothing was touched
     3  failed and the previous container could NOT be confirmed healthy
+
+The `up` action only starts existing containers, database first. It returns
+0 when the stack is healthy, 1 on recovery failure, or 2 on invalid input.
 
 Every host-specific value comes from the environment (see
 docs/operations/runbook.md, "agenthub executor deploy"); the defaults are the
@@ -95,6 +99,13 @@ class Interrupted(DeployError):
     pass
 
 
+class UpFailed(DeployError):
+    def __init__(self, part: str, container: str, message: str):
+        super().__init__(message)
+        self.part = part
+        self.container = container
+
+
 class CutoverFailed(DeployError):
     def __init__(self, message: str, restored: bool | None):
         super().__init__(message)
@@ -174,6 +185,18 @@ def _float(env, name, default, *, positive=False):
     if value != value or value < 0 or (positive and value == 0):
         raise ConfigError(f"{name} is out of range")
     return value
+
+
+class UpConfig(Config):
+    """Recovery settings do not change deploy/rollback configuration."""
+
+    def __init__(self, env: dict[str, str]):
+        super().__init__(env)
+        self.up_docker_timeout = _float(env, "AICADDIE_UP_DOCKER_TIMEOUT_SECONDS", 300.0)
+        self.db_ready_timeout = _float(env, "AICADDIE_DB_READY_TIMEOUT_SECONDS", 180.0)
+        self.db_name = env.get("AICADDIE_DB_CONTAINER") or "garmin-ai-caddie-db-1"
+        if not PREFIX_PATTERN.fullmatch(self.db_name):
+            raise ConfigError("AICADDIE_DB_CONTAINER must be a valid container name")
 
 
 # ---------------------------------------------------------------------------
@@ -734,28 +757,123 @@ def rollback(cfg: Config, sha: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Ordered recovery of existing containers
 
 
-USAGE = "usage: agenthub_deploy.py {deploy|rollback} <40-lowercase-hex-sha>"
+def wait_docker(timeout: float, poll: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        result = docker("info", label="docker daemon", capture=True, quiet=True, check=False)
+        if result.returncode == 0:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll)
+
+
+def wait_up_database(cfg: UpConfig) -> None:
+    deadline = time.monotonic() + cfg.db_ready_timeout
+    started = False
+    while True:
+        result = docker(
+            "inspect", "--format",
+            '{"running":{{json .State.Running}},"health":{{json .State.Health}}}',
+            cfg.db_name, label="database inspect", capture=True, quiet=True, check=False,
+        )
+        if result.returncode != 0:
+            raise DeployError(f"database {cfg.db_name} is missing or unavailable")
+        state = json.loads(result.stdout)
+        if state["running"] and (state.get("health") or {}).get("Status") == "healthy":
+            return
+        if not state["running"] and not started:
+            log(f"starting {cfg.db_name}")
+            docker("start", cfg.db_name, label="database start", capture=True, quiet=True)
+            started = True
+        if time.monotonic() >= deadline:
+            raise DeployError(f"database {cfg.db_name} did not become healthy")
+        time.sleep(cfg.poll)
+
+
+def select_up_api(cfg: Config, containers: list[Container]) -> Container | None:
+    current = find_current(cfg, containers)
+    if current is not None:
+        return current
+    candidates = sorted(
+        (c for c in containers if c.name.startswith(cfg.prefix) and not c.running
+         and c.publishes(cfg.port)),
+        key=lambda c: c.finished_key, reverse=True,
+    )
+    for candidate in candidates:
+        try:
+            assert_layout(cfg, candidate)
+        except DeployError:
+            continue
+        return candidate
+    return None
+
+
+def up(cfg: UpConfig) -> Container:
+    part, container = "docker", "none"
+    try:
+        if not wait_docker(cfg.up_docker_timeout, cfg.poll):
+            raise DeployError("Docker daemon did not become available")
+        part, container = "database", cfg.db_name
+        wait_up_database(cfg)
+        part, container = "api", "none"
+        api = select_up_api(cfg, list_containers())
+        if api is None:
+            raise DeployError("no stopped release container matches the configured layout and port")
+        container = api.name
+        if not api.running:
+            with SyncLock(cfg):
+                log(f"starting {api.name}")
+                docker("start", api.name, label="API start", capture=True, quiet=True)
+        if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
+            raise DeployError(f"{api.name} did not report status=ok for its revision")
+        return api
+    except DeployError as exc:
+        raise UpFailed(part, container, str(exc)) from None
+    except Exception as exc:
+        raise UpFailed(part, container, f"unexpected {type(exc).__name__}") from None
+
+
+# ---------------------------------------------------------------------------
+
+
+USAGE = "usage: agenthub_deploy.py {deploy|rollback} <40-lowercase-hex-sha> | up"
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2 or argv[0] not in ("deploy", "rollback") or not SHA_PATTERN.fullmatch(argv[1]):
+    is_up = argv == ["up"]
+    if not is_up and (len(argv) != 2 or argv[0] not in ("deploy", "rollback")
+                      or not SHA_PATTERN.fullmatch(argv[1])):
         print(USAGE, file=sys.stderr, flush=True)
         return EXIT_USAGE
-    action, sha = argv
-    expected = os.environ.get("AGENTHUB_DEPLOY_SHA")
-    if expected and expected != sha:
-        print("error: argument sha does not match AGENTHUB_DEPLOY_SHA", file=sys.stderr, flush=True)
-        return EXIT_USAGE
+    action, sha = ("up", "") if is_up else argv
+    if not is_up:
+        expected = os.environ.get("AGENTHUB_DEPLOY_SHA")
+        if expected and expected != sha:
+            print("error: argument sha does not match AGENTHUB_DEPLOY_SHA", file=sys.stderr, flush=True)
+            return EXIT_USAGE
     try:
-        cfg = Config(dict(os.environ))
+        cfg = UpConfig(dict(os.environ)) if is_up else Config(dict(os.environ))
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr, flush=True)
         return EXIT_USAGE
 
     install_signal_handlers()
     started = time.monotonic()
+    if is_up:
+        log("action=up")
+        try:
+            api = up(cfg)
+        except UpFailed as exc:
+            log(f"result=failed action=up part={exc.part} container={exc.container} "
+                f"elapsed_s={time.monotonic() - started:.1f} reason={exc}")
+            return EXIT_FAILED
+        log(f"result=ok action=up container={api.name} revision={api.revision} "
+            f"elapsed_s={time.monotonic() - started:.1f}")
+        return EXIT_OK
     log(f"action={action} revision={sha}")
     try:
         container = deploy(cfg, sha) if action == "deploy" else rollback(cfg, sha)
