@@ -447,7 +447,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
 
     def running_names(self) -> list[str]:
         return sorted(c["Name"][1:] for c in self.state()["containers"]
-                      if c["State"]["Running"] and c["Name"][1:].startswith(PREFIX))
+                      if c["State"]["Running"] and c["Name"][1:] != "garmin-ai-caddie-db-1")
 
     def assert_old_serving(self) -> None:
         self.assertEqual(self.running_names(), [PREFIX + "11111111-production-20261014"])
