@@ -46,6 +46,12 @@ KEPT_SNAPSHOTS = (
     "watch-holemap-measured",
     "watch-holemap-current-shot",
 )
+# Native tests that make the D02 rules observable to agenthub's native mutant runs (revision 4).
+PIXEL_INVARIANCE_TEST = "testHoleRootPixelsIgnoreTheRouteThePlanAndTheContinuation"
+GATE_TABLE_TEST = "testRootRecommendationNeedsALiveOrPreparedTeeGateNotAPlan"
+CONTAINER_PIXEL_TEST = "testContainerRootWithoutAGateDrawsNoPlanAndNoClubTag"
+# A native test that skips or expects its own failure checks nothing.
+NATIVE_ESCAPES = re.compile(r"\b(?:XCTSkip\w*|XCTExpectFailure)\b")
 PAIRS = {"(": ")", "[": "]", "{": "}"}
 # A line ending like this continues on the next one; a line starting like this continues the last.
 CONTINUES_AFTER = (",", "&&", "||", "(", "=")
@@ -302,6 +308,15 @@ def _arguments(code: str, start: int, end: int) -> dict[str, tuple[int, int]]:
     return labelled
 
 
+def _call_texts(code: str, name: str, start: int, end: int) -> list[str]:
+    # G1 G2 G6: the whole argument text of each `name(...)` call in code[start:end].
+    texts = []
+    for match in re.compile(rf"(?<![\w.]){re.escape(name)}\s*\(").finditer(code, start, end):
+        close = _match(code, match.end() - 1)
+        texts.append(" ".join(code[match.end() : close].split()))
+    return texts
+
+
 def _value(code: str, args: dict[str, tuple[int, int]], label: str) -> str | None:
     # G1 G2 G3 G4 G6: the stripped value of one labelled argument, or None when absent.
     if label not in args:
@@ -471,6 +486,20 @@ class WatchRootOneAimLineTests(unittest.TestCase):
         self.assertEqual(len(calls), 1, "holeMapView builds exactly one WatchHoleMapView")
         return calls[0][1]
 
+    def _native_test(self, sources: _Sources, name: str) -> tuple[str, str, str, tuple[int, int]]:
+        # G1 G2 G6: (file, code, text, body span) of the one native test `name` in the Watch unit tests.
+        found = []
+        for relative in sources.swift(WATCH_TESTS):
+            code, text = sources.read(relative)
+            for match in re.finditer(rf"\bfunc\s+{name}\s*\(", code):
+                span = _body(code, rf"\bfunc\s+{name}\s*\(", match.start())
+                if span is not None:
+                    found.append((relative, code, text, span))
+        self.assertEqual(len(found), 1, f"exactly one native {name} under {WATCH_TESTS}")
+        relative, code, _, (start, end) = found[0]
+        self.assertNotRegex(code[start:end], NATIVE_ESCAPES, f"{name} neither skips nor expects its own failure")
+        return found[0]
+
     # G1 — the hole root draws the facts layer and at most one aim line
 
     def test_map_view_draws_route_and_plan_only_on_a_full_map(self) -> None:
@@ -554,7 +583,9 @@ class WatchRootOneAimLineTests(unittest.TestCase):
 
     def test_no_resting_map_is_given_plan_legs(self) -> None:
         # G1 G6: across the tracked Watch app, unit tests and UI tests, only a full map (the caddie
-        # page) is handed plan legs; no snapshot asserts the full plan on the root any more.
+        # page) is handed plan legs; no snapshot asserts the full plan on the root any more. The one
+        # exception is the native pixel-invariance test, which hands the root legs to prove they are
+        # not drawn.
         sources = self._sources(subprocess.run(GIT_LS_FILES, cwd=REPO_ROOT, capture_output=True, timeout=120, check=False))
         offenders = []
         checked = 0
@@ -563,8 +594,16 @@ class WatchRootOneAimLineTests(unittest.TestCase):
             code, _ = sources.read(relative)
             if not re.search(r"(?<![\w.])WatchHoleMapView\s*\(", code):
                 continue
+            exempt = []
+            if relative.startswith(WATCH_TESTS):
+                for match in re.finditer(rf"\bfunc\s+{PIXEL_INVARIANCE_TEST}\s*\(", code):
+                    span = _body(code, rf"\bfunc\s+{PIXEL_INVARIANCE_TEST}\s*\(", match.start())
+                    if span is not None:
+                        exempt.append(span)
             for offset, args in _calls(code, "WatchHoleMapView", 0, len(code)):
                 checked += 1
+                if any(open_ < offset < close for open_, close in exempt):
+                    continue
                 if "planLegs" in args and _value(code, args, "fullMap") != "true":
                     offenders.append(f"{relative}:{code.count(chr(10), 0, offset) + 1}")
 
@@ -580,6 +619,11 @@ class WatchRootOneAimLineTests(unittest.TestCase):
         code, _ = sources.read(CONTAINER)
 
         helper = _required_body(code, r"\bfunc\s+showsRootRecommendation\s*\(")
+        self.assertNotRegex(
+            code,
+            r"\b(?:private|fileprivate)\s+(?:\w+\s+)*func\s+showsRootRecommendation\b",
+            "the gate is internal so the native truth-table test can call it",
+        )
         body = code[helper[0] : helper[1]]
         # The live gate, or the prepared Tee plan with its geometry: nothing else can turn it on.
         self.assertRegex(body, r"\bcurrentShotLayout\s*\(\s*for:\s*s\s*,\s*geometry:\s*geometry\s*\)\s*!=\s*nil")
@@ -806,6 +850,57 @@ class WatchRootOneAimLineTests(unittest.TestCase):
         self.assertIn('"watch-plan-club-tag"', tap_text)
         self.assertRegex(ui_code[tap[0] : tap[1]], r"\.tap\(\)")
         self.assertIn('"watch-caddie-instrument"', tap_text)
+
+    def test_native_tests_observe_the_root_rules(self) -> None:
+        # G1 G2 G6: native tests that fail when the D02 gates are bypassed in the Swift code, not
+        # only when the rule's truth table changes: rendered root pixels ignore the route, the plan
+        # and the continuation; the container gate follows the live or prepared Tee gate; and the
+        # container root without a gate renders as if the hole had no plan.
+        sources = self._sources(subprocess.run(GIT_LS_FILES, cwd=REPO_ROOT, capture_output=True, timeout=120, check=False))
+
+        # G1: the resting root renders the same pixels with or without the route, legs, continuation.
+        relative, code, _, (start, end) = self._native_test(sources, PIXEL_INVARIANCE_TEST)
+        body = code[start:end]
+        self.assertRegex(code, r"\bImageRenderer\s*\(", f"{relative} compares rendered pixels")
+        self.assertRegex(body, r"(?<![\w.])WatchHoleMapView\s*\(")
+        for token, why in (
+            (r"\bplanLegs\s*:", "the root is handed plan legs"),
+            (r"\bcontinuation\s*:", "the root is handed a current shot with a continuation"),
+            (r"\broutePx\s*:", "the root is handed the factual tee-to-green route"),
+            (r"\bfullMap\s*:\s*false\b", "the resting root is rendered"),
+            (r"\bfullMap\s*:\s*true\b", "a full map is the positive control"),
+            (r"\bXCTAssertEqual\s*\(", "the root's pixels do not change"),
+            (r"\bXCTAssertNotEqual\s*\(", "the full map's pixels do change"),
+        ):
+            self.assertRegex(body, token, f"{PIXEL_INVARIANCE_TEST}: {why}")
+        self.assertNotRegex(body, r"\bdrawsRouteAndPlan\b", "the pixels are compared, not the rule")
+
+        # G2: the container gate's truth table, on the production helper.
+        _, code, text, (start, end) = self._native_test(sources, GATE_TABLE_TEST)
+        body = code[start:end]
+        self.assertRegex(body, r"(?<![\w.])WatchRoundContainerView\s*\(")
+        self.assertIn("rootCaddieRecommendation", text[start:end], "the live case has a real recommendation")
+        self.assertGreaterEqual(body.count("WatchCaddiePlanStep("), 2, "the no-gate case has a multi-shot plan")
+        shown = [a for a in _call_texts(code, "XCTAssertTrue", start, end) if "showsRootRecommendation(" in a]
+        hidden = [a for a in _call_texts(code, "XCTAssertFalse", start, end) if "showsRootRecommendation(" in a]
+        self.assertGreaterEqual(len(shown), 2, "the live gate and the prepared Tee gate each show the layer")
+        self.assertGreaterEqual(len(hidden), 2, "a plan alone, and a prepared plan off the tee, show nothing")
+
+        # G2 G3: without a gate, the real container root draws neither the plan nor the club tag.
+        relative, code, text, (start, end) = self._native_test(sources, CONTAINER_PIXEL_TEST)
+        body = code[start:end]
+        self.assertRegex(code, r"\bImageRenderer\s*\(", f"{relative} compares rendered pixels")
+        for token, why in (
+            (r"(?<![\w.])WatchRoundContainerView\s*\(", "the production container renders the root"),
+            (r"\.snapshottingHoleRoot\s*\(\s*\)", "the root page, without the native pager"),
+            (r"\bcaddieOptions\s*:\s*\[\s*\]", "the reference state has no plan"),
+            (r"\bXCTAssertEqual\s*\(", "a plan without a gate changes no pixel"),
+            (r"\bXCTAssertNotEqual\s*\(", "a live gate does change the root"),
+        ):
+            self.assertRegex(body, token, f"{CONTAINER_PIXEL_TEST}: {why}")
+        self.assertGreaterEqual(body.count("WatchCaddiePlanStep("), 2, "the no-gate state has a multi-shot plan")
+        self.assertIn("rootCaddieRecommendation", text[start:end], "the positive control has a live recommendation")
+        self.assertNotRegex(body, r"\b(openHoleMap|openCaddie)\s*\(", "render the root, not another screen")
 
 
 if __name__ == "__main__":
