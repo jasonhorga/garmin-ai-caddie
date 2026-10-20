@@ -50,6 +50,11 @@ KEPT_SNAPSHOTS = (
 PIXEL_INVARIANCE_TEST = "testHoleRootPixelsIgnoreTheRouteThePlanAndTheContinuation"
 GATE_TABLE_TEST = "testRootRecommendationNeedsALiveOrPreparedTeeGateNotAPlan"
 CONTAINER_PIXEL_TEST = "testContainerRootWithoutAGateDrawsNoPlanAndNoClubTag"
+# Revision 5: the root's own arguments, its aim line and dispersion, the tap target and the caddie map.
+AIM_LINE_TEST = "testHoleRootDrawsTheAimLineAndRealDispersionOnlyWhenShown"
+ROOT_ARGUMENTS_TEST = "testContainerRootIsARestingMapWithoutThePlan"
+TAP_TARGET_TEST = "testPlanTagTapTargetFollowsTheRootRecommendation"
+CADDIE_MAP_TEST = "testCaddiePageMapDrawsTheWholePlan"
 # A native test that skips or expects its own failure checks nothing.
 NATIVE_ESCAPES = re.compile(r"\b(?:XCTSkip\w*|XCTExpectFailure)\b")
 PAIRS = {"(": ")", "[": "]", "{": "}"}
@@ -690,16 +695,43 @@ class WatchRootOneAimLineTests(unittest.TestCase):
         root = self._root_call(code)
         self.assertEqual(_value(code, root, "onOpenCaddie"), "{ model.openCaddie() }")
 
+        # Revision 5: the tap target's whole condition is the internal seam the native test calls.
         target = _required_body(code, r"\bvar\s+planTagTapTarget\b")
         body = code[target[0] : target[1]]
         self.assertRegex(
             body,
+            r"\bif\s+showsPlanTagTapTarget\s*\(\s*\)\s*\{",
+            "the tap target is shown exactly when showsPlanTagTapTarget() holds",
+        )
+        self.assertEqual(len(re.findall(r"\bif\b", body)), 1, "no other condition shows the tap target")
+        self.assertNotIn("||", body, "nothing but the recommendation gate shows the tap target")
+        self.assertNotRegex(body, r"\btrue\b")
+
+        seam = _required_body(code, r"\bfunc\s+showsPlanTagTapTarget\s*\(\s*\)\s*->\s*Bool")
+        self.assertNotRegex(
+            code,
+            r"\b(?:private|fileprivate)\s+(?:\w+\s+)*func\s+showsPlanTagTapTarget\b",
+            "the tap-target gate is internal so a native test can call it",
+        )
+        gate = code[seam[0] : seam[1]]
+        self.assertRegex(
+            gate,
             r"\bshowsRootRecommendation\s*\(\s*s\s*,\s*geometry:\s*geometry\s*\)",
             "the tap target exists exactly when the tag does",
         )
-        self.assertNotIn("||", body, "nothing but the recommendation gate shows the tap target")
-        for forbidden in (r"count\s*>\s*1", r"\bcaddieOption\b", r"\bcurrentCaddieOptions\b", r"!\s*showsRootRecommendation"):
-            self.assertNotRegex(body, forbidden)
+        for required in (r"\bholeGeometry\b", r"\bmodel\.activeHoleState\b", r"\bcenterYd\s*\(\s*s\s*\)\s*!=\s*nil"):
+            self.assertRegex(gate, required)
+        self.assertNotIn("||", gate, "nothing but the recommendation gate shows the tap target")
+        for forbidden in (
+            r"count\s*>\s*1",
+            r"\.count\b",
+            r"\bcaddieOption\b",
+            r"\bcaddieOptions\b",
+            r"\bcurrentCaddieOptions\b",
+            r"\btrue\b",
+            r"!(?!=)",
+        ):
+            self.assertNotRegex(gate, forbidden)
         taps = [
             " ".join(code[match.end() : _match(code, match.end() - 1)].split())
             for match in re.compile(r"\.onTapGesture\s*(?:\(\s*\))?\s*\{").finditer(code, target[0], target[1])
@@ -714,9 +746,15 @@ class WatchRootOneAimLineTests(unittest.TestCase):
         sources = self._sources(subprocess.run(GIT_LS_FILES, cwd=REPO_ROOT, capture_output=True, timeout=120, check=False))
         code, _ = sources.read(CADDIE_VIEW)
 
-        instrument = _required_body(code, r"\bfunc\s+optionInstrument\b")
-        calls = _calls(code, "WatchHoleMapView", *instrument)
+        # The map may move from optionInstrument into the revision-5 seam optionMap; either way one.
+        calls = []
+        for pattern in (r"\bfunc\s+optionInstrument\b", r"\bfunc\s+optionMap\b"):
+            span = _body(code, pattern)
+            if span is not None:
+                calls += _calls(code, "WatchHoleMapView", *span)
+        self.assertRegex(code, r"\bfunc\s+optionInstrument\b")
         self.assertEqual(len(calls), 1)
+        self.assertEqual(len(_calls(code, "WatchHoleMapView", 0, len(code))), 1)
         args = calls[0][1]
         self.assertEqual(_value(code, args, "planLegs"), "legs")
         self.assertEqual(_value(code, args, "fullMap"), "true")
@@ -901,6 +939,106 @@ class WatchRootOneAimLineTests(unittest.TestCase):
         self.assertGreaterEqual(body.count("WatchCaddiePlanStep("), 2, "the no-gate state has a multi-shot plan")
         self.assertIn("rootCaddieRecommendation", text[start:end], "the positive control has a live recommendation")
         self.assertNotRegex(body, r"\b(openHoleMap|openCaddie)\s*\(", "render the root, not another screen")
+
+    def test_native_tests_observe_the_root_arguments_aim_line_tap_target_and_caddie_map(self) -> None:
+        # G1 G2 G3 G6: revision 5. Native tests see the root's own arguments (a resting map without
+        # legs), its one aim line and real dispersion, the tap target's gate and the caddie page's
+        # full plan, through internal seams on the production views.
+        sources = self._sources(subprocess.run(GIT_LS_FILES, cwd=REPO_ROOT, capture_output=True, timeout=120, check=False))
+
+        def asserted(code: str, name: str, span: tuple[int, int], needle: str) -> int:
+            return sum(1 for a in _call_texts(code, name, *span) if needle in a)
+
+        # The seams: the root map, the tap-target gate and the caddie map are reachable by @testable.
+        container, _ = sources.read(CONTAINER)
+        self.assertRegex(
+            container,
+            r"\bfunc\s+holeMapView\s*\(\s*_\s+s:\s*WatchRoundState\s*,\s*_\s+geometry:\s*WatchHoleMapGeometry\s*\)\s*->\s*WatchHoleMapView\s*\{",
+            "holeMapView returns the concrete root map",
+        )
+        caddie, _ = sources.read(CADDIE_VIEW)
+        seam = _required_body(
+            caddie,
+            r"\bfunc\s+optionMap\s*\(\s*_\s+option:\s*WatchCaddieOption\s*,\s*size:\s*CGSize\s*\)\s*->\s*WatchHoleMapView\s*\?",
+        )
+        for code, name in ((container, "holeMapView"), (container, "showsPlanTagTapTarget"), (caddie, "optionMap")):
+            self.assertNotRegex(
+                code, rf"\b(?:private|fileprivate)\s+(?:\w+\s+)*func\s+{name}\b", f"{name} is internal for native tests"
+            )
+        maps = _calls(caddie, "WatchHoleMapView", 0, len(caddie))
+        self.assertEqual(len(maps), 1, "the caddie page builds one map")
+        self.assertTrue(seam[0] < maps[0][0] < seam[1], "optionMap builds the caddie page's map")
+        self.assertEqual(_value(caddie, maps[0][1], "planLegs"), "legs")
+        self.assertEqual(_value(caddie, maps[0][1], "fullMap"), "true")
+        instrument = _required_body(caddie, r"\bfunc\s+optionInstrument\b")
+        self.assertRegex(caddie[instrument[0] : instrument[1]], r"(?<![\w.])optionMap\s*\(\s*option\s*,\s*size:\s*size\s*\)")
+
+        # G1 G2: the resting root draws the aim line and the real p10/p90, and nothing when hidden.
+        relative, code, _, span = self._native_test(sources, AIM_LINE_TEST)
+        body = code[span[0] : span[1]]
+        self.assertRegex(code, r"\bImageRenderer\s*\(", f"{relative} compares rendered pixels")
+        self.assertRegex(body, r"(?<![\w.])WatchHoleMapView\s*\(")
+        self.assertGreaterEqual(
+            len(re.findall(r"(?<![\w.])WatchCurrentShotLayout\s*\(", body)), 2,
+            "a layout without the aim line and one without the spread, built member by member",
+        )
+        for token, why in (
+            (r"\bWatchCurrentShotLayout\.resolve\s*\(", "the base layout has real p10/p90"),
+            (r"\bfullMap\s*:\s*false\b", "the resting root is rendered"),
+            (r"\bshowCaddieRecommendation\s*:\s*true\b", "the shown layer"),
+            (r"\bshowCaddieRecommendation\s*:\s*false\b", "the hidden layer"),
+            (r"\bcurrentShotLayout\s*:\s*nil\b", "the hidden root without a layout"),
+            (r"\binteractionMode\s*:\s*\.measure\b", "the production root mode"),
+        ):
+            self.assertRegex(body, token, f"{AIM_LINE_TEST}: {why}")
+        self.assertNotRegex(body, r"\bfullMap\s*:\s*true\b", f"{AIM_LINE_TEST} renders the resting root only")
+        self.assertNotRegex(body, r"\bdrawsRouteAndPlan\b", "the pixels are compared, not the rule")
+        self.assertGreaterEqual(len(_call_texts(code, "XCTAssertNotEqual", *span)), 3, "aim line, dispersion, shown layer")
+        self.assertGreaterEqual(len(_call_texts(code, "XCTAssertEqual", *span)), 1, "a hidden layer draws nothing")
+
+        # G1 G2 G3: the container's root map value, for a live gate, a prepared Tee gate and a plan alone.
+        _, code, text, span = self._native_test(sources, ROOT_ARGUMENTS_TEST)
+        body = code[span[0] : span[1]]
+        self.assertRegex(body, r"(?<![\w.])WatchRoundContainerView\s*\(")
+        self.assertGreaterEqual(len(re.findall(r"\.holeMapView\s*\(", body)), 3, "one root map per case, written out")
+        self.assertIn("rootCaddieRecommendation", text[span[0] : span[1]])
+        self.assertGreaterEqual(body.count("WatchCaddiePlanStep("), 2, "the states carry a multi-shot plan")
+        for name, needle, least, why in (
+            ("XCTAssertFalse", ".fullMap", 3, "every root is a resting map"),
+            ("XCTAssertTrue", ".planLegs.isEmpty", 3, "no root is handed the plan"),
+            ("XCTAssertTrue", ".showCaddieRecommendation", 2, "the live and prepared Tee gates show the layer"),
+            ("XCTAssertFalse", ".showCaddieRecommendation", 1, "a plan alone shows nothing"),
+            ("XCTAssertNotNil", ".currentShotLayout", 1, "the live gate draws this shot"),
+            ("XCTAssertNil", ".currentShotLayout", 1, "no gate, no shot"),
+            ("XCTAssertTrue", ".showPreparedPlan", 1, "the prepared Tee gate draws its first shot"),
+            ("XCTAssertFalse", ".showPreparedPlan", 1, "a plan alone draws no prepared shot"),
+        ):
+            self.assertGreaterEqual(asserted(code, name, span, needle), least, f"{ROOT_ARGUMENTS_TEST}: {why}")
+        modes = [a for a in _call_texts(code, "XCTAssertEqual", *span) if ".interactionMode" in a and ".measure" in a]
+        self.assertGreaterEqual(len(modes), 3, f"{ROOT_ARGUMENTS_TEST}: every root measures")
+        self.assertNotRegex(body, r"\b(openHoleMap|openCaddie)\s*\(")
+
+        # G3: the tap target above the pager follows the root recommendation.
+        _, code, _, span = self._native_test(sources, TAP_TARGET_TEST)
+        body = code[span[0] : span[1]]
+        self.assertRegex(body, r"(?<![\w.])WatchRoundContainerView\s*\(")
+        self.assertRegex(body, r"\bholeGeometry\s*:\s*nil\b", "no map, no tap target")
+        self.assertGreaterEqual(body.count("WatchCaddiePlanStep("), 2, "the plan-only case has a multi-shot plan")
+        self.assertGreaterEqual(asserted(code, "XCTAssertTrue", span, "showsPlanTagTapTarget()"), 2)
+        self.assertGreaterEqual(asserted(code, "XCTAssertFalse", span, "showsPlanTagTapTarget()"), 2)
+
+        # G3: the caddie page's map is a full map with every leg of the plan.
+        _, code, _, span = self._native_test(sources, CADDIE_MAP_TEST)
+        body = code[span[0] : span[1]]
+        self.assertRegex(body, r"(?<![\w.])WatchCaddieOptionsView\s*\(")
+        self.assertRegex(body, r"\.optionMap\s*\(")
+        self.assertGreaterEqual(body.count("WatchCaddiePlanStep("), 2, "a multi-shot plan")
+        self.assertGreaterEqual(asserted(code, "XCTAssertTrue", span, ".fullMap"), 1, "the caddie map is a full map")
+        self.assertGreaterEqual(asserted(code, "XCTAssertTrue", span, ".showCaddieRecommendation"), 1)
+        legs = sum(
+            asserted(code, name, span, ".planLegs.count") for name in ("XCTAssertEqual", "XCTAssertGreaterThanOrEqual")
+        )
+        self.assertGreaterEqual(legs, 1, "the caddie map carries every leg of the plan")
 
 
 if __name__ == "__main__":
