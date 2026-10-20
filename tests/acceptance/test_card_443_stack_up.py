@@ -1,15 +1,17 @@
 """Card #443: bring the production stack back after a host reboot, database first.
 
-Contract: .agent/contracts/card-443.md (revision 2).
+Contract: .agent/contracts/card-443.md (revision 3).
 
 `ops/agenthub_deploy.py` is run as a subprocess with fake `docker` and `curl` executables first on
 PATH. It runs from the checkout, or from a standalone copy installed where the systemd unit expects
 it, with the temporary home as working directory. The fake docker keeps a JSON model of the
 containers and records every call. It models the database's Docker health status (`starting` after
 `docker start`, then `healthy` after a few observations or after a given number of seconds), a
-daemon that is unreachable for a given time, and the database's state at the moment each container
-is started. The fake curl answers the local `/api/v2/health` with the revision label of the
-container publishing the port, and can take the daemon away once it has answered.
+daemon that is unreachable for a given time or goes away after its first answer, unreadable inspect
+output, and the database's state at the moment each container is started. The fake curl answers the
+local `/api/v2/health` with the revision label of the container publishing the port, or with a
+scripted answer, and can take the daemon away once it has answered. One test runs the script's
+`__main__` on a virtual clock, so the production default timeouts can be measured without waiting.
 """
 
 from __future__ import annotations
@@ -50,7 +52,7 @@ OLD_NAME = PREFIX + "11111111-production-20261001"
 LIVE_NAME = PREFIX + "4c4c4c4c"
 NEW_NAME = PREFIX + NEW[:8]
 CANARIES = ("canary-install-root", "canary-lock-dir", "canary-public-route", "canary-sync-path",
-            "canary-runtime-dir")
+            "canary-runtime-dir", "canary-bootstrap")
 MUTATING = {"run", "create", "pull", "rm", "update", "rename", "restart", "kill", "compose", "stop",
             "build", "tag", "rmi"}
 
@@ -62,6 +64,37 @@ WAIT_SLACK = 3.5
 LATE = 5.0
 # The production defaults of the three waits add up to 300 + 180 + 180 s.
 DEFAULT_WAITS_S = 660
+# A poll interval other than the production 2 s, for the virtual-clock run of the defaults.
+VIRTUAL_POLL = 3.0
+
+# Runs the script's `__main__` on a virtual clock: time.sleep() advances time.monotonic() and
+# time.time() at once instead of waiting, and every sleep is recorded.
+VIRTUAL_CLOCK = r'''
+import json, runpy, sys, time
+
+script, record = sys.argv[1], sys.argv[2]
+clock = {"now": 1000.0, "sleeps": []}
+
+
+def monotonic():
+    return clock["now"]
+
+
+def sleep(seconds):
+    clock["sleeps"].append(float(seconds))
+    clock["now"] += max(float(seconds), 0.0)
+
+
+time.monotonic = monotonic
+time.time = lambda: 1.8e9 + clock["now"]
+time.sleep = sleep
+sys.argv = [script] + sys.argv[3:]
+try:
+    runpy.run_path(script, run_name="__main__")
+finally:
+    with open(record, "w") as handle:
+        json.dump(clock, handle)
+'''
 
 FAKE_DOCKER = r'''
 import json, os, re, sys, time
@@ -197,6 +230,10 @@ def main(argv):
         state["docker_refused"] += 1
         save(state)
         fail("Cannot connect to the Docker daemon. Is the docker daemon running?", 1)
+    if state["scenario"].get("docker_gone_after_first_answer"):
+        # The daemon answers this call, then goes away.
+        state["scenario"]["docker_gone_after_first_answer"] = False
+        state["docker_down_until"] = 1e18
     save(state)
     command, args = (argv[0] if argv else ""), argv[1:]
     if command == "container" and args:
@@ -248,6 +285,9 @@ def main(argv):
                 observe(state, c)
                 found.append(c)
         save(state)
+        if state["scenario"].get("garble_inspect"):
+            print("{garbled")
+            return code
         if fmt is None:
             print(json.dumps(found))
             return code
@@ -276,7 +316,7 @@ def main(argv):
                 if any(running_on(state, port) for port in ports):
                     save(state)
                     fail("port is already allocated", 1)
-                c["State"].update(Running=True, Status="running")
+                c["State"].update(Running=True, Status="running", StartedEpoch=time.time())
                 if c["State"].get("Health"):
                     c["State"]["Health"]["Status"] = "starting"
                     if c["Name"] == "/" + state["db_name"]:
@@ -303,14 +343,15 @@ def main(argv):
             state["containers"].remove(c)
         save(state)
         return 0
-    fail("fake docker: unsupported command " + " ".join(argv), 2)
+    # `run` and `create` land here too. Only the command word is echoed: arguments can carry paths.
+    fail("fake docker: unsupported command " + command, 2)
 
 
 sys.exit(main(sys.argv[1:]))
 '''
 
 FAKE_CURL = r'''
-import json, os, re, sys
+import json, os, re, sys, time
 
 STATE = os.environ["FAKE_DOCKER_STATE"]
 
@@ -334,15 +375,20 @@ serving = [c for c in state["containers"] if c["State"]["Running"] and any(
     for b in bindings or [])]
 if len(serving) != 1:
     sys.exit(7)
+scenario = state["scenario"]
 revision = serving[0]["Config"]["Labels"].get("ai.caddie.source-revision", "")
-if revision in state["scenario"].get("unhealthy", []):
-    print(json.dumps({"status": "ok", "revision": "booting"}))
-    sys.exit(0)
-if state["scenario"].get("docker_down_after_health"):
+answer = {"status": "ok", "revision": revision}
+if revision in scenario.get("unhealthy", []):
+    answer["revision"] = "booting"
+ready_after = scenario.get("api_ready_after_s")
+if ready_after is not None and time.time() - serving[0]["State"].get("StartedEpoch", 0) < ready_after:
+    answer["revision"] = "booting"
+answer.update(scenario.get("answers", {}).get(revision, {}))
+if scenario.get("docker_down_after_health") and answer == {"status": "ok", "revision": revision}:
     # The daemon goes away once the API has answered with its revision.
     state["docker_down_until"] = 1e18
     save(state)
-print(json.dumps({"status": "ok", "revision": revision}))
+print(json.dumps(answer))
 '''
 
 
@@ -502,9 +548,10 @@ class StackUpAcceptanceTest(unittest.TestCase):
         # A traceback carries the script's own path (the install path under the home directory).
         self.assertNotIn("Traceback", output)
 
-    def run_script(self, argv: list[str], *, cwd: Path = ROOT, **extra: str | None) -> subprocess.CompletedProcess:
+    def run_script(self, argv: list[str], *, cwd: Path = ROOT, timeout: float = 60,
+                   **extra: str | None) -> subprocess.CompletedProcess:
         result = subprocess.run(argv, cwd=cwd, env=self.env(**extra), capture_output=True, text=True,
-                                timeout=60)
+                                timeout=timeout)
         self.check_output(result.stdout + result.stderr)
         return result
 
@@ -515,6 +562,15 @@ class StackUpAcceptanceTest(unittest.TestCase):
         started_at = time.monotonic()
         result = self.invoke(*args, **extra)
         return result, time.monotonic() - started_at
+
+    def run_on_virtual_clock(self, *args: str, **extra: str | None) -> tuple[subprocess.CompletedProcess, list[float]]:
+        """Run the script's `__main__` with the VIRTUAL_CLOCK runner; return the result and the
+        duration of every sleep it made."""
+        record = self.tmp / "virtual-clock.json"
+        record.unlink(missing_ok=True)
+        result = self.run_script([sys.executable, "-c", VIRTUAL_CLOCK, str(SCRIPT), str(record), *args],
+                                 timeout=180, **extra)
+        return result, json.loads(record.read_text())["sleeps"]
 
     def spawn(self, argv: list[str], **extra: str | None) -> subprocess.Popen:
         proc = subprocess.Popen(argv, cwd=ROOT, env=self.env(**extra), stdout=subprocess.PIPE,
@@ -665,8 +721,11 @@ class StackUpAcceptanceTest(unittest.TestCase):
         fixture["containers"] += [database(running=True, name=DB + "-restore-test", serial=901),
                                   database(running=False, name="old-" + DB, serial=902)]
         self.write_state(fixture)
-        result = self.invoke("up", AICADDIE_DB_READY_TIMEOUT_SECONDS="1")
+        # Nothing creates the database, so missing is final: `up` does not wait out the database
+        # timeout (600 s here) for it.
+        result, elapsed = self.timed("up")
         self.assert_up_failed(result, "database")
+        self.assertLess(elapsed, WAIT_SLACK)
         self.assert_names_database(self.result_line(result.stdout))
         self.assertEqual(self.started(), [])
         self.assert_nothing_mutated_but_starts()
@@ -674,8 +733,9 @@ class StackUpAcceptanceTest(unittest.TestCase):
 
         # AICADDIE_DB_CONTAINER picks the name: the default-named one does not stand in for it.
         self.write_state(boot_fixture(db=database(running=True)), db_name=DRILL_DB)
-        result = self.invoke("up", AICADDIE_DB_CONTAINER=DRILL_DB, AICADDIE_DB_READY_TIMEOUT_SECONDS="1")
+        result, elapsed = self.timed("up", AICADDIE_DB_CONTAINER=DRILL_DB)
         self.assert_up_failed(result, "database")
+        self.assertLess(elapsed, WAIT_SLACK)
         self.assert_names_database(self.result_line(result.stdout), DRILL_DB)
         self.assertEqual(self.started(), [])
         self.assert_nothing_mutated_but_starts()
@@ -736,10 +796,16 @@ class StackUpAcceptanceTest(unittest.TestCase):
 
     def test_up_api_not_reporting_its_revision_exits_1(self) -> None:
         # G1
-        for api_running in (False, True):
-            with self.subTest(api_running=api_running):
-                self.write_state(boot_fixture(db=database(running=True), api_running=api_running),
-                                 unhealthy=[LIVE])
+        # Healthy means `status` is `ok` and `revision` is the selected container's own revision.
+        cases = (
+            ("exited, still booting", False, {"unhealthy": [LIVE]}),
+            ("running, still booting", True, {"unhealthy": [LIVE]}),
+            ("exited, reports another release's revision", False, {"answers": {LIVE: {"revision": OLD}}}),
+            ("running, status is not ok", True, {"answers": {LIVE: {"status": "degraded"}}}),
+        )
+        for label, api_running, scenario in cases:
+            with self.subTest(label):
+                self.write_state(boot_fixture(db=database(running=True), api_running=api_running), **scenario)
                 result, elapsed = self.timed("up", AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS=str(SHORT))
                 self.assert_up_failed(result, "api")
                 self.assert_waited(elapsed, SHORT)
@@ -747,6 +813,17 @@ class StackUpAcceptanceTest(unittest.TestCase):
                 self.assertEqual(self.started(), [] if api_running else [LIVE_NAME])
                 self.assert_nothing_mutated_but_starts()
                 self.assertTrue(self.container(LIVE_NAME)["State"]["Running"])
+
+    def test_up_keeps_polling_until_the_api_reports_its_revision(self) -> None:
+        # G1
+        # The started API answers `booting` for LATE seconds before it reports its revision.
+        self.write_state(boot_fixture(db=database(running=True)), api_ready_after_s=LATE)
+        result, elapsed = self.timed("up", AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS="60")
+        self.assert_up_ok(result, LIVE_NAME, LIVE)
+        self.assertGreaterEqual(elapsed, LATE)
+        self.assertGreaterEqual(len(self.state()["curl"]), 2)
+        self.assertEqual(self.started(), [LIVE_NAME])
+        self.assert_nothing_mutated_but_starts()
 
     def test_up_without_any_release_container_exits_1_after_database(self) -> None:
         # G1
@@ -790,9 +867,10 @@ class StackUpAcceptanceTest(unittest.TestCase):
         self.assert_nothing_mutated_but_starts()
         self.assert_local_health_checked()
 
-    def test_up_refuses_a_foreign_container_on_the_api_port(self) -> None:
+    def test_up_refuses_an_ambiguous_api_port(self) -> None:
         # G1
-        # The part is the phase (API selection), whatever words the reason contains.
+        # A foreign container on the port. The part is the phase (API selection), whatever words
+        # the reason contains.
         fixture = boot_fixture()
         fixture["containers"].append(release(40, FOREIGN, None, running=True))
         self.write_state(fixture)
@@ -804,23 +882,54 @@ class StackUpAcceptanceTest(unittest.TestCase):
         self.assertTrue(self.container(FOREIGN)["State"]["Running"])
         self.assert_nothing_mutated_but_starts()
 
+        # Two running release containers on the port: find_current's fail-closed rule applies.
+        fixture = boot_fixture(api_running=True)
+        fixture["containers"].append(release(5, NEW_NAME, NEW, running=True))
+        self.write_state(fixture)
+        result = self.invoke("up")
+        self.assert_up_failed(result, "api")
+        line = self.result_line(result.stdout)
+        self.assertIn(LIVE_NAME, line)
+        self.assertIn(NEW_NAME, line)
+        self.assertEqual(self.started(), [DB])
+        self.assertEqual(self.running_names(), sorted([DB, LIVE_NAME, NEW_NAME]))
+        self.assert_nothing_mutated_but_starts()
+
     def test_up_reports_the_part_it_was_waiting_for_when_interrupted(self) -> None:
         # G1
         # systemd stops a unit with SIGTERM. With the production timeouts (300 s for the daemon,
         # 180 s for the database) `up` is still waiting after 2.5 s; the part is the phase it is in.
         for part, scenario in (("docker", {"docker_down_s": 10**6}), ("database", {"db_never_healthy": True})):
-            self.write_state(boot_fixture(), **scenario)
-            started_at = time.monotonic()
-            proc = self.spawn([sys.executable, str(SCRIPT), "up"], AICADDIE_UP_DOCKER_TIMEOUT_SECONDS=None,
-                              AICADDIE_DB_READY_TIMEOUT_SECONDS=None)
-            while time.monotonic() - started_at < 2.5:
-                self.assertIsNone(proc.poll(), f"up stopped waiting early ({part})")
-                time.sleep(0.1)
-            self.assertEqual(self.started(), [] if part == "docker" else [DB])
+            with self.subTest(part):
+                self.write_state(boot_fixture(), **scenario)
+                started_at = time.monotonic()
+                proc = self.spawn([sys.executable, str(SCRIPT), "up"], AICADDIE_UP_DOCKER_TIMEOUT_SECONDS=None,
+                                  AICADDIE_DB_READY_TIMEOUT_SECONDS=None)
+                while time.monotonic() - started_at < 2.5:
+                    self.assertIsNone(proc.poll(), f"up stopped waiting early ({part})")
+                    time.sleep(0.1)
+                self.assertEqual(self.started(), [] if part == "docker" else [DB])
+                proc.send_signal(signal.SIGTERM)
+                result = self.finish(proc)
+                self.assert_up_failed(result, part)
+                self.assertNotIn(LIVE_NAME, self.started())
+                self.assert_nothing_mutated_but_starts()
+
+        # SIGTERM while `up` waits for the started API's health gives part=api; the API is left
+        # running, neither stopped nor restarted.
+        with self.subTest("api"):
+            self.write_state(boot_fixture(), unhealthy=[LIVE])
+            proc = self.spawn([sys.executable, str(SCRIPT), "up"])
+            deadline = time.monotonic() + 30
+            while not (self.started() == [DB, LIVE_NAME] and self.state()["curl"]):
+                self.assertIsNone(proc.poll(), "up ended before it waited for the API's health")
+                self.assertLess(time.monotonic(), deadline, "up never waited for the API's health")
+                time.sleep(0.05)
             proc.send_signal(signal.SIGTERM)
             result = self.finish(proc)
-            self.assert_up_failed(result, part)
-            self.assertNotIn(LIVE_NAME, self.started())
+            self.assert_up_failed(result, "api")
+            self.assertEqual(self.started(), [DB, LIVE_NAME])
+            self.assertTrue(self.container(LIVE_NAME)["State"]["Running"])
             self.assert_nothing_mutated_but_starts()
 
     def test_up_is_done_once_the_api_reports_its_revision(self) -> None:
@@ -832,15 +941,61 @@ class StackUpAcceptanceTest(unittest.TestCase):
         self.assertEqual(self.started(), [DB, LIVE_NAME])
         self.assertEqual(self.state()["docker_refused"], 0, "a docker call followed the health check")
 
+    def test_up_failures_in_the_database_phase_report_part_database(self) -> None:
+        # G1 G4
+        # Once the daemon has answered, the phase is `database` until the database is healthy:
+        # Docker errors and unexpected exceptions there give part=database, without a traceback.
+        cases = {
+            "daemon gone after its first answer": {"docker_gone_after_first_answer": True},
+            "unreadable inspect output": {"garble_inspect": True},
+        }
+        for label, scenario in cases.items():
+            with self.subTest(label):
+                self.write_state(boot_fixture(), **scenario)
+                result, elapsed = self.timed("up", AICADDIE_DB_READY_TIMEOUT_SECONDS=str(SHORT))
+                self.assert_up_failed(result, "database")
+                self.assert_waited(elapsed, SHORT, at_least=False)
+                self.assertEqual(self.started(), [])
+                self.assert_nothing_mutated_but_starts()
+
+    def test_up_waits_last_their_production_default_timeouts(self) -> None:
+        # G1
+        # The three timeouts are left at their production defaults (300, 180 and 180 s) on a
+        # virtual clock. Each failing wait sleeps the poll interval between attempts and lasts at
+        # least its default, at most one poll interval longer.
+        cases = (
+            ("docker", 300, boot_fixture(), {"docker_down_s": 10**6}),
+            ("database", 180, boot_fixture(db=database(running=True, health="starting")),
+             {"db_never_healthy": True}),
+            ("api", 180, boot_fixture(db=database(running=True), api_running=True), {"unhealthy": [LIVE]}),
+        )
+        for part, default, fixture, scenario in cases:
+            with self.subTest(part):
+                self.write_state(fixture, **scenario)
+                result, sleeps = self.run_on_virtual_clock(
+                    "up", AICADDIE_DEPLOY_POLL_SECONDS=str(VIRTUAL_POLL), AICADDIE_UP_DOCKER_TIMEOUT_SECONDS=None,
+                    AICADDIE_DB_READY_TIMEOUT_SECONDS=None, AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS=None)
+                self.assert_up_failed(result, part)
+                self.assertTrue(sleeps, "up never slept between attempts")
+                self.assertGreaterEqual(sum(sleeps), default)
+                self.assertLessEqual(sum(sleeps), default + VIRTUAL_POLL)
+                self.assertEqual(sleeps[:-1], [VIRTUAL_POLL] * (len(sleeps) - 1),
+                                 "a wait did not poll at AICADDIE_DEPLOY_POLL_SECONDS")
+                self.assertLessEqual(sleeps[-1], VIRTUAL_POLL)
+                self.assertEqual(self.started(), [])
+                self.assert_nothing_mutated_but_starts()
+
     def test_up_usage_and_configuration_errors_exit_2_without_docker(self) -> None:
         # G1
         result = self.invoke("up", NEW)
         self.assertEqual(result.returncode, 2)
         self.assertIn("usage: agenthub_deploy.py {deploy|rollback} <40-lowercase-hex-sha> | up", result.stderr)
+        # A name starting with `-` would be read by docker as an option.
         for name, value in (("AICADDIE_UP_DOCKER_TIMEOUT_SECONDS", "soon"),
                             ("AICADDIE_DB_READY_TIMEOUT_SECONDS", "-1"),
-                            ("AICADDIE_DB_CONTAINER", "not a/name")):
-            with self.subTest(name):
+                            ("AICADDIE_DB_CONTAINER", "not a/name"),
+                            ("AICADDIE_DB_CONTAINER", "-db")):
+            with self.subTest(f"{name}={value}"):
                 result = self.invoke("up", **{name: value})
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
                 self.assertIn(name, result.stderr)
@@ -848,17 +1003,21 @@ class StackUpAcceptanceTest(unittest.TestCase):
 
     # -- G2: deploy / rollback require a healthy database -------------------
 
-    def deploy_fixture(self, dbs: list[dict], *, live: str = OLD) -> dict:
-        name = OLD_NAME if live == OLD else NEW_NAME
-        containers = [release(1, name, live, running=True)]
-        if live != OLD:
-            containers.append(release(4, OLD_NAME, OLD, running=False, finished="2026-10-14T09:00:00.5Z"))
+    def deploy_fixture(self, dbs: list[dict], *, live: str | None = OLD) -> dict:
+        """`live` serves; OLD is also kept as a stopped release when it does not serve. With
+        `live=None` nothing serves."""
+        if live == OLD:
+            containers = [release(1, OLD_NAME, OLD, running=True)]
+        else:
+            containers = [release(4, OLD_NAME, OLD, running=False, finished="2026-10-14T09:00:00.5Z")]
+            if live == NEW:
+                containers.insert(0, release(1, NEW_NAME, NEW, running=True))
         containers.extend(dbs)
         return {"containers": containers,
                 "images": [image(1, [f"garmin-ai-caddie-api:{OLD}"], OLD), image(11, [f"aicaddie-sync:{OLD}"], OLD),
                            image(5, [f"garmin-ai-caddie-api:{NEW}"], NEW), image(15, [f"aicaddie-sync:{NEW}"], NEW)]}
 
-    def assert_untouched_refusal(self, result: subprocess.CompletedProcess, running: str) -> None:
+    def assert_untouched_refusal(self, result: subprocess.CompletedProcess, running: str | None) -> None:
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         line = self.result_line(result.stdout)
         self.assertIn("previous_untouched=true", line)
@@ -866,34 +1025,59 @@ class StackUpAcceptanceTest(unittest.TestCase):
         for forbidden in ("stop", "start", "run", "rm", "create"):
             self.assertNotIn(forbidden, self.commands())
         self.assertEqual(self.started(), [])
-        self.assertIn(running, self.running_names())
+        self.assertEqual([name for name in self.running_names() if name.startswith(PREFIX)],
+                         [running] if running else [])
 
     def test_deploy_refuses_without_a_healthy_database(self) -> None:
         # G2
         decoy = database(running=True, health="healthy", name=DB + "-restore-test", serial=901)
+        bootstrap = self.tmp / "canary-bootstrap.env"
+        bootstrap.write_text("AI_CADDIE_DATA_MODE=fixture\n")
         cases = {
-            "database stopped (stale healthy)": ([database(running=False, health="healthy")], OLD),
-            "database running unhealthy": ([database(running=True, health="unhealthy")], OLD),
-            "database still starting": ([database(running=True, health="starting")], OLD),
-            "database missing": ([], OLD),
-            "database missing, similarly named container healthy": ([decoy], OLD),
-            "already-live revision, database stopped": ([database(running=False, health="healthy")], NEW),
+            "database stopped (stale healthy)": ([database(running=False, health="healthy")], OLD, {}),
+            "database running unhealthy": ([database(running=True, health="unhealthy")], OLD, {}),
+            "database still starting": ([database(running=True, health="starting")], OLD, {}),
+            "database running without healthcheck": ([database(running=True, health=None)], OLD, {}),
+            "database missing": ([], OLD, {}),
+            "database missing, similarly named container healthy": ([decoy], OLD, {}),
+            "already-live revision, database stopped": ([database(running=False, health="healthy")], NEW, {}),
+            "bootstrap (nothing serving), database stopped": (
+                [database(running=False, health="healthy")], None,
+                {"AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE": str(bootstrap)}),
         }
-        for label, (dbs, live) in cases.items():
+        for label, (dbs, live, extra) in cases.items():
             with self.subTest(label):
                 self.write_state(self.deploy_fixture(dbs, live=live), db_never_healthy=True)
-                result = self.invoke("deploy", NEW, AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3")
-                self.assert_untouched_refusal(result, OLD_NAME if live == OLD else NEW_NAME)
+                result = self.invoke("deploy", NEW, AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3", **extra)
+                self.assert_untouched_refusal(result, {OLD: OLD_NAME, NEW: NEW_NAME}.get(live))
+
+        # With a healthy database the same deploy passes both checks and begins the switch: it
+        # stops the current container. The fake docker cannot create containers, so `docker run`
+        # fails and the previous container is restored.
+        self.write_state(self.deploy_fixture([database(running=True)]))
+        result = self.invoke("deploy", NEW, AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        line = self.result_line(result.stdout)
+        self.assertIn("previous_restored=true", line)
+        self.assertNotIn("previous_untouched", line)
+        self.assertIn("stop", self.commands())
+        self.assertEqual(self.started(), [OLD_NAME])
+        self.assertEqual(self.running_names(), sorted([DB, OLD_NAME]))
 
     def test_rollback_refuses_until_the_database_is_healthy(self) -> None:
         # G2
-        for db in (database(running=False, health="healthy"), database(running=True, health="unhealthy")):
-            with self.subTest(running=db["State"]["Running"]):
-                self.write_state(self.deploy_fixture([db], live=NEW), db_never_healthy=True)
+        cases = (
+            ("database stopped", database(running=False, health="healthy"), NEW),
+            ("database running unhealthy", database(running=True, health="unhealthy"), NEW),
+            ("nothing serving, database stopped", database(running=False, health="healthy"), None),
+        )
+        for label, db, live in cases:
+            with self.subTest(label):
+                self.write_state(self.deploy_fixture([db], live=live), db_never_healthy=True)
                 result = self.invoke("rollback", OLD, AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3")
-                self.assert_untouched_refusal(result, NEW_NAME)
-        # Same state once the database reports healthy: the rollback proceeds as before.
-        self.update_db(Running=True, Status="running", health="healthy")
+                self.assert_untouched_refusal(result, NEW_NAME if live else None)
+        # The same rollback with a healthy database proceeds as before.
+        self.write_state(self.deploy_fixture([database(running=True)], live=NEW))
         result = self.invoke("rollback", OLD, AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3",
                              AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS="5")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -917,27 +1101,37 @@ class StackUpAcceptanceTest(unittest.TestCase):
 
     def test_deploy_and_rollback_recheck_the_database_under_the_sync_lock(self) -> None:
         # G2
-        # A sync holds the lock (here: the test) while the database goes down. The check that
-        # decides runs under the lock, so the switch is refused and nothing is touched.
+        # A sync holds the lock (here: the test) while the database stops or turns unhealthy. The
+        # check that decides runs under the lock, before the switch, before the already-live
+        # verification (whose failure handling can stop containers) and before the rollback's
+        # `docker stop`, so the run is refused and nothing is touched.
+        stops = {"Running": False, "Status": "exited"}
+        unhealthy = {"health": "unhealthy"}
         cases = (
-            (["deploy", NEW], OLD, OLD_NAME, f"aicaddie-sync:{NEW}"),
-            (["rollback", OLD], NEW, NEW_NAME, f"aicaddie-sync:{OLD}"),
+            ("deploy switch, database stops", ["deploy", NEW], OLD, OLD_NAME, f"aicaddie-sync:{NEW}", stops),
+            ("deploy switch, database turns unhealthy", ["deploy", NEW], OLD, OLD_NAME, f"aicaddie-sync:{NEW}",
+             unhealthy),
+            ("deploy already live, database stops", ["deploy", NEW], NEW, NEW_NAME, f"aicaddie-sync:{NEW}", stops),
+            ("rollback, database stops", ["rollback", OLD], NEW, NEW_NAME, f"aicaddie-sync:{OLD}", stops),
+            ("rollback, database turns unhealthy", ["rollback", OLD], NEW, NEW_NAME, f"aicaddie-sync:{OLD}",
+             unhealthy),
         )
-        for args, live, running, marker in cases:
-            self.write_state(self.deploy_fixture([database(running=True)], live=live), db_never_healthy=True)
-            with open(self.lock, "a") as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
-                try:
-                    proc = self.spawn([sys.executable, str(SCRIPT), *args],
-                                      AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3",
-                                      AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS="60",
-                                      AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS="5")
-                    self.wait_for_lock_wait(proc, marker)
-                    self.update_db(Running=False, Status="exited")
-                finally:
-                    fcntl.flock(lock, fcntl.LOCK_UN)
-            result = self.finish(proc, timeout=60)
-            self.assert_untouched_refusal(result, running)
+        for label, args, live, running, marker, change in cases:
+            with self.subTest(label):
+                self.write_state(self.deploy_fixture([database(running=True)], live=live), db_never_healthy=True)
+                with open(self.lock, "a") as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                    try:
+                        proc = self.spawn([sys.executable, str(SCRIPT), *args],
+                                          AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3",
+                                          AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS="60",
+                                          AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS="5")
+                        self.wait_for_lock_wait(proc, marker)
+                        self.update_db(**change)
+                    finally:
+                        fcntl.flock(lock, fcntl.LOCK_UN)
+                result = self.finish(proc, timeout=60)
+                self.assert_untouched_refusal(result, running)
 
     # -- G3: systemd unit and runbook ---------------------------------------
 
@@ -1003,12 +1197,20 @@ class StackUpAcceptanceTest(unittest.TestCase):
         section = markdown_section(text, "Boot recovery")
         self.assertIsNotNone(section, "no '## Boot recovery' section in the runbook")
         for needle in ("ops/systemd/aicaddie-stack-up.service", "agenthub_deploy.py up",
-                       ".local/lib/aicaddie/agenthub_deploy.py", "systemctl --user", "loginctl enable-linger",
+                       ".local/lib/aicaddie/agenthub_deploy.py", ".config/systemd/user",
+                       "systemctl --user enable", "loginctl enable-linger",
                        "journalctl --user -u aicaddie-stack-up"):
             self.assertIn(needle, section)
-        for variable in ("AICADDIE_DB_CONTAINER", "AICADDIE_DB_READY_TIMEOUT_SECONDS",
-                         "AICADDIE_UP_DOCKER_TIMEOUT_SECONDS"):
-            self.assertIn(variable, text)
+        # Each new variable has a table row with its production default.
+        for variable, default in (("AICADDIE_DB_CONTAINER", "garmin-ai-caddie-db-1"),
+                                  ("AICADDIE_DB_READY_TIMEOUT_SECONDS", "180"),
+                                  ("AICADDIE_UP_DOCKER_TIMEOUT_SECONDS", "300")):
+            self.assertRegex(text, rf"(?m)^\| `{variable}` \|[^\n]*\| `{re.escape(default)}` \|[ \t]*$")
+        # The deploy contract states the database requirement of deploy and rollback.
+        contract = markdown_section(text, "Contract")
+        self.assertIsNotNone(contract, "no 'Contract' section in the runbook")
+        self.assertIn("AICADDIE_DB_CONTAINER", contract)
+        self.assertIn("healthy", contract)
         # The sandbox drill points the database check at a disposable container with a healthcheck.
         drill = markdown_section(text, "Sandbox drill")
         self.assertIsNotNone(drill, "no 'Sandbox drill' section in the runbook")
