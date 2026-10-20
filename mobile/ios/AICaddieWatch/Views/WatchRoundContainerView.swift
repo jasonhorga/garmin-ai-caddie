@@ -1155,15 +1155,20 @@ public struct WatchRoundContainerView: View {
         if holePage == 0 {
             rootControlRail
             planTagTapTarget
+                .accessibilityHidden(true)
         }
+    }
+
+    func showsPlanTagTapTarget() -> Bool {
+        guard let geometry = holeGeometry, let s = model.activeHoleState else { return false }
+        return centerYd(s) != nil && showsRootRecommendation(s, geometry: geometry)
     }
 
     /// Take the club tag's tap above the vertical pager, like the menu and manual shot controls.
     /// Its visibility follows the recommendation layer, including a single available plan.
     @ViewBuilder
     private var planTagTapTarget: some View {
-        if let geometry = holeGeometry, let s = model.activeHoleState, centerYd(s) != nil,
-           showsRootRecommendation(s, geometry: geometry) {
+        if showsPlanTagTapTarget() {
             GeometryReader { proxy in
                 let frame = WatchHoleMapView.rootCaddieChipFrame(in: proxy.size)
                 Color.clear
@@ -1171,7 +1176,6 @@ public struct WatchRoundContainerView: View {
                     .frame(width: frame.width, height: frame.height)
                     .position(x: frame.midX, y: frame.midY)
                     .onTapGesture { model.openCaddie() }
-                    .accessibilityHidden(true)
             }
         }
     }
