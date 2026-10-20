@@ -32,7 +32,7 @@ other additions are:
 change there.
 
 Acceptance tests: `tests/acceptance/test_card_434_watch_root_one_aim_line.py`
-(11 tests; 4 of them are `# pinned`). Three pinned tests check behaviour that
+(12 tests; 4 of them are `# pinned`). Three pinned tests check behaviour that
 must stay as it is. The fourth is a self-check of the Swift declaration parser
 the other tests use.
 
@@ -129,6 +129,50 @@ Swift change is expected from this revision.
 
    `selectedPlanId` is gone from the container.
 
+## Revision 4 (after the adversarial gate on 4f38424)
+
+The adversarial gate failed again, on head `4f38424`. Its report was not
+available to this contract job either. Since card #440 / #445, that gate also
+judges Swift mutants with the real native tests (`agenthub-native-mutant.yml`):
+a mutant counts as caught only when a native test fails. On `4f38424` the only
+native test of the D02 rule is the rule's truth table. Every Swift mutant that
+bypasses the rule therefore passes `native-mobile`, whatever the Python checks
+say:
+- `drawsFullPlan` without `Self.drawsRouteAndPlan(fullMap: fullMap) &&`;
+- `} else if Self.drawsRouteAndPlan(fullMap: fullMap) {` back to `} else {`
+  (the route over the topo image on the root);
+- the continuation gate dropped from `drawCurrentShot`;
+- `showsRootRecommendation` widened (`|| !currentCaddieOptions(s).isEmpty`,
+  `&&` for `||`, the prepared branch dropped, `true`);
+- the root's `showCaddieRecommendation:` replaced by `true`.
+
+The snapshots are rendered but not compared, so none of these changes fails a
+native test. Revision 4 asks for three native tests that observe the rules, and
+the acceptance module checks that they exist (new test
+`test_native_tests_observe_the_root_rules`, so now 12 tests, still 4 pinned).
+The goals and every earlier condition are unchanged, apart from two points:
+- `showsRootRecommendation` is now **internal** (not `private` or
+  `fileprivate`), so that `@testable import AICaddieWatch` can call it;
+- G1.6 gains one exception: the pixel-invariance test may give the resting root
+  `planLegs`, because that is how it shows that they are not drawn.
+
+**Swift change expected from Codex:** drop `private` from
+`showsRootRecommendation`, then add the three native tests under G6 items 15–17.
+Nothing else changes. If a native test fails on the current Swift code, the
+code breaks D02. Fix the code, not the test.
+
+**Known survivors (the native tests cannot see them; the Python checks do):**
+- `onOpenCaddie:` on the root changed to another closure. The tap target above
+  the pager takes the tap first, so the chip's own closure never runs in the
+  UI journey.
+- `planTagTapTarget` shown under a wider condition. The target is clear and
+  hidden from accessibility, so it can't be seen and a UI test can't find it.
+- `planLegs:` passed to the root again while the rule holds. Nothing is drawn,
+  so no pixel changes.
+
+If the gate names a survivor that is not on this list, I will pin it or record
+it here as equivalent.
+
 ## How this is tested
 
 The Watch app runs only on macOS. These acceptance tests run on Linux in the
@@ -195,11 +239,12 @@ So the interface below is named exactly. Keep these names.
 
 ### `WatchRoundContainerView.swift`
 
-5. Add a new private helper:
+5. Add a new helper. It is internal (revision 4: no `private` or `fileprivate`)
+   so that the native truth-table test can call it:
 
    ```swift
    /// D02: the root recommendation layer (club tag + one aim line) is real and allowed.
-   private func showsRootRecommendation(_ s: WatchRoundState, geometry: WatchHoleMapGeometry) -> Bool
+   func showsRootRecommendation(_ s: WatchRoundState, geometry: WatchHoleMapGeometry) -> Bool
    ```
 
    - It returns true only when either:
@@ -315,12 +360,14 @@ workflow is not on the Touches line. It now shows the root without a club tag
    - and the container contains no `WatchPlanLegs.resolve(`.
 6. No `WatchHoleMapView(` call in the tracked Watch app, unit test or UI test
    sources passes `planLegs:` without `fullMap: true`. This covers production,
-   the UI-test root and the snapshot tests. This test also covers G6.
+   the UI-test root and the snapshot tests. This test also covers G6. The one
+   exception (revision 4) is a call inside the body of the unit test
+   `testHoleRootPixelsIgnoreTheRouteThePlanAndTheContinuation` (G6 item 15).
 
 ### G2 — The recommendation layer appears only when it is real and allowed, with real dispersion only
 
 7. `showsRootRecommendation(_:geometry:)`:
-   - exists in the container;
+   - exists in the container, and is not `private` or `fileprivate`;
    - is `currentShotLayout(for: s, geometry: geometry) != nil || (model.preparedRootCaddieLayerAvailable(at: shotLocation) && preparedRootGeometry(for: s, base: geometry) != nil)`
      (exactly one `||`, at least one `&&`);
    - never reads plan legs, `caddieOption(s)`, `caddieOptions`, `.plan`,
@@ -438,6 +485,67 @@ workflow is not on the Touches line. It now shows the root without a club tag
         identifier is not queryable, fix that in the view, for example with
         `.accessibilityElement(children: .contain)`.
 
+    Revision 4 adds three native unit tests under `mobile/ios/AICaddieWatchTests/`
+    (any file, exactly one function of each name). They must observe the D02
+    rules, so that a Swift mutant that bypasses a gate fails a native test.
+    Build each view and state inside the test body; a local closure or nested
+    function inside the body is fine. None of them may use `XCTSkip…` or
+    `XCTExpectFailure`. Mark them `@MainActor` where `ImageRenderer` needs it.
+    The acceptance module checks the tokens named below.
+
+15. **`func testHoleRootPixelsIgnoreTheRouteThePlanAndTheContinuation`** (G1).
+    Render with `ImageRenderer` (the same file uses `ImageRenderer(`) and
+    compare raw pixels, for example the RGBA bytes of `cgImage` at a fixed size,
+    scale and dark colour scheme.
+    - **Base.** A resting root on the sample topo image: `WatchHoleMapView(` with
+      `fullMap: false`, `interactionMode: .measure`, `showCaddieRecommendation: true`,
+      and a `currentShotLayout` with real p10/p90 and no continuation. Its
+      geometry has `routePx: []`. There is no measurement.
+    - **The same pixels (`XCTAssertEqual`)** when, one at a time, the root also
+      gets:
+      - (a) a geometry with the sample route as `routePx:`;
+      - (b) non-empty `planLegs:` (for example from `WatchPlanLegs.resolve`);
+      - (c) a `currentShotLayout` resolved with a non-empty `continuation:`.
+    - **Positive control (`XCTAssertNotEqual`).** Each of (a), (b) and (c)
+      changes the pixels of the same view with `fullMap: true`, compared with
+      that full map's own base. This shows the comparison can see each layer.
+      If `drawFactualRoute` is deleted (allowed by item 3), drop the (a) control
+      only.
+    - The body contains `WatchHoleMapView(`, `planLegs:`, `continuation:`,
+      `routePx:`, `fullMap: false`, `fullMap: true`, `XCTAssertEqual(` and
+      `XCTAssertNotEqual(`. It does not mention `drawsRouteAndPlan`.
+16. **`func testRootRecommendationNeedsALiveOrPreparedTeeGateNotAPlan`** (G2).
+    Build `WatchRoundContainerView(` values over seeded models, as
+    `testRenderWatchContainerRootAimLine` does. The prepared fixture in
+    `WatchRoundModelTests` (around `preparedRootCaddieLayerAvailable`) shows a
+    prepared Tee state. Then call `showsRootRecommendation(state, geometry:)`
+    directly:
+    - `XCTAssertTrue`: a live `rootCaddieRecommendation` that passes the gate,
+      with a matching qualified fix;
+    - `XCTAssertTrue`: a prepared Tee plan, no live recommendation, and a
+      qualified fix on the tee;
+    - `XCTAssertFalse`: a multi-shot plan (at least two
+      `WatchCaddiePlanStep(`) with no live recommendation and the fix off the
+      tee;
+    - `XCTAssertFalse`: the same prepared plan with the fix off the tee.
+
+    The checker counts the `XCTAssertTrue(` and `XCTAssertFalse(` calls whose
+    arguments contain `showsRootRecommendation(`, and needs at least two of
+    each.
+17. **`func testContainerRootWithoutAGateDrawsNoPlanAndNoClubTag`** (G2, G3).
+    Render the real container root (`WatchRoundContainerView(` …
+    `.snapshottingHoleRoot()`) with `ImageRenderer`, on the sample topo image
+    and with a qualified fix off the tee:
+    - `XCTAssertEqual`: a state with a multi-shot plan (at least two
+      `WatchCaddiePlanStep(`) and no live recommendation renders the same pixels
+      as the same state with `caddieOptions: []`;
+    - `XCTAssertNotEqual`: the same state with a live `rootCaddieRecommendation`
+      that passes the gate renders differently: the club tag and one aim line
+      appear;
+    - no `openHoleMap()` or `openCaddie()` call.
+
+    Use a fresh `WatchRoundModel` (its own store directory) for each state.
+
 - `native-mobile` is green on the PR head.
 - The reviewer opens `watch-snapshots` and checks these against the S70
   evidence document:
@@ -459,9 +567,14 @@ workflow is not on the Touches line. It now shows the root without a club tag
 
 ## Expected results
 
-All 7 non-pinned tests fail on `main`, because the rule, the helper and the
+All 8 non-pinned tests fail on `main`, because the rule, the helper and the
 native tests don't exist there and the root still passes `planLegs`. The 4
 pinned tests pass on `main` and after the change.
+
+On `4f38424`, `test_native_tests_observe_the_root_rules` and
+`test_root_recommendation_shows_only_when_real_and_allowed` (the helper is still
+`private`) fail until Codex finishes the revision-4 work. The other ten tests
+pass there, by hand tracing.
 
 The sandbox again refused to run Python, so these results come from tracing
 the code by hand:
