@@ -32,7 +32,7 @@ other additions are:
 change there.
 
 Acceptance tests: `tests/acceptance/test_card_434_watch_root_one_aim_line.py`
-(12 tests; 4 of them are `# pinned`). Three pinned tests check behaviour that
+(13 tests; 4 of them are `# pinned`). Three pinned tests check behaviour that
 must stay as it is. The fourth is a self-check of the Swift declaration parser
 the other tests use.
 
@@ -161,7 +161,7 @@ The goals and every earlier condition are unchanged, apart from two points:
 Nothing else changes. If a native test fails on the current Swift code, the
 code breaks D02. Fix the code, not the test.
 
-**Known survivors (the native tests cannot see them; the Python checks do):**
+**Known survivors at revision 4 (revision 5 closes all three):**
 - `onOpenCaddie:` on the root changed to another closure. The tap target above
   the pager takes the tap first, so the chip's own closure never runs in the
   UI journey.
@@ -172,6 +172,74 @@ code breaks D02. Fix the code, not the test.
 
 If the gate names a survivor that is not on this list, I will pin it or record
 it here as equivalent.
+
+## Revision 5 (after the adversarial gate on f23a3d9)
+
+The adversarial gate failed again, on head `f23a3d9`. Its report was not
+available to this contract job either. Codex's tests on `f23a3d9` catch the
+`onOpenCaddie` survivor, but reading the native tests against the contract
+still finds Swift mutants that every native test lets through:
+- **The root built with `fullMap: true`.** The container pixel test compares
+  two roots that would both be full maps, so they still match.
+- **`planLegs:` passed to the root again.** This is a known survivor from
+  revision 4: nothing is drawn, so no pixel changes.
+- **`planTagTapTarget` shown under a wider condition.** Also a known survivor
+  from revision 4: the target is clear.
+- **The root's `interactionMode:` changed.**
+- **The aim line deleted from `drawCurrentShot`.** Every root in the pixel
+  tests loses it, so they all still match.
+- **The p10/p90 depth marks deleted from `drawCurrentShot`,** for the same
+  reason.
+- **The current shot drawn while `showCaddieRecommendation` is false.**
+- **The caddie page's map given `planLegs: []` or `fullMap: false`.**
+
+An adversary that reads this contract finds the revision-4 list of known
+survivors first. So revision 5 makes each of these observable by a native
+test, through three small internal seams, and drops that list. The goals, every
+earlier condition and the pinned behaviour are unchanged. The acceptance module
+gains one test,
+`test_native_tests_observe_the_root_arguments_aim_line_tap_target_and_caddie_map`,
+so it now has 13 tests, still 4 `# pinned`. Two existing tests are adjusted:
+- `test_club_tag_opens_the_caddie_page` now requires the tap-target seam;
+- the pinned `test_caddie_page_keeps_the_multi_shot_plan` accepts the caddie
+  map in either `optionInstrument` or the new `optionMap`.
+
+**Swift change expected from Codex:**
+1. **Tap-target seam** (`WatchRoundContainerView.swift`). Add an internal
+   `func showsPlanTagTapTarget() -> Bool`, true exactly when `holeGeometry` and
+   `model.activeHoleState` exist, `centerYd(s) != nil` and
+   `showsRootRecommendation(s, geometry: geometry)` hold. That is today's
+   condition, moved. `planTagTapTarget` becomes
+   `if showsPlanTagTapTarget() { GeometryReader { … } }`, with no other `if` and
+   no `||`. Its `.onTapGesture { model.openCaddie() }` is unchanged.
+2. **Root map.** `holeMapView(_:_:) -> WatchHoleMapView` stays internal, as it
+   is on `f23a3d9`.
+3. **Caddie-map seam** (`WatchCaddieOptionsView.swift`). Move the map's
+   construction out of `optionInstrument` into an internal
+   `func optionMap(_ option: WatchCaddieOption, size: CGSize) -> WatchHoleMapView?`.
+   It returns `nil` without geometry, and it holds the shot layout, the scale,
+   `let legs = …` and the viewport. It must keep the file's only
+   `WatchHoleMapView(` call, with `planLegs: legs` and `fullMap: true`.
+   `optionInstrument` calls `optionMap(option, size: size)` and keeps
+   `.allowsHitTesting(false)` and the placeholder. Nothing drawn changes. The
+   `tests/test_mobile_contracts.py` substrings (`let legs = mappedGeometry.map …`,
+   `planLegs: legs`, the `points:` line, `fullMapFocusImagePx:`) stay in the file.
+4. **Four native tests** under `mobile/ios/AICaddieWatchTests/`: G6 items 18–21.
+
+If one of them fails on the current Swift code, the code breaks D02. Fix the
+code, not the test.
+
+**What still no native test catches, and why:**
+- **A decorative ellipse drawn the same way in every case.** A pixel test can
+  only compare two renders, and this mutant adds the same shape to both. The
+  Python check pins the `WatchCurrentShotLayout` fields, and the reviewer checks
+  the `watch-hole-root-aim-line` snapshot for any ellipse.
+- **The tap target's `.onTapGesture` closure emptied.** `WatchHolePagesUITests`
+  (`testTappingThePlanTagOpensTheCaddiePage`) catches it: the native mutant
+  workflow runs the Watch UI tests.
+- **The Touch Target distance labels.** `WatchTouchTargetDistanceLayout` has
+  unit tests, and drawing them is pinned behaviour (G4) that this card does not
+  touch.
 
 ## How this is tested
 
@@ -272,8 +340,13 @@ So the interface below is named exactly. Keep these names.
      Update `WatchHolePagesTests` to match.
 7. `planTagTapTarget` (the tap overlay above the pager):
    - it is shown when `showsRootRecommendation(...)` holds, instead of
-     `currentCaddieOptions(s).count > 1`;
+     `currentCaddieOptions(s).count > 1`. Revision 5: that condition lives in
+     the internal `func showsPlanTagTapTarget() -> Bool` (map geometry, active
+     hole state, `centerYd(s) != nil`, `showsRootRecommendation(s, geometry: geometry)`),
+     and `planTagTapTarget`'s only `if` is `if showsPlanTagTapTarget() {`;
    - its tap calls `model.openCaddie()`.
+   - `holeMapView(_:_:)` stays internal and returns `WatchHoleMapView`, so a
+     native test can read the root's arguments.
 8. The root's `currentShotLayout(for:geometry:)` keeps passing no
    `continuation:` (unchanged).
 
@@ -283,7 +356,10 @@ So the interface below is named exactly. Keep these names.
    `showCaddieRecommendation: true` and `planLegs: legs`: the full multi-shot
    plan, landings, labels and leader lines. The Crown still switches 稳妥 / 标准 /
    进攻. This is the page that opens when the player taps the recommended club
-   on the root (for example 3W). It needs no functional change.
+   on the root (for example 3W). It needs no functional change. Revision 5
+   moves the map's construction into the internal
+   `func optionMap(_ option: WatchCaddieOption, size: CGSize) -> WatchHoleMapView?`,
+   which `optionInstrument` calls.
 
 ### Not changed
 
@@ -396,10 +472,12 @@ workflow is not on the Touches line. It now shows the root without a club tag
 
 10. On the root:
     - `onOpenCaddie` is exactly `{ model.openCaddie() }`;
-    - `planTagTapTarget` is gated by
-      `showsRootRecommendation(s, geometry: geometry)`, with no `||`, no
-      `count > 1` and no options lookup. Its only `.onTapGesture` closure is
-      `model.openCaddie()`;
+    - `planTagTapTarget`'s only `if` is `if showsPlanTagTapTarget() {`, with no
+      `||` and no `true`. `showsPlanTagTapTarget()` is internal. It calls
+      `showsRootRecommendation(s, geometry: geometry)` and reads `holeGeometry`,
+      `model.activeHoleState` and `centerYd(s) != nil`. It has no `||`, no
+      `true`, no prefix `!`, no `.count` and no options lookup.
+      `planTagTapTarget`'s only `.onTapGesture` closure is `model.openCaddie()`;
     - `cyclePlan` and `selectedPlanId` no longer exist in the container.
 11. Pinned:
     - the caddie page's `WatchHoleMapView(` call passes `planLegs: legs`,
@@ -546,6 +624,84 @@ workflow is not on the Touches line. It now shows the root without a club tag
 
     Use a fresh `WatchRoundModel` (its own store directory) for each state.
 
+    Revision 5 adds four more native unit tests under
+    `mobile/ios/AICaddieWatchTests/`, with the same rules as items 15–17: any
+    file, exactly one function of each name, no `XCTSkip…` or `XCTExpectFailure`,
+    and `@MainActor` where needed. Write each case out, with no loop over cases,
+    because the checker counts assertions. The seams they use:
+    - `WatchRoundContainerView.holeMapView(_:_:) -> WatchHoleMapView`;
+    - `WatchRoundContainerView.showsPlanTagTapTarget() -> Bool`;
+    - `WatchCaddieOptionsView.optionMap(_:size:) -> WatchHoleMapView?`.
+
+    `optionMap` must hold the caddie view's only `WatchHoleMapView(` call, with
+    `planLegs: legs` and `fullMap: true`, and `optionInstrument` must call
+    `optionMap(option, size: size)`. All three seams are internal.
+
+18. **`func testHoleRootDrawsTheAimLineAndRealDispersionOnlyWhenShown`** (G1, G2).
+    Use `ImageRenderer` pixels of resting roots: `WatchHoleMapView(` with
+    `fullMap: false`, `interactionMode: .measure`, the sample topo image and no
+    measurement. Never use `fullMap: true`, and do not mention
+    `drawsRouteAndPlan`. Let `A` be a layout from `WatchCurrentShotLayout.resolve(`
+    with real p10/p90. Build two more member by member, with
+    `WatchCurrentShotLayout(` written out at least twice:
+    - **no aim line:** `player: A.target`, with A's target, p10 and p90;
+    - **no spread:** A's player and target, with `carryP10: A.target` and
+      `carryP90: A.target`.
+
+    Assertions:
+    - `XCTAssertNotEqual`: the root with `A` (`showCaddieRecommendation: true`)
+      against the root with the no-aim layout. The root draws the aim line;
+    - `XCTAssertNotEqual`: the root with `A` against the root with the no-spread
+      layout. The root draws the real p10/p90;
+    - `XCTAssertNotEqual`: the root with `A` shown against the root with `A` and
+      `showCaddieRecommendation: false`;
+    - `XCTAssertEqual`: the root with `A` and `showCaddieRecommendation: false`
+      against the root with `currentShotLayout: nil` and
+      `showCaddieRecommendation: false`. A hidden layer draws nothing.
+
+    The player marker is drawn from the geometry, not from `layout.player`, so
+    only the aim line differs in the first comparison.
+19. **`func testContainerRootIsARestingMapWithoutThePlan`** (G1, G2, G3). Seed
+    three fresh models, as in item 16, each with a multi-shot plan (at least two
+    `WatchCaddiePlanStep(`):
+    - a live `rootCaddieRecommendation` that passes the gate;
+    - a prepared Tee plan with the fix on the tee;
+    - a plan only, with the fix off the tee.
+
+    For each, call `container.holeMapView(state, geometry)`, so at least three
+    `.holeMapView(` calls are written out, and assert on the returned map:
+    - `XCTAssertFalse(root.fullMap)`;
+    - `XCTAssertTrue(root.planLegs.isEmpty)`;
+    - `XCTAssertEqual(root.interactionMode, .measure)`.
+
+    Then, case by case:
+    - `XCTAssertTrue(….showCaddieRecommendation)` for the live and the prepared
+      cases;
+    - `XCTAssertFalse(….showCaddieRecommendation)` for the plan-only case;
+    - `XCTAssertNotNil(….currentShotLayout)` for the live case, and
+      `XCTAssertNil(….currentShotLayout)` for the plan-only case;
+    - `XCTAssertTrue(….showPreparedPlan)` for the prepared case, and
+      `XCTAssertFalse(….showPreparedPlan)` for the plan-only case.
+
+    Do not call `openHoleMap()` or `openCaddie()`.
+20. **`func testPlanTagTapTargetFollowsTheRootRecommendation`** (G3). Build
+    containers over seeded models, as in item 16, and call
+    `showsPlanTagTapTarget()`:
+    - `XCTAssertTrue` for a live gate and for a prepared Tee gate;
+    - `XCTAssertFalse` for a multi-shot plan alone, off the tee;
+    - `XCTAssertFalse` for the live state in a container built with
+      `holeGeometry: nil`.
+21. **`func testCaddiePageMapDrawsTheWholePlan`** (G3). Build
+    `WatchCaddieOptionsView(` with a multi-shot option (at least two
+    `WatchCaddiePlanStep(`), the sample geometry and its route. Call
+    `.optionMap(option, size:)` at a Watch size and unwrap the result. Then
+    assert:
+    - `XCTAssertTrue(map.fullMap)`;
+    - `XCTAssertTrue(map.showCaddieRecommendation)`;
+    - the number of legs, with `XCTAssertEqual(map.planLegs.count, …)` (the
+      number `planLegs(for:route:geometry:)` gives for that plan) or
+      `XCTAssertGreaterThanOrEqual(map.planLegs.count, 2)`.
+
 - `native-mobile` is green on the PR head.
 - The reviewer opens `watch-snapshots` and checks these against the S70
   evidence document:
@@ -567,14 +723,19 @@ workflow is not on the Touches line. It now shows the root without a club tag
 
 ## Expected results
 
-All 8 non-pinned tests fail on `main`, because the rule, the helper and the
-native tests don't exist there and the root still passes `planLegs`. The 4
-pinned tests pass on `main` and after the change.
+All 9 non-pinned tests fail on `main`, because the rule, the helpers, the
+seams and the native tests don't exist there and the root still passes
+`planLegs`. The 4 pinned tests pass on `main` and after the change.
 
-On `4f38424`, `test_native_tests_observe_the_root_rules` and
-`test_root_recommendation_shows_only_when_real_and_allowed` (the helper is still
-`private`) fail until Codex finishes the revision-4 work. The other ten tests
-pass there, by hand tracing.
+On `f23a3d9`, two tests fail until Codex finishes the revision-5 work:
+- `test_club_tag_opens_the_caddie_page`, because `showsPlanTagTapTarget` is
+  missing;
+- `test_native_tests_observe_the_root_arguments_aim_line_tap_target_and_caddie_map`,
+  because `optionMap` and the four native tests are missing.
+
+By hand tracing, the other eleven tests pass there. The pinned caddie-page test
+passes with the map in `optionInstrument` (`main`, `f23a3d9`) and in
+`optionMap` (after revision 5).
 
 The sandbox again refused to run Python, so these results come from tracing
 the code by hand:
