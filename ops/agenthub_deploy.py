@@ -839,12 +839,28 @@ def up(cfg: Config) -> tuple[str, str, str]:
         api = select_up_api(cfg, containers)
         if api is None:
             raise DeployError("no stopped release container is available for the configured port")
-        if not api.running:
-            log(f"starting {api.name}")
-            docker("start", api.name, label="api start", capture=True, quiet=True, check=False)
-        if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
-            raise DeployError(f"{api.name} did not report revision {api.revision}")
-        return cfg.db_name, api.name, api.revision
+        if api.running:
+            if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
+                raise DeployError(f"{api.name} did not report revision {api.revision}")
+            shield_signals()
+            return cfg.db_name, api.name, api.revision
+
+        with SyncLock(cfg):
+            # A stopped release can become obsolete while waiting for the sync lock.
+            containers = list_containers()
+            api = select_up_api(cfg, containers)
+            if api is None:
+                raise DeployError("no stopped release container is available for the configured port")
+            if not api.running:
+                log(f"starting {api.name}")
+                result = docker("start", api.name, label="api start", capture=True, quiet=True, check=False)
+                if result.returncode != 0:
+                    log(f"warning: docker start {api.name} failed (exit {result.returncode}); "
+                        "waiting for its health anyway")
+            if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
+                raise DeployError(f"{api.name} did not report revision {api.revision}")
+            shield_signals()
+            return cfg.db_name, api.name, api.revision
     except BaseException as exc:
         reason = str(exc) if isinstance(exc, DeployError) else f"unexpected {type(exc).__name__}"
         raise UpFailed(phase, reason) from None
@@ -889,27 +905,17 @@ def main(argv: list[str]) -> int:
     except CutoverFailed as exc:
         code = EXIT_UNRECOVERED if exc.restored is False else EXIT_FAILED
         restored = "none" if exc.restored is None else str(exc.restored).lower()
-        if is_up:
-            log(f"result=failed action=up part=api elapsed_s={time.monotonic() - started:.1f} reason={exc}")
-        else:
-            log(f"result=failed action={action} revision={sha} previous_restored={restored} "
-                f"elapsed_s={time.monotonic() - started:.1f} reason={exc}")
+        log(f"result=failed action={action} revision={sha} previous_restored={restored} "
+            f"elapsed_s={time.monotonic() - started:.1f} reason={exc}")
         return code
     except DeployError as exc:
-        if is_up:
-            log(f"result=failed action=up part=api elapsed_s={time.monotonic() - started:.1f} reason={exc}")
-        else:
-            log(f"result=failed action={action} revision={sha} previous_untouched=true "
-                f"elapsed_s={time.monotonic() - started:.1f} reason={exc}")
+        log(f"result=failed action={action} revision={sha} previous_untouched=true "
+            f"elapsed_s={time.monotonic() - started:.1f} reason={exc}")
         return EXIT_FAILED
     except Exception as exc:  # report the location, not a message that may carry values
         frame = traceback.extract_tb(exc.__traceback__)[-1]
-        if is_up:
-            log(f"result=failed action=up part=api elapsed_s={time.monotonic() - started:.1f} "
-                f"reason=unexpected {type(exc).__name__}")
-        else:
-            log(f"result=failed action={action} revision={sha} previous_untouched=true "
-                f"reason=unexpected {type(exc).__name__} in {frame.name} line {frame.lineno}")
+        log(f"result=failed action={action} revision={sha} previous_untouched=true "
+            f"reason=unexpected {type(exc).__name__} in {frame.name} line {frame.lineno}")
         return EXIT_FAILED
     if is_up:
         log(f"result=ok action=up database={database} container={container} revision="
