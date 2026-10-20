@@ -892,7 +892,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
 
 
 class UpContractRegressionTests(unittest.TestCase):
-    """Card 447 helper and result-line checks without shell tools or endpoint access."""
+    """Recovery helper and result-line checks without shell tools or endpoint access."""
 
     def setUp(self) -> None:
         self.cfg = deploy.Config({"AICADDIE_API_PORT": "39556"})
@@ -959,6 +959,27 @@ class UpContractRegressionTests(unittest.TestCase):
         with self.assertRaises(deploy.DeployError):
             deploy.assert_layout(self.cfg, wrong_network)
         self.assertIs(deploy.select_up_api(self.cfg, [wrong_network, fallback]), fallback)
+
+    def test_empty_listing_under_lock_does_not_start_the_stale_selection(self) -> None:
+        picked = self.container("picked", "2026-10-19T03:00:00Z")
+        with tempfile.TemporaryDirectory() as directory:
+            cfg = deploy.UpConfig({"AICADDIE_API_PORT": "39556",
+                                   "AICADDIE_SYNC_LOCK": str(Path(directory) / "sync.lock")})
+            with (
+                patch.object(deploy, "wait_docker", return_value=True),
+                patch.object(deploy, "wait_up_database"),
+                patch.object(deploy, "list_containers", side_effect=([picked], [])) as listing,
+                patch.object(deploy, "docker") as docker,
+                patch.object(deploy, "wait_health") as health,
+                redirect_stdout(io.StringIO()),
+            ):
+                with self.assertRaises(deploy.UpFailed) as failure:
+                    deploy.up(cfg)
+            self.assertEqual(failure.exception.part, "api")
+            self.assertEqual(failure.exception.container, "none")
+            self.assertEqual(listing.call_count, 2)
+            docker.assert_not_called()
+            health.assert_not_called()
 
     def test_up_failure_result_has_a_nonempty_trailing_reason(self) -> None:
         for part, container in (("docker", "none"), ("database", "fixture-db"), ("api", "fixture-api")):

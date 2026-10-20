@@ -794,22 +794,37 @@ def wait_up_database(cfg: UpConfig) -> None:
         time.sleep(cfg.poll)
 
 
+def assert_up_release(cfg: Config, container: Container) -> None:
+    revision = container.revision
+    if not isinstance(revision, str) or not SHA_PATTERN.fullmatch(revision):
+        raise DeployError(f"{container.name} has an invalid source revision label")
+    assert_layout(cfg, container)
+
+
 def select_up_api(cfg: Config, containers: list[Container]) -> Container | None:
     current = find_current(cfg, containers)
     if current is not None:
-        return current
-    candidates = sorted(
-        (c for c in containers if c.name.startswith(cfg.prefix) and not c.running
-         and c.publishes(cfg.port)),
-        key=lambda c: c.finished_key, reverse=True,
-    )
-    for candidate in candidates:
         try:
-            assert_layout(cfg, candidate)
+            assert_up_release(cfg, current)
+        except DeployError as exc:
+            raise UpFailed("api", current.name, str(exc)) from None
+        return current
+    candidates = []
+    for candidate in containers:
+        if candidate.running or not candidate.name.startswith(cfg.prefix) or not candidate.publishes(cfg.port):
+            continue
+        try:
+            assert_up_release(cfg, candidate)
         except DeployError:
             continue
-        return candidate
-    return None
+        candidates.append(candidate)
+    if not candidates:
+        return None
+    latest = max(candidates, key=lambda c: c.finished_key)
+    tied = sorted(c.name for c in candidates if c.finished_key == latest.finished_key)
+    if len(tied) > 1:
+        raise UpFailed("api", "none", f"multiple latest stopped release candidates: {', '.join(tied)}")
+    return latest
 
 
 def up(cfg: UpConfig) -> Container:
@@ -826,11 +841,20 @@ def up(cfg: UpConfig) -> Container:
         container = api.name
         if not api.running:
             with SyncLock(cfg):
-                log(f"starting {api.name}")
-                docker("start", api.name, label="API start", capture=True, quiet=True)
+                # A deploy can change the release set while recovery waits for this lock.
+                container = "none"
+                api = select_up_api(cfg, list_containers())
+                if api is None:
+                    raise DeployError("no stopped release container matches the configured layout and port")
+                container = api.name
+                if not api.running:
+                    log(f"starting {api.name}")
+                    docker("start", api.name, label="API start", capture=True, quiet=True)
         if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
             raise DeployError(f"{api.name} did not report status=ok for its revision")
         return api
+    except UpFailed:
+        raise
     except DeployError as exc:
         raise UpFailed(part, container, str(exc)) from None
     except Exception as exc:
