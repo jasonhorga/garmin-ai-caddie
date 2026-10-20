@@ -1,17 +1,18 @@
 """Card #443: bring the production stack back after a host reboot, database first.
 
-Contract: .agent/contracts/card-443.md (revision 3).
+Contract: .agent/contracts/card-443.md (revision 4).
 
 `ops/agenthub_deploy.py` is run as a subprocess with fake `docker` and `curl` executables first on
 PATH. It runs from the checkout, or from a standalone copy installed where the systemd unit expects
 it, with the temporary home as working directory. The fake docker keeps a JSON model of the
 containers and records every call. It models the database's Docker health status (`starting` after
 `docker start`, then `healthy` after a few observations or after a given number of seconds), a
-daemon that is unreachable for a given time or goes away after its first answer, unreadable inspect
-output, and the database's state at the moment each container is started. The fake curl answers the
-local `/api/v2/health` with the revision label of the container publishing the port, or with a
-scripted answer, and can take the daemon away once it has answered. One test runs the script's
-`__main__` on a virtual clock, so the production default timeouts can be measured without waiting.
+`docker start` that fails, a daemon that is unreachable for a given time or goes away after its
+first answer, unreadable inspect output, and the database's state at the moment each container is
+started. A command it does not model fails. The fake curl answers the local `/api/v2/health` with
+the revision label of the container publishing the port, or with a scripted answer, and can take
+the daemon away once it has answered. One test runs the script's `__main__` on a virtual clock, so
+the production default timeouts can be measured without waiting.
 """
 
 from __future__ import annotations
@@ -52,9 +53,19 @@ OLD_NAME = PREFIX + "11111111-production-20261001"
 LIVE_NAME = PREFIX + "4c4c4c4c"
 NEW_NAME = PREFIX + NEW[:8]
 CANARIES = ("canary-install-root", "canary-lock-dir", "canary-public-route", "canary-sync-path",
-            "canary-runtime-dir", "canary-bootstrap")
-MUTATING = {"run", "create", "pull", "rm", "update", "rename", "restart", "kill", "compose", "stop",
-            "build", "tag", "rmi"}
+            "canary-runtime-dir", "canary-bootstrap", "canary-container-env")
+# The only Docker commands that read. `up` may add `start`; a refused deploy or rollback may not. Any
+# other command (`network`, `exec`, `pause`, `restart`, `update`, `run`, `rm` ...) changes something.
+READ_ONLY = {"info", "version", "ps", "inspect", "image inspect"}
+# Optional unit keys and the form of each value (one item, or a space-separated list of items).
+UNIT_VALUE_FORMS = {
+    "Description": (r"[A-Za-z0-9][A-Za-z0-9 ,'()-]*", False),
+    "Documentation": (r"https://github\.com/jasonhorga/garmin-ai-caddie(/\S*)?", True),
+    "After": (r"[A-Za-z0-9_.@-]+\.(target|service|socket)", True),
+    "Wants": (r"[A-Za-z0-9_.@-]+\.(target|service|socket)", True),
+    "RemainAfterExit": (r"yes|no|true|false", False),
+    "SyslogIdentifier": (r"[A-Za-z0-9_.-]+", False),
+}
 
 # A failing wait takes at least its own SHORT timeout and ends within WAIT_SLACK after it, while
 # every other timeout is 600 s; the successful waits last LATE seconds. A wait that uses another
@@ -310,6 +321,9 @@ def main(argv):
         for ref in refs:
             c = find_container(state, ref) or fail("Error: No such container: " + ref)
             state["starts"].append({"name": c["Name"][1:], "db": db_snapshot(state)})
+            if c["Name"][1:] in state["scenario"].get("start_fails", []):
+                save(state)
+                fail("Error response from daemon: the container could not be started", 1)
             if not c["State"]["Running"]:
                 ports = [b["HostPort"] for bindings in (c["HostConfig"].get("PortBindings") or {}).values()
                          for b in bindings or []]
@@ -402,7 +416,8 @@ def release(serial: int, name: str, revision: str | None, *, running: bool,
             network: str = NETWORK) -> dict:
     return {
         "Id": "%064x" % serial, "Name": "/" + name, "Image": "sha256:%064x" % serial,
-        "Config": {"Image": f"garmin-ai-caddie-api:{revision}", "Env": ["AI_CADDIE_SECURITY_PROFILE=private"],
+        "Config": {"Image": f"garmin-ai-caddie-api:{revision}",
+                   "Env": ["AI_CADDIE_SECURITY_PROFILE=private", "AI_CADDIE_CANARY=canary-container-env"],
                    "Labels": {"ai.caddie.source-revision": revision} if revision else {}},
         "State": {"Running": running, "Status": "running" if running else "exited",
                   "FinishedAt": finished, "ExitCode": 0 if running else 1},
@@ -420,7 +435,7 @@ def database(*, running: bool, health: str | None = "healthy", name: str = DB, s
         state["Health"] = {"Status": health, "FailingStreak": 0}
     return {
         "Id": "%064x" % serial, "Name": "/" + name, "Image": "sha256:%064x" % 900,
-        "Config": {"Image": "postgres:16-alpine", "Env": [],
+        "Config": {"Image": "postgres:16-alpine", "Env": ["AI_CADDIE_CANARY=canary-container-env"],
                    "Labels": {"com.docker.compose.project": "garmin-ai-caddie",
                               "com.docker.compose.service": "db"}},
         "State": state,
@@ -541,18 +556,21 @@ class StackUpAcceptanceTest(unittest.TestCase):
         env.update(extra)
         return {key: value for key, value in env.items() if value is not None}
 
-    def check_output(self, output: str) -> None:
+    def check_output(self, output: str, *, up: bool) -> None:
         for canary in CANARIES:
             self.assertNotIn(canary, output)
         self.assertNotIn(str(self.tmp), output)
         # A traceback carries the script's own path (the install path under the home directory).
         self.assertNotIn("Traceback", output)
+        if up:
+            # Like deploy, `up` says "the configured port" and never prints the local health URL.
+            self.assertNotIn(PORT, output)
 
     def run_script(self, argv: list[str], *, cwd: Path = ROOT, timeout: float = 60,
                    **extra: str | None) -> subprocess.CompletedProcess:
         result = subprocess.run(argv, cwd=cwd, env=self.env(**extra), capture_output=True, text=True,
                                 timeout=timeout)
-        self.check_output(result.stdout + result.stderr)
+        self.check_output(result.stdout + result.stderr, up=argv[-1] == "up")
         return result
 
     def invoke(self, *args: str, **extra: str | None) -> subprocess.CompletedProcess:
@@ -589,7 +607,7 @@ class StackUpAcceptanceTest(unittest.TestCase):
 
     def finish(self, proc: subprocess.Popen, *, timeout: float = 30) -> subprocess.CompletedProcess:
         stdout, stderr = proc.communicate(timeout=timeout)
-        self.check_output(stdout + stderr)
+        self.check_output(stdout + stderr, up=proc.args[-1] == "up")
         return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
 
     def install_copy(self) -> Path:
@@ -603,9 +621,16 @@ class StackUpAcceptanceTest(unittest.TestCase):
         return self.state()["calls"]
 
     def commands(self) -> list[str]:
+        """The command of every docker call: `container <x>` counts as `<x>`, `image <x>` as
+        `image <x>`."""
         out = []
         for call in self.calls():
-            out.append(call[1] if call and call[0] == "container" and len(call) > 1 else (call[0] if call else ""))
+            if len(call) > 1 and call[0] == "container":
+                out.append(call[1])
+            elif len(call) > 1 and call[0] == "image":
+                out.append("image " + call[1])
+            else:
+                out.append(call[0] if call else "")
         return out
 
     def started(self) -> list[str]:
@@ -622,7 +647,8 @@ class StackUpAcceptanceTest(unittest.TestCase):
         return {key: db[key] for key in ("Id", "Image", "Config", "HostConfig", "Mounts")}
 
     def assert_nothing_mutated_but_starts(self) -> None:
-        self.assertEqual(set(self.commands()) & MUTATING, set(), self.commands())
+        """Every docker call was a read or a `start`."""
+        self.assertLessEqual(set(self.commands()), READ_ONLY | {"start"}, self.commands())
 
     def result_line(self, stdout: str) -> str:
         lines = [line for line in stdout.splitlines() if line.startswith("agenthub-deploy: result=")]
@@ -713,6 +739,21 @@ class StackUpAcceptanceTest(unittest.TestCase):
                 self.assert_nothing_mutated_but_starts()
                 self.assertEqual(self.db_config(), before)
 
+    def test_up_database_that_fails_to_start_does_not_start_api(self) -> None:
+        # G1
+        # `docker start` of the database fails, so it stays exited with the stale `healthy` from
+        # before the reboot. A stopped container is never healthy: the API is not started.
+        self.write_state(boot_fixture(), start_fails=[DB])
+        before = self.db_config()
+        result, elapsed = self.timed("up", AICADDIE_DB_READY_TIMEOUT_SECONDS=str(SHORT))
+        self.assert_up_failed(result, "database")
+        # `up` may give up at once or wait out the database timeout.
+        self.assert_waited(elapsed, SHORT, at_least=False)
+        self.assertEqual(set(self.started()), {DB})
+        self.assertEqual(self.running_names(), [])
+        self.assert_nothing_mutated_but_starts()
+        self.assertEqual(self.db_config(), before)
+
     def test_up_missing_database_exits_1_without_creating_anything(self) -> None:
         # G1
         fixture = boot_fixture()
@@ -754,6 +795,37 @@ class StackUpAcceptanceTest(unittest.TestCase):
         self.assertEqual((starts[1]["db"]["running"], starts[1]["db"]["health"]), (True, "healthy"))
         self.assertGreaterEqual(starts[1]["db"]["polls"], 3)
         self.assert_nothing_mutated_but_starts()
+        self.assertEqual((self.db_config(), self.db_config(DRILL_DB)), before)
+
+    def test_up_follows_the_sandbox_drill_configuration(self) -> None:
+        # G1
+        # The runbook's sandbox drill runs `up` with its own prefix, network, volume and database.
+        # The API is selected by the configured values only, never by the production defaults.
+        drill_prefix, drill_volume = "agenthub-drill-", "agenthub-drill-private"
+        drill_name, drill_revision = drill_prefix + "5a5a5a5a", "5a" * 20
+        containers = [
+            # Production, on its own port: database healthy, API exited.
+            release(2, LIVE_NAME, LIVE, running=False, finished="2026-10-19T16:52:41.75Z", port="39055"),
+            database(running=True),
+            # The drill's database and its release.
+            database(running=False, health="healthy", name=DRILL_DB, serial=903),
+            release(42, drill_name, drill_revision, running=False, finished="2026-10-19T16:55:00.5Z",
+                    volume=drill_volume, network="bridge"),
+            # Stopped later on the drill port, but matching only the production values: the release
+            # prefix with the drill layout, and the drill prefix with the production layout.
+            release(43, PREFIX + "6f6f6f6f", "6f" * 20, running=False, finished="2026-10-19T17:10:00.5Z",
+                    volume=drill_volume, network="bridge"),
+            release(44, drill_prefix + "7e7e7e7e", "7e" * 20, running=False, finished="2026-10-19T17:20:00.5Z"),
+        ]
+        self.write_state({"containers": containers, "images": []}, db_name=DRILL_DB)
+        before = (self.db_config(), self.db_config(DRILL_DB))
+        result = self.invoke("up", AICADDIE_CONTAINER_PREFIX=drill_prefix, AICADDIE_DEPLOY_NETWORK="bridge",
+                             AICADDIE_PRIVATE_VOLUME=drill_volume, AICADDIE_DB_CONTAINER=DRILL_DB)
+        self.assert_up_ok(result, drill_name, drill_revision, db=DRILL_DB)
+        self.assertEqual(self.started(), [DRILL_DB, drill_name])
+        self.assertEqual(self.running_names(), sorted([DB, DRILL_DB, drill_name]))
+        self.assert_nothing_mutated_but_starts()
+        self.assert_local_health_checked()
         self.assertEqual((self.db_config(), self.db_config(DRILL_DB)), before)
 
     def test_up_with_everything_running_and_healthy_touches_nothing(self) -> None:
@@ -857,8 +929,16 @@ class StackUpAcceptanceTest(unittest.TestCase):
             release(34, PREFIX + "5e5e5e5e", None, running=False, finished=later % 4),
             release(35, PREFIX + "abc1234", "abc1234", running=False, finished=later % 5),
             release(36, "drill-api-6d6d6d6d", "6d" * 20, running=False, finished=later % 6),
+            # The layout rule in full: the volume read-only, at another path, or beside a second mount.
+            release(37, PREFIX + "3d3d3d3d", "3d" * 20, running=False, finished=later % 7),
+            release(38, PREFIX + "2e2e2e2e", "2e" * 20, running=False, finished=later % 8),
+            release(39, PREFIX + "1f1f1f1f", "1f" * 20, running=False, finished=later % 9),
             database(running=False, health="healthy"),
         ]
+        containers[-4]["Mounts"][0]["RW"] = False
+        containers[-3]["Mounts"][0]["Destination"] = "/data"
+        containers[-2]["Mounts"].append({"Type": "volume", "Name": "garmin-ai-caddie_drill-cache",
+                                         "Destination": "/cache", "RW": True})
         self.write_state({"containers": containers, "images": []})
         result = self.invoke("up")
         self.assert_up_ok(result, live_name, live)
@@ -913,6 +993,22 @@ class StackUpAcceptanceTest(unittest.TestCase):
                 result = self.finish(proc)
                 self.assert_up_failed(result, part)
                 self.assertNotIn(LIVE_NAME, self.started())
+                self.assert_nothing_mutated_but_starts()
+
+        # SIGHUP and SIGINT end the database wait the same way.
+        for sig in (signal.SIGHUP, signal.SIGINT):
+            with self.subTest(f"database, {sig.name}"):
+                self.write_state(boot_fixture(), db_never_healthy=True)
+                proc = self.spawn([sys.executable, str(SCRIPT), "up"])
+                deadline = time.monotonic() + 30
+                while not (self.started() == [DB] and self.state()["db_polls"] >= 2):
+                    self.assertIsNone(proc.poll(), "up ended before it waited for the database")
+                    self.assertLess(time.monotonic(), deadline, "up never waited for the database")
+                    time.sleep(0.05)
+                proc.send_signal(sig)
+                result = self.finish(proc)
+                self.assert_up_failed(result, "database")
+                self.assertEqual(self.started(), [DB])
                 self.assert_nothing_mutated_but_starts()
 
         # SIGTERM while `up` waits for the started API's health gives part=api; the API is left
@@ -1022,8 +1118,8 @@ class StackUpAcceptanceTest(unittest.TestCase):
         line = self.result_line(result.stdout)
         self.assertIn("previous_untouched=true", line)
         self.assert_names_database(line)
-        for forbidden in ("stop", "start", "run", "rm", "create"):
-            self.assertNotIn(forbidden, self.commands())
+        # Only reads: no stop, start, run, rm, restart, pause, update, network change or exec.
+        self.assertLessEqual(set(self.commands()), READ_ONLY, self.commands())
         self.assertEqual(self.started(), [])
         self.assertEqual([name for name in self.running_names() if name.startswith(PREFIX)],
                          [running] if running else [])
@@ -1070,12 +1166,13 @@ class StackUpAcceptanceTest(unittest.TestCase):
             ("database stopped", database(running=False, health="healthy"), NEW),
             ("database running unhealthy", database(running=True, health="unhealthy"), NEW),
             ("nothing serving, database stopped", database(running=False, health="healthy"), None),
+            ("revision already serving, database stopped", database(running=False, health="healthy"), OLD),
         )
         for label, db, live in cases:
             with self.subTest(label):
                 self.write_state(self.deploy_fixture([db], live=live), db_never_healthy=True)
                 result = self.invoke("rollback", OLD, AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3")
-                self.assert_untouched_refusal(result, NEW_NAME if live else None)
+                self.assert_untouched_refusal(result, {OLD: OLD_NAME, NEW: NEW_NAME}.get(live))
         # The same rollback with a healthy database proceeds as before.
         self.write_state(self.deploy_fixture([database(running=True)], live=NEW))
         result = self.invoke("rollback", OLD, AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3",
@@ -1102,21 +1199,34 @@ class StackUpAcceptanceTest(unittest.TestCase):
     def test_deploy_and_rollback_recheck_the_database_under_the_sync_lock(self) -> None:
         # G2
         # A sync holds the lock (here: the test) while the database stops or turns unhealthy. The
-        # check that decides runs under the lock, before the switch, before the already-live
-        # verification (whose failure handling can stop containers) and before the rollback's
-        # `docker stop`, so the run is refused and nothing is touched.
+        # check that decides runs under the lock on every path: before the switch, before the
+        # already-live verification (whose failure handling can stop containers), before a
+        # bootstrap deploy, and before the rollback's `docker stop` or its already-live health
+        # check. So the run is refused and nothing is touched.
         stops = {"Running": False, "Status": "exited"}
         unhealthy = {"health": "unhealthy"}
+        bootstrap = self.tmp / "canary-bootstrap.env"
+        bootstrap.write_text("AI_CADDIE_DATA_MODE=fixture\n")
+        first_deploy = {"AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE": str(bootstrap)}
+        # label, arguments, serving revision, release container left running, the last call before
+        # the lock wait, the change made meanwhile, extra environment.
         cases = (
-            ("deploy switch, database stops", ["deploy", NEW], OLD, OLD_NAME, f"aicaddie-sync:{NEW}", stops),
+            ("deploy switch, database stops", ["deploy", NEW], OLD, OLD_NAME, f"aicaddie-sync:{NEW}", stops, {}),
             ("deploy switch, database turns unhealthy", ["deploy", NEW], OLD, OLD_NAME, f"aicaddie-sync:{NEW}",
-             unhealthy),
-            ("deploy already live, database stops", ["deploy", NEW], NEW, NEW_NAME, f"aicaddie-sync:{NEW}", stops),
-            ("rollback, database stops", ["rollback", OLD], NEW, NEW_NAME, f"aicaddie-sync:{OLD}", stops),
+             unhealthy, {}),
+            ("deploy already live, database stops", ["deploy", NEW], NEW, NEW_NAME, f"aicaddie-sync:{NEW}",
+             stops, {}),
+            ("deploy bootstrap, database stops", ["deploy", NEW], None, None, f"aicaddie-sync:{NEW}", stops,
+             first_deploy),
+            ("rollback, database stops", ["rollback", OLD], NEW, NEW_NAME, f"aicaddie-sync:{OLD}", stops, {}),
             ("rollback, database turns unhealthy", ["rollback", OLD], NEW, NEW_NAME, f"aicaddie-sync:{OLD}",
-             unhealthy),
+             unhealthy, {}),
+            ("rollback, nothing serving, database stops", ["rollback", OLD], None, None, f"aicaddie-sync:{OLD}",
+             stops, {}),
+            # A rollback to the revision that serves inspects no image; any `ps` shows it has begun.
+            ("rollback already live, database stops", ["rollback", OLD], OLD, OLD_NAME, "ps", stops, {}),
         )
-        for label, args, live, running, marker, change in cases:
+        for label, args, live, running, marker, change, extra in cases:
             with self.subTest(label):
                 self.write_state(self.deploy_fixture([database(running=True)], live=live), db_never_healthy=True)
                 with open(self.lock, "a") as lock:
@@ -1125,7 +1235,7 @@ class StackUpAcceptanceTest(unittest.TestCase):
                         proc = self.spawn([sys.executable, str(SCRIPT), *args],
                                           AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3",
                                           AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS="60",
-                                          AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS="5")
+                                          AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS="5", **extra)
                         self.wait_for_lock_wait(proc, marker)
                         self.update_db(**change)
                     finally:
@@ -1140,8 +1250,10 @@ class StackUpAcceptanceTest(unittest.TestCase):
         current = None
         for raw in UNIT.read_text().splitlines():
             line = raw.strip()
-            if not line or line.startswith(("#", ";")):
+            if not line:
                 continue
+            # The unit carries only fixed lines, so no comment can carry a host path.
+            self.assertFalse(line.startswith(("#", ";")), "the unit file has a comment line")
             header = re.fullmatch(r"\[([A-Za-z]+)\]", line)
             if header:
                 current = header.group(1)
@@ -1162,8 +1274,12 @@ class StackUpAcceptanceTest(unittest.TestCase):
                    "Service": {"Type", "ExecStart", "TimeoutStartSec", "RemainAfterExit", "SyslogIdentifier"},
                    "Install": {"WantedBy"}}
         for section, entries in sections.items():
-            for key, _ in entries:
+            for key, value in entries:
                 self.assertIn(key, allowed[section], f"[{section}] {key}= is not allowed")
+                if key in UNIT_VALUE_FORMS:
+                    pattern, is_list = UNIT_VALUE_FORMS[key]
+                    for item in (value.split() if is_list else [value]):
+                        self.assertIsNotNone(re.fullmatch(pattern, item), f"[{section}] {key}= has another form")
         service = sections["Service"]
         self.assertEqual([v for k, v in service if k == "Type"], ["oneshot"])
         self.assertEqual([v for k, v in service if k == "ExecStart"], [EXEC_START])

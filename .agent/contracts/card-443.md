@@ -8,7 +8,7 @@ unit runs it at boot.
 
 Touches: `ops/agenthub_deploy.py`, `ops/systemd/aicaddie-stack-up.service`, `docs/operations/runbook.md`, `tests/test_agenthub_deploy.py`, `tests/acceptance/test_card_443_stack_up.py`, `.agent/contracts/card-443.md`
 
-Acceptance tests: `tests/acceptance/test_card_443_stack_up.py` (23 tests). They
+Acceptance tests: `tests/acceptance/test_card_443_stack_up.py` (25 tests). They
 use a fake `docker` and a fake `curl` on `PATH`, with no real containers and no
 network. Most tests run `ops/agenthub_deploy.py` as a subprocess. Two of them
 run a standalone copy of the script installed at the unit's path under a
@@ -21,68 +21,58 @@ release fails with `deploy pin mismatch` until the console reviews the diff and
 re-pins the hash. That is expected. The console also installs the copy and the
 unit.
 
-## Revision 3: what the revision-2 tests still let through
+## Revision 4: what the revision-3 tests still let through
 
-The gate's adversarial check failed again, this time on head `f0460ed`
-(revision 2, CI green). The contract sandbox could not read the gate report. So
-I went through the head and the 20 revision-2 tests as the adversary would,
-looking for changes to the head that break this contract and still pass every
-test. Revision 3 keeps the design and the interface and closes these holes:
+This job again names the adversarial failure on head `f0460ed`. Revision 3
+answered that failure, and Codex then added `7ba57af`, which checks the layout
+of a running API in `up`. CI reports `backend` green on `7ba57af`, and that job
+runs the 23 revision-3 tests. The contract sandbox still cannot read the gate
+report or run Python. So
+I went through `7ba57af` and the revision-3 tests once more as the adversary
+would. I looked for changes to the head that break this contract and still pass
+every test. Revision 4 keeps the design and the interface and closes these
+holes:
 
-- **Production defaults.** Only "still waiting after 2.5 s" was tested. A
-  default of 30 s instead of 300 or 180 passed, and so did capping a wait at
-  30 s. Now one test leaves all three timeouts at their defaults and runs the
-  script on a virtual clock. Each failing wait must sleep at least its default
-  (300, 180, 180 s) and at most one poll interval more.
-- **Poll interval.** The same test sets `AICADDIE_DEPLOY_POLL_SECONDS=3`, which
-  is not the production 2 s. Every sleep in a wait must be exactly 3 s; only
-  the last may be shorter. A fixed 2 s sleep used to pass.
-- **Healthy means `status` is `ok` and the revision is the container's own.**
-  Accepting any 40-hex revision, or ignoring `status`, used to pass. New cases:
-  the API answers another release's revision, or `status: degraded` with its
-  own revision. Both must end in `part=api`.
-- **The API health is polled.** The started API now answers `booting` for 5 s
-  and reports its revision only after that. A single check that then slept out
-  the timeout used to pass.
-- **Under the lock: the already-live path and an unhealthy database.** The
-  re-check under the sync lock is now also tested before `verify_live` (deploy
-  of the revision that already serves) and with a database that turns
-  `unhealthy` while still running. A check placed only in the switch branch,
-  or one that only looks at `running`, used to pass.
-- **Every deploy and rollback path checks the database.** New cases: a
-  bootstrap deploy (nothing serves), a rollback with nothing serving, and a
-  database without a healthcheck. A control case shows that with a healthy
-  database `deploy` passes both checks and starts the switch.
-- **Failures inside the database phase.** If the daemon disappears after its
-  first answer, or `docker inspect` prints something unreadable, the result
-  must be `part=database` with no traceback. Passing unexpected exceptions on
-  to `main()`, which reports `part=api`, used to pass.
-- **SIGTERM in the API phase** gives `part=api`, and the API is left running.
-- **Several running release containers on the port** give `part=api`, with
-  both names in the reason, and nothing more is started.
-- **A missing database is final.** `up` reports it without waiting out the
-  database timeout, because nothing will create it.
-- **`AICADDIE_DB_CONTAINER=-db`** is a configuration error (exit 2). Docker
-  would read that name as an option.
-- **Runbook.** The section must name the enable command
-  (`systemctl --user enable`) and the unit directory (`.config/systemd/user`).
-  The Environment table must list each new variable with its production
-  default. The deploy "Contract" section must state the database requirement.
+- **Only reads and starts.** The tests forbade a fixed list of mutating
+  commands. A `docker network connect`, `exec` or `pause` with `check=False`
+  was not on that list. It failed in the fake docker, changed nothing there,
+  and passed. Now every Docker call of `up` must be a read (`info`, `version`,
+  `ps`, `inspect`, `image inspect`) or a `start`. A refused `deploy` or
+  `rollback` may only read.
+- **A database that does not start.** The fake's `docker start` always worked,
+  so dropping the `running` condition from "healthy" passed: after a failed
+  start, the exited database still carries the stale `healthy` from before the
+  reboot. Now a failed `docker start` of the database must end in
+  `part=database` with nothing else started.
+- **The sandbox drill configuration.** No test ran `up` with another prefix,
+  network or volume, so hard-coding the production values in the API selection
+  passed. Now one test runs `up` with the drill's prefix, network, volume and
+  database. Beside them are newer decoys that match only the production values.
+- **The whole layout rule.** Newer stopped releases whose volume is read-only,
+  is mounted at another path, or has a second mount beside it are now decoys
+  too.
+- **Every path under the lock.** The check under the sync lock is now also
+  tested for a bootstrap deploy, a rollback with nothing serving, and a
+  rollback to the revision that already serves. The last one is also tested
+  without the lock race. A re-check placed only where a release serves, or
+  after the already-live return of `rollback`, used to pass.
+- **SIGHUP and SIGINT** while `up` waits for the database give
+  `part=database`, like SIGTERM.
+- **Output.** `up` never prints the configured port or the local health URL.
+  The containers' environments now carry a canary that must not appear.
+- **Unit file.** The unit has no comment lines, and the optional keys have
+  fixed value forms (see "Systemd unit"). No line can carry a host path.
 
-From reading the code, head `f0460ed` passes all 23 tests. **No code change is
+From reading the code, head `7ba57af` passes all 25 tests. **No code change is
 expected.** Codex merges this branch unchanged and runs the tests. If a new case
 fails on the head, check the case against this contract first. Fix the script
 or the runbook only where they break the contract. If the case itself is
 wrong, report it on the card. Never edit `tests/acceptance/`.
 
-One documentation item is checked in review only. The runbook's database
-paragraph in "Contract" should say that `deploy` and `rollback` repeat the
-check under the sync lock (G2.4). It currently says only "first require".
-
-All 23 tests fail on `main`. There, `up` is a usage error, the unit and the
+All 25 tests fail on `main`. There, `up` is a usage error, the unit and the
 runbook section do not exist, and `deploy` and `rollback` do not check the
-database. I could not run Python in the contract sandbox (shell commands were
-denied), so these results come from reading the code, not from running it.
+database. I could not run Python in the contract sandbox (it denied the shell
+command), so these results come from reading the code, not from running it.
 
 ### Changes that stay uncaught
 
@@ -92,9 +82,10 @@ or is allowed by it:
 - **A default within one poll interval of 300 or 180 s** (for example 301 or
   299). The virtual-clock test uses 3-s polls, which is as fine as it can
   measure.
-- **A second `docker start` of a database that stops again during the wait.**
-  No test models a database that exits after its start, and the contract does
-  not forbid it.
+- **A second `docker start` of the database**, after a failed start or after a
+  database that stops again during the wait. The contract does not forbid it.
+- **Whether a failed `docker start` of the database ends `up` at once** or is
+  waited out until the database timeout. The part is `database` either way.
 - **Dropping the early fail-fast database check** in `deploy` or `rollback`.
   It is optional; the check under the lock is the one that decides.
 - **Logging `starting <name>` just after the `docker start`** instead of just
@@ -105,14 +96,43 @@ or is allowed by it:
 - **Whether a Docker error in the database phase ends `up` at once** or is
   retried until the database timeout. Both are allowed; the part is `database`
   either way.
-- **Checking `assert_layout` on a running API container too.** The selection
-  rules below pick among stopped containers. `up` never stops or restarts a
-  running one, and it only waits for its health.
+- **Checking a running API container's revision label and `assert_layout`**
+  (`7ba57af`), or not. The selection rules below pick among stopped
+  containers. `up` never stops or restarts a running one, and it only waits
+  for its health, which fails without a matching revision anyway.
+- **The `is_up` branches of `main()`'s `except CutoverFailed`,
+  `except DeployError` and `except Exception` handlers.** `up()` turns every
+  exception into `UpFailed`, so these branches never run. Changing or removing
+  them changes nothing.
+- **The phase boundary inside the round of calls that reports the database
+  healthy.** A Docker error that arrives exactly between that answer and the
+  first call of the API selection is not modelled. The API selection itself
+  is tested with `part=api`.
 
 If the gate reports a survivor that is not on this list, it should name it. I
 will then either pin the behaviour it changes or record it here as equivalent.
 
 ### History
+
+Revision 3 (the adversarial check failed on `f0460ed`) required:
+- the production defaults (300, 180, 180 s) and the poll interval, measured
+  on a virtual clock;
+- `status: ok` and the container's own revision for API health, polled until
+  the API reports it;
+- the database re-check under the sync lock on the already-live path, and for
+  a database that turns `unhealthy`;
+- the database check on a bootstrap deploy, a rollback with nothing serving,
+  and a database without a healthcheck, with a healthy-database control case;
+- `part=database` for Docker errors and unexpected exceptions in that phase,
+  and `part=api` for SIGTERM in the API phase and for several running release
+  containers on the port;
+- a missing database reported at once, and `AICADDIE_DB_CONTAINER=-db`
+  refused;
+- the runbook's enable command, unit directory, variable rows and database
+  requirement.
+
+Codex then added the running-API checks and the runbook sentence about the
+check under the lock (`7ba57af`).
 
 Revision 2 (the adversarial check failed on `763bad1`) required:
 - each wait to use its own timeout (the other timeouts are 600 s);
@@ -239,14 +259,26 @@ or another status, does not count.
   `starting <container-name>`.
 - Log lines carry only names, revisions and reasons. They never contain
   environment values, configured paths or URLs, or the script's own path.
+  That includes the configured port and the local health URL: say "the
+  configured port", as `deploy` already does. `up` never prints a container's
+  environment.
+
+### Docker commands
+
+- `up` uses only reads and `start`. The reads are `info`, `version`, `ps`,
+  `inspect` (also as `container inspect`) and `image inspect`. Any other
+  command is a change and is not allowed, even with `check=False`. That
+  includes `run`, `create`, `rm`, `stop`, `restart`, `kill`, `pause`,
+  `update`, `rename`, `exec`, `network`, `pull` and `compose`.
+- A `deploy` or `rollback` that refuses for the database uses only the reads.
 
 Exit codes for `up`: `0` when the stack is healthy, `1` when it is not (the
 `part=` names which part failed), `2` on a usage or configuration error.
 
 ### Systemd unit `ops/systemd/aicaddie-stack-up.service`
 
-The file must contain exactly these lines. Comments (`#` or `;`) and blank
-lines may be added.
+The file must contain exactly these lines. Blank lines may be added; comment
+lines (`#` or `;`) may not, so that no line can carry a host path.
 
 ```
 [Unit]
@@ -261,6 +293,16 @@ WantedBy=default.target
 Only these other keys are allowed:
 - `[Unit]`: `Documentation`, `After`, `Wants`;
 - `[Service]`: `TimeoutStartSec`, `RemainAfterExit`, `SyslogIdentifier`.
+
+Each value has a fixed form:
+
+| Key | Form |
+|---|---|
+| `Description` | letters, digits, spaces and `,'()-`, starting with a letter or digit |
+| `Documentation` | space-separated `https://github.com/jasonhorga/garmin-ai-caddie[/…]` URLs |
+| `After`, `Wants` | space-separated unit names ending in `.target`, `.service` or `.socket` (no `.mount`: its name encodes a path) |
+| `RemainAfterExit` | `yes`, `no`, `true` or `false` |
+| `SyslogIdentifier` | letters, digits, `_`, `.` and `-` |
 
 The file has exactly one `ExecStart=`, and no `Environment`,
 `EnvironmentFile`, `WorkingDirectory` or `ExecStart*Pre/Post` lines. The
@@ -288,10 +330,14 @@ Pass conditions:
 2. **Database.**
    - Missing: exit 1 with `part=database` and the container's exact name in
      the result line, in less than 3.5 s even with a 600 s database timeout.
-     There is no `docker start`, `run`, `create`, `pull`, `rm`, `update`,
-     `rename`, `restart`, `kill` or `compose`. A similarly named container
-     (running and healthy or not) is neither used nor touched.
+     There are only reads (see "Docker commands"), and no `docker start`. A
+     similarly named container (running and healthy or not) is neither used
+     nor touched.
    - Not running: `docker start <db>`, then wait for `healthy`.
+   - `docker start <db>` fails: the database stays exited with its stale
+     `healthy`, which does not count. Exit 1 with `part=database`, and nothing
+     but the database is started. With a 0.5 s database timeout this ends in
+     less than 4 s.
    - Running: wait for `healthy` (a database that reports healthy only after
      5 s is waited for), and never stop or restart it.
    - Not healthy within `AICADDIE_DB_READY_TIMEOUT_SECONDS`: exit 1 with
@@ -316,11 +362,18 @@ Pass conditions:
      - have a name with the release prefix;
      - carry a 40-lowercase-hex `ai.caddie.source-revision` label;
      - publish the configured port;
-     - pass `assert_layout` (exactly the configured volume at
-       `/var/lib/ai-caddie`, read-write, on the configured network).
+     - pass `assert_layout` (exactly one mount: the configured volume at
+       `/var/lib/ai-caddie`, read-write; on the configured network).
 
-     A newer container that fails any of these rules is skipped.
-     `previous_release` without the sha exclusion is fine.
+     A newer container that fails any of these rules is skipped. That
+     includes a read-only volume, the volume at another path, and a second
+     mount. `previous_release` without the sha exclusion is fine.
+   - The prefix, port, volume and network are the configured ones
+     (`AICADDIE_CONTAINER_PREFIX`, `AICADDIE_API_PORT`,
+     `AICADDIE_PRIVATE_VOLUME`, `AICADDIE_DEPLOY_NETWORK`), never the
+     production defaults. With the sandbox drill's values, `up` starts the
+     drill's database and release. It skips newer decoys that match the
+     production prefix or the production layout instead.
    - Name, Id or list order never decide.
    - No candidate: exit 1 with `part=api`.
    - Older stopped releases are never started.
@@ -335,15 +388,17 @@ Pass conditions:
    health timeout this takes at least 0.5 s and less than 4 s. The container
    is left running.
 5. **Nothing to change.** When the database is running and healthy and the API
-   is running, `up` issues no `docker start` (or any other mutating command).
-   It checks local health for the running revision and exits 0.
+   is running, `up` issues no `docker start`, only reads. It checks local
+   health for the running revision and exits 0. In every run, `up`'s Docker
+   calls are reads or `start` (see "Docker commands").
 6. **Phases and the end.**
    - `part=` follows the phase (see "`up` result lines"). A foreign container
      on the API port whose name contains "database" gives `part=api`.
    - SIGTERM while waiting for the daemon gives `part=docker`. SIGTERM while
      waiting for the database gives `part=database`. In both cases `up` exits
-     1 and the API is not started. SIGTERM while waiting for the started API's
-     health gives `part=api`, exit 1, and the API is left running.
+     1 and the API is not started. SIGHUP and SIGINT while waiting for the
+     database do the same. SIGTERM while waiting for the started API's health
+     gives `part=api`, exit 1, and the API is left running.
    - With the default timeouts, `up` is still waiting after 2.5 s.
    - After the health answer `up` needs no Docker: if the daemon disappears
      then, `up` still exits 0 with the ok line.
@@ -371,12 +426,14 @@ Pass conditions:
 1. `deploy <sha>` and `rollback <sha>` check that the database container
    (exact name) exists, is running and is `healthy`.
    - This holds on every path: a switch, a deploy of the revision that already
-     serves, a bootstrap deploy (nothing serves, bootstrap env file set), and
-     a rollback with nothing serving.
-   - The check that decides runs **under the sync lock**: after the lock is
-     taken, before `switch` or `verify_live` (the already-live path of
-     `deploy`, whose failure handling can stop containers), and before the
-     rollback's `docker stop`.
+     serves, a bootstrap deploy (nothing serves, bootstrap env file set), a
+     rollback with nothing serving, and a rollback to the revision that
+     already serves.
+   - The check that decides runs **under the sync lock** on each of these
+     paths: after the lock is taken, before `switch` or `verify_live` (the
+     already-live path of `deploy`, whose failure handling can stop
+     containers), and before the rollback's `docker stop` or its already-live
+     health check.
    - An earlier fail-fast check before the image build may stay, but it does
      not replace the check under the lock. A database that stops or turns
      `unhealthy` while the script waits for the lock (a sync is running) must
@@ -385,8 +442,9 @@ Pass conditions:
      `deploy` and `rollback` never start the database themselves.
 2. If the check fails: exit 1, the existing
    `result=failed … previous_untouched=true … reason=…` line with the database
-   container's exact name in it, and no `docker stop`, `start`, `run` or
-   `rm`. The release container that served keeps running, and no other
+   container's exact name in it, and only reads (see "Docker commands"): no
+   `docker stop`, `start`, `run`, `rm`, `restart`, `pause`, `update` or any
+   other change. The release container that served keeps running, and no other
    release container runs. A missing database with a similarly named healthy
    container is a failed check, and so is a running database without a
    healthcheck.
@@ -403,7 +461,8 @@ Pass conditions:
 4. `docs/operations/runbook.md` says, in the deploy "Contract" section, that
    `deploy` and `rollback` refuse to run without a healthy
    `AICADDIE_DB_CONTAINER`. It should also say that the check is repeated
-   under the sync lock (review-checked). The "Sandbox drill" section names
+   under the sync lock (review-checked; done in `7ba57af`). The "Sandbox
+   drill" section names
    `AICADDIE_DB_CONTAINER` and a disposable container with a healthcheck.
 
 ### G3 — A systemd user unit runs `up` at boot from the installed copy; the runbook explains it
@@ -411,7 +470,8 @@ Pass conditions:
 Pass conditions:
 
 1. `ops/systemd/aicaddie-stack-up.service` matches the "Systemd unit"
-   interface above exactly, including the `TimeoutStartSec` rule.
+   interface above exactly: no comment lines, only the allowed keys, each
+   value in its form, and the `TimeoutStartSec` rule.
 2. The unit's `ExecStart` works. With `%h` expanded to a home directory that
    is also the working directory, and the script installed there at
    `.local/lib/aicaddie/agenthub_deploy.py`, it brings a stopped database and
@@ -439,13 +499,16 @@ Pass conditions:
 Pass conditions:
 
 1. `up` prints no environment values, configured paths or URLs, temporary
-   directories or install paths, and no traceback. The tests put canary
-   strings in all of them and check the output of every run.
+   directories or install paths, container environments, and no traceback.
+   The tests put canary strings in all of them and check the output of every
+   run. The output of every `up` run also never contains the configured port,
+   so it holds no local health URL either.
 2. The unit file and the runbook name only the `%h/.local/lib/aicaddie/`
    install path (`~/.local/lib/aicaddie/` in shell examples is the same path).
    They name no home directory, user name, host name or private data path.
-   The tests check exact unit lines instead of searching for forbidden
-   strings.
+   The tests check exact unit lines and the fixed value forms instead of
+   searching for forbidden strings. The unit has no comment lines. The
+   runbook is review-checked.
 
 ## Out of scope (review-checked)
 
