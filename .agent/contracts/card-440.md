@@ -12,6 +12,21 @@ Touches: `.github/workflows/agenthub-native-mutant.yml`, `.github/scripts/agenth
 Acceptance tests: `tests/acceptance/test_card_440_native_mutant_workflow.py` (10 tests). Codex
 must not edit `tests/acceptance/`.
 
+## Superseded by card #445: artifact and `result.json`
+
+agenthub's reader rejected this contract's artifact on #434's first gate run. Card #445
+(`.agent/contracts/card-445.md`) replaces the following parts of this contract:
+- **Artifact name:** the artifact is `agenthub-native-${{ inputs.request_id }}`, and it holds only
+  `result.json`.
+- **`result.json`:** it has exactly the keys `request_id`, `head`, `patch_sha256`, `stage` and
+  `tests`. `stage` takes the old `status` values, and `tests` is empty unless the stage is `tested`.
+- **Inputs:** they are validated, and invalid input gives a red job with no artifact.
+- **No artifact on failure:** a run that judges nothing uploads no artifact at all.
+
+Wherever this document says `agenthub-native-result`, `head_sha` (as a result key) or `status` (as
+the verdict key), read card #445's interface instead. Everything else below still holds. The tests
+in this file follow card #445, and their G tags name card #445's goals.
+
 ## Revision 8: three cases revision 7 still let through
 
 Claude's review of head `9b6ea32` (revision 7, CI green) found three changes that the revision-7

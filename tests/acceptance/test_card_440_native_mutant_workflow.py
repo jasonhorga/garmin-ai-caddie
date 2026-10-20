@@ -3,9 +3,13 @@
 agenthub dispatches `.github/workflows/agenthub-native-mutant.yml` once per mutant with a request id,
 the head SHA under test and the mutant patch (base64; empty for a baseline run). The workflow tests
 that head plus patch with the `AICaddie` and `AICaddieWatch` schemes and uploads `result.json` as
-the artifact `agenthub-native-result`, written by `.github/scripts/agenthub_native_result.py` from the
-xcresulttool test trees. agenthub counts a mutant as caught when a native test fails: `result.json`
-is the verdict, not the job colour.
+the only file of the artifact `agenthub-native-<request_id>`, written by
+`.github/scripts/agenthub_native_result.py` from the xcresulttool test trees. agenthub counts a mutant
+as caught when a native test fails: `result.json` is the verdict, not the job colour.
+
+Card #445 aligned the artifact and `result.json` with agenthub's reader (`.agent/contracts/card-445.md`):
+the artifact name carries the request id, and `result.json` has exactly the keys `request_id`, `head`,
+`patch_sha256`, `stage` and `tests`. The G tags below name card #445's goals, which keep #440's numbering.
 
 Linux CI has no Xcode. These tests read the workflow and then replay its job offline (`_Replay`):
 - steps run in order under GitHub's rules: `if:` with status functions, `continue-on-error`, step
@@ -26,6 +30,8 @@ Linux CI has no Xcode. These tests read the workflow and then replay its job off
 from __future__ import annotations
 
 import base64
+import binascii
+import hashlib
 import json
 import os
 import re
@@ -49,7 +55,10 @@ WRITER = REPO_ROOT / ".github" / "scripts" / "agenthub_native_result.py"
 NATIVE_MOBILE = REPO_ROOT / ".github" / "workflows" / "native-mobile.yml"
 REPOSITORY = "jasonhorga/garmin-ai-caddie"
 RUN_NAME = "agenthub-native ${{ inputs.request_id }}"
-ARTIFACT = "agenthub-native-result"
+# Card #445: the upload step's `name:`, exactly; agenthub looks for `agenthub-native-<request_id>`.
+ARTIFACT = "agenthub-native-${{ inputs.request_id }}"
+RESULT_KEYS = {"request_id", "head", "patch_sha256", "stage", "tests"}
+STAGES = {"tested", "apply_failed", "build_failed"}
 PROJECT = "mobile/ios/AICaddieNative.xcodeproj"
 XCODEGEN_ARGS = ["generate", "--spec", "mobile/ios/project.yml", "--project-root", "."]
 MARKER = "mobile/ios/AICaddie/AgenthubMarker.swift"
@@ -64,7 +73,7 @@ WIDE_CONTEXT_LINES = tuple(f"let agenthubWide{index} = {index}" for index in ran
 SPEC = "mobile/ios/project.yml"
 SPEC_TEXT = "name: AICaddieNative"
 BROKEN_SPEC = "card440-broken-spec"
-STATUSES = {"passed", "failed", "skipped"}
+STATUSES = {"passed", "failed", "error", "skipped"}
 STATUS_FUNCTIONS = re.compile(r"\b(?:success|failure|always|cancelled)\(\s*\)")
 BASH = shutil.which("bash") or "/bin/bash"
 
@@ -784,6 +793,7 @@ class _Outcome:
     steps: list[dict]
     uploads: list[dict]
     calls: list[dict]
+    patch_b64: str = ""
 
     def tool(self, name: str) -> list[dict]:
         # G2: recorded calls of one fake tool.
@@ -1140,7 +1150,9 @@ class _Replay:
         return 0, f"uploaded {sorted(files)}"
 
 
-class NativeMutantWorkflowTests(unittest.TestCase):
+class NativeMutantReplayCase(unittest.TestCase):
+    """Replay helpers shared with card #445's tests; it defines no test itself."""
+
     def _workflow(self) -> dict:
         # G1: the workflow and the writer exist; the workflow parses.
         self.assertTrue(WORKFLOW.is_file(), f"missing {WORKFLOW.relative_to(REPO_ROOT).as_posix()}")
@@ -1235,18 +1247,23 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         devices: dict = DEVICES,
         fail: tuple[str, ...] = (),
         cancel_after_writer: bool = False,
+        request_id: str | None = None,
+        head: str | None = None,
     ) -> _Outcome:
         # G1 G2 G3 G4: one dispatch of the workflow, replayed offline. `fail` names fake runner tools
         # (brew, xcode-select) that exit non-zero; `cancel_after_writer` cancels the run once the writer's
-        # step has finished.
+        # step has finished. `request_id` and `head` replace the dispatched values (card #445's input
+        # validation); by default they are a fresh valid id and the head commit's full SHA.
         workflow = self._workflow()
         request_key, sha_key, patch_key = self._input_names(workflow)
         holder = tempfile.TemporaryDirectory(prefix="card440-")
         self.addCleanup(holder.cleanup)
         root = Path(holder.name)
         git_env = self._git_env(root)
-        origin, head, main = self._origin(root, git_env)
-        request_id = f"card440-{uuid.uuid4().hex[:12]}"
+        origin, head_commit, main = self._origin(root, git_env)
+        head = head_commit if head is None else head
+        if request_id is None:
+            request_id = f"card440-{uuid.uuid4().hex[:12]}"
         config = {
             "marker": MARKER,
             "broken_spec": BROKEN_SPEC,
@@ -1268,35 +1285,62 @@ class NativeMutantWorkflowTests(unittest.TestCase):
             git_env,
             cancel_after_writer,
         )
-        return replay.run(request_id, head)
+        outcome = replay.run(request_id, head)
+        outcome.patch_b64 = patch_b64
+        return outcome
 
     def _result(self, run: _Outcome) -> dict:
-        # G3 G4: exactly one result.json is uploaded, at the root of the artifact `agenthub-native-result`,
-        # with its common fields checked.
-        found = run.result_files()
-        self.assertEqual(len(found), 1, f"expected one uploaded result.json\n{run.describe()}")
-        carriers = [upload for upload in run.uploads if "result.json" in upload["files"]]
+        # G1 G4: the run uploads exactly one artifact, `agenthub-native-<request_id>`, holding only
+        # result.json at its root. result.json has exactly agenthub's keys: the request id and head as
+        # dispatched, the sha256 of the decoded patch bytes (of no bytes for a baseline), a known stage,
+        # and tests as {"id", "status"} entries with unique non-empty ids, empty unless the stage is
+        # `tested`. A patch input that is not strict base64 has no decoded bytes: only the digest's form
+        # is checked then.
+        artifact = f"agenthub-native-{run.request_id}"
         self.assertEqual(
-            [upload["name"] for upload in carriers],
-            [ARTIFACT],
-            f"result.json must sit at the root of the artifact {ARTIFACT!r}\n{run.describe()}",
+            [upload["name"] for upload in run.uploads],
+            [artifact],
+            f"expected exactly one artifact, {artifact!r}\n{run.describe()}",
         )
+        files = run.uploads[0]["files"]
+        self.assertEqual(sorted(files), ["result.json"], f"the artifact holds only result.json, at its root\n{run.describe()}")
+        text = files["result.json"]
         try:
-            result = json.loads(found[0])
+            result = json.loads(text)
         except json.JSONDecodeError as exc:
-            self.fail(f"result.json is not JSON ({exc}): {found[0][:400]!r}")
+            self.fail(f"result.json is not JSON ({exc}): {text[:400]!r}")
         self.assertIsInstance(result, dict)
-        self.assertEqual(result.get("request_id"), run.request_id)
-        self.assertEqual(result.get("head_sha"), run.head_sha)
-        tests = result.get("tests")
+        self.assertEqual(set(result), RESULT_KEYS, f"result.json has exactly agenthub's keys: {sorted(result)}")
+        self.assertEqual(result["request_id"], run.request_id)
+        self.assertEqual(result["head"], run.head_sha)
+        try:
+            patch = base64.b64decode(run.patch_b64, validate=True)
+        except (binascii.Error, ValueError):
+            patch = None
+        digest = result["patch_sha256"]
+        self.assertIsInstance(digest, str)
+        if patch is None:
+            self.assertRegex(digest, r"\A[0-9a-f]{64}\Z", "patch_sha256 is a lower-case sha256 hex digest")
+        else:
+            self.assertEqual(
+                digest,
+                hashlib.sha256(patch).hexdigest(),
+                "patch_sha256 is the sha256 hex digest of the decoded patch bytes",
+            )
+        self.assertIn(result["stage"], STAGES, result)
+        tests = result["tests"]
         self.assertIsInstance(tests, list, "result.json `tests` must be a list")
         ids = []
         for entry in tests:
             self.assertIsInstance(entry, dict)
-            self.assertIsInstance(entry.get("id"), str, entry)
-            self.assertIn(entry.get("status"), STATUSES, entry)
+            self.assertEqual(set(entry), {"id", "status"}, entry)
+            self.assertIsInstance(entry["id"], str, entry)
+            self.assertTrue(entry["id"], entry)
+            self.assertIn(entry["status"], STATUSES, entry)
             ids.append(entry["id"])
         self.assertEqual(len(ids), len(set(ids)), f"test ids must be unique: {ids}")
+        if result["stage"] != "tested":
+            self.assertEqual(tests, [], f"tests is empty unless the stage is `tested`: {result}")
         return result
 
     def _statuses(self, result: dict) -> dict[str, str]:
@@ -1349,13 +1393,15 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                     f"-destination is exactly platform=…,id=<UDID>, never name= or OS=: {args}",
                 )
 
+
+class NativeMutantWorkflowTests(NativeMutantReplayCase):
     # G1 — dispatch-only, read-only, named by the request id
 
     def test_workflow_is_dispatch_only_read_only_and_named_by_request_id(self) -> None:
         # G1: trigger, permissions, run-name, inputs (the patch optional), single job on native-mobile's
         # runner image without a concurrency group or a short timeout, values reach the shell through
         # env, no secrets, checkouts keep no credentials, the writer is the one in .github/scripts, and one
-        # upload step names the artifact `agenthub-native-result` literally.
+        # upload step names the artifact `agenthub-native-${{ inputs.request_id }}` exactly (card #445).
         workflow = self._workflow()
         text = WORKFLOW.read_text(encoding="utf-8")
         triggers = workflow.get("on", workflow.get(True))
@@ -1415,7 +1461,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
             for step in steps
             if str(step.get("uses", "")).startswith("actions/upload-artifact@")
         ]
-        self.assertEqual(artifact_names, [ARTIFACT], f"one upload step, named {ARTIFACT!r} literally")
+        self.assertEqual(artifact_names, [ARTIFACT], f"one upload step, named {ARTIFACT!r} exactly")
 
     # G1 G2 G3 G4 — a baseline run
 
@@ -1442,7 +1488,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         self.assertEqual(generate[0]["marker"], HEAD_MARKER, "generate the project in the head checkout")
         self._check_scheme_runs(run, HEAD_MARKER)
         result = self._result(run)
-        self.assertEqual(result.get("status"), "tested")
+        self.assertEqual(result.get("stage"), "tested")
         self.assertEqual(self._statuses(result), BASELINE_STATUSES)
 
     # G2 G3 G4 — a mutant that a native test catches
@@ -1460,7 +1506,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         self.assertEqual([call["marker"] for call in generate], [MUTANT_MARKER], run.describe())
         self._check_scheme_runs(run, MUTANT_MARKER)
         result = self._result(run)
-        self.assertEqual(result.get("status"), "tested")
+        self.assertEqual(result.get("stage"), "tested")
         self.assertEqual(self._statuses(result), MUTANT_STATUSES)
 
     def test_watch_only_failure_is_reported(self) -> None:
@@ -1472,7 +1518,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         self.assertFalse(run.job_failed, run.describe())
         self._check_scheme_runs(run, TRAILING_SPACE_MARKER)
         result = self._result(run)
-        self.assertEqual(result.get("status"), "tested")
+        self.assertEqual(result.get("stage"), "tested")
         expected = dict(BASELINE_STATUSES)
         expected["AICaddieWatchTests/WatchDesignSnapshotTests/testTappingATeeStartsTheRoundWithThatTee()"] = "failed"
         self.assertEqual(self._statuses(result), expected)
@@ -1487,17 +1533,18 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         self.assertFalse(run.job_failed, run.describe())
         self._check_scheme_runs(run, MUTANT_MARKER)
         result = self._result(run)
-        self.assertEqual(result.get("status"), "tested")
+        self.assertEqual(result.get("stage"), "tested")
         self.assertEqual(self._statuses(result), BASELINE_STATUSES)
 
     # G3 — apply and build failures are verdicts too
 
     def test_patch_that_does_not_apply_is_reported_as_apply_failed(self) -> None:
-        # G1 G3: a patch whose changed line or surrounding context does not match the head (also by
+        # G1 G3 G4: a patch whose changed line or surrounding context does not match the head (also by
         # whitespace alone, or only in the outermost of three context lines), whose hunk counts are
         # wrong, input that is not base64 (also one stray character in valid base64), or is not a patch:
         # nothing is selected, installed, generated or tested, the job stays green, result.json says
-        # apply_failed with no tests.
+        # apply_failed with no tests and the digest of the decoded patch. Card #445: input that is not
+        # strict base64 may instead be refused by input validation (red job, no artifact).
         cases = {
             "stale changed line": STALE_PATCH,
             "stale surrounding context": STALE_CONTEXT_PATCH,
@@ -1508,12 +1555,17 @@ class NativeMutantWorkflowTests(unittest.TestCase):
             "a stray character in valid base64": STRAY_CHARACTER_PATCH,
             "not a patch": _b64("this is not a unified diff\n"),
         }
+        undecodable = {"not base64", "a stray character in valid base64"}
         for name, patch in cases.items():
             with _case(name):
                 run = self._replay(patch_b64=patch)
 
-                self.assertFalse(run.job_failed, run.describe())
                 self.assertEqual(run.scheme_runs(), [], run.describe())
+                if name in undecodable and run.job_failed:
+                    # Refused as invalid input: nothing is judged.
+                    self.assertEqual(run.uploads, [], run.describe())
+                    continue
+                self.assertFalse(run.job_failed, run.describe())
                 after_apply = [
                     " ".join([call["tool"], *call["args"]])
                     for call in run.calls
@@ -1525,7 +1577,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                     f"after an apply failure no simulator is picked, nothing installed, generated or built\n{run.describe()}",
                 )
                 result = self._result(run)
-                self.assertEqual(result.get("status"), "apply_failed")
+                self.assertEqual(result.get("stage"), "apply_failed")
                 self.assertEqual(result.get("tests"), [])
 
     def test_build_failure_is_reported_as_build_failed(self) -> None:
@@ -1583,13 +1635,15 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                 ran = sorted(_option(call["args"], "-scheme") or "" for call in run.scheme_runs())
                 self.assertEqual(ran, schemes, run.describe())
                 result = self._result(run)
-                self.assertEqual(result.get("status"), "build_failed", result)
+                self.assertEqual(result.get("stage"), "build_failed", result)
+                self.assertEqual(result.get("tests"), [], result)
 
     # G2 G3 — a runner failure judges nothing
 
     def test_runner_failure_is_red_and_uploads_no_result(self) -> None:
         # G2 G3: without an available iPhone 16 or Series 10 (46mm), or when `brew install xcodegen`
-        # fails, the job fails, no result.json is uploaded, and no test runs on another device.
+        # fails, the job fails, no artifact is uploaded, and no test runs on another device.
+        # pinned: #440 already uploads nothing on a runner failure; card #445 keeps that.
         cases = {
             "no available iPhone 16": {"devices": _without_available(DEVICES, IPHONE)},
             "no available Apple Watch Series 10 (46mm)": {"devices": _without_available(DEVICES, WATCH)},
@@ -1601,6 +1655,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
                 self.assertTrue(run.job_failed, run.describe())
                 self.assertEqual(run.result_files(), [], run.describe())
+                self.assertEqual(run.uploads, [], run.describe())
                 devices = options.get("devices", DEVICES)
                 available = {d["udid"] for entries in devices.values() for d in entries if d["isAvailable"]}
                 expected = {"AICaddie": IOS_UDID, "AICaddieWatch": WATCH_UDID}
@@ -1614,8 +1669,9 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         # G3 G4: a Test Case whose result is not exactly Passed / Failed / Skipped / Expected Failure, in
         # either scheme (also by case or padding alone), a Test Case without any usable id, or a test id
         # that occurs twice (across the schemes or within one, whatever the statuses), fails closed, also
-        # when the other scheme left no result: the writer exits non-zero, the job fails, no result.json
-        # is uploaded.
+        # when the other scheme left no result: the writer exits non-zero, the job fails, no artifact is
+        # uploaded.
+        # pinned: #440's writer already fails closed on these trees; card #445 keeps that.
         unknown = _tree("AICaddie", IOS_CASES, ("Passed", "unknown", "Passed", "Passed", "Passed"), IOS_DEVICE)
         missing = _tree("AICaddie", IOS_CASES, ("Passed", None, "Passed", "Passed", "Passed"), IOS_DEVICE)
         mixed = _tree("AICaddie", IOS_CASES, ("Passed", "Mixed", "Passed", "Passed", "Passed"), IOS_DEVICE)
@@ -1660,6 +1716,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
                 self.assertTrue(run.job_failed, run.describe())
                 self.assertEqual(run.result_files(), [], run.describe())
+                self.assertEqual(run.uploads, [], run.describe())
                 self.assertTrue(
                     [step for step in run.writer_steps() if step["outcome"] == "failure"],
                     f"the writer must exit non-zero\n{run.describe()}",
@@ -1670,7 +1727,8 @@ class NativeMutantWorkflowTests(unittest.TestCase):
     def test_cancelled_run_uploads_no_result(self) -> None:
         # G3: a run cancelled while the iOS scheme tests, or right after the writer has written a
         # result, judges nothing: no later step runs (not the other scheme, the writer or the upload) and
-        # no result.json is uploaded.
+        # no artifact is uploaded.
+        # pinned: #440 already uploads nothing from a cancelled run; card #445 keeps that.
         cases = {
             "cancelled while the iOS scheme tests": {"ios": _scheme(0, tree=IOS_PASSING, cancel=True)},
             "cancelled right after the writer": {"cancel_after_writer": True},
@@ -1688,6 +1746,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                 later = [step["name"] for step in run.steps[run.cancel_index + 1 :] if step["ran"]]
                 self.assertEqual(later, [], f"no step runs after a cancellation\n{run.describe()}")
                 self.assertEqual(run.result_files(), [], run.describe())
+                self.assertEqual(run.uploads, [], run.describe())
 
 
 if __name__ == "__main__":
