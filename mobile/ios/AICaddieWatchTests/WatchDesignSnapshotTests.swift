@@ -1808,7 +1808,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
             playerImagePoint: geometry.youPx,
             aimCarryM: 205,
             carryP10M: 188,
-            carryP90M: 220,
+            carryP90M: 220
         ))
         let continuationShot = try XCTUnwrap(WatchCurrentShotLayout.resolve(
             route: route,
@@ -1823,67 +1823,67 @@ final class WatchDesignSnapshotTests: XCTestCase {
             WatchPlanLeg(start: CGPoint(x: 504, y: 702), control: CGPoint(x: 535, y: 620), landing: CGPoint(x: 556, y: 562), label: "3W 205"),
         ]
         let rootBase = WatchHoleMapView(
+            showCaddieRecommendation: true,
             currentShotLayout: shot,
             fullMap: false,
             geometry: geometry,
             interactionMode: .measure,
-            showCaddieRecommendation: true,
             planLegs: []
         )
         let rootWithRoute = WatchHoleMapView(
+            showCaddieRecommendation: true,
             currentShotLayout: shot,
             fullMap: false,
             geometry: routeGeometry,
             interactionMode: .measure,
-            showCaddieRecommendation: true,
             planLegs: []
         )
         let rootWithPlan = WatchHoleMapView(
+            showCaddieRecommendation: true,
             currentShotLayout: shot,
             fullMap: false,
             geometry: geometry,
             interactionMode: .measure,
-            showCaddieRecommendation: true,
             planLegs: planLegs
         )
         let rootWithContinuation = WatchHoleMapView(
+            showCaddieRecommendation: true,
             currentShotLayout: continuationShot,
             fullMap: false,
             geometry: geometry,
             interactionMode: .measure,
-            showCaddieRecommendation: true,
             planLegs: []
         )
         let fullMapBase = WatchHoleMapView(
+            showCaddieRecommendation: true,
             currentShotLayout: shot,
             fullMap: true,
             geometry: geometry,
             interactionMode: .measure,
-            showCaddieRecommendation: true,
             planLegs: []
         )
         let fullMapWithRoute = WatchHoleMapView(
+            showCaddieRecommendation: true,
             currentShotLayout: shot,
             fullMap: true,
             geometry: routeGeometry,
             interactionMode: .measure,
-            showCaddieRecommendation: true,
             planLegs: []
         )
         let fullMapWithPlan = WatchHoleMapView(
+            showCaddieRecommendation: true,
             currentShotLayout: shot,
             fullMap: true,
             geometry: geometry,
             interactionMode: .measure,
-            showCaddieRecommendation: true,
             planLegs: planLegs
         )
         let fullMapWithContinuation = WatchHoleMapView(
+            showCaddieRecommendation: true,
             currentShotLayout: continuationShot,
             fullMap: true,
             geometry: geometry,
             interactionMode: .measure,
-            showCaddieRecommendation: true,
             planLegs: []
         )
         let rootBasePixels = renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: rootBase.watchSnapshotFrame(width: 198, height: 242)).cgImage))
