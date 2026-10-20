@@ -8,7 +8,7 @@ unit runs it at boot.
 
 Touches: `ops/agenthub_deploy.py`, `ops/systemd/aicaddie-stack-up.service`, `docs/operations/runbook.md`, `tests/test_agenthub_deploy.py`, `tests/acceptance/test_card_443_stack_up.py`, `.agent/contracts/card-443.md`
 
-Acceptance tests: `tests/acceptance/test_card_443_stack_up.py` (23 tests). They
+Acceptance tests: `tests/acceptance/test_card_443_stack_up.py` (25 tests). They
 use a fake `docker` and a fake `curl` on `PATH`, with no real containers and no
 network. Most tests run `ops/agenthub_deploy.py` as a subprocess. Two of them
 run a standalone copy of the script installed at the unit's path under a
@@ -21,68 +21,51 @@ release fails with `deploy pin mismatch` until the console reviews the diff and
 re-pins the hash. That is expected. The console also installs the copy and the
 unit.
 
-## Revision 3: what the revision-2 tests still let through
+## Revision 4: running API selection (F1) and the lock re-check in the runbook (F2)
 
-The gate's adversarial check failed again, this time on head `f0460ed`
-(revision 2, CI green). The contract sandbox could not read the gate report. So
-I went through the head and the 20 revision-2 tests as the adversary would,
-looking for changes to the head that break this contract and still pass every
-test. Revision 3 keeps the design and the interface and closes these holes:
+Review of revision 3 found two holes its tests let through. Codex fixed both on
+head `7ba57af`. Revision 4 pins them with tests and keeps everything else
+unchanged:
 
-- **Production defaults.** Only "still waiting after 2.5 s" was tested. A
-  default of 30 s instead of 300 or 180 passed, and so did capping a wait at
-  30 s. Now one test leaves all three timeouts at their defaults and runs the
-  script on a virtual clock. Each failing wait must sleep at least its default
-  (300, 180, 180 s) and at most one poll interval more.
-- **Poll interval.** The same test sets `AICADDIE_DEPLOY_POLL_SECONDS=3`, which
-  is not the production 2 s. Every sleep in a wait must be exactly 3 s; only
-  the last may be shorter. A fixed 2 s sleep used to pass.
-- **Healthy means `status` is `ok` and the revision is the container's own.**
-  Accepting any 40-hex revision, or ignoring `status`, used to pass. New cases:
-  the API answers another release's revision, or `status: degraded` with its
-  own revision. Both must end in `part=api`.
-- **The API health is polled.** The started API now answers `booting` for 5 s
-  and reports its revision only after that. A single check that then slept out
-  the timeout used to pass.
-- **Under the lock: the already-live path and an unhealthy database.** The
-  re-check under the sync lock is now also tested before `verify_live` (deploy
-  of the revision that already serves) and with a database that turns
-  `unhealthy` while still running. A check placed only in the switch branch,
-  or one that only looks at `running`, used to pass.
-- **Every deploy and rollback path checks the database.** New cases: a
-  bootstrap deploy (nothing serves), a rollback with nothing serving, and a
-  database without a healthcheck. A control case shows that with a healthy
-  database `deploy` passes both checks and starts the switch.
-- **Failures inside the database phase.** If the daemon disappears after its
-  first answer, or `docker inspect` prints something unreadable, the result
-  must be `part=database` with no traceback. Passing unexpected exceptions on
-  to `main()`, which reports `part=api`, used to pass.
-- **SIGTERM in the API phase** gives `part=api`, and the API is left running.
-- **Several running release containers on the port** give `part=api`, with
-  both names in the reason, and nothing more is started.
-- **A missing database is final.** `up` reports it without waiting out the
-  database timeout, because nothing will create it.
-- **`AICADDIE_DB_CONTAINER=-db`** is a configuration error (exit 2). Docker
-  would read that name as an option.
-- **Runbook.** The section must name the enable command
-  (`systemctl --user enable`) and the unit directory (`.config/systemd/user`).
-  The Environment table must list each new variable with its production
-  default. The deploy "Contract" section must state the database requirement.
+- **F1: a running API container was trusted as it was.** `up` selected the
+  container running on the port with `find_current` and only waited for its
+  health. Revision 3 even listed this as an allowed survivor.
+  - A running release without a revision label passed. `wait_health`
+    compared the empty label with the empty revision the API echoed, and `up`
+    reported `result=ok … revision=`.
+  - A running release on the wrong volume or network passed the same way.
 
-From reading the code, head `f0460ed` passes all 23 tests. **No code change is
-expected.** Codex merges this branch unchanged and runs the tests. If a new case
-fails on the head, check the case against this contract first. Fix the script
-or the runbook only where they break the contract. If the case itself is
-wrong, report it on the card. Never edit `tests/acceptance/`.
+  Now the selected running container must meet the same rules as a stopped
+  candidate: release prefix, 40-lowercase-hex label, configured port and
+  `assert_layout`. Otherwise `up` fails closed at selection with `part=api`.
+  It does not check that container's health, stop it, restart it, or start a
+  stopped release in its place (G1.3).
 
-One documentation item is checked in review only. The runbook's database
-paragraph in "Contract" should say that `deploy` and `rollback` repeat the
-check under the sync lock (G2.4). It currently says only "first require".
+  New tests:
+  - `test_up_refuses_a_running_api_container_that_is_not_a_valid_release`,
+    with ten cases that each break exactly one rule;
+  - `test_up_ignores_a_running_release_on_another_port`, a control showing
+    that a valid release on another port is neither selected nor touched.
+- **F2: the runbook must say the database check is repeated under the sync
+  lock.** Revision 3 left this to review. Now
+  `test_runbook_has_a_boot_recovery_section` checks it mechanically (G2.4).
 
-All 23 tests fail on `main`. There, `up` is a usage error, the unit and the
+No other adversarial survivor report reached this contract job. The remaining
+allowed changes are listed below. Revision 3 is summarised under "History".
+
+From reading the code, head `7ba57af` passes all 25 tests. On the previous head
+`f0460ed`, the F1 test fails: a running release without a label ends in
+`result=ok`. **No code change is expected.** Codex merges this branch unchanged
+and runs the tests. If a case fails on the head, check the case against this
+contract first. Fix the script or the runbook only where they break the
+contract. If the case itself is wrong, report it on the card. Never edit
+`tests/acceptance/`: a Codex commit that touches it fails the acceptance guard.
+
+All 25 tests fail on `main`. There, `up` is a usage error, the unit and the
 runbook section do not exist, and `deploy` and `rollback` do not check the
-database. I could not run Python in the contract sandbox (shell commands were
-denied), so these results come from reading the code, not from running it.
+database. The contract sandbox denied running Python again. These results come
+from tracing the code and the fakes, not from running them. The gate's run is
+the authority.
 
 ### Changes that stay uncaught
 
@@ -105,14 +88,32 @@ or is allowed by it:
 - **Whether a Docker error in the database phase ends `up` at once** or is
   retried until the database timeout. Both are allowed; the part is `database`
   either way.
-- **Checking `assert_layout` on a running API container too.** The selection
-  rules below pick among stopped containers. `up` never stops or restarts a
-  running one, and it only waits for its health.
+- **The wording of a refusal reason**, as long as it names the container (G1.3).
+
+Revision 3 listed "checking `assert_layout` on a running API container" here.
+It is now required (F1).
 
 If the gate reports a survivor that is not on this list, it should name it. I
 will then either pin the behaviour it changes or record it here as equivalent.
 
 ### History
+
+Revision 3 (the adversarial check failed on `f0460ed`) required:
+- the production defaults (300, 180, 180 s) and the poll interval, measured
+  on a virtual clock;
+- healthy to mean `status: ok` with the container's own revision, polled until
+  it appears;
+- the database re-check under the lock also before `verify_live`, and for a
+  database that turns `unhealthy`, not only for one that stops;
+- the database check on every deploy and rollback path (bootstrap, nothing
+  serving, no healthcheck);
+- `part=database` for Docker errors and unreadable output in that phase, and
+  `part=api` for SIGTERM in the API phase;
+- several running release containers on the port to fail with `part=api`;
+- a missing database to fail at once, and `AICADDIE_DB_CONTAINER=-db` to be a
+  configuration error;
+- the runbook to name the enable command, the unit directory, the new
+  variables' defaults and the database requirement in "Contract".
 
 Revision 2 (the adversarial check failed on `763bad1`) required:
 - each wait to use its own timeout (the other timeouts are 600 s);
@@ -304,22 +305,34 @@ Pass conditions:
    - The database container's configuration (`Config`, `HostConfig`,
      `Mounts`, image, id) is never changed. `AICADDIE_DB_CONTAINER` picks the
      name, also when a default-named container exists and is healthy.
-3. **API selection.**
-   - If a container is running and publishes the port, select it with
-     `find_current`. Its existing fail-closed rules apply: a non-release
-     container on the port, or several release containers on it, end in exit
-     1 with `part=api` and the container names in the reason.
-   - Otherwise select, among the stopped containers, the release container
-     with the latest `FinishedAt`, compared as a time (Docker trims trailing
-     zeros of the fraction; the existing `_finished_key`).
-   - The selected stopped container must:
-     - have a name with the release prefix;
-     - carry a 40-lowercase-hex `ai.caddie.source-revision` label;
-     - publish the configured port;
-     - pass `assert_layout` (exactly the configured volume at
-       `/var/lib/ai-caddie`, read-write, on the configured network).
+3. **API selection.** A *valid release* container, running or stopped:
+   - has a name that starts with the release prefix (a name that only
+     contains it, such as `drill-aicaddie-release-…`, does not);
+   - carries a 40-lowercase-hex `ai.caddie.source-revision` label (a
+     missing, short, upper-case or 41-character label fails);
+   - publishes the configured port;
+   - passes `assert_layout`: exactly one mount, the configured volume at
+     `/var/lib/ai-caddie`, read-write, on the configured network.
 
-     A newer container that fails any of these rules is skipped.
+   Selection:
+   - **Running.** If a container is running and publishes the configured
+     port, `find_current` selects it. Its existing fail-closed rules apply: a
+     non-release container on the port, or several release containers on it,
+     end in exit 1 with `part=api` and the container names in the reason.
+   - **The running container must be a valid release (F1).** If the selected
+     running container breaks any rule above, `up` fails closed at selection:
+     - exit 1 with `part=api`, and the container's name in the result line;
+     - no request to local `/api/v2/health` (its health is not checked);
+     - no `docker stop`, `start`, `restart`, `kill` or `rm` of it, so it keeps
+       running;
+     - no stopped release is started in its place.
+   - **Another port.** A running release that does not publish the
+     configured port is not the API. It is neither selected nor touched, and
+     the stopped container is picked as below.
+   - **Stopped.** When nothing runs on the port, select, among the stopped
+     containers, the valid release with the latest `FinishedAt`, compared as a
+     time (Docker trims trailing zeros of the fraction; the existing
+     `_finished_key`). A newer container that breaks any rule is skipped.
      `previous_release` without the sha exclusion is fine.
    - Name, Id or list order never decide.
    - No candidate: exit 1 with `part=api`.
@@ -400,11 +413,22 @@ Pass conditions:
      their fake `docker` about `.State.Health`.
    - Change their exact command-set assertions only as far as the new
      `inspect` of the database requires. Do not weaken anything else.
-4. `docs/operations/runbook.md` says, in the deploy "Contract" section, that
-   `deploy` and `rollback` refuse to run without a healthy
-   `AICADDIE_DB_CONTAINER`. It should also say that the check is repeated
-   under the sync lock (review-checked). The "Sandbox drill" section names
-   `AICADDIE_DB_CONTAINER` and a disposable container with a healthcheck.
+4. `docs/operations/runbook.md`:
+   - The deploy "Contract" section says that `deploy` and `rollback` refuse
+     to run without a healthy `AICADDIE_DB_CONTAINER`. The section contains
+     `AICADDIE_DB_CONTAINER` and `healthy`.
+   - **It also says that they repeat the check under the sync lock (F2).** A
+     test checks this mechanically. One paragraph of the section, meaning text
+     between blank lines with whitespace collapsed, must contain all of these:
+     - the whole words `deploy` and `rollback`, in lower case;
+     - `database` and `sync lock`, in any case;
+     - a word for the repetition: `repeat…`, `again`, `re-check…` or
+       `recheck…`, in any case.
+
+     The current paragraph ("After the sync lock is acquired, they repeat the
+     database health check …") meets this.
+   - The "Sandbox drill" section names `AICADDIE_DB_CONTAINER` and a
+     disposable container with a healthcheck.
 
 ### G3 — A systemd user unit runs `up` at boot from the installed copy; the runbook explains it
 

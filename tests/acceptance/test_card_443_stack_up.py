@@ -1,6 +1,6 @@
 """Card #443: bring the production stack back after a host reboot, database first.
 
-Contract: .agent/contracts/card-443.md (revision 3).
+Contract: .agent/contracts/card-443.md (revision 4).
 
 `ops/agenthub_deploy.py` is run as a subprocess with fake `docker` and `curl` executables first on
 PATH. It runs from the checkout, or from a standalone copy installed where the systemd unit expects
@@ -895,6 +895,61 @@ class StackUpAcceptanceTest(unittest.TestCase):
         self.assertEqual(self.running_names(), sorted([DB, LIVE_NAME, NEW_NAME]))
         self.assert_nothing_mutated_but_starts()
 
+    def test_up_refuses_a_running_api_container_that_is_not_a_valid_release(self) -> None:
+        # G1 G4
+        # The container already running on the configured port is the API only if it is a valid
+        # release: release prefix, 40-lowercase-hex revision label, the configured port, and
+        # assert_layout. Otherwise `up` fails closed at selection with part=api: no health check
+        # of it, no stop or restart of it, and no stopped release started in its place. Each case
+        # breaks exactly one rule; before the fix most of them reported result=ok.
+        name, revision = PREFIX + "5f5f5f5f", "5f" * 20
+        mount = {"Type": "volume", "Name": VOLUME, "Destination": "/var/lib/ai-caddie", "RW": True}
+        scratch = {"Type": "volume", "Name": "garmin-ai-caddie_scratch", "Destination": "/scratch", "RW": True}
+        cases = {
+            "no revision label": (name, None, None, NETWORK),
+            "short revision label": (name, "abc1234", None, NETWORK),
+            "upper-case revision label": (name, revision.upper(), None, NETWORK),
+            "41-character revision label": (name, revision + "5", None, NETWORK),
+            "name only contains the release prefix": ("drill-" + name, revision, None, NETWORK),
+            "another volume": (name, revision, [dict(mount, Name="garmin-ai-caddie_drill-private")], NETWORK),
+            "volume mounted read-only": (name, revision, [dict(mount, RW=False)], NETWORK),
+            "volume at another path": (name, revision, [dict(mount, Destination="/data")], NETWORK),
+            "an extra mount": (name, revision, [mount, scratch], NETWORK),
+            "another network": (name, revision, None, "bridge"),
+        }
+        for label, (container_name, label_value, mounts, network) in cases.items():
+            with self.subTest(label):
+                running = release(50, container_name, label_value, running=True, network=network)
+                if mounts is not None:
+                    running["Mounts"] = mounts
+                fixture = boot_fixture()
+                fixture["containers"].append(running)
+                self.write_state(fixture)
+                result = self.invoke("up", AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS=str(SHORT))
+                self.assert_up_failed(result, "api")
+                self.assertIn(container_name, self.result_line(result.stdout))
+                # The database phase completed (it started the database); nothing else was started.
+                self.assertEqual(self.started(), [DB])
+                self.assertEqual(self.state()["curl"], [], "up checked the health of a container it must refuse")
+                self.assertEqual(self.running_names(), sorted([DB, container_name]))
+                self.assert_nothing_mutated_but_starts()
+
+    def test_up_ignores_a_running_release_on_another_port(self) -> None:
+        # G1
+        # Only a container that publishes the configured port can be the running API. A valid
+        # release serving another port is neither selected nor touched; the stopped live release
+        # on the configured port is started.
+        other = PREFIX + "3a3a3a3a"
+        fixture = boot_fixture()
+        fixture["containers"].append(release(51, other, "3a" * 20, running=True, port="39777"))
+        self.write_state(fixture)
+        result = self.invoke("up", AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS="10")
+        self.assert_up_ok(result, LIVE_NAME, LIVE)
+        self.assertEqual(self.started(), [DB, LIVE_NAME])
+        self.assertEqual(self.running_names(), sorted([DB, LIVE_NAME, other]))
+        self.assert_local_health_checked()
+        self.assert_nothing_mutated_but_starts()
+
     def test_up_reports_the_part_it_was_waiting_for_when_interrupted(self) -> None:
         # G1
         # systemd stops a unit with SIGTERM. With the production timeouts (300 s for the daemon,
@@ -1211,6 +1266,15 @@ class StackUpAcceptanceTest(unittest.TestCase):
         self.assertIsNotNone(contract, "no 'Contract' section in the runbook")
         self.assertIn("AICADDIE_DB_CONTAINER", contract)
         self.assertIn("healthy", contract)
+        # One paragraph of it says that deploy and rollback repeat the database check under the
+        # sync lock.
+        paragraphs = [" ".join(p.split()) for p in re.split(r"\n[ \t]*\n", contract)]
+        self.assertTrue(
+            any(re.search(r"\bdeploy\b", p) and re.search(r"\brollback\b", p)
+                and re.search(r"(?i)\bdatabase\b", p) and re.search(r"(?i)\bsync lock\b", p)
+                and re.search(r"(?i)\b(repeat\w*|again|re-?check\w*)\b", p) for p in paragraphs),
+            "the Contract section does not say that deploy and rollback repeat the database check "
+            "under the sync lock")
         # The sandbox drill points the database check at a disposable container with a healthcheck.
         drill = markdown_section(text, "Sandbox drill")
         self.assertIsNotNone(drill, "no 'Sandbox drill' section in the runbook")
