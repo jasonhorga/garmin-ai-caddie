@@ -16,27 +16,27 @@ PR body: `ops/agenthub_deploy.py` is a pinned release file. Write
 "re-pin required: ops/agenthub_deploy.py". After the merge the console reviews the diff and
 re-pins it.
 
-## Revision 4: four surviving mutants pinned
+## Revision 4: the helpers `up` relies on are pinned from outside
 
-The adversarial gate failed on head `a86f72c`. Four mutants of `ops/agenthub_deploy.py` survived
-revision 3. They sit in the existing helpers that `up` relies on, so revision 4 pins them through
-`up`, from the outside:
+The adversarial gate on head `a86f72c` reported four surviving mutants in
+`ops/agenthub_deploy.py`. All four sit in existing helpers that `up` calls, or in its result line:
 
-| Mutant | Goal | What catches it now (all marked **(rev 4)** below) |
-|---|---|---|
-| `wait_health` stops requiring `status == ok` | G3 | `test_health_status_other_than_ok_is_not_success`: the right revision with status `booting`, `degraded` or empty is exit 1, `part=api`. It is checked for a started release and for one already running. |
-| `_finished_key` compares the fraction as an integer | G3 | `test_finished_at_fractions_of_different_length_compare_as_time`: `.5Z` is later than `.123456789Z` in the same second. |
-| `assert_layout` stops checking the mount `Destination` | G3 | `test_stopped_release_with_wrong_mount_is_skipped`: a newer release with the right volume at another destination is skipped. So is one with a second mount next to the right one. |
-| The failure result line says `detail=` instead of `reason=` | G5 | Every failed `up` run: the result line must contain `reason=<text>`. |
+| Mutant | Goal | Why revision 3 missed it | Caught now by |
+|---|---|---|---|
+| `wait_health` no longer requires `status == ok` | G3 | the fake health always said `ok` | `test_health_status_other_than_ok_is_not_healthy` |
+| `_finished_key` compares the fraction as an integer | G3 | `.1` vs no fraction orders the same either way | `test_finished_at_fractions_of_different_length_compare_as_time` |
+| `assert_layout` no longer checks the mount `Destination` | G3 | no fixture had the right volume at a wrong path | `test_stopped_release_with_wrong_mounts_is_skipped` |
+| the failure result line says `detail=` instead of `reason=` | G5 | the parser accepted a line without `reason=` | every failed run (the check is in `fields()`) |
 
-**No implementation change is expected.** Head `a86f72c` meets every revision-4 condition, from
-reading its code. If a revision-4 case fails on the head, check the case against this contract
-first. Fix `ops/agenthub_deploy.py` only where it breaks the contract. If the case itself is wrong,
-report it on the card. Never edit the tests.
+On top of the four, the mount test also has a newer release with **an extra mount** after the
+right one. Without it, dropping the `len(mounts) == 1` check in `assert_layout` would survive the
+next round in the same way.
 
-One more variant stays uncaught on purpose, because it is equivalent: comparing the fraction as a
-string. Docker trims trailing zeros, and for `.digits` strings without trailing zeros, string order
-is numeric order.
+**No implementation change is expected.** The interface is unchanged. These are conditions the
+existing helpers already meet, now stated and tested through `up`. From reading the code, head
+`a86f72c` meets every condition marked **(rev 4)**. If a revision-4 case fails on the head, check
+it against this contract first. If the case itself is wrong, report it on the card. Never edit
+the tests.
 
 ## Revision 3: acceptance hardened after the adversarial gate
 
@@ -182,10 +182,13 @@ ops/agenthub_deploy.py up
      Pick the one with the latest `FinishedAt` by the existing `_finished_key` (numeric fraction)
      that passes the existing `assert_layout`, and skip candidates that fail it. Neither the name,
      the id nor the listing order decides. Never pick a container without the release prefix.
-     - **(rev 4)** The fraction compares as time, whatever its number of digits: `.5` is later
-       than `.123456789`.
-     - **(rev 4)** `assert_layout` includes the mount: exactly one mount, the configured volume,
-       read-write, at `/var/lib/ai-caddie`.
+     - **(rev 4)** "Latest" is time order. Docker trims trailing zeros from the fraction, so
+       fractions with different digit counts compare as time: `03:00:00.5Z` is later than
+       `03:00:00.123456789Z`.
+     - **(rev 4)** `assert_layout` passes only when the container has **exactly one** mount, and
+       that mount is the configured volume at `/var/lib/ai-caddie`, read-write, with the container
+       on the configured network. The right volume at another destination fails. So does an extra
+       mount next to the right one.
      - Start it with `docker start` only after the database is `healthy`.
      - Start it only while holding `SyncLock`.
      - If the lock is not acquired in time: exit 1, `part=api`, and the API is not started.
@@ -193,9 +196,10 @@ ops/agenthub_deploy.py up
        once. Do not read health, and do not try another candidate.
      - Then run `wait_health` for that container's revision label. If it fails: exit 1, `part=api`.
        Do not remove the container afterwards.
-     - **(rev 4)** Healthy means `status == "ok"` **and** `revision` equal to the label. This holds
-       for the running and the started case alike. Any other status with the right revision is not
-       healthy: keep polling until the health timeout.
+     - **(rev 4)** `wait_health` succeeds only when the health body has `status` equal to `ok`
+       **and** `revision` equal to the container's revision label. The right revision with
+       `booting`, `degraded`, an empty status or no `status` field is not healthy. This holds for
+       a release `up` started and for one already running.
      - Never `docker run` a new container.
    - **No candidate:** exit 1, `part=api`, `container=none`. **(rev 3)** No local health read.
    - `up` runs none of these: the deployment gate, the sync contract check, the public health
@@ -240,8 +244,8 @@ agenthub-deploy: result=failed action=up part=<docker|database|api> container=<n
 
 - `reason=` comes last; everything after it is free text. All `key=value` tokens before it are
   single words.
-- **(rev 4)** A failed line always carries ` reason=` followed by non-empty text. It may not use
-  another key, such as `detail=`.
+- **(rev 4)** A failed line always has `part=` and `container=` before `reason=`. The key is
+  exactly `reason=`, not `detail=` or another name.
 - **`container` on failure:**
   - `part=docker`: `none`;
   - `part=database`: the configured database name;
@@ -353,24 +357,27 @@ order. "Quick" means the run ended within 15 s while every wait other than the o
     - no release container at all, which also gives `container=none`;
     - a running non-release container on the port;
     - **(rev 3)** two release containers running on the port.
-14. **(rev 4)** `test_finished_at_fractions_of_different_length_compare_as_time`: two stopped valid
-    releases finished in the same second, at `.5Z` and at `.123456789Z`. The earlier one has the
-    higher name and the higher id. In both listing orders:
-    - the start calls are `[db, <the .5Z release>]`;
-    - exit 0 with that container;
-    - health is read for its revision.
-15. **(rev 4)** `test_stopped_release_with_wrong_mount_is_skipped`: a valid older release, and a
-    newer one that fails the mount check. That is either the right volume mounted at
-    `/srv/elsewhere`, or the right mount plus a second one. In each case:
-    - the start calls are `[db, <valid>]`;
-    - exit 0 with `<valid>`;
-    - health is read for its revision.
-16. **(rev 4)** `test_health_status_other_than_ok_is_not_success`, with health timeout `0.5`. Local
-    health reports `SERVING`'s revision with status `booting`, `degraded` or `""`. Each case gives
-    exit 1, `part=api`, `container=SERVING`, a quick finish, and a health read of `SERVING`'s
-    revision:
-    - `SERVING` stopped (after reboot): start calls `[db, SERVING]`;
-    - `SERVING` already running with a healthy database: no start call.
+14. **(rev 4)** `test_finished_at_fractions_of_different_length_compare_as_time`: two stopped
+    releases finished in the same second, at `.123456789Z` and at `.5Z`. The later one has the
+    lower name and the higher id. In both listing orders:
+    - the start calls are exactly `[db, <the .5Z release>]`;
+    - health is read for its revision;
+    - the run exits 0 with `container=<the .5Z release>`.
+15. **(rev 4)** `test_stopped_release_with_wrong_mounts_is_skipped`: a newer stopped release
+    fails `assert_layout` and an older valid one is started instead. Two cases:
+    - the newer release has the right volume mounted at `/srv/elsewhere`;
+    - the newer release has the right mount plus a second mount after it.
+
+    In each case the start calls are exactly `[db, <the valid release>]`, the newer one stays
+    stopped, and the run exits 0 with `container=<the valid release>`.
+16. **(rev 4)** `test_health_status_other_than_ok_is_not_healthy`, with health timeout `0.5`. The
+    health body reports `SERVING`'s own revision, with status `booting`, `degraded`, `""` or no
+    `status` field. This runs for `SERVING` started from the reboot fixture (start calls
+    `[db, SERVING]`) and for `SERVING` already running (no start call). Each of the eight cases
+    gives:
+    - exit 1, `part=api`, `container=SERVING`;
+    - a quick finish;
+    - a health read that reported `SERVING`'s revision.
 
 ### G4 — A healthy stack is only read
 
@@ -385,8 +392,9 @@ order. "Quick" means the run ended within 15 s while every wait other than the o
 
 20. Every `up` run in the tests checks:
     - exactly one `result=` line with `action=up`;
+    - **(rev 4)** on a failed line: `part=` and `container=` before `reason=`, and `reason=`
+      present;
     - `part`/`container` as listed above;
-    - **(rev 4)** on failure, ` reason=` followed by text;
     - the exit code;
     - only the allowed `docker` commands;
     - no canary or traceback in the output;
@@ -412,18 +420,29 @@ order. "Quick" means the run ended within 15 s while every wait other than the o
 - On `main`, `up` is a usage error (exit 2, no `result=` line), so every test fails. The usage test
   fails on the `up` word in the usage text and the variable names.
 - Multi-case tests use `_case`, not `subTest`, so a failing case fails its test function.
-- Shell access in this sandbox was limited to `git`; running Python was refused. I checked the
-  revision-3 tests by reading them against `main` and against head `a3208f3`'s script. I checked
-  the revision-4 tests the same way, against head `a86f72c`, and also checked them against each of
-  the four mutants. The gate's run is the authority. If a case looks wrong against this contract,
-  report it on the card. Never edit the tests.
+- Shell access in this sandbox was limited to `git`; running Python was refused, again in
+  revision 4. I checked the revision-4 tests by reading them against `main` and against head
+  `a86f72c`'s script. I also traced each of the four reported mutants, and the dropped
+  `len(mounts) == 1`, through the new cases. The gate's run is the authority. If a case looks
+  wrong against this contract, report it on the card. Never edit the tests.
 
 ## Revisions
 
-- **Revision 4** (adversarial gate on `a86f72c`): see the section at the top. It adds three tests
-  (items 14–16) and a `reason=` check on every failed result line. The fake `curl` can now report
-  a status other than `ok`. The interface is unchanged. The added pass conditions are marked
-  **(rev 4)**, and the head already meets them. Items 14–18 of revision 3 are now 17–21.
+- **Revision 4** (adversarial gate on `a86f72c`): see "Revision 4" at the top. Three new tests:
+  - `test_finished_at_fractions_of_different_length_compare_as_time`;
+  - `test_stopped_release_with_wrong_mounts_is_skipped`, with a wrong destination and an extra
+    mount;
+  - `test_health_status_other_than_ok_is_not_healthy`.
+
+  Also a stricter `fields()` (a failed line needs `part=`, `container=` and `reason=`), and a
+  `health_status` scenario in the fake curl. The interface is unchanged. The added conditions are
+  marked **(rev 4)**, and the head already meets them. This revision starts from the respond job's
+  draft, with these changes:
+  - the result-line check does not pin the order of `part` and `container`;
+  - the health test also covers a body without a `status` field, and checks the start calls;
+  - the mount test adds the extra-mount case;
+  - the fraction test builds both listing orders from fresh lists, not by changing the fixture in
+    place, and also checks the start calls and the health read.
 - **Revision 3** (adversarial gate on `a3208f3`): see the section at the top. One new test
   (`test_configured_database_name_is_the_one_started`), new cases inside existing tests, and
   `_case` instead of `subTest`. The interface is unchanged. The added pass conditions are marked
