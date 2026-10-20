@@ -325,8 +325,11 @@ loginctl enable-linger
 ```
 
 The unit runs `agenthub_deploy.py up`, which waits for Docker and a healthy
-database before starting the newest stopped API release. Inspect its recovery
-journal with `journalctl --user -u aicaddie-stack-up`. It uses the production
+database before starting the newest stopped API release. Before starting a
+stopped API, it waits for the sync lock and selects the release again under
+the lock. It refuses a tie between valid stopped releases with the newest
+`FinishedAt` time. Inspect its recovery journal with
+`journalctl --user -u aicaddie-stack-up`. It uses the production
 defaults unless these environment variables are set: `AICADDIE_DB_CONTAINER`
 (database container name), `AICADDIE_DB_READY_TIMEOUT_SECONDS` (database health
 wait), and `AICADDIE_UP_DOCKER_TIMEOUT_SECONDS` (Docker daemon wait).
