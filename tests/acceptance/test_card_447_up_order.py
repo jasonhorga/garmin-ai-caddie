@@ -6,7 +6,7 @@ Docker health value that turns `healthy` a few inspects (and optionally some sec
 started, and answer `/api/v2/health` for the release container running on the port. The fake docker
 records, for every API start, whether the database was healthy and whether the sync lock was held
 at that moment. Multi-case tests use `_case`, not `subTest`, so a failing case fails the test
-function itself. Contract: .agent/contracts/card-447.md (revision 3).
+function itself. Contract: .agent/contracts/card-447.md (revision 4).
 """
 
 from __future__ import annotations
@@ -305,7 +305,7 @@ else:
         if revision in scenario.get("unhealthy", []):
             revision = "booting"
         revision = scenario.get("health_revision_override") or revision
-        body = {"status": "ok", "revision": revision}
+        body = {"status": scenario.get("health_status", "ok"), "revision": revision}
         entry["reported"] = revision
 state["curl"].append(entry)
 save(state)
@@ -485,6 +485,8 @@ class UpOrderTest(unittest.TestCase):
         head = lines[0].split(" reason=", 1)[0]
         fields = dict(re.findall(r"(\w+)=(\S+)", head))
         self.assertEqual(fields.get("action"), "up", lines[0])
+        if fields.get("result") == "failed":
+            self.assertRegex(lines[0], r" reason=\S", "a failed result line ends with reason=<text>")
         return fields
 
     def assert_ok(self, proc: subprocess.CompletedProcess, container: str) -> None:
@@ -838,6 +840,61 @@ class UpOrderTest(unittest.TestCase):
         self.assertEqual(self.start_calls(), [DB, newest])
         self.assertEqual(self.api_started(), [newest])
         self.assertIn("c" * 40, self.health_reports())
+
+    def test_finished_at_fractions_of_different_length_compare_as_time(self) -> None:
+        # G3: two stopped releases whose FinishedAt differ only in fractions of different length:
+        # .5 s is later than .123456789 s. The earlier one has the higher name and id; both listing
+        # orders are tried.
+        later = PREFIX + "11111111-production-20261019"
+        earlier = PREFIX + "22222222-production-20261019"
+        releases = [release(3, later, "1" * 40, running=False, finished="2026-10-19T03:00:00.5Z"),
+                    release(4, earlier, "2" * 40, running=False, finished="2026-10-19T03:00:00.123456789Z")]
+        for order in (1, -1):
+            with _case(f"listing order {order}"):
+                self.write_state({"containers": [database(running=False, health="healthy"),
+                                                 *releases[::order]], "images": []})
+                proc = self.up()
+                self.assert_ok(proc, later)
+                self.assertEqual(self.start_calls(), [DB, later])
+                self.assertIn("1" * 40, self.health_reports())
+
+    def test_stopped_release_with_wrong_mount_is_skipped(self) -> None:
+        # G3: a newer release with the right volume mounted at another destination, or with a second
+        # mount next to the right one, fails assert_layout and is skipped for the older valid one.
+        valid = PREFIX + "aaaaaaaa-production-20261018"
+        wrong = PREFIX + "bbbbbbbb-production-20261019"
+        moved = release(4, wrong, "b" * 40, running=False, finished="2026-10-19T03:00:00Z")
+        moved["Mounts"][0]["Destination"] = "/srv/elsewhere"
+        extra = release(4, wrong, "b" * 40, running=False, finished="2026-10-19T03:00:00Z")
+        extra["Mounts"].append({"Type": "volume", "Name": "scratch", "Destination": "/scratch", "RW": True})
+        for name, bad in (("mounted elsewhere", moved), ("second mount", extra)):
+            with _case(name):
+                self.write_state({"containers": [
+                    database(running=False, health="healthy"),
+                    release(3, valid, "a" * 40, running=False, finished="2026-10-18T03:00:00Z"),
+                    bad,
+                ], "images": []})
+                proc = self.up()
+                self.assert_ok(proc, valid)
+                self.assertEqual(self.start_calls(), [DB, valid])
+                self.assertIn("a" * 40, self.health_reports())
+
+    def test_health_status_other_than_ok_is_not_success(self) -> None:
+        # G3 G5: local health reports the right revision but a status other than `ok` -> exit 1
+        # part=api within the health timeout, for a started release and for one already running.
+        running = after_reboot()
+        running["containers"][0] = database(running=True, health="healthy")
+        running["containers"][2] = release(2, SERVING, SERVING_REV, running=True)
+        for fixture_name, fixture, start_calls in (("started", after_reboot(), [DB, SERVING]),
+                                                   ("running", running, [])):
+            for status in ("booting", "degraded", ""):
+                with _case(f"{fixture_name} release, status={status!r}"):
+                    self.write_state(fixture, health_status=status)
+                    proc, elapsed = self.timed_up(AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS="0.5")
+                    self.assertLess(elapsed, QUICK_SECONDS, "up did not stop at the health timeout")
+                    self.assert_failed(proc, "api", SERVING)
+                    self.assertEqual(self.start_calls(), start_calls)
+                    self.assertIn(SERVING_REV, self.health_reports())
 
     def test_no_api_candidate_or_foreign_port_owner_exits_1_part_api(self) -> None:
         # G3 G5: no stopped release -> exit 1 part=api container=none; a non-release container on the
