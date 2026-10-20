@@ -296,7 +296,10 @@ container. It never builds and never removes anything.
 Both `deploy` and `rollback` first require `AICADDIE_DB_CONTAINER` to exist,
 be running, and report Docker health `healthy`. They wait up to
 `AICADDIE_DB_READY_TIMEOUT_SECONDS` and refuse to stop, start, run, or remove
-any container when that check fails.
+any container when that check fails. After the sync lock is acquired, they
+repeat the database health check immediately before `deploy` switches or
+verifies the live revision, or before `rollback` stops the current container;
+the earlier check cannot authorize a switch after an image build or lock wait.
 
 A run killed with `SIGKILL` mid-switch cannot restore anything. If the new
 container is running, re-running `deploy <sha>` verifies it (and restores the

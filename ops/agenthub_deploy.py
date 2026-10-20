@@ -315,6 +315,12 @@ def wait_database(cfg: Config, *, start: bool) -> Container:
 def select_up_api(cfg: Config, containers: list[Container]) -> Container | None:
     current = find_current(cfg, containers)
     if current is not None:
+        if not SHA_PATTERN.fullmatch(current.revision):
+            raise DeployError(f"{current.name} does not carry a 40-hex revision label")
+        try:
+            assert_layout(cfg, current)
+        except DeployError as exc:
+            raise DeployError(f"{current.name} has an invalid layout: {exc}") from None
         return current
     candidates = sorted(
         (c for c in containers if c.name.startswith(cfg.prefix) and not c.running
