@@ -1955,6 +1955,25 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let preparedContainer = WatchRoundContainerView(model: preparedModel, holeGeometry: geometry, watchGreenYards: (227, 240, 251), shotLocation: fix)
         XCTAssertTrue(preparedContainer.showsRootRecommendation(preparedState, geometry: geometry))
 
+        let noGeometryOptions = [WatchCaddieOption(
+            optionId: "no-geometry", label: "标准", clubName: "3W",
+            plan: [WatchCaddiePlanStep(clubName: "3W", carryM: 0)],
+            confidence: "offline", routeOffsetBasis: .tee
+        )]
+        let noGeometryState = WatchRoundState(
+            roundId: "d02-no-geometry", hole: 4, par: 5, distanceM: 240,
+            teeLatitude: 40, teeLongitude: 116, suggestedClub: "3W", selectedClub: nil,
+            frontGreenM: 227, centerGreenM: 240, backGreenM: 251,
+            holeMap: holeMap, geometryCoverage: "ready", caddieOptions: noGeometryOptions,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let noGeometryDir = FileManager.default.temporaryDirectory.appendingPathComponent("d02-no-geometry-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: noGeometryDir) }
+        let noGeometryModel = WatchRoundModel(store: WatchRoundStore(directoryURL: noGeometryDir), now: { timestamp })
+        noGeometryModel.seedRound([noGeometryState], activeHole: 4, courseName: "测试球场")
+        let noGeometryContainer = WatchRoundContainerView(model: noGeometryModel, holeGeometry: geometry, watchGreenYards: (227, 240, 251), shotLocation: fix)
+        XCTAssertFalse(noGeometryContainer.showsRootRecommendation(noGeometryState, geometry: geometry))
+
         let planOnlyState = WatchRoundState(
             roundId: "d02-plan", hole: 4, par: 5, distanceM: 240,
             teeLatitude: 41, teeLongitude: 116, suggestedClub: "3W", selectedClub: nil,
@@ -2040,6 +2059,36 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let livePixels = try renderRoot(liveState)
         XCTAssertEqual(noPlanPixels, planOnlyPixels)
         XCTAssertNotEqual(noPlanPixels, livePixels)
+    }
+
+    @MainActor
+    func testRestingRootWithoutTopoDrawsFallbackFacts() throws {
+        let base = WatchHoleMapSample.geometry
+        let route = [CGPoint(x: 435, y: 981), CGPoint(x: 435, y: 279)]
+        let noFacts = WatchHoleMapGeometry(
+            image: nil, imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
+            layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx
+        )
+        let withFacts = WatchHoleMapGeometry(
+            image: nil, imageSize: base.imageSize, youPx: base.youPx, pinPx: base.pinPx,
+            layupPx: base.layupPx, apexPx: base.apexPx, greenCtrlPx: base.greenCtrlPx,
+            routePx: route
+        )
+
+        func render(_ geometry: WatchHoleMapGeometry) throws -> [UInt8] {
+            let view = WatchHoleMapView(
+                fullMap: false,
+                geometry: geometry,
+                interactionMode: .measure
+            ).watchSnapshotFrame(width: 198, height: 242)
+            return renderedPixelBytes(try XCTUnwrap(ImageRenderer(content: view).cgImage))
+        }
+
+        XCTAssertNotEqual(
+            try render(noFacts),
+            try render(withFacts),
+            "a bitmapless resting root must retain its fallback route facts"
+        )
     }
 
     private func renderedPixelBytes(_ image: CGImage) -> [UInt8] {
