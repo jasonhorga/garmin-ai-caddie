@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -105,22 +106,71 @@ def verdict(request_id: str, head_sha: str, apply_outcome: str, bundles: list[Pa
     return result
 
 
+def agenthub_result(
+    request_id: str,
+    head_sha: str,
+    patch: Path,
+    stage: str,
+    bundles: list[Path],
+) -> dict:
+    """Build the five-key result object consumed by agenthub's native reader."""
+    try:
+        patch_bytes = patch.read_bytes()
+    except OSError:
+        patch_bytes = b""
+    result = {
+        "request_id": request_id,
+        "head": head_sha,
+        "patch_sha256": hashlib.sha256(patch_bytes).hexdigest(),
+        "stage": stage,
+        "tests": [],
+    }
+    if stage != "tested":
+        return result
+    cases: list[dict[str, str]] = []
+    unusable = False
+    for bundle in bundles:
+        try:
+            cases.extend(read_bundle(bundle))
+        except UnusableResult:
+            unusable = True
+    ids = [case["id"] for case in cases]
+    if len(ids) != len(set(ids)):
+        raise InvalidTestResult("Duplicate Test Case identifiers")
+    if unusable:
+        result["stage"] = "build_failed"
+        return result
+    result["tests"] = cases
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--request-id", required=True)
-    parser.add_argument("--head-sha", required=True)
-    parser.add_argument("--apply-outcome", required=True, choices=("success", "failure"))
-    parser.add_argument("--ios-result", required=True, type=Path)
-    parser.add_argument("--watch-result", required=True, type=Path)
-    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--head", dest="head")
+    parser.add_argument("--head-sha", dest="head_sha")
+    parser.add_argument("--patch", type=Path)
+    parser.add_argument("--stage", choices=("tested", "apply_failed", "build_failed"))
+    parser.add_argument("--apply-outcome", choices=("success", "failure"))
+    parser.add_argument("--ios-result", type=Path)
+    parser.add_argument("--watch-result", type=Path)
+    parser.add_argument("--out", "--output", dest="output", required=True, type=Path)
     args = parser.parse_args()
+    head = args.head or args.head_sha
+    if not head:
+        parser.error("one of --head or --head-sha is required")
+    stage = args.stage
+    if stage is None:
+        if args.apply_outcome is None or args.ios_result is None or args.watch_result is None:
+            parser.error("--stage or the legacy result arguments are required")
+        stage = "apply_failed" if args.apply_outcome == "failure" else "tested"
+    patch = args.patch or Path("")
+    bundles = [path for path in (args.ios_result, args.watch_result) if path is not None]
 
     # A failed invocation must never leave a previous verdict available to upload.
     args.output.unlink(missing_ok=True)
     try:
-        result = verdict(
-            args.request_id, args.head_sha, args.apply_outcome, [args.ios_result, args.watch_result]
-        )
+        result = agenthub_result(args.request_id, head, patch, stage, bundles)
     except InvalidTestResult as exc:
         print(f"Cannot judge native tests: {exc}", file=sys.stderr)
         return 1

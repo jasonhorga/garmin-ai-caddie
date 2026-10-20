@@ -41,26 +41,47 @@ jobs:
           ref: ${{ inputs.head_sha }}
           path: native-head
           persist-credentials: false
+      - name: Validate dispatch inputs
+        id: validate
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          request_id = os.environ["REQUEST_ID"]
+          head = os.environ["HEAD_SHA"]
+          if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", request_id):
+              raise SystemExit("invalid request_id")
+          if not re.fullmatch(r"[0-9a-f]{40}", head):
+              raise SystemExit("invalid head_sha")
+          PY
       - name: Apply mutant patch
         id: apply
         continue-on-error: true
+        if: ${{ steps.validate.outcome == 'success' }}
         working-directory: native-head
         env:
           PATCH_B64: ${{ inputs.patch_b64 }}
+          PATCH_FILE: ${{ runner.temp }}/native-patch.bin
         run: |
           python3 - <<'PY'
           import base64
           import os
           import subprocess
 
+          from pathlib import Path
+
           encoded = os.environ['PATCH_B64']
-          if encoded:
-              patch = base64.b64decode(encoded, validate=True)
+          patch = base64.b64decode(encoded, validate=True) if encoded else b''
+          Path(os.environ['PATCH_FILE']).write_bytes(patch)
+          if patch:
               subprocess.run(['git', 'apply', '--whitespace=nowarn', '-'], input=patch, check=True)
           PY
       - name: Select available simulators by UDID
         id: simulators
-        if: ${{ steps.apply.outcome == 'success' }}
+        if: ${{ steps.validate.outcome == 'success' && steps.apply.outcome == 'success' }}
         run: |
           python3 - <<'PY'
           import json
@@ -92,17 +113,17 @@ jobs:
           PY
       - name: Install XcodeGen
         id: install
-        if: ${{ steps.apply.outcome == 'success' }}
+        if: ${{ steps.validate.outcome == 'success' && steps.apply.outcome == 'success' }}
         run: brew install xcodegen
       - name: Generate native project
         id: generate
-        if: ${{ steps.apply.outcome == 'success' }}
+        if: ${{ steps.validate.outcome == 'success' && steps.apply.outcome == 'success' }}
         continue-on-error: true
         working-directory: native-head
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
       - name: Test iPhone scheme
         id: ios
-        if: ${{ steps.generate.outcome == 'success' }}
+        if: ${{ steps.validate.outcome == 'success' && steps.generate.outcome == 'success' }}
         continue-on-error: true
         working-directory: native-head
         run: |
@@ -113,7 +134,7 @@ jobs:
             -resultBundlePath "$RUNNER_TEMP/native-ios.xcresult"
       - name: Test Watch scheme
         id: watch
-        if: ${{ steps.generate.outcome == 'success' }}
+        if: ${{ steps.validate.outcome == 'success' && steps.generate.outcome == 'success' }}
         continue-on-error: true
         working-directory: native-head
         run: |
@@ -124,23 +145,33 @@ jobs:
             -resultBundlePath "$RUNNER_TEMP/native-watch.xcresult"
       - name: Write native result
         id: write_result
-        if: ${{ !cancelled() && (steps.apply.outcome == 'failure' || (steps.simulators.outcome == 'success' && steps.install.outcome == 'success' && (steps.generate.outcome == 'success' || steps.generate.outcome == 'failure'))) }}
+        if: ${{ !cancelled() && steps.validate.outcome == 'success' && (steps.apply.outcome == 'failure' || (steps.simulators.outcome == 'success' && steps.install.outcome == 'success' && (steps.generate.outcome == 'success' || steps.generate.outcome == 'failure'))) }}
         env:
           REQUEST_ID: ${{ inputs.request_id }}
           HEAD_SHA: ${{ inputs.head_sha }}
           APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          GENERATE_OUTCOME: ${{ steps.generate.outcome }}
+          PATCH_FILE: ${{ runner.temp }}/native-patch.bin
         run: |
+          if [ "$APPLY_OUTCOME" = "failure" ]; then
+            STAGE=apply_failed
+          elif [ "$GENERATE_OUTCOME" = "failure" ]; then
+            STAGE=build_failed
+          else
+            STAGE=tested
+          fi
           python3 native-tools/.github/scripts/agenthub_native_result.py \
             --request-id "$REQUEST_ID" \
-            --head-sha "$HEAD_SHA" \
-            --apply-outcome "$APPLY_OUTCOME" \
+            --head "$HEAD_SHA" \
+            --patch "$PATCH_FILE" \
+            --stage "$STAGE" \
             --ios-result "$RUNNER_TEMP/native-ios.xcresult" \
             --watch-result "$RUNNER_TEMP/native-watch.xcresult" \
-            --output native-verdict/result.json
+            --out native-verdict/result.json
       - name: Upload native result
         if: ${{ !cancelled() && steps.write_result.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: agenthub-native-result
+          name: agenthub-native-${{ inputs.request_id }}
           path: native-verdict/result.json
           if-no-files-found: error
