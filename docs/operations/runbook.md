@@ -228,14 +228,15 @@ until the agenthub cutover is complete.
 ```bash
 ops/agenthub_deploy.py deploy <40-lowercase-hex-sha>
 ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
+ops/agenthub_deploy.py up
 ```
 
 | Exit | Meaning |
 |---|---|
-| `0` | Success, including an idempotent re-run for the revision already serving. |
-| `1` | Failed; the previous container serves again or was never stopped. |
-| `2` | Invalid arguments/configuration (or the sha differs from `AGENTHUB_DEPLOY_SHA`); nothing touched. |
-| `3` | Failed and the previous container could not be confirmed healthy; page a human. |
+| `0` | Success, including an idempotent re-run for the revision already serving; `up` confirms the database and API are healthy. |
+| `1` | Failed; `deploy`/`rollback` restored the previous container or left it untouched, or `up` could not bring the stack to a healthy state. |
+| `2` | Invalid arguments/configuration (or the sha differs from `AGENTHUB_DEPLOY_SHA`); nothing touched. This includes invalid `up` configuration. |
+| `3` | Failed and the previous container could not be confirmed healthy; page a human. This applies to `deploy`/`rollback`. |
 
 `deploy <sha>`:
 
@@ -292,25 +293,40 @@ exist, takes the sync lock, stops the current container, starts the target
 and waits for health. On failure it stops the target and restarts the previous
 container. It never builds and never removes anything.
 
-### Boot recovery
-
-After a host reboot, install the pinned copy of `ops/agenthub_deploy.py` at
-`~/.local/lib/aicaddie/agenthub_deploy.py` and enable the user unit
-`ops/systemd/aicaddie-stack-up.service` with `systemctl --user enable
-aicaddie-stack-up.service`. Enable user services at boot with
-`loginctl enable-linger`; inspect the recovery journal with
-`journalctl --user -u aicaddie-stack-up`. The unit runs
-`agenthub_deploy.py up`, which waits for Docker and a healthy database before
-starting the newest stopped API release. It uses the production defaults
-unless these environment variables are set: `AICADDIE_DB_CONTAINER` (database
-container name), `AICADDIE_DB_READY_TIMEOUT_SECONDS` (database health wait),
-and `AICADDIE_UP_DOCKER_TIMEOUT_SECONDS` (Docker daemon wait).
+Both `deploy` and `rollback` first require `AICADDIE_DB_CONTAINER` to exist,
+be running, and report Docker health `healthy`. They wait up to
+`AICADDIE_DB_READY_TIMEOUT_SECONDS` and refuse to stop, start, run, or remove
+any container when that check fails.
 
 A run killed with `SIGKILL` mid-switch cannot restore anything. If the new
 container is running, re-running `deploy <sha>` verifies it (and restores the
 previous release if it fails). If the kill landed between `docker stop` and
 `docker run`, nothing serves and a re-run refuses to guess; run
 `rollback <previous-sha>`, which accepts an empty port.
+
+### Boot recovery
+
+Before a host reboot, install the pinned copy of `ops/agenthub_deploy.py` at
+`~/.local/lib/aicaddie/agenthub_deploy.py` and install the unit at
+`~/.config/systemd/user/aicaddie-stack-up.service`:
+
+```bash
+mkdir -p ~/.local/lib/aicaddie ~/.config/systemd/user
+install -m 0755 ops/agenthub_deploy.py \
+  ~/.local/lib/aicaddie/agenthub_deploy.py
+install -m 0644 ops/systemd/aicaddie-stack-up.service \
+  ~/.config/systemd/user/aicaddie-stack-up.service
+systemctl --user daemon-reload
+systemctl --user enable aicaddie-stack-up.service
+loginctl enable-linger
+```
+
+The unit runs `agenthub_deploy.py up`, which waits for Docker and a healthy
+database before starting the newest stopped API release. Inspect its recovery
+journal with `journalctl --user -u aicaddie-stack-up`. It uses the production
+defaults unless these environment variables are set: `AICADDIE_DB_CONTAINER`
+(database container name), `AICADDIE_DB_READY_TIMEOUT_SECONDS` (database health
+wait), and `AICADDIE_UP_DOCKER_TIMEOUT_SECONDS` (Docker daemon wait).
 
 ### Environment
 
@@ -328,6 +344,9 @@ paths and URLs; it prints container/image names and revisions only.
 | `AICADDIE_SYNC_LOCK` | flock shared with the sync cron | `/tmp/aicaddie-sync.lock` |
 | `AICADDIE_SYNC_SCRIPT` | Absolute path of the installed sync cron script, run check-only | unset: skipped |
 | `AICADDIE_DEPLOY_PUBLIC_HEALTH_URL` | Public `/api/v2/health` URL | unset: skipped |
+| `AICADDIE_DB_CONTAINER` | Database container name used by deploy, rollback and boot recovery | `garmin-ai-caddie-db-1` |
+| `AICADDIE_DB_READY_TIMEOUT_SECONDS` | Wait for the database Docker health status to become healthy | `180` |
+| `AICADDIE_UP_DOCKER_TIMEOUT_SECONDS` | Wait for the Docker daemon during boot recovery | `300` |
 | `AICADDIE_DEPLOY_KEEP_STOPPED` | Stopped release containers kept for rollback (≥ 1) | `2` |
 | `AICADDIE_DEPLOY_DEFAULT_CPUS` | CPU limit when the current container has none | `2` |
 | `AICADDIE_DEPLOY_DEFAULT_MEMORY_BYTES` | Memory limit when the current container has none | `3221225472` (3 GiB) |
@@ -367,7 +386,9 @@ ops/agenthub_deploy.py rollback <previous-sha>
 The same script can be exercised without touching production by changing
 every host binding: a different `AICADDIE_API_PORT`, a different
 `AICADDIE_CONTAINER_PREFIX` (for example `agenthub-drill-`), a disposable
-`AICADDIE_PRIVATE_VOLUME`, `AICADDIE_DEPLOY_NETWORK=bridge`, a private
+`AICADDIE_PRIVATE_VOLUME`, `AICADDIE_DEPLOY_NETWORK=bridge`, and
+`AICADDIE_DB_CONTAINER` pointing to a disposable database container with a
+Docker healthcheck. Also use a private
 `AICADDIE_SYNC_LOCK`, no `AICADDIE_DEPLOY_PUBLIC_HEALTH_URL`, and a
 `AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE` with fixture-only settings (for example a
 SQLite `AI_CADDIE_DATABASE_URL`, `AI_CADDIE_DATA_MODE=fixture`, a
