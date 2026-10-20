@@ -6,15 +6,49 @@ cleanly, so its `on-failure` restart policy did not bring it back. The API then 
 card adds one idempotent action, `ops/agenthub_deploy.py up`, that brings the stack back in order:
 the Docker daemon, then the database, then the release container that was serving.
 
-Touches: `ops/agenthub_deploy.py`, `tests/test_agenthub_deploy.py`, `tests/acceptance/test_card_447_up_order.py`, `.agent/contracts/card-447.md`
+Touches: `ops/agenthub_deploy.py`, `tests/test_agenthub_deploy.py`, `tests/test_agenthub_up_regressions.py`, `tests/acceptance/test_card_447_up_order.py`, `.agent/contracts/card-447.md`
 
 Acceptance tests (Claude-owned; Codex must not edit `tests/acceptance/`):
-`tests/acceptance/test_card_447_up_order.py` (14 tests). Every test runs the real script as a
+`tests/acceptance/test_card_447_up_order.py` (17 tests). Every test runs the real script as a
 subprocess, with fake `docker` and `curl` executables first on `PATH`. No real containers are used.
 
 PR body: `ops/agenthub_deploy.py` is a pinned release file. Write
 "re-pin required: ops/agenthub_deploy.py". After the merge the console reviews the diff and
 re-pins it.
+
+## Revision 4: four helper mutants are now caught through `up`
+
+The adversarial gate failed on head `a86f72c`. Its report is not readable from this sandbox, but
+the card names the four surviving mutants. All four are in helpers that `up` shares with deploy and
+rollback, and the revision-3 cases did not reach them through `up`:
+
+| Mutant | Goal | What catches it now |
+|---|---|---|
+| `wait_health` no longer requires `status == "ok"` | G3 | `test_health_status_other_than_ok_with_the_right_revision_fails`: the right revision with status `booting`, `degraded`, empty or absent is exit 1, `part=api`, for a release `up` started and for one already running |
+| `_finished_key` compares the fraction as an integer | G3 | `test_finished_at_fractions_of_different_length_compare_as_time`: `.5Z` is later than `.123456789Z`, in either listing order |
+| `assert_layout` no longer checks the mount `Destination` | G3 | `test_stopped_release_with_a_wrong_mount_layout_is_skipped`: a newer release with the configured volume at another destination is skipped. The same test skips a newer release with an extra mount or with no mount (the existing "exactly one mount" rule) |
+| the failure line says `detail=` instead of `reason=` | G5 | every failing run: a `result=failed` line must contain ` reason=` followed by some text |
+
+The fake `curl` has one new scenario key, `health_status`. It sets the `status` of the health
+answer (`null`: no `status` field) and still defaults to `ok`.
+
+This revision starts from the draft posted on the card, with three changes:
+- The failure-line check no longer fixes the order of the fields or forbids `detail=`. It
+  requires ` reason=` followed by text, which is what this contract has always said.
+- The mount test adds the extra-mount and no-mount layouts.
+- The health test adds the case without a `status` field.
+
+**No implementation change is expected.** I read head `cb81713` against these conditions:
+- `wait_health` requires `status == "ok"` and the revision in the same answer;
+- `_finished_key` parses the fraction with `float`;
+- `assert_layout` requires exactly one mount of the configured volume at `/var/lib/ai-caddie`,
+  read-write;
+- every `up` failure prints `reason=<message>`, and no message is empty.
+
+The interface is unchanged. Every new pass condition below is marked **(rev 4)**. The head's
+`tests/test_agenthub_up_regressions.py` checks the same helpers directly. It is a Codex unit test
+outside the acceptance directory and may stay; the gate does not count it. If a revision-4 case
+fails on the head, report it on the card. Never edit the tests.
 
 ## Revision 3: acceptance hardened after the adversarial gate
 
@@ -70,8 +104,11 @@ Some changes stay uncaught on purpose. They behave the same in every case this c
 - Taking `SyncLock` before or after the database health wait (never before the database start).
   Holding it through the API health wait.
 - Extra read calls (`ps`, `inspect`, `image inspect`).
-- The text after `reason=`, except that a lock timeout names the "sync lock". Optional
-  `revision=`/`elapsed_s=` fields.
+- The text after `reason=`, as long as there is some **(rev 4)**, except that a lock timeout names
+  the "sync lock". Optional `revision=`/`elapsed_s=` fields.
+- **(rev 4)** Comparing the `FinishedAt` fraction as text after the dot. Docker trims trailing
+  zeros, so text order is time order except for ties, which a later card handles. Comparing the
+  whole timestamp as text is caught (`.1Z` against `Z`).
 - The poll interval of one wait, as long as each wait still runs for its own timeout.
 - Treating every database inspect error as "missing".
 - Validating the revision label of the candidates. This card leaves that out; it is a later card.
@@ -149,6 +186,9 @@ ops/agenthub_deploy.py up
    - **A release container is running on `AICADDIE_API_PORT`:** find it with the existing
      `find_current`. Start nothing. Only run the existing
      `wait_health(local_health_url, <its revision>, ...)`.
+   - **Health success (rev 4).** One health answer must have `status` exactly `ok` **and**
+     `revision` equal to the container's revision label. The right revision with any other
+     status, or with no `status` field, is not success. Neither is `ok` with another revision.
    - **`find_current` fails closed:** a non-release container is running on the port, or more than
      one release container is. The result is exit 1 with `part=api`. **(rev 3)** `up` stops there:
      it starts no release container and reads no local health.
@@ -160,6 +200,11 @@ ops/agenthub_deploy.py up
      Pick the one with the latest `FinishedAt` by the existing `_finished_key` (numeric fraction)
      that passes the existing `assert_layout`, and skip candidates that fail it. Neither the name,
      the id nor the listing order decides. Never pick a container without the release prefix.
+     - **(rev 4)** Numeric fraction means time order. Fractions of different length compare as
+       numbers: `.5Z` is later than `.123456789Z` in the same second.
+     - **(rev 4)** `assert_layout` means what it checks today: exactly one mount, of the
+       configured volume, at `/var/lib/ai-caddie`, read-write, and the configured network. A
+       wrong destination, an extra mount or no mount fails it.
      - Start it with `docker start` only after the database is `healthy`.
      - Start it only while holding `SyncLock`.
      - If the lock is not acquired in time: exit 1, `part=api`, and the API is not started.
@@ -210,7 +255,8 @@ agenthub-deploy: result=failed action=up part=<docker|database|api> container=<n
 ```
 
 - `reason=` comes last; everything after it is free text. All `key=value` tokens before it are
-  single words.
+  single words. **(rev 4)** A `result=failed` line always has ` reason=` followed by some text;
+  the field is named `reason`, not `detail` or anything else.
 - **`container` on failure:**
   - `part=docker`: `none`;
   - `part=database`: the configured database name;
@@ -322,26 +368,45 @@ order. "Quick" means the run ended within 15 s while every wait other than the o
     - no release container at all, which also gives `container=none`;
     - a running non-release container on the port;
     - **(rev 3)** two release containers running on the port.
+14. **(rev 4)** `test_health_status_other_than_ok_with_the_right_revision_fails`, with health
+    timeout `0.5`. The local health answers `SERVING`'s revision with status `booting`,
+    `degraded`, an empty string, or no `status` field. Each case gives exit 1, `part=api`,
+    `container=SERVING`, a quick finish, and a health read that reported `SERVING`'s revision:
+    - `SERVING` stopped after the reboot: start calls `[db, SERVING]`;
+    - `SERVING` already running, with a healthy database: no start call.
+15. **(rev 4)** `test_finished_at_fractions_of_different_length_compare_as_time`: two stopped
+    releases ended in the same second, at `.123456789Z` and at `.5Z`. The `.5Z` one also has the
+    lower name. In both listing orders:
+    - the start calls are `[db, <the .5Z release>]`;
+    - the run exits 0 with that container;
+    - health is read for its revision.
+16. **(rev 4)** `test_stopped_release_with_a_wrong_mount_layout_is_skipped`: a newer stopped release
+    fails `assert_layout` on its mounts. Each case starts the older valid release instead (start
+    calls `[db, valid]`, exit 0), and the newer one stays stopped:
+    - the configured volume at a destination other than `/var/lib/ai-caddie`;
+    - the right mount plus a second mount;
+    - no mount.
 
 ### G4 — A healthy stack is only read
 
-14. `test_running_and_healthy_stack_is_only_read`: no `start` call, exit 0 with
+17. `test_running_and_healthy_stack_is_only_read`: no `start` call, exit 0 with
     `container=SERVING`, health read for `SERVING`'s revision, and no state change. **(rev 3)** The
     same holds when both new timeouts are `0`, and when both are empty.
-15. Re-running `up` after test 3's recovery makes no `start` call and exits 0. The same two
+18. Re-running `up` after test 3's recovery makes no `start` call and exits 0. The same two
     containers are still running.
-16. Test 7's running-database cases do not start the database again.
+19. Test 7's running-database cases do not start the database again.
 
 ### G5 — Exit codes, the result line, and configuration errors
 
-17. Every `up` run in the tests checks:
+20. Every `up` run in the tests checks:
     - exactly one `result=` line with `action=up`;
+    - **(rev 4)** on a `result=failed` line, ` reason=` followed by some text;
     - `part`/`container` as listed above;
     - the exit code;
     - only the allowed `docker` commands;
     - no canary or traceback in the output;
     - no sync-script run and no public-URL request.
-18. `test_usage_and_configuration_errors_exit_2_without_docker`:
+21. `test_usage_and_configuration_errors_exit_2_without_docker`:
     - `up <x>` is exit 2 with a usage line that names `up`;
     - `soon`, `-1`, `-0.5` or `nan` in either new timeout is exit 2 and names the variable;
     - a bad `AICADDIE_API_PORT` is exit 2;
@@ -362,13 +427,21 @@ order. "Quick" means the run ended within 15 s while every wait other than the o
 - On `main`, `up` is a usage error (exit 2, no `result=` line), so every test fails. The usage test
   fails on the `up` word in the usage text and the variable names.
 - Multi-case tests use `_case`, not `subTest`, so a failing case fails its test function.
-- Shell access in this sandbox was limited to `git`; running Python was refused. I checked the
-  revision-3 tests by reading them against `main` and against head `a3208f3`'s script. The gate's
-  run is the authority. If a case looks wrong against this contract, report it on the card. Never
-  edit the tests.
+- Shell access in this sandbox was limited to `git`; running Python was refused, in revision 3
+  and again in revision 4. I checked the revision-3 tests by reading them against `main` and
+  against head `a3208f3`'s script. I checked the revision-4 tests against `main` (`d02d11b`, no
+  `up`) and against head `cb81713`'s script. The gate's run is the authority. If a case looks
+  wrong against this contract, report it on the card. Never edit the tests.
 
 ## Revisions
 
+- **Revision 4** (adversarial gate on `a86f72c`): see the section at the top. Three new tests
+  (`test_health_status_other_than_ok_with_the_right_revision_fails`,
+  `test_finished_at_fractions_of_different_length_compare_as_time`,
+  `test_stopped_release_with_a_wrong_mount_layout_is_skipped`). Every failed result line must
+  now carry ` reason=` and some text. The fake `curl` has one new scenario key, `health_status`.
+  The interface is unchanged. The added pass conditions are marked **(rev 4)**, and head `cb81713`
+  already meets them.
 - **Revision 3** (adversarial gate on `a3208f3`): see the section at the top. One new test
   (`test_configured_database_name_is_the_one_started`), new cases inside existing tests, and
   `_case` instead of `subTest`. The interface is unchanged. The added pass conditions are marked
