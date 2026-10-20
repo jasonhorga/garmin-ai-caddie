@@ -8,17 +8,72 @@ unit runs it at boot.
 
 Touches: `ops/agenthub_deploy.py`, `ops/systemd/aicaddie-stack-up.service`, `docs/operations/runbook.md`, `tests/test_agenthub_deploy.py`, `tests/acceptance/test_card_443_stack_up.py`, `.agent/contracts/card-443.md`
 
-Acceptance tests: `tests/acceptance/test_card_443_stack_up.py` (20 tests). They
+Acceptance tests: `tests/acceptance/test_card_443_stack_up.py` (27 tests). They
 use a fake `docker` and a fake `curl` on `PATH`, with no real containers and no
 network. Most tests run `ops/agenthub_deploy.py` as a subprocess. Two of them
 run a standalone copy of the script installed at the unit's path under a
-temporary home directory, with that home as the working directory.
+temporary home directory, with that home as the working directory. One runs the
+script's `main(["up"])` in a driver subprocess that sends itself a signal at a
+chosen moment. One reads the script's Python syntax tree.
 
 Risk: `ops/agenthub_deploy.py` is a pinned deploy file. State
 "re-pin required: ops/agenthub_deploy.py" in the PR body. After the merge, its
 release fails with `deploy pin mismatch` until the console reviews the diff and
 re-pins the hash. That is expected. The console also installs the copy and the
 unit.
+
+## Revision 3: the four mutants that survived head `f0460ed`
+
+The owner asked for acceptance coverage of the four adversarial mutants that
+survived head `f0460ed`. Revision 2 left two of these behaviours as
+"recommended, not tested", and the other two were not covered by any test. So
+each mutant could change its behaviour and every test still passed. Revision 3
+makes all four required and adds 7 tests (27 in total). The design and the
+interfaces of revisions 1 and 2 stay. Codex still does not edit
+`tests/acceptance/`, and the acceptance guard is unchanged.
+
+| Survivor category | Head `f0460ed` | Required now | Tests |
+|---|---|---|---|
+| `up` takes the sync lock to start the API | starts the API without the lock | Take the lock before an API start. Choose the container again under the lock, and hold the lock until the health wait ends. No lock when nothing needs starting | `test_up_starts_the_api_only_under_the_sync_lock_after_a_fresh_selection`, `test_up_holds_the_sync_lock_until_the_started_api_reports_its_revision`, `test_up_needs_the_sync_lock_only_to_start_the_api` |
+| A failed API `docker start` is logged | throws away the exit code without a log line | Log `docker start <api> failed (exit <n>)`, then still wait for health | `test_up_logs_a_failed_api_start_and_still_waits_for_health` |
+| Signals after the health answer, before the ok line | nothing ignores them: a SIGTERM there escapes `main()` as a traceback, exit 1 | Ignore SIGTERM, SIGINT and SIGHUP once `wait_health` has confirmed the revision | `test_up_ignores_signals_once_the_api_has_reported_its_revision` |
+| Unreachable up branches in `main()` | the `CutoverFailed`, `DeployError` and `Exception` handlers each have an `is_up` branch that hard-codes `part=api`. `up()` turns every exception into `UpFailed`, so these branches never run | Delete them. One statement writes the failed line, with the part formatted from the phase | `test_up_result_lines_are_written_once_with_the_phase_as_part`, `test_up_reports_unexpected_errors_with_the_part_of_their_phase` |
+
+No behaviour test can catch a mutant in code that never runs. The only fix is to
+delete that code. `test_up_result_lines_are_written_once_with_the_phase_as_part`
+checks this in the syntax tree. The companion behaviour test feeds `up` answers
+that cannot be read: Docker output in the database phase, and the health answer
+in the api phase. It makes sure the one remaining handler reports each of them
+with its phase. It passes on `f0460ed` and guards the deletion. For example, if
+`up()` caught only `DeployError`, the deploy handlers would then print a wrong
+line.
+
+Implementation work on `f0460ed` (everything in `ops/agenthub_deploy.py`):
+
+1. **Sync lock.** In the api phase, choose the API as now. If that container is
+   running, check its health without a lock. Otherwise run the following
+   inside `with SyncLock(cfg):`:
+   - list the containers and choose again;
+   - if the chosen container is still not running, log `starting <name>` and
+     `docker start` it;
+   - run `wait_health` before leaving the `with` block.
+2. **Failed start.** Keep `check=False` and read the return code. If it is not
+   0, log for example
+   `warning: docker start <name> failed (exit <n>); waiting for its health anyway`,
+   then wait for health as before. Do not retry the start.
+3. **Late signals.** Call `shield_signals()` as soon as `wait_health` has
+   returned true, before any further output (the lock release logs a line).
+4. **One failed line.** Delete the `if is_up:` branches of the `CutoverFailed`,
+   `DeployError` and `Exception` handlers in `main()`. Keep the `UpFailed`
+   handler's
+   `f"result=failed action=up part={exc.phase} …"` as the only failed line.
+
+From reading `f0460ed`, the 20 revision-2 tests pass with these changes. Of the
+7 new tests, 6 fail on `f0460ed` and
+`test_up_reports_unexpected_errors_with_the_part_of_their_phase` passes there.
+All 27 fail on `main`, where `up` does not exist. Shell commands were refused in
+this contract session, so no test was run. These results come from reading the
+code. The gate's run is the authority.
 
 ## Revision 2: acceptance hardened after the adversarial gate
 
@@ -129,6 +184,8 @@ timeout:
 
 - the daemon wait uses `AICADDIE_UP_DOCKER_TIMEOUT_SECONDS`;
 - the database wait uses `AICADDIE_DB_READY_TIMEOUT_SECONDS`;
+- the sync lock wait before an API start keeps
+  `AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS` (the existing `SyncLock`);
 - the local API health wait keeps `AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS`
   (the existing `wait_health`).
 
@@ -150,6 +207,8 @@ The defaults are production values; the review checks them.
 - A database that is `starting` or `unhealthy` is waited for until
   `AICADDIE_DB_READY_TIMEOUT_SECONDS` expires, because Docker's `unhealthy`
   can recover. On a database without a healthcheck, `up` may give up at once.
+- `up` reads this state with `docker inspect` (the fields above), not with
+  `docker ps` filters.
 
 ### `up` result lines (stdout, existing `log()` prefix)
 
@@ -168,17 +227,67 @@ The defaults are production values; the review checks them.
 - Once `wait_health` confirms the selected container's revision, `up` makes
   no further `docker` call. The ok line uses the database name, container and
   revision it already holds.
-- SIGTERM, SIGINT or SIGHUP (systemd stopping the unit) ends `up` with exit 1
-  and the failed line, with the part of the current phase.
+- **(rev 3)** From that same moment, `up` ignores SIGTERM, SIGINT and SIGHUP.
+  It calls the existing `shield_signals()` right after `wait_health` returns
+  true, before any further output, including the lock release line. It then
+  writes the ok line as its last line, through `log()` (`print` to
+  `sys.stdout`), and exits 0.
+- Before that moment, SIGTERM, SIGINT or SIGHUP (systemd stopping the unit)
+  ends `up` with exit 1 and the failed line, with the part of the current
+  phase.
 - No exception escapes `main()`. An unexpected one becomes the failed line
   with the part of its phase. No output contains a traceback.
+- **(rev 3)** An answer `up` cannot read is an error of the phase it arrives
+  in. This covers Docker output and the health endpoint's answer, for example
+  bytes that are not UTF-8. `up` exits 1 with that part, starts nothing more
+  and does not print the answer.
+- **(rev 3)** One statement writes the failed line. In the source, outside
+  docstrings, `result=failed action=up part=` is spelled in exactly one
+  string. That string is directly followed by the formatted phase in the same
+  f-string, as in `f"result=failed action=up part={exc.phase} …"`.
+  `result=ok action=up` is also spelled in exactly one string. No string
+  contains `part=docker`, `part=database` or `part=api`. The `CutoverFailed`,
+  `DeployError` and `Exception` handlers of `main()` serve `deploy` and
+  `rollback` only, with no `is_up` branch.
 - Every `docker start` that `up` issues is logged first as
   `starting <container-name>`.
+- **(rev 3)** If `docker start` of the API container exits non-zero, `up`
+  logs, after its `starting <api-name>` line, a line that contains
+  `docker start <api-name> failed (exit <n>)`, where `<n>` is Docker's exit
+  code. Suggested text:
+  `agenthub-deploy: warning: docker start <api-name> failed (exit <n>); waiting for its health anyway`.
+  It does not retry the start and does not stop, remove or recreate anything.
+  It still waits for the container's revision with the full
+  `AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS`: a container in Docker's restart
+  backoff can come up by itself. The run then exits 0 with the ok line, or 1
+  with `part=api`.
 - Log lines carry only names, revisions and reasons. They never contain
-  environment values, configured paths or URLs, or the script's own path.
+  environment values, configured paths or URLs, Docker or health output, or
+  the script's own path.
 
 Exit codes for `up`: `0` when the stack is healthy, `1` when it is not (the
 `part=` names which part failed), `2` on a usage or configuration error.
+
+### `up` and the sync lock (rev 3)
+
+`up` uses the existing `SyncLock`: the same flock as the sync cron
+(`AICADDIE_SYNC_LOCK`), with the timeout `AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS`
+and the existing polling. While it waits for the lock it makes no `docker` call.
+
+- The database phase never takes the lock. The database is started and waited
+  for even while a sync or a deploy holds it.
+- In the api phase, `up` chooses the API container (G1.3). If that container is
+  running, `up` takes no lock and only checks its health.
+- If it is not running, `up` takes the lock, lists the containers again and
+  chooses again under the lock. A deploy or rollback may have switched releases
+  while `up` waited. `up` starts the container it chose under the lock, and
+  only if that one is not running.
+- `up` holds the lock until `wait_health` has returned, confirmed or not. While
+  the lock is held, the sync cron skips its run, so no sync runs against a
+  booting API.
+- If the lock is not acquired within its timeout, `up` exits 1 with `part=api`
+  and a reason that contains `sync lock` (the existing `SyncLock` message
+  does). It starts no API container.
 
 ### Systemd unit `ops/systemd/aicaddie-stack-up.service`
 
@@ -204,9 +313,10 @@ The file has exactly one `ExecStart=`, and no `Environment`,
 script's production defaults are the configuration.
 
 A oneshot unit has no start timeout by default. `TimeoutStartSec`, if
-present, appears once. It is `infinity`, `0`, or at least 660 s, which is the
-sum of the default waits (300 + 180 + 180 s). It is written as `<n>`,
-`<n>s`, `<n>min` or `<n>h`.
+present, appears once. It is `infinity`, `0`, or at least 1260 s, which is
+the sum of the default waits: 300 s (daemon) + 180 s (database) + 600 s (sync
+lock, rev 3) + 180 s (API health). It is written as `<n>`, `<n>s`, `<n>min`
+or `<n>h`.
 
 ## Goals
 
@@ -278,13 +388,47 @@ Pass conditions:
      then, `up` still exits 0 with the ok line.
 7. Usage and configuration errors exit 2 without calling `docker`. The usage
    text names `up`. `AGENTHUB_DEPLOY_SHA` does not change `up`.
-
-Recommended, not tested:
-- Take the existing `SyncLock` around the API start, so `up` cannot race a
-  concurrent `deploy` or `rollback`.
-- If `docker start` of the selected API container fails, log it and still
-  wait for health, as `restore_previous` does. A container in Docker's
-  restart backoff can come up by itself.
+8. **(rev 3) Sync lock around the API start** (see "`up` and the sync lock").
+   - While a test holds the lock, `up` starts the stopped database and waits
+     until it is healthy, then waits for the lock and makes no `docker` call
+     (it is quiet for at least 1 s). Meanwhile the test starts a new release
+     on the port. When the test releases the lock, `up` starts no API
+     container, exits 0, and the ok line names the new release and its
+     revision.
+   - After `up` has started the API, the lock stays held while the API still
+     answers `booting`. The test checks this for about 2 s, with its own
+     non-blocking `flock` failing each time. Then `up` exits 0.
+   - The lock stays held while the API must be started: with
+     `AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS=0.5`, `up` exits 1 with `part=api`,
+     the result line contains `sync lock`, and only the database was started.
+   - The lock stays held, but the database is healthy and the API is running:
+     `up` exits 0 with no `docker start`, within a 20 s lock timeout.
+9. **(rev 3) Failed API start.**
+   - The API's `docker start` exits 125, and the container comes up by itself
+     and reports its revision 1 s later. `up` logs
+     `docker start <api-name> failed (exit 125)` between `starting <api-name>`
+     and the result line. It starts the API exactly once, polls health more
+     than once, and exits 0 with the ok line.
+   - The container never comes up: the same log line, then exit 1 with
+     `part=api`. With a 0.5 s health timeout this takes at least 0.5 s and
+     less than 4 s. The container stays exited, and nothing else is mutated.
+10. **(rev 3) Signals after the health answer.** A driver runs `main(["up"])`
+    in its own process. On its first non-empty stdout write after the API has
+    answered with its revision, it sends itself SIGTERM, SIGINT or SIGHUP.
+    This is checked on the boot path (database and API both started, under
+    the lock) and on the path where everything already runs. Each run exits 0.
+    The ok line is the last stdout line, no `result=failed` line appears, and
+    there is no traceback. The driver must have fired. `up` therefore writes
+    at least the ok line through `sys.stdout` after the health answer.
+11. **(rev 3) One failed line, any error.**
+    - The syntax-tree conditions under "`up` result lines" hold.
+    - `docker inspect` answers bytes that are not UTF-8 while the database
+      state is read: exit 1 with `part=database`, and no container is started.
+    - The health endpoint answers bytes that are not UTF-8, for a running API
+      and for an API that `up` started: exit 1 with `part=api`. No further
+      start happens, and the API is left running.
+    - Each of these ends in less than 4 s with its timeout at 0.5 s. No
+      output contains the answer's text or a traceback.
 
 ### G2 — `deploy` and `rollback` require a healthy database before touching containers
 
@@ -347,8 +491,9 @@ Pass conditions:
 Pass conditions:
 
 1. `up` prints no environment values, configured paths or URLs, temporary
-   directories or install paths, and no traceback. The tests put canary
-   strings in all of them and check the output of every run.
+   directories or install paths, Docker or health output, and no traceback.
+   The tests put canary strings in all of them, including the unreadable
+   answers of revision 3, and check the output of every run.
 2. The unit file and the runbook name only the `%h/.local/lib/aicaddie/`
    install path (`~/.local/lib/aicaddie/` in shell examples is the same path).
    They name no home directory, user name, host name or private data path.
@@ -362,7 +507,12 @@ Pass conditions:
   `web_v2/`, `mobile/`).
 - Do not change the other pinned files (`ops/build_sync_image.sh`,
   `ops/complete_homeserver_api_deploy.sh`, the TestFlight files).
-- Codex does not edit `tests/acceptance/`.
+- Codex does not edit `tests/acceptance/`. The acceptance guard stays as it
+  is.
+- Recommended, not tested (rev 3): add one sentence to the runbook's "Boot
+  recovery" section saying that `up` takes the sync lock before it starts the
+  API and holds it until the API's health check ends. The unit file needs no
+  change: it has no `TimeoutStartSec`.
 - In `tests/test_agenthub_deploy.py`, `running_names()` now hides every
   running container outside the release prefix. Narrow it so that it hides
   only the database container. A wrongly started foreign container must stay
