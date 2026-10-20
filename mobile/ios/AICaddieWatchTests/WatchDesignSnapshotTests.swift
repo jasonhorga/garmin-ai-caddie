@@ -2202,6 +2202,19 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertEqual(liveRoot.interactionMode, .measure)
         XCTAssertTrue(liveRoot.showCaddieRecommendation)
         XCTAssertNotNil(liveRoot.currentShotLayout)
+        let liveShot = try XCTUnwrap(liveRoot.currentShotLayout)
+        let expectedRoute = try XCTUnwrap(holeMap.route)
+        let expectedShot = try XCTUnwrap(WatchCurrentShotLayout.resolve(
+            route: expectedRoute,
+            playerImagePoint: geometry.youPx,
+            aimCarryM: recommendation.aimCarryM,
+            carryP10M: recommendation.carryP10M,
+            carryP90M: recommendation.carryP90M
+        ))
+        XCTAssertEqual(liveShot.carryP10, expectedShot.carryP10)
+        XCTAssertEqual(liveShot.carryP90, expectedShot.carryP90)
+        XCTAssertNotEqual(liveShot.carryP10, liveShot.target, "the container must preserve real p10 depth")
+        XCTAssertNotEqual(liveShot.carryP90, liveShot.target, "the container must preserve real p90 depth")
 
         let preparedRoot = preparedContainer.holeMapView(preparedState, geometry)
         XCTAssertFalse(preparedRoot.fullMap)
@@ -2393,6 +2406,48 @@ final class WatchDesignSnapshotTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(map.planLegs.count, 2)
         let withoutGeometry = WatchCaddieOptionsView(options: [option], geometry: nil, route: route)
         XCTAssertNil(withoutGeometry.optionMap(option, size: CGSize(width: 198, height: 242)))
+    }
+
+    @MainActor
+    func testCaddieInstrumentRendersTheMapAndAllPlanLegs() throws {
+        let geometry = WatchHoleMapSample.teeGeometry
+        let route = [[435.0, 981, 0], [504, 702, 200], [556, 562, 303], [506, 403, 419], [435, 279, 518.8]]
+        let option = WatchCaddieOption(optionId: "stock", label: "标准", clubName: "3W", plan: [
+            WatchCaddiePlanStep(clubName: "3W", carryM: 205),
+            WatchCaddiePlanStep(clubName: "9I", carryM: 114),
+        ], confidence: "offline", routeOffsetBasis: .tee)
+        let oneStep = WatchCaddieOption(optionId: "stock", label: "标准", clubName: "3W", plan: [
+            WatchCaddiePlanStep(clubName: "3W", carryM: 205),
+        ], confidence: "offline", routeOffsetBasis: .tee)
+        let size = CGSize(width: 198, height: 242)
+
+        func instrumentPixels(option: WatchCaddieOption, geometry: WatchHoleMapGeometry?) throws -> [UInt8] {
+            let view = WatchCaddieOptionsView(options: [option], geometry: geometry, route: route)
+                .environment(\.colorScheme, .dark)
+                .watchSnapshotFrame(width: size.width, height: size.height)
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            let image = try XCTUnwrap(renderer.cgImage)
+            XCTAssertEqual(image.width, 396)
+            XCTAssertEqual(image.height, 484)
+            // Exclude the club-chain header and strategy row: changed text cannot prove that the
+            // instrument actually renders its map or the later legs and their landing labels.
+            let mapFrame = WatchCaddieOptionsView.planRestFrame(in: size)
+                .applying(CGAffineTransform(scaleX: renderer.scale, y: renderer.scale))
+                .integral
+            let mapImage = try XCTUnwrap(image.cropping(to: mapFrame))
+            return renderedPixelBytes(mapImage)
+        }
+
+        let fullPlanPixels = try instrumentPixels(option: option, geometry: geometry)
+        XCTAssertNotEqual(
+            fullPlanPixels, try instrumentPixels(option: option, geometry: nil),
+            "the caddie instrument must render the returned map, not its placeholder"
+        )
+        XCTAssertNotEqual(
+            fullPlanPixels, try instrumentPixels(option: oneStep, geometry: geometry),
+            "the instrument's map area must include the later plan leg and label"
+        )
     }
 
     private func renderedPixelBytes(_ image: CGImage) -> [UInt8] {
