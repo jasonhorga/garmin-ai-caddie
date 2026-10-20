@@ -262,7 +262,8 @@ def list_containers() -> list[Container]:
     # Other projects' `--rm` containers can vanish between `ps` and `inspect`;
     # docker still prints the ones that exist, so a partial answer is kept.
     for _ in range(3):
-        ids = docker("ps", "-a", "--no-trunc", "--format", "{{.ID}}", capture=True).stdout.split()
+        ids = docker("ps", "-a", "--no-trunc", "--format", "{{.ID}}",
+                     capture=True, quiet=True).stdout.split()
         if not ids:
             return []
         result = docker("inspect", "--format", CONTAINER_FORMAT, *ids,
@@ -327,13 +328,21 @@ def select_up_api(cfg: Config, containers: list[Container]) -> Container | None:
          and SHA_PATTERN.fullmatch(c.revision) and c.publishes(cfg.port)),
         key=lambda c: c.finished_key, reverse=True,
     )
+    valid = []
     for candidate in candidates:
         try:
             assert_layout(cfg, candidate)
         except DeployError:
             continue
-        return candidate
-    return None
+        valid.append(candidate)
+    if not valid:
+        return None
+    newest_key = valid[0].finished_key
+    tied = [candidate for candidate in valid if candidate.finished_key == newest_key]
+    if len(tied) > 1:
+        names = ", ".join(sorted(candidate.name for candidate in tied))
+        raise DeployError(f"ambiguous stopped API candidates with the same FinishedAt: {names}")
+    return valid[0]
 
 
 def container_env(container: Container) -> list[str]:
