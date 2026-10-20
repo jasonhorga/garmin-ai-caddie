@@ -58,6 +58,9 @@ MAIN_MARKER = 'let agenthubMarker = "main"'
 MUTANT_MARKER = 'let agenthubMarker = "mutant"'
 CONTEXT = "mobile/ios/AICaddie/AgenthubContext.swift"
 CONTEXT_LINES = ("let agenthubFirst = 1", "let agenthubSecond = 2", "let agenthubThird = 3")
+# Nine lines: room for a hunk with git's default three lines of context on each side of a change.
+WIDE_CONTEXT = "mobile/ios/AICaddie/AgenthubWideContext.swift"
+WIDE_CONTEXT_LINES = tuple(f"let agenthubWide{index} = {index}" for index in range(1, 10))
 SPEC = "mobile/ios/project.yml"
 SPEC_TEXT = "name: AICaddieNative"
 BROKEN_SPEC = "card440-broken-spec"
@@ -125,6 +128,23 @@ WHITESPACE_CONTEXT_PATCH = _b64(
         f"-{CONTEXT_LINES[1]}",
         "+let agenthubSecond = 20",
         f" {CONTEXT_LINES[2]}",
+    )
+)
+# git's default three lines of context on each side of the change. The inner two on each side match the
+# head; the outermost one on each side does not. `git apply` refuses it; `git apply -C1` or `-C2`, or
+# `patch` with its default fuzz, drops the outer lines and applies it.
+STALE_OUTER_CONTEXT_PATCH = _b64(
+    _diff(
+        WIDE_CONTEXT,
+        "@@ -2,7 +2,7 @@",
+        " let agenthubWide2 = 20",
+        f" {WIDE_CONTEXT_LINES[2]}",
+        f" {WIDE_CONTEXT_LINES[3]}",
+        f"-{WIDE_CONTEXT_LINES[4]}",
+        "+let agenthubWide5 = 50",
+        f" {WIDE_CONTEXT_LINES[5]}",
+        f" {WIDE_CONTEXT_LINES[6]}",
+        " let agenthubWide8 = 80",
     )
 )
 # Applies cleanly, but the patched project spec does not generate: a build failure of the mutant.
@@ -1179,6 +1199,7 @@ class NativeMutantWorkflowTests(unittest.TestCase):
         (seed / MARKER).parent.mkdir(parents=True)
         (seed / MARKER).write_text(HEAD_MARKER + "\n", encoding="utf-8")
         (seed / CONTEXT).write_text("".join(f"{line}\n" for line in CONTEXT_LINES), encoding="utf-8")
+        (seed / WIDE_CONTEXT).write_text("".join(f"{line}\n" for line in WIDE_CONTEXT_LINES), encoding="utf-8")
         (seed / SPEC).write_text(SPEC_TEXT + "\n", encoding="utf-8")
         scripts = seed / ".github" / "scripts"
         scripts.mkdir(parents=True)
@@ -1473,13 +1494,15 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
     def test_patch_that_does_not_apply_is_reported_as_apply_failed(self) -> None:
         # G1 G3: a patch whose changed line or surrounding context does not match the head (also by
-        # whitespace alone), whose hunk counts are wrong, input that is not base64 (also one stray
-        # character in valid base64), or is not a patch: nothing is selected, installed, generated or
-        # tested, the job stays green, result.json says apply_failed with no tests.
+        # whitespace alone, or only in the outermost of three context lines), whose hunk counts are
+        # wrong, input that is not base64 (also one stray character in valid base64), or is not a patch:
+        # nothing is selected, installed, generated or tested, the job stays green, result.json says
+        # apply_failed with no tests.
         cases = {
             "stale changed line": STALE_PATCH,
             "stale surrounding context": STALE_CONTEXT_PATCH,
             "surrounding context differs only in whitespace": WHITESPACE_CONTEXT_PATCH,
+            "three lines of context, the outermost ones stale": STALE_OUTER_CONTEXT_PATCH,
             "hunk counts do not match the hunk": WRONG_COUNT_PATCH,
             "not base64": "not base64!",
             "a stray character in valid base64": STRAY_CHARACTER_PATCH,
@@ -1507,11 +1530,14 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
     def test_build_failure_is_reported_as_build_failed(self) -> None:
         # G2 G3 G4: a patched spec that does not generate, or a scheme without a usable result (no test
-        # case, no bundle, unreadable bundle, xcresulttool exiting non-zero, output that is not JSON or
-        # has no test nodes), makes the run build_failed, with a green job and result.json uploaded. A
-        # failed test in the other scheme does not turn it into `tested`. When nothing was generated, no
-        # xcodebuild test runs; otherwise both schemes run.
+        # case, no bundle, unreadable bundle, xcresulttool exiting non-zero, output that is not JSON, is
+        # JSON followed by other text, or has no test nodes), makes the run build_failed, with a green job
+        # and result.json uploaded. A failed test in the other scheme does not turn it into `tested`. When
+        # nothing was generated, no xcodebuild test runs; otherwise both schemes run.
         both = ["AICaddie", "AICaddieWatch"]
+        # A whole passing Watch tree, then a line of text: stdout is not one JSON document. A writer that
+        # reads only the first document (`raw_decode`, or up to the last `}`) takes it as passing.
+        trailing_text = json.dumps(WATCH_PASSING, indent=2) + "\nwarning: card440 text after the JSON tree"
         cases = {
             "the patched project spec does not generate": (BROKEN_SPEC_PATCH, PASSING_IOS, PASSING_WATCH, []),
             "watch ran no test": (MUTANT_PATCH, PASSING_IOS, _scheme(65, tree=WATCH_NO_TESTS), both),
@@ -1533,6 +1559,12 @@ class NativeMutantWorkflowTests(unittest.TestCase):
                 MUTANT_PATCH,
                 PASSING_IOS,
                 _scheme(65, xcresult={"raw": json.dumps({"devices": [WATCH_DEVICE]})}),
+                both,
+            ),
+            "watch printed a whole passing tree followed by text": (
+                MUTANT_PATCH,
+                PASSING_IOS,
+                _scheme(0, xcresult={"raw": trailing_text}),
                 both,
             ),
             "ios left no result bundle": (MUTANT_PATCH, _scheme(65, bundle=False), PASSING_WATCH, both),
@@ -1580,13 +1612,17 @@ class NativeMutantWorkflowTests(unittest.TestCase):
 
     def test_result_that_cannot_be_judged_uploads_no_result(self) -> None:
         # G3 G4: a Test Case whose result is not exactly Passed / Failed / Skipped / Expected Failure, in
-        # either scheme, a Test Case without any usable id, or a test id that occurs twice (across the
-        # schemes or within one, whatever the statuses), fails closed, also when the other scheme left no
-        # result: the writer exits non-zero, the job fails, no result.json is uploaded.
+        # either scheme (also by case or padding alone), a Test Case without any usable id, or a test id
+        # that occurs twice (across the schemes or within one, whatever the statuses), fails closed, also
+        # when the other scheme left no result: the writer exits non-zero, the job fails, no result.json
+        # is uploaded.
         unknown = _tree("AICaddie", IOS_CASES, ("Passed", "unknown", "Passed", "Passed", "Passed"), IOS_DEVICE)
         missing = _tree("AICaddie", IOS_CASES, ("Passed", None, "Passed", "Passed", "Passed"), IOS_DEVICE)
         mixed = _tree("AICaddie", IOS_CASES, ("Passed", "Mixed", "Passed", "Passed", "Passed"), IOS_DEVICE)
         lowercase = _tree("AICaddie", IOS_CASES, ("Passed", "passed", "Passed", "Passed", "Passed"), IOS_DEVICE)
+        # Padded results: a writer that trims them (`strip`, `lstrip`, `rstrip`) reads them as Passed.
+        leading_space = _tree("AICaddie", IOS_CASES, ("Passed", " Passed", "Passed", "Passed", "Passed"), IOS_DEVICE)
+        trailing_space = _tree("AICaddie", IOS_CASES, ("Passed", "Passed ", "Passed", "Passed", "Passed"), IOS_DEVICE)
         # The failed iOS case has neither nodeIdentifier nor name: dropping it would hide the failure.
         anonymous = _without_identifier(IOS_FAILED_ONCE, IOS_CASES[2][2], nameless=True)
         watch_unknown = _tree("AICaddieWatch", WATCH_CASES, ("Passed", "Passed", "unknown"), WATCH_DEVICE)
@@ -1599,6 +1635,8 @@ class NativeMutantWorkflowTests(unittest.TestCase):
             "missing result": (_scheme(65, tree=missing), PASSING_WATCH),
             "result Mixed": (_scheme(65, tree=mixed), PASSING_WATCH),
             "result in lower case": (_scheme(0, tree=lowercase), PASSING_WATCH),
+            "result padded with a leading space": (_scheme(0, tree=leading_space), PASSING_WATCH),
+            "result padded with a trailing space": (_scheme(0, tree=trailing_space), PASSING_WATCH),
             "a failed Test Case without nodeIdentifier or name": (_scheme(65, tree=anonymous), PASSING_WATCH),
             "unknown result in the Watch scheme": (PASSING_IOS, _scheme(65, tree=watch_unknown)),
             "unknown Watch result after the iOS scheme left no result bundle": (
