@@ -12,50 +12,38 @@ Touches: `.github/workflows/agenthub-native-mutant.yml`, `.github/scripts/agenth
 Acceptance tests: `tests/acceptance/test_card_440_native_mutant_workflow.py` (10 tests). Codex
 must not edit `tests/acceptance/`.
 
-## Revision 7: what revision 6 still let through
+## Revision 8: three cases revision 7 still let through
 
-The gate's adversarial check failed again, on head `f353a60` (revision 6). I still could not read
-the gate report. Revision 6 published a list of changes it left uncaught, and an adversary can read
-that list. Revision 7 makes most of those changes observable. It also closes other gaps I found by
-reading `f353a60`'s workflow and writer against the tests again.
+Claude's review of head `9b6ea32` (revision 7, CI green) found three changes that the revision-7
+tests still let through. Revision 8 adds four cases for them: one apply case, one build case and
+two padded results. They go into existing tests, so there are still 10 test functions.
 
 The goals, the interface and the result format are unchanged. The new pass conditions are marked
-**(rev 7)** below. They state what the head already does, so **no implementation change is
-expected**. If a new case fails on the head, check the case against this contract first. Fix the
-workflow or the writer only where they break the contract. If the case itself is wrong, report it
-on the card. Never edit the tests.
+**(rev 8)** below. They state what the head already does, so **no implementation change is
+expected**: Codex merges this branch unchanged and runs the tests. If a new case fails on the head,
+check the case against this contract first. Fix the workflow or the writer only where they break
+the contract. If the case itself is wrong, report it on the card. Never edit the tests.
 
 Now caught:
-- **Cancellation ignored:** `always()` or `!failure()` instead of `!cancelled()` on a step after the
-  tests. The replay can now cancel a run, either while the iOS scheme tests or right after the
-  writer. After a cancellation, no further step runs and nothing is uploaded.
-- **Writer from the branch tip:** checking the tools out with `ref: main`, `refs/heads/main` or
-  `${{ github.ref }}`. In the replay, `main` now has a later commit whose writer only fails. The
-  writer must come from the dispatched revision, `github.sha`.
-- **`git apply --recount`:** a patch whose hunk counts are wrong must be `apply_failed`.
-- **Lenient base64:** decoding without `validate=True`, or with `base64 --ignore-garbage`. Valid
-  base64 with one stray `*` in it must be `apply_failed`.
-- **Rewritten added lines:** `git apply --whitespace=error` (refuses the patch) or
-  `--whitespace=fix` (strips the space). A mutant whose added line ends in a space must apply and be
-  tested exactly as sent.
-- **Work after an apply failure:** dropping the `if:` of the simulator, install or generate step.
-  After an apply failure, no simulator is listed and nothing is installed, generated or built.
-- **All simulators listed:** dropping `available` from `xcrun simctl list devices available -j`.
-- **Extra xcodebuild arguments:** anything beyond `test`, `-project`, `-scheme`, `-destination`,
-  `-resultBundlePath` and `-skip-testing:AICaddieWatchUITests`. That covers build settings (for
-  example `OTHER_SWIFT_FLAGS=…`), `-parallel-testing-…`, `-test-timeouts-enabled`,
-  `-maximum-test-execution-time-allowance`, `-quiet`, and also the retry and destination options
-  that revision 6 listed one by one.
-- **Short timeouts:** a job `timeout-minutes` below 60, or a `timeout-minutes` on any step.
-- **Outermost bundle:** in the mutant tree, the Watch UI test bundle now sits inside the Watch unit
-  test bundle. Its test must keep its own bundle.
-- **Loose result matching:** `Mixed`, or `passed` in lower case, must fail closed. That rules out
-  case folding, trimming and extra statuses.
-- **Unidentifiable test dropped:** a failed Test Case with neither `nodeIdentifier` nor `name` must
-  fail closed, not be skipped.
+- **Trimmed results:** `result.strip()`, `lstrip()` or `rstrip()` before the status lookup.
+  Revision 7 ruled trimming out but had no padded case. A Test Case `result` of `" Passed"` or
+  `"Passed "` must fail closed.
+- **Loose JSON parsing:** reading only the first JSON document of xcresulttool's output, with
+  `json.JSONDecoder().raw_decode` or by cutting the output at its last `}`. A whole passing tree
+  followed by a line of text is not one JSON document. That scheme has no usable result, so the run
+  is `build_failed`.
+- **Reduced context:** `git apply -C1` or `-C2`. The existing stale-context case has one context
+  line on each side, and `-C1` and `-C2` still require that line. The new case has git's default
+  three context lines on each side, and only the outermost line on each side is stale. It must be
+  `apply_failed`. `-C0`, `-C1`, `-C2` and `patch` with its default fuzz of 2 all apply it.
 
 Some changes stay uncaught. Each one behaves the same in every run this contract defines, and on a
 real runner:
+- **(rev 8) `git apply -C3` or a larger value.** A patch made with `git diff`'s default context has
+  at most three context lines on each side, and so does every patch in this contract. With three
+  or fewer, `-C3` drops no context line, so they must all match, as by default.
+- **(rev 8) Stripping whitespace around xcresulttool's whole output before parsing it.**
+  `json.loads` already ignores it.
 - **Dropping `!cancelled() &&` from the write or the upload step.** The implicit `success()` that
   then applies also skips the step after a cancellation. On every path where the step would run, no
   earlier step has failed the job.
@@ -83,7 +71,24 @@ the behaviour it changes or record it here as equivalent.
 
 ## History
 
-Revision 6 (the gate's adversarial check failed on `f353a60`) caught:
+Revision 7 (the gate's adversarial check failed on `f353a60`) caught:
+- steps after the tests that ignore a cancellation (`always()` or `!failure()` instead of
+  `!cancelled()`);
+- the writer checked out from the tip of `main` (`ref: main`, `refs/heads/main`,
+  `${{ github.ref }}`) instead of `github.sha`;
+- `git apply --recount`;
+- lenient base64 (no `validate=True`, `base64 --ignore-garbage`);
+- rewritten added lines (`--whitespace=error`, `--whitespace=fix`);
+- work after an apply failure (simulator, install or generate step without its `if:`);
+- listing all simulators, not only the available ones;
+- extra `xcodebuild` arguments (build settings, parallel-testing, timeout, retry and destination
+  options, `-quiet`);
+- short timeouts (a job below 60 minutes, any step timeout);
+- the outermost bundle instead of the nearest;
+- loose result matching (`Mixed`, `passed` in lower case);
+- a Test Case without a usable id dropped instead of failing closed.
+
+Revision 6 (the same adversarial 0/3 on `6942203`, built on top of revision 5) caught:
 - lenient apply (`--whitespace=fix`, `--ignore-whitespace`, `--ignore-space-change`);
 - an xcresulttool exit code that is ignored;
 - JSON without `testNodes`;
@@ -186,7 +191,8 @@ The tests only check what the card and this contract ask for. The following stay
        fails the decode, even if the rest is valid **(rev 7)**. Whether line breaks are accepted
        is up to the implementation.
      - **Apply cleanly.** This means `git apply`'s default behaviour:
-       - every context line must match: no fuzz and no reduced context (`git apply -C…`, `patch`);
+       - every context line must match: no fuzz and no reduced context (`git apply -C…`, `patch`).
+         **(rev 8)** That includes the outermost of `git diff`'s three context lines on each side;
        - a context line that differs only in whitespace does not match either: no
          `--whitespace=fix`, `--ignore-whitespace` or `--ignore-space-change`;
        - the hunk counts must be right: no `--recount` **(rev 7)**;
@@ -246,6 +252,10 @@ The tests only check what the card and this contract ask for. The following stay
 - Python 3 standard library only. It reads each scheme's bundle with
   `xcrun xcresulttool get test-results tests --path <bundle>` (Xcode 16; not `--legacy`). When
   xcresulttool exits non-zero, the scheme has no usable result, even if it printed a tree.
+- **(rev 8) One JSON document.** xcresulttool's whole stdout must parse as one JSON document;
+  whitespace around it is allowed. If it holds any other text, before or after the tree (a warning
+  line, a second document), the scheme has no usable result. Parse all of stdout (`json.loads`
+  does), not only its first document (`raw_decode`) or the part up to its last `}`.
 - **Tests.** Every node with `nodeType == "Test Case"` in `testNodes`, at any depth, is one test.
   A Test Case can sit in a suite nested in another suite.
   - its `id` is `<bundle>/<nodeIdentifier>`, e.g.
@@ -259,7 +269,7 @@ The tests only check what the card and this contract ask for. The following stay
   - nodes below a Test Case (`Device`, `Test Case Run`, `Failure Message`, …) are not tests.
 - **Status mapping:** `Passed` and `Expected Failure` map to `passed`, `Failed` to `failed`, and
   `Skipped` to `skipped`. The `result` must be exactly one of these four strings: no case folding,
-  no trimming **(rev 7)**.
+  no trimming **(rev 7)**. `" Passed"` and `"Passed "` are not `Passed` **(rev 8)**.
 - **Fail closed.** The writer exits non-zero, writes no `result.json`, and so nothing is uploaded
   or judged, when:
   - any Test Case has another or missing `result`, in either scheme. This holds even when the
@@ -287,8 +297,9 @@ Extra keys are allowed. Test ids are unique.
 - `apply_failed`: the patch did not apply. `tests` is `[]`.
 - `build_failed`: the project did not generate, or some scheme has no usable result. The bundle
   may be missing, xcresulttool may have failed (a non-zero exit, even with a tree on stdout), the
-  output may not be JSON, the JSON may have no `testNodes`, or there may be no Test Case at all.
-  This holds even when the other scheme has a failed test. `tests` is unchecked.
+  output may not be JSON, it may be JSON followed by other text **(rev 8)**, the JSON may have no
+  `testNodes`, or there may be no Test Case at all. This holds even when the other scheme has a
+  failed test. `tests` is unchecked.
 - `tested`: otherwise. `tests` lists every Test Case of both schemes. A mutant is caught when one
   of them is `failed`.
 
@@ -298,12 +309,12 @@ Extra keys are allowed. Test ids are unique.
 |---|---|---|
 | baseline, all tests pass | green | `tested`, all `passed` |
 | a native test fails (exit 65) | green | `tested`, that test `failed` |
-| patch does not apply or decode (also: whitespace-only context, wrong hunk counts, a stray character in the base64) | green | `apply_failed`, nothing selected, installed, generated or built (rev 7) |
+| patch does not apply or decode (also: whitespace-only context, stale outermost context lines (rev 8), wrong hunk counts, a stray character in the base64) | green | `apply_failed`, nothing selected, installed, generated or built (rev 7) |
 | patched spec does not generate | green | `build_failed`, no xcodebuild test |
-| a scheme leaves no usable result (also next to a failed test) | green | `build_failed` |
+| a scheme leaves no usable result (also next to a failed test; also a tree followed by text, rev 8) | green | `build_failed` |
 | simulator missing (runner failure) | red | not uploaded |
 | `brew install xcodegen` fails (runner failure) | red | not uploaded |
-| unrecognised test result, a test without a usable id (rev 7), or a duplicate test id; also next to a scheme without a result | red | not uploaded |
+| unrecognised test result (also a padded one, rev 8), a test without a usable id (rev 7), or a duplicate test id; also next to a scheme without a result | red | not uploaded |
 | the run is cancelled, during the tests or after the writer (rev 7) | cancelled | not uploaded; no later step runs |
 
 ## Replay rules (how the acceptance tests run the workflow)
@@ -316,8 +327,8 @@ Linux CI has no Xcode, so the tests replay the single job offline:
   `shell: bash`), with real git, base64 and python3. `working-directory` is supported.
 - `actions/checkout` clones a throwaway origin:
   - the head under test is an older commit without the workflow and the writer, like #434's head.
-    It holds a one-line marker file, a three-line context file and a one-line
-    `mobile/ios/project.yml`;
+    It holds a one-line marker file, a three-line context file, a nine-line context file
+    **(rev 8)** and a one-line `mobile/ios/project.yml`;
   - the dispatched `main` commit (`github.sha`) holds this workflow, the writer and
     `.github/scripts`;
   - **(rev 7)** a later `main` commit, the tip of the branch, replaces the writer with one that
@@ -410,6 +421,8 @@ Linux CI has no Xcode, so the tests replay the single job offline:
     - a stale changed line;
     - stale surrounding context;
     - surrounding context that differs only by a trailing space;
+    - **(rev 8)** three context lines on each side of the change: the inner two match the head, the
+      outermost one on each side is stale;
     - **(rev 7)** hunk counts that do not match the hunk;
     - input that is not base64;
     - **(rev 7)** valid base64 with one stray `*`;
@@ -422,6 +435,7 @@ Linux CI has no Xcode, so the tests replay the single job offline:
     - a tree that is not JSON;
     - xcresulttool printed a whole passing Watch tree but exited 1;
     - the Watch output is JSON without `testNodes`;
+    - **(rev 8)** the Watch output is a whole passing tree, followed by a line of text;
     - an iOS failed test next to a Watch scheme that left no bundle.
 13. The job is red and no `result.json` is uploaded in any artifact when:
     - no iPhone 16 is available;
@@ -431,6 +445,8 @@ Linux CI has no Xcode, so the tests replay the single job offline:
     uploaded in any artifact, and the writer's step ends in `failure`, when:
     - a Test Case `result` in the iOS tree is `unknown` or missing;
     - **(rev 7)** a Test Case `result` in the iOS tree is `Mixed`, or `passed` in lower case;
+    - **(rev 8)** a Test Case `result` in the iOS tree is `" Passed"` or `"Passed "` (the rest
+      passes);
     - **(rev 7)** a failed iOS Test Case has neither `nodeIdentifier` nor `name`;
     - a Test Case `result` in the Watch tree is `unknown`, also when the iOS scheme left no bundle;
     - one test id appears in both schemes, failed in one and passed in the other;
@@ -490,21 +506,23 @@ Linux CI has no Xcode, so the tests replay the single job offline:
 - On `main`, every test fails at its first check, in the test function itself, because the
   workflow and the writer do not exist. No test is pinned, no test uses `subTest`, and no helper's
   name starts with `test`.
-- The revision-6 tests passed on head `f353a60` in CI's `backend` job.
-- I could not run the revision-7 tests in the contract sandbox: Python runs were refused again.
-  I checked every new case by reading it against `f353a60`'s workflow and writer:
-  - the tools checkout has no `ref`, so it gets `github.sha`, not the later `main` commit;
-  - every step after the tests has `!cancelled()` or an implicit `success()`;
-  - the apply step's `b64decode(…, validate=True)` and plain `git apply --whitespace=nowarn`:
-    a stray `*` fails the decode, wrong hunk counts are a corrupt patch, and a trailing space on an
-    added line is kept;
-  - the simulator, install and generate steps are guarded by `steps.apply.outcome == 'success'`;
-  - the simulator listing is `xcrun simctl list devices available -j`;
-  - the test steps pass only `test`, `-project`, `-scheme`, `-destination` and
-    `-resultBundlePath`;
-  - the job's `timeout-minutes: 60`, and no step timeout;
-  - `test_cases` keeps the nearest bundle, maps `result` by exact match, and raises on a Test Case
-    without `nodeIdentifier` or `name`.
+- The revision-7 tests passed on head `9b6ea32` in CI's `backend` job.
+- Revision 8 adds no test function. The four new cases sit in existing tests, under `_case`, so a
+  failing case fails its test function. Still 10 tests.
+- I could not run the revision-8 tests in the contract sandbox: Python runs were refused again.
+  I checked each new case by reading it against `9b6ea32`'s workflow and writer:
+  - **Padded results:** `" Passed"` and `"Passed "` are not keys of `STATUS_MAP`. `test_cases`
+    raises `InvalidTestResult`, the writer exits 1, the write step ends in `failure`, and the
+    upload is skipped.
+  - **Text after the tree:** `json.loads` on a tree followed by text raises `JSONDecodeError`
+    ("Extra data"). `read_bundle` turns that into `UnusableResult`, the iOS tree is valid, and so
+    the run is `build_failed` with a green job.
+  - **Stale outer context:** plain `git apply --whitespace=nowarn` needs all six context lines to
+    match, and the stale outer ones exist nowhere in the file, so the apply step fails. The
+    simulator, install and generate steps are skipped, and the writer reports `apply_failed`.
+    `git apply -C1` or `-C2` would apply it: git's reduce-context loop in `apply.c` drops the
+    outermost line on each side until the hunk has the requested context, and the rest of the
+    hunk then matches the head. I did not run `git apply` on this patch either.
 
-  The gate's own run is the authority. If a revision-7 case fails on that head, the case is
+  The gate's own run is the authority. If a revision-8 case fails on that head, the case is
   probably wrong, not the implementation. Report it on the card and I will fix the test.
