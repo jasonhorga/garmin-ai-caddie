@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write the native mutant verdict defined by .agent/contracts/card-440.md."""
+"""Write the native mutant result defined by .agent/contracts/card-445.md."""
 
 from __future__ import annotations
 
@@ -86,26 +86,6 @@ def read_bundle(path: Path) -> list[dict[str, str]]:
     return test_cases(tree)
 
 
-def verdict(request_id: str, head_sha: str, apply_outcome: str, bundles: list[Path]) -> dict:
-    result = {"request_id": request_id, "head_sha": head_sha, "status": "apply_failed", "tests": []}
-    if apply_outcome == "failure":
-        return result
-    cases: list[dict[str, str]] = []
-    unusable = False
-    for bundle in bundles:
-        try:
-            cases.extend(read_bundle(bundle))
-        except UnusableResult:
-            # Still inspect the other scheme: unknown statuses always fail closed.
-            unusable = True
-    ids = [case["id"] for case in cases]
-    if len(ids) != len(set(ids)):
-        raise InvalidTestResult("Duplicate Test Case identifiers")
-    result["status"] = "build_failed" if unusable else "tested"
-    result["tests"] = cases
-    return result
-
-
 def agenthub_result(
     request_id: str,
     head_sha: str,
@@ -116,8 +96,11 @@ def agenthub_result(
     """Build the five-key result object consumed by agenthub's native reader."""
     try:
         patch_bytes = patch.read_bytes()
-    except OSError:
-        patch_bytes = b""
+    except OSError as exc:
+        if stage == "apply_failed":
+            patch_bytes = b""
+        else:
+            raise InvalidTestResult("Unreadable patch") from exc
     result = {
         "request_id": request_id,
         "head": head_sha,
@@ -147,30 +130,19 @@ def agenthub_result(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--request-id", required=True)
-    parser.add_argument("--head", dest="head")
-    parser.add_argument("--head-sha", dest="head_sha")
-    parser.add_argument("--patch", type=Path)
-    parser.add_argument("--stage", choices=("tested", "apply_failed", "build_failed"))
-    parser.add_argument("--apply-outcome", choices=("success", "failure"))
-    parser.add_argument("--ios-result", type=Path)
-    parser.add_argument("--watch-result", type=Path)
+    parser.add_argument("--head", required=True)
+    parser.add_argument("--patch", required=True, type=Path)
+    parser.add_argument("--stage", required=True, choices=("tested", "apply_failed", "build_failed"))
+    parser.add_argument("--ios-result", required=True, type=Path)
+    parser.add_argument("--watch-result", required=True, type=Path)
     parser.add_argument("--out", "--output", dest="output", required=True, type=Path)
     args = parser.parse_args()
-    head = args.head or args.head_sha
-    if not head:
-        parser.error("one of --head or --head-sha is required")
-    stage = args.stage
-    if stage is None:
-        if args.apply_outcome is None or args.ios_result is None or args.watch_result is None:
-            parser.error("--stage or the legacy result arguments are required")
-        stage = "apply_failed" if args.apply_outcome == "failure" else "tested"
-    patch = args.patch or Path("")
-    bundles = [path for path in (args.ios_result, args.watch_result) if path is not None]
+    bundles = [args.ios_result, args.watch_result]
 
     # A failed invocation must never leave a previous verdict available to upload.
     args.output.unlink(missing_ok=True)
     try:
-        result = agenthub_result(args.request_id, head, patch, stage, bundles)
+        result = agenthub_result(args.request_id, args.head, args.patch, args.stage, bundles)
     except InvalidTestResult as exc:
         print(f"Cannot judge native tests: {exc}", file=sys.stderr)
         return 1
