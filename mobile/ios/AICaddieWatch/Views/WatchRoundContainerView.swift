@@ -1025,7 +1025,7 @@ public struct WatchRoundContainerView: View {
     }
 
     /// D02: the root recommendation layer (club tag + one aim line) is real and allowed.
-    private func showsRootRecommendation(_ s: WatchRoundState, geometry: WatchHoleMapGeometry) -> Bool {
+    func showsRootRecommendation(_ s: WatchRoundState, geometry: WatchHoleMapGeometry) -> Bool {
         currentShotLayout(for: s, geometry: geometry) != nil
             || (model.preparedRootCaddieLayerAvailable(at: shotLocation)
                 && preparedRootGeometry(for: s, base: geometry) != nil)
