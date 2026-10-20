@@ -36,38 +36,51 @@ class NativeResultWriterTests(unittest.TestCase):
             "id": "InnerTests/ScreenTests/testScreen()", "status": "passed",
         }])
 
-    def test_duplicate_ids_cannot_hide_conflicting_results(self) -> None:
-        with patch.object(writer, "read_bundle", side_effect=[
-            [{"id": "Tests/Suite/testCase()", "status": "passed"}],
-            [{"id": "Tests/Suite/testCase()", "status": "failed"}],
-        ]):
-            with self.assertRaises(writer.InvalidTestResult):
-                writer.verdict("request", "a" * 40, "success", [Path("ios"), Path("watch")])
-
-    def test_missing_scheme_invalidates_a_run_even_when_another_test_failed(self) -> None:
-        with patch.object(writer, "read_bundle", side_effect=[
-            writer.UnusableResult("No bundle"),
-            [{"id": "WatchTests/Suite/testCase()", "status": "failed"}],
-        ]):
-            result = writer.verdict("request", "a" * 40, "success", [Path("ios"), Path("watch")])
-        self.assertEqual(result["status"], "build_failed")
-
-    def test_missing_scheme_does_not_mask_unknown_status_in_other_scheme(self) -> None:
-        with patch.object(writer, "read_bundle", side_effect=[
-            writer.UnusableResult("No bundle"),
-            writer.InvalidTestResult("Unknown result"),
-        ]):
-            with self.assertRaises(writer.InvalidTestResult):
-                writer.verdict("request", "a" * 40, "success", [Path("ios"), Path("watch")])
-
-    def test_failed_writer_removes_a_stale_verdict(self) -> None:
+    def test_duplicate_ids_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "result.json"
-            output.write_text('{"status":"tested","tests":[]}', encoding="utf-8")
+            patch_file = Path(directory) / "patch"
+            patch_file.write_bytes(b"patch")
+            with patch.object(writer, "read_bundle", side_effect=[
+                [{"id": "Tests/Suite/testCase()", "status": "passed"}],
+                [{"id": "Tests/Suite/testCase()", "status": "failed"}],
+            ]):
+                with self.assertRaises(writer.InvalidTestResult):
+                    writer.agenthub_result("request", "a" * 40, patch_file, "tested", [Path("ios"), Path("watch")])
+
+    def test_missing_scheme_gives_build_failed_with_empty_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            patch_file = Path(directory) / "patch"
+            patch_file.write_bytes(b"patch")
+            with patch.object(writer, "read_bundle", side_effect=[
+                writer.UnusableResult("No bundle"),
+                [{"id": "WatchTests/Suite/testCase()", "status": "failed"}],
+            ]):
+                result = writer.agenthub_result("request", "a" * 40, patch_file, "tested", [Path("ios"), Path("watch")])
+        self.assertEqual(result["stage"], "build_failed")
+        self.assertEqual(result["tests"], [])
+
+    def test_unknown_status_is_not_masked_by_missing_scheme(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            patch_file = Path(directory) / "patch"
+            patch_file.write_bytes(b"patch")
+            with patch.object(writer, "read_bundle", side_effect=[
+                writer.UnusableResult("No bundle"),
+                writer.InvalidTestResult("Unknown result"),
+            ]):
+                with self.assertRaises(writer.InvalidTestResult):
+                    writer.agenthub_result("request", "a" * 40, patch_file, "tested", [Path("ios"), Path("watch")])
+
+    def test_failed_writer_removes_a_stale_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "result.json"
+            output.write_text('{"stage":"tested","tests":[]}', encoding="utf-8")
+            patch_file = root / "patch"
+            patch_file.write_bytes(b"patch")
             arguments = [
-                str(SCRIPT), "--request-id", "request", "--head-sha", "a" * 40,
-                "--apply-outcome", "success", "--ios-result", "ios", "--watch-result", "watch",
-                "--output", str(output),
+                str(SCRIPT), "--request-id", "request", "--head", "a" * 40,
+                "--patch", str(patch_file), "--stage", "tested",
+                "--ios-result", "ios", "--watch-result", "watch", "--out", str(output),
             ]
             with patch("sys.argv", arguments), patch("sys.stderr", new=io.StringIO()), patch.object(
                 writer, "read_bundle", side_effect=writer.InvalidTestResult("Unknown result")

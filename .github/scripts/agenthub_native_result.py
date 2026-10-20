@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Write the native mutant verdict defined by .agent/contracts/card-440.md."""
+"""Write the native mutant result defined by .agent/contracts/card-445.md."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -85,9 +86,29 @@ def read_bundle(path: Path) -> list[dict[str, str]]:
     return test_cases(tree)
 
 
-def verdict(request_id: str, head_sha: str, apply_outcome: str, bundles: list[Path]) -> dict:
-    result = {"request_id": request_id, "head_sha": head_sha, "status": "apply_failed", "tests": []}
-    if apply_outcome == "failure":
+def agenthub_result(
+    request_id: str,
+    head_sha: str,
+    patch: Path,
+    stage: str,
+    bundles: list[Path],
+) -> dict:
+    """Build the five-key result object consumed by agenthub's native reader."""
+    try:
+        patch_bytes = patch.read_bytes()
+    except OSError as exc:
+        if stage == "apply_failed":
+            patch_bytes = b""
+        else:
+            raise InvalidTestResult("Unreadable patch") from exc
+    result = {
+        "request_id": request_id,
+        "head": head_sha,
+        "patch_sha256": hashlib.sha256(patch_bytes).hexdigest(),
+        "stage": stage,
+        "tests": [],
+    }
+    if stage != "tested":
         return result
     cases: list[dict[str, str]] = []
     unusable = False
@@ -95,12 +116,13 @@ def verdict(request_id: str, head_sha: str, apply_outcome: str, bundles: list[Pa
         try:
             cases.extend(read_bundle(bundle))
         except UnusableResult:
-            # Still inspect the other scheme: unknown statuses always fail closed.
             unusable = True
     ids = [case["id"] for case in cases]
     if len(ids) != len(set(ids)):
         raise InvalidTestResult("Duplicate Test Case identifiers")
-    result["status"] = "build_failed" if unusable else "tested"
+    if unusable:
+        result["stage"] = "build_failed"
+        return result
     result["tests"] = cases
     return result
 
@@ -108,19 +130,19 @@ def verdict(request_id: str, head_sha: str, apply_outcome: str, bundles: list[Pa
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--request-id", required=True)
-    parser.add_argument("--head-sha", required=True)
-    parser.add_argument("--apply-outcome", required=True, choices=("success", "failure"))
+    parser.add_argument("--head", required=True)
+    parser.add_argument("--patch", required=True, type=Path)
+    parser.add_argument("--stage", required=True, choices=("tested", "apply_failed", "build_failed"))
     parser.add_argument("--ios-result", required=True, type=Path)
     parser.add_argument("--watch-result", required=True, type=Path)
-    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--out", "--output", dest="output", required=True, type=Path)
     args = parser.parse_args()
+    bundles = [args.ios_result, args.watch_result]
 
     # A failed invocation must never leave a previous verdict available to upload.
     args.output.unlink(missing_ok=True)
     try:
-        result = verdict(
-            args.request_id, args.head_sha, args.apply_outcome, [args.ios_result, args.watch_result]
-        )
+        result = agenthub_result(args.request_id, args.head, args.patch, args.stage, bundles)
     except InvalidTestResult as exc:
         print(f"Cannot judge native tests: {exc}", file=sys.stderr)
         return 1
