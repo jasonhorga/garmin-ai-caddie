@@ -1,18 +1,24 @@
 """Card #443: bring the production stack back after a host reboot, database first.
 
-Contract: .agent/contracts/card-443.md (revision 4).
+Contract: .agent/contracts/card-443.md (revision 5).
 
 `ops/agenthub_deploy.py` is run as a subprocess with fake `docker` and `curl` executables first on
 PATH. It runs from the checkout, or from a standalone copy installed where the systemd unit expects
-it, with the temporary home as working directory. The fake docker keeps a JSON model of the
-containers and records every call. It models the database's Docker health status (`starting` after
-`docker start`, then `healthy` after a few observations or after a given number of seconds), a
-`docker start` that fails, a daemon that is unreachable for a given time or goes away after its
-first answer, unreadable inspect output, and the database's state at the moment each container is
-started. A command it does not model fails. The fake curl answers the local `/api/v2/health` with
-the revision label of the container publishing the port, or with a scripted answer, and can take
-the daemon away once it has answered. One test runs the script's `__main__` on a virtual clock, so
-the production default timeouts can be measured without waiting.
+it, with the temporary home as working directory. Its stdout goes to a file. The fake docker keeps a
+JSON model of the containers and records every call. At each `docker start` it reads that file, to
+see whether the start was logged first. It models:
+- the database's Docker health status (`starting` after `docker start`, then `healthy` after a few
+  observations or after a given number of seconds);
+- a `docker start` that fails, also for a container in restart backoff that comes up by itself;
+- a daemon that is unreachable for a given time or goes away after a number of answers;
+- unreadable inspect output;
+- the database's state at the moment each container is started;
+- Docker's own error text, which names the daemon address (DOCKER_HOST), its data root and the port.
+
+A command it does not model fails. The fake curl answers the local `/api/v2/health` with the
+revision label of the container publishing the port, or with a scripted answer, and can take the
+daemon away once it has answered. One test runs the script's `__main__` on a virtual clock, so the
+production default timeouts can be measured without waiting.
 """
 
 from __future__ import annotations
@@ -53,7 +59,8 @@ OLD_NAME = PREFIX + "11111111-production-20261001"
 LIVE_NAME = PREFIX + "4c4c4c4c"
 NEW_NAME = PREFIX + NEW[:8]
 CANARIES = ("canary-install-root", "canary-lock-dir", "canary-public-route", "canary-sync-path",
-            "canary-runtime-dir", "canary-bootstrap", "canary-container-env")
+            "canary-runtime-dir", "canary-bootstrap", "canary-container-env", "canary-docker-host",
+            "canary-docker-root")
 # The only Docker commands that read. `up` may add `start`; a refused deploy or rollback may not. Any
 # other command (`network`, `exec`, `pause`, `restart`, `update`, `run`, `rm` ...) changes something.
 READ_ONLY = {"info", "version", "ps", "inspect", "image inspect"}
@@ -73,8 +80,9 @@ UNIT_VALUE_FORMS = {
 SHORT = 0.5
 WAIT_SLACK = 3.5
 LATE = 5.0
-# The production defaults of the three waits add up to 300 + 180 + 180 s.
-DEFAULT_WAITS_S = 660
+# The longest path of `up` with the production defaults: the daemon (300 s), the database (180 s),
+# the sync lock before an API start (600 s) and the API's health (180 s).
+DEFAULT_WAITS_S = 1260
 # A poll interval other than the production 2 s, for the virtual-clock run of the defaults.
 VIRTUAL_POLL = 3.0
 
@@ -111,6 +119,8 @@ FAKE_DOCKER = r'''
 import json, os, re, sys, time
 
 STATE = os.environ["FAKE_DOCKER_STATE"]
+# Like the real CLI, a refused connection names the daemon address, which DOCKER_HOST configures.
+DAEMON = os.environ.get("DOCKER_HOST", "")
 
 
 def load():
@@ -191,6 +201,14 @@ def tick(state):
     return "2026-10-19T18:%02d:%02d.5Z" % divmod(state["clock"], 60)
 
 
+def promote(state):
+    """A container in Docker's restart backoff comes up by itself once its time has come."""
+    for c in state["containers"]:
+        at = c["State"].get("RestartAtEpoch")
+        if at is not None and not c["State"]["Running"] and time.time() >= at:
+            c["State"].update(Running=True, Status="running", StartedEpoch=time.time(), RestartAtEpoch=None)
+
+
 def observe(state, c):
     """Each look at a starting database moves it towards healthy (by count or by time)."""
     if c["Name"] != "/" + state["db_name"] or not c["State"]["Running"]:
@@ -218,6 +236,17 @@ def db_snapshot(state):
             "health": (db["State"].get("Health") or {}).get("Status"), "polls": state["db_polls"]}
 
 
+def logged_first(state, name):
+    """Whether the script's stdout already says `starting <name>` once for every start of it."""
+    try:
+        with open(state.get("stdout_path") or "") as handle:
+            text = handle.read()
+    except OSError:
+        return False
+    said = re.findall(r"(?<![\w.-])starting " + re.escape(name) + r"(?![\w.-])", text)
+    return len(said) >= sum(1 for entry in state["starts"] if entry["name"] == name)
+
+
 def take_options(args, flags, valued):
     opts, rest = {}, list(args)
     while rest and rest[0].startswith("-"):
@@ -237,14 +266,17 @@ def take_options(args, flags, valued):
 def main(argv):
     state = load()
     state["calls"].append(argv)
+    promote(state)
+    left = state["scenario"].get("docker_answers_left")
+    if left is not None:
+        # The daemon answers `left` more calls, then goes away.
+        if left <= 0:
+            state["docker_down_until"] = 1e18
+        state["scenario"]["docker_answers_left"] = left - 1
     if time.time() < state["docker_down_until"]:
         state["docker_refused"] += 1
         save(state)
-        fail("Cannot connect to the Docker daemon. Is the docker daemon running?", 1)
-    if state["scenario"].get("docker_gone_after_first_answer"):
-        # The daemon answers this call, then goes away.
-        state["scenario"]["docker_gone_after_first_answer"] = False
-        state["docker_down_until"] = 1e18
+        fail("Cannot connect to the Docker daemon at " + DAEMON + ". Is the docker daemon running?", 1)
     save(state)
     command, args = (argv[0] if argv else ""), argv[1:]
     if command == "container" and args:
@@ -318,18 +350,31 @@ def main(argv):
         return 0
     if command == "start":
         opts, refs = take_options(args, set(), set())
+        scenario = state["scenario"]
+        backoff = scenario.get("start_fails_then_runs_after_s", {})
         for ref in refs:
             c = find_container(state, ref) or fail("Error: No such container: " + ref)
-            state["starts"].append({"name": c["Name"][1:], "db": db_snapshot(state)})
-            if c["Name"][1:] in state["scenario"].get("start_fails", []):
+            name = c["Name"][1:]
+            entry = {"name": name, "db": db_snapshot(state)}
+            state["starts"].append(entry)
+            entry["logged"] = logged_first(state, name)
+            if name in scenario.get("start_fails", []) or name in backoff:
+                if name in backoff and not c["State"]["Running"]:
+                    c["State"]["RestartAtEpoch"] = time.time() + backoff[name]
                 save(state)
-                fail("Error response from daemon: the container could not be started", 1)
+                # The daemon's error text names its data root, a host path.
+                volume = ((c.get("Mounts") or [{}])[0]).get("Name") or "unknown"
+                fail("Error response from daemon: error while mounting volume '" + state.get("data_root", "")
+                     + "/volumes/" + volume + "/_data': the container could not be started", 1)
             if not c["State"]["Running"]:
                 ports = [b["HostPort"] for bindings in (c["HostConfig"].get("PortBindings") or {}).values()
                          for b in bindings or []]
-                if any(running_on(state, port) for port in ports):
+                busy = [port for port in ports if running_on(state, port)]
+                if busy:
                     save(state)
-                    fail("port is already allocated", 1)
+                    fail("Error response from daemon: driver failed programming external connectivity on "
+                         "endpoint " + name + ": Bind for 127.0.0.1:" + str(busy[0])
+                         + " failed: port is already allocated", 1)
                 c["State"].update(Running=True, Status="running", StartedEpoch=time.time())
                 if c["State"].get("Health"):
                     c["State"]["Health"]["Status"] = "starting"
@@ -376,8 +421,17 @@ def save(state):
     os.replace(STATE + ".tmp", STATE)
 
 
+def promote(state):
+    """A container in Docker's restart backoff comes up by itself once its time has come."""
+    for c in state["containers"]:
+        at = c["State"].get("RestartAtEpoch")
+        if at is not None and not c["State"]["Running"] and time.time() >= at:
+            c["State"].update(Running=True, Status="running", StartedEpoch=time.time(), RestartAtEpoch=None)
+
+
 with open(STATE) as handle:
     state = json.load(handle)
+promote(state)
 state["curl"].append(sys.argv[1:])
 save(state)
 match = re.fullmatch(r"http://127\.0\.0\.1:(\d+)/api/v2/health", sys.argv[-1])
@@ -494,6 +548,7 @@ class StackUpAcceptanceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="card-443-"))
         self.addCleanup(shutil.rmtree, self.tmp)
+        self.runs = 0
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
         for name, body in (("docker", FAKE_DOCKER), ("curl", FAKE_CURL)):
@@ -516,7 +571,7 @@ class StackUpAcceptanceTest(unittest.TestCase):
         state = {"containers": [], "images": [], "calls": [], "curl": [], "starts": [], "clock": 0,
                  "db_polls": 0, "db_since": now, "db_name": db_name,
                  "docker_down_until": now + docker_down_s if docker_down_s else 0, "docker_refused": 0,
-                 "scenario": scenario}
+                 "data_root": str(self.tmp / "canary-docker-root"), "scenario": scenario}
         state.update(fixture)
         self.save_state(state)
 
@@ -543,6 +598,8 @@ class StackUpAcceptanceTest(unittest.TestCase):
             "LANG": "C.UTF-8",
             "FAKE_DOCKER_STATE": str(self.state_path),
             "XDG_RUNTIME_DIR": str(self.runtime),
+            # Docker's own error text names this address; it must never be printed.
+            "DOCKER_HOST": f"unix://{self.tmp}/canary-docker-host/docker.sock",
             "AICADDIE_API_PORT": PORT,
             "AICADDIE_SYNC_LOCK": str(self.lock),
             "AICADDIE_DEPLOY_PUBLIC_HEALTH_TIMEOUT_SECONDS": "0.3",
@@ -566,10 +623,22 @@ class StackUpAcceptanceTest(unittest.TestCase):
             # Like deploy, `up` says "the configured port" and never prints the local health URL.
             self.assertNotIn(PORT, output)
 
+    def stdout_file(self) -> Path:
+        """A fresh file for the next run's stdout. The fake docker reads it at each `start`."""
+        self.runs += 1
+        path = self.tmp / f"stdout-{self.runs}.log"
+        state = self.state()
+        state["stdout_path"] = str(path)
+        self.save_state(state)
+        return path
+
     def run_script(self, argv: list[str], *, cwd: Path = ROOT, timeout: float = 60,
                    **extra: str | None) -> subprocess.CompletedProcess:
-        result = subprocess.run(argv, cwd=cwd, env=self.env(**extra), capture_output=True, text=True,
-                                timeout=timeout)
+        out_path = self.stdout_file()
+        with open(out_path, "w") as out:
+            result = subprocess.run(argv, cwd=cwd, env=self.env(**extra), stdout=out, stderr=subprocess.PIPE,
+                                    text=True, timeout=timeout)
+        result.stdout = out_path.read_text()
         self.check_output(result.stdout + result.stderr, up=argv[-1] == "up")
         return result
 
@@ -591,8 +660,12 @@ class StackUpAcceptanceTest(unittest.TestCase):
         return result, json.loads(record.read_text())["sleeps"]
 
     def spawn(self, argv: list[str], **extra: str | None) -> subprocess.Popen:
-        proc = subprocess.Popen(argv, cwd=ROOT, env=self.env(**extra), stdout=subprocess.PIPE,
+        out_path = self.stdout_file()
+        out = open(out_path, "w")
+        self.addCleanup(out.close)
+        proc = subprocess.Popen(argv, cwd=ROOT, env=self.env(**extra), stdout=out,
                                 stderr=subprocess.PIPE, text=True)
+        proc.stdout_path = out_path
         self.addCleanup(self.reap, proc)
         return proc
 
@@ -606,7 +679,8 @@ class StackUpAcceptanceTest(unittest.TestCase):
                 pipe.close()
 
     def finish(self, proc: subprocess.Popen, *, timeout: float = 30) -> subprocess.CompletedProcess:
-        stdout, stderr = proc.communicate(timeout=timeout)
+        _, stderr = proc.communicate(timeout=timeout)
+        stdout = proc.stdout_path.read_text()
         self.check_output(stdout + stderr, up=proc.args[-1] == "up")
         return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
 
@@ -647,8 +721,11 @@ class StackUpAcceptanceTest(unittest.TestCase):
         return {key: db[key] for key in ("Id", "Image", "Config", "HostConfig", "Mounts")}
 
     def assert_nothing_mutated_but_starts(self) -> None:
-        """Every docker call was a read or a `start`."""
+        """Every docker call was a read or a `start`, and every `start` was logged first as
+        `starting <name>`."""
         self.assertLessEqual(set(self.commands()), READ_ONLY | {"start"}, self.commands())
+        for entry in self.state()["starts"]:
+            self.assertTrue(entry.get("logged"), f"docker start {entry['name']} was not logged first")
 
     def result_line(self, stdout: str) -> str:
         lines = [line for line in stdout.splitlines() if line.startswith("agenthub-deploy: result=")]
@@ -677,6 +754,21 @@ class StackUpAcceptanceTest(unittest.TestCase):
 
     def assert_local_health_checked(self) -> None:
         self.assertIn(f"http://127.0.0.1:{PORT}/api/v2/health", [call[-1] for call in self.state()["curl"]])
+
+    def wait_for_lock_wait(self, proc: subprocess.Popen, marker: str) -> None:
+        """Return once the script has made the `marker` call and then gone quiet for a second:
+        it is waiting for the sync lock the test holds."""
+        deadline = time.monotonic() + 30
+        count, quiet_since = -1, time.monotonic()
+        while time.monotonic() < deadline:
+            self.assertIsNone(proc.poll(), "the script ended instead of waiting for the sync lock")
+            calls = self.calls()
+            if len(calls) != count:
+                count, quiet_since = len(calls), time.monotonic()
+            elif any(marker in call for call in calls) and time.monotonic() - quiet_since >= 1.0:
+                return
+            time.sleep(0.05)
+        self.fail("the script never waited for the sync lock")
 
     # -- G1: up -------------------------------------------------------------
 
@@ -740,9 +832,10 @@ class StackUpAcceptanceTest(unittest.TestCase):
                 self.assertEqual(self.db_config(), before)
 
     def test_up_database_that_fails_to_start_does_not_start_api(self) -> None:
-        # G1
+        # G1 G4
         # `docker start` of the database fails, so it stays exited with the stale `healthy` from
-        # before the reboot. A stopped container is never healthy: the API is not started.
+        # before the reboot. A stopped container is never healthy: the API is not started. Docker's
+        # error text names its data root and is not printed.
         self.write_state(boot_fixture(), start_fails=[DB])
         before = self.db_config()
         result, elapsed = self.timed("up", AICADDIE_DB_READY_TIMEOUT_SECONDS=str(SHORT))
@@ -850,13 +943,14 @@ class StackUpAcceptanceTest(unittest.TestCase):
         self.assertEqual(self.running_names(), sorted([DB, LIVE_NAME]))
 
     def test_up_waits_for_the_docker_daemon(self) -> None:
-        # G1
-        # The daemon answers only after LATE seconds.
+        # G1 G4
+        # The daemon answers only after LATE seconds. Its refusals name DOCKER_HOST and are not printed.
         self.write_state(boot_fixture(), docker_down_s=LATE)
         result = self.invoke("up", AICADDIE_UP_DOCKER_TIMEOUT_SECONDS="60")
         self.assert_up_ok(result, LIVE_NAME, LIVE)
         self.assertGreaterEqual(self.state()["docker_refused"], 2, "the daemon was not retried")
         self.assertEqual(self.started(), [DB, LIVE_NAME])
+        self.assert_nothing_mutated_but_starts()
 
         self.write_state(boot_fixture(), docker_down_s=10**6)
         result, elapsed = self.timed("up", AICADDIE_UP_DOCKER_TIMEOUT_SECONDS=str(SHORT))
@@ -895,6 +989,20 @@ class StackUpAcceptanceTest(unittest.TestCase):
         self.assertGreaterEqual(elapsed, LATE)
         self.assertGreaterEqual(len(self.state()["curl"]), 2)
         self.assertEqual(self.started(), [LIVE_NAME])
+        self.assert_nothing_mutated_but_starts()
+
+    def test_up_keeps_waiting_for_an_api_whose_start_reports_an_error(self) -> None:
+        # G1 G4
+        # The API container is in Docker's restart backoff: `docker start` fails, and the container
+        # comes up by itself a second later. `up` logs the failed start and still waits for its
+        # health. Docker's error text names its data root and is not printed.
+        self.write_state(boot_fixture(db=database(running=True)), start_fails_then_runs_after_s={LIVE_NAME: 1.0})
+        result = self.invoke("up", AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS="60")
+        self.assert_up_ok(result, LIVE_NAME, LIVE)
+        self.assertEqual(self.started(), [LIVE_NAME])
+        logged = [line for line in result.stdout.splitlines()
+                  if LIVE_NAME in line and "failed" in line and "result=" not in line]
+        self.assertTrue(logged, "the failed docker start was not logged")
         self.assert_nothing_mutated_but_starts()
 
     def test_up_without_any_release_container_exits_1_after_database(self) -> None:
@@ -947,6 +1055,53 @@ class StackUpAcceptanceTest(unittest.TestCase):
         self.assert_nothing_mutated_but_starts()
         self.assert_local_health_checked()
 
+    def test_up_refuses_to_guess_between_releases_stopped_at_the_same_time(self) -> None:
+        # G1
+        # Name, Id and list order never decide. When several valid releases share the latest
+        # FinishedAt (compared as a time), `up` does not choose: part=api, each of them named,
+        # no API started.
+        same = "2026-10-19T16:52:41.75Z"
+        first, second = PREFIX + "0a0a0a0a", PREFIX + "0b0b0b0b"
+        for label, second_finished in (("same FinishedAt", same),
+                                       ("the same time written differently", "2026-10-19T16:52:41.750Z")):
+            with self.subTest(label):
+                containers = [
+                    release(1, OLD_NAME, OLD, running=False, finished="2026-10-14T09:00:00.5Z"),
+                    release(21, first, "0a" * 20, running=False, finished=same),
+                    release(22, second, "0b" * 20, running=False, finished=second_finished),
+                    database(running=False, health="healthy"),
+                ]
+                self.write_state({"containers": containers, "images": []})
+                result = self.invoke("up")
+                self.assert_up_failed(result, "api")
+                line = self.result_line(result.stdout)
+                self.assertIn(first, line)
+                self.assertIn(second, line)
+                self.assertEqual(self.started(), [DB])
+                self.assertEqual(self.running_names(), [DB])
+                self.assert_nothing_mutated_but_starts()
+
+        # Only valid releases and only the latest time count: these ties leave one clear choice.
+        decoy = release(23, PREFIX + "0c0c0c0c", "0c" * 20, running=False, finished=same)
+        decoy["Mounts"][0]["RW"] = False
+        older = "2026-10-14T09:00:00.5Z"
+        cases = {
+            "tie with a release that is not valid": [decoy],
+            "tie between older releases": [
+                release(24, PREFIX + "0d0d0d0d", "0d" * 20, running=False, finished=older),
+                release(25, PREFIX + "0e0e0e0e", "0e" * 20, running=False, finished=older),
+            ],
+        }
+        for label, others in cases.items():
+            with self.subTest(label):
+                containers = others + [release(21, first, "0a" * 20, running=False, finished=same),
+                                       database(running=False, health="healthy")]
+                self.write_state({"containers": containers, "images": []})
+                result = self.invoke("up")
+                self.assert_up_ok(result, first, "0a" * 20)
+                self.assertEqual(self.started(), [DB, first])
+                self.assert_nothing_mutated_but_starts()
+
     def test_up_refuses_an_ambiguous_api_port(self) -> None:
         # G1
         # A foreign container on the port. The part is the phase (API selection), whatever words
@@ -973,6 +1128,112 @@ class StackUpAcceptanceTest(unittest.TestCase):
         self.assertIn(NEW_NAME, line)
         self.assertEqual(self.started(), [DB])
         self.assertEqual(self.running_names(), sorted([DB, LIVE_NAME, NEW_NAME]))
+        self.assert_nothing_mutated_but_starts()
+
+    def test_up_refuses_a_running_api_that_is_not_a_valid_release(self) -> None:
+        # G1
+        # A running release container on the port must be a valid release, like a stopped one: a
+        # 40-hex revision label and the configured layout. Otherwise part=api with its name, and it
+        # keeps running.
+        def live(**changes) -> dict:
+            return release(2, LIVE_NAME, changes.pop("revision", LIVE), running=True, **changes)
+
+        read_only, elsewhere, two_mounts = live(), live(), live()
+        read_only["Mounts"][0]["RW"] = False
+        elsewhere["Mounts"][0]["Destination"] = "/data"
+        two_mounts["Mounts"].append({"Type": "volume", "Name": "garmin-ai-caddie_drill-cache",
+                                     "Destination": "/cache", "RW": True})
+        cases = {
+            "no revision label": live(revision=None),
+            "short revision label": live(revision="abc1234"),
+            "read-only volume": read_only,
+            "volume at another path": elsewhere,
+            "a second mount": two_mounts,
+            "another volume": live(volume="garmin-ai-caddie_drill-private"),
+            "another network": live(network="bridge"),
+        }
+        for label, api in cases.items():
+            with self.subTest(label):
+                fixture = boot_fixture(db=database(running=True))
+                fixture["containers"] = [api if c["Name"] == "/" + LIVE_NAME else c for c in fixture["containers"]]
+                self.write_state(fixture)
+                result = self.invoke("up", AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS=str(SHORT))
+                self.assert_up_failed(result, "api")
+                self.assertIn(LIVE_NAME, self.result_line(result.stdout))
+                self.assertEqual(self.started(), [])
+                self.assertEqual(self.running_names(), sorted([DB, LIVE_NAME]))
+                self.assert_nothing_mutated_but_starts()
+
+    def test_up_starts_a_stopped_api_only_under_the_sync_lock(self) -> None:
+        # G1
+        # While a sync, deploy or rollback holds the lock, `up` starts the database but waits before
+        # it starts the API. Under the lock it selects again: a release that serves by then is the
+        # one it checks, and it starts nothing more.
+        for label in ("lock released", "a deploy finished meanwhile", "SIGTERM"):
+            with self.subTest(label):
+                self.write_state(boot_fixture())
+                with open(self.lock, "a") as lock:
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                    try:
+                        proc = self.spawn([sys.executable, str(SCRIPT), "up"],
+                                          AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS="60",
+                                          AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS="5")
+                        self.wait_for_lock_wait(proc, "start")
+                        self.assertEqual(self.started(), [DB])
+                        self.assertEqual(self.container(DB)["State"]["Health"]["Status"], "healthy")
+                        self.assertFalse(self.container(LIVE_NAME)["State"]["Running"])
+                        if label == "a deploy finished meanwhile":
+                            state = self.state()
+                            state["containers"].append(release(5, NEW_NAME, NEW, running=True))
+                            self.save_state(state)
+                        elif label == "SIGTERM":
+                            proc.send_signal(signal.SIGTERM)
+                            proc.wait(timeout=30)
+                    finally:
+                        fcntl.flock(lock, fcntl.LOCK_UN)
+                result = self.finish(proc, timeout=60)
+                if label == "lock released":
+                    self.assert_up_ok(result, LIVE_NAME, LIVE)
+                    self.assertEqual(self.started(), [DB, LIVE_NAME])
+                elif label == "a deploy finished meanwhile":
+                    self.assert_up_ok(result, NEW_NAME, NEW)
+                    self.assertEqual(self.started(), [DB])
+                    self.assertEqual(self.running_names(), sorted([DB, NEW_NAME]))
+                else:
+                    self.assert_up_failed(result, "api")
+                    self.assertEqual(self.started(), [DB])
+                    self.assertFalse(self.container(LIVE_NAME)["State"]["Running"])
+                self.assert_nothing_mutated_but_starts()
+
+        # The lock stays busy beyond AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS: part=api, API not started.
+        with self.subTest("lock not acquired in time"):
+            self.write_state(boot_fixture())
+            with open(self.lock, "a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                try:
+                    result = self.invoke("up", AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS=str(SHORT))
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+            self.assert_up_failed(result, "api")
+            self.assertEqual(self.started(), [DB])
+            self.assertFalse(self.container(LIVE_NAME)["State"]["Running"])
+            self.assert_nothing_mutated_but_starts()
+
+    def test_up_does_not_wait_for_the_sync_lock_when_the_api_runs(self) -> None:
+        # G1
+        # A sync can hold the lock for a long time while the API serves. Starting the database and
+        # checking a running API need no lock.
+        self.write_state(boot_fixture(db=database(running=False, health="unhealthy"), api_running=True))
+        with open(self.lock, "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                result, elapsed = self.timed("up", AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS="30")
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+        self.assert_up_ok(result, LIVE_NAME, LIVE)
+        self.assertLess(elapsed, WAIT_SLACK)
+        self.assertEqual(self.started(), [DB])
+        self.assert_local_health_checked()
         self.assert_nothing_mutated_but_starts()
 
     def test_up_reports_the_part_it_was_waiting_for_when_interrupted(self) -> None:
@@ -1041,8 +1302,10 @@ class StackUpAcceptanceTest(unittest.TestCase):
         # G1 G4
         # Once the daemon has answered, the phase is `database` until the database is healthy:
         # Docker errors and unexpected exceptions there give part=database, without a traceback.
+        # The daemon's refusals name DOCKER_HOST and are not printed, whichever call gets them.
         cases = {
-            "daemon gone after its first answer": {"docker_gone_after_first_answer": True},
+            "daemon gone after its first answer": {"docker_answers_left": 1},
+            "daemon gone after two answers": {"docker_answers_left": 2},
             "unreadable inspect output": {"garble_inspect": True},
         }
         for label, scenario in cases.items():
@@ -1058,7 +1321,7 @@ class StackUpAcceptanceTest(unittest.TestCase):
         # G1
         # The three timeouts are left at their production defaults (300, 180 and 180 s) on a
         # virtual clock. Each failing wait sleeps the poll interval between attempts and lasts at
-        # least its default, at most one poll interval longer.
+        # least its default, and less than one poll interval longer.
         cases = (
             ("docker", 300, boot_fixture(), {"docker_down_s": 10**6}),
             ("database", 180, boot_fixture(db=database(running=True, health="starting")),
@@ -1074,7 +1337,7 @@ class StackUpAcceptanceTest(unittest.TestCase):
                 self.assert_up_failed(result, part)
                 self.assertTrue(sleeps, "up never slept between attempts")
                 self.assertGreaterEqual(sum(sleeps), default)
-                self.assertLessEqual(sum(sleeps), default + VIRTUAL_POLL)
+                self.assertLess(sum(sleeps), default + VIRTUAL_POLL)
                 self.assertEqual(sleeps[:-1], [VIRTUAL_POLL] * (len(sleeps) - 1),
                                  "a wait did not poll at AICADDIE_DEPLOY_POLL_SECONDS")
                 self.assertLessEqual(sleeps[-1], VIRTUAL_POLL)
@@ -1147,6 +1410,15 @@ class StackUpAcceptanceTest(unittest.TestCase):
                 result = self.invoke("deploy", NEW, AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3", **extra)
                 self.assert_untouched_refusal(result, {OLD: OLD_NAME, NEW: NEW_NAME}.get(live))
 
+        # The database is checked before the long image build: a revision that is not built yet is
+        # refused for the database, without any `docker build`.
+        with self.subTest("images not built yet, database stopped"):
+            fixture = self.deploy_fixture([database(running=False, health="healthy")])
+            fixture["images"] = [i for i in fixture["images"] if not any(NEW in tag for tag in i["RepoTags"])]
+            self.write_state(fixture, db_never_healthy=True)
+            result = self.invoke("deploy", NEW, AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3")
+            self.assert_untouched_refusal(result, OLD_NAME)
+
         # With a healthy database the same deploy passes both checks and begins the switch: it
         # stops the current container. The fake docker cannot create containers, so `docker run`
         # fails and the previous container is restored.
@@ -1163,15 +1435,19 @@ class StackUpAcceptanceTest(unittest.TestCase):
     def test_rollback_refuses_until_the_database_is_healthy(self) -> None:
         # G2
         cases = (
-            ("database stopped", database(running=False, health="healthy"), NEW),
-            ("database running unhealthy", database(running=True, health="unhealthy"), NEW),
-            ("nothing serving, database stopped", database(running=False, health="healthy"), None),
-            ("revision already serving, database stopped", database(running=False, health="healthy"), OLD),
+            ("database stopped", database(running=False, health="healthy"), NEW, OLD),
+            ("database running unhealthy", database(running=True, health="unhealthy"), NEW, OLD),
+            ("nothing serving, database stopped", database(running=False, health="healthy"), None, OLD),
+            ("revision already serving, database stopped", database(running=False, health="healthy"), OLD, OLD),
+            # The database check comes first: a rollback that would also be refused for its target
+            # (no stopped release of that revision) is refused for the database.
+            ("no stopped release of the revision, database stopped", database(running=False, health="healthy"),
+             NEW, "3c" * 20),
         )
-        for label, db, live in cases:
+        for label, db, live, target in cases:
             with self.subTest(label):
                 self.write_state(self.deploy_fixture([db], live=live), db_never_healthy=True)
-                result = self.invoke("rollback", OLD, AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3")
+                result = self.invoke("rollback", target, AICADDIE_DB_READY_TIMEOUT_SECONDS="0.3")
                 self.assert_untouched_refusal(result, {OLD: OLD_NAME, NEW: NEW_NAME}.get(live))
         # The same rollback with a healthy database proceeds as before.
         self.write_state(self.deploy_fixture([database(running=True)], live=NEW))
@@ -1180,21 +1456,6 @@ class StackUpAcceptanceTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(f"result=ok action=rollback revision={OLD}", result.stdout)
         self.assertEqual(self.running_names(), sorted([DB, OLD_NAME]))
-
-    def wait_for_lock_wait(self, proc: subprocess.Popen, marker: str) -> None:
-        """Return once the script has made the `marker` call and then gone quiet for a second:
-        it is waiting for the sync lock the test holds."""
-        deadline = time.monotonic() + 30
-        count, quiet_since = -1, time.monotonic()
-        while time.monotonic() < deadline:
-            self.assertIsNone(proc.poll(), "the script ended instead of waiting for the sync lock")
-            calls = self.calls()
-            if len(calls) != count:
-                count, quiet_since = len(calls), time.monotonic()
-            elif any(marker in call for call in calls) and time.monotonic() - quiet_since >= 1.0:
-                return
-            time.sleep(0.05)
-        self.fail("the script never waited for the sync lock")
 
     def test_deploy_and_rollback_recheck_the_database_under_the_sync_lock(self) -> None:
         # G2
