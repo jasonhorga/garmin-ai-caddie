@@ -292,6 +292,20 @@ exist, takes the sync lock, stops the current container, starts the target
 and waits for health. On failure it stops the target and restarts the previous
 container. It never builds and never removes anything.
 
+### Boot recovery
+
+After a host reboot, install the pinned copy of `ops/agenthub_deploy.py` at
+`~/.local/lib/aicaddie/agenthub_deploy.py` and enable the user unit
+`ops/systemd/aicaddie-stack-up.service` with `systemctl --user enable
+aicaddie-stack-up.service`. Enable user services at boot with
+`loginctl enable-linger`; inspect the recovery journal with
+`journalctl --user -u aicaddie-stack-up`. The unit runs
+`agenthub_deploy.py up`, which waits for Docker and a healthy database before
+starting the newest stopped API release. It uses the production defaults
+unless these environment variables are set: `AICADDIE_DB_CONTAINER` (database
+container name), `AICADDIE_DB_READY_TIMEOUT_SECONDS` (database health wait),
+and `AICADDIE_UP_DOCKER_TIMEOUT_SECONDS` (Docker daemon wait).
+
 A run killed with `SIGKILL` mid-switch cannot restore anything. If the new
 container is running, re-running `deploy <sha>` verifies it (and restores the
 previous release if it fails). If the kill landed between `docker stop` and

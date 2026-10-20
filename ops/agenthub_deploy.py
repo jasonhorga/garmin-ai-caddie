@@ -4,6 +4,7 @@
 Usage:
     ops/agenthub_deploy.py deploy <40-hex-sha>
     ops/agenthub_deploy.py rollback <40-hex-sha>
+    ops/agenthub_deploy.py up
 
 The executor runs this file from a `git archive <sha>` tree (no `.git`) and
 then polls `/api/v2/health` for `revision == sha`. Exit codes:
@@ -47,6 +48,7 @@ API_REPOSITORY = "garmin-ai-caddie-api"
 SYNC_REPOSITORY = "aicaddie-sync"
 PRIVATE_ROOT = "/var/lib/ai-caddie"
 CONTAINER_PORT = "9000"
+DEFAULT_DB_CONTAINER = "garmin-ai-caddie-db-1"
 STOP_TIMEOUT_SECONDS = "30"
 SYNC_CHECK_MARKER = "sync contract ok (check-only)"
 # Stop timeout plus gate/sync check time, on top of the health waits.
@@ -64,7 +66,7 @@ CONTAINER_FORMAT = (
     '{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Image}},'
     '"labels":{{json .Config.Labels}},"running":{{json .State.Running}},'
     '"finishedAt":{{json .State.FinishedAt}},'
-    '"ports":{{json .HostConfig.PortBindings}},'
+    '"ports":{{json .HostConfig.PortBindings}},"health":{{json .State.Health}},'
     '"network":{{json .HostConfig.NetworkMode}},"mounts":{{json .Mounts}},'
     '"memory":{{json .HostConfig.Memory}},"nanoCpus":{{json .HostConfig.NanoCpus}}}'
 )
@@ -129,6 +131,11 @@ class Config:
         self.lock_timeout = _float(env, "AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS", 600.0)
         self.deadline_seconds = _float(env, "AICADDIE_DEPLOY_DEADLINE_SECONDS", 2280.0)
         self.poll = _float(env, "AICADDIE_DEPLOY_POLL_SECONDS", 2.0)
+        self.db_name = env.get("AICADDIE_DB_CONTAINER") or DEFAULT_DB_CONTAINER
+        if not PREFIX_PATTERN.fullmatch(self.db_name):
+            raise ConfigError("AICADDIE_DB_CONTAINER must be a valid container name")
+        self.db_ready_timeout = _float(env, "AICADDIE_DB_READY_TIMEOUT_SECONDS", 180.0)
+        self.up_docker_timeout = _float(env, "AICADDIE_UP_DOCKER_TIMEOUT_SECONDS", 300.0)
         self.started = time.monotonic()
 
     @property
@@ -223,6 +230,7 @@ class Container:
         self.mounts = data.get("mounts") or []
         self.memory = int(data.get("memory") or 0)
         self.nano_cpus = int(data.get("nanoCpus") or 0)
+        self.health = data.get("health") or None
 
     @property
     def revision(self) -> str:
@@ -234,6 +242,12 @@ class Container:
             for bindings in self.ports.values()
             for binding in (bindings or [])
         )
+
+    @property
+    def health_status(self) -> str | None:
+        if not self.running or not self.health:
+            return None
+        return self.health.get("Status")
 
 
 def list_containers() -> list[Container]:
@@ -249,6 +263,63 @@ def list_containers() -> list[Container]:
         if result.returncode == 0 or containers:
             return containers
     raise DeployError(f"docker inspect failed (exit {result.returncode})")
+
+
+def wait_docker(timeout: float, poll: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        result = docker("info", label="docker daemon", quiet=True, capture=True, check=False)
+        if result.returncode == 0:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(poll)
+
+
+def database_container(cfg: Config, containers: list[Container]) -> Container | None:
+    return next((c for c in containers if c.name == cfg.db_name), None)
+
+
+def wait_database(cfg: Config, *, start: bool) -> Container:
+    """Wait for the configured database, optionally starting a stopped one."""
+    deadline = time.monotonic() + cfg.db_ready_timeout
+    started = False
+    while True:
+        containers = list_containers()
+        db = database_container(cfg, containers)
+        if db is None:
+            raise DeployError(f"database container {cfg.db_name} is missing")
+        if start and not db.running and not started:
+            log(f"starting {cfg.db_name}")
+            docker("start", cfg.db_name, label="database start", capture=True, quiet=True, check=False)
+            started = True
+        elif not start and not db.running:
+            # A stopped database with a stale healthy status is not healthy.
+            pass
+        else:
+            if db.health_status == "healthy":
+                return db
+        if time.monotonic() >= deadline:
+            raise DeployError(f"database {cfg.db_name} did not become healthy")
+        time.sleep(cfg.poll)
+
+
+def select_up_api(cfg: Config, containers: list[Container]) -> Container | None:
+    current = find_current(cfg, containers)
+    if current is not None:
+        return current
+    candidates = sorted(
+        (c for c in containers if c.name.startswith(cfg.prefix) and not c.running
+         and SHA_PATTERN.fullmatch(c.revision) and c.publishes(cfg.port)),
+        key=lambda c: c.finished_key, reverse=True,
+    )
+    for candidate in candidates:
+        try:
+            assert_layout(cfg, candidate)
+        except DeployError:
+            continue
+        return candidate
+    return None
 
 
 def container_env(container: Container) -> list[str]:
@@ -551,6 +622,7 @@ def check_deploy_source(cfg: Config, current: Container | None) -> None:
 
 def deploy(cfg: Config, sha: str) -> str:
     new_name = f"{cfg.prefix}{sha[:8]}"
+    wait_database(cfg, start=False)
     # Fail fast before the long image builds; everything is re-read under the lock.
     check_deploy_source(cfg, find_current(cfg, list_containers()))
     ensure_images(sha)
@@ -704,6 +776,7 @@ def select_rollback(cfg: Config, sha: str) -> tuple[Container | None, Container 
 
 
 def rollback(cfg: Config, sha: str) -> str:
+    wait_database(cfg, start=False)
     select_rollback(cfg, sha)
     with SyncLock(cfg):
         current, target = select_rollback(cfg, sha)
@@ -734,18 +807,42 @@ def rollback(cfg: Config, sha: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# boot recovery
 
 
-USAGE = "usage: agenthub_deploy.py {deploy|rollback} <40-lowercase-hex-sha>"
+def up(cfg: Config) -> tuple[str, str]:
+    """Start the existing database and newest stopped API release after boot."""
+    if not wait_docker(cfg.up_docker_timeout, cfg.poll):
+        raise DeployError("docker daemon did not become reachable")
+    wait_database(cfg, start=True)
+    containers = list_containers()
+    api = select_up_api(cfg, containers)
+    if api is None:
+        raise DeployError("no stopped release container is available for the configured port")
+    if not api.running:
+        log(f"starting {api.name}")
+        docker("start", api.name, label="api start", capture=True, quiet=True, check=False)
+    if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
+        raise DeployError(f"{api.name} did not report revision {api.revision}")
+    return cfg.db_name, api.name
+
+
+# ---------------------------------------------------------------------------
+
+
+USAGE = "usage: agenthub_deploy.py {deploy|rollback} <40-lowercase-hex-sha> | up"
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2 or argv[0] not in ("deploy", "rollback") or not SHA_PATTERN.fullmatch(argv[1]):
+    is_up = argv == ["up"]
+    is_revision_action = len(argv) == 2 and argv[0] in ("deploy", "rollback") and SHA_PATTERN.fullmatch(argv[1])
+    if not is_up and not is_revision_action:
         print(USAGE, file=sys.stderr, flush=True)
         return EXIT_USAGE
-    action, sha = argv
+    action = "up" if is_up else argv[0]
+    sha = None if is_up else argv[1]
     expected = os.environ.get("AGENTHUB_DEPLOY_SHA")
-    if expected and expected != sha:
+    if not is_up and expected and expected != sha:
         print("error: argument sha does not match AGENTHUB_DEPLOY_SHA", file=sys.stderr, flush=True)
         return EXIT_USAGE
     try:
@@ -756,26 +853,47 @@ def main(argv: list[str]) -> int:
 
     install_signal_handlers()
     started = time.monotonic()
-    log(f"action={action} revision={sha}")
+    if not is_up:
+        log(f"action={action} revision={sha}")
     try:
-        container = deploy(cfg, sha) if action == "deploy" else rollback(cfg, sha)
+        if is_up:
+            database, container = up(cfg)
+        else:
+            container = deploy(cfg, sha) if action == "deploy" else rollback(cfg, sha)
     except CutoverFailed as exc:
         code = EXIT_UNRECOVERED if exc.restored is False else EXIT_FAILED
         restored = "none" if exc.restored is None else str(exc.restored).lower()
-        log(f"result=failed action={action} revision={sha} previous_restored={restored} "
-            f"elapsed_s={time.monotonic() - started:.1f} reason={exc}")
+        if is_up:
+            log(f"result=failed action=up part=api elapsed_s={time.monotonic() - started:.1f} reason={exc}")
+        else:
+            log(f"result=failed action={action} revision={sha} previous_restored={restored} "
+                f"elapsed_s={time.monotonic() - started:.1f} reason={exc}")
         return code
     except DeployError as exc:
-        log(f"result=failed action={action} revision={sha} previous_untouched=true "
-            f"elapsed_s={time.monotonic() - started:.1f} reason={exc}")
+        if is_up:
+            reason = str(exc)
+            part = "docker" if "docker daemon" in reason else ("database" if "database" in reason else "api")
+            log(f"result=failed action=up part={part} elapsed_s={time.monotonic() - started:.1f} reason={reason}")
+        else:
+            log(f"result=failed action={action} revision={sha} previous_untouched=true "
+                f"elapsed_s={time.monotonic() - started:.1f} reason={exc}")
         return EXIT_FAILED
     except Exception as exc:  # report the location, not a message that may carry values
         frame = traceback.extract_tb(exc.__traceback__)[-1]
-        log(f"result=failed action={action} revision={sha} previous_untouched=true "
-            f"reason=unexpected {type(exc).__name__} in {frame.name} line {frame.lineno}")
+        if is_up:
+            log(f"result=failed action=up part=api elapsed_s={time.monotonic() - started:.1f} "
+                f"reason=unexpected {type(exc).__name__}")
+        else:
+            log(f"result=failed action={action} revision={sha} previous_untouched=true "
+                f"reason=unexpected {type(exc).__name__} in {frame.name} line {frame.lineno}")
         return EXIT_FAILED
-    log(f"result=ok action={action} revision={sha} container={container} "
-        f"elapsed_s={time.monotonic() - started:.1f}")
+    if is_up:
+        log(f"result=ok action=up database={database} container={container} revision="
+            f"{next(c.revision for c in list_containers() if c.name == container)} "
+            f"elapsed_s={time.monotonic() - started:.1f}")
+    else:
+        log(f"result=ok action={action} revision={sha} container={container} "
+            f"elapsed_s={time.monotonic() - started:.1f}")
     return EXIT_OK
 
 

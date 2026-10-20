@@ -1,0 +1,9 @@
+[Unit]
+Description=Bring the AI Caddie production stack up after boot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/lib/aicaddie/agenthub_deploy.py up
+
+[Install]
+WantedBy=default.target
