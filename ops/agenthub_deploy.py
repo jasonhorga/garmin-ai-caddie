@@ -97,6 +97,14 @@ class Interrupted(DeployError):
     pass
 
 
+class UpFailed(DeployError):
+    """A boot-recovery failure tagged with the phase in which it occurred."""
+
+    def __init__(self, phase: str, message: str):
+        super().__init__(message)
+        self.phase = phase
+
+
 class CutoverFailed(DeployError):
     def __init__(self, message: str, restored: bool | None):
         super().__init__(message)
@@ -628,6 +636,7 @@ def deploy(cfg: Config, sha: str) -> str:
     ensure_images(sha)
 
     with PrivateDir() as private, SyncLock(cfg):
+        wait_database(cfg, start=False)
         containers = list_containers()
         current = find_current(cfg, containers)
         if current is not None and current.revision == sha:
@@ -779,6 +788,7 @@ def rollback(cfg: Config, sha: str) -> str:
     wait_database(cfg, start=False)
     select_rollback(cfg, sha)
     with SyncLock(cfg):
+        wait_database(cfg, start=False)
         current, target = select_rollback(cfg, sha)
         if target is None:
             if not wait_health(cfg.local_health_url, sha, cfg.health_timeout, cfg.poll):
@@ -810,21 +820,28 @@ def rollback(cfg: Config, sha: str) -> str:
 # boot recovery
 
 
-def up(cfg: Config) -> tuple[str, str]:
+def up(cfg: Config) -> tuple[str, str, str]:
     """Start the existing database and newest stopped API release after boot."""
-    if not wait_docker(cfg.up_docker_timeout, cfg.poll):
-        raise DeployError("docker daemon did not become reachable")
-    wait_database(cfg, start=True)
-    containers = list_containers()
-    api = select_up_api(cfg, containers)
-    if api is None:
-        raise DeployError("no stopped release container is available for the configured port")
-    if not api.running:
-        log(f"starting {api.name}")
-        docker("start", api.name, label="api start", capture=True, quiet=True, check=False)
-    if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
-        raise DeployError(f"{api.name} did not report revision {api.revision}")
-    return cfg.db_name, api.name
+    phase = "docker"
+    try:
+        if not wait_docker(cfg.up_docker_timeout, cfg.poll):
+            raise DeployError("docker daemon did not become reachable")
+        phase = "database"
+        wait_database(cfg, start=True)
+        phase = "api"
+        containers = list_containers()
+        api = select_up_api(cfg, containers)
+        if api is None:
+            raise DeployError("no stopped release container is available for the configured port")
+        if not api.running:
+            log(f"starting {api.name}")
+            docker("start", api.name, label="api start", capture=True, quiet=True, check=False)
+        if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
+            raise DeployError(f"{api.name} did not report revision {api.revision}")
+        return cfg.db_name, api.name, api.revision
+    except BaseException as exc:
+        reason = str(exc) if isinstance(exc, DeployError) else f"unexpected {type(exc).__name__}"
+        raise UpFailed(phase, reason) from None
 
 
 # ---------------------------------------------------------------------------
@@ -857,9 +874,12 @@ def main(argv: list[str]) -> int:
         log(f"action={action} revision={sha}")
     try:
         if is_up:
-            database, container = up(cfg)
+            database, container, revision = up(cfg)
         else:
             container = deploy(cfg, sha) if action == "deploy" else rollback(cfg, sha)
+    except UpFailed as exc:
+        log(f"result=failed action=up part={exc.phase} elapsed_s={time.monotonic() - started:.1f} reason={exc}")
+        return EXIT_FAILED
     except CutoverFailed as exc:
         code = EXIT_UNRECOVERED if exc.restored is False else EXIT_FAILED
         restored = "none" if exc.restored is None else str(exc.restored).lower()
@@ -871,9 +891,7 @@ def main(argv: list[str]) -> int:
         return code
     except DeployError as exc:
         if is_up:
-            reason = str(exc)
-            part = "docker" if "docker daemon" in reason else ("database" if "database" in reason else "api")
-            log(f"result=failed action=up part={part} elapsed_s={time.monotonic() - started:.1f} reason={reason}")
+            log(f"result=failed action=up part=api elapsed_s={time.monotonic() - started:.1f} reason={exc}")
         else:
             log(f"result=failed action={action} revision={sha} previous_untouched=true "
                 f"elapsed_s={time.monotonic() - started:.1f} reason={exc}")
@@ -889,7 +907,7 @@ def main(argv: list[str]) -> int:
         return EXIT_FAILED
     if is_up:
         log(f"result=ok action=up database={database} container={container} revision="
-            f"{next(c.revision for c in list_containers() if c.name == container)} "
+            f"{revision} "
             f"elapsed_s={time.monotonic() - started:.1f}")
     else:
         log(f"result=ok action={action} revision={sha} container={container} "
