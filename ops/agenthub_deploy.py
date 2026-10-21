@@ -72,6 +72,7 @@ CONTAINER_FORMAT = (
     '"network":{{json .HostConfig.NetworkMode}},"mounts":{{json .Mounts}},'
     '"memory":{{json .HostConfig.Memory}},"nanoCpus":{{json .HostConfig.NanoCpus}}}'
 )
+DATABASE_FORMAT = '{"running":{{json .State.Running}},"health":{{json .State.Health}}}'
 ENV_FORMAT = "{{json .Config.Env}}"
 IMAGE_FORMAT = '{"id":{{json .Id}},"tags":{{json .RepoTags}},"labels":{{json .Config.Labels}}}'
 
@@ -248,16 +249,21 @@ def _float(env, name, default, *, positive=False):
     return value
 
 
-class UpConfig(Config):
+class DeployConfig(Config):
+    def __init__(self, env: dict[str, str]):
+        super().__init__(env)
+        self.db_ready_timeout = _float(env, "AICADDIE_DB_READY_TIMEOUT_SECONDS", 180.0)
+        self.db_name = env.get("AICADDIE_DB_CONTAINER") or "garmin-ai-caddie-db-1"
+        if not PREFIX_PATTERN.fullmatch(self.db_name):
+            raise ConfigError("AICADDIE_DB_CONTAINER must be a valid container name")
+
+
+class UpConfig(DeployConfig):
     """Recovery settings do not change deploy/rollback configuration."""
 
     def __init__(self, env: dict[str, str]):
         super().__init__(env)
         self.up_docker_timeout = _float(env, "AICADDIE_UP_DOCKER_TIMEOUT_SECONDS", 300.0)
-        self.db_ready_timeout = _float(env, "AICADDIE_DB_READY_TIMEOUT_SECONDS", 180.0)
-        self.db_name = env.get("AICADDIE_DB_CONTAINER") or "garmin-ai-caddie-db-1"
-        if not PREFIX_PATTERN.fullmatch(self.db_name):
-            raise ConfigError("AICADDIE_DB_CONTAINER must be a valid container name")
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +394,37 @@ def wait_health(url: str, revision: str, timeout: float, poll: float) -> bool:
         if time.monotonic() >= deadline:
             return False
         time.sleep(poll)
+
+
+def wait_database_healthy(cfg: DeployConfig) -> None:
+    """Require the exact configured database to be running with a healthcheck."""
+    deadline = time.monotonic() + cfg.db_ready_timeout
+    while True:
+        result = docker(
+            "inspect", "--format", DATABASE_FORMAT, cfg.db_name,
+            label="database inspect", capture=True, quiet=True, check=False,
+        )
+        if result.returncode != 0:
+            raise DeployError(f"database container {cfg.db_name} is missing")
+        try:
+            state = json.loads(result.stdout)
+        except (TypeError, ValueError):
+            raise DeployError(f"database container {cfg.db_name} has no usable health status") from None
+        if not isinstance(state, dict):
+            raise DeployError(f"database container {cfg.db_name} has no usable health status")
+        health = state.get("health")
+        if state.get("running") and isinstance(health, dict) and health.get("Status") == "healthy":
+            return
+        if not state.get("running"):
+            reason = f"database container {cfg.db_name} is not running"
+        elif not isinstance(health, dict):
+            reason = f"database container {cfg.db_name} has no healthcheck"
+        else:
+            reason = f"database container {cfg.db_name} is not healthy"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise DeployError(reason)
+        time.sleep(min(cfg.poll, remaining))
 
 
 class SyncLock:
@@ -640,9 +677,11 @@ def deploy(cfg: Config, sha: str) -> str:
     new_name = f"{cfg.prefix}{sha[:8]}"
     # Fail fast before the long image builds; everything is re-read under the lock.
     check_deploy_source(cfg, find_current(cfg, list_containers()))
+    wait_database_healthy(cfg)
     ensure_images(sha)
 
     with PrivateDir() as private, SyncLock(cfg):
+        wait_database_healthy(cfg)
         containers = list_containers()
         current = find_current(cfg, containers)
         if current is not None and current.revision == sha:
@@ -793,6 +832,7 @@ def select_rollback(cfg: Config, sha: str) -> tuple[Container | None, Container 
 def rollback(cfg: Config, sha: str) -> str:
     select_rollback(cfg, sha)
     with SyncLock(cfg):
+        wait_database_healthy(cfg)
         current, target = select_rollback(cfg, sha)
         if target is None:
             if not wait_health(cfg.local_health_url, sha, cfg.health_timeout, cfg.poll):
@@ -963,7 +1003,7 @@ def main(argv: list[str]) -> int:
             print("error: argument sha does not match AGENTHUB_DEPLOY_SHA", file=sys.stderr, flush=True)
             return EXIT_USAGE
     try:
-        cfg = UpConfig(dict(os.environ)) if is_up else Config(dict(os.environ))
+        cfg = UpConfig(dict(os.environ)) if is_up else DeployConfig(dict(os.environ))
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr, flush=True)
         return EXIT_USAGE

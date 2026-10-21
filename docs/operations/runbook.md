@@ -225,6 +225,8 @@ until the agenthub cutover is complete.
 
 ### Contract
 
+`deploy` and `rollback` refuse to run without a healthy `AICADDIE_DB_CONTAINER`; they check it again after acquiring the sync lock.
+
 ```bash
 ops/agenthub_deploy.py deploy <40-lowercase-hex-sha>
 ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
