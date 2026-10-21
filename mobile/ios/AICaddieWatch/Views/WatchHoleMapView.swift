@@ -1837,7 +1837,7 @@ public struct WatchHoleMapView: View {
         let p10 = transform(layout.carryP10)
         let p90 = transform(layout.carryP90)
 
-        if fullMap {
+        if Self.drawsRouteAndPlan(fullMap: fullMap) {
             // The S70 treatment is for Hole Root. Keep the focused caddie instrument's existing
             // measured depth and continuation marks, which are useful when reviewing the whole plan.
             if !dispersionOnly {
@@ -1850,7 +1850,7 @@ public struct WatchHoleMapView: View {
                     style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
                 )
 
-                if !layout.continuation.isEmpty {
+                if Self.drawsRouteAndPlan(fullMap: fullMap), !layout.continuation.isEmpty {
                     var remainingPlan = Path()
                     remainingPlan.move(to: target)
                     for point in layout.continuation {

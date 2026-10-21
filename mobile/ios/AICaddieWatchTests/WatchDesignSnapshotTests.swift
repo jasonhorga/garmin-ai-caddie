@@ -2688,10 +2688,10 @@ final class WatchDesignSnapshotTests: XCTestCase {
             currentShotLayout: currentShot ?? (showRecommendation ? card438Shot : nil),
             showReferenceMarkers: showReferenceMarkers,
             hazardRoute: hazardRoute,
-            showTextOverlay: showTextOverlay,
-            showHoleIdentity: false,
             ringPips: [],
+            showTextOverlay: showTextOverlay,
             rangeUnavailable: rangeUnavailable,
+            showHoleIdentity: false,
             mapScale: 1,
             restingPlayerAnchorFraction: 0.8,
             playerMarker: .chevron,
@@ -2723,7 +2723,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     private func card438IsYellow(_ colour: Card438RGBA) -> Bool {
-        colour.red > 190 && colour.green > 130 && colour.blue < 120 && colour.red > colour.blue * 1.8
+        colour.red > 190 && colour.green > 130 && colour.blue < 120 && Double(colour.red) > Double(colour.blue) * 1.8
     }
 
     private func card438IsWhite(_ colour: Card438RGBA) -> Bool {
@@ -2746,7 +2746,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     private func card438IsStrongGreen(_ colour: Card438RGBA) -> Bool {
-        colour.green > 160 && colour.red < 130 && colour.green > colour.blue * 1.35
+        colour.green > 160 && colour.red < 130 && Double(colour.green) > Double(colour.blue) * 1.35
     }
 
     private func card438ChangedPixels(_ lhs: [UInt8], _ rhs: [UInt8], in rect: CGRect, width: Int) -> Int {
