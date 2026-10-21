@@ -2046,7 +2046,13 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
     @MainActor
     func testContainerRootWithoutAGateDrawsNoPlanAndNoClubTag() throws {
-        let timestamp = "2026-10-20T10:00:00Z"
+        // The container qualifies the wrist fix against the real clock, so a fixed date makes the
+        // fix stale and the root a "waiting for location" face, which (#438 row 8) draws no
+        // recommendation. Use the current time so the live state really is live.
+        let formatter = ISO8601DateFormatter()
+        let started = Date()
+        let timestamp = formatter.string(from: started)
+        let validUntil = formatter.string(from: started.addingTimeInterval(300))
         let fix = WatchLocationFix(coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116), horizontalAccuracyM: 5, capturedAt: timestamp)
         let holeMap = WatchHoleMap(
             w: Int(WatchHoleMapSample.imageSize.width), h: Int(WatchHoleMapSample.imageSize.height),
@@ -2075,7 +2081,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let recommendation = WatchRootCaddieRecommendation(
             decisionId: "d02-pixels", clubName: "3W", aimCarryM: 205, carryP10M: 188, carryP90M: 220,
             sampleSize: 24, confidence: "high", source: "live", mode: "automatic",
-            generatedAt: timestamp, validUntil: "2026-10-20T10:05:00Z",
+            generatedAt: timestamp, validUntil: validUntil,
             originLatitude: 40, originLongitude: 116, originAccuracyM: 5, maximumMovementM: 25, evidenceCount: 2
         )
         let liveState = WatchRoundState(
