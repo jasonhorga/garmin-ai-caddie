@@ -1,0 +1,11 @@
+[Unit]
+Description=Start the AI Caddie database and API after boot
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/lib/aicaddie/agenthub_deploy.py up
+TimeoutStartSec=1320
+
+[Install]
+WantedBy=default.target
