@@ -751,6 +751,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         names = {c["Name"][1:] for c in self.state()["containers"]}
         self.assertEqual(names, {
+            DB,                                        # database is never removed
             PREFIX + NEW[:8],                           # running
             PREFIX + "11111111-production-20261014",    # just stopped: rollback target
             f"{PREFIX}{revs[6][:8]}-production-20261006",  # newest older release
