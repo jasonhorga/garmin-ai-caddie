@@ -1,7 +1,7 @@
 import XCTest
 @testable import AICaddieWatch
 
-/// B6 本洞 page rules (Codex review on #367): the whole plan, plan cycling, the green's Crown that
+/// B6 本洞 page rules: full-map plans, the root's single-shot policy, the green's Crown that
 /// only zooms, and the hazard page's real outline and edge ranges.
 final class WatchHolePagesTests: XCTestCase {
     private let route: [[Double]] = [
@@ -12,10 +12,10 @@ final class WatchHolePagesTests: XCTestCase {
         [435, 279, 518.8],
     ]
 
-    /// The root 方案 page draws its labels over a full-screen canvas on which watchOS still draws its
+    /// The full-map caddie page draws its labels over a canvas on which watchOS still draws its
     /// clock (Codex runtime review on #367: `8i 147` sat on the time). The production layout keeps
     /// every label out of that lane on the 41, 45 and 49 mm faces, apart and inside the face.
-    func testRootPlanLabelsKeepTheClockLaneClear() {
+    func testFullMapPlanLabelsKeepTheClockLaneClear() {
         for size in [CGSize(width: 176, height: 215), CGSize(width: 198, height: 242), CGSize(width: 205, height: 251)] {
             let safe = WatchDisplayGeometry.contentRect(in: size)
             let lane = WatchPlanLegs.clockLane(in: size)
@@ -207,12 +207,9 @@ final class WatchHolePagesTests: XCTestCase {
         XCTAssertEqual((0...2).map(WatchRoundContainerView.holePageName), ["方案", "障碍", "果岭"])
     }
 
-    func testTappingTheClubTagCyclesEveryPlan() {
-        let ids = ["stock", "safe", "attack"]
-        XCTAssertEqual(WatchRoundContainerView.nextPlanId(after: "stock", in: ids), "safe")
-        XCTAssertEqual(WatchRoundContainerView.nextPlanId(after: "attack", in: ids), "stock")
-        XCTAssertEqual(WatchRoundContainerView.nextPlanId(after: nil, in: ids), "stock")
-        XCTAssertNil(WatchRoundContainerView.nextPlanId(after: "stock", in: ["stock"]))
+    func testHoleRootNeverDrawsTheRouteOrTheMultiShotPlan() {
+        XCTAssertFalse(WatchHoleMapView.drawsRouteAndPlan(fullMap: false))
+        XCTAssertTrue(WatchHoleMapView.drawsRouteAndPlan(fullMap: true))
     }
 
     func testTheGreenRotatesInStepsSoTheCrownOnlyZooms() {
