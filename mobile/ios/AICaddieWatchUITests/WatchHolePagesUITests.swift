@@ -46,39 +46,20 @@ final class WatchHolePagesUITests: XCTestCase {
         assertPage("障碍", marker)
     }
 
-    /// The prepared plan after the tee shot (the production container, real prepared options): the
-    /// 方案 page still shows the next club's tag, never the Driver again, and tapping it switches plan.
-    func testAfterTheTeeShotThePlanTagShowsTheNextClubAndSwitchesPlans() {
+    /// D02: a prepared recommendation at the tee opens the full caddie page.
+    func testTappingThePlanTagOpensTheCaddiePage() {
         seedTheCourseImage()
-        app.launchArguments = ["-uitest-screen", "standalone-course-page-plan-after-tee"]
+        app.launchArguments = ["-uitest-screen", "standalone-course-page-plan"]
         app.launch()
         let tag = app.buttons["watch-plan-club-tag"]
-        guard tag.waitForExistence(timeout: 20) else {
-            print("WatchHolePagesUITests hierarchy:\n\(app.debugDescription)")
-            return XCTFail("the plan page shows the next club's tag after the tee shot")
-        }
-        XCTAssertFalse(tag.label.contains("一号木"), "the tee shot is not offered again: \(tag.label)")
-        let before = String(describing: tag.value ?? "")
-        let switched = NSPredicate(format: "value != %@", before)
+        XCTAssertTrue(tag.waitForExistence(timeout: 20), "the prepared tee recommendation is visible")
         tag.tap()
-        var result = XCTWaiter().wait(
-            for: [XCTNSPredicateExpectation(predicate: switched, object: tag)],
-            timeout: 4
-        )
-        if result != .completed {
-            // A system alert (the simulator's location prompt) can swallow the first tap while
-            // XCTest dismisses it; tap once more on the now-unobstructed tag.
+        let instrument = app.descendants(matching: .any)["watch-caddie-instrument"].firstMatch
+        if !instrument.waitForExistence(timeout: 5), tag.exists {
+            // The simulator's location alert can consume the first tap while XCTest dismisses it.
             tag.tap()
-            result = XCTWaiter().wait(
-                for: [XCTNSPredicateExpectation(predicate: switched, object: tag)],
-                timeout: 6
-            )
         }
-        if result != .completed {
-            print("WatchHolePagesUITests hierarchy:\n\(app.debugDescription)")
-        }
-        XCTAssertEqual(result, .completed, "tapping the tag switches plan (was \(before))")
-        XCTAssertFalse(tag.label.contains("一号木"), "the switched plan does not offer the tee shot either: \(tag.label)")
+        XCTAssertTrue(instrument.waitForExistence(timeout: 10), "the club tag opens the caddie page")
     }
 
     /// A flick on the system page view (the vertical TabView), the way a wrist swipe reaches it.

@@ -72,6 +72,7 @@ public struct WatchCaddieOptionsView: View {
                 }
         )
         .accessibilityAction(named: Text("返回球洞")) { onBack?() }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("watch-caddie-instrument")
         .ignoresSafeArea()
     }
@@ -89,8 +90,7 @@ public struct WatchCaddieOptionsView: View {
 
     private var crownUpperBound: Double { Double(max(orderedOptions.count - 1, 1)) }
 
-    private func optionInstrument(_ option: WatchCaddieOption, size: CGSize) -> some View {
-        let safeInset = WatchDisplayGeometry.contentInset(for: size)
+    func optionMap(_ option: WatchCaddieOption, size: CGSize) -> WatchHoleMapView? {
         let mappedGeometry = geometry.map { optionGeometry(option, base: $0) }
         let shotLayout = mappedGeometry.flatMap { currentShotLayout(option, geometry: $0) }
         // The focused Caddie screen is a whole-hole plan, not a duplicate next-shot overlay. Fit the
@@ -122,35 +122,40 @@ public struct WatchCaddieOptionsView: View {
             )
         }
 
+        guard let mappedGeometry else { return nil }
+        return WatchHoleMapView(
+            holeNumber: hole,
+            par: par,
+            frontGreen: nil,
+            centerGreen: nil,
+            backGreen: nil,
+            lastShot: 0,
+            caddieClub: primaryClub(option),
+            caddieNote: "",
+            showCaddieRecommendation: true,
+            currentShotLayout: shotLayout,
+            showPreparedPlan: shotLayout == nil && firstCarry(option) != nil,
+            hazardRoute: route,
+            ringPips: [],
+            showTextOverlay: false,
+            showHoleIdentity: false,
+            fullMap: true,
+            mapScale: viewport?.scale ?? scale,
+            fullMapFocusImagePx: viewport?.focusImage,
+            fullMapFocusCanvasFraction: viewport?.focusFraction ?? CGPoint(x: 0.5, y: 0.52),
+            geometry: mappedGeometry,
+            // The whole remaining plan, the same legs as the 方案 page; dispersion (live
+            // only) is drawn on top and is not needed to show the later shots.
+            planLegs: legs,
+            planLabelBounds: Self.planRestFrame(in: size)
+        )
+    }
+
+    private func optionInstrument(_ option: WatchCaddieOption, size: CGSize) -> some View {
+        let safeInset = WatchDisplayGeometry.contentInset(for: size)
         return ZStack {
-            if let mappedGeometry {
-                WatchHoleMapView(
-                    holeNumber: hole,
-                    par: par,
-                    frontGreen: nil,
-                    centerGreen: nil,
-                    backGreen: nil,
-                    lastShot: 0,
-                    caddieClub: primaryClub(option),
-                    caddieNote: "",
-                    showCaddieRecommendation: true,
-                    currentShotLayout: shotLayout,
-                    showPreparedPlan: shotLayout == nil && firstCarry(option) != nil,
-                    hazardRoute: route,
-                    ringPips: [],
-                    showTextOverlay: false,
-                    showHoleIdentity: false,
-                    fullMap: true,
-                    mapScale: viewport?.scale ?? scale,
-                    fullMapFocusImagePx: viewport?.focusImage,
-                    fullMapFocusCanvasFraction: viewport?.focusFraction ?? CGPoint(x: 0.5, y: 0.52),
-                    geometry: mappedGeometry,
-                    // The whole remaining plan, the same legs as the 方案 page; dispersion (live
-                    // only) is drawn on top and is not needed to show the later shots.
-                    planLegs: legs,
-                    planLabelBounds: Self.planRestFrame(in: size)
-                )
-                .allowsHitTesting(false)
+            if let map = optionMap(option, size: size) {
+                map.allowsHitTesting(false)
             } else {
                 Color(red: 0.08, green: 0.18, blue: 0.10)
                 Image(systemName: "map")
