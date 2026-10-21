@@ -6,11 +6,14 @@ the environment (paths, URLs, the configured volume and network, tokens, user an
 containers' `Env`, labels, mount sources and the database's health log, and the fakes' own output.
 The fake `docker` writes Docker-style diagnostics (config file, daemon socket, data root, host name)
 to stderr on every call, failing ones included, and a canary line to the stdout of `start`, which
-`up` ignores. The fake `curl` echoes the URL on stderr and adds a canary field to the health body.
-Container names and revisions never contain a canary: `up` may print those. The only other numbers
-`up` may print are `elapsed_s` and a Docker exit code as `(exit <n>)`. Multi-case tests use `_case`,
-not `subTest`, so a failing case fails the test function itself. Contract:
-.agent/contracts/card-449.md (revision 2).
+`up` ignores. The fake `curl` echoes the URL on stderr and adds a canary field to the health body; it
+can also give wrong health answers with a canary or a number in every field. Every numeric setting
+has a value that appears nowhere else. Container names and revisions never contain a canary: `up`
+may print those. The only other numbers `up` may print are `elapsed_s` and a Docker exit code as
+`(exit <n>)`, and every failure reason is one of a fixed list. One test runs the script's `__main__`
+through a launcher that makes one external call raise an exception chosen by the test.
+Multi-case tests use `_case`, not `subTest`, so a failing case fails the test function itself.
+Contract: .agent/contracts/card-449.md (revision 3).
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,9 +50,9 @@ OLDER = PREFIX + "11111111-production-20261014"
 NEWER = PREFIX + "33333333-production-20261020"
 FOREIGN = "garmin-ai-caddie-web-1"
 TIE = "2026-10-19T02:10:00.5Z"
+CONTAINER_NAMES = (SERVING, OLDER, NEWER, FOREIGN, DB)
 # Besides fixed text, names and revisions are the only values `up` may print; longest first.
-NAMES_AND_REVISIONS = sorted((SERVING, OLDER, NEWER, FOREIGN, DB, SERVING_REV, OLDER_REV, NEWER_REV),
-                             key=len, reverse=True)
+NAMES_AND_REVISIONS = sorted((*CONTAINER_NAMES, SERVING_REV, OLDER_REV, NEWER_REV), key=len, reverse=True)
 
 UP_COMMANDS = {"info", "version", "ps", "inspect", "image", "start"}
 RESULT_PREFIX = "agenthub-deploy: result="
@@ -58,8 +62,8 @@ HOST_VALUES = (PORT, "127.0.0.1", "/api/v2/health", "unix://", "docker.sock")
 INSTALL_PATHS = sorted({path for path in (sys.executable, os.path.realpath(sys.executable), sys.prefix,
                                           sys.base_prefix, sys.exec_prefix) if len(path) >= 5},
                        key=len, reverse=True)
-# The only numbers `up` may print besides names and revisions.
-ALLOWED_NUMBERS = re.compile(r"elapsed_s=\S*|\(exit -?\d+\)")
+# The only numbers `up` may print besides names and revisions; elapsed_s holds a plain number.
+ALLOWED_NUMBERS = re.compile(r"\belapsed_s=\d+(?:\.\d+)?(?!\S)|\(exit -?\d+\)")
 # Python exception names, messages and locations; an unexpected exception must not surface as any.
 EXCEPTION_TEXT = re.compile(r"\b[A-Za-z]*(?:Error|Exception)\b|Errno|No such file|Permission denied"
                             r"|Is a directory|Not a directory|Exec format|Expecting value"
@@ -67,6 +71,71 @@ EXCEPTION_TEXT = re.compile(r"\b[A-Za-z]*(?:Error|Exception)\b|Errno|No such fil
                             r"|\.py\b|Traceback")
 # Where an exception was raised: a Python function name (snake_case or dunder) in the reason.
 CODE_LOCATION = re.compile(r"(?<![\w.-])_*[a-z][a-z0-9]*_[a-z0-9_]*")
+
+# Every numeric setting gets a value that appears nowhere else, so a printed one is easy to spot.
+NUMBERS = {
+    "AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS": "15.9371",
+    "AICADDIE_DEPLOY_PUBLIC_HEALTH_TIMEOUT_SECONDS": "7.3719",
+    "AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS": "16.5317",
+    "AICADDIE_DEPLOY_DEADLINE_SECONDS": "2913.8264",
+    "AICADDIE_DEPLOY_POLL_SECONDS": "0.0386",
+    "AICADDIE_DEPLOY_KEEP_STOPPED": "8263",
+    "AICADDIE_DEPLOY_DEFAULT_CPUS": "1.7319",
+    "AICADDIE_DEPLOY_DEFAULT_MEMORY_BYTES": "5293817",
+    "AICADDIE_UP_DOCKER_TIMEOUT_SECONDS": "23.6173",
+    "AICADDIE_DB_READY_TIMEOUT_SECONDS": "24.7193",
+}
+NUMERIC_SETTINGS = (*NUMBERS, "AICADDIE_API_PORT")
+# Short waits for the paths that time out; just as distinctive.
+QUICK_DOCKER = {"AICADDIE_UP_DOCKER_TIMEOUT_SECONDS": "0.6173"}
+QUICK_DB = {"AICADDIE_DB_READY_TIMEOUT_SECONDS": "0.7193"}
+QUICK_HEALTH = {"AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS": "1.9371"}
+QUICK_LOCK = {"AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS": "0.5317"}
+
+# The only failure reasons `up` may print: <db> is the database name, <name> a container name,
+# <names> a list of them and <n> a Docker exit code. Nothing else may follow ` reason=`.
+FIXED_REASONS = (
+    "Docker daemon did not become available",
+    "database <db> is missing or unavailable",
+    "database start failed (exit <n>)",
+    "database <db> did not become healthy",
+    "docker ps failed (exit <n>)",
+    "docker inspect failed (exit <n>)",
+    "the configured port is published by a non-release container: <names>",
+    "multiple running release containers publish the configured port: <names>",
+    "<name> has an invalid source revision label",
+    "<name> does not mount exactly the configured private volume read-write at /var/lib/ai-caddie",
+    "<name> is not on the configured network",
+    "multiple latest stopped release candidates: <names>",
+    "no stopped release container matches the configured layout and port",
+    "sync lock was not acquired in time; a sync is still running",
+    "API start failed (exit <n>)",
+    "<name> did not report status=ok for its revision",
+    "unexpected failure",
+)
+_NAME = "(?:" + "|".join(re.escape(name) for name in CONTAINER_NAMES) + ")"
+_PLACEHOLDERS = {"<db>": re.escape(DB), "<name>": _NAME, "<names>": f"{_NAME}(?:, {_NAME})*",
+                 "<n>": r"-?\d+"}
+REASON_PATTERNS = [
+    re.compile("".join(_PLACEHOLDERS.get(part) or re.escape(part)
+                       for part in re.split(r"(<db>|<names>|<name>|<n>)", reason)))
+    for reason in FIXED_REASONS
+]
+
+# Health answers that are not success, with a canary or a number in every field. `up` prints none
+# of them, not even the reported revision.
+WRONG_HEALTH = [
+    json.dumps({"status": "canary-status-449", "revision": SERVING_REV, "host": "canary-health-host-449"}),
+    json.dumps({"status": "ok", "revision": "canary-revision-449", "canary-key-449": "canary-value-449"}),
+    json.dumps({"status": "ok", "revision": "9" * 40, "uptime_s": 86413, "pid": 4242}),
+    json.dumps({"status": "canary-status-449", "revision": "canary-revision-449",
+                "error": {"message": "canary-health-error-449 at /canary-health-path-449", "code": 503}}),
+    json.dumps(["canary-health-list-449", {"status": "ok", "revision": SERVING_REV}]),
+    "canary-health-text-449 <html>/canary-health-path-449 is unavailable</html>",
+]
+# Bytes that are not UTF-8 (the fakes write "\xff" as one byte).
+UNDECODABLE_HEALTH = 'canary-\xff-health-bytes-449 {"status": "ok"}'
+UNDECODABLE_DOCKER = "canary-\xff-docker-stdout-449 {not json"
 
 FAKE_COMMON = r'''
 from contextlib import contextmanager
@@ -126,6 +195,11 @@ def publishes(container, port):
 
 def running_on(state, port):
     return [c for c in state["containers"] if c["State"]["Running"] and publishes(c, port)]
+
+
+def write_raw(text):
+    # Latin-1, so "\xff" in the text is one byte that is not UTF-8.
+    sys.stdout.buffer.write((text + "\n").encode("latin-1"))
 '''
 
 FAKE_DOCKER = FAKE_COMMON + r'''
@@ -205,7 +279,8 @@ def main(argv):
     if not argv:
         fail("fake docker: no command", 2)
     command, args = argv[0], argv[1:]
-    if scenario.get("daemon_down"):
+    # The daemon is down for good, or only for the first `daemon_down_calls` calls.
+    if scenario.get("daemon_down") or len(state["calls"]) <= scenario.get("daemon_down_calls", 0):
         if command in ("info", "version"):
             print("Client:\n Version: 27.3.1\n Context: canary-docker-context-449")
         fail("Cannot connect to the Docker daemon at unix:///canary-docker-socket-449/docker.sock. "
@@ -215,7 +290,7 @@ def main(argv):
             fail("Error response from daemon: canary-daemon-error-449 on host canary-hostname-449")
     override = scenario.get("inspect_stdout")
     if command == "inspect" and override and touches(state, args, override["names"]):
-        print(override["text"])
+        write_raw(override["text"])
         return 0
     if command in ("info", "version"):
         opts, _ = take_options(args, set(), {"--format", "-f"})
@@ -310,6 +385,7 @@ with mutex():
     entry = {"url": url, "reported": None}
     code, body = 0, None
     match = re.fullmatch(r"http://127\.0\.0\.1:(\d+)/api/v2/health", url)
+    wrong = state["scenario"].get("wrong_health")
     if state["scenario"].get("curl_fail"):
         code = 22
     elif not match:
@@ -318,18 +394,77 @@ with mutex():
         serving = running_on(state, match.group(1))
         if len(serving) != 1:
             code = 7
+        elif wrong and (wrong["count"] is None or state["wrong_served"] < wrong["count"]):
+            # The scenario's wrong answers in turn, then (with a count) the right one.
+            body = wrong["bodies"][state["wrong_served"] % len(wrong["bodies"])]
+            state["wrong_served"] += 1
         else:
             revision = (serving[0]["Config"]["Labels"] or {}).get("ai.caddie.source-revision", "")
-            body = {"status": "ok", "revision": revision, "host": "canary-health-host-449"}
+            body = json.dumps({"status": "ok", "revision": revision, "host": "canary-health-host-449"})
             entry["reported"] = revision
     state["curl"].append(entry)
     save(state)
 if body is not None:
-    print(json.dumps(body))
+    write_raw(body)
 sys.exit(code)
 '''
 
 FAKE_SYNC = '#!/usr/bin/env bash\necho ran >>"$FAKE_SYNC_RECORD"\n'
+
+# Imported by the launcher: makes the external calls the rule in CANARY_FAULT_449 names raise the
+# test's exception instead of running, every time, as a broken host would.
+FAULT_MODULE = r'''
+import json
+import os
+import subprocess
+
+RULE = json.loads(os.environ["CANARY_FAULT_449"])
+
+
+class CanaryFault(Exception):
+    """Derived from Exception only, so no handler for a builtin exception family catches it."""
+
+
+def fault():
+    if RULE["kind"] == "UnicodeDecodeError":
+        return UnicodeDecodeError("utf-8", b"canary-\xff-fault-449", 7, 8,
+                                  "canary-fault-reason-449 in /canary-fault-path-449")
+    return CanaryFault("canary-fault-449: /canary-fault-path-449 (errno 449) line 449")
+
+
+def matches(args):
+    if not isinstance(args, (list, tuple)) or not args:
+        return False
+    words = [os.fspath(word) if isinstance(word, os.PathLike) else str(word) for word in args]
+    if os.path.basename(words[0]) != RULE["program"]:
+        return False
+    if RULE.get("command") and RULE["command"] not in words[1:]:
+        return False
+    return not RULE.get("names") or any(word in RULE["names"] for word in words[1:])
+
+
+class FaultPopen(subprocess.Popen):
+    def __init__(self, args, *rest, **kwargs):
+        if matches(args):
+            with open(RULE["record"], "a") as record:
+                record.write("raised\n")
+            raise fault()
+        super().__init__(args, *rest, **kwargs)
+
+
+subprocess.Popen = FaultPopen
+'''
+
+# Runs the deploy script as `__main__`, its real entry point, with the fault module installed.
+FAULT_LAUNCHER = r'''
+import runpy
+import sys
+
+import canary_fault_449  # noqa: F401  (replaces subprocess.Popen)
+
+script = sys.argv.pop(1)
+runpy.run_path(script, run_name="__main__")
+'''
 
 
 @contextmanager
@@ -372,9 +507,15 @@ def release(serial: int, name: str, revision: str | None, *, running: bool,
     }
 
 
-def database(*, running: bool, health: str = "healthy") -> dict:
+def database(*, running: bool, health: str | None = "healthy") -> dict:
     # G1 G2 G3: the compose database; a stopped one keeps a stale `healthy` value. Its compose
-    # labels and health log carry host details, as Docker's do.
+    # labels and health log carry host details, as Docker's do. `health=None`: no healthcheck.
+    state = {"Running": running, "Status": "running" if running else "exited", "ExitCode": 0,
+             "FinishedAt": "0001-01-01T00:00:00Z" if running else "2026-10-19T02:09:58.1Z"}
+    if health is not None:
+        state["Health"] = {"Status": health, "FailingStreak": 0,
+                           "Log": [{"ExitCode": 0, "Output": "canary-healthcheck-449: "
+                                    "/var/run/postgresql:5432 - accepting connections\n"}]}
     return {
         "Id": "%064x" % 50, "Name": "/" + DB, "Image": "sha256:%064x" % 900,
         "Config": {"Image": "postgres:16-alpine",
@@ -384,11 +525,7 @@ def database(*, running: bool, health: str = "healthy") -> dict:
                               "com.docker.compose.project.working_dir": "/canary-compose-dir-449",
                               "com.docker.compose.project.config_files":
                                   "/canary-compose-dir-449/docker-compose.yml"}},
-        "State": {"Running": running, "Status": "running" if running else "exited", "ExitCode": 0,
-                  "FinishedAt": "0001-01-01T00:00:00Z" if running else "2026-10-19T02:09:58.1Z",
-                  "Health": {"Status": health, "FailingStreak": 0,
-                             "Log": [{"ExitCode": 0, "Output": "canary-healthcheck-449: "
-                                      "/var/run/postgresql:5432 - accepting connections\n"}]}},
+        "State": state,
         "HostConfig": {"PortBindings": {}, "NetworkMode": NETWORK, "Memory": 0, "NanoCpus": 0,
                        "RestartPolicy": {"Name": "on-failure", "MaximumRetryCount": 5}},
         "Mounts": [{"Type": "volume", "Name": "garmin-ai-caddie_pgdata",
@@ -398,7 +535,7 @@ def database(*, running: bool, health: str = "healthy") -> dict:
 
 
 def stack(*, db_running: bool, serving_running: bool = False, serving_rev: str | None = SERVING_REV,
-          db_health: str = "healthy") -> list[dict]:
+          db_health: str | None = "healthy") -> list[dict]:
     # G1 G2 G3: the database, the serving release and an older stopped one.
     return [
         database(running=db_running, health=db_health),
@@ -406,6 +543,13 @@ def stack(*, db_running: bool, serving_running: bool = False, serving_rev: str |
         release(2, SERVING, serving_rev, running=serving_running,
                 finished="0001-01-01T00:00:00Z" if serving_running else "2026-10-19T02:10:00.5Z"),
     ]
+
+
+def deploy_started_serving(state: dict) -> None:
+    # G1: what a deploy does while `up` waits for the sync lock: SERVING runs on the port again.
+    for c in state["containers"]:
+        if c["Name"] == "/" + SERVING:
+            c["State"].update(Running=True, Status="running", ExitCode=0, FinishedAt="0001-01-01T00:00:00Z")
 
 
 class UpRedactionTest(unittest.TestCase):
@@ -440,14 +584,34 @@ class UpRedactionTest(unittest.TestCase):
         # G1 G2 G3: a fresh fake Docker model and scenario.
         self.state_path.write_text(json.dumps({
             "containers": containers, "images": [], "calls": [], "curl": [],
-            "health_countdown": {}, "scenario": scenario}))
+            "health_countdown": {}, "wrong_served": 0, "scenario": scenario}))
 
     def state(self) -> dict:
         # G1 G2 G3
         return json.loads(self.state_path.read_text())
 
+    def update_state(self, change) -> None:
+        # G1: changes the fake Docker model under the fakes' own mutex, as a concurrent deploy would.
+        with open(f"{self.state_path}.mutex", "a") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            state = self.state()
+            change(state)
+            scratch = Path(f"{self.state_path}.tmp")
+            scratch.write_text(json.dumps(state))
+            os.replace(scratch, self.state_path)
+
+    def wait_for_listing(self, limit: float = 8.0) -> None:
+        # G1: waits until `up` has listed the containers once (`ps`, then `inspect`), or `limit` s.
+        deadline = time.monotonic() + limit
+        while time.monotonic() < deadline:
+            commands = [call[0] for call in self.state()["calls"] if call]
+            if "ps" in commands and "inspect" in commands[commands.index("ps"):]:
+                return
+            time.sleep(0.05)
+
     def env(self, **extra: str) -> dict:
-        # G1 G2 G3: only the fakes on PATH, and a canary in every value that is not a name.
+        # G1 G2 G3: only the fakes on PATH, a canary in every value that is not a name, and a
+        # distinctive value in every numeric setting.
         env = {
             "PATH": str(self.bin),
             "HOME": str(self.tmp / "home"),
@@ -469,11 +633,7 @@ class UpRedactionTest(unittest.TestCase):
             "AICADDIE_SYNC_SCRIPT": str(self.sync_script),
             "AICADDIE_DEPLOY_PUBLIC_HEALTH_URL": PUBLIC_URL,
             "AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE": str(self.tmp / "bootstrap.env"),
-            "AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS": "5",
-            "AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS": "10",
-            "AICADDIE_DEPLOY_POLL_SECONDS": "0.05",
-            "AICADDIE_UP_DOCKER_TIMEOUT_SECONDS": "20",
-            "AICADDIE_DB_READY_TIMEOUT_SECONDS": "20",
+            **NUMBERS,
         }
         env.update(extra)
         return env
@@ -500,12 +660,28 @@ class UpRedactionTest(unittest.TestCase):
         leaked = [line for line in output.splitlines() if leaks(line)]
         self.assertEqual(leaked, [], "up printed host values:\n" + self.masked("\n".join(leaked)))
 
-    def up(self, **extra: str) -> subprocess.CompletedProcess:
+    def up(self, *, argv: list[str] | None = None, during=None, **extra: str) -> subprocess.CompletedProcess:
         # G1 G2 G3: the real entry point as a subprocess; stdout and stderr are both checked.
-        result = subprocess.run([sys.executable, str(SCRIPT), "up"], cwd=ROOT, env=self.env(**extra),
-                                capture_output=True, text=True, timeout=120)
+        # `during` runs while `up` does, for a case where the world changes meanwhile.
+        env = self.env(**extra)
+        command = argv or [sys.executable, str(SCRIPT), "up"]
+        child = subprocess.Popen(command, cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            if during is not None:
+                during()
+            stdout, stderr = child.communicate(timeout=120)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.communicate()
+        result = subprocess.CompletedProcess(command, child.returncode, stdout, stderr)
         self.assert_no_host_values(result.stdout)
         self.assert_no_host_values(result.stderr)
+        configured = [env[key] for key in NUMERIC_SETTINGS]
+        for stream in (result.stdout, result.stderr):
+            printed = [value for value in configured if value in stream]
+            self.assertEqual(printed, [], "up printed configured numbers:\n" + self.masked(stream))
         state = self.state()
         for call in state["calls"]:
             self.assertTrue(call, "docker called without a command")
@@ -535,7 +711,7 @@ class UpRedactionTest(unittest.TestCase):
 
     def assert_failed(self, proc: subprocess.CompletedProcess, part: str,
                       container: str | None = None) -> str:
-        # G2 G3: exit 1, result=failed with the failing part, and a non-empty reason.
+        # G2 G3: exit 1, result=failed with the failing part, and a reason from the fixed list.
         self.assertEqual(proc.returncode, 1, self.masked(proc.stdout))
         fields, reason = self.result_fields(proc)
         self.assertEqual(fields.get("result"), "failed", proc.stdout)
@@ -543,6 +719,8 @@ class UpRedactionTest(unittest.TestCase):
         if container is not None:
             self.assertEqual(fields.get("container"), container, proc.stdout)
         self.assertTrue(reason, "a failed result line must end with reason=<text>\n" + proc.stdout)
+        self.assertTrue(any(pattern.fullmatch(reason) for pattern in REASON_PATTERNS),
+                        "the reason is not one of the fixed reasons: " + self.masked(reason))
         return reason
 
     def assert_fixed_failure(self, proc: subprocess.CompletedProcess, part: str,
@@ -591,9 +769,10 @@ class UpRedactionTest(unittest.TestCase):
     # -- G1: success -------------------------------------------------------------
 
     def test_successful_up_prints_no_host_values(self) -> None:
-        # G1: after a reboot, on an already healthy stack, and past a skipped newer release, `up`
-        # succeeds; every docker call wrote host details to stderr, `docker start` to stdout, and curl
-        # echoed the URL, yet only names, revisions and the elapsed time are printed.
+        # G1: after a reboot, on an already healthy stack, past a skipped newer release, after a late
+        # Docker and after a wait for the sync lock, `up` succeeds; every docker call wrote host
+        # details to stderr, `docker start` to stdout, and curl echoed the URL, yet only names,
+        # revisions and the elapsed time are printed.
         with _case("after a reboot: database and serving release started"):
             self.write_state(stack(db_running=False))
             proc = self.up()
@@ -615,25 +794,50 @@ class UpRedactionTest(unittest.TestCase):
             self.assert_ok(proc, SERVING)
             self.assertEqual(self.start_calls(), [SERVING])
 
+        with _case("Docker answers only after three failed calls"):
+            self.write_state(stack(db_running=False), daemon_down_calls=3)
+            proc = self.up()
+            self.assert_ok(proc, SERVING)
+            self.assertEqual(self.start_calls(), [DB, SERVING])
+
+        with _case("a sync holds the lock while a deploy starts the serving release"):
+            self.write_state(stack(db_running=True))
+            with open(self.lock, "a") as holder:
+                fcntl.flock(holder, fcntl.LOCK_EX)
+
+                def deploy_then_release() -> None:
+                    # G1: once `up` has listed the containers, a deploy starts SERVING; then the
+                    # sync ends and releases the lock.
+                    self.wait_for_listing()
+                    self.update_state(deploy_started_serving)
+                    time.sleep(0.3)
+                    fcntl.flock(holder, fcntl.LOCK_UN)
+
+                proc = self.up(during=deploy_then_release)
+            self.assert_ok(proc, SERVING)
+            self.assertEqual(self.start_calls(), [])
+
     # -- G2: failures in every part ------------------------------------------------
 
     def test_docker_failure_prints_no_host_values(self) -> None:
         # G2: the daemon never answers; Docker prints its socket and client context on every call.
         # pinned: main already discards `docker info` output; this keeps the part=docker path clean.
         self.write_state(stack(db_running=False), daemon_down=True)
-        proc = self.up(AICADDIE_UP_DOCKER_TIMEOUT_SECONDS="0.5")
+        proc = self.up(**QUICK_DOCKER)
         self.assert_failed(proc, "docker", "none")
         self.assertEqual(self.start_calls(), [])
 
     def test_database_failure_prints_no_host_values(self) -> None:
-        # G2: the database is missing, fails to start, or never becomes healthy.
+        # G2: the database is missing, fails to start, never becomes healthy, or has no healthcheck.
         # pinned: main already discards the database inspect/start output; this keeps it so.
         cases = {
             "database missing": (stack(db_running=False)[1:], {}, {}),
             "database start fails": (stack(db_running=False),
                                      {"fail": [{"commands": ["start"], "names": [DB]}]}, {}),
-            "database never healthy": (stack(db_running=True, db_health="unhealthy"), {},
-                                       {"AICADDIE_DB_READY_TIMEOUT_SECONDS": "0.5"}),
+            "database never healthy": (stack(db_running=True, db_health="unhealthy"), {}, QUICK_DB),
+            "database has no healthcheck": (stack(db_running=True, db_health=None), {}, QUICK_DB),
+            "stopped database has no healthcheck": (stack(db_running=False, db_health=None), {},
+                                                    QUICK_DB),
         }
         for name, (containers, scenario, extra) in cases.items():
             with _case(name):
@@ -653,8 +857,7 @@ class UpRedactionTest(unittest.TestCase):
             "no release container": (stack(db_running=True)[:1], {}, {}),
             "API start fails": (stack(db_running=True),
                                 {"fail": [{"commands": ["start"], "names": [SERVING]}]}, {}),
-            "API health never ok": (stack(db_running=True), {"curl_fail": True},
-                                    {"AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS": "1"}),
+            "API health never ok": (stack(db_running=True), {"curl_fail": True}, QUICK_HEALTH),
             "running release has no revision label": (
                 stack(db_running=True, serving_running=True, serving_rev=None), {}, {}),
             "a non-release container publishes the port": (
@@ -684,9 +887,31 @@ class UpRedactionTest(unittest.TestCase):
             self.write_state(stack(db_running=True))
             with open(self.lock, "a") as holder:
                 fcntl.flock(holder, fcntl.LOCK_EX)
-                proc = self.up(AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS="0.5")
+                proc = self.up(**QUICK_LOCK)
             self.assert_failed(proc, "api")
             self.assertEqual(self.start_calls(), [])
+
+    def test_health_answers_never_reach_the_output(self) -> None:
+        # G1 G2: the health endpoint answers wrongly (wrong status, wrong revision, extra keys, a
+        # list, text, bytes that are not UTF-8), with a canary or a number in every field. Whether
+        # `up` then sees the right answer or times out, it prints none of what it was told.
+        with _case("wrong answers, then the right one"):
+            self.write_state(stack(db_running=True),
+                             wrong_health={"bodies": WRONG_HEALTH, "count": len(WRONG_HEALTH)})
+            proc = self.up()
+            self.assert_ok(proc, SERVING)
+            state = self.state()
+            self.assertEqual(state["wrong_served"], len(WRONG_HEALTH), "not every wrong answer was read")
+            self.assertEqual(state["curl"][-1]["reported"], SERVING_REV)
+
+        with _case("wrong answers until the health timeout"):
+            bodies = [*WRONG_HEALTH, UNDECODABLE_HEALTH]
+            self.write_state(stack(db_running=True), wrong_health={"bodies": bodies, "count": None})
+            proc = self.up(AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS="4.9371")
+            self.assert_failed(proc, "api", SERVING)
+            state = self.state()
+            self.assertGreaterEqual(state["wrong_served"], len(bodies), "not every wrong answer was read")
+            self.assertEqual([e["reported"] for e in state["curl"] if e["reported"]], [])
 
     # -- G3: unexpected exceptions -------------------------------------------------
 
@@ -695,7 +920,7 @@ class UpRedactionTest(unittest.TestCase):
         # no exception type in any spelling, no message (which may hold a path or Docker's output), no
         # code location, no traceback. Each group is one failure: whichever exception its cases
         # raise, they all print the same lines.
-        quick = {"AICADDIE_UP_DOCKER_TIMEOUT_SECONDS": "0.5", "AICADDIE_DB_READY_TIMEOUT_SECONDS": "0.5"}
+        quick = {**QUICK_DOCKER, **QUICK_DB}
 
         outputs = {}
         for kind in ("not installed", "not executable", "not a program"):
@@ -713,12 +938,13 @@ class UpRedactionTest(unittest.TestCase):
         self.assert_same_output(outputs)
 
         outputs = {}
-        # JSONDecodeError, TypeError, KeyError and AttributeError in turn.
+        # JSONDecodeError, TypeError, KeyError, AttributeError and UnicodeDecodeError in turn.
         database_outputs = {
             "no JSON": "canary-docker-stdout-449 {not json",
             "a JSON list": '["canary-docker-stdout-449"]',
             "an object without `running`": '{"canary-docker-stdout-449": true}',
             "a health that is text": '{"running": true, "health": "canary-docker-stdout-449"}',
+            "bytes that are not UTF-8": UNDECODABLE_DOCKER,
         }
         for kind, text in database_outputs.items():
             name = f"database inspect prints {kind}"
@@ -731,13 +957,14 @@ class UpRedactionTest(unittest.TestCase):
         self.assert_same_output(outputs)
 
         outputs = {}
-        # JSONDecodeError, TypeError, KeyError and AttributeError in turn.
+        # JSONDecodeError, TypeError, KeyError, AttributeError and UnicodeDecodeError in turn.
         listing_outputs = {
             "no JSON": "canary-docker-stdout-449 {not json",
             "a JSON list": '["canary-docker-stdout-449"]',
             "an object without `id`": '{"canary-docker-stdout-449": 1}',
             "a name that is a list": '{"id": "canary-docker-stdout-449", '
                                      '"name": ["canary-docker-stdout-449"]}',
+            "bytes that are not UTF-8": UNDECODABLE_DOCKER,
         }
         for kind, text in listing_outputs.items():
             name = f"container listing prints {kind}"
@@ -768,6 +995,46 @@ class UpRedactionTest(unittest.TestCase):
                 self.assertEqual(self.start_calls(), [], "the API was started without the sync lock")
                 outputs[name] = self.output_lines(proc)
         self.assert_same_output(outputs)
+
+    def test_any_exception_in_any_phase_ends_with_its_part_and_a_fixed_reason(self) -> None:
+        # G3: an exception of any type, raised by an external call in any phase, ends in exit 1 with
+        # that phase's part= and a fixed reason, and no traceback. CanaryFault derives from Exception
+        # only, so a handler narrowed to builtin families lets it escape; the UnicodeDecodeError
+        # holds bytes that are not UTF-8. Both carry canaries in their text. At each call, both
+        # exceptions print the same lines. The launcher runs the script's real `__main__`.
+        hook = self.tmp / "canary-hook-449"
+        hook.mkdir()
+        (hook / "canary_fault_449.py").write_text(FAULT_MODULE)
+        launcher = hook / "canary_launch_449.py"
+        launcher.write_text(FAULT_LAUNCHER)
+        record = self.tmp / "fault-record.txt"
+        quick = {**QUICK_DOCKER, **QUICK_DB, **QUICK_HEALTH, **QUICK_LOCK}
+        serving_id, db_id = "%064x" % 2, "%064x" % 50
+        # Which calls raise: (rule, database running, part, container).
+        points = {
+            "every docker call": ({"program": "docker"}, False, "docker", "none"),
+            "database calls": ({"program": "docker", "names": [DB, db_id]}, True, "database", DB),
+            "container listing": ({"program": "docker", "command": "ps"}, True, "api", "none"),
+            "API start": ({"program": "docker", "command": "start", "names": [SERVING, serving_id]},
+                          True, "api", SERVING),
+            "health read": ({"program": "curl"}, True, "api", SERVING),
+        }
+        for point, (rule, db_running, part, container) in points.items():
+            outputs = {}
+            for kind in ("CanaryFault", "UnicodeDecodeError"):
+                name = f"{kind} at {point}"
+                with _case(name):
+                    self.write_state(stack(db_running=db_running))
+                    record.unlink(missing_ok=True)
+                    fault = json.dumps({**rule, "kind": kind, "record": str(record)})
+                    proc = self.up(argv=[sys.executable, str(launcher), str(SCRIPT), "up"],
+                                   CANARY_FAULT_449=fault, **quick)
+                    self.assertTrue(record.exists(), "the fault was never raised")
+                    self.assert_fixed_failure(proc, part, container)
+                    if point != "health read":
+                        self.assertNotIn(SERVING, self.start_calls())
+                    outputs[name] = self.output_lines(proc)
+            self.assert_same_output(outputs)
 
 
 if __name__ == "__main__":
