@@ -334,6 +334,21 @@ def container(serial: int, name: str, image_id: str, revision: str | None, *, ru
     }
 
 
+def database(*, name: str = "garmin-ai-caddie-db-1", running: bool = True,
+             health: str | None = "healthy") -> dict:
+    state = {"Running": running, "Status": "running" if running else "exited",
+             "FinishedAt": "2026-10-15T12:00:00.5Z"}
+    if health is not None:
+        state["Health"] = {"Status": health}
+    return {
+        "Id": "%064x" % 50, "Name": "/" + name, "Image": "sha256:%064x" % 900,
+        "Config": {"Image": "postgres", "Env": [], "Labels": {"com.docker.compose.service": "db"}},
+        "State": state,
+        "HostConfig": {"PortBindings": {}, "NetworkMode": NETWORK, "Memory": 0, "NanoCpus": 0},
+        "Mounts": [],
+    }
+
+
 IMAGE_ENV = ["PATH=/usr/local/bin:/usr/bin:/bin", "AI_CADDIE_DATA_MODE=local_or_fixture", "PORT=9000"]
 OLD_ENV = IMAGE_ENV + [
     f"AI_CADDIE_ADMIN_TOKEN={SECRET}",
@@ -347,7 +362,7 @@ def production_fixture() -> dict:
     """One running production container at OLD with its api/sync images."""
     return {
         "containers": [container(1, PREFIX + "11111111-production-20261014", "sha256:%064x" % 1, OLD,
-                                 running=True, env=list(OLD_ENV))],
+                                 running=True, env=list(OLD_ENV)), database()],
         "images": [image(1, [f"garmin-ai-caddie-api:{OLD}"], OLD, IMAGE_ENV),
                    image(2, [f"aicaddie-sync:{OLD}"], OLD)],
     }
@@ -435,7 +450,8 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         return next((c for c in self.state()["containers"] if c["Name"] == "/" + name), None)
 
     def running_names(self) -> list[str]:
-        return sorted(c["Name"][1:] for c in self.state()["containers"] if c["State"]["Running"])
+        return sorted(c["Name"][1:] for c in self.state()["containers"]
+                      if c["State"]["Running"] and c["Name"][1:].startswith(PREFIX))
 
     def assert_old_serving(self) -> None:
         self.assertEqual(self.running_names(), [PREFIX + "11111111-production-20261014"])
@@ -631,7 +647,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         self.assertEqual(set(self.commands()), {"ps"})
 
     def test_bootstrap_deploy_uses_env_file(self) -> None:
-        self.write_state({"containers": [], "images": []})
+        self.write_state({"containers": [database()], "images": []})
         env_file = self.tmp / "canary-bootstrap.env"
         env_file.write_text(f"# comment\nAI_CADDIE_ADMIN_TOKEN={SECRET}\n\nAI_CADDIE_DATA_MODE=fixture_only\n")
         result = self.deploy(AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE=str(env_file),
@@ -651,7 +667,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         self.assertEqual(new["Run"]["--memory"], ["1073741824"])
 
     def test_failed_bootstrap_removes_new_container(self) -> None:
-        self.write_state({"containers": [], "images": []}, unhealthy=[NEW])
+        self.write_state({"containers": [database()], "images": []}, unhealthy=[NEW])
         env_file = self.tmp / "canary-bootstrap.env"
         env_file.write_text("AI_CADDIE_DATA_MODE=fixture_only\n")
         result = self.deploy(AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE=str(env_file))
@@ -744,6 +760,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
             PREFIX + NEW[:8],                           # running
             PREFIX + "11111111-production-20261014",    # just stopped: rollback target
             f"{PREFIX}{revs[6][:8]}-production-20261006",  # newest older release
+            "garmin-ai-caddie-db-1",
             "other-project-worker", "other-project-api",
         })
         tags = {tag for i in self.state()["images"] for tag in i["RepoTags"]}
@@ -806,7 +823,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         self.assertEqual(self.by_name(PREFIX + NEW[:8])["State"]["Status"], "exited")
 
     def test_failed_verification_without_previous_release_exits_3(self) -> None:
-        self.write_state({"containers": [], "images": []})
+        self.write_state({"containers": [database()], "images": []})
         env_file = self.tmp / "canary-bootstrap.env"
         env_file.write_text("AI_CADDIE_DATA_MODE=fixture_only\n")
         self.assertEqual(self.deploy(AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE=str(env_file)).returncode, 0)
