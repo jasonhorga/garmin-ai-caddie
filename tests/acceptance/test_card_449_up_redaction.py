@@ -2,12 +2,15 @@
 
 The real script runs as a subprocess with fake `docker` and `curl` executables as the only entries on
 PATH, so no real Docker daemon can be reached. Every injected host value carries the word `canary`:
-the environment (paths, URLs, the configured volume and network, tokens), the containers' `Env` and
-mount sources, and the fake Docker's own output. The fake `docker` writes Docker-style diagnostics
-(config file, daemon socket, data root, host name) to stderr on every call, failing ones included,
-and the fake `curl` echoes the URL on stderr. Container names and revisions never contain a canary:
-`up` may print those. Multi-case tests use `_case`, not `subTest`, so a failing case fails the test
-function itself. Contract: .agent/contracts/card-449.md.
+the environment (paths, URLs, the configured volume and network, tokens, user and host names), the
+containers' `Env`, labels, mount sources and the database's health log, and the fakes' own output.
+The fake `docker` writes Docker-style diagnostics (config file, daemon socket, data root, host name)
+to stderr on every call, failing ones included, and a canary line to the stdout of `start`, which
+`up` ignores. The fake `curl` echoes the URL on stderr and adds a canary field to the health body.
+Container names and revisions never contain a canary: `up` may print those. The only other numbers
+`up` may print are `elapsed_s` and a Docker exit code as `(exit <n>)`. Multi-case tests use `_case`,
+not `subTest`, so a failing case fails the test function itself. Contract:
+.agent/contracts/card-449.md (revision 2).
 """
 
 from __future__ import annotations
@@ -37,16 +40,33 @@ PUBLIC_URL = "https://public.example.invalid/canary-public-route-449/api/v2/heal
 
 SERVING_REV = "2b" * 20
 OLDER_REV = "1" * 40
+NEWER_REV = "3" * 40
 SERVING = PREFIX + "2b2b2b2b-production-20261019"
 OLDER = PREFIX + "11111111-production-20261014"
+NEWER = PREFIX + "33333333-production-20261020"
+FOREIGN = "garmin-ai-caddie-web-1"
+TIE = "2026-10-19T02:10:00.5Z"
+# Besides fixed text, names and revisions are the only values `up` may print; longest first.
+NAMES_AND_REVISIONS = sorted((SERVING, OLDER, NEWER, FOREIGN, DB, SERVING_REV, OLDER_REV, NEWER_REV),
+                             key=len, reverse=True)
 
 UP_COMMANDS = {"info", "version", "ps", "inspect", "image", "start"}
 RESULT_PREFIX = "agenthub-deploy: result="
 # Values that are host-specific but carry no canary word: the configured port and the local URL.
 HOST_VALUES = (PORT, "127.0.0.1", "/api/v2/health", "unix://", "docker.sock")
-# Python exception names and messages; an unexpected exception must not surface as any of them.
+# The interpreter's install paths; short ones such as `/usr` are skipped.
+INSTALL_PATHS = sorted({path for path in (sys.executable, os.path.realpath(sys.executable), sys.prefix,
+                                          sys.base_prefix, sys.exec_prefix) if len(path) >= 5},
+                       key=len, reverse=True)
+# The only numbers `up` may print besides names and revisions.
+ALLOWED_NUMBERS = re.compile(r"elapsed_s=\S*|\(exit -?\d+\)")
+# Python exception names, messages and locations; an unexpected exception must not surface as any.
 EXCEPTION_TEXT = re.compile(r"\b[A-Za-z]*(?:Error|Exception)\b|Errno|No such file|Permission denied"
-                            r"|Expecting value|line \d+ column|Traceback")
+                            r"|Is a directory|Not a directory|Exec format|Expecting value"
+                            r"|has no attribute|not subscriptable|indices must be|\bline \d+"
+                            r"|\.py\b|Traceback")
+# Where an exception was raised: a Python function name (snake_case or dunder) in the reason.
+CODE_LOCATION = re.compile(r"(?<![\w.-])_*[a-z][a-z0-9]*_[a-z0-9_]*")
 
 FAKE_COMMON = r'''
 from contextlib import contextmanager
@@ -269,6 +289,8 @@ def main(argv):
                     c["State"]["Health"]["Status"] = "starting"
                     state["health_countdown"][c["Id"]] = 3
             print(c["Name"][1:])
+        # Docker's own stdout, which `up` reads nowhere and must not forward either.
+        print("canary-start-stdout-449: started on host canary-hostname-449")
         save(state)
         return 0
     fail("fake docker: command not allowed for up: " + " ".join(argv[:2]), 2)
@@ -298,7 +320,7 @@ with mutex():
             code = 7
         else:
             revision = (serving[0]["Config"]["Labels"] or {}).get("ai.caddie.source-revision", "")
-            body = {"status": "ok", "revision": revision}
+            body = {"status": "ok", "revision": revision, "host": "canary-health-host-449"}
             entry["reported"] = revision
     state["curl"].append(entry)
     save(state)
@@ -320,10 +342,20 @@ def _case(name: str):
         raise AssertionError(f"[{name}] {exc}") from exc
 
 
+def without_names(text: str) -> str:
+    # G1 G2 G3: the text with every container name and revision removed.
+    for value in NAMES_AND_REVISIONS:
+        text = text.replace(value, "")
+    return text
+
+
 def release(serial: int, name: str, revision: str | None, *, running: bool,
-            finished: str = "0001-01-01T00:00:00Z") -> dict:
-    # G1 G2 G3: a release container with the configured layout and credentials in its Env.
-    labels = {} if revision is None else {"ai.caddie.source-revision": revision}
+            finished: str = "0001-01-01T00:00:00Z", network: str = NETWORK,
+            volume: str = VOLUME) -> dict:
+    # G1 G2 G3: a release container with credentials in its Env and a host path in a label.
+    labels = {"org.opencontainers.image.source": "/canary-build-context-449"}
+    if revision is not None:
+        labels["ai.caddie.source-revision"] = revision
     return {
         "Id": "%064x" % serial, "Name": "/" + name, "Image": "sha256:%064x" % serial,
         "Config": {"Image": f"garmin-ai-caddie-api:{revision or 'unlabelled'}",
@@ -333,24 +365,30 @@ def release(serial: int, name: str, revision: str | None, *, running: bool,
         "State": {"Running": running, "Status": "running" if running else "exited",
                   "ExitCode": 0 if running else 1, "FinishedAt": finished},
         "HostConfig": {"PortBindings": {"9000/tcp": [{"HostIp": "127.0.0.1", "HostPort": PORT}]},
-                       "NetworkMode": NETWORK, "Memory": 0, "NanoCpus": 0,
+                       "NetworkMode": network, "Memory": 0, "NanoCpus": 0,
                        "RestartPolicy": {"Name": "on-failure", "MaximumRetryCount": 3}},
-        "Mounts": [{"Type": "volume", "Name": VOLUME, "Destination": PRIVATE_ROOT, "RW": True,
-                    "Source": f"/canary-data-root-449/volumes/{VOLUME}/_data"}],
+        "Mounts": [{"Type": "volume", "Name": volume, "Destination": PRIVATE_ROOT, "RW": True,
+                    "Source": f"/canary-data-root-449/volumes/{volume}/_data"}],
     }
 
 
 def database(*, running: bool, health: str = "healthy") -> dict:
-    # G1 G2 G3: the compose database; a stopped one keeps a stale `healthy` value.
+    # G1 G2 G3: the compose database; a stopped one keeps a stale `healthy` value. Its compose
+    # labels and health log carry host details, as Docker's do.
     return {
         "Id": "%064x" % 50, "Name": "/" + DB, "Image": "sha256:%064x" % 900,
         "Config": {"Image": "postgres:16-alpine",
                    "Env": ["POSTGRES_PASSWORD=canary-container-db-password-449"],
                    "Labels": {"com.docker.compose.project": "garmin-ai-caddie",
-                              "com.docker.compose.service": "db"}},
+                              "com.docker.compose.service": "db",
+                              "com.docker.compose.project.working_dir": "/canary-compose-dir-449",
+                              "com.docker.compose.project.config_files":
+                                  "/canary-compose-dir-449/docker-compose.yml"}},
         "State": {"Running": running, "Status": "running" if running else "exited", "ExitCode": 0,
                   "FinishedAt": "0001-01-01T00:00:00Z" if running else "2026-10-19T02:09:58.1Z",
-                  "Health": {"Status": health}},
+                  "Health": {"Status": health, "FailingStreak": 0,
+                             "Log": [{"ExitCode": 0, "Output": "canary-healthcheck-449: "
+                                      "/var/run/postgresql:5432 - accepting connections\n"}]}},
         "HostConfig": {"PortBindings": {}, "NetworkMode": NETWORK, "Memory": 0, "NanoCpus": 0,
                        "RestartPolicy": {"Name": "on-failure", "MaximumRetryCount": 5}},
         "Mounts": [{"Type": "volume", "Name": "garmin-ai-caddie_pgdata",
@@ -416,6 +454,9 @@ class UpRedactionTest(unittest.TestCase):
             "TMPDIR": str(self.tmp / "tmp"),
             "LANG": "C.UTF-8",
             "XDG_RUNTIME_DIR": str(self.runtime),
+            "USER": "canary-user-449",
+            "LOGNAME": "canary-user-449",
+            "HOSTNAME": "canary-hostname-env-449",
             "DOCKER_HOST": "unix:///canary-docker-host-449/docker.sock",
             "DOCKER_CONFIG": str(self.tmp / "canary-docker-config-449"),
             "AI_CADDIE_ADMIN_TOKEN": "canary-admin-token-449",
@@ -438,15 +479,23 @@ class UpRedactionTest(unittest.TestCase):
         return env
 
     def masked(self, text: str) -> str:
-        # G1 G2 G3: failure messages never repeat the real temporary or checkout path.
-        return text.replace(str(self.tmp), "<tmp>").replace(str(ROOT), "<checkout>")
+        # G1 G2 G3: failure messages never repeat the real temporary, checkout or install paths.
+        paths = [(str(self.tmp), "<tmp>"), (str(ROOT), "<checkout>"),
+                 *((path, "<python>") for path in INSTALL_PATHS)]
+        for path, label in sorted(paths, key=lambda item: len(item[0]), reverse=True):
+            text = text.replace(path, label)
+        return text
 
     def assert_no_host_values(self, output: str) -> None:
-        # G1 G2 G3: no canary, configured port, local URL, socket, checkout path or traceback.
+        # G1 G2 G3: no canary, configured port, local URL, socket, temporary, checkout or install
+        # path, traceback, or number other than in names, revisions, elapsed_s and `(exit <n>)`.
+        private = (str(self.tmp), str(ROOT), *INSTALL_PATHS)
+
         def leaks(line: str) -> bool:
-            return ("canary" in line.lower() or str(self.tmp) in line or str(ROOT) in line
+            return ("canary" in line.lower() or any(path in line for path in private)
                     or any(value in line for value in HOST_VALUES)
-                    or "Traceback" in line or line.lstrip().startswith('File "'))
+                    or "Traceback" in line or line.lstrip().startswith('File "')
+                    or re.search(r"\d", ALLOWED_NUMBERS.sub("", without_names(line))) is not None)
 
         leaked = [line for line in output.splitlines() if leaks(line)]
         self.assertEqual(leaked, [], "up printed host values:\n" + self.masked("\n".join(leaked)))
@@ -496,11 +545,41 @@ class UpRedactionTest(unittest.TestCase):
         self.assertTrue(reason, "a failed result line must end with reason=<text>\n" + proc.stdout)
         return reason
 
-    def assert_no_exception_text(self, proc: subprocess.CompletedProcess) -> None:
-        # G3: neither the exception's type, its message nor a traceback reaches the output.
+    def assert_fixed_failure(self, proc: subprocess.CompletedProcess, part: str,
+                             container: str | None = None) -> None:
+        # G3: the phase's part, and neither the exception's type, its message, where it was raised
+        # nor a traceback: the reason is fixed text plus names, with no number and no function name.
+        reason = self.assert_failed(proc, part, container)
         for stream in (proc.stdout, proc.stderr):
             found = EXCEPTION_TEXT.findall(stream)
             self.assertEqual(found, [], "up printed exception text:\n" + self.masked(stream))
+        fixed = without_names(reason)
+        self.assertNotRegex(fixed, r"\d", "the reason holds a number: " + reason)
+        self.assertNotRegex(fixed, CODE_LOCATION, "the reason names a code location: " + reason)
+
+    def output_lines(self, proc: subprocess.CompletedProcess) -> dict[str, list[str]]:
+        # G3: each stream's distinct lines, elapsed time blanked (a retry may repeat a line).
+        def lines(text: str) -> list[str]:
+            return sorted({re.sub(r"elapsed_s=\S*", "elapsed_s=<s>", line) for line in text.splitlines()})
+        return {"stdout": lines(proc.stdout), "stderr": lines(proc.stderr)}
+
+    def assert_same_output(self, outputs: dict[str, dict[str, list[str]]]) -> None:
+        # G3: within one group the output does not depend on which exception was raised.
+        (first, expected), *others = outputs.items()
+        for name, output in others:
+            with _case(name):
+                self.assertEqual(output, expected, f"the output differs from [{first}]")
+
+    def replace_docker(self, kind: str) -> None:
+        # G3: makes `docker` impossible to run; each kind raises another OSError subclass.
+        path = self.bin / "docker"
+        path.unlink()
+        if kind == "not executable":  # PermissionError
+            self.install_fake("docker", FAKE_DOCKER, 0o644)
+        elif kind == "not a program":  # OSError (exec format error): no `#!` line
+            path.write_text("canary-not-a-program-449\n")
+            path.chmod(0o755)
+        # "not installed": FileNotFoundError
 
     def start_calls(self) -> list[str]:
         # G1 G2 G3: every container `docker start` was asked for, failed attempts included.
@@ -512,8 +591,9 @@ class UpRedactionTest(unittest.TestCase):
     # -- G1: success -------------------------------------------------------------
 
     def test_successful_up_prints_no_host_values(self) -> None:
-        # G1: after a reboot and on an already healthy stack, `up` succeeds; every docker call wrote
-        # host details to stderr and curl echoed the URL, yet only names and revisions are printed.
+        # G1: after a reboot, on an already healthy stack, and past a skipped newer release, `up`
+        # succeeds; every docker call wrote host details to stderr, `docker start` to stdout, and curl
+        # echoed the URL, yet only names, revisions and the elapsed time are printed.
         with _case("after a reboot: database and serving release started"):
             self.write_state(stack(db_running=False))
             proc = self.up()
@@ -526,6 +606,14 @@ class UpRedactionTest(unittest.TestCase):
             proc = self.up()
             self.assert_ok(proc, SERVING)
             self.assertEqual(self.start_calls(), [])
+
+        with _case("a newer release on another volume and network is skipped"):
+            self.write_state(stack(db_running=True) + [
+                release(3, NEWER, NEWER_REV, running=False, finished="2026-10-20T08:00:00Z",
+                        network="canary-other-network-449", volume="canary-other-volume-449")])
+            proc = self.up()
+            self.assert_ok(proc, SERVING)
+            self.assertEqual(self.start_calls(), [SERVING])
 
     # -- G2: failures in every part ------------------------------------------------
 
@@ -569,6 +657,22 @@ class UpRedactionTest(unittest.TestCase):
                                     {"AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS": "1"}),
             "running release has no revision label": (
                 stack(db_running=True, serving_running=True, serving_rev=None), {}, {}),
+            "a non-release container publishes the port": (
+                stack(db_running=True) + [release(4, FOREIGN, None, running=True)], {}, {}),
+            "two running releases publish the port": (
+                [database(running=True), release(1, OLDER, OLDER_REV, running=True),
+                 release(2, SERVING, SERVING_REV, running=True)], {}, {}),
+            "running release is on another network": (
+                [database(running=True),
+                 release(2, SERVING, SERVING_REV, running=True, network="canary-other-network-449")],
+                {}, {}),
+            "running release mounts another volume": (
+                [database(running=True),
+                 release(2, SERVING, SERVING_REV, running=True, volume="canary-other-volume-449")],
+                {}, {}),
+            "the newest stopped releases tie": (
+                [database(running=True), release(1, OLDER, OLDER_REV, running=False, finished=TIE),
+                 release(2, SERVING, SERVING_REV, running=False, finished=TIE)], {}, {}),
         }
         for name, (containers, scenario, extra) in cases.items():
             with _case(name):
@@ -588,52 +692,82 @@ class UpRedactionTest(unittest.TestCase):
 
     def test_unexpected_errors_end_with_the_phase_and_a_fixed_reason(self) -> None:
         # G3: an exception nobody expected ends in exit 1 with the phase's part= and a fixed reason:
-        # no exception type, no exception message (which may hold a path or Docker's output), no
-        # traceback.
+        # no exception type in any spelling, no message (which may hold a path or Docker's output), no
+        # code location, no traceback. Each group is one failure: whichever exception its cases
+        # raise, they all print the same lines.
         quick = {"AICADDIE_UP_DOCKER_TIMEOUT_SECONDS": "0.5", "AICADDIE_DB_READY_TIMEOUT_SECONDS": "0.5"}
 
-        for name, mode in (("docker is not installed", None), ("docker is not executable", 0o644)):
+        outputs = {}
+        for kind in ("not installed", "not executable", "not a program"):
+            name = f"docker is {kind}"
             with _case(name):
                 self.write_state(stack(db_running=False))
-                (self.bin / "docker").unlink()
-                if mode is not None:
-                    self.install_fake("docker", FAKE_DOCKER, mode)
+                self.replace_docker(kind)
                 try:
                     proc = self.up(**quick)
                 finally:
                     self.install_fake("docker", FAKE_DOCKER)
-                self.assert_failed(proc, "docker", "none")
-                self.assert_no_exception_text(proc)
+                self.assert_fixed_failure(proc, "docker", "none")
+                self.assertEqual(self.start_calls(), [])
+                outputs[name] = self.output_lines(proc)
+        self.assert_same_output(outputs)
 
+        outputs = {}
+        # JSONDecodeError, TypeError, KeyError and AttributeError in turn.
         database_outputs = {
-            "database inspect prints no JSON": "canary-docker-stdout-449 {not json",
-            "database inspect prints JSON of another shape": '["canary-docker-stdout-449"]',
+            "no JSON": "canary-docker-stdout-449 {not json",
+            "a JSON list": '["canary-docker-stdout-449"]',
+            "an object without `running`": '{"canary-docker-stdout-449": true}',
+            "a health that is text": '{"running": true, "health": "canary-docker-stdout-449"}',
         }
-        for name, text in database_outputs.items():
+        for kind, text in database_outputs.items():
+            name = f"database inspect prints {kind}"
+            with _case(name):
+                self.write_state(stack(db_running=True), inspect_stdout={"names": [DB], "text": text})
+                proc = self.up(**quick)
+                self.assert_fixed_failure(proc, "database", DB)
+                self.assertNotIn(SERVING, self.start_calls())
+                outputs[name] = self.output_lines(proc)
+        self.assert_same_output(outputs)
+
+        outputs = {}
+        # JSONDecodeError, TypeError, KeyError and AttributeError in turn.
+        listing_outputs = {
+            "no JSON": "canary-docker-stdout-449 {not json",
+            "a JSON list": '["canary-docker-stdout-449"]',
+            "an object without `id`": '{"canary-docker-stdout-449": 1}',
+            "a name that is a list": '{"id": "canary-docker-stdout-449", '
+                                     '"name": ["canary-docker-stdout-449"]}',
+        }
+        for kind, text in listing_outputs.items():
+            name = f"container listing prints {kind}"
             with _case(name):
                 self.write_state(stack(db_running=True),
-                                 inspect_stdout={"names": [DB], "text": text})
+                                 inspect_stdout={"names": [OLDER, SERVING], "text": text})
                 proc = self.up(**quick)
-                self.assert_failed(proc, "database", DB)
-                self.assert_no_exception_text(proc)
-                self.assertNotIn(SERVING, self.start_calls())
+                self.assert_fixed_failure(proc, "api", "none")
+                self.assertEqual(self.start_calls(), [])
+                outputs[name] = self.output_lines(proc)
+        self.assert_same_output(outputs)
 
-        with _case("container listing prints no JSON"):
-            self.write_state(stack(db_running=True),
-                             inspect_stdout={"names": [OLDER, SERVING],
-                                             "text": "canary-docker-stdout-449 {not json"})
-            proc = self.up(**quick)
-            self.assert_failed(proc, "api")
-            self.assert_no_exception_text(proc)
-            self.assertEqual(self.start_calls(), [])
-
-        with _case("sync lock directory is missing"):
-            self.write_state(stack(db_running=True))
-            missing = self.tmp / "canary-missing-dir-449" / "sync.lock"
-            proc = self.up(AICADDIE_SYNC_LOCK=str(missing), **quick)
-            self.assert_failed(proc, "api")
-            self.assert_no_exception_text(proc)
-            self.assertEqual(self.start_calls(), [], "the API was started without the sync lock")
+        outputs = {}
+        (self.tmp / "canary-lock-dir-449").mkdir()
+        (self.tmp / "canary-lock-file-449").write_text("")
+        # FileNotFoundError, IsADirectoryError and NotADirectoryError in turn.
+        lock_paths = {
+            "its directory is missing": self.tmp / "canary-missing-dir-449" / "sync.lock",
+            "it is a directory": self.tmp / "canary-lock-dir-449",
+            "its parent is a file": self.tmp / "canary-lock-file-449" / "sync.lock",
+        }
+        for kind, path in lock_paths.items():
+            name = f"sync lock: {kind}"
+            with _case(name):
+                self.write_state(stack(db_running=True))
+                proc = self.up(AICADDIE_SYNC_LOCK=str(path), **quick)
+                self.assert_fixed_failure(proc, "api")
+                self.assertEqual(self.start_calls(), [], "the API was started without the sync lock")
+                outputs[name] = self.output_lines(proc)
+        self.assert_same_output(outputs)
 
 
 if __name__ == "__main__":
