@@ -351,7 +351,8 @@ enum WatchPlanLegs {
 public enum WatchPlayerMarkerStyle: Equatable {
     /// The blue Apple-Maps-style dot with a heading arrow (production since watch P3).
     case youDot
-    /// S70-style: no dot; a small white chevron at the origin of every route / measure line.
+    /// S70-style marker used by Hole Root. When a recommendation is present this is a yellow
+    /// disc with a black arrow; without a recommendation it retains the small white chevron.
     case chevron
 }
 
@@ -406,6 +407,8 @@ enum WatchHoleMapReferenceLayout {
     /// familiar 100 / 150 / 200-yard convention, so keep the fact layer to these three references.
     static let remainingYards = [100, 150, 200]
     static let metresPerYard = 0.9144
+    /// S70-sized reference dots, with a dark outline so they stay legible over topo imagery.
+    static let remainingMarkerRadius: CGFloat = 5.25
 
     /// Garmin's fixed layup markers are distances remaining to the green, not percentages of the
     /// screen or of the current hole. Resolve them only from the cumulative-metre route.
@@ -518,6 +521,112 @@ public struct WatchCurrentShotLayout: Equatable {
             carryP90: carryP90,
             continuation: continuation.filter { $0.x.isFinite && $0.y.isFinite }
         )
+    }
+}
+
+/// Screen-space geometry for the S70 recommendation overlay. The recommendation only carries a
+/// longitudinal p10–p90 carry range, so the square uses that depth for both axes instead of inventing
+/// a lateral dispersion measurement.
+struct WatchCurrentShotOverlayGeometry: Equatable {
+    static let minimumSquareSide: CGFloat = 14
+    static let maximumSquareSide: CGFloat = 28
+    static let defaultPlayerDiscRadius: CGFloat = 8
+    static let arcHalfAngle: CGFloat = 25 * .pi / 180
+
+    let player: CGPoint
+    let landing: CGPoint
+    let heading: CGFloat
+    let radius: CGFloat
+    let squareSide: CGFloat
+    let squareCorners: [CGPoint]
+    let aimStart: CGPoint
+    let aimEnd: CGPoint
+    let arcStartAngle: CGFloat
+    let arcEndAngle: CGFloat
+
+    static func resolve(
+        player: CGPoint,
+        landing: CGPoint,
+        carryP10: CGPoint,
+        carryP90: CGPoint,
+        playerDiscRadius: CGFloat = WatchCurrentShotOverlayGeometry.defaultPlayerDiscRadius
+    ) -> Self? {
+        let points = [player, landing, carryP10, carryP90]
+        guard points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else { return nil }
+        let radius = hypot(landing.x - player.x, landing.y - player.y)
+        let spread = hypot(carryP90.x - carryP10.x, carryP90.y - carryP10.y)
+        guard radius > 1, spread.isFinite, spread > 0 else { return nil }
+
+        let heading = atan2(landing.y - player.y, landing.x - player.x)
+        let along = CGPoint(x: cos(heading), y: sin(heading))
+        let across = CGPoint(x: -along.y, y: along.x)
+        // The payload gives carry depth only. Use its projection along the aim for both square
+        // axes; there is no lateral data to justify a wider or narrower dispersion shape.
+        let carryDelta = CGPoint(x: carryP90.x - carryP10.x, y: carryP90.y - carryP10.y)
+        let depth = abs(carryDelta.x * along.x + carryDelta.y * along.y)
+        guard depth.isFinite, depth > 0 else { return nil }
+        let side = min(max(depth, minimumSquareSide), maximumSquareSide)
+        let half = side / 2
+        let corners = [
+            offset(landing, along: along, across: across, alongDistance: -half, acrossDistance: -half),
+            offset(landing, along: along, across: across, alongDistance: -half, acrossDistance: half),
+            offset(landing, along: along, across: across, alongDistance: half, acrossDistance: half),
+            offset(landing, along: along, across: across, alongDistance: half, acrossDistance: -half),
+        ]
+        let discRadius = max(0, playerDiscRadius)
+        let aimStartDistance = min(discRadius, max(0, radius - 0.5))
+        let aimEndDistance = max(0, radius - half)
+        return Self(
+            player: player,
+            landing: landing,
+            heading: heading,
+            radius: radius,
+            squareSide: side,
+            squareCorners: corners,
+            aimStart: offset(player, along: along, across: across, alongDistance: aimStartDistance, acrossDistance: 0),
+            aimEnd: offset(player, along: along, across: across, alongDistance: aimEndDistance, acrossDistance: 0),
+            arcStartAngle: heading - arcHalfAngle,
+            arcEndAngle: heading + arcHalfAngle
+        )
+    }
+
+    private static func offset(
+        _ point: CGPoint,
+        along: CGPoint,
+        across: CGPoint,
+        alongDistance: CGFloat,
+        acrossDistance: CGFloat
+    ) -> CGPoint {
+        CGPoint(
+            x: point.x + along.x * alongDistance + across.x * acrossDistance,
+            y: point.y + along.y * alongDistance + across.y * acrossDistance
+        )
+    }
+
+    /// A lightly rounded square path, kept here so Canvas and the pixel tests share its corners.
+    func squarePath(cornerRadius: CGFloat = 3) -> Path {
+        let radius = min(max(cornerRadius, 0), squareSide / 3)
+        var path = Path()
+        for index in squareCorners.indices {
+            let previous = squareCorners[(index + squareCorners.count - 1) % squareCorners.count]
+            let current = squareCorners[index]
+            let next = squareCorners[(index + 1) % squareCorners.count]
+            let incoming = normalized(from: current, to: previous)
+            let outgoing = normalized(from: current, to: next)
+            let start = CGPoint(x: current.x + incoming.x * radius, y: current.y + incoming.y * radius)
+            let end = CGPoint(x: current.x + outgoing.x * radius, y: current.y + outgoing.y * radius)
+            if index == 0 { path.move(to: start) } else { path.addLine(to: start) }
+            path.addQuadCurve(to: end, control: current)
+        }
+        path.closeSubpath()
+        return path
+    }
+
+    private func normalized(from point: CGPoint, to other: CGPoint) -> CGPoint {
+        let dx = other.x - point.x
+        let dy = other.y - point.y
+        let length = max(hypot(dx, dy), 0.0001)
+        return CGPoint(x: dx / length, y: dy / length)
     }
 }
 
@@ -851,7 +960,7 @@ public struct WatchHoleMapView: View {
     private func measureTapAllowed(_ location: CGPoint, size: CGSize) -> Bool {
         let onFacts = !fullMap && Self.rootFactsFrame(in: size).contains(location)
         // A tap on the club tag switches plan; it never also drops a measure ring under the tag.
-        let onClubTag = showTextOverlay && showCaddieRecommendation
+        let onClubTag = showTextOverlay && showCaddieRecommendation && !rangeUnavailable && showsRootCaddieChip
             && Self.rootCaddieChipFrame(in: size).insetBy(dx: -4, dy: -4).contains(location)
         // The rail's two corner buttons keep their taps; the hole between them (up to the player)
         // still measures.
@@ -916,17 +1025,17 @@ public struct WatchHoleMapView: View {
 
     static func rootCaddieChipFrame(in size: CGSize) -> CGRect {
         let safeRect = WatchDisplayGeometry.contentRect(in: size)
-        let width: CGFloat = min(56, max(50, safeRect.width * 0.30))
-        let height: CGFloat = 36
+        let width: CGFloat = min(50, max(46, safeRect.width * 0.28))
+        let height: CGFloat = 24
         // The root keeps the menu and manual-shot controls in the bottom instrument rail. Leave a
-        // real gap above that rail so the recommendation remains a quiet map affordance instead of
-        // becoming a third, overlapping bottom button on 41 mm.
-        let railClearance = WatchDisplayGeometry.instrumentControlSize + 6
-        // The full-bleed root centres the hole, so the player marker sits at mid-width on the
-        // chip's row; the chip starts just right of it instead of covering it.
+        // real gap above that rail so the recommendation remains a quiet map affordance.
+        let railClearance: CGFloat = 6
+        // S70 puts the caddie entry at the bottom centre, but there our player marker sits between
+        // the rail's corner buttons and the aim line runs straight up from it (#438). The compact
+        // chip therefore stays just right of the player instead of covering the marker or the line.
         return CGRect(
             x: min(size.width * 0.5 + 14, safeRect.maxX - width),
-            y: rootRailBottom(in: size) - height - railClearance,
+            y: rootRailBottom(in: size) - WatchDisplayGeometry.instrumentControlSize - railClearance - height,
             width: width,
             height: height
         )
@@ -1160,20 +1269,23 @@ public struct WatchHoleMapView: View {
                 .padding(.leading, size.width * 0.07)
                 .padding(.top, size.height * (compactFacts ? (size.height < 206 ? 0.05 : 0.07) : 0.09))
 
-                if showTextOverlay, showCaddieRecommendation, showsRootCaddieChip {
+                if showTextOverlay, showCaddieRecommendation, !rangeUnavailable, showsRootCaddieChip {
                     // Its own high-priority tap, not a Button: on the 本洞 方案 page the map's
                     // simultaneous measure tap and the page's recognizers otherwise take the touch
                     // and the tag never opens the caddie page.
-                    HStack(spacing: 3) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "figure.golf")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(AICaddieDesignTokens.hudGreen)
                         Text(WatchClubDisplay.shortCode(caddieClub))
-                            .font(.system(size: 16, weight: .black, design: .rounded))
-                            .foregroundStyle(.black)
+                            .font(.system(size: 13, weight: .black, design: .rounded))
+                            .foregroundStyle(.white)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                            .minimumScaleFactor(0.7)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(AICaddieDesignTokens.hudGreen, in: Capsule())
-                    .overlay(Capsule().stroke(Color.white.opacity(0.84), lineWidth: 1.1))
+                    .background(Color.black.opacity(0.72), in: Capsule())
+                    .overlay(Capsule().stroke(AICaddieDesignTokens.hudGreen.opacity(0.95), lineWidth: 1))
                     .contentShape(Rectangle())
                     .highPriorityGesture(TapGesture().onEnded { onOpenCaddie() })
                     .accessibilityElement(children: .ignore)
@@ -1352,7 +1464,7 @@ public struct WatchHoleMapView: View {
         }
         switch WatchHoleMapRouteOverlay.resolve(
             measuredPoint: measuredPx,
-            showCaddieRecommendation: showCaddieRecommendation && !drawsFullPlan,
+            showCaddieRecommendation: showCaddieRecommendation && !rangeUnavailable && !drawsFullPlan,
             hasCurrentShot: currentShotLayout != nil,
             showPreparedPlan: showPreparedPlan
         ) {
@@ -1399,14 +1511,30 @@ public struct WatchHoleMapView: View {
 
         // YOU is a live rangefinder fact, not the fallback Tee/reference anchor used during a
         // no-GPS cold start. Do not paint the reference point as the player's current position.
-        if !rangeUnavailable, playerMarker == .chevron {
+        let hasCurrentShotOverlay = currentShotLayout.flatMap {
+            WatchCurrentShotOverlayGeometry.resolve(
+                player: player,
+                landing: a.t($0.target),
+                carryP10: a.t($0.carryP10),
+                carryP90: a.t($0.carryP90)
+            )
+        } != nil
+        let preparedTarget = a.t(geometry.layupPx)
+        let hasPreparedOverlay = showPreparedPlan
+            && hypot(preparedTarget.x - player.x, preparedTarget.y - player.y) > 1
+        let showsRecommendationMarker = !rangeUnavailable
+            && !fullMap
+            && measuredPx == nil
+            && showCaddieRecommendation
+            && (hasCurrentShotOverlay || hasPreparedOverlay)
+        if !rangeUnavailable, playerMarker == .chevron, !showsRecommendationMarker {
             // S70-style: the lines start here; a small chevron is enough to say "you".
             var chevron = Path()
             chevron.move(to: CGPoint(x: player.x - 5, y: player.y + 2))
             chevron.addLine(to: CGPoint(x: player.x, y: player.y - 5))
             chevron.addLine(to: CGPoint(x: player.x + 5, y: player.y + 2))
             context.stroke(chevron, with: .color(.white), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-        } else if !rangeUnavailable {
+        } else if !rangeUnavailable, playerMarker != .chevron {
             var arrowP = Path()
             arrowP.move(to: CGPoint(x: player.x, y: player.y - 12))
             arrowP.addLine(to: CGPoint(x: player.x - 4, y: player.y - 5.5))
@@ -1673,7 +1801,7 @@ public struct WatchHoleMapView: View {
         ) {
             let point = transform(marker.imagePoint)
             let tint = remainingMarkerColor(marker.remainingYards)
-            let radius: CGFloat = 2.1
+            let radius = WatchHoleMapReferenceLayout.remainingMarkerRadius
             let markerRect = CGRect(
                 x: point.x - radius,
                 y: point.y - radius,
@@ -1684,7 +1812,7 @@ public struct WatchHoleMapView: View {
             context.stroke(
                 Path(ellipseIn: markerRect),
                 with: .color(.black.opacity(0.92)),
-                style: StrokeStyle(lineWidth: 0.7)
+                style: StrokeStyle(lineWidth: 1.1)
             )
         }
     }
@@ -1709,74 +1837,120 @@ public struct WatchHoleMapView: View {
         let p10 = transform(layout.carryP10)
         let p90 = transform(layout.carryP90)
 
-        if !dispersionOnly {
-        var aim = Path()
-        aim.move(to: player)
-        aim.addLine(to: target)
-        context.stroke(
-            aim,
-            with: .color(.white.opacity(0.94)),
-            style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
-        )
-
-        if Self.drawsRouteAndPlan(fullMap: fullMap), !layout.continuation.isEmpty {
-            var remainingPlan = Path()
-            remainingPlan.move(to: target)
-            for point in layout.continuation {
-                remainingPlan.addLine(to: transform(point))
-            }
-            context.stroke(
-                remainingPlan,
-                with: .color(.white.opacity(0.82)),
-                style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round)
-            )
-
-            // The final continuation point is the real pin, which already has its own flag marker.
-            for point in layout.continuation.dropLast() {
-                let landing = transform(point)
-                context.fill(
-                    Path(ellipseIn: CGRect(x: landing.x - 1.8, y: landing.y - 1.8, width: 3.6, height: 3.6)),
-                    with: .color(caddieGreen.opacity(0.92))
-                )
+        if Self.drawsRouteAndPlan(fullMap: fullMap) {
+            // The S70 treatment is for Hole Root. Keep the focused caddie instrument's existing
+            // measured depth and continuation marks, which are useful when reviewing the whole plan.
+            if !dispersionOnly {
+                var aim = Path()
+                aim.move(to: player)
+                aim.addLine(to: target)
                 context.stroke(
-                    Path(ellipseIn: CGRect(x: landing.x - 1.8, y: landing.y - 1.8, width: 3.6, height: 3.6)),
-                    with: .color(.white),
-                    style: StrokeStyle(lineWidth: 0.8)
+                    aim,
+                    with: .color(.white.opacity(0.94)),
+                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
+                )
+
+                if Self.drawsRouteAndPlan(fullMap: fullMap), !layout.continuation.isEmpty {
+                    var remainingPlan = Path()
+                    remainingPlan.move(to: target)
+                    for point in layout.continuation {
+                        remainingPlan.addLine(to: transform(point))
+                    }
+                    context.stroke(
+                        remainingPlan,
+                        with: .color(.white.opacity(0.82)),
+                        style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round)
+                    )
+
+                    // The final continuation point is the real pin, which already has its own flag marker.
+                    for point in layout.continuation.dropLast() {
+                        let landing = transform(point)
+                        let dot = Path(ellipseIn: CGRect(x: landing.x - 1.8, y: landing.y - 1.8, width: 3.6, height: 3.6))
+                        context.fill(dot, with: .color(caddieGreen.opacity(0.92)))
+                        context.stroke(dot, with: .color(.white), style: StrokeStyle(lineWidth: 0.8))
+                    }
+                }
+            }
+
+            var depth = Path()
+            depth.move(to: p10)
+            depth.addLine(to: target)
+            depth.addLine(to: p90)
+            context.stroke(
+                depth,
+                with: .color(caddieGreen.opacity(0.82)),
+                style: StrokeStyle(lineWidth: 2.0, lineCap: .round, lineJoin: .round)
+            )
+            for endpoint in [p10, p90] {
+                context.fill(
+                    Path(ellipseIn: CGRect(x: endpoint.x - 1.35, y: endpoint.y - 1.35, width: 2.7, height: 2.7)),
+                    with: .color(caddieGreen)
                 )
             }
-        }
-        }
-
-        var depth = Path()
-        depth.move(to: p10)
-        depth.addLine(to: target)
-        depth.addLine(to: p90)
-        context.stroke(
-            depth,
-            with: .color(caddieGreen.opacity(0.82)),
-            style: StrokeStyle(lineWidth: 2.0, lineCap: .round, lineJoin: .round)
-        )
-
-        for endpoint in [p10, p90] {
-            context.fill(
-                Path(ellipseIn: CGRect(x: endpoint.x - 1.35, y: endpoint.y - 1.35, width: 2.7, height: 2.7)),
-                with: .color(caddieGreen)
-            )
+            let radius: CGFloat = 2.4
+            let targetRect = CGRect(x: target.x - radius, y: target.y - radius, width: radius * 2, height: radius * 2)
+            context.fill(Path(ellipseIn: targetRect), with: .color(caddieGreen.opacity(0.92)))
+            context.stroke(Path(ellipseIn: targetRect), with: .color(.white), style: StrokeStyle(lineWidth: 1.1))
+            return
         }
 
-        let radius: CGFloat = 2.4
-        let targetRect = CGRect(
-            x: target.x - radius,
-            y: target.y - radius,
-            width: radius * 2,
-            height: radius * 2
+        guard !dispersionOnly,
+              let overlay = WatchCurrentShotOverlayGeometry.resolve(
+                player: player,
+                landing: target,
+                carryP10: p10,
+                carryP90: p90
+              ) else { return }
+
+        // S70 puts a thin arc through the landing at the recommended distance. The aim stroke is
+        // deliberately clipped to the disc edge and the square's near edge; the two shapes own the
+        // pixels at either end.
+        var arc = Path()
+        arc.addArc(
+            center: overlay.player,
+            radius: overlay.radius,
+            startAngle: .radians(Double(overlay.arcStartAngle)),
+            endAngle: .radians(Double(overlay.arcEndAngle)),
+            clockwise: false
         )
-        context.fill(Path(ellipseIn: targetRect), with: .color(caddieGreen.opacity(0.92)))
-        context.stroke(
-            Path(ellipseIn: targetRect),
-            with: .color(.white),
-            style: StrokeStyle(lineWidth: 1.1)
-        )
+        context.stroke(arc, with: .color(.white.opacity(0.94)), style: StrokeStyle(lineWidth: 1.15, lineCap: .round))
+
+        var aim = Path()
+        aim.move(to: overlay.aimStart)
+        aim.addLine(to: overlay.aimEnd)
+        context.stroke(aim, with: .color(.white.opacity(0.96)), style: StrokeStyle(lineWidth: 1.4, lineCap: .butt))
+
+        let square = overlay.squarePath()
+        context.fill(square, with: .color(.white.opacity(0.18)))
+        context.stroke(square, with: .color(.white.opacity(0.96)), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+        drawRecommendationPlayerMarker(&context, player: overlay.player, heading: overlay.heading)
+    }
+
+    private func drawRecommendationPlayerMarker(
+        _ context: inout GraphicsContext,
+        player: CGPoint,
+        heading: CGFloat
+    ) {
+        // Only the S70-style root replaces its marker; a blue-dot view keeps its own dot rather
+        // than stacking a second player marker on it.
+        guard playerMarker == .chevron else { return }
+        let radius = WatchCurrentShotOverlayGeometry.defaultPlayerDiscRadius
+        let disc = Path(ellipseIn: CGRect(x: player.x - radius, y: player.y - radius, width: radius * 2, height: radius * 2))
+        context.fill(disc, with: .color(golfYellow))
+        context.stroke(disc, with: .color(.black.opacity(0.92)), style: StrokeStyle(lineWidth: 1.1))
+
+        let along = CGPoint(x: cos(heading), y: sin(heading))
+        let across = CGPoint(x: -along.y, y: along.x)
+        let tip = CGPoint(x: player.x + along.x * 5.8, y: player.y + along.y * 5.8)
+        let base = CGPoint(x: player.x - along.x * 4.3, y: player.y - along.y * 4.3)
+        let left = CGPoint(x: base.x + across.x * 3.2, y: base.y + across.y * 3.2)
+        let right = CGPoint(x: base.x - across.x * 3.2, y: base.y - across.y * 3.2)
+        var arrow = Path()
+        arrow.move(to: tip)
+        arrow.addLine(to: left)
+        arrow.addLine(to: right)
+        arrow.closeSubpath()
+        context.fill(arrow, with: .color(.black.opacity(0.94)))
     }
 
     /// Free measurement temporarily owns the visible route: one grounded line from the player to the
@@ -1866,29 +2040,24 @@ public struct WatchHoleMapView: View {
     ) {
         let player = transform(geometry.youPx)
         let target = transform(geometry.layupPx)
-        let firstControl = transform(geometry.apexPx)
+        let radius = hypot(target.x - player.x, target.y - player.y)
+        guard radius.isFinite, radius > 1 else { return }
+        let heading = atan2(target.y - player.y, target.x - player.x)
+        let along = CGPoint(x: cos(heading), y: sin(heading))
+        let start = CGPoint(
+            x: player.x + along.x * WatchCurrentShotOverlayGeometry.defaultPlayerDiscRadius,
+            y: player.y + along.y * WatchCurrentShotOverlayGeometry.defaultPlayerDiscRadius
+        )
         var firstLeg = Path()
-        firstLeg.move(to: player)
-        firstLeg.addQuadCurve(to: target, control: firstControl)
-        context.stroke(
-            firstLeg,
-            with: .color(.white.opacity(0.94)),
-            style: StrokeStyle(lineWidth: 1.8, lineCap: .round)
-        )
-
-        let radius: CGFloat = 2.8
-        let targetRect = CGRect(
-            x: target.x - radius,
-            y: target.y - radius,
-            width: radius * 2,
-            height: radius * 2
-        )
+        firstLeg.move(to: start)
+        firstLeg.addLine(to: target)
+        context.stroke(firstLeg, with: .color(.white.opacity(0.94)), style: StrokeStyle(lineWidth: 1.5, lineCap: .butt))
+        // A prepared plan has no carry depth to size the S70 square, so its target keeps the dot.
+        let dotRadius: CGFloat = 2.8
+        let targetRect = CGRect(x: target.x - dotRadius, y: target.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
         context.fill(Path(ellipseIn: targetRect), with: .color(caddieGreen.opacity(0.9)))
-        context.stroke(
-            Path(ellipseIn: targetRect),
-            with: .color(.white),
-            style: StrokeStyle(lineWidth: 1)
-        )
+        context.stroke(Path(ellipseIn: targetRect), with: .color(.white), style: StrokeStyle(lineWidth: 1))
+        drawRecommendationPlayerMarker(&context, player: player, heading: heading)
     }
 
     private func bareDistance(
