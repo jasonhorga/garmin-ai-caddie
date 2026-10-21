@@ -343,11 +343,21 @@ OLD_ENV = IMAGE_ENV + [
 ]
 
 
+DB = "garmin-ai-caddie-db-1"
+
+
+def database_fixture() -> dict:
+    database = container(90, DB, "sha256:%064x" % 90, None, running=True)
+    database["State"]["Health"] = {"Status": "healthy"}
+    database["HostConfig"]["PortBindings"] = {}
+    return database
+
+
 def production_fixture() -> dict:
-    """One running production container at OLD with its api/sync images."""
+    """One running API at OLD with its api/sync images and healthy database."""
     return {
         "containers": [container(1, PREFIX + "11111111-production-20261014", "sha256:%064x" % 1, OLD,
-                                 running=True, env=list(OLD_ENV))],
+                                 running=True, env=list(OLD_ENV)), database_fixture()],
         "images": [image(1, [f"garmin-ai-caddie-api:{OLD}"], OLD, IMAGE_ENV),
                    image(2, [f"aicaddie-sync:{OLD}"], OLD)],
     }
@@ -438,7 +448,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         return sorted(c["Name"][1:] for c in self.state()["containers"] if c["State"]["Running"])
 
     def assert_old_serving(self) -> None:
-        self.assertEqual(self.running_names(), [PREFIX + "11111111-production-20261014"])
+        self.assertEqual(self.running_names(), [PREFIX + "11111111-production-20261014", DB])
         self.assertIsNone(self.by_name(PREFIX + NEW[:8]))
 
     # -- invocation contract ----------------------------------------------
@@ -478,7 +488,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         self.assertEqual(sync["Config"]["Labels"], {"ai.caddie.source-revision": NEW})
         self.assertEqual(sync["Dockerfile"], "Dockerfile.sync")
 
-        self.assertEqual(self.running_names(), [new_name])
+        self.assertEqual(self.running_names(), [new_name, DB])
         old = self.by_name(PREFIX + "11111111-production-20261014")
         self.assertEqual(old["State"]["Status"], "exited")
         stop = next(call for call in self.calls() if call[0] == "stop")
@@ -545,7 +555,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         commands = self.commands(before)
         for forbidden in ("build", "run", "stop", "start", "rm", "rmi"):
             self.assertNotIn(forbidden, commands)
-        self.assertEqual(self.running_names(), [PREFIX + NEW[:8]])
+        self.assertEqual(self.running_names(), [PREFIX + NEW[:8], DB])
         self.assertEqual(len(self.sync_record.read_text().splitlines()), 2)
 
     def test_existing_images_are_not_rebuilt(self) -> None:
@@ -623,15 +633,15 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         self.assertEqual(list(self.runtime.iterdir()), [])
 
     def test_missing_current_container_fails_before_building(self) -> None:
-        self.write_state({"containers": [], "images": []})
+        self.write_state({"containers": [database_fixture()], "images": []})
         result = self.deploy()
         self.assertEqual(result.returncode, 1)
         self.assertIn("no running release container", result.stdout)
         self.assertIn("previous_untouched=true", result.stdout)
-        self.assertEqual(set(self.commands()), {"ps"})
+        self.assertEqual(set(self.commands()), {"ps", "inspect"})
 
     def test_bootstrap_deploy_uses_env_file(self) -> None:
-        self.write_state({"containers": [], "images": []})
+        self.write_state({"containers": [database_fixture()], "images": []})
         env_file = self.tmp / "canary-bootstrap.env"
         env_file.write_text(f"# comment\nAI_CADDIE_ADMIN_TOKEN={SECRET}\n\nAI_CADDIE_DATA_MODE=fixture_only\n")
         result = self.deploy(AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE=str(env_file),
@@ -651,13 +661,13 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         self.assertEqual(new["Run"]["--memory"], ["1073741824"])
 
     def test_failed_bootstrap_removes_new_container(self) -> None:
-        self.write_state({"containers": [], "images": []}, unhealthy=[NEW])
+        self.write_state({"containers": [database_fixture()], "images": []}, unhealthy=[NEW])
         env_file = self.tmp / "canary-bootstrap.env"
         env_file.write_text("AI_CADDIE_DATA_MODE=fixture_only\n")
         result = self.deploy(AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE=str(env_file))
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("previous_restored=none", result.stdout)
-        self.assertEqual(self.running_names(), [])
+        self.assertEqual(self.running_names(), [DB])
         self.assertIsNone(self.by_name(PREFIX + NEW[:8]))
 
     def test_ambiguous_current_container_fails_closed(self) -> None:
@@ -788,7 +798,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
             self.assertIsNone(process.poll())
             if self.by_name(PREFIX + NEW[:8]) is not None:
                 seen_new = True
-            elif seen_new and self.running_names() == [PREFIX + "11111111-production-20261014"]:
+            elif seen_new and self.running_names() == [PREFIX + "11111111-production-20261014", DB]:
                 break
             time.sleep(0.05)
         process.send_signal(signal.SIGTERM)
@@ -802,18 +812,18 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         result = self.deploy(FAKE_SYNC_MODE="fail")
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn(f"restoring {PREFIX}11111111-production-20261014", result.stdout)
-        self.assertEqual(self.running_names(), [PREFIX + "11111111-production-20261014"])
+        self.assertEqual(self.running_names(), [PREFIX + "11111111-production-20261014", DB])
         self.assertEqual(self.by_name(PREFIX + NEW[:8])["State"]["Status"], "exited")
 
     def test_failed_verification_without_previous_release_exits_3(self) -> None:
-        self.write_state({"containers": [], "images": []})
+        self.write_state({"containers": [database_fixture()], "images": []})
         env_file = self.tmp / "canary-bootstrap.env"
         env_file.write_text("AI_CADDIE_DATA_MODE=fixture_only\n")
         self.assertEqual(self.deploy(AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE=str(env_file)).returncode, 0)
         result = self.deploy(FAKE_SYNC_MODE="fail")
         self.assertEqual(result.returncode, 3, result.stdout)
         self.assertIn("left running", result.stdout)
-        self.assertEqual(self.running_names(), [PREFIX + NEW[:8]])
+        self.assertEqual(self.running_names(), [PREFIX + NEW[:8], DB])
 
     def test_switch_refused_when_deadline_leaves_no_restore_time(self) -> None:
         result = self.deploy(AICADDIE_DEPLOY_DEADLINE_SECONDS="60")
@@ -826,7 +836,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         self.set_scenario(ghost_ids=["f" * 64])
         result = self.deploy()
         self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(self.running_names(), [PREFIX + NEW[:8]])
+        self.assertEqual(self.running_names(), [PREFIX + NEW[:8], DB])
 
     @unittest.skipUnless(os.path.isdir("/dev/shm"), "needs /dev/shm")
     def test_env_file_falls_back_to_dev_shm(self) -> None:
@@ -848,7 +858,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         result = self.invoke("rollback", OLD, sha=OLD)
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn(f"result=ok action=rollback revision={OLD}", result.stdout)
-        self.assertEqual(self.running_names(), [PREFIX + "11111111-production-20261014"])
+        self.assertEqual(self.running_names(), [PREFIX + "11111111-production-20261014", DB])
         self.assertEqual(self.by_name(PREFIX + NEW[:8])["State"]["Status"], "exited")
         self.assertNotIn("rm", self.commands(before))
         self.assertNotIn("build", self.commands(before))
@@ -879,7 +889,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         result = self.invoke("rollback", OLD, sha=OLD)
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("previous_restored=true", result.stdout)
-        self.assertEqual(self.running_names(), [PREFIX + NEW[:8]])
+        self.assertEqual(self.running_names(), [PREFIX + NEW[:8], DB])
         self.assertEqual(self.by_name(PREFIX + "11111111-production-20261014")["State"]["Status"], "exited")
 
     def test_rollback_to_live_revision_is_idempotent(self) -> None:

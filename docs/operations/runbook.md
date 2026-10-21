@@ -225,6 +225,11 @@ until the agenthub cutover is complete.
 
 ### Contract
 
+`deploy` and `rollback` refuse to stop, start or switch any container unless the
+container named exactly `AICADDIE_DB_CONTAINER` is running and `healthy` (waiting
+up to `AICADDIE_DB_READY_TIMEOUT_SECONDS`), and they check it under the sync lock
+before switching or verifying a live revision; they never start the database.
+
 ```bash
 ops/agenthub_deploy.py deploy <40-lowercase-hex-sha>
 ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
@@ -323,8 +328,8 @@ paths and URLs; it prints container/image names and revisions only.
 | `AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS` | Wait for a running sync to release the lock | `600` |
 | `AICADDIE_DEPLOY_DEADLINE_SECONDS` | Overall budget; no switch starts unless a switch plus restore still fits (keep below the executor timeout) | `2280` (38 min) |
 | `AICADDIE_DEPLOY_POLL_SECONDS` | Health/lock poll interval | `2` |
-| `AICADDIE_DB_CONTAINER` | Database container used during boot recovery | `garmin-ai-caddie-db-1` |
-| `AICADDIE_DB_READY_TIMEOUT_SECONDS` | Maximum wait for the database to become healthy during boot recovery | `180` |
+| `AICADDIE_DB_CONTAINER` | Database container checked by deploy, rollback and boot recovery | `garmin-ai-caddie-db-1` |
+| `AICADDIE_DB_READY_TIMEOUT_SECONDS` | Maximum wait for the database to become healthy before deploy, rollback or boot recovery | `180` |
 | `AICADDIE_UP_DOCKER_TIMEOUT_SECONDS` | Maximum wait for Docker during boot recovery | `300` |
 | `XDG_RUNTIME_DIR` | tmpfs directory for the private env file | `/dev/shm` |
 

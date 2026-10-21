@@ -201,6 +201,10 @@ class Config:
         self.lock_timeout = _float(env, "AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS", 600.0)
         self.deadline_seconds = _float(env, "AICADDIE_DEPLOY_DEADLINE_SECONDS", 2280.0)
         self.poll = _float(env, "AICADDIE_DEPLOY_POLL_SECONDS", 2.0)
+        self.db_ready_timeout = _float(env, "AICADDIE_DB_READY_TIMEOUT_SECONDS", 180.0)
+        self.db_name = env.get("AICADDIE_DB_CONTAINER") or "garmin-ai-caddie-db-1"
+        if not PREFIX_PATTERN.fullmatch(self.db_name):
+            raise ConfigError("AICADDIE_DB_CONTAINER must be a valid container name")
         self.started = time.monotonic()
 
     @property
@@ -249,15 +253,11 @@ def _float(env, name, default, *, positive=False):
 
 
 class UpConfig(Config):
-    """Recovery settings do not change deploy/rollback configuration."""
+    """Additional settings for ordered recovery."""
 
     def __init__(self, env: dict[str, str]):
         super().__init__(env)
         self.up_docker_timeout = _float(env, "AICADDIE_UP_DOCKER_TIMEOUT_SECONDS", 300.0)
-        self.db_ready_timeout = _float(env, "AICADDIE_DB_READY_TIMEOUT_SECONDS", 180.0)
-        self.db_name = env.get("AICADDIE_DB_CONTAINER") or "garmin-ai-caddie-db-1"
-        if not PREFIX_PATTERN.fullmatch(self.db_name):
-            raise ConfigError("AICADDIE_DB_CONTAINER must be a valid container name")
 
 
 # ---------------------------------------------------------------------------
@@ -640,9 +640,11 @@ def deploy(cfg: Config, sha: str) -> str:
     new_name = f"{cfg.prefix}{sha[:8]}"
     # Fail fast before the long image builds; everything is re-read under the lock.
     check_deploy_source(cfg, find_current(cfg, list_containers()))
+    wait_deploy_database(cfg)
     ensure_images(sha)
 
     with PrivateDir() as private, SyncLock(cfg):
+        wait_deploy_database(cfg)
         containers = list_containers()
         current = find_current(cfg, containers)
         if current is not None and current.revision == sha:
@@ -793,6 +795,7 @@ def select_rollback(cfg: Config, sha: str) -> tuple[Container | None, Container 
 def rollback(cfg: Config, sha: str) -> str:
     select_rollback(cfg, sha)
     with SyncLock(cfg):
+        wait_deploy_database(cfg)
         current, target = select_rollback(cfg, sha)
         if target is None:
             if not wait_health(cfg.local_health_url, sha, cfg.health_timeout, cfg.poll):
@@ -822,6 +825,30 @@ def rollback(cfg: Config, sha: str) -> str:
 
 # ---------------------------------------------------------------------------
 # Ordered recovery of existing containers
+
+
+def wait_deploy_database(cfg: Config) -> None:
+    """Wait for the exact database without changing any container."""
+    deadline = time.monotonic() + cfg.db_ready_timeout
+    refusal = f"database {cfg.db_name} is not running and healthy"
+    while True:
+        result = docker(
+            "inspect", "--format",
+            '{"running":{{json .State.Running}},"health":{{json .State.Health}}}',
+            cfg.db_name, label="database inspect", capture=True, quiet=True, check=False,
+        )
+        if result.returncode != 0:
+            raise DeployError(refusal)
+        try:
+            state = json.loads(result.stdout)
+            healthy = state["running"] is True and (state.get("health") or {}).get("Status") == "healthy"
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise DeployError(refusal) from None
+        if healthy:
+            return
+        if time.monotonic() >= deadline:
+            raise DeployError(refusal)
+        time.sleep(cfg.poll)
 
 
 def wait_docker(timeout: float, poll: float) -> bool:
