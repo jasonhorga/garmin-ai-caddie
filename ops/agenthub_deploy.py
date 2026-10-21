@@ -263,7 +263,8 @@ def list_containers() -> list[Container]:
     # Other projects' `--rm` containers can vanish between `ps` and `inspect`;
     # docker still prints the ones that exist, so a partial answer is kept.
     for _ in range(3):
-        ids = docker("ps", "-a", "--no-trunc", "--format", "{{.ID}}", capture=True).stdout.split()
+        ids = docker("ps", "-a", "--no-trunc", "--format", "{{.ID}}",
+                     capture=True, quiet=True).stdout.split()
         if not ids:
             return []
         result = docker("inspect", "--format", CONTAINER_FORMAT, *ids,
@@ -857,8 +858,8 @@ def up(cfg: UpConfig) -> Container:
         raise
     except DeployError as exc:
         raise UpFailed(part, container, str(exc)) from None
-    except Exception as exc:
-        raise UpFailed(part, container, f"unexpected {type(exc).__name__}") from None
+    except Exception:
+        raise UpFailed(part, container, "unexpected failure") from None
 
 
 # ---------------------------------------------------------------------------
