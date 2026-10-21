@@ -1004,32 +1004,6 @@ class UpContractRegressionTests(unittest.TestCase):
                 self.assertIn("result=failed action=up", fields)
                 self.assertIn(f"part={part} container={container}", fields)
 
-    def test_up_candidates_are_validated_and_only_printed_for_release_ties(self) -> None:
-        names = f"{PREFIX}first,{PREFIX}second"
-        cases = (
-            (names, names),
-            (names + ",/canary-candidates-449", "invalid"),
-            (names + "\ncanary-candidates-449", "invalid"),
-            (names + ",", "invalid"),
-            ("", "invalid"),
-            (None, "invalid"),
-        )
-        for candidates, expected in cases:
-            with self.subTest(candidates=candidates):
-                output = io.StringIO()
-                with redirect_stdout(output):
-                    deploy.up_line(result="failed", action="up", reason="release_tie",
-                                   candidates=candidates)
-                self.assertEqual(output.getvalue(),
-                                 "agenthub-deploy: result=failed action=up reason=release_tie "
-                                 f"candidates={expected}\n")
-        output = io.StringIO()
-        with redirect_stdout(output):
-            deploy.up_line(result="failed", action="up", reason="no_release_candidate",
-                           candidates=names)
-        self.assertEqual(output.getvalue(),
-                         "agenthub-deploy: result=failed action=up reason=no_release_candidate\n")
-
 
 if __name__ == "__main__":
     unittest.main()

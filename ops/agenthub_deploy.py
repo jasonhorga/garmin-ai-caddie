@@ -100,17 +100,10 @@ class Interrupted(DeployError):
 
 
 class UpFailed(DeployError):
-    def __init__(self, part: str, container: str, message: str, reason: str = "unexpected",
-                 *, candidates: str = ""):
+    def __init__(self, part: str, container: str, message: str):
         super().__init__(message)
         self.part = part
         self.container = container
-        self.reason = reason
-        self.candidates = candidates
-
-
-class LockTimeout(DeployError):
-    """The recovery path could not acquire the sync lock before its deadline."""
 
 
 class CutoverFailed(DeployError):
@@ -119,62 +112,8 @@ class CutoverFailed(DeployError):
         self.restored = restored  # None: there was no previous container
 
 
-_UP_QUIET = False
-
-
 def log(message: str) -> None:
-    if _UP_QUIET:
-        return
     print(f"agenthub-deploy: {message}", flush=True)
-
-
-UP_REASONS = frozenset({
-    "docker_unavailable",
-    "database_missing",
-    "database_unhealthy",
-    "no_release_candidate",
-    "release_tie",
-    "api_unhealthy",
-    "lock_timeout",
-    "unexpected",
-})
-UP_FIELDS = frozenset({"action", "result", "part", "container", "revision", "elapsed_s", "reason", "candidates"})
-
-
-def _up_value(key: str, value: object) -> str | None:
-    if key not in UP_FIELDS:
-        return None
-    if not isinstance(value, str):
-        return "invalid"
-    if key == "action":
-        return value if value == "up" else "invalid"
-    if key == "result":
-        return value if value in {"ok", "failed"} else "invalid"
-    if key == "part":
-        return value if value in {"docker", "database", "api"} else "invalid"
-    if key == "container":
-        return value if value == "none" or PREFIX_PATTERN.fullmatch(value) else "invalid"
-    if key == "revision":
-        return value if SHA_PATTERN.fullmatch(value) else "invalid"
-    if key == "elapsed_s":
-        return value if re.fullmatch(r"\d+\.\d+", value) else "invalid"
-    if key == "reason":
-        return value if value in UP_REASONS else "invalid"
-    if key == "candidates":
-        return value if all(PREFIX_PATTERN.fullmatch(name) for name in value.split(",")) else "invalid"
-    return "invalid"
-
-
-def up_line(**fields: object) -> None:
-    """Write one redacted recovery line; invalid values never reach stdout."""
-    parts = []
-    for key, value in fields.items():
-        if key == "candidates" and fields.get("reason") != "release_tie":
-            continue
-        safe = _up_value(key, value)
-        if safe is not None:
-            parts.append(f"{key}={safe}")
-    print(f"agenthub-deploy: {' '.join(parts)}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -284,9 +223,6 @@ def run(args, *, label, capture=False, quiet=False, env=None, check=True):
 
 
 def docker(*args, label=None, capture=False, quiet=False, check=True):
-    if _UP_QUIET:
-        capture = True
-        quiet = True
     return run(["docker", *args], label=label or f"docker {args[0]}",
                capture=capture, quiet=quiet, check=check)
 
@@ -408,7 +344,7 @@ class SyncLock:
             except BlockingIOError:
                 if time.monotonic() >= deadline:
                     self.handle.close()
-                    raise LockTimeout("sync lock was not acquired in time; a sync is still running") from None
+                    raise DeployError("sync lock was not acquired in time; a sync is still running") from None
                 time.sleep(min(max(self.cfg.poll, 0.05), 1.0))
 
     def __exit__(self, *exc):
@@ -845,21 +781,16 @@ def wait_up_database(cfg: UpConfig) -> None:
             cfg.db_name, label="database inspect", capture=True, quiet=True, check=False,
         )
         if result.returncode != 0:
-            raise UpFailed("database", cfg.db_name, "database is missing", reason="database_missing")
+            raise DeployError(f"database {cfg.db_name} is missing or unavailable")
         state = json.loads(result.stdout)
         if state["running"] and (state.get("health") or {}).get("Status") == "healthy":
             return
         if not state["running"] and not started:
             log(f"starting {cfg.db_name}")
-            try:
-                docker("start", cfg.db_name, label="database start", capture=True, quiet=True)
-            except DeployError:
-                raise UpFailed("database", cfg.db_name, "database did not become healthy",
-                                reason="database_unhealthy") from None
+            docker("start", cfg.db_name, label="database start", capture=True, quiet=True)
             started = True
         if time.monotonic() >= deadline:
-            raise UpFailed("database", cfg.db_name, "database did not become healthy",
-                           reason="database_unhealthy")
+            raise DeployError(f"database {cfg.db_name} did not become healthy")
         time.sleep(cfg.poll)
 
 
@@ -871,17 +802,12 @@ def assert_up_release(cfg: Config, container: Container) -> None:
 
 
 def select_up_api(cfg: Config, containers: list[Container]) -> Container | None:
-    try:
-        current = find_current(cfg, containers)
-    except DeployError:
-        raise UpFailed("api", "none", "no valid release candidate",
-                       reason="no_release_candidate") from None
+    current = find_current(cfg, containers)
     if current is not None:
         try:
             assert_up_release(cfg, current)
-        except DeployError:
-            raise UpFailed("api", current.name, "no valid release candidate",
-                           reason="no_release_candidate") from None
+        except DeployError as exc:
+            raise UpFailed("api", current.name, str(exc)) from None
         return current
     candidates = []
     for candidate in containers:
@@ -897,27 +823,21 @@ def select_up_api(cfg: Config, containers: list[Container]) -> Container | None:
     latest = max(candidates, key=lambda c: c.finished_key)
     tied = sorted(c.name for c in candidates if c.finished_key == latest.finished_key)
     if len(tied) > 1:
-        raise UpFailed("api", "none", "multiple latest stopped release candidates",
-                       reason="release_tie", candidates=",".join(tied))
+        raise UpFailed("api", "none", f"multiple latest stopped release candidates: {', '.join(tied)}")
     return latest
 
 
 def up(cfg: UpConfig) -> Container:
     part, container = "docker", "none"
-    global _UP_QUIET
-    was_quiet = _UP_QUIET
-    _UP_QUIET = True
     try:
         if not wait_docker(cfg.up_docker_timeout, cfg.poll):
-            raise UpFailed("docker", "none", "Docker daemon unavailable",
-                           reason="docker_unavailable")
+            raise DeployError("Docker daemon did not become available")
         part, container = "database", cfg.db_name
         wait_up_database(cfg)
         part, container = "api", "none"
         api = select_up_api(cfg, list_containers())
         if api is None:
-            raise UpFailed("api", "none", "no valid release candidate",
-                           reason="no_release_candidate")
+            raise DeployError("no stopped release container matches the configured layout and port")
         container = api.name
         if not api.running:
             with SyncLock(cfg):
@@ -925,23 +845,20 @@ def up(cfg: UpConfig) -> Container:
                 container = "none"
                 api = select_up_api(cfg, list_containers())
                 if api is None:
-                    raise UpFailed("api", "none", "no valid release candidate",
-                                   reason="no_release_candidate")
+                    raise DeployError("no stopped release container matches the configured layout and port")
                 container = api.name
                 if not api.running:
                     log(f"starting {api.name}")
                     docker("start", api.name, label="API start", capture=True, quiet=True)
         if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
-            raise UpFailed("api", api.name, "API health check failed", reason="api_unhealthy")
+            raise DeployError(f"{api.name} did not report status=ok for its revision")
         return api
     except UpFailed:
         raise
-    except LockTimeout:
-        raise UpFailed("api", container, "sync lock timeout", reason="lock_timeout") from None
-    except BaseException:
-        raise UpFailed(part, container, "unexpected recovery failure", reason="unexpected") from None
-    finally:
-        _UP_QUIET = was_quiet
+    except DeployError as exc:
+        raise UpFailed(part, container, str(exc)) from None
+    except Exception as exc:
+        raise UpFailed(part, container, f"unexpected {type(exc).__name__}") from None
 
 
 # ---------------------------------------------------------------------------
@@ -971,20 +888,15 @@ def main(argv: list[str]) -> int:
     install_signal_handlers()
     started = time.monotonic()
     if is_up:
-        up_line(action="up")
+        log("action=up")
         try:
             api = up(cfg)
         except UpFailed as exc:
-            up_line(result="failed", action="up", part=exc.part, container=exc.container,
-                    elapsed_s=f"{time.monotonic() - started:.1f}", reason=exc.reason,
-                    candidates=exc.candidates)
+            log(f"result=failed action=up part={exc.part} container={exc.container} "
+                f"elapsed_s={time.monotonic() - started:.1f} reason={exc}")
             return EXIT_FAILED
-        except BaseException:
-            up_line(result="failed", action="up", part="api", container="none",
-                    elapsed_s=f"{time.monotonic() - started:.1f}", reason="unexpected")
-            return EXIT_FAILED
-        up_line(result="ok", action="up", container=api.name, revision=api.revision,
-                elapsed_s=f"{time.monotonic() - started:.1f}")
+        log(f"result=ok action=up container={api.name} revision={api.revision} "
+            f"elapsed_s={time.monotonic() - started:.1f}")
         return EXIT_OK
     log(f"action={action} revision={sha}")
     try:
