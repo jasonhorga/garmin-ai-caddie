@@ -323,6 +323,9 @@ paths and URLs; it prints container/image names and revisions only.
 | `AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS` | Wait for a running sync to release the lock | `600` |
 | `AICADDIE_DEPLOY_DEADLINE_SECONDS` | Overall budget; no switch starts unless a switch plus restore still fits (keep below the executor timeout) | `2280` (38 min) |
 | `AICADDIE_DEPLOY_POLL_SECONDS` | Health/lock poll interval | `2` |
+| `AICADDIE_DB_CONTAINER` | Database container used during boot recovery | `garmin-ai-caddie-db-1` |
+| `AICADDIE_DB_READY_TIMEOUT_SECONDS` | Maximum wait for the database to become healthy during boot recovery | `180` |
+| `AICADDIE_UP_DOCKER_TIMEOUT_SECONDS` | Maximum wait for Docker during boot recovery | `300` |
 | `XDG_RUNTIME_DIR` | tmpfs directory for the private env file | `/dev/shm` |
 
 The executor must pin (sha256) every repository file that runs on the host:
@@ -346,6 +349,32 @@ Roll back to an earlier release that is still kept as a stopped container:
 
 ```bash
 ops/agenthub_deploy.py rollback <previous-sha>
+```
+
+## Boot recovery
+
+The pinned boot unit at `ops/systemd/aicaddie-stack-up.service` runs
+`agenthub_deploy.py up` from the installed copy at
+`~/.local/lib/aicaddie/agenthub_deploy.py`. Install that copy and the user unit
+under `~/.config/systemd/user` from the root of a clean export of the deployed
+revision:
+
+```bash
+mkdir -p ~/.local/lib/aicaddie ~/.config/systemd/user
+install -m 0755 ops/agenthub_deploy.py ~/.local/lib/aicaddie/agenthub_deploy.py
+install -m 0644 ops/systemd/aicaddie-stack-up.service ~/.config/systemd/user/aicaddie-stack-up.service
+systemctl --user daemon-reload
+systemctl --user enable aicaddie-stack-up.service
+loginctl enable-linger
+```
+
+Reinstall the pinned copy whenever `ops/agenthub_deploy.py` changes. Enabling
+linger lets the user unit run at boot, and `agenthub_deploy.py up` waits for the
+Docker daemon, the database, and the sync lock before starting a stopped API.
+Read the boot recovery log with:
+
+```bash
+journalctl --user -u aicaddie-stack-up
 ```
 
 ### Sandbox drill
