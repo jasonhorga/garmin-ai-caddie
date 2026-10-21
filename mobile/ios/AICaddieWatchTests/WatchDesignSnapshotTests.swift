@@ -2414,9 +2414,16 @@ final class WatchDesignSnapshotTests: XCTestCase {
             x: (overlay.aimStart.x + overlay.aimEnd.x) * 0.5,
             y: (overlay.aimStart.y + overlay.aimEnd.y) * 0.5
         )
-        XCTAssertTrue(card438IsWhite(card438Pixel(pixels, at: midpoint, width: 198)), "the aim segment is visible")
+        // The 1.4 pt line is antialiased at scale 1, so look in the 3x3 neighbourhood.
+        XCTAssertTrue(card438HasWhitePixel(pixels, near: midpoint, width: 198), "the aim segment is visible")
         XCTAssertFalse(card438IsWhite(card438Pixel(pixels, at: overlay.player, width: 198)), "the disc owns its interior")
-        XCTAssertFalse(card438IsWhite(card438Pixel(pixels, at: overlay.landing, width: 198)), "the square owns its interior")
+        // Halfway from the square's near edge to its centre, on the aim: the line would be here if
+        // it ran through the square. (The centre itself is on the arc, which crosses it by design.)
+        let insideSquare = CGPoint(
+            x: overlay.landing.x - cos(overlay.heading) * overlay.squareSide / 4,
+            y: overlay.landing.y - sin(overlay.heading) * overlay.squareSide / 4
+        )
+        XCTAssertFalse(card438IsWhite(card438Pixel(pixels, at: insideSquare, width: 198)), "the aim line stops at the square")
         XCTAssertEqual(hypot(overlay.aimStart.x - overlay.player.x, overlay.aimStart.y - overlay.player.y), 8, accuracy: 0.8)
         XCTAssertEqual(hypot(overlay.aimEnd.x - overlay.landing.x, overlay.aimEnd.y - overlay.landing.y), overlay.squareSide / 2, accuracy: 0.8)
     }

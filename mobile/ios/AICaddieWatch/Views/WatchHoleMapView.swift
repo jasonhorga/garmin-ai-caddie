@@ -1931,6 +1931,9 @@ public struct WatchHoleMapView: View {
         player: CGPoint,
         heading: CGFloat
     ) {
+        // Only the S70-style root replaces its marker; a blue-dot view keeps its own dot rather
+        // than stacking a second player marker on it.
+        guard playerMarker == .chevron else { return }
         let radius = WatchCurrentShotOverlayGeometry.defaultPlayerDiscRadius
         let disc = Path(ellipseIn: CGRect(x: player.x - radius, y: player.y - radius, width: radius * 2, height: radius * 2))
         context.fill(disc, with: .color(golfYellow))
@@ -2049,6 +2052,11 @@ public struct WatchHoleMapView: View {
         firstLeg.move(to: start)
         firstLeg.addLine(to: target)
         context.stroke(firstLeg, with: .color(.white.opacity(0.94)), style: StrokeStyle(lineWidth: 1.5, lineCap: .butt))
+        // A prepared plan has no carry depth to size the S70 square, so its target keeps the dot.
+        let dotRadius: CGFloat = 2.8
+        let targetRect = CGRect(x: target.x - dotRadius, y: target.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)
+        context.fill(Path(ellipseIn: targetRect), with: .color(caddieGreen.opacity(0.9)))
+        context.stroke(Path(ellipseIn: targetRect), with: .color(.white), style: StrokeStyle(lineWidth: 1))
         drawRecommendationPlayerMarker(&context, player: player, heading: heading)
     }
 
