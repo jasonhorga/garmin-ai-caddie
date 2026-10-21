@@ -1164,8 +1164,9 @@ public struct WatchRoundContainerView: View {
         return centerYd(s) != nil && showsRootRecommendation(s, geometry: geometry)
     }
 
-    /// Take the club tag's tap above the vertical pager, like the menu and manual shot controls.
-    /// Its visibility follows the recommendation layer, including a single available plan.
+    /// Take the compact club chip's tap above the vertical pager, like the menu and
+    /// manual shot controls. The shared frame keeps this hit target aligned with the visible chip
+    /// on every supported face, and its visibility follows the recommendation layer.
     @ViewBuilder
     private var planTagTapTarget: some View {
         if showsPlanTagTapTarget() {

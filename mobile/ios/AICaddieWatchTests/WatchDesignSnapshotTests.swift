@@ -2340,10 +2340,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testCurrentShotFootprintHasNoFabricatedLateralDispersion() throws {
-        // A straight route keeps every legitimate shot mark in a narrow vertical strip.
-        // Compare shown/hidden pixels against that absolute footprint: an ellipse added to every
-        // shown layout cannot hide behind equality between two otherwise identical shot renders.
+    func testCurrentShotFootprintUsesCarryDepthForBothSquareAxes() throws {
+        // The route is straight so p10–p90 is unambiguously the longitudinal depth. The S70 box
+        // deliberately uses that depth for its width because no lateral measurement is available.
         let geometry = WatchHoleMapGeometry(
             image: WatchHoleMapSample.image, imageSize: CGSize(width: 200, height: 240),
             youPx: CGPoint(x: 100, y: 200), pinPx: CGPoint(x: 100, y: 0),
@@ -2384,11 +2383,193 @@ final class WatchDesignSnapshotTests: XCTestCase {
             }.count
         }
         XCTAssertNotEqual(shown, hidden, "the real aim line and carry-depth marks must be visible")
-        XCTAssertEqual(changedPixelsOutsideShotStrip(shown), 0, "carry depth supplies no lateral radius")
+        XCTAssertGreaterThan(changedPixelsOutsideShotStrip(shown), 0, "the square has the same side across the aim")
         XCTAssertGreaterThan(
-            changedPixelsOutsideShotStrip(try pixels(shown: true, decorativeEllipse: true)), 0,
-            "the footprint check must detect an added lateral ellipse"
+            changedPixelsOutsideShotStrip(try pixels(shown: true, decorativeEllipse: true)),
+            changedPixelsOutsideShotStrip(shown),
+            "the footprint check must still detect an extra lateral ellipse"
         )
+    }
+
+    // Card #438: rows 1–8 cover the S70-style Hole Root layer and its fallbacks.
+    @MainActor
+    func testCard438Row1RootPlanUsesYellowPlayerDiscAndDarkAimArrow() throws {
+        let overlay = try XCTUnwrap(card438Overlay())
+        let pixels = try card438Pixels()
+        let player = overlay.player
+        let across = CGPoint(x: -sin(overlay.heading), y: cos(overlay.heading))
+        let yellow = card438Pixel(pixels, at: CGPoint(x: player.x + across.x * 5, y: player.y + across.y * 5), width: 198)
+        let arrowPoint = CGPoint(x: player.x + cos(overlay.heading) * 3, y: player.y + sin(overlay.heading) * 3)
+        let arrow = card438Pixel(pixels, at: arrowPoint, width: 198)
+        XCTAssertTrue(card438IsYellow(yellow), "the recommendation marker is a yellow disc")
+        XCTAssertLessThan(arrow.red + arrow.green + arrow.blue, 180, "the disc contains a dark aim arrow")
+        XCTAssertFalse(card438IsWhite(arrow), "the old white chevron is absent")
+    }
+
+    @MainActor
+    func testCard438Row2AimLineStopsAtDiscAndSquareEdges() throws {
+        let overlay = try XCTUnwrap(card438Overlay())
+        let pixels = try card438Pixels()
+        let midpoint = CGPoint(
+            x: (overlay.aimStart.x + overlay.aimEnd.x) * 0.5,
+            y: (overlay.aimStart.y + overlay.aimEnd.y) * 0.5
+        )
+        XCTAssertTrue(card438IsWhite(card438Pixel(pixels, at: midpoint, width: 198)), "the aim segment is visible")
+        XCTAssertFalse(card438IsWhite(card438Pixel(pixels, at: overlay.player, width: 198)), "the disc owns its interior")
+        XCTAssertFalse(card438IsWhite(card438Pixel(pixels, at: overlay.landing, width: 198)), "the square owns its interior")
+        XCTAssertEqual(hypot(overlay.aimStart.x - overlay.player.x, overlay.aimStart.y - overlay.player.y), 8, accuracy: 0.8)
+        XCTAssertEqual(hypot(overlay.aimEnd.x - overlay.landing.x, overlay.aimEnd.y - overlay.landing.y), overlay.squareSide / 2, accuracy: 0.8)
+    }
+
+    @MainActor
+    func testCard438Row3SquareUsesTwentyPointDepthAndIsRotatedTranslucent() throws {
+        let overlay = try XCTUnwrap(card438Overlay())
+        XCTAssertEqual(overlay.squareSide, 20, accuracy: 1)
+        let centre = CGPoint(
+            x: overlay.squareCorners.reduce(0) { $0 + $1.x } / CGFloat(overlay.squareCorners.count),
+            y: overlay.squareCorners.reduce(0) { $0 + $1.y } / CGFloat(overlay.squareCorners.count)
+        )
+        XCTAssertEqual(centre.x, overlay.landing.x, accuracy: 0.01)
+        XCTAssertEqual(centre.y, overlay.landing.y, accuracy: 0.01)
+        let alongEdge = CGPoint(
+            x: overlay.squareCorners[3].x - overlay.squareCorners[0].x,
+            y: overlay.squareCorners[3].y - overlay.squareCorners[0].y
+        )
+        XCTAssertGreaterThan(alongEdge.x * cos(overlay.heading) + alongEdge.y * sin(overlay.heading), 18)
+
+        let pixels = try card438Pixels()
+        let hidden = try card438Pixels(showRecommendation: false, currentShot: nil)
+        XCTAssertNotEqual(
+            card438Pixel(pixels, at: overlay.landing, width: 198),
+            card438Pixel(hidden, at: overlay.landing, width: 198),
+            "the square fill lets the map show through"
+        )
+        XCTAssertTrue(
+            card438IsWhite(card438Pixel(pixels, at: CGPoint(
+                x: (overlay.squareCorners[0].x + overlay.squareCorners[3].x) * 0.5,
+                y: (overlay.squareCorners[0].y + overlay.squareCorners[3].y) * 0.5
+            ), width: 198)),
+            "the square has a white outline"
+        )
+        XCTAssertFalse(card438IsStrongGreen(card438Pixel(pixels, at: overlay.landing, width: 198)), "there is no green landing dot")
+    }
+
+    func testCard438Row4SquareSideClampsToFourteenAndTwentyEight() throws {
+        let player = CGPoint(x: 0, y: 100)
+        let landing = CGPoint(x: 0, y: 0)
+        let minimum = try XCTUnwrap(WatchCurrentShotOverlayGeometry.resolve(
+            player: player, landing: landing, carryP10: CGPoint(x: 0, y: 3), carryP90: CGPoint(x: 0, y: -3)
+        ))
+        let maximum = try XCTUnwrap(WatchCurrentShotOverlayGeometry.resolve(
+            player: player, landing: landing, carryP10: CGPoint(x: 0, y: 30), carryP90: CGPoint(x: 0, y: -30)
+        ))
+        XCTAssertEqual(minimum.squareSide, 14, accuracy: 0.01)
+        XCTAssertEqual(maximum.squareSide, 28, accuracy: 0.01)
+    }
+
+    @MainActor
+    func testCard438Row5ArcUsesPlayerLandingRadiusAndTwentyFiveDegreeSpan() throws {
+        let overlay = try XCTUnwrap(card438Overlay())
+        XCTAssertEqual(overlay.radius, hypot(
+            overlay.landing.x - overlay.player.x,
+            overlay.landing.y - overlay.player.y
+        ), accuracy: 0.01)
+        XCTAssertEqual(overlay.heading - overlay.arcStartAngle, 25 * .pi / 180, accuracy: 0.001)
+        XCTAssertEqual(overlay.arcEndAngle - overlay.heading, 25 * .pi / 180, accuracy: 0.001)
+        let arcPoint = CGPoint(
+            x: overlay.player.x + cos(overlay.heading + 12 * .pi / 180) * overlay.radius,
+            y: overlay.player.y + sin(overlay.heading + 12 * .pi / 180) * overlay.radius
+        )
+        XCTAssertTrue(card438HasWhitePixel(try card438Pixels(), near: arcPoint, width: 198))
+    }
+
+    @MainActor
+    func testCard438Row6RemainingMarkersUseS70SizeAndColours() throws {
+        XCTAssertEqual(WatchHoleMapReferenceLayout.remainingMarkerRadius, 5.25, accuracy: 0.01)
+        let route = [[100.0, 200.0, 0.0], [100.0, 0.0, 300.0]]
+        let markers = WatchHoleMapReferenceLayout.remainingMarkers(
+            route: route,
+            playerImagePoint: card438Geometry.youPx,
+            pinImagePoint: card438Geometry.pinPx
+        )
+        XCTAssertEqual(markers.map(\.remainingYards), [100, 150, 200])
+        let pixels = try card438Pixels(
+            showRecommendation: false,
+            currentShot: nil,
+            showReferenceMarkers: true,
+            hazardRoute: route
+        )
+        for marker in markers {
+            let point = card438ScreenPoint(marker.imagePoint)
+            let colour = card438Pixel(pixels, at: point, width: 198)
+            switch marker.remainingYards {
+            case 100: XCTAssertGreaterThan(colour.red, colour.blue * 2, "100 is red")
+            case 150: XCTAssertGreaterThan(colour.red + colour.green + colour.blue, 500, "150 is white")
+            case 200: XCTAssertGreaterThan(colour.blue, colour.red * 3 / 2, "200 is blue")
+            default: break
+            }
+        }
+    }
+
+    @MainActor
+    func testCard438Row7CompactChipSitsRightOfPlayerAndKeepsItsCaddieCallback() throws {
+        let size = CGSize(width: 198, height: 242)
+        let frame = WatchHoleMapView.rootCaddieChipFrame(in: size)
+        let safe = WatchDisplayGeometry.contentRect(in: size)
+        let railBottom = WatchHoleMapView.rootRailBottom(in: size)
+        let railTop = railBottom - WatchDisplayGeometry.instrumentControlSize
+        let menu = CGRect(x: safe.minX, y: railTop, width: 50, height: 50)
+        let plus = CGRect(x: safe.maxX - 50, y: railTop, width: 50, height: 50)
+        // Bottom centre is the player's position between the rail buttons, so the card's fallback
+        // applies: smaller than the old 50x36 pill, on the right of the player.
+        XCTAssertGreaterThan(frame.minX, size.width * 0.5 + 6)
+        XCTAssertLessThanOrEqual(frame.width, 50)
+        XCTAssertLessThan(frame.height, 36)
+        XCTAssertLessThan(frame.maxY, railTop)
+        XCTAssertFalse(frame.intersects(menu))
+        XCTAssertFalse(frame.intersects(plus))
+
+        let chip = try card438Pixels(showTextOverlay: true)
+        let noChip = try card438Pixels(showRecommendation: false, currentShot: nil, showTextOverlay: true)
+        XCTAssertGreaterThan(card438ChangedPixels(chip, noChip, in: frame, width: 198), 0)
+
+        var opened = false
+        let view = WatchHoleMapView(
+            showCaddieRecommendation: true,
+            currentShotLayout: card438Shot,
+            showTextOverlay: false,
+            geometry: card438Geometry,
+            onOpenCaddie: { opened = true }
+        )
+        view.invokeOpenCaddieForTesting()
+        XCTAssertTrue(opened, "tapping the chip keeps the existing caddie callback")
+    }
+
+    @MainActor
+    func testCard438Row8FallbacksDrawNoRecommendationLayer() throws {
+        let noPlan = try card438Pixels(showRecommendation: false, currentShot: nil)
+        let staleLayout = try card438Pixels(showRecommendation: false, currentShot: card438Shot)
+        XCTAssertEqual(noPlan, staleLayout, "a hidden recommendation does not leak its overlay")
+        XCTAssertEqual(
+            try card438Pixels(showRecommendation: false, currentShot: card438Shot, rangeUnavailable: true),
+            try card438Pixels(showRecommendation: false, currentShot: nil, rangeUnavailable: true),
+            "waiting for location keeps the old map state"
+        )
+        XCTAssertEqual(
+            try card438Pixels(rangeUnavailable: true),
+            try card438Pixels(showRecommendation: false, currentShot: nil, rangeUnavailable: true),
+            "waiting for location hides a stale recommendation layer"
+        )
+        XCTAssertEqual(
+            WatchHoleMapRouteOverlay.resolve(
+                measuredPoint: nil,
+                showCaddieRecommendation: false,
+                hasCurrentShot: true,
+                showPreparedPlan: true
+            ),
+            .none
+        )
+        XCTAssertNotEqual(noPlan, try card438Pixels())
     }
 
     @MainActor
@@ -2448,6 +2629,138 @@ final class WatchDesignSnapshotTests: XCTestCase {
             fullPlanPixels, try instrumentPixels(option: oneStep, geometry: geometry),
             "the instrument's map area must include the later plan leg and label"
         )
+    }
+
+    private var card438Geometry: WatchHoleMapGeometry {
+        WatchHoleMapGeometry(
+            image: nil,
+            imageSize: CGSize(width: 200, height: 240),
+            youPx: CGPoint(x: 100, y: 190),
+            pinPx: CGPoint(x: 100, y: 20),
+            layupPx: CGPoint(x: 140, y: 145),
+            apexPx: CGPoint(x: 120, y: 165),
+            greenCtrlPx: CGPoint(x: 100, y: 40)
+        )
+    }
+
+    private var card438Shot: WatchCurrentShotLayout {
+        let player = card438Geometry.youPx
+        let along = CGPoint(x: 0.8, y: -0.6)
+        let landing = CGPoint(x: player.x + along.x * 100, y: player.y + along.y * 100)
+        return WatchCurrentShotLayout(
+            player: player,
+            target: landing,
+            carryP10: CGPoint(x: landing.x - along.x * 10, y: landing.y - along.y * 10),
+            carryP90: CGPoint(x: landing.x + along.x * 10, y: landing.y + along.y * 10),
+            continuation: []
+        )
+    }
+
+    private func card438ScreenPoint(_ imagePoint: CGPoint) -> CGPoint {
+        let size = CGSize(width: 198, height: 242)
+        let anchor = CGPoint(x: size.width * 0.5, y: size.height * 0.8)
+        return CGPoint(
+            x: (imagePoint.x - card438Geometry.youPx.x) + anchor.x,
+            y: (imagePoint.y - card438Geometry.youPx.y) + anchor.y
+        )
+    }
+
+    private func card438Overlay() -> WatchCurrentShotOverlayGeometry? {
+        WatchCurrentShotOverlayGeometry.resolve(
+            player: card438ScreenPoint(card438Shot.player),
+            landing: card438ScreenPoint(card438Shot.target),
+            carryP10: card438ScreenPoint(card438Shot.carryP10),
+            carryP90: card438ScreenPoint(card438Shot.carryP90)
+        )
+    }
+
+    @MainActor
+    private func card438Pixels(
+        showRecommendation: Bool = true,
+        currentShot: WatchCurrentShotLayout? = nil,
+        rangeUnavailable: Bool = false,
+        showReferenceMarkers: Bool = false,
+        hazardRoute: [[Double]] = [],
+        showTextOverlay: Bool = false
+    ) throws -> [UInt8] {
+        let view = WatchHoleMapView(
+            showCaddieRecommendation: showRecommendation,
+            currentShotLayout: currentShot ?? (showRecommendation ? card438Shot : nil),
+            showReferenceMarkers: showReferenceMarkers,
+            hazardRoute: hazardRoute,
+            showTextOverlay: showTextOverlay,
+            showHoleIdentity: false,
+            ringPips: [],
+            rangeUnavailable: rangeUnavailable,
+            mapScale: 1,
+            restingPlayerAnchorFraction: 0.8,
+            playerMarker: .chevron,
+            geometry: card438Geometry,
+            interactionMode: .measure
+        )
+        let renderer = ImageRenderer(
+            content: view.watchSnapshotFrame(width: 198, height: 242).environment(\.colorScheme, .dark)
+        )
+        renderer.scale = 1
+        return renderedPixelBytes(try XCTUnwrap(renderer.cgImage))
+    }
+
+    private struct Card438RGBA: Equatable {
+        let red: Int
+        let green: Int
+        let blue: Int
+        let alpha: Int
+    }
+
+    private func card438Pixel(_ pixels: [UInt8], at point: CGPoint, width: Int) -> Card438RGBA {
+        let x = min(max(Int(point.x.rounded()), 0), width - 1)
+        let y = min(max(Int(point.y.rounded()), 0), pixels.count / (width * 4) - 1)
+        let offset = (y * width + x) * 4
+        return Card438RGBA(
+            red: Int(pixels[offset]), green: Int(pixels[offset + 1]),
+            blue: Int(pixels[offset + 2]), alpha: Int(pixels[offset + 3])
+        )
+    }
+
+    private func card438IsYellow(_ colour: Card438RGBA) -> Bool {
+        colour.red > 190 && colour.green > 130 && colour.blue < 120 && colour.red > colour.blue * 1.8
+    }
+
+    private func card438IsWhite(_ colour: Card438RGBA) -> Bool {
+        colour.red > 205 && colour.green > 205 && colour.blue > 205
+    }
+
+    private func card438HasWhitePixel(_ pixels: [UInt8], near point: CGPoint, width: Int) -> Bool {
+        for dy in -1...1 {
+            for dx in -1...1 {
+                if card438IsWhite(card438Pixel(
+                    pixels,
+                    at: CGPoint(x: point.x + CGFloat(dx), y: point.y + CGFloat(dy)),
+                    width: width
+                )) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private func card438IsStrongGreen(_ colour: Card438RGBA) -> Bool {
+        colour.green > 160 && colour.red < 130 && colour.green > colour.blue * 1.35
+    }
+
+    private func card438ChangedPixels(_ lhs: [UInt8], _ rhs: [UInt8], in rect: CGRect, width: Int) -> Int {
+        let height = min(lhs.count, rhs.count) / (width * 4)
+        let x0 = max(0, Int(rect.minX.rounded(.down)))
+        let x1 = min(width, Int(rect.maxX.rounded(.up)))
+        let y0 = max(0, Int(rect.minY.rounded(.down)))
+        let y1 = min(height, Int(rect.maxY.rounded(.up)))
+        return (y0..<y1).reduce(0) { count, y in
+            count + (x0..<x1).reduce(0) { inner, x in
+                let offset = (y * width + x) * 4
+                return inner + (lhs[offset..<(offset + 4)] == rhs[offset..<(offset + 4)] ? 0 : 1)
+            }
+        }
     }
 
     private func renderedPixelBytes(_ image: CGImage) -> [UInt8] {
