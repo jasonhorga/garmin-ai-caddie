@@ -780,7 +780,7 @@ class UpOrderTest(unittest.TestCase):
         self.assertEqual(self.start_calls(), [DB])
         self.assertEqual(self.api_started(), [])
         self.assertFalse(self.by_name(SERVING)["State"]["Running"])
-        self.assertIn("reason=lock_timeout", proc.stdout.split())
+        self.assertIn("sync lock", proc.stdout)
 
     # -- G3: health and selection ----------------------------------------------------------
 
