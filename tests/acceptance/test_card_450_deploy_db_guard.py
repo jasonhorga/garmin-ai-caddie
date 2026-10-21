@@ -2,10 +2,12 @@
 
 The real script runs as a subprocess with fake `docker` and `curl` executables first on PATH. They
 keep a small JSON model of the containers and images, answer `/api/v2/health` for the release
-running on the port, and record every docker call. For each call they also record whether the sync
-lock was held, and the running state and Docker health of the configured database
+running on the port, and record every docker and curl call. For each call they also record whether
+the sync lock was held, and the running state and Docker health of the configured database
 (`AICADDIE_DB_CONTAINER`, default `garmin-ai-caddie-db-1`) at that moment. A database can be set to
-turn `healthy` some seconds after the fixture is written. The real
+turn `healthy` some seconds after the fixture is written. A fixture can also carry an `on_lock`
+change: the first docker or curl call made while the sync lock is held replaces every database
+container with the given ones, before that call is answered. The real
 ops/complete_homeserver_api_deploy.sh runs as the deployment gate (check-only). No sync script and no
 public URL are configured. Multi-case tests use `_case`, not `subTest`, so a failing case fails the
 test function itself. Contract: .agent/contracts/card-450.md.
@@ -51,6 +53,7 @@ READ_VERBS = frozenset({"ps", "inspect", "info", "version", "container inspect",
 FAIL_DB_TIMEOUT = "0.5"
 QUICK_SECONDS = 20.0
 READY_DELAY = 3.0
+READY_NOTICED_SECONDS = 10.0  # waiting tests use a 20 s timeout
 SENTENCE_TOKENS = {
     "`AICADDIE_DB_CONTAINER`": r"`AICADDIE_DB_CONTAINER`",
     "deploy": r"\bdeploy\b",
@@ -110,9 +113,7 @@ def publishes(container, port):
 
 def running_on(state, port):
     return [c for c in state["containers"] if c["State"]["Running"] and publishes(c, port)]
-'''
 
-FAKE_DOCKER = FAKE_COMMON + r'''
 
 def find_container(state, ref):
     for c in state["containers"]:
@@ -120,6 +121,58 @@ def find_container(state, ref):
             return c
     return None
 
+
+def lock_free():
+    # Whether the sync lock was free at this moment (False: someone holds it).
+    path = os.environ.get("AICADDIE_SYNC_LOCK")
+    if not path:
+        return None
+    with open(path, "a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return False
+        fcntl.flock(handle, fcntl.LOCK_UN)
+        return True
+
+
+def db_name():
+    return os.environ.get("AICADDIE_DB_CONTAINER") or "garmin-ai-caddie-db-1"
+
+
+def is_database(container):
+    return (container["Config"].get("Labels") or {}).get("com.docker.compose.service") == "db"
+
+
+def observe(state):
+    # Runs first in every fake docker and curl call; returns (now, lock_free). The first call made
+    # while the sync lock is held applies the pending `on_lock` change: it replaces every database
+    # container. Then a running database whose ready time has passed reports `healthy` from now on.
+    now = time.time()
+    free = lock_free()
+    change = state.get("on_lock")
+    if free is False and change is not None:
+        del state["on_lock"]
+        state["on_lock_applied_at"] = now
+        state["containers"] = change["databases"] + [c for c in state["containers"] if not is_database(c)]
+        ids = {c["Name"][1:]: c["Id"] for c in change["databases"]}
+        for name, delay in change["ready_in"].items():
+            state["health_ready_at"][ids[name]] = now + delay
+    for c in state["containers"]:
+        ready = state["health_ready_at"].get(c["Id"])
+        if ready is not None and c["State"]["Running"] and now >= ready:
+            c["State"]["Health"]["Status"] = "healthy"
+            del state["health_ready_at"][c["Id"]]
+    return now, free
+
+
+def database_state(state):
+    db = find_container(state, db_name())
+    return {"db_running": bool(db and db["State"]["Running"]),
+            "db_health": ((db or {}).get("State", {}).get("Health") or {}).get("Status")}
+'''
+
+FAKE_DOCKER = FAKE_COMMON + r'''
 
 def find_image(state, ref):
     for image in state["images"]:
@@ -154,42 +207,6 @@ def tick(state):
     return "2026-10-21T12:%02d:%02d.5Z" % divmod(state["clock"], 60)
 
 
-def lock_free():
-    # Whether the sync lock was free at this moment (False: someone holds it).
-    path = os.environ.get("AICADDIE_SYNC_LOCK")
-    if not path:
-        return None
-    with open(path, "a") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return False
-        fcntl.flock(handle, fcntl.LOCK_UN)
-        return True
-
-
-def db_name():
-    return os.environ.get("AICADDIE_DB_CONTAINER") or "garmin-ai-caddie-db-1"
-
-
-def ripen(state, now):
-    # A running database whose ready time has passed reports `healthy` from now on.
-    for c in state["containers"]:
-        ready = state["health_ready_at"].get(c["Id"])
-        if ready is not None and c["State"]["Running"] and now >= ready:
-            c["State"]["Health"]["Status"] = "healthy"
-            del state["health_ready_at"][c["Id"]]
-
-
-def record(state, argv, now):
-    db = find_container(state, db_name())
-    state["events"].append({
-        "argv": argv, "time": now, "lock_free": lock_free(),
-        "db_running": bool(db and db["State"]["Running"]),
-        "db_health": ((db or {}).get("State", {}).get("Health") or {}).get("Status"),
-    })
-
-
 def name_matches(container, pattern):
     name = container["Name"][1:]
     return bool(re.search(pattern, name) or re.search(pattern, "/" + name))
@@ -197,9 +214,8 @@ def name_matches(container, pattern):
 
 def main(argv):
     state = load()
-    now = time.time()
-    ripen(state, now)
-    record(state, argv, now)
+    now, free = observe(state)
+    state["events"].append({"argv": argv, "time": now, "lock_free": free, **database_state(state)})
     save(state)
     if not argv:
         fail("fake docker: no command", 2)
@@ -322,7 +338,8 @@ sys.exit(main(sys.argv[1:]))
 FAKE_CURL = FAKE_COMMON + r'''
 url = sys.argv[-1]
 state = load()
-state["curl"].append({"args": sys.argv[1:], "time": time.time()})
+now, free = observe(state)
+state["curl"].append({"args": sys.argv[1:], "time": now, "lock_free": free, **database_state(state)})
 save(state)
 match = re.fullmatch(r"http://127\.0\.0\.1:(\d+)/api/v2/health", url)
 if not match:
@@ -429,6 +446,13 @@ def bootstrap() -> dict:
     return {"containers": [database()], "images": images()}
 
 
+def serving_old_with_residual() -> dict:
+    """OLD serves; a stopped NEW container is left over from an earlier attempt (switch removes it)."""
+    fixture = serving_old()
+    fixture["containers"].append(release(3, NEW_NAME, NEW, running=False, finished="2026-10-20T10:00:00Z"))
+    return fixture
+
+
 def with_databases(fixture: dict, databases: list[dict]) -> dict:
     """Replace every database-like container of the fixture."""
     others = [c for c in fixture["containers"]
@@ -436,9 +460,18 @@ def with_databases(fixture: dict, databases: list[dict]) -> dict:
     return {**fixture, "containers": [*databases, *others]}
 
 
+def healthy_databases(extra: dict) -> list[dict]:
+    """A healthy default-named database, and a healthy configured one when another name is set."""
+    configured = extra.get("AICADDIE_DB_CONTAINER")
+    return [database()] + ([database(51, configured)] if configured else [])
+
+
 # name -> (fixture builder, action, sha, expected (verb, target) container changes, result container)
 PATHS = {
     "deploy switch": (serving_old, "deploy", NEW, [("stop", OLD_NAME), ("run", NEW_NAME)], NEW_NAME),
+    "deploy switch over a stopped residual": (serving_old_with_residual, "deploy", NEW,
+                                              [("rm", NEW_NAME), ("stop", OLD_NAME), ("run", NEW_NAME)],
+                                              NEW_NAME),
     "deploy same revision": (serving_new, "deploy", NEW, [], NEW_NAME),
     "deploy bootstrap": (bootstrap, "deploy", NEW, [("run", NEW_NAME)], NEW_NAME),
     "rollback switch": (serving_old, "rollback", PREV, [("stop", OLD_NAME), ("start", PREV_NAME)], PREV_NAME),
@@ -458,6 +491,11 @@ NOT_HEALTHY = {
     "configured name missing, default name healthy": ([database()], {"AICADDIE_DB_CONTAINER": CUSTOM_DB},
                                                       CUSTOM_DB),
 }
+
+# When a NOT_HEALTHY state replaces the database under the sync lock, a `starting` database turns
+# healthy READY_DELAY seconds later: after the 0.5 s timeout of the refusal tests, well inside the 20 s
+# of the waiting tests. A check that ignores AICADDIE_DB_READY_TIMEOUT_SECONDS fails one of the two.
+LOCK_READY_IN = {"running, still starting": {DB: READY_DELAY}}
 
 
 class DeployDatabaseGuardTest(unittest.TestCase):
@@ -484,16 +522,28 @@ class DeployDatabaseGuardTest(unittest.TestCase):
 
     # -- harness -----------------------------------------------------------
 
-    def write_state(self, fixture: dict, *, ready_in: dict[str, float] | None = None) -> dict:
+    def write_state(self, fixture: dict, *, ready_in: dict[str, float] | None = None,
+                    on_lock: tuple[list[dict], dict[str, float]] | None = None) -> dict:
         # G1 G2: a fresh fake Docker model. `ready_in` maps a database name to the seconds after which
-        # it reports `healthy`.
+        # it reports `healthy`. `on_lock` = (database containers, ready_in): they replace every
+        # database container at the first docker or curl call made under the sync lock, and
+        # `ready_in` then counts from that moment.
         now = time.time()
         ids = {c["Name"][1:]: c["Id"] for c in fixture["containers"]}
         state = {"containers": [], "images": [], "events": [], "curl": [], "serial": 100, "clock": 0,
+                 "written_at": now,
                  "health_ready_at": {ids[name]: now + delay for name, delay in (ready_in or {}).items()}}
         state.update(json.loads(json.dumps(fixture)))
+        if on_lock is not None:
+            databases, delays = on_lock
+            state["on_lock"] = {"databases": json.loads(json.dumps(databases)), "ready_in": dict(delays)}
         self.state_path.write_text(json.dumps(state))
         return state
+
+    def assert_swapped_under_lock(self) -> None:
+        # G1 G2: the pending `on_lock` change was applied, so the script called docker or curl while
+        # holding the sync lock.
+        self.assertNotIn("on_lock", self.state(), "the script made no docker or curl call under the sync lock")
 
     def state(self) -> dict:
         # G1 G2
@@ -577,19 +627,25 @@ class DeployDatabaseGuardTest(unittest.TestCase):
         self.assertEqual(state["images"], before["images"])
         self.assertEqual(state["curl"], [], "the API health check ran before the database check refused")
 
-    def refused_run(self, fixture: dict, action: str, sha: str, database_name: str, **extra: str) -> None:
-        # G1: one refused run, finished well inside the test's database timeout budget.
-        before = self.write_state(fixture)
+    def refused_run(self, fixture: dict, action: str, sha: str, database_name: str, *,
+                    on_lock: tuple[list[dict], dict[str, float]] | None = None, **extra: str) -> None:
+        # G1: one refused run, finished well inside the test's database timeout budget. With
+        # `on_lock`, the model to compare against is the fixture after that change.
+        before = self.write_state(fixture, on_lock=on_lock)
+        if on_lock is not None:
+            before = with_databases(before, on_lock[0])
         began = time.monotonic()
         proc = self.invoke(action, sha, **extra)
         self.assertLess(time.monotonic() - began, QUICK_SECONDS,
                         "the run did not stop at AICADDIE_DB_READY_TIMEOUT_SECONDS")
+        if on_lock is not None:
+            self.assert_swapped_under_lock()
         self.assert_refused(proc, action, sha, database_name, before)
 
     def assert_succeeded(self, proc: subprocess.CompletedProcess, action: str, sha: str, container: str,
                          expected: list[tuple[str, str]]) -> None:
-        # G2: exit 0 with the ok line; exactly the expected container changes; at the first change the
-        # database was running and healthy and the sync lock was held.
+        # G2: exit 0 with the ok line; exactly the expected container changes; at the first change and
+        # at the first API health check the database was running and healthy and the sync lock was held.
         output = proc.stdout + proc.stderr
         self.assertEqual(proc.returncode, 0, output)
         fields, _ = self.result(proc)
@@ -598,16 +654,30 @@ class DeployDatabaseGuardTest(unittest.TestCase):
         self.assertEqual(fields.get("revision"), sha, output)
         self.assertEqual(fields.get("container"), container, output)
         self.assertEqual(self.mutations(), expected, output)
+        checkpoints = []
         events = self.mutation_events()
         if events:
-            first = events[0]
-            self.assertTrue(first["db_running"], f"`docker {verb(first['argv'])}` ran without a running database")
-            self.assertEqual(first["db_health"], "healthy",
-                             f"`docker {verb(first['argv'])}` ran before the database was healthy")
-            self.assertIs(first["lock_free"], False, "a container was changed without holding the sync lock")
+            checkpoints.append((f"`docker {verb(events[0]['argv'])}`", events[0]))
+        curls = self.state()["curl"]
+        if curls:
+            checkpoints.append(("the first API health check", curls[0]))
+        for what, event in checkpoints:
+            self.assertTrue(event["db_running"], f"{what} ran without a running database")
+            self.assertEqual(event["db_health"], "healthy", f"{what} ran before the database was healthy")
+            self.assertIs(event["lock_free"], False, f"{what} ran without holding the sync lock")
         releases = sorted(c["Name"][1:] for c in self.state()["containers"]
                           if c["State"]["Running"] and c["Name"][1:].startswith(PREFIX))
         self.assertEqual(releases, [container])
+
+    def assert_noticed_by_polling(self, since: float) -> None:
+        # G2: the database turned healthy READY_DELAY s after `since`; the first container change or
+        # API health check followed within READY_NOTICED_SECONDS of `since`, well before the 20 s
+        # timeout, so the check polls instead of sleeping out the timeout.
+        state = self.state()
+        firsts = [event["time"] for event in self.mutation_events()[:1] + state["curl"][:1]]
+        self.assertTrue(firsts, "no container change and no API health check happened")
+        self.assertLess(min(firsts) - since, READY_NOTICED_SECONDS,
+                        "the healthy database was not noticed until long after it turned healthy")
 
     def wait_until_blocked(self, process: subprocess.Popen) -> None:
         # G1: the script is alive and has made no docker call for 1 s (it waits for the held lock).
@@ -732,13 +802,26 @@ class DeployDatabaseGuardTest(unittest.TestCase):
                 self.check_hygiene(stdout + stderr)
                 self.assert_refused(proc, action, sha, DB, state)
 
+    def test_database_failing_once_the_sync_lock_is_held_is_noticed_on_every_path(self) -> None:
+        # G1: the database is healthy until the script holds the sync lock; the first docker or curl
+        # call under the lock replaces it with each not-healthy state (a `starting` one turns healthy
+        # only after the timeout). On every path the run refuses as in the other G1 tests, against the
+        # model after that change. So the deciding check runs under the lock before any change or API
+        # health check on every path, applies the whole rule there and stops at the configured
+        # timeout; an earlier healthy result does not count.
+        for path_name, (build, action, sha, _, _) in PATHS.items():
+            for state_name, (databases, extra, named) in NOT_HEALTHY.items():
+                with _case(f"{path_name}, database {state_name} once the lock is held"):
+                    self.refused_run(with_databases(build(), healthy_databases(extra)), action, sha, named,
+                                     on_lock=(databases, LOCK_READY_IN.get(state_name, {})), **extra)
+
     # -- G2: a healthy database changes nothing ----------------------------------------
 
     def test_database_that_turns_healthy_within_the_timeout_is_waited_for(self) -> None:
         # G2: a running database still `starting` that turns healthy after 3 s (timeout 20 s) is
-        # waited for: the switch then happens with the database healthy and under the sync lock, and
-        # the run succeeds. With AICADDIE_DB_CONTAINER set, that container is the one waited for,
-        # even though the default-named one is unhealthy.
+        # waited for: the switch then happens with the database healthy and under the sync lock, soon
+        # after it turned healthy, and the run succeeds. With AICADDIE_DB_CONTAINER set, that
+        # container is the one waited for, even though the default-named one is unhealthy.
         cases = {
             "deploy switch": ([database(health="starting")], DB, {}),
             "rollback switch": ([database(health="starting")], DB, {}),
@@ -750,21 +833,42 @@ class DeployDatabaseGuardTest(unittest.TestCase):
             path_name = name.split(",")[0]
             build, action, sha, expected, container = PATHS[path_name]
             with _case(name):
-                self.write_state(with_databases(build(), databases), ready_in={waited: READY_DELAY})
+                written = self.write_state(with_databases(build(), databases), ready_in={waited: READY_DELAY})
                 proc = self.invoke(action, sha, AICADDIE_DB_READY_TIMEOUT_SECONDS="20", **extra)
                 self.assert_succeeded(proc, action, sha, container, expected)
+                self.assert_noticed_by_polling(written["written_at"])
                 if waited != DB:
                     default = next(c for c in self.state()["containers"] if c["Name"] == "/" + DB)
                     self.assertEqual(default["State"]["Health"]["Status"], "unhealthy")
 
+    def test_database_restarting_under_the_sync_lock_is_waited_for(self) -> None:
+        # G2: the database is healthy until the script holds the sync lock; then it is `starting`
+        # again and turns healthy 3 s later (AICADDIE_DB_READY_TIMEOUT_SECONDS=20). Every path waits
+        # for it under the lock and then makes exactly its usual container changes; the first change
+        # and the first API health check happen with the database healthy and the lock held, soon
+        # after it turned healthy.
+        for path_name, (build, action, sha, expected, container) in PATHS.items():
+            with _case(path_name):
+                self.write_state(build(), on_lock=([database(health="starting")], {DB: READY_DELAY}))
+                proc = self.invoke(action, sha, AICADDIE_DB_READY_TIMEOUT_SECONDS="20")
+                self.assert_swapped_under_lock()
+                self.assert_succeeded(proc, action, sha, container, expected)
+                self.assert_noticed_by_polling(self.state()["on_lock_applied_at"])
+
     def test_healthy_database_leaves_every_path_unchanged(self) -> None:
         # G2: with a running, healthy database every path behaves as before: the same container
-        # changes (none on the idempotent paths), exit 0, and the database is never started.
+        # changes (none on the idempotent paths), exit 0, and the database is never started. With
+        # AICADDIE_DB_CONTAINER set, only that container counts: an unhealthy or missing
+        # default-named one neither blocks a path nor gets touched.
         # pinned: healthy-database behaviour of deploy and rollback must stay exactly as on main.
         for path_name, (build, action, sha, expected, container) in PATHS.items():
             with _case(path_name):
                 self.write_state(build())
                 proc = self.invoke(action, sha)
+                self.assert_succeeded(proc, action, sha, container, expected)
+            with _case(f"{path_name}, configured healthy database, default name unhealthy"):
+                self.write_state(with_databases(build(), [database(health="unhealthy"), database(51, CUSTOM_DB)]))
+                proc = self.invoke(action, sha, AICADDIE_DB_CONTAINER=CUSTOM_DB)
                 self.assert_succeeded(proc, action, sha, container, expected)
         with _case("deploy switch, configured healthy database, default name missing"):
             build, action, sha, expected, container = PATHS["deploy switch"]
