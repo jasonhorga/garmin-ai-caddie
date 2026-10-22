@@ -264,7 +264,7 @@ class GeometryAuthorityTests(unittest.TestCase):
             )
             self.assertNotEqual(token_a, token_b)
 
-    def test_derivative_token_changes_when_release_binding_changes(self) -> None:
+    def test_topo_token_ignores_release_metadata_when_mesh_is_unchanged(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             mesh = root / "gid1_h02_meshes.json"
@@ -316,7 +316,47 @@ class GeometryAuthorityTests(unittest.TestCase):
                 hazard_file=hazard,
                 sidecar=sidecar,
             )
-            self.assertNotEqual(token_a, token_b)
+            # Topo pixels only depend on the installed mesh/route.  A refreshed release sidecar
+            # (including raster metadata) must not force phones to download the same bitmap.
+            self.assertEqual(token_a, token_b)
+
+    def test_topo_token_changes_when_route_raster_identity_changes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mesh = root / "gid1_h02_meshes.json"
+            hazard = root / "gid1_h02_hazards.json"
+            _write_outputs(mesh, hazard, "220542")
+            release = _release(version="220542")
+            first = build_authority(
+                global_id=1,
+                local_hole=2,
+                release=release,
+                hole=release["holes"][0],
+                release_source="cache",
+                geometry_zip_sha256="a" * 64,
+            )
+            sidecar = authority_path(mesh)
+            write_authority(sidecar, first)
+            token_a = cache_token(
+                global_id=1,
+                local_hole=2,
+                mesh_file=mesh,
+                hazard_file=hazard,
+                sidecar=sidecar,
+            )
+
+            routed = dict(first)
+            routed["rasterAssetPath"] = "/birdseye/route-changed.jpg"
+            write_authority(sidecar, routed)
+            token_b = cache_token(
+                global_id=1,
+                local_hole=2,
+                mesh_file=mesh,
+                hazard_file=hazard,
+                sidecar=sidecar,
+            )
+
+        self.assertNotEqual(token_a, token_b)
 
 
 class GeometrySyncAuthorityTests(unittest.TestCase):
@@ -345,6 +385,7 @@ class GeometrySyncAuthorityTests(unittest.TestCase):
                         "steps": {},
                     },
                 ) as process,
+                patch.object(geometry_sync, "_schedule_missing_derivatives"),
             ):
                 result = geometry_sync.ensure_prodgeometry(1, 2, profile_id="player")
 
@@ -385,6 +426,7 @@ class GeometrySyncAuthorityTests(unittest.TestCase):
                 patch.object(
                     geometry_sync, "process_hole", side_effect=rebuild
                 ) as process,
+                patch.object(geometry_sync, "_schedule_missing_derivatives"),
             ):
                 result = geometry_sync.ensure_prodgeometry(1, 2, profile_id="player")
 
@@ -421,6 +463,7 @@ class GeometrySyncAuthorityTests(unittest.TestCase):
                     return_value=(refreshed, "live"),
                 ),
                 patch.object(geometry_sync, "process_hole") as process,
+                patch.object(geometry_sync, "_schedule_missing_derivatives"),
             ):
                 result = geometry_sync.ensure_prodgeometry(1, 2)
 
@@ -432,7 +475,7 @@ class GeometrySyncAuthorityTests(unittest.TestCase):
 
 
 class AtomicGeometryInstallTests(unittest.TestCase):
-    def test_failed_rebuild_leaves_previous_canonical_outputs_untouched(self) -> None:
+    def test_failed_obstacle_rebuild_keeps_new_mesh_and_removes_old_supplements(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             prod = root / "data" / "prodgeometry"
@@ -488,8 +531,10 @@ class AtomicGeometryInstallTests(unittest.TestCase):
                 )
 
             self.assertFalse(result["ok"])
-            for path, value in old_files.items():
-                self.assertEqual(path.read_text(encoding="utf-8"), value)
+            self.assertEqual((out / "gid1_h02_meshes.json").read_text(encoding="utf-8"), "new-mesh")
+            self.assertEqual((out / "gid1_h02_stats.json").read_text(encoding="utf-8"), "new-stats")
+            self.assertFalse((out / "gid1_h02_tee_distances.json").exists())
+            self.assertFalse((hazards / "gid1_h02_hazards.json").exists())
 
 
 if __name__ == "__main__":

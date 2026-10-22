@@ -402,10 +402,31 @@ def _first_recorded_shot_is_from_tee(first_shot: dict[str, Any], selected_tee: d
     return _overlay_tee_start(first_shot, selected_tee)[1] == "shot_start"
 
 
-@lru_cache(maxsize=128)
+def _geometry_file_signature(path: Path) -> tuple[int, int, int]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return (0, 0, 0)
+    return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+
+
 def load_geometry(global_id: int, local_hole: int) -> dict[str, Any]:
     h_path = hazard_path(global_id, local_hole)
     m_path = mesh_path(global_id, local_hole)
+    return _load_geometry_cached(
+        h_path, m_path, _geometry_file_signature(h_path), _geometry_file_signature(m_path)
+    )
+
+
+@lru_cache(maxsize=128)
+def _load_geometry_cached(
+    h_path: Path,
+    m_path: Path,
+    hazard_signature: tuple[int, int, int],
+    mesh_signature: tuple[int, int, int],
+) -> dict[str, Any]:
+    # Deferred obstacles and release replacements invalidate stale empty/factual reads locally.
+    del hazard_signature, mesh_signature
     hazards = read_json(h_path) if h_path.exists() else None
     meshes = read_json(m_path) if m_path.exists() else None
     hazards = bind_selected_green_target(hazards, meshes)
@@ -433,6 +454,10 @@ def load_geometry(global_id: int, local_hole: int) -> dict[str, Any]:
         "hasHazards": hazards is not None,
         "hasMeshes": meshes is not None,
     }
+
+
+load_geometry.cache_clear = _load_geometry_cached.cache_clear
+load_geometry.cache_info = _load_geometry_cached.cache_info
 
 
 def _component_distance(point: tuple[float, float], component: dict[str, Any]) -> float:

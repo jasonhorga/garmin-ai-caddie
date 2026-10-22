@@ -600,7 +600,7 @@ class TopoEndpointTests(unittest.TestCase):
             patch(
                 "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
                 return_value={"coverage": "ready"},
-            ),
+            ) as coverage,
         ):
             resp = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
         self.assertEqual(resp.status_code, 200)
@@ -608,6 +608,13 @@ class TopoEndpointTests(unittest.TestCase):
         self.assertEqual(resp.headers["cache-control"], "public, no-cache")
         self.assertIn(topo_render.STYLE_VERSION, resp.headers.get("etag", ""))
         self.assertEqual(resp.content, canned)
+        coverage.assert_called_once_with(
+            31795,
+            1,
+            require_current_authority=True,
+            refresh_release=False,
+            require_hazards=False,
+        )
 
     def test_green_detail_endpoint_uses_v3_style_and_1280_default(self) -> None:
         canned = _PNG_MAGIC + b"green-detail"
@@ -620,7 +627,7 @@ class TopoEndpointTests(unittest.TestCase):
             patch(
                 "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
                 return_value={"coverage": "ready"},
-            ),
+            ) as coverage,
         ):
             response = self.client.get(
                 "/api/v2/courses/31795/holes/1/green.png"
@@ -631,6 +638,13 @@ class TopoEndpointTests(unittest.TestCase):
         self.assertEqual(response.headers["content-type"], "image/png")
         self.assertIn("-green-", response.headers["etag"])
         render.assert_called_once_with(31795, 1, (100.0, 200.0, 420.0, 420.0), size=1280)
+        coverage.assert_called_once_with(
+            31795,
+            1,
+            require_current_authority=True,
+            refresh_release=False,
+            require_hazards=False,
+        )
 
     def test_green_detail_endpoint_rejects_unknown_client_style(self) -> None:
         with patch.object(topo_render, "render_hole_green_detail_cached") as render:

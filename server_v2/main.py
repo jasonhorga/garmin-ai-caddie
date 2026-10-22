@@ -919,7 +919,8 @@ def course_hole_topo_png(
         global_id,
         hole,
         require_current_authority=True,
-        refresh_release=True,
+        refresh_release=False,
+        require_hazards=False,
     )
     if geometry_evidence.get("coverage") != "ready":
         raise HTTPException(status_code=404, detail="current topo geometry is still preparing")
@@ -992,7 +993,8 @@ def course_hole_green_detail_png(
         global_id,
         hole,
         require_current_authority=True,
-        refresh_release=True,
+        refresh_release=False,
+        require_hazards=False,
     )
     if geometry_evidence.get("coverage") != "ready":
         raise HTTPException(status_code=404, detail="current topo geometry is still preparing")
@@ -1832,7 +1834,12 @@ def _normalise_authority_observation(evidence: dict[str, Any]) -> str:
     return "unknown"
 
 
-def _probe_geometry_revision(global_id: int, hole: int) -> tuple[str | None, str]:
+def _probe_geometry_revision(
+    global_id: int,
+    hole: int,
+    *,
+    require_hazards: bool = True,
+) -> tuple[str | None, str]:
     """Probe a hole's release identity without collapsing transient errors into stale data.
 
     The second tuple item is one of ``current``, ``stale`` or ``unknown``. ``unknown`` is an
@@ -1851,6 +1858,7 @@ def _probe_geometry_revision(global_id: int, hole: int) -> tuple[str | None, str
                 int(hole),
                 require_current_authority=True,
                 refresh_release=False,
+                require_hazards=require_hazards,
             )
         except Exception:  # noqa: BLE001 - transient local/provider observation failure
             evidence = {"coverage": "partial", "authorityObservation": "unknown"}
@@ -1884,7 +1892,11 @@ def _render_course_topo_one(
     from ai_caddie.geometry import topo_render
 
     expected = str(expected_revision or "").strip().lower() or None
-    before_revision, before_observation = _probe_geometry_revision(global_id, hole)
+    # Topology is a mesh+route product.  Its install/render probe must not wait for the
+    # slower obstacle derivative; obstacle consumers keep the default full-coverage gate.
+    before_revision, before_observation = _probe_geometry_revision(
+        global_id, hole, require_hazards=False
+    )
     if before_observation == "stale":
         return {"status": "retryable", "reason": "geometry release changed"}
     if expected and before_revision and before_revision != expected:
@@ -1895,7 +1907,9 @@ def _render_course_topo_one(
         payload = topo_render.render_hole_topo_cached(int(global_id), int(hole))
         if not payload:
             return False
-        after_revision, after_observation = _probe_geometry_revision(global_id, hole)
+        after_revision, after_observation = _probe_geometry_revision(
+            global_id, hole, require_hazards=False
+        )
         if after_observation == "stale":
             return {"status": "retryable", "reason": "geometry release changed"}
         if expected and after_revision != expected:
@@ -2098,7 +2112,14 @@ def run_course_install_job(identifier: str) -> None:
             return
         completed_geometry_keys.add((gid, hole))
         ok = bool(result.get("ok"))
-        revision, observation = _probe_geometry_revision(gid, hole) if ok else (None, "unknown")
+        # The install callback is the hand-off to the topo lane.  Mesh authority is sufficient for
+        # that lane; missing hazards remain visible to their own consumers and are repaired by the
+        # deferred derivative worker.
+        revision, observation = (
+            _probe_geometry_revision(gid, hole, require_hazards=False)
+            if ok
+            else (None, "unknown")
+        )
         expected_revision = str(current_row.get("geometryRevision") or "").strip().lower() or None
         retryable = False
         if ok and observation == "stale":
@@ -2124,20 +2145,20 @@ def run_course_install_job(identifier: str) -> None:
             expected_work_revision=expected_work_revision,
         )
         if ok and not retryable:
-            # Persist the full factual vector map before submitting any raster work. This cache
-            # is public course geometry, with no club history or personalized recommendation.
-            from ai_caddie.courses.vector_prep import cached_vector_hole
-
-            try:
-                cached_vector_hole(gid, hole)
-            except Exception:
-                logger.exception("course_install stage=vector gid=%s hole=%s", gid, hole)
             queue_topo({
                 "globalId": gid,
                 "localHole": hole,
                 "topo": "queued",
                 "geometryRevision": revision,
             })
+            # Warm/rebound holes may already have hazards and never run a supplement worker.
+            # Queue the bitmap first; a cold hole returns None here and builds after supplements.
+            from ai_caddie.courses.vector_prep import cached_vector_hole
+
+            try:
+                cached_vector_hole(gid, hole)
+            except Exception:
+                logger.exception("course_install stage=vector gid=%s hole=%s", gid, hole)
 
     for gid, holes in sorted(pending_by_gid.items()):
         if course_install.cancellation_requested(identifier):

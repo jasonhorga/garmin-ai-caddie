@@ -420,6 +420,10 @@ def enqueue(
                 needs_rebind = revision_changed or (
                     is_requested
                     and not is_ready_observation
+                    # Full package coverage can remain partial while distance/obstacles retry.
+                    # An unchanged, current mesh revision still proves this topo install ready.
+                    and not (incoming_revision and incoming_revision == old_revision
+                             and authority_observation == "current")
                     and observation_is_conclusive
                     and (
                         geometry in {"ready", "failed"}
