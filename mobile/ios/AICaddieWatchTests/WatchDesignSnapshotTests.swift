@@ -678,10 +678,14 @@ final class WatchDesignSnapshotTests: XCTestCase {
         ), "\(name) must render the middle distance digits")
         XCTAssertFalse(prompt.intersects(distance), "\(name) overlaps the middle distance digits")
 
-        // Removing the real pending shot isolates the pixels occupied by its 第 N 杆 undo strip.
+        // Removing the real pending shot isolates the pixels occupied by its 第 N 杆 undo strip. On the
+        // map page the undo also removes the shot's marker from the map, so only diff the bottom band.
         model.undoPendingManualShot()
         let withoutUndo = try waitingFixPixels(container, size: size)
-        let undoStrip = try XCTUnwrap(waitingFixPixelBounds(waiting, width: width, differentFrom: withoutUndo))
+        let bottomBand = CGRect(x: 0, y: size.height * 0.7, width: size.width, height: size.height * 0.3)
+        let undoStrip = try XCTUnwrap(waitingFixPixelBounds(
+            waiting, width: width, in: bottomBand, differentFrom: withoutUndo
+        ))
         XCTAssertGreaterThan(undoStrip.minY, size.height * 0.7, "the probe must isolate the bottom undo strip")
         XCTAssertFalse(prompt.intersects(undoStrip), "\(name) overlaps the 第 N 杆 undo strip")
     }
