@@ -186,12 +186,31 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
         }
     }
 
-    /// Hole-root F/M/B is a live rangefinder, not a generic cached-location consumer. Keep the
-    /// provider's longer Core Location acceptance window for continuity, but never label an old fix
-    /// as the player's current distance.
+    /// A brief GPS gap must not drop a manual shot. Beyond the live rangefinder window, only a
+    /// fix taken at walking pace can mark the ball; a cached point from a moving cart cannot.
+    public static let maximumShotOriginAgeSeconds: TimeInterval = 30
+
+    public static func isShotOriginFix(_ fix: WatchLocationFix, now: Date = Date()) -> Bool {
+        if isLiveRangefinderFix(fix, now: now) { return true }
+        guard isLiveRangefinderFix(fix, now: now, maximumAge: maximumShotOriginAgeSeconds) else {
+            return false
+        }
+        return (fix.speedMps ?? 0) <= WatchSwingFeatureExtractor.ridingSpeedMps
+    }
+
+    /// Hole-root F/M/B remains a live rangefinder: the longer shot-origin window must never make
+    /// an older coordinate look like the player's current distance.
     public static func isLiveRangefinderFix(
         _ fix: WatchLocationFix,
         now: Date = Date()
+    ) -> Bool {
+        isLiveRangefinderFix(fix, now: now, maximumAge: maximumLiveRangefinderAgeSeconds)
+    }
+
+    private static func isLiveRangefinderFix(
+        _ fix: WatchLocationFix,
+        now: Date,
+        maximumAge: TimeInterval
     ) -> Bool {
         guard fix.coordinate.latitude.isFinite,
               (-90...90).contains(fix.coordinate.latitude),
@@ -203,7 +222,7 @@ public final class WatchLocationProvider: NSObject, ObservableObject, CLLocation
             return false
         }
         let age = now.timeIntervalSince(capturedAt)
-        return age >= 0 && age <= maximumLiveRangefinderAgeSeconds
+        return age >= 0 && age <= maximumAge
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {

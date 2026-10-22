@@ -17,6 +17,7 @@ public struct WatchRoundHomeView: View {
     public let courseDataPending: Bool
     public let pendingUploads: Int
     public let canRecordShot: Bool
+    public let manualShotNeedsGPS: Bool
     public let onRecordShot: () -> Void
     public let onScoreHole: () -> Void
     public let onPreviousHole: () -> Void
@@ -38,6 +39,7 @@ public struct WatchRoundHomeView: View {
         pendingUploads: Int = 0,
         hasHoleMap: Bool = false,
         canRecordShot: Bool = false,
+        manualShotNeedsGPS: Bool = false,
         onHoleMap: @escaping () -> Void = {},
         onRecordShot: @escaping () -> Void = {},
         onScoreHole: @escaping () -> Void = {},
@@ -57,6 +59,7 @@ public struct WatchRoundHomeView: View {
         self.pendingUploads = pendingUploads
         self.hasHoleMap = hasHoleMap
         self.canRecordShot = canRecordShot
+        self.manualShotNeedsGPS = manualShotNeedsGPS
         self.onHoleMap = onHoleMap
         self.onRecordShot = onRecordShot
         self.onScoreHole = onScoreHole
@@ -103,7 +106,6 @@ public struct WatchRoundHomeView: View {
                     compactControl(
                         systemName: "line.3.horizontal",
                         label: "高尔夫菜单",
-                        isEnabled: true,
                         primary: false,
                         action: onMenu
                     )
@@ -111,10 +113,14 @@ public struct WatchRoundHomeView: View {
                     compactControl(
                         systemName: "plus",
                         label: "手动记杆",
-                        isEnabled: canRecordShot,
+                        dimmed: !canRecordShot,
                         primary: true,
                         action: onRecordShot
                     )
+                    .overlay(alignment: .top) {
+                        if manualShotNeedsGPS { WatchManualShotGPSPrompt() }
+                    }
+                    .accessibilityIdentifier("watch-hole-record-shot")
                 }
             }
             .frame(width: safeRect.width, height: safeRect.height)
@@ -128,7 +134,7 @@ public struct WatchRoundHomeView: View {
     private func compactControl(
         systemName: String,
         label: String,
-        isEnabled: Bool,
+        dimmed: Bool = false,
         primary: Bool,
         action: @escaping () -> Void
     ) -> some View {
@@ -145,8 +151,7 @@ public struct WatchRoundHomeView: View {
                 )
         }
         .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.45)
+        .opacity(dimmed ? 0.45 : 1)
         .accessibilityLabel(label)
     }
 
