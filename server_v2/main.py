@@ -10,7 +10,6 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Annotated, Literal
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
@@ -30,7 +29,8 @@ from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize
 from ai_caddie.connectors.snapshot import snapshot_to_payload, write_connector_status
 from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 from ai_caddie.core.data import ROOT
-from ai_caddie.core.priority_work import NEARBY, SELECTED_COURSE, PriorityExecutor
+from ai_caddie.core.priority_work import FOREGROUND, NEARBY, SELECTED_COURSE, PriorityExecutor
+from ai_caddie.core.play_order import expand_display_holes, play_order
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
 from . import course_install
@@ -1038,30 +1038,74 @@ def course_hole_green_detail_png(
     return Response(content=png, media_type="image/png", headers=headers)
 
 
-def _prewarm_course_topo(global_id: int, holes: list[int]) -> None:
-    """Render + cache every hole's topo bitmap in the background so a later browse hits a warm
-    cache (each first render is ~seconds). Sequential + best-effort: a hole with no/broken
-    geometry is skipped, never crashing the worker; an already-cached hole returns instantly."""
+def _prewarm_course_topo(
+    global_id: int,
+    holes: list[int],
+    current_hole: int | None = None,
+    *,
+    priority_hole: int | None = None,
+    base_priority: int = NEARBY,
+) -> list[int]:
+    """Queue topo renders in the shared reorderable lane.
+
+    With an explicit current-hole signal, the current hole receives foreground priority and the
+    next three receive selected-course priority; otherwise every submitted unit is NEARBY. A
+    keyed submission makes repeated queued/running physical work share one future, while the disk
+    cache avoids another queue after a successful render. The function only submits work; the
+    shared worker continues after this background callback returns.
+    """
     from ai_caddie.geometry import topo_render
 
-    def render_one(hole: int) -> None:
+    start = priority_hole if priority_hole is not None else current_hole
+    if start is None:
+        start = 1
+    if start < 1:
+        raise ValueError("current hole must be positive")
+    normalised = []
+    seen: set[int] = set()
+    for raw in holes:
         try:
-            topo_render.render_hole_topo_cached(global_id, hole)
+            hole = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if hole > 0 and hole not in seen:
+            seen.add(hole)
+            normalised.append(hole)
+    ordered = play_order(normalised, start)
+
+    def render_one(hole: int) -> bool:
+        try:
+            topo_render.render_hole_topo_cached(int(global_id), int(hole))
+            return True
         except Exception:
             # TopoGeometryUnavailable / TopoRenderError / any transient render fault: skip this hole.
+            return False
+
+    for offset, hole in enumerate(ordered):
+        hole_priority = topo_priority(base_priority, offset)
+        try:
+            cache_path = topo_render.cache_path(int(global_id), int(hole))
+            if cache_path.exists():
+                continue
+        except Exception:
+            # A cache-path probe is an optimisation. The renderer remains the authority when a
+            # custom test/provider implementation does not expose a normal path.
             pass
-
-    # Native-size renders peak at ~150 MB in production measurements. Two workers fit the shared
-    # four-core server without starving metadata/search requests and cut an 18-hole cold course from
-    # minutes to tens of seconds. ``render_hole_topo_cached`` still single-flights duplicate hits.
-    from concurrent.futures import ThreadPoolExecutor
-
-    with ThreadPoolExecutor(max_workers=min(2, max(1, len(holes)))) as executor:
-        list(executor.map(render_one, holes))
+        _TOPO_PIPELINE_POOL.submit_keyed(
+            ("prewarm", int(global_id), int(hole)),
+            render_one,
+            int(hole),
+            priority=hole_priority,
+        )
+    return ordered
 
 
 @app.post("/api/v2/courses/{global_id}/topo/prewarm")
-def course_topo_prewarm(global_id: int, background_tasks: BackgroundTasks) -> dict:
+def course_topo_prewarm(
+    global_id: int,
+    background_tasks: BackgroundTasks,
+    priority_hole: int | None = None,
+) -> dict:
     """Kick a FIRE-AND-FORGET background render of every geometry-backed hole's topo bitmap so the
     web/mobile client can browse holes against a warm cache instead of paying ~6–10s on each hole's
     first view. Returns immediately with the queued hole list (never blocks on rendering). Public
@@ -1071,9 +1115,19 @@ def course_topo_prewarm(global_id: int, background_tasks: BackgroundTasks) -> di
 
     # available_prep_holes falls back to [1..9] with no cached geometry; filter to holes that
     # actually have a mesh so a geometry-less course enqueues nothing (and never spins on 404s).
-    holes = [hole for hole in available_prep_holes(global_id) if mesh_path(global_id, hole).exists()]
-    if holes:
-        background_tasks.add_task(_prewarm_course_topo, global_id, holes)
+    available_holes = [hole for hole in available_prep_holes(global_id) if mesh_path(global_id, hole).exists()]
+    effective_priority_hole = 1 if priority_hole is None else priority_hole
+    if priority_hole is not None and priority_hole not in available_holes:
+        raise HTTPException(status_code=422, detail="priority_hole has no available course geometry")
+    holes = play_order(available_holes, effective_priority_hole)
+    if available_holes:
+        background_tasks.add_task(
+            _prewarm_course_topo,
+            global_id,
+            available_holes,
+            effective_priority_hole,
+            base_priority=SELECTED_COURSE if priority_hole is not None else NEARBY,
+        )
     return {
         "schema": "ai-caddie-topo-prewarm-v1",
         "globalId": int(global_id),
@@ -1202,7 +1256,9 @@ def _prepare_recent_bg(player_id: str, prep_warm_delay_s: float = 0.0) -> None:
         data = cached_load_history_data(player_id=player_id)
         prepare_recent_round(
             data,
-            prewarm=_prewarm_course_topo,
+            prewarm=lambda gid, holes: _prewarm_course_topo(
+                gid, holes, base_priority=NEARBY
+            ),
             warm_stats=lambda: warm_stats_cache(player_id=player_id),
             ensure_geometry=_ensure_geometry,
             warm_prep=_delayed_prep_warmer(player_id, prep_warm_delay_s) if _prep_warm_course_limit() else None,
@@ -1814,6 +1870,61 @@ _GEOMETRY_UPGRADE_INFLIGHT: dict[int, set[int]] = {}
 _TOPO_PIPELINE_POOL = PriorityExecutor(max_workers=1, name="course-topo-pipeline")
 
 
+def topo_priority(job_priority: int, offset_from_current: int) -> int:
+    """Return the one priority policy used by every topo queue operation."""
+    job_priority = int(job_priority)
+    offset_from_current = int(offset_from_current)
+    if job_priority > SELECTED_COURSE:
+        return job_priority
+    if offset_from_current == 0:
+        return FOREGROUND
+    if offset_from_current > 0:
+        return SELECTED_COURSE
+    return job_priority
+
+
+def _reprioritize_course_topo_queue(
+    rows: list[dict[str, Any]],
+    *,
+    current_hole: int = 1,
+    base_priority: int = SELECTED_COURSE,
+) -> None:
+    """Promote the current hole and its next three queued topo rows.
+
+    ``PriorityExecutor`` leaves a running future untouched.  This helper is intentionally safe to
+    call for rows from more than one durable install job. Install work carries its geometry revision
+    in its key while prewarm work uses a separate key, because only the install path can prove the
+    release-bound revision.
+    """
+    candidates = [
+        row for row in rows
+        if isinstance(row, dict)
+        and int(row.get("globalId") or 0) > 0
+        and int(row.get("localHole") or 0) > 0
+    ]
+    # Install rows are already in display-hole order in normal operation, but sorting here makes a
+    # current-hole signal deterministic for a journal restored from an older release.
+    candidates = expand_display_holes(candidates)
+    candidates.sort(key=lambda row: (int(row.get("displayHole") or row.get("localHole") or 0),
+                                     int(row.get("globalId") or 0),
+                                     int(row.get("localHole") or 0)))
+    # Rotate the complete round first. A ready current hole still anchors the round; filtering it
+    # before rotation would incorrectly make the smallest pending hole the new starting point.
+    rotated = play_order(candidates, current_hole)
+    for offset, row in enumerate(
+        row for row in rotated if row.get("topo") not in {"ready", "failed"}
+    ):
+        gid = int(row["globalId"])
+        hole = int(row["localHole"])
+        # Install work includes the release-bound revision in its key. Prewarm work has a separate
+        # key because it cannot prove a geometry revision; both still share this same queue.
+        revision = str(row.get("geometryRevision") or "").strip().lower()
+        priority = topo_priority(base_priority, offset)
+        _TOPO_PIPELINE_POOL.reprioritize(("prewarm", gid, hole), priority)
+        if revision:
+            _TOPO_PIPELINE_POOL.reprioritize(("install", gid, hole, revision), priority)
+
+
 def _normalise_authority_observation(evidence: dict[str, Any]) -> str:
     """Return the release probe's bounded public state.
 
@@ -1952,13 +2063,35 @@ def run_course_install_job(identifier: str) -> None:
         course_install.update(identifier, phase="failed", stage="error", error="course has no holes")
         return
 
-    # A coordinator pass owns at most two holes. Once they finish it returns to the priority
-    # queue, allowing newly selected courses to overtake an entire regional install.
+    # A coordinator pass owns a small bounded window from the current hole. The first four playable
+    # rows are classified as foreground work (the topo lane uses the same classification); keeping
+    # the geometry window at two preserves the shared two-worker memory bound. Once it finishes the
+    # pass returns to the priority queue, allowing a new current-hole signal to overtake the course.
     priority = int(state.get("priority", SELECTED_COURSE))
-    rows = sorted(rows, key=lambda row: int(row.get("displayHole") or row.get("localHole") or 0))
-    window = 1 if priority == NEARBY else 2  # Reserve a geometry worker for an opening hole.
-    rows = [row for row in rows if row.get("geometry") in {"queued", "running"}
-            or (course_install._geometry_ready(row) and row.get("topo") in {"queued", "running"})][:window]
+    current_hole = max(1, int(state.get("priorityHole") or 1))
+    ordered_rows = sorted(
+        expand_display_holes(rows),
+        key=lambda row: (
+            int(row.get("displayHole") or row.get("localHole") or 0),
+            int(row.get("globalId") or 0),
+            int(row.get("localHole") or 0),
+        ),
+    )
+    ordered_rows = play_order(ordered_rows, current_hole)
+    pending_rows = [
+        row for row in ordered_rows
+        if row.get("geometry") in {"queued", "running"}
+        or (course_install._geometry_ready(row) and row.get("topo") in {"queued", "running"})
+    ]
+    window = 1 if priority == NEARBY else 2
+    rows = pending_rows[:window]
+    topo_priorities = {
+        (
+            int(row.get("globalId") or 0),
+            int(row.get("localHole") or 0),
+        ): topo_priority(priority, index)
+        for index, row in enumerate(pending_rows)
+    }
 
     topo_futures: dict[Any, tuple[int, int, str, int]] = {}
     topo_completion_events: dict[Any, threading.Event] = {}
@@ -2017,7 +2150,14 @@ def run_course_install_job(identifier: str) -> None:
             return
         if course_install._topo_ready(current_row):
             return
-        future = _TOPO_PIPELINE_POOL.submit(_render_course_topo_one, gid, hole, geometry_revision, priority=priority)
+        future = _TOPO_PIPELINE_POOL.submit_keyed(
+            ("install", gid, hole, geometry_revision),
+            _render_course_topo_one,
+            gid,
+            hole,
+            geometry_revision,
+            priority=topo_priorities.get((gid, hole), priority),
+        )
         work_revision = int(current_row.get("workRevision") or 1)
         topo_futures[future] = (gid, hole, geometry_revision, work_revision)
         completion_event = threading.Event()
@@ -2139,11 +2279,11 @@ def run_course_install_job(identifier: str) -> None:
                 "geometryRevision": revision,
             })
 
-    for gid, holes in sorted(pending_by_gid.items()):
+    for gid, holes in pending_by_gid.items():
         if course_install.cancellation_requested(identifier):
             return
         try:
-            geometry_kwargs = {"holes": sorted(set(holes)), "on_hole_complete": on_geometry_complete}
+            geometry_kwargs = {"holes": list(dict.fromkeys(holes)), "on_hole_complete": on_geometry_complete}
             if priority == NEARBY:
                 geometry_kwargs["priority"] = priority
             summary = _ensure_geometry_for_course(gid, **geometry_kwargs)
@@ -2222,7 +2362,7 @@ def mobile_course_package(
     ensure_geometry: bool = False,
     background_geometry: bool = False,
     include_event_cursor: bool = True,
-    priority_hole: int = 1,
+    priority_hole: int | None = None,
     map_only: bool = False,
     loops: str = Query(..., description="Ordered round loops, G:H[,G2:H2] with H = all|front|back"),
     player_id: str = Depends(current_player_id),
@@ -2230,7 +2370,8 @@ def mobile_course_package(
     round_loops = _parse_round_loops_or_422(loops, global_id)
     if map_only and ensure_geometry:
         raise HTTPException(status_code=422, detail="map_only uses background geometry, not a whole-course foreground install")
-    if not 1 <= priority_hole <= len(round_loops) * 9:
+    effective_priority_hole = 1 if priority_hole is None else priority_hole
+    if not 1 <= effective_priority_hole <= len(round_loops) * 9:
         raise HTTPException(status_code=422, detail="priority_hole is outside the selected round")
     try:
         package = build_mobile_course_package_response(
@@ -2242,7 +2383,7 @@ def mobile_course_package(
             ensure_geometry=ensure_geometry,
             include_event_cursor=include_event_cursor,
             prepare_map=(background_geometry or map_only) and not ensure_geometry,
-            priority_hole=priority_hole,
+            priority_hole=effective_priority_hole,
             map_only=map_only,
             loops=round_loops,
             player_id=player_id,
@@ -2291,6 +2432,7 @@ def mobile_course_package(
         refs=refs,
         requested=requested,
         ready=ready,
+        priority_hole=priority_hole,
     )
     mark_request_stage("background_enqueue")
     # Pydantic response models are mutable in the current contract, but use model_copy when
@@ -2426,9 +2568,9 @@ def _upgrade_course_geometry(requested: dict[int, list[int]]) -> None:
                     # its injected/test contract and avoids two coordinators doing the same work.
                     _ensure_geometry_for_course(global_id, holes=holes)
                     topo_started = time.perf_counter()
-                    _prewarm_course_topo(global_id, holes)
+                    _prewarm_course_topo(global_id, holes, base_priority=NEARBY)
                     logger.info(
-                        "course_install stage=topo gid=%s duration_ms=%s",
+                        "course_install stage=topo_enqueue gid=%s duration_ms=%s",
                         global_id,
                         int((time.perf_counter() - topo_started) * 1000),
                     )

@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import threading
@@ -23,6 +24,8 @@ from typing import Any
 
 from ai_caddie.core.data import ROOT
 from ai_caddie.core.priority_work import SELECTED_COURSE, PriorityExecutor
+
+logger = logging.getLogger(__name__)
 
 _LOCK = threading.RLock()
 _ACTIVE: set[str] = set()
@@ -106,25 +109,46 @@ def _normalise_revision(value: Any) -> str | None:
 
 def _normalise_refs(refs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    seen: set[tuple[int, int]] = set()
+    by_key: dict[tuple[int, int], dict[str, Any]] = {}
     for raw in refs:
         if not isinstance(raw, dict):
             continue
         gid = int(raw.get("globalId") or 0)
         hole = int(raw.get("localHole") or raw.get("hole") or 0)
         display = int(raw.get("displayHole") or raw.get("number") or hole)
-        if gid <= 0 or hole <= 0 or (gid, hole) in seen:
+        if gid <= 0 or hole <= 0:
             continue
-        seen.add((gid, hole))
-        result.append({
+        display_holes: list[int] = []
+        raw_display_holes = raw.get("displayHoles")
+        if isinstance(raw_display_holes, (list, tuple)):
+            for raw_display in raw_display_holes:
+                try:
+                    parsed_display = int(raw_display)
+                except (TypeError, ValueError):
+                    continue
+                if parsed_display > 0 and parsed_display not in display_holes:
+                    display_holes.append(parsed_display)
+        if display > 0 and display not in display_holes:
+            display_holes.insert(0, display)
+        key = (gid, hole)
+        existing = by_key.get(key)
+        if existing is not None:
+            for display_hole in display_holes:
+                if display_hole not in existing["displayHoles"]:
+                    existing["displayHoles"].append(display_hole)
+            continue
+        row = {
             "globalId": gid,
             "localHole": hole,
             "displayHole": max(1, display),
+            "displayHoles": display_holes or [max(1, display)],
             "geometryRevision": _normalise_revision(raw.get("geometryRevision")),
             "geometryAuthorityObservation": str(
                 raw.get("geometryAuthorityObservation") or "unknown"
             ).strip().lower(),
-        })
+        }
+        by_key[key] = row
+        result.append(row)
     return result
 
 
@@ -138,6 +162,7 @@ def _initial_state(
     refs: list[dict[str, Any]],
     requested: dict[int, list[int]],
     ready: dict[int, list[int]],
+    priority_hole: int = 1,
 ) -> dict[str, Any]:
     holes = _normalise_refs(refs)
     requested_holes = {
@@ -155,6 +180,7 @@ def _initial_state(
         "teeBox": tee_box,
         "loopKey": loop_key,
         "playerKey": _player_key(player_id),
+        "priorityHole": max(1, int(priority_hole or 1)),
         "phase": "queued",
         "stage": "queued",
         "progress": 0,
@@ -335,6 +361,8 @@ def enqueue(
     requested: dict[int, list[int]],
     ready: dict[int, list[int]],
     priority: int = SELECTED_COURSE,
+    priority_hole: int | None = None,
+    current_hole: int | None = None,
 ) -> dict[str, Any]:
     tee = tee_box.strip().lower() or "blue"
     identifier = job_id(
@@ -343,13 +371,19 @@ def enqueue(
         loop_key=loop_key,
         player_id=player_id,
     )
+    # ``current_hole`` is an additive spelling for callers that describe the signal directly;
+    # package clients use the existing ``priority_hole`` request field. A missing signal means
+    # “keep the journal's current hole” on repeated enqueue, with hole 1 only for a new journal.
+    requested_start_hole = priority_hole if priority_hole is not None else current_hole
     # Keep the launch decision outside the journal lock.  A repeated enqueue may find a
     # completely-installed record (in which case no worker is needed), while a queued or
     # newly-unblocked record must be handed to the single coordinator after its durable write.
     should_launch = True
+    should_reprioritize = False
     with _LOCK:
         state = _read(identifier)
         if state is None:
+            start_hole = max(1, int(requested_start_hole or 1))
             state = _initial_state(
                 identifier=identifier,
                 global_id=global_id,
@@ -359,8 +393,16 @@ def enqueue(
                 refs=refs,
                 requested=requested,
                 ready=ready,
+                priority_hole=start_hole,
             )
         else:
+            previous_start_hole = max(1, int(state.get("priorityHole") or 1))
+            start_hole = (
+                max(1, int(requested_start_hole))
+                if requested_start_hole is not None
+                else previous_start_hole
+            )
+            should_reprioritize = requested_start_hole is not None and start_hole != previous_start_hole
             # Keep the stable job id and union the durable hole set: a composite package can reveal
             # its second source course on a later request, and an idempotent retry must never throw
             # away a hole that already finished. For keys present in this request, the new release
@@ -449,12 +491,27 @@ def enqueue(
                     old_revision = None
                     row_work_changed = True
 
+                merged_display_holes: list[int] = []
+                for display_hole in [
+                    *(old.get("displayHoles") or []),
+                    *(row.get("displayHoles") or []),
+                ]:
+                    try:
+                        display_hole = int(display_hole)
+                    except (TypeError, ValueError):
+                        continue
+                    if display_hole > 0 and display_hole not in merged_display_holes:
+                        merged_display_holes.append(display_hole)
+                if not merged_display_holes:
+                    merged_display_holes = [max(1, int(row.get("displayHole") or 1))]
+
                 if row_work_changed:
                     work_changed = True
                 updated_rows[key] = {
                     **row,
                     **old,
                     "displayHole": row["displayHole"],
+                    "displayHoles": merged_display_holes,
                     "geometry": geometry,
                     "topo": topo,
                     "geometryRevision": incoming_revision or old_revision,
@@ -503,6 +560,10 @@ def enqueue(
                 state["cancellable"] = True
                 state["generation"] = max(1, int(state.get("generation") or 1)) + 1
                 state["progress"] = 0
+        # The package route's current hole is a process-local scheduling signal. It changes the
+        # order of future passes and, after the journal write, reprioritises queued topo work. A
+        # currently running renderer is intentionally left alone.
+        state["priorityHole"] = start_hole
         # A user selecting a course promotes its queued work. Regional discovery can never
         # demote an existing foreground job or change its player/loop/Tee identity.
         state["priority"] = min(int(state.get("priority", priority)), int(priority))
@@ -514,9 +575,34 @@ def enqueue(
             should_launch = False
         state["cancellable"] = state.get("phase") not in _TERMINAL_PHASES
         _write(state)
+        scheduling_state = state
+    if should_reprioritize:
+        _reprioritize_topo_queue(scheduling_state)
     if should_launch:
         _launch(identifier)
     return public_state(state)
+
+
+def _reprioritize_topo_queue(state: dict[str, Any]) -> None:
+    """Ask the shared topo lane to reorder queued rows after a current-hole signal.
+
+    The import is intentionally lazy: ``server_v2.main`` imports this module while constructing the
+    FastAPI application.  If a small unit test uses the journal without importing the API, the durable
+    state still records the signal and the next install pass applies it.
+    """
+    try:
+        from server_v2.main import _reprioritize_course_topo_queue
+
+        _reprioritize_course_topo_queue(
+            list((state.get("holes") or {}).values()),
+            current_hole=int(state.get("priorityHole") or 1),
+            base_priority=int(state.get("priority", SELECTED_COURSE)),
+        )
+    except Exception:
+        # Scheduling is best effort; the durable priorityHole remains authoritative for the next
+        # coordinator pass and must never make an enqueue request fail.
+        logger.exception("course install topo reprioritization failed")
+        return
 
 
 def public_state(state: dict[str, Any]) -> dict[str, Any]:

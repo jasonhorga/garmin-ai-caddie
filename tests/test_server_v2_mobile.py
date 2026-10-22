@@ -1335,7 +1335,8 @@ class ServerV2MobileTests(unittest.TestCase):
         )
         self.assertEqual(
             prewarm_topo.call_args_list,
-            [call(31796, [1, 2]), call(31797, [4])],
+            [call(31796, [1, 2], base_priority=server_main.NEARBY),
+             call(31797, [4], base_priority=server_main.NEARBY)],
         )
 
     def test_background_geometry_upgrade_singleflights_duplicate_course_requests(self) -> None:
@@ -1366,7 +1367,7 @@ class ServerV2MobileTests(unittest.TestCase):
 
         self.assertFalse(owner.is_alive())
         ensure.assert_called_once_with(19901, holes=[1, 2, 3])
-        prewarm.assert_called_once_with(19901, [1, 2, 3])
+        prewarm.assert_called_once_with(19901, [1, 2, 3], base_priority=server_main.NEARBY)
 
     def test_mobile_round_package_can_prefetch_geometry_for_offline_readiness(self) -> None:
         client = TestClient(app)
