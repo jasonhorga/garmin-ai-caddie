@@ -1110,20 +1110,22 @@ public struct CurrentHoleView: View {
     /// is one, otherwise the aspect fit below the fixed header.
     @ViewBuilder
     private func liveMapPlacedBackdrop(in size: CGSize) -> some View {
-        if let frame = liveMapFittedFrame(in: size) {
-            ZStack {
-                // The lightweight canvas is one flat ground fill, so the screen around a framed
-                // map continues it without a seam.
-                TopoHoleBaseImage.groundColor
-                liveMapBackdrop
-                    .frame(width: frame.width, height: frame.height)
-                    .position(x: frame.midX, y: frame.midY)
-            }
-            .frame(width: size.width, height: size.height)
-        } else {
-            liveMapBackdrop
-                .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
+        Group {
+            if let frame = liveMapFittedFrame(in: size) {
+                ZStack {
+                    // The lightweight canvas is one flat ground fill, so the screen around a framed
+                    // map continues it without a seam.
+                    TopoHoleBaseImage.groundColor
+                    liveMapBackdrop
+                        .frame(width: frame.width, height: frame.height)
+                        .position(x: frame.midX, y: frame.midY)
+                }
                 .frame(width: size.width, height: size.height)
+            } else {
+                liveMapBackdrop
+                    .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
+                    .frame(width: size.width, height: size.height)
+            }
         }
         .animation(.easeInOut(duration: 0.25), value: liveMapDisplayState)
     }
