@@ -470,7 +470,7 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let pips = (1...18).map { WatchRingPip(hole: $0, toPar: toPars[$0], isCurrent: $0 == 7) }
         let view = WatchHoleRingView(pips: pips) {
             VStack(spacing: 1) {
-                Text("第 7 洞 · Par 4").font(.caption2).foregroundStyle(.secondary)
+                Text("第 7 洞 · \(WatchParDisplay.text(4))").font(.caption2).foregroundStyle(.secondary)
                 Text("152").font(.system(size: 42, weight: .bold)).foregroundStyle(.white)
                 Text("码 · 到旗杆").font(.caption2).foregroundStyle(.secondary)
             }
@@ -1837,6 +1837,248 @@ final class WatchDesignSnapshotTests: XCTestCase {
             .watchSnapshotFrame(width: 176, height: 215),
             named: "watch-compact-long-course-name"
         )
+    }
+
+    @MainActor
+    func testCardC1WaitingFixScoreOnly41mm() throws {
+        try cardC1WaitingFix(size: CGSize(width: 176, height: 215), face: "41mm")
+    }
+
+    @MainActor
+    func testCardC1WaitingFixScoreOnly46mm() throws {
+        try cardC1WaitingFix(size: CGSize(width: 198, height: 242), face: "46mm")
+    }
+
+    @MainActor
+    private func cardC1WaitingFix(size: CGSize, face: String) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("card-c1-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            autoShotEnabled: false, persistAutoShotEnabled: { _ in }
+        )
+        let state = WatchRoundState(
+            roundId: "card-c1", hole: 7, par: 4, distanceM: nil, selectedClub: nil,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        model.seedRound([state], activeHole: 7, courseName: "测试球场")
+        let container = WatchRoundContainerView(model: model, shotLocation: nil, latestWatchFix: nil)
+            .snapshottingHoleRoot()
+        let home = container.scoreOnlyRoot(state, feedback: WatchManualShotFeedback())
+        let name = "watch-c1-waiting-fix-score-only-\(face)"
+        try render(container.watchSnapshotFrame(width: size.width, height: size.height), named: name)
+
+        XCTAssertEqual(home.distanceValueText, "999 码")
+        XCTAssertEqual(home.distanceStatusText, "等待定位")
+        XCTAssertFalse(home.distanceStatusText.contains("…"))
+        let safe = WatchDisplayGeometry.contentRect(in: size)
+        // Measure the actual labels at their natural size: the full strings must fit without
+        // reducing the distance type size or relying on a truncated string lacking a literal ….
+        let valueImage = try cardC1NaturalImage(home.distanceValueLabel)
+        let statusImage = try cardC1NaturalImage(home.distanceStatusLabel)
+        XCTAssertLessThanOrEqual(CGFloat(valueImage.width), safe.width, name)
+        XCTAssertLessThanOrEqual(CGFloat(statusImage.width), safe.width, name)
+        let pixels = try waitingFixPixels(container, size: size)
+        let distance = try XCTUnwrap(waitingFixPixelBounds(
+            pixels, width: Int(size.width),
+            in: CGRect(x: 0, y: size.height * 0.2, width: size.width, height: size.height * 0.45),
+            matching: card438IsWhite
+        ))
+        let valueReference = try XCTUnwrap(waitingFixPixelBounds(
+            renderedPixelBytes(valueImage), width: valueImage.width, matching: card438IsWhite
+        ))
+        XCTAssertEqual(distance.width, valueReference.width, accuracy: 1, name)
+        XCTAssertEqual(distance.height, valueReference.height, accuracy: 1, name)
+        let status = try XCTUnwrap(waitingFixPixelBounds(
+            pixels, width: Int(size.width),
+            in: CGRect(x: safe.minX, y: distance.maxY + 2, width: safe.width,
+                       height: max(0, safe.maxY - 50 - distance.maxY - 2)),
+            matching: cardC1IsVisible
+        ))
+        let statusReference = try XCTUnwrap(waitingFixPixelBounds(
+            renderedPixelBytes(statusImage), width: statusImage.width, matching: cardC1IsVisible
+        ))
+        XCTAssertEqual(status.width, statusReference.width, accuracy: 1, name)
+        XCTAssertEqual(status.height, statusReference.height, accuracy: 1, name)
+        XCTAssertGreaterThan(status.minY, distance.maxY, name)
+        let content = try XCTUnwrap(waitingFixPixelBounds(
+            pixels, width: Int(size.width), matching: cardC1IsVisible
+        ))
+        XCTAssertTrue(safe.contains(content), "\(name) leaves contentRect")
+    }
+
+    @MainActor
+    func testCardC1LongCourseScore41mm() throws {
+        try cardC1LongCourseScore(size: CGSize(width: 176, height: 215), face: "41mm")
+    }
+
+    @MainActor
+    func testCardC1LongCourseScore46mm() throws {
+        try cardC1LongCourseScore(size: CGSize(width: 198, height: 242), face: "46mm")
+    }
+
+    @MainActor
+    private func cardC1LongCourseScore(size: CGSize, face: String) throws {
+        for (score, suffix) in [(12, "plus12"), (0, "even"), (-3, "minus3")] {
+            let home = WatchRoundHomeView(
+                courseName: "测试国际高尔夫俱乐部 · 很长的球场名称 · C 场",
+                hole: 18, par: 5, holeCount: 18, scoredHoles: 17, toPar: score,
+                distanceText: "262 码", pendingUploads: 18
+            )
+            let name = "watch-c1-long-course-score-\(suffix)-\(face)"
+            try render(home.watchSnapshotFrame(width: size.width, height: size.height), named: name)
+            let image = try cardC1NaturalImage(home.scoreLabel)
+            let reference = try XCTUnwrap(waitingFixPixelBounds(
+                renderedPixelBytes(image), width: image.width, matching: cardC1IsColored
+            ))
+            let safe = WatchDisplayGeometry.contentRect(in: size)
+            let actual = try XCTUnwrap(waitingFixPixelBounds(
+                try waitingFixPixels(home, size: size), width: Int(size.width),
+                in: CGRect(x: 0, y: 0, width: size.width, height: safe.minY + 36),
+                matching: cardC1IsColored
+            ))
+            // Comparing with a natural single-line label detects both wrapping and truncation.
+            XCTAssertEqual(actual.height, reference.height, accuracy: 1, name)
+            XCTAssertEqual(actual.width, reference.width, accuracy: 1, name)
+            XCTAssertTrue(safe.contains(actual), name)
+            XCTAssertLessThanOrEqual(actual.maxX, safe.maxX - WatchRoundHomeLayout.systemTimeTrailingClearance, name)
+        }
+    }
+
+    @MainActor
+    func testCardC1FlagDirection41mm() throws {
+        try cardC1FlagDirection(size: CGSize(width: 176, height: 215), face: "41mm")
+    }
+
+    @MainActor
+    func testCardC1FlagDirection46mm() throws {
+        try cardC1FlagDirection(size: CGSize(width: 198, height: 242), face: "46mm")
+    }
+
+    @MainActor
+    private func cardC1FlagDirection(size: CGSize, face: String) throws {
+        let view = WatchFlagDirectionView(state: .ready(relativeDegrees: -20, distanceYards: 152))
+        let name = "watch-c1-flag-direction-\(face)"
+        try render(view.watchSnapshotFrame(width: size.width, height: size.height), named: name)
+        let safe = WatchDisplayGeometry.contentRect(in: size)
+        let pixels = try waitingFixPixels(view, size: size)
+        let backReference = try waitingFixPixels(
+            WatchInstrumentBackButton(onBack: {}).position(
+                x: safe.minX + WatchDisplayGeometry.instrumentControlSize / 2,
+                y: safe.maxY - 37
+            ), size: size
+        )
+        let back = try XCTUnwrap(waitingFixPixelBounds(
+            backReference, width: Int(size.width), matching: cardC1IsVisible
+        ))
+        // Confirm the real button is fully visible, then subtract its reference pixels. Unlike
+        // disjoint search regions, this still catches a distance painted over the back button.
+        XCTAssertEqual(card438ChangedPixels(pixels, backReference, in: back, width: Int(size.width)), 0, name)
+        let distance = try XCTUnwrap(waitingFixPixelBounds(
+            pixels, width: Int(size.width),
+            in: CGRect(x: safe.minX, y: safe.maxY - 74, width: safe.width, height: 74),
+            differentFrom: backReference, matching: card438IsWhite
+        ))
+        let numberImage = try cardC1NaturalImage(
+            Text("152").font(.system(size: 48, weight: .black, design: .rounded))
+                .monospacedDigit().foregroundStyle(.white)
+        )
+        let numberReference = try XCTUnwrap(waitingFixPixelBounds(
+            renderedPixelBytes(numberImage), width: numberImage.width, matching: card438IsWhite
+        ))
+        XCTAssertEqual(distance.width, numberReference.width, accuracy: 1, name)
+        XCTAssertEqual(distance.height, numberReference.height, accuracy: 1, name)
+        XCTAssertFalse(back.intersects(distance), "\(name) back button overlaps the distance")
+        XCTAssertTrue(safe.contains(back), name)
+        XCTAssertTrue(safe.contains(distance), name)
+    }
+
+    func testCardC1ParCopyUsesExistingChineseWording() {
+        for par in [3, 4, 5] {
+            XCTAssertEqual(WatchParDisplay.text(par), "标准杆 \(par)")
+            XCTAssertFalse(WatchParDisplay.text(par).contains("Par"))
+        }
+    }
+
+    @MainActor
+    func testCardC1RenderChineseRingAndScorecard() throws {
+        for (size, face) in [(CGSize(width: 176, height: 215), "41mm"), (CGSize(width: 198, height: 242), "46mm")] {
+            let ring = WatchHoleRingView(pips: (1...18).map {
+                WatchRingPip(hole: $0, toPar: nil, isCurrent: $0 == 7)
+            }) {
+                VStack(spacing: 1) {
+                    Text("第 7 洞 · \(WatchParDisplay.text(4))").font(.system(size: 12))
+                    Text("152").font(.system(size: 42, weight: .bold))
+                    Text("码 · 到旗杆").font(.system(size: 12))
+                }
+            }
+            try render(ring.watchSnapshotFrame(width: size.width, height: size.height), named: "watch-c1-hole-ring-\(face)")
+            let scorecard = WatchScorecardView(holes: [
+                WatchScorecardRow(hole: 1, par: 4, score: 4),
+                WatchScorecardRow(hole: 2, par: 3, score: 2),
+            ])
+            try render(scorecard.watchSnapshotFrame(width: size.width, height: size.height), named: "watch-c1-scorecard-\(face)")
+        }
+    }
+
+    @MainActor
+    func testCardC1DistanceHero41mm() throws {
+        try cardC1DistanceHero(size: CGSize(width: 176, height: 215), face: "41mm")
+    }
+
+    @MainActor
+    func testCardC1DistanceHero46mm() throws {
+        try cardC1DistanceHero(size: CGSize(width: 198, height: 242), face: "46mm")
+    }
+
+    @MainActor
+    private func cardC1DistanceHero(size: CGSize, face: String) throws {
+        for big in [false, true] {
+            let view = WatchDistanceHero(
+                frontYd: 248, centerYd: 262, backYd: 274, caddieLine: "三号木 · 稳妥", bigText: big
+            )
+            let name = "watch-c1-distance-hero-\(big ? "big" : "normal")-\(face)"
+            try render(view.watchSnapshotFrame(width: size.width, height: size.height), named: name)
+            let pixels = try waitingFixPixels(view, size: size)
+            let safe = WatchDisplayGeometry.contentRect(in: size)
+            let inset = safe.insetBy(dx: 4, dy: 4)
+            // White isolates the front/back digits from their grey captions; green isolates 262.
+            let front = try XCTUnwrap(waitingFixPixelBounds(
+                pixels, width: Int(size.width),
+                in: CGRect(x: 0, y: 0, width: size.width / 2, height: size.height), matching: card438IsWhite
+            ))
+            let back = try XCTUnwrap(waitingFixPixelBounds(
+                pixels, width: Int(size.width),
+                in: CGRect(x: size.width / 2, y: 0, width: size.width / 2, height: size.height), matching: card438IsWhite
+            ))
+            let center = try XCTUnwrap(waitingFixPixelBounds(
+                pixels, width: Int(size.width),
+                matching: { $0.green > 40 && $0.green > $0.red * 2 && $0.green > $0.blue * 3 / 2 }
+            ))
+            for digits in [front, center, back] {
+                XCTAssertGreaterThan(digits.width, 12, "\(name) must render each distance")
+                XCTAssertGreaterThan(digits.height, 12, name)
+                XCTAssertTrue(inset.contains(digits), "\(name) digits need at least 4 pt inside contentRect: \(digits)")
+            }
+        }
+    }
+
+    @MainActor
+    private func cardC1NaturalImage(_ view: some View) throws -> CGImage {
+        let renderer = ImageRenderer(content: view.fixedSize().environment(\.colorScheme, .dark))
+        renderer.scale = 1
+        return try XCTUnwrap(renderer.cgImage)
+    }
+
+    private func cardC1IsVisible(_ colour: Card438RGBA) -> Bool {
+        colour.red > 24 || colour.green > 24 || colour.blue > 24
+    }
+
+    private func cardC1IsColored(_ colour: Card438RGBA) -> Bool {
+        let highest = max(colour.red, max(colour.green, colour.blue))
+        let lowest = min(colour.red, min(colour.green, colour.blue))
+        return highest > 60 && highest - lowest > 30
     }
 
     @MainActor

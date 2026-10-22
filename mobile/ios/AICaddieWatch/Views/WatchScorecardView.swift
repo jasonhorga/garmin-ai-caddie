@@ -54,7 +54,7 @@ public struct WatchScorecardView: View {
                     HStack(spacing: 6) {
                         Text("\(row.displayHole)").font(.system(size: 16, weight: .black, design: .rounded).monospacedDigit())
                             .frame(width: 24, alignment: .leading).foregroundStyle(.secondary)
-                        Text("Par \(row.par)").font(.system(size: 14, weight: .bold)).foregroundStyle(.secondary)
+                        Text(WatchParDisplay.text(row.par)).font(.system(size: 14, weight: .bold)).foregroundStyle(.secondary)
                         Spacer()
                         Text(row.score > 0 ? "\(row.score)" : "—")
                             .font(.system(size: 22, weight: .black, design: .rounded).monospacedDigit())
