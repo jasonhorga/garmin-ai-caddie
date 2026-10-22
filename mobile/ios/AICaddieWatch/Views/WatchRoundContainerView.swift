@@ -1,5 +1,66 @@
 import SwiftUI
 import AICaddieDomain
+#if canImport(WatchKit)
+import WatchKit
+#endif
+
+/// Presentation state shared by the map and score-only manual-shot actions.
+@MainActor
+final class WatchManualShotFeedback: ObservableObject {
+    enum Haptic: Equatable { case click, failure }
+
+    @Published private(set) var gpsPromptID: UUID?
+    var needsGPS: Bool { gpsPromptID != nil }
+    private let now: () -> Date
+    private let playHaptic: (Haptic) -> Void
+
+    init(now: @escaping () -> Date = Date.init,
+         playHaptic: @escaping (Haptic) -> Void = { haptic in
+             #if canImport(WatchKit)
+             WKInterfaceDevice.current().play(haptic == .click ? .click : .failure)
+             #endif
+         }) {
+        self.now = now
+        self.playHaptic = playHaptic
+    }
+
+    func canRecord(at fix: WatchLocationFix?) -> Bool {
+        guard let fix else { return false }
+        return WatchLocationProvider.isShotOriginFix(fix, now: now())
+    }
+
+    func record(at fix: WatchLocationFix?, beginManualShot: (WatchLocationFix) -> Bool) {
+        // Recheck at tap time: time passing does not itself cause SwiftUI to redraw the button.
+        guard let fix, canRecord(at: fix) else {
+            gpsPromptID = UUID()
+            playHaptic(.failure)
+            return
+        }
+        gpsPromptID = nil
+        playHaptic(beginManualShot(fix) ? .click : .failure)
+    }
+
+    func dismissGPSPrompt(_ id: UUID) {
+        // An earlier tap's timeout must not erase the feedback for a later tap.
+        guard gpsPromptID == id else { return }
+        gpsPromptID = nil
+    }
+}
+
+struct WatchManualShotGPSPrompt: View {
+    var body: some View {
+        Text("等待定位")
+            .font(.system(size: 13, weight: .black))
+            .foregroundStyle(.black)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(AICaddieDesignTokens.hudYellow))
+            .fixedSize()
+            .offset(x: -18, y: -30)
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("watch-hole-record-shot-needs-gps")
+    }
+}
 
 /// The permanent current-hole surface. Geometry and distance availability select an honest visual
 /// projection; they never change the scoring or shot state machine behind it.
@@ -171,14 +232,18 @@ public struct WatchRoundContainerView: View {
     /// B6 本洞: 方案 / 障碍 / 果岭 pages and the 方案 page's Crown zoom + pan.
     @State private var holePage = 0
     @State private var planViewport = WatchHoleViewport()
+    @StateObject private var manualShotFeedback = WatchManualShotFeedback()
 #if DEBUG
     private var rendersHoleRootSnapshot = false
 
     /// ImageRenderer cannot capture the native vertical pager. Keep the container's model mapping,
     /// recommendation gates and root controls, rendering the same first page without that host.
-    func snapshottingHoleRoot() -> Self {
+    func snapshottingHoleRoot(feedback: WatchManualShotFeedback? = nil) -> Self {
         var view = self
         view.rendersHoleRootSnapshot = true
+        if let feedback {
+            view._manualShotFeedback = StateObject(wrappedValue: feedback)
+        }
         return view
     }
 #endif
@@ -188,9 +253,10 @@ public struct WatchRoundContainerView: View {
     /// watch P3: F/M/B green distances (码) from the watch's OWN GPS; when present they override the
     /// phone-pushed static distances so the hole view is a live rangefinder even without the phone.
     private let watchGreenYards: (front: Int?, center: Int?, back: Int?)?
-    /// Latest fix from the Watch itself. Manual shot capture is disabled until this exists; no
-    /// placeholder coordinate is ever manufactured.
+    /// Qualified live fix for direction and walk-off distances.
     private let shotLocation: WatchLocationFix?
+    /// Newest raw wrist fix, before the 15 s rangefinder gate; only manual shot capture reads it.
+    private let latestWatchFix: WatchLocationFix?
     private let watchHeading: WatchHeadingFix?
     private let autoShotSupported: Bool
     private let autoShotStatus: String
@@ -213,6 +279,7 @@ public struct WatchRoundContainerView: View {
     public init(model: WatchRoundModel, holeGeometry: WatchHoleMapGeometry? = nil,
                 watchGreenYards: (front: Int?, center: Int?, back: Int?)? = nil,
                 shotLocation: WatchLocationFix? = nil,
+                latestWatchFix: WatchLocationFix? = nil,
                 watchHeading: WatchHeadingFix? = nil,
                 autoShotSupported: Bool = false,
                 autoShotStatus: String = "本机不支持",
@@ -230,6 +297,7 @@ public struct WatchRoundContainerView: View {
         self.holeGeometry = holeGeometry
         self.watchGreenYards = watchGreenYards
         self.shotLocation = shotLocation
+        self.latestWatchFix = latestWatchFix
         self.watchHeading = watchHeading
         self.autoShotSupported = autoShotSupported
         self.autoShotStatus = autoShotStatus
@@ -362,6 +430,12 @@ public struct WatchRoundContainerView: View {
             activeScreen
                 // 本洞成绩 uses the whole window down to 保存: the strip goes to the top there.
                 .overlay(alignment: model.screen == .scoring ? .top : .bottom) { undoableShotStrip }
+                .task(id: manualShotFeedback.gpsPromptID) {
+                    guard let id = manualShotFeedback.gpsPromptID else { return }
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    manualShotFeedback.dismissGPSPrompt(id)
+                }
                 .task(id: model.pendingManualShot?.capturedAt) {
                     // B6: a detected shot is recorded once its undo window passes.
                     guard model.undoableShotText != nil else { return }
@@ -611,7 +685,7 @@ public struct WatchRoundContainerView: View {
         )
     }
 
-    /// Only a fresh, accurate wrist coordinate can support direction, shot capture, or a live
+    /// Only a fresh, accurate wrist coordinate can support direction or a live
     /// walk-off calculation. A complete bridged F/M/B tuple can keep distance presentation alive,
     /// but it cannot manufacture a coordinate for those actions.
     private var qualifiedShotLocation: WatchLocationFix? {
@@ -1119,7 +1193,7 @@ public struct WatchRoundContainerView: View {
                     .onTapGesture { holeMapBigText.toggle() }
             }
         case .scoreOnly:
-            scoreOnlyRoot(s)
+            scoreOnlyRoot(s, feedback: manualShotFeedback)
         }
     }
 
@@ -1198,9 +1272,12 @@ public struct WatchRoundContainerView: View {
                         systemName: "plus",
                         label: "手动记杆",
                         identifier: "watch-hole-record-shot",
-                        isEnabled: qualifiedShotLocation != nil,
-                        action: { recordManualShot() }
+                        dimmed: !manualShotFeedback.canRecord(at: latestWatchFix ?? shotLocation),
+                        action: { recordManualShot(feedback: manualShotFeedback) }
                     )
+                    .overlay(alignment: .top) {
+                        if manualShotFeedback.needsGPS { WatchManualShotGPSPrompt() }
+                    }
                 }
             }
             .frame(width: safeRect.width)
@@ -1214,7 +1291,7 @@ public struct WatchRoundContainerView: View {
         systemName: String,
         label: String,
         identifier: String,
-        isEnabled: Bool = true,
+        dimmed: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -1234,13 +1311,12 @@ public struct WatchRoundContainerView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.45)
+        .opacity(dimmed ? 0.45 : 1)
         .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
     }
 
-    private func scoreOnlyRoot(_ s: WatchRoundState) -> some View {
+    func scoreOnlyRoot(_ s: WatchRoundState, feedback: WatchManualShotFeedback) -> WatchRoundHomeView {
         WatchRoundHomeView(
             courseName: model.courseName,
             hole: s.displayHoleNumber,
@@ -1252,8 +1328,9 @@ public struct WatchRoundContainerView: View {
             courseDataPending: s.geometryCoverage == "pending",
             pendingUploads: model.pendingUploads,
             hasHoleMap: false,
-            canRecordShot: qualifiedShotLocation != nil,
-            onRecordShot: { recordManualShot() },
+            canRecordShot: feedback.canRecord(at: latestWatchFix ?? shotLocation),
+            manualShotNeedsGPS: feedback.needsGPS,
+            onRecordShot: { recordManualShot(feedback: feedback) },
             onScoreHole: { model.startScoringActiveHole() },
             onPreviousHole: { model.goToPreviousHole() },
             onNextHole: { model.goToNextHole() },
@@ -1262,14 +1339,16 @@ public struct WatchRoundContainerView: View {
         )
     }
 
-    private func recordManualShot() {
-        guard let fix = qualifiedShotLocation else { return }
-        model.beginManualShot(
-            latitude: fix.coordinate.latitude,
-            longitude: fix.coordinate.longitude,
-            horizontalAccuracyM: fix.horizontalAccuracyM,
-            capturedAt: fix.capturedAt
-        )
+    func recordManualShot(feedback: WatchManualShotFeedback) {
+        feedback.record(at: latestWatchFix ?? shotLocation) { fix in
+            model.beginManualShot(
+                latitude: fix.coordinate.latitude,
+                longitude: fix.coordinate.longitude,
+                horizontalAccuracyM: fix.horizontalAccuracyM,
+                capturedAt: fix.capturedAt
+            )
+            return model.pendingManualShot != nil
+        }
     }
 
     private var instrumentBackButton: some View {

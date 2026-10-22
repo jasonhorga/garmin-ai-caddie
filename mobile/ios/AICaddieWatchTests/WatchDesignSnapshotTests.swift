@@ -576,6 +576,154 @@ final class WatchDesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testRenderWaitingFixMap41mm() throws {
+        try renderWaitingFix(hasMap: true, size: CGSize(width: 176, height: 215), face: "41mm")
+    }
+
+    @MainActor
+    func testRenderWaitingFixMap46mm() throws {
+        try renderWaitingFix(hasMap: true, size: CGSize(width: 198, height: 242), face: "46mm")
+    }
+
+    @MainActor
+    func testRenderWaitingFixScoreOnly41mm() throws {
+        try renderWaitingFix(hasMap: false, size: CGSize(width: 176, height: 215), face: "41mm")
+    }
+
+    @MainActor
+    func testRenderWaitingFixScoreOnly46mm() throws {
+        try renderWaitingFix(hasMap: false, size: CGSize(width: 198, height: 242), face: "46mm")
+    }
+
+    /// Card 455: render the real failed + action while an earlier shot is still undoable. Both
+    /// controls and the distance must remain readable together, including on the compact face.
+    @MainActor
+    private func renderWaitingFix(hasMap: Bool, size: CGSize, face: String) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("waiting-fix-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let timestamp = "2026-08-01T08:00:00Z"
+        let model = WatchRoundModel(
+            store: WatchRoundStore(directoryURL: directory),
+            autoShotEnabled: false, persistAutoShotEnabled: { _ in }, now: { timestamp }
+        )
+        let state = WatchRoundState(
+            roundId: "waiting-fix", hole: 7, par: 4, distanceM: nil, selectedClub: nil,
+            score: 0, putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        model.seedRound([state], activeHole: 7, courseName: "测试球场")
+        model.beginManualShot(latitude: 40, longitude: 116, horizontalAccuracyM: 5, capturedAt: timestamp)
+        model.completePendingManualShot(clubName: nil)
+        model.beginManualShot(latitude: 40.0001, longitude: 116, horizontalAccuracyM: 5, capturedAt: timestamp)
+        XCTAssertEqual(model.undoableShotText, "第 2 杆")
+        let previousShot = model.pendingManualShot
+        var haptics: [WatchManualShotFeedback.Haptic] = []
+        let feedback = WatchManualShotFeedback(playHaptic: { haptics.append($0) })
+        let container = WatchRoundContainerView(
+            model: model,
+            holeGeometry: hasMap ? WatchHoleMapSample.geometry : nil,
+            shotLocation: nil, latestWatchFix: nil,
+            shotUndoSeconds: 3_600
+        ).snapshottingHoleRoot(feedback: feedback)
+        XCTAssertFalse(feedback.canRecord(at: nil))
+        let before = try waitingFixPixels(container, size: size)
+
+        if hasMap {
+            container.recordManualShot(feedback: feedback)
+        } else {
+            let home = container.scoreOnlyRoot(state, feedback: feedback)
+            XCTAssertFalse(home.canRecordShot)
+            home.onRecordShot()
+            XCTAssertTrue(container.scoreOnlyRoot(state, feedback: feedback).manualShotNeedsGPS)
+        }
+        XCTAssertTrue(feedback.needsGPS)
+        XCTAssertEqual(haptics, [.failure])
+        XCTAssertEqual(model.pendingManualShot, previousShot, "the failed tap must not record another shot")
+        let name = "watch-waiting-fix-\(hasMap ? "map" : "score-only")-\(face)"
+        // Write the approval artifact before geometry assertions, so a failing layout is reviewable.
+        try render(
+            container.watchSnapshotFrame(width: size.width, height: size.height),
+            named: name, requiresMapPixels: hasMap
+        )
+        let waiting = try waitingFixPixels(container, size: size)
+        let width = Int(size.width)
+        let prompt = try XCTUnwrap(waitingFixPixelBounds(
+            waiting, width: width, differentFrom: before, matching: card438IsYellow
+        ), "\(name) must contain the yellow waiting-for-location capsule")
+
+        // Compare against the full standalone capsule as well as the rounded display guide. A
+        // clipped capsule must not pass merely because its remaining pixels are inside the mask.
+        let referenceSize = CGSize(width: 240, height: 200)
+        let referencePixels = try waitingFixPixels(WatchManualShotGPSPrompt().padding(60), size: referenceSize)
+        let reference = try XCTUnwrap(waitingFixPixelBounds(
+            referencePixels, width: Int(referenceSize.width), matching: card438IsYellow
+        ))
+        XCTAssertEqual(prompt.width, reference.width, accuracy: 1, "\(name) clips the capsule horizontally")
+        XCTAssertEqual(prompt.height, reference.height, accuracy: 1, "\(name) clips the capsule vertically")
+        XCTAssertGreaterThan(prompt.height, 20, "the capsule background, not just yellow text, must render")
+        XCTAssertTrue(WatchDisplayGeometry.contentRect(in: size).contains(prompt), "\(name) leaves the visible content rect")
+        for corner in [
+            CGPoint(x: prompt.minX, y: prompt.minY), CGPoint(x: prompt.maxX, y: prompt.minY),
+            CGPoint(x: prompt.minX, y: prompt.maxY), CGPoint(x: prompt.maxX, y: prompt.maxY),
+        ] {
+            XCTAssertTrue(WatchDisplayGeometry.contains(corner, in: size), "\(name) clips the capsule at a rounded corner")
+        }
+
+        let distanceRegion = hasMap ? WatchHoleMapView.rootFactsFrame(in: size) : CGRect(
+            x: 0, y: size.height * 0.20, width: size.width, height: size.height * 0.38
+        )
+        let distance = try XCTUnwrap(waitingFixPixelBounds(
+            before, width: width, in: distanceRegion,
+            matching: hasMap ? card438IsYellow : card438IsWhite
+        ), "\(name) must render the middle distance digits")
+        XCTAssertFalse(prompt.intersects(distance), "\(name) overlaps the middle distance digits")
+
+        // Removing the real pending shot isolates the pixels occupied by its 第 N 杆 undo strip. On the
+        // map page the undo also removes the shot's marker from the map, so only diff the bottom band.
+        model.undoPendingManualShot()
+        let withoutUndo = try waitingFixPixels(container, size: size)
+        let bottomBand = CGRect(x: 0, y: size.height * 0.7, width: size.width, height: size.height * 0.3)
+        let undoStrip = try XCTUnwrap(waitingFixPixelBounds(
+            waiting, width: width, in: bottomBand, differentFrom: withoutUndo
+        ))
+        XCTAssertGreaterThan(undoStrip.minY, size.height * 0.7, "the probe must isolate the bottom undo strip")
+        XCTAssertFalse(prompt.intersects(undoStrip), "\(name) overlaps the 第 N 杆 undo strip")
+    }
+
+    @MainActor
+    private func waitingFixPixels(_ view: some View, size: CGSize) throws -> [UInt8] {
+        let renderer = ImageRenderer(content: view
+            .watchSnapshotFrame(width: size.width, height: size.height)
+            .environment(\.colorScheme, .dark))
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.cgImage)
+        XCTAssertEqual(image.width, Int(size.width))
+        XCTAssertEqual(image.height, Int(size.height))
+        return renderedPixelBytes(image)
+    }
+
+    private func waitingFixPixelBounds(
+        _ pixels: [UInt8], width: Int, in region: CGRect? = nil,
+        differentFrom baseline: [UInt8]? = nil,
+        matching matches: (Card438RGBA) -> Bool = { _ in true }
+    ) -> CGRect? {
+        let height = pixels.count / (width * 4)
+        let area = (region ?? CGRect(x: 0, y: 0, width: width, height: height))
+            .intersection(CGRect(x: 0, y: 0, width: width, height: height))
+        if let baseline { XCTAssertEqual(pixels.count, baseline.count) }
+        var bounds = CGRect.null
+        for y in Int(area.minY.rounded(.up))..<Int(area.maxY.rounded(.down)) {
+            for x in Int(area.minX.rounded(.up))..<Int(area.maxX.rounded(.down)) {
+                let offset = (y * width + x) * 4
+                if let baseline, pixels[offset..<(offset + 4)] == baseline[offset..<(offset + 4)] { continue }
+                let colour = card438Pixel(pixels, at: CGPoint(x: x, y: y), width: width)
+                if matches(colour) { bounds = bounds.union(CGRect(x: x, y: y, width: 1, height: 1)) }
+            }
+        }
+        return bounds.isNull ? nil : bounds
+    }
+
+    @MainActor
     func testFinishSummaryUsesTheApprovedCompactFactsAndActions() {
         let view = WatchFinishRoundView(
             courseName: "北京丽宫 · 前九",
