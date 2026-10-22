@@ -58,6 +58,7 @@ from .geometry import (
     load_hole_geometry_evidence_response,
     load_hole_map_response,
 )
+from .garmin_raster import ROUTER as garmin_raster_router
 from .pin_sheet import read_pin_sheet_response
 from .media import (
     analyze_media_response,
@@ -262,6 +263,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
             r"/api/v2/courses/[0-9]+/(?:prep|tees|install/status)",
             r"/api/v2/courses/[0-9]+/install/jobs/[^/]+/(?:cancel|retry)",
             r"/api/v2/courses/[0-9]+/holes/[0-9]+/(?:topo|green)\.png",
+            r"/api/v2/courses/[0-9]+/holes/[0-9]+/garmin-raster(?:\.jpg)?",
             r"/api/v2/players/[^/]+/clubs/bag",
             r"/api/v2/geometry/course/[0-9]+/coverage",
             r"/api/v2/geometry/hole/[0-9]+/[0-9]+",
@@ -277,6 +279,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
         return await call_next(request)
 app.include_router(admin_router)
 app.include_router(auth_router)
+app.include_router(garmin_raster_router)
 
 logger = logging.getLogger(__name__)
 

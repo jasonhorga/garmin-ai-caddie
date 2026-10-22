@@ -6,6 +6,7 @@ server startup. It intentionally has no database or provider access.
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 import json
 import math
 from pathlib import Path
@@ -613,6 +614,7 @@ def _fixture_prep_hazards() -> dict:
 
 
 IMAGE = _png_data_uri()
+_GARMIN_RASTER_BYTES: bytes | None = None
 MARKERS = {"dataMode": "ci_fixture", "source": "non_production", "fixtureRevision": FIXTURE_REVISION}
 ROUTE = APIRouter()
 PACKAGE_TEMPLATE = json.loads(
@@ -1088,6 +1090,38 @@ def _fixture_png(global_id: int, hole: int, width: int = 64, height: int = 64) -
     return Response(content=base64.b64decode(image.split(",", 1)[1]), media_type="image/png")
 
 
+def _garmin_raster_jpeg() -> bytes:
+    """A deterministic synthetic CourseView-sized JPEG for offline API checks."""
+    global _GARMIN_RASTER_BYTES
+    if _GARMIN_RASTER_BYTES is None:
+        from PIL import Image, ImageDraw
+
+        image = Image.new("RGB", (1242, 1920), (135, 206, 235))
+        draw = ImageDraw.Draw(image)
+        draw.polygon(
+            [(330, 170), (790, 120), (1020, 590), (920, 1420), (620, 1780), (300, 1450), (190, 700)],
+            fill=(104, 158, 92),
+        )
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", quality=88, optimize=True)
+        _GARMIN_RASTER_BYTES = buffer.getvalue()
+    return _GARMIN_RASTER_BYTES
+
+
+def _fixture_garmin_projection(global_id: int) -> dict[str, object]:
+    """Scale the fixture's canonical affine refs into the Garmin raster frame."""
+    base = _fixture_hole_projection(global_id)
+    refs = []
+    for ref in base["refs"]:
+        refs.append({
+            "lat": ref["lat"],
+            "lon": ref["lon"],
+            "px": round(float(ref["px"]) * 1242.0 / 64.0, 1),
+            "py": round(float(ref["py"]) * 1920.0 / 64.0, 1),
+        })
+    return {"available": True, "widthPx": 1242, "heightPx": 1920, "refs": refs}
+
+
 @ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/topo.png")
 def topo_png(global_id: int, hole: int, v: str | None = None, r: str | None = None) -> Response:
     if v is not None and v != "topo-v11":
@@ -1111,6 +1145,45 @@ def green_png(global_id: int, hole: int, x: float = 0, y: float = 0, width: floa
     if size < 64 or size > 1280 or width < 20 or height < 20:
         raise HTTPException(status_code=422, detail="fixture green crop unsupported")
     return _fixture_png(global_id, hole, size, size)
+
+
+@ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.jpg")
+def garmin_raster_jpg(global_id: int, hole: int, v: str | None = None, r: str | None = None) -> Response:
+    requested = _course_request(global_id)
+    if hole < 1 or hole > 18:
+        raise HTTPException(status_code=404, detail="fixture image not found")
+    if _hole_map_state(requested, hole) != "ready":
+        raise HTTPException(status_code=404, detail="fixture raster not ready")
+    if v is not None and v != FIXTURE_REVISION:
+        raise HTTPException(status_code=409, detail="fixture raster asset version changed")
+    return Response(
+        content=_garmin_raster_jpeg(),
+        media_type="image/jpeg",
+        headers={"ETag": f'"{FIXTURE_REVISION}"', "Cache-Control": "public, max-age=31536000, immutable" if v == FIXTURE_REVISION else "public, no-cache"},
+    )
+
+
+@ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster")
+def garmin_raster(global_id: int, hole: int) -> dict[str, object]:
+    requested = _course_request(global_id)
+    if hole < 1 or hole > 18:
+        raise HTTPException(status_code=404, detail="fixture raster not found")
+    image_url = f"/api/v2/courses/{int(global_id)}/holes/{int(hole)}/garmin-raster.jpg?v={FIXTURE_REVISION}"
+    if _hole_map_state(requested, hole) != "ready":
+        return _with_markers({
+            "available": False,
+            "imageUrl": None,
+            "projection": None,
+            "mode": "none",
+            "reason": "geometry_not_ready",
+        })
+    return _with_markers({
+        "available": True,
+        "imageUrl": image_url,
+        "projection": _fixture_garmin_projection(requested),
+        "mode": "H",
+        "reason": None,
+    })
 
 
 @ROUTE.get("/api/v2/mobile/courses/{global_id}/package")
