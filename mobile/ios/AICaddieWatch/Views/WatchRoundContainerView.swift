@@ -238,9 +238,12 @@ public struct WatchRoundContainerView: View {
 
     /// ImageRenderer cannot capture the native vertical pager. Keep the container's model mapping,
     /// recommendation gates and root controls, rendering the same first page without that host.
-    func snapshottingHoleRoot() -> Self {
+    func snapshottingHoleRoot(feedback: WatchManualShotFeedback? = nil) -> Self {
         var view = self
         view.rendersHoleRootSnapshot = true
+        if let feedback {
+            view._manualShotFeedback = StateObject(wrappedValue: feedback)
+        }
         return view
     }
 #endif
