@@ -1,10 +1,12 @@
 # Operations Runbook
 
-> **Since the agenthub cutover, production backend deploys are made only by the
-> agenthub executor after a merge** (see "agenthub executor deploy" below and
-> agenthub's RELEASE documentation). The candidate and manual switch steps in
-> "Build the Sync Image" are kept as reference for the pre-cutover flow and for
-> owner-run recovery; agents do not run them.
+> **Since 2026-10-22 the caddie project console (a Claude session) merges,
+> deploys, confirms and rolls back by hand, following the root
+> [RUNBOOK.md](../../RUNBOOK.md); agenthub no longer releases anything.** This
+> file stays the reference for the deploy script contract ("agenthub executor
+> deploy": exit codes, environment, manual invocation) and boot recovery. The
+> candidate and manual switch steps in "Build the Sync Image" are kept as
+> reference for the pre-cutover flow; agents do not run them.
 
 ## Start Services
 
