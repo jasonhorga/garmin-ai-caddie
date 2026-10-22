@@ -2056,9 +2056,11 @@ final class WatchDesignSnapshotTests: XCTestCase {
                 pixels, width: Int(size.width),
                 matching: { $0.green > 40 && $0.green > $0.red * 2 && $0.green > $0.blue * 3 / 2 }
             ))
-            for digits in [front, center, back] {
+            // The front/back pips are a small face (about 11 pt cap height on 41 mm); 8 pt only proves
+            // they rendered. The 262 hero must stay large.
+            for (digits, minimum) in [(front, CGFloat(8)), (center, CGFloat(24)), (back, CGFloat(8))] {
                 XCTAssertGreaterThan(digits.width, 12, "\(name) must render each distance")
-                XCTAssertGreaterThan(digits.height, 12, name)
+                XCTAssertGreaterThan(digits.height, minimum, name)
                 XCTAssertTrue(inset.contains(digits), "\(name) digits need at least 4 pt inside contentRect: \(digits)")
             }
         }
