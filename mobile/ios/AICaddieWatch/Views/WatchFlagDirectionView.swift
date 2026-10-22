@@ -114,54 +114,64 @@ public struct WatchFlagDirectionView: View {
     }
 
     public var body: some View {
-        ZStack {
-            Group {
-                switch state {
-                case let .ready(relativeDegrees, distanceYards):
-                    VStack(spacing: 6) {
-                    Text("旗向指引")
-                        .font(.system(size: 18, weight: .black))
-                        .foregroundStyle(.secondary)
-                    WatchFlagCompassDial(relativeDegrees: relativeDegrees)
-                        .frame(width: 120, height: 120)
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("\(distanceYards)")
-                            .font(.system(size: 48, weight: .black, design: .rounded))
-                            .monospacedDigit()
-                        Text("码 · 到旗杆")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(.secondary)
-                    }
-                    }
-                    .padding(.top, 4)
-                    .frame(maxHeight: .infinity, alignment: .top)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("旗向指引，\(distanceYards) 码")
-                case let .blocked(reason):
-                    VStack(spacing: 12) {
-                    Text("旗向指引")
-                        .font(.headline.weight(.bold))
-                    Image(systemName: "location.north.circle")
-                        .font(.system(size: 54, weight: .regular))
-                        .foregroundStyle(.secondary)
-                    Text(reason.message)
-                        .font(.caption.weight(.medium))
+        GeometryReader { proxy in
+            let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
+            // The control rail owns its height. Only the compass yields space on a smaller face.
+            let railHeight: CGFloat = 74
+            let dialSize = min(120, max(0, safeRect.height - 24 - 12 - railHeight))
+            VStack(spacing: 6) {
+                Text("旗向指引")
+                    .font(.system(size: 18, weight: .black))
+                    .foregroundStyle(.secondary)
+                    .frame(height: 24)
+                Group {
+                    switch state {
+                    case let .ready(relativeDegrees, _):
+                        WatchFlagCompassDial(relativeDegrees: relativeDegrees)
+                            .frame(width: 120, height: 120)
+                            .scaleEffect(dialSize / 120)
+                    case let .blocked(reason):
+                        VStack(spacing: 6) {
+                            Image(systemName: "location.north.circle")
+                                .font(.system(size: min(54, dialSize * 0.48), weight: .regular))
+                            Text(reason.message)
+                                .font(.system(size: 12, weight: .medium))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                        }
                         .foregroundStyle(.secondary)
                     }
                 }
+                .frame(width: dialSize, height: dialSize)
+                HStack(spacing: 8) {
+                    WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
+                    if case let .ready(_, distanceYards) = state {
+                        VStack(spacing: 0) {
+                            Text("\(distanceYards)")
+                                .font(.system(size: 48, weight: .black, design: .rounded))
+                                .monospacedDigit()
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                            Text("码 · 到旗杆")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("旗向指引，\(distanceYards) 码")
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                }
+                .frame(height: railHeight)
             }
-
-            GeometryReader { proxy in
-                let safeRect = WatchDisplayGeometry.contentRect(in: proxy.size)
-                WatchInstrumentBackButton(accessibilityLabel: "返回菜单", onBack: onBack)
-                    .position(
-                        x: safeRect.minX + WatchDisplayGeometry.instrumentControlSize / 2,
-                        y: safeRect.maxY - WatchDisplayGeometry.instrumentControlSize / 2
-                    )
-            }
+            .frame(width: safeRect.width, height: safeRect.height)
+            .position(x: safeRect.midX, y: safeRect.midY)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
+        .ignoresSafeArea()
         .persistentSystemOverlays(.hidden)
         .simultaneousGesture(
             DragGesture(minimumDistance: 24)

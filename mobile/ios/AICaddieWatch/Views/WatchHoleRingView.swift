@@ -1,5 +1,10 @@
 import SwiftUI
 
+/// Reuse the Watch hole identity's Chinese par wording on the ring and scorecard.
+enum WatchParDisplay {
+    static func text(_ par: Int) -> String { "标准杆 \(par)" }
+}
+
 /// round-13 (Watch standalone): the 18-hole ring that hugs the rounded-rect watch screen EDGE
 /// (spec screen ①, the user's explicit "贴着屏幕边缘,不要一个居中的圆"). Each hole is drawn as a thin
 /// short capsule placed on the physical rounded-rectangle perimeter — so the marks ride the visible

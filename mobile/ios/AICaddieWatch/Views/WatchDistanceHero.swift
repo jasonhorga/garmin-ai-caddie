@@ -34,28 +34,34 @@ public struct WatchDistanceHero: View {
             EmptyView()
         } else {
             GeometryReader { proxy in
-                let approvedHeight = min(proxy.size.height, 198)
+                let contentRect = WatchDisplayGeometry.contentRect(in: proxy.size).insetBy(dx: 4, dy: 4)
+                let approvedHeight = min(contentRect.height, 198)
                 Group {
                     if bigText {
                         big
                     } else {
-                        normal
+                        normal(availableWidth: contentRect.width)
                     }
                 }
-                .frame(width: proxy.size.width, height: approvedHeight)
-                .position(x: proxy.size.width / 2, y: approvedHeight / 2)
+                .frame(width: contentRect.width, height: approvedHeight)
+                .position(x: contentRect.midX, y: contentRect.minY + approvedHeight / 2)
             }
             .ignoresSafeArea()
         }
     }
 
     // 抬手一眼:中间到旗大字,前 / 后翼在两侧,下面一句话球童。
-    private var normal: some View {
-        VStack(spacing: 1) {
-            HStack(alignment: .lastTextBaseline, spacing: 12) {
+    private func normal(availableWidth: CGFloat) -> some View {
+        let centerWidth = availableWidth * 0.5
+        let sideWidth = max(0, (availableWidth - centerWidth - 12) / 2)
+        return VStack(spacing: 1) {
+            HStack(alignment: .lastTextBaseline, spacing: 6) {
                 pip("前", frontYd)
+                    .frame(width: sideWidth)
                 center(size: 56)
+                    .frame(width: centerWidth)
                 pip("后", backYd)
+                    .frame(width: sideWidth)
             }
             if let caddieLine {
                 Text(caddieLine)
