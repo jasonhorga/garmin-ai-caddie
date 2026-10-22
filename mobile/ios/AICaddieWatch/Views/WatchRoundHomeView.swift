@@ -149,6 +149,8 @@ public struct WatchRoundHomeView: View {
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
+            // The 等待定位 capsule over ＋ already says it; keep the line's space so nothing moves.
+            .opacity(manualShotNeedsGPS ? 0 : 1)
     }
 
     var scoreLabel: some View {

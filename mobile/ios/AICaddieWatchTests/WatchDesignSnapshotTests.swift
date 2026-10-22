@@ -677,6 +677,17 @@ final class WatchDesignSnapshotTests: XCTestCase {
             matching: hasMap ? card438IsYellow : card438IsWhite
         ), "\(name) must render the middle distance digits")
         XCTAssertFalse(prompt.intersects(distance), "\(name) overlaps the middle distance digits")
+        if !hasMap {
+            // The grey 等待定位 status line hides while the capsule says the same thing, so no grey
+            // text may sit beside or under the capsule (card C1 review: it collided on 41 mm).
+            let neighbourhood = prompt.insetBy(dx: -8, dy: -14)
+            XCTAssertNil(waitingFixPixelBounds(
+                waiting, width: width, in: neighbourhood, matching: { colour in
+                    let channels = [Int(colour.red), Int(colour.green), Int(colour.blue)]
+                    return channels.min()! > 80 && channels.max()! < 210 && channels.max()! - channels.min()! < 24
+                }
+            ), "\(name) repeats 等待定位 in grey next to the capsule")
+        }
 
         // Removing the real pending shot isolates the pixels occupied by its 第 N 杆 undo strip. On the
         // map page the undo also removes the shot's marker from the map, so only diff the bottom band.
