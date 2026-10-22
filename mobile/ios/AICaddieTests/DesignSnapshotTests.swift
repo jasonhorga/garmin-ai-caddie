@@ -1142,8 +1142,8 @@ final class DesignSnapshotTests: XCTestCase {
                 named: "full-hole-map-partial",
                 dark: true
             )
-            // ... and with no drawable route at all it shows the one full-screen waiting page
-            // (hole · Par · yards), never an empty hole.
+            // ... and with no drawable route at all it shows the numeric placeholder and download
+            // copy instead of the retired full-screen waiting page.
             let noMapPrepJSON = """
             {"hole":\(firstHole.number),"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
             "route":[],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]}}
@@ -1162,7 +1162,7 @@ final class DesignSnapshotTests: XCTestCase {
                         hole: firstHole
                     )
                 },
-                named: "full-hole-map-waiting",
+                named: "full-hole-map-numeric-placeholder",
                 dark: true
             )
 
@@ -2270,6 +2270,129 @@ final class DesignSnapshotTests: XCTestCase {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(HubStyle.grouped),
             named: "review-edit-magnifier"
+        )
+    }
+
+    /// Card 454: Garmin's 1242×1920 fallback and a current-position marker share the same raster
+    /// projection while the precise CourseView image is still pending.
+    @MainActor
+    func testCaptureGarminRasterWithPosition() throws {
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("AICaddie/Fixtures/live_round_package.fixture.json")
+        let package = try JSONDecoder().decode(
+            LiveRoundPackage.self,
+            from: Data(contentsOf: fixtureURL)
+        )
+        let firstHole = try XCTUnwrap(package.holes.first)
+        let prepJSON = #"{"hole":\#(firstHole.number),"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":300,"geometryCoverage":"partial","geometryRevision":"snapshot-r1","route":[[120,330],[120,30]],"steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},"map":{"overlay":{"w":240,"h":360,"ppm":1,"ln":300,"route":[[120,330,0],[120,30,300]]}},"holeImageProjection":{"available":true,"widthPx":240,"heightPx":360,"refs":[{"lat":40.0,"lon":116.0,"px":120,"py":330},{"lat":40.0,"lon":116.001,"px":120,"py":30},{"lat":40.001,"lon":116.0,"px":240,"py":330}]}}"#
+        let prepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(prepJSON.utf8))
+        let mappedPackage = package.replacingCoursePrep(
+            CoursePrepPackage(
+                schema: "ai-caddie-course-prep-v1",
+                globalId: package.course.globalId,
+                holes: [prepHole],
+                missingData: nil
+            )
+        )
+        let size = CGSize(width: 1242, height: 1920)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor(red: 0.16, green: 0.35, blue: 0.19, alpha: 1).setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            UIColor(red: 0.28, green: 0.53, blue: 0.30, alpha: 1).setFill()
+            context.cgContext.fill(CGRect(x: 270, y: 0, width: 360, height: 1920))
+            UIColor(red: 0.58, green: 0.72, blue: 0.35, alpha: 1).setFill()
+            context.cgContext.fillEllipse(in: CGRect(x: 430, y: 120, width: 380, height: 260))
+        }
+        let baseURL = URL(string: "https://caddie.example")!
+        let rasterProjection = CoursePrepHoleImageProjection(
+            available: true,
+            widthPx: 1242,
+            heightPx: 1920,
+            refs: [
+                CoursePrepProjectionRef(lat: 40, lon: 116, px: 80, py: 140),
+                CoursePrepProjectionRef(lat: 40, lon: 116.001, px: 80, py: 1740),
+                CoursePrepProjectionRef(lat: 40.001, lon: 116, px: 700, py: 140),
+            ]
+        )
+        let descriptor = GarminRasterResponse(
+            available: true,
+            imageUrl: "/api/v2/courses/\(firstHole.sourceGlobalId)/holes/\(firstHole.sourceLocalHole)/garmin-raster.jpg?v=snapshot-454",
+            projection: GarminRasterProjection(widthPx: 1242, heightPx: 1920, refs: rasterProjection.refs ?? []),
+            mode: "H"
+        )
+        let rasterURL = try XCTUnwrap(descriptor.resolvedImageURL(relativeTo: baseURL))
+        GarminRasterImageStore.preload(image, for: rasterURL)
+        let state = CurrentHoleView.SnapshotState(
+            garminRaster: descriptor,
+            currentCoordinate: CLLocationCoordinate2D(latitude: 40.0005, longitude: 116.0005)
+        )
+        try captureScreen(
+            NavigationStack {
+                CurrentHoleView(
+                    package: mappedPackage,
+                    hole: firstHole,
+                    snapshotState: state,
+                    caddieBaseURL: baseURL
+                )
+            },
+            named: "live-garmin-raster-position",
+            dark: true
+        )
+    }
+
+    /// Card 454: when neither raster is available the same space contains only numeric facts and
+    /// the explicit “正在下载” status.
+    @MainActor
+    func testCaptureLiveNumericMapPlaceholder() throws {
+        try captureScreen(
+            LiveMapNumericPlaceholder(
+                holeNumber: 7,
+                par: 4,
+                yards: 410,
+                frontYards: 142,
+                middleYards: 151,
+                backYards: 160
+            )
+            .frame(width: 390, height: 600),
+            named: "live-numeric-placeholder",
+            dark: true
+        )
+    }
+
+    @MainActor
+    func testCaptureGarminRasterLoading() throws {
+        let url = URL(string: "http://127.0.0.1:9/api/v2/courses/1/holes/1/garmin-raster.jpg?v=asset-loading")!
+        try captureScreen(
+            GarminRasterStandaloneView(url: url, onReady: nil, onFailed: nil, onVersionConflict: nil)
+                .frame(width: 390, height: 600)
+                .background(LivePlayStyle.base),
+            named: "live-garmin-raster-loading",
+            dark: true
+        )
+    }
+
+    @MainActor
+    func testCaptureGarminRasterPreciseReplacement() throws {
+        let size = CGSize(width: 390, height: 600)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor(red: 0.18, green: 0.39, blue: 0.22, alpha: 1).setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            UIColor(red: 0.45, green: 0.68, blue: 0.34, alpha: 1).setFill()
+            context.cgContext.fillEllipse(in: CGRect(x: 110, y: 80, width: 170, height: 110))
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("card-454-precise-topo.png")
+        try image.pngData()?.write(to: url)
+        try captureScreen(
+            ZStack {
+                TopoHoleBaseImage(topoURL: url, fallback: nil)
+                Circle().fill(.white).frame(width: 18, height: 18).position(x: 195, y: 350)
+            }
+            .frame(width: size.width, height: size.height)
+            .background(LivePlayStyle.base),
+            named: "live-garmin-raster-precise-replacement",
+            dark: true
         )
     }
 

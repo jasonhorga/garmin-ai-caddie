@@ -206,6 +206,10 @@ public struct CurrentHoleView: View {
     /// framed between that chrome and its route labels are kept clear of it.
     @State private var liveChromeRects: [LiveChromeRect] = []
     @State private var liveHeroFrame: CGRect = .zero
+    @State private var preciseTopoImageReady = false
+    @State private var garminRasterImageFailed = false
+    @State private var garminRasterImageRetrying = false
+    @State private var garminVersionConflictURL: URL?
     @State private var liveMapFitMemo = LiveMapFitMemo()
     /// Direct-manipulation offset is ordinary state, matching the Touch Target detail surface.
     /// GestureState can be coalesced behind the ancestor ScrollView and make the bitmap catch up
@@ -213,6 +217,9 @@ public struct CurrentHoleView: View {
     @State private var heroMapTransientDragOffset: CGSize = .zero
     @GestureState private var heroMapPinchScale: CGFloat = 1
     @State private var preciseMapTimedOut = false
+    /// Garmin CN's fallback descriptor/image for this physical hole. It is deliberately separate
+    /// from `holePrep`: the CourseView facts can be retained offline while the raster request fails.
+    @State private var garminRaster: GarminRasterResponse?
     /// Highlighted leg from the complete caddie sequence.  The map keeps all legs visible; this
     /// only changes the emphasized landing after a player taps a step in the detail sheet.
     @State private var selectedPlanIndex: Int?
@@ -327,6 +334,9 @@ public struct CurrentHoleView: View {
         /// A placed Touch Target (topo pixels) and, optionally, a held finger showing the loupe.
         var targetPixel: CGPoint?
         var targetDragFocus: CGPoint?
+        var garminRaster: GarminRasterResponse?
+        var preciseTopoReady = false
+        var currentCoordinate: CLLocationCoordinate2D?
     }
 
     init(package: LiveRoundPackage, hole: Hole, snapshotState: SnapshotState, caddieBaseURL: URL? = nil) {
@@ -353,6 +363,9 @@ public struct CurrentHoleView: View {
             _explicitlySelectedCaddieRouteHoles = State(initialValue: [hole.number])
         }
         _heroMapScale = State(initialValue: min(max(snapshotState.mapScale, 1), 4))
+        _garminRaster = State(initialValue: snapshotState.garminRaster)
+        _preciseTopoImageReady = State(initialValue: snapshotState.preciseTopoReady)
+        _currentCoordinate = State(initialValue: snapshotState.currentCoordinate)
         if let targetPixel = snapshotState.targetPixel {
             _targetPixel = State(initialValue: targetPixel)
             _heroTargetDragLocation = State(initialValue: snapshotState.targetDragFocus)
@@ -362,6 +375,11 @@ public struct CurrentHoleView: View {
     @MainActor
     private func applySnapshotState() {
         guard let snapshotState else { return }
+        garminRaster = snapshotState.garminRaster
+        preciseTopoImageReady = snapshotState.preciseTopoReady
+        currentCoordinate = snapshotState.currentCoordinate
+        garminRasterImageFailed = false
+        garminRasterImageRetrying = false
         if snapshotState.selectsFirstHazard, let first = liveHazardDisplayRows.first {
             selectedHazardID = first.id
         }
@@ -461,6 +479,11 @@ public struct CurrentHoleView: View {
             selectedPlanIndex = nil
             selectedHazardID = nil
             preciseMapTimedOut = false
+            garminRaster = nil
+            preciseTopoImageReady = false
+            garminRasterImageFailed = false
+            garminRasterImageRetrying = false
+            garminVersionConflictURL = nil
             pinSheetMessage = nil
             heroMapScale = 1
             heroMapOffset = .zero
@@ -519,6 +542,13 @@ public struct CurrentHoleView: View {
         }
         .onChange(of: holePrep) { previous, next in
             carryOverMapInteraction(from: previous, to: next)
+        }
+        .onChange(of: liveMapDisplayState) { previous, next in
+            carryOverLiveMapViewport(from: previous, to: next)
+        }
+        .task(id: liveTopoURL) {
+            guard liveTopoURL != nil else { return }
+            preciseTopoImageReady = await TopoHoleImageStore.ensureLoaded(liveTopoURL)
         }
         .onChange(of: pinSheetItems) { _, items in
             guard !items.isEmpty else { return }
@@ -993,7 +1023,7 @@ public struct CurrentHoleView: View {
                 .scaleEffect(heroDisplayedMapScale)
                 .offset(heroDisplayedMapOffset(in: geo.size))
 
-                if let holePrep, let overlay = holePrep.resolvedMapOverlay {
+                if let holePrep, let overlay = liveMapOverlay {
                     let liveMap = liveHoleImageMap(holePrep)
                     let legs = liveMap.plannedLegs()
                     let teeArc = liveMap.teeDistanceArcPixels()
@@ -1064,7 +1094,9 @@ public struct CurrentHoleView: View {
             // The hero's real full-screen frame. A modifier after `.ignoresSafeArea()` reports the
             // safe-area layout frame instead (its minY is the status bar), which shifted every
             // measured chrome rect by that inset; inside the reader the frame is the drawn one.
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { liveHeroFrame = $0 }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+                liveHeroFrame = $0
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
@@ -1093,6 +1125,7 @@ public struct CurrentHoleView: View {
                 .padding(.top, LivePlayMapOverlayLayout.liveMapTopInset)
                 .frame(width: size.width, height: size.height)
         }
+        .animation(.easeInOut(duration: 0.25), value: liveMapDisplayState)
     }
 
     /// The floating chrome in hero coordinates: every control (labels avoid all of it), or only
@@ -1114,10 +1147,17 @@ public struct CurrentHoleView: View {
     /// 洞位图 (`LivePlayMapOverlayLayout.lightweightFittedFrame`). The precise topo keeps its
     /// aspect fit. Every projection, the pan clamp and tap hit testing use this one frame.
     private func liveMapFittedFrame(in viewport: CGSize) -> CGRect? {
-        guard let holePrep,
-              holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame,
-              LiveMapDisplayState.resolve(prep: holePrep, pending: isPreciseHoleMapPending) != .waiting,
-              let overlay = holePrep.resolvedMapOverlay else { return nil }
+        guard liveMapDisplayState == .garminRaster,
+              let overlay = liveMapOverlay else { return nil }
+        return liveMapFittedFrame(for: overlay, in: viewport, lightweight: true)
+    }
+
+    private func liveMapFittedFrame(
+        for overlay: CoursePrepOverlay,
+        in viewport: CGSize,
+        lightweight: Bool = true
+    ) -> CGRect? {
+        guard lightweight else { return nil }
         let chrome = liveMapFramingChrome
         let key = LiveMapFitMemo.Key(
             overlayWidth: overlay.w,
@@ -1140,7 +1180,7 @@ public struct CurrentHoleView: View {
             width: heroMapOffset.width + heroMapTransientDragOffset.width,
             height: heroMapOffset.height + heroMapTransientDragOffset.height
         )
-        guard let overlay = holePrep?.resolvedMapOverlay,
+        guard let overlay = liveMapOverlay,
               let frame = LivePlayMapOverlayLayout.mapFrame(
                   overlayWidth: overlay.w,
                   overlayHeight: overlay.h,
@@ -1339,6 +1379,81 @@ public struct CurrentHoleView: View {
 
     // MARK: - Map degradation contract
 
+    private func projection(for state: LiveMapDisplayState) -> CoursePrepHoleImageProjection? {
+        switch state {
+        case .garminRaster:
+            return liveGarminRasterProjection
+        case .precise:
+            return holePrep?.holeImageProjection
+        default:
+            return nil
+        }
+    }
+
+    private func overlay(for state: LiveMapDisplayState) -> CoursePrepOverlay? {
+        guard let prep = holePrep, let source = prep.resolvedMapOverlay else { return nil }
+        guard state == .garminRaster else { return source }
+        guard let destination = liveGarminRasterProjection else { return nil }
+        return GarminRasterProjectionMath.remapOverlay(source, from: prep.holeImageProjection, to: destination)
+    }
+
+    private func carryOverLiveMapViewport(
+        from previous: LiveMapDisplayState,
+        to next: LiveMapDisplayState
+    ) {
+        guard previous == .garminRaster, next == .precise,
+              let sourceProjection = projection(for: previous),
+              let destinationProjection = projection(for: next),
+              let sourceOverlay = overlay(for: previous),
+              let destinationOverlay = overlay(for: next),
+              liveHeroFrame.width > 0,
+              let sourceFrame = liveMapFittedFrame(
+                  for: sourceOverlay,
+                  in: liveHeroFrame.size,
+                  lightweight: true
+              ),
+              let destinationFrame = LivePlayMapOverlayLayout.mapFrame(
+                  overlayWidth: destinationOverlay.w,
+                  overlayHeight: destinationOverlay.h,
+                  in: liveHeroFrame.size,
+                  topInset: LivePlayMapOverlayLayout.liveMapTopInset
+              ) else {
+            return
+        }
+        if let transfer = LiveMapViewportCarryOver.transfer(
+            viewportSize: liveHeroFrame.size,
+            sourceFrame: sourceFrame,
+            destinationFrame: destinationFrame,
+            sourceOverlay: sourceOverlay,
+            destinationOverlay: destinationOverlay,
+            sourceProjection: sourceProjection,
+            destinationProjection: destinationProjection,
+            scale: heroMapScale,
+            offset: heroMapOffset
+        ) {
+            heroMapScale = transfer.scale
+            heroMapOffset = transfer.offset
+        }
+        func transferPoint(_ pixel: CGPoint?, coordinate: CLLocationCoordinate2D?) -> CGPoint? {
+            guard let pixel else { return nil }
+            if let coordinate,
+               let projected = GarminRasterProjectionMath.projectToPixel(
+                   latitude: coordinate.latitude,
+                   longitude: coordinate.longitude,
+                   projection: destinationProjection
+               ) {
+                return projected
+            }
+            return GarminRasterProjectionMath.remap(
+                pixel: pixel,
+                from: sourceProjection,
+                to: destinationProjection
+            )
+        }
+        targetPixel = transferPoint(targetPixel, coordinate: targetCoordinate)
+        greenPinPixel = transferPoint(greenPinPixel, coordinate: greenPinCoordinate)
+    }
+
     /// A background precise map replacing the lightweight one (same hole) keeps the player's
     /// target and flag on the same spot of the hole. A point with a geo coordinate is reprojected
     /// through the new map's anchors; a pixel-only point is moved by route station + lateral offset.
@@ -1439,7 +1554,7 @@ public struct CurrentHoleView: View {
 
     /// Screen point -> topo pixel through the inverse pan/zoom and the aspect-fit frame.
     private func heroOverlayPixel(at location: CGPoint, in viewport: CGSize, clampToMap: Bool) -> CGPoint? {
-        guard let overlay = holePrep?.resolvedMapOverlay else { return nil }
+        guard let overlay = liveMapOverlay else { return nil }
         let scale = max(heroDisplayedMapScale, 0.001)
         let offset = heroDisplayedMapOffset(in: viewport)
         let base = CGPoint(
@@ -1459,7 +1574,7 @@ public struct CurrentHoleView: View {
     }
 
     private func liveCoordinate(forOverlayPixel pixel: CGPoint) -> CLLocationCoordinate2D? {
-        guard let refs = holePrep?.holeImageProjection?.refs,
+        guard let refs = liveMapProjection?.refs,
               let projected = WatchEventBridge.projectFromTopoPx(
                   px: pixel.x,
                   py: pixel.y,
@@ -1470,7 +1585,7 @@ public struct CurrentHoleView: View {
 
     private func liveOverlayPixel(for coordinate: CLLocationCoordinate2D?) -> CGPoint? {
         guard let coordinate,
-              let refs = holePrep?.holeImageProjection?.refs,
+              let refs = liveMapProjection?.refs,
               let projected = WatchEventBridge.projectToTopoPx(
                   lat: coordinate.latitude,
                   lon: coordinate.longitude,
@@ -1488,7 +1603,7 @@ public struct CurrentHoleView: View {
 
     /// Distances start at the Tee anchor (route[0]) until there is a plausible live fix.
     private var liveTargetReferencePixel: CGPoint? {
-        let routeStart = holePrep?.resolvedMapOverlay?.route.first.flatMap { row -> CGPoint? in
+        let routeStart = liveMapOverlay?.route.first.flatMap { row -> CGPoint? in
             row.count >= 2 ? validMapPixel(CGPoint(x: row[0], y: row[1])) : nil
         }
         if !mapReferenceIsLive { return routeStart }
@@ -1496,7 +1611,7 @@ public struct CurrentHoleView: View {
     }
 
     private var liveTargetGeometry: LiveTargetGeometry? {
-        guard let overlay = holePrep?.resolvedMapOverlay,
+        guard let overlay = liveMapOverlay,
               let target = liveTargetOverlayPixel else { return nil }
         let reference = liveTargetReferencePixel
         let pin = effectiveMapPinPixel
@@ -1540,7 +1655,7 @@ public struct CurrentHoleView: View {
     }
 
     private func heroMapClampedOffset(_ proposed: CGSize, scale: CGFloat, viewport: CGSize) -> CGSize {
-        guard let overlay = holePrep?.resolvedMapOverlay,
+        guard let overlay = liveMapOverlay,
               let frame = LivePlayMapOverlayLayout.mapFrame(
                   overlayWidth: overlay.w,
                   overlayHeight: overlay.h,
@@ -1558,22 +1673,77 @@ public struct CurrentHoleView: View {
         )
     }
 
-    /// 球洞俯视图(2D):服务端渲染的真实球场图 + 推荐打法叠加。无图时回退暗色渐变占位。
+    /// 球洞俯视图(2D): precise topo first, then Garmin's raster, then a numeric placeholder.
     @ViewBuilder private var liveMapBackdrop: some View {
-        if let holePrep,
-           LiveMapDisplayState.resolve(prep: holePrep, pending: isPreciseHoleMapPending) != .waiting {
+        if liveMapDisplayState == .garminRaster {
+            if let holePrep {
+                liveHoleImageMap(holePrep)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("live-hole-map-garmin-raster")
+            } else if let liveGarminRasterURL {
+                GarminRasterStandaloneView(
+                    url: liveGarminRasterURL,
+                    onReady: {
+                        garminRasterImageRetrying = false
+                        garminRasterImageFailed = false
+                    },
+                    onFailed: {
+                        garminRasterImageRetrying = false
+                        garminRasterImageFailed = true
+                    },
+                    onRetrying: {
+                        garminRasterImageRetrying = true
+                        garminRasterImageFailed = true
+                    },
+                    onVersionConflict: { retryGarminDescriptorAfterVersionConflict(liveGarminRasterURL) }
+                )
+                .transition(.opacity)
+            } else {
+                LiveMapNumericPlaceholder(
+                    holeNumber: hole.courseHoleNumber,
+                    par: hole.par,
+                    yards: hole.yards,
+                    frontYards: nil,
+                    middleYards: nil,
+                    backYards: nil
+                )
+            }
+        } else if let holePrep, liveMapDisplayState == .precise {
             liveHoleImageMap(holePrep)
                 .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier(
-                        holePrep.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
-                            ? "live-hole-map-partial"
-                            : "live-hole-map-\(holePrep.geometryCoverage.lowercased())"
-                    )
+                .accessibilityIdentifier(
+                    "live-hole-map-precise"
+                )
+                .transition(.opacity)
         } else {
-            // A loading surface is warranted only when there is no route projection to draw yet.
-            // `isPreciseHoleMapPending` must never hide an already usable lightweight map. It is the
-            // same full-screen waiting page as 备战 (地图降级契约): hole · Par · yards.
-            LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber, par: hole.par, yards: hole.yards)
+            ZStack {
+                LiveMapNumericPlaceholder(
+                    holeNumber: hole.courseHoleNumber,
+                    par: hole.par,
+                    yards: hole.yards,
+                    frontYards: holePrep?.greenDistances?.frontM.map { CoursePrepRoute.yards(fromMetres: $0) },
+                    middleYards: holePrep?.greenDistances?.middleM.map { CoursePrepRoute.yards(fromMetres: $0) },
+                    backYards: holePrep?.greenDistances?.backM.map { CoursePrepRoute.yards(fromMetres: $0) }
+                )
+                if garminRasterImageRetrying, let retryURL = liveGarminRasterURL {
+                    GarminRasterStandaloneView(
+                        url: retryURL,
+                        onReady: {
+                            garminRasterImageRetrying = false
+                            garminRasterImageFailed = false
+                        },
+                        onFailed: {
+                            garminRasterImageRetrying = false
+                            garminRasterImageFailed = true
+                        },
+                        onVersionConflict: { retryGarminDescriptorAfterVersionConflict(retryURL) }
+                    )
+                    .opacity(0.001)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+            }
+            .transition(.opacity)
         }
     }
 
@@ -1582,7 +1752,29 @@ public struct CurrentHoleView: View {
     private func liveHoleImageMap(_ holePrep: CoursePrepHole) -> HoleImageMapView {
             HoleImageMapView(hole: holePrep, selectedClub: selectedClub, selectedClubMetres: selectedClubMetres,
                              pinOverlayPixel: effectiveMapPinPixel,
-                             topoURL: liveTopoURL, showsCardChrome: false,
+                             topoURL: liveMapDisplayState == .precise ? liveTopoURL : nil,
+                             garminRasterURL: liveMapDisplayState == .garminRaster ? liveGarminRasterURL : nil,
+                             garminRasterProjection: liveMapDisplayState == .garminRaster ? liveGarminRasterProjection : nil,
+                             onPreciseImageReady: { preciseTopoImageReady = true },
+                             onPreciseImageFailed: { preciseTopoImageReady = false },
+                             onGarminImageReady: {
+                                 garminRasterImageRetrying = false
+                                 garminRasterImageFailed = false
+                             },
+                             onGarminImageFailed: {
+                                 garminRasterImageRetrying = false
+                                 garminRasterImageFailed = true
+                             },
+                             onGarminImageRetrying: {
+                                 garminRasterImageRetrying = true
+                                 garminRasterImageFailed = true
+                             },
+                             onGarminImageVersionConflict: {
+                                 if let url = liveGarminRasterURL {
+                                     retryGarminDescriptorAfterVersionConflict(url)
+                                 }
+                             },
+                             showsCardChrome: false,
                              // CourseView already supplies a factual route and pixel projection.
                              // Draw that lightweight map immediately while precise topo/hazard
                              // assets continue in the background; the selected caddie sequence
@@ -1749,7 +1941,7 @@ public struct CurrentHoleView: View {
         // tee-to-pin arc. This is a transport repair only; club choice still comes from the option.
         let response = caddieDecision ?? makeOfflineCaddieDecision()
         let targetM = effectiveDistanceToPinMetres
-            ?? holePrep?.resolvedMapOverlay?.ln
+            ?? liveMapOverlay?.ln
             ?? holePrep?.routeLenM
             ?? hole.yards.map { CoursePrepRoute.metres(fromYards: Double($0)) }
             ?? 0
@@ -1925,6 +2117,89 @@ public struct CurrentHoleView: View {
         #endif
     }
 
+    /// Garmin raster is the current map authority until the precise CourseView image is available.
+    /// Keep this projection in the same type as `holeImageProjection` so all phone interaction paths
+    /// use the image currently on screen.
+    private var liveGarminRasterProjection: CoursePrepHoleImageProjection? {
+        guard garminRaster?.available == true,
+              let projection = garminRaster?.projection,
+              projection.isUsable else { return nil }
+        return projection.coursePrepProjection
+    }
+
+    private var liveGarminRasterURL: URL? {
+        guard let garminRaster, let caddieBaseURL else { return nil }
+        guard garminRaster.hasDisplayableImage else { return nil }
+        // A non-empty server URL that fails origin validation is unavailable. Never substitute a
+        // guessed endpoint, which could display a different revision under this descriptor.
+        return garminRaster.resolvedImageURL(relativeTo: caddieBaseURL)
+    }
+
+    private var hasPreciseTopoImage: Bool {
+        guard let url = liveTopoURL else { return false }
+        if localTopoURL != nil || preciseTopoImageReady { return true }
+        return TopoHoleImageStore.cachedImage(for: url) != nil
+    }
+
+    private var liveMapDisplayState: LiveMapDisplayState {
+        LiveMapDisplayState.resolveLive(
+            .init(
+                coverage: holePrep?.geometryCoverage,
+                preciseTopoImageReady: hasPreciseTopoImage,
+                garminRaster: garminRaster,
+                garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying,
+                hasCachedPreciseTopo: hasCachedTopoForCurrentHole
+            )
+        )
+    }
+
+    /// The map frame used by every phone overlay and gesture. Garmin's projection remaps the
+    /// retained CourseView overlay through geographic coordinates before layout.
+    private var liveMapProjection: CoursePrepHoleImageProjection? {
+        if liveMapDisplayState == .garminRaster {
+            return liveGarminRasterProjection
+        }
+        return holePrep?.holeImageProjection
+    }
+
+    private var liveMapOverlay: CoursePrepOverlay? {
+        guard let prep = holePrep,
+              let overlay = prep.resolvedMapOverlay else { return nil }
+        guard liveMapDisplayState == .garminRaster else { return overlay }
+        guard let projection = liveGarminRasterProjection else { return nil }
+        return GarminRasterProjectionMath.remapOverlay(
+            overlay,
+            from: prep.holeImageProjection,
+            to: projection
+        )
+    }
+
+    /// A Garmin descriptor can arrive before CourseView prep. Use its own image frame for the GPS
+    /// marker even though there is no factual route/overlay to draw yet.
+    private var liveGarminRasterMarkerOverlay: CoursePrepOverlay? {
+        guard liveMapDisplayState == .garminRaster,
+              holePrep == nil,
+              let projection = liveGarminRasterProjection,
+              let width = projection.widthPx,
+              let height = projection.heightPx else { return nil }
+        return CoursePrepOverlay(w: width, h: height, ppm: 1, ln: 0, route: [])
+    }
+
+    private func liveDisplayPixel(_ row: [Double]) -> [Double]? {
+        guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
+        guard liveMapDisplayState == .garminRaster,
+              let source = holePrep?.holeImageProjection,
+              let destination = liveGarminRasterProjection,
+              let point = GarminRasterProjectionMath.remap(
+                  pixel: CGPoint(x: row[0], y: row[1]),
+                  from: source,
+                  to: destination
+              ) else {
+            return [row[0], row[1]]
+        }
+        return [point.x, point.y]
+    }
+
     /// CourseView's small package is a factual drawing source, but its hazard spans are not a
     /// completeness guarantee.  Keep map/distance play available while prodgeometry downloads,
     /// without presenting that provisional subset as the nearest-hazard or final caddie answer.
@@ -2015,7 +2290,7 @@ public struct CurrentHoleView: View {
     /// The route endpoint is the selected green target used by the shared map render. Projecting it
     /// here keeps the live target ring on that real green instead of at one fixed screen coordinate.
     private func liveGreenTarget(in heroSize: CGSize) -> CGPoint? {
-        guard let overlay = holePrep?.resolvedMapOverlay else { return nil }
+        guard let overlay = liveMapOverlay else { return nil }
         if let movedPin = greenPinPixel,
            movedPin.x.isFinite,
            movedPin.y.isFinite,
@@ -2030,7 +2305,7 @@ public struct CurrentHoleView: View {
             return point
         }
         if let movedPin = greenPinCoordinate,
-           let refs = holePrep?.holeImageProjection?.refs,
+           let refs = liveMapProjection?.refs,
            let projected = WatchEventBridge.projectToTopoPx(
                lat: movedPin.latitude,
                lon: movedPin.longitude,
@@ -2061,15 +2336,16 @@ public struct CurrentHoleView: View {
     /// around the pin. The path is projected and transformed with the hero map, so it remains
     /// correct while the player is inspecting a zoomed/panned hole.
     private func liveGreenHitPath(in heroSize: CGSize) -> Path? {
-        guard let overlay = holePrep?.resolvedMapOverlay,
+        guard let overlay = liveMapOverlay,
               let outline = holePrep?.greenOutline,
               outline.available else { return nil }
         let points = outline.pointsPx.compactMap { row -> CGPoint? in
             guard row.count >= 2,
                   row[0].isFinite,
                   row[1].isFinite,
+                  let point = liveDisplayPixel(row),
                   let projected = LivePlayMapOverlayLayout.project(
-                      overlayPoint: row,
+                      overlayPoint: point,
                       overlayWidth: overlay.w,
                       overlayHeight: overlay.h,
                       into: heroSize,
@@ -2088,7 +2364,7 @@ public struct CurrentHoleView: View {
 
     /// Project any topo-pixel fact through exactly the same aspect-fit transform as the bitmap.
     private func liveMapTarget(_ overlayPoint: [Double], in heroSize: CGSize) -> CGPoint? {
-        guard let overlay = holePrep?.resolvedMapOverlay else { return nil }
+        guard let overlay = liveMapOverlay else { return nil }
         return LivePlayMapOverlayLayout.project(
             overlayPoint: overlayPoint,
             overlayWidth: overlay.w,
@@ -2101,14 +2377,20 @@ public struct CurrentHoleView: View {
 
     private func livePlayerTarget(in heroSize: CGSize) -> CGPoint? {
         let displayCoordinate: CLLocationCoordinate2D? = {
+            if holePrep == nil {
+                return currentCoordinate
+            }
+            if snapshotState != nil, let currentCoordinate {
+                return currentCoordinate
+            }
             if recordedNonPuttShotCount == 0, showsTeeDistanceArc {
                 return teeAnchorCoordinate ?? liveCoordinateForCurrentHole
             }
             return liveCoordinateForCurrentHole
         }()
         guard let currentCoordinate = displayCoordinate,
-              let overlay = holePrep?.resolvedMapOverlay,
-              let refs = holePrep?.holeImageProjection?.refs,
+              let overlay = liveMapOverlay ?? liveGarminRasterMarkerOverlay,
+              let refs = liveMapProjection?.refs,
               refs.count >= 3,
               let point = WatchEventBridge.projectToTopoPx(
                   lat: currentCoordinate.latitude,
@@ -2146,9 +2428,9 @@ public struct CurrentHoleView: View {
     /// One tee authority for the route, map reference, GPS snap and initial detail marker.
     private var teeAnchorCoordinate: CLLocationCoordinate2D? {
         if let prep = holePrep,
-           let first = prep.resolvedMapOverlay?.route.first,
+           let first = liveMapOverlay?.route.first,
            first.count >= 2,
-           let refs = prep.holeImageProjection?.refs,
+           let refs = liveMapProjection?.refs,
            let projected = WatchEventBridge.projectFromTopoPx(
                px: first[0],
                py: first[1],
@@ -2192,7 +2474,7 @@ public struct CurrentHoleView: View {
     /// was then planned from there (a 308 y "tee shot" on a 397 y hole, 2026-10-10). Only the
     /// caddie's planning inputs change; the map, recording and on-screen GPS numbers do not.
     private var isTeeShotOffTheHole: Bool {
-        let route = (holePrep?.resolvedMapOverlay?.route ?? []).compactMap { point -> CLLocationCoordinate2D? in
+        let route = (liveMapOverlay?.route ?? []).compactMap { point -> CLLocationCoordinate2D? in
             guard point.count >= 2 else { return nil }
             return liveCoordinate(forOverlayPixel: CGPoint(x: point[0], y: point[1]))
         }
@@ -2253,9 +2535,9 @@ public struct CurrentHoleView: View {
             return coordinate
         }
         if let prep = holePrep,
-           let last = prep.resolvedMapOverlay?.route.last,
+           let last = liveMapOverlay?.route.last,
            last.count >= 2,
-           let refs = prep.holeImageProjection?.refs,
+           let refs = liveMapProjection?.refs,
            let projected = WatchEventBridge.projectFromTopoPx(
                px: last[0],
                py: last[1],
@@ -2282,7 +2564,7 @@ public struct CurrentHoleView: View {
             return moved
         }
         if let moved = greenPinCoordinate,
-           let refs = holePrep?.holeImageProjection?.refs,
+           let refs = liveMapProjection?.refs,
            let projected = WatchEventBridge.projectToTopoPx(
                lat: moved.latitude,
                lon: moved.longitude,
@@ -2294,7 +2576,7 @@ public struct CurrentHoleView: View {
         if let sheetPin = sheetPinPixel {
             return sheetPin
         }
-        guard let last = holePrep?.resolvedMapOverlay?.route.last,
+        guard let last = liveMapOverlay?.route.last,
               last.count >= 2 else { return nil }
         return validMapPixel(CGPoint(x: last[0], y: last[1]))
     }
@@ -2302,6 +2584,7 @@ public struct CurrentHoleView: View {
     /// 洞位图: today's flag for this physical hole, placed on our green so its 前/后/左/右 reads
     /// back as the sheet. The approach (not the Tee) faces the sheet's "front".
     private var sheetPinPixel: CGPoint? {
+        let displayOutline: [[Double]]
         guard let prep = holePrep,
               let sheetHole = dailyPinSheet?.pin(
                   globalId: hole.sourceGlobalId,
@@ -2310,10 +2593,12 @@ public struct CurrentHoleView: View {
               ),
               let outline = prep.greenOutline,
               outline.available,
-              let overlay = prep.resolvedMapOverlay,
+              let overlay = liveMapOverlay else { return nil }
+        displayOutline = outline.pointsPx.compactMap { liveDisplayPixel($0) }
+        guard !displayOutline.isEmpty,
               let flag = PinSheetPlacement.flagPx(
                   for: sheetHole,
-                  outlinePx: outline.pointsPx,
+                  outlinePx: displayOutline,
                   referencePx: PinSheetPlacement.approachReferencePx(
                       route: overlay.route,
                       pixelsPerMetre: overlay.ppm
@@ -2501,9 +2786,9 @@ public struct CurrentHoleView: View {
     /// affine geo anchors. Prefer a projected coordinate when available, then use the factual route
     /// endpoints as the tee/pin references.
     private var mapReferencePixel: CGPoint? {
-        guard let overlay = holePrep?.resolvedMapOverlay else { return nil }
+        guard let overlay = liveMapOverlay else { return nil }
         if let reference = mapReferenceCoordinate,
-           let refs = holePrep?.holeImageProjection?.refs,
+           let refs = liveMapProjection?.refs,
            let projected = WatchEventBridge.projectToTopoPx(
                lat: reference.latitude,
                lon: reference.longitude,
@@ -2524,7 +2809,7 @@ public struct CurrentHoleView: View {
     private func pixelDistanceMetres(from start: CGPoint?, to end: CGPoint?) -> Double? {
         guard let start,
               let end,
-              let ppm = holePrep?.resolvedMapOverlay?.ppm,
+              let ppm = liveMapOverlay?.ppm,
               ppm.isFinite,
               ppm > 0,
               start.x.isFinite,
@@ -2542,7 +2827,7 @@ public struct CurrentHoleView: View {
         guard let pixel,
               pixel.x.isFinite,
               pixel.y.isFinite,
-              let overlay = holePrep?.resolvedMapOverlay,
+              let overlay = liveMapOverlay,
               pixel.x >= 0,
               pixel.y >= 0,
               pixel.x <= CGFloat(overlay.w),
@@ -2704,11 +2989,15 @@ public struct CurrentHoleView: View {
             // The package already contains the factual route/F-M-B context. Start the refresh in
             // parallel, but let the first caddie response use that context immediately instead of
             // making the player wait for a second prep GET/render request.
-            let mapTask = Task { await loadHoleMap() }
+            async let mapResult = loadHoleMap()
+            async let rasterResult = loadGarminRasterIfNeeded()
             await loadCaddieDecision(syncClub: syncClub)
-            _ = await mapTask.value
+            _ = await mapResult
+            await rasterResult
         } else {
+            async let rasterResult = loadGarminRasterIfNeeded()
             _ = await loadHoleMap()
+            await rasterResult
             guard !Task.isCancelled else { return }
             await loadCaddieDecision(syncClub: syncClub)
         }
@@ -2727,6 +3016,108 @@ public struct CurrentHoleView: View {
         if holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame,
            !hasCachedTopoForCurrentHole {
             await waitForPreciseHoleMap(syncClub: !alreadyRecorded)
+        }
+    }
+
+    private func loadGarminRasterIfNeeded() async {
+        guard snapshotState?.garminRaster == nil else { return }
+        await loadGarminRaster()
+    }
+
+    /// Garmin's image is a short, independent request. A timeout/500 is intentionally converted to
+    /// an unavailable descriptor so the numeric live placeholder stays usable and the precise poll
+    /// continues unaffected.
+    @MainActor
+    private func loadGarminRaster() async {
+        guard let caddieBaseURL,
+              hole.sourceGlobalId != 0,
+              hole.sourceLocalHole > 0 else {
+            garminRaster = GarminRasterResponse(available: false, reason: "unavailable")
+            return
+        }
+        let requestGlobalId = hole.sourceGlobalId
+        let requestLocalHole = hole.sourceLocalHole
+        let requestRoundHole = hole.number
+        let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
+        let revision = holePrep?.geometryRevision ?? hole.geometryRevision
+        if let cached = GarminRasterMetadataCache.cached(
+            globalId: requestGlobalId,
+            localHole: requestLocalHole,
+            revision: revision
+        ), isCurrentRasterRequest(
+            globalId: requestGlobalId,
+            localHole: requestLocalHole,
+            roundHole: requestRoundHole
+        ) {
+            garminRaster = cached
+        }
+        do {
+            let descriptor = try await client.fetchGarminRaster(
+                globalId: requestGlobalId,
+                localHole: requestLocalHole,
+                geometryRevision: revision
+            )
+            guard !Task.isCancelled,
+                  isCurrentRasterRequest(
+                      globalId: requestGlobalId,
+                      localHole: requestLocalHole,
+                      roundHole: requestRoundHole
+                  ) else { return }
+            if let conflictURL = garminVersionConflictURL,
+               descriptor.resolvedImageURL(relativeTo: caddieBaseURL) != conflictURL {
+                garminVersionConflictURL = nil
+            }
+            garminRaster = descriptor
+            GarminRasterMetadataCache.store(
+                descriptor,
+                globalId: requestGlobalId,
+                localHole: requestLocalHole,
+                revision: revision
+            )
+            if let url = descriptor.resolvedImageURL(relativeTo: caddieBaseURL) {
+                GarminRasterImageStore.prefetch(url)
+            }
+            prefetchNextGarminRaster(after: hole.number, using: client)
+        } catch {
+            guard !Task.isCancelled,
+                  isCurrentRasterRequest(
+                      globalId: requestGlobalId,
+                      localHole: requestLocalHole,
+                      roundHole: requestRoundHole
+                  ) else { return }
+            garminRaster = GarminRasterResponse(
+                available: false,
+                mode: "none",
+                reason: "request_failed"
+            )
+        }
+    }
+
+    private func isCurrentRasterRequest(globalId: Int, localHole: Int, roundHole: Int) -> Bool {
+        hole.number == roundHole
+            && hole.sourceGlobalId == globalId
+            && hole.sourceLocalHole == localHole
+    }
+
+    @MainActor
+    private func retryGarminDescriptorAfterVersionConflict(_ url: URL?) {
+        guard let url, garminVersionConflictURL != url else { return }
+        garminVersionConflictURL = url
+        Task { await loadGarminRaster() }
+    }
+
+    private func prefetchNextGarminRaster(after roundHole: Int, using client: SyncClient) {
+        guard let next = package.holes
+            .sorted(by: { $0.number < $1.number })
+            .first(where: { $0.number > roundHole }) else { return }
+        Task { @MainActor in
+            guard let descriptor = try? await client.fetchGarminRaster(
+                globalId: next.sourceGlobalId,
+                localHole: next.sourceLocalHole,
+                geometryRevision: next.geometryRevision
+            ), descriptor.hasDisplayableImage,
+            let url = descriptor.resolvedImageURL(relativeTo: client.baseURL) else { return }
+            GarminRasterImageStore.prefetch(url)
         }
     }
 
@@ -3330,7 +3721,7 @@ public struct CurrentHoleView: View {
             let shots = sequence.steps.enumerated().compactMap { index, step -> MapPlannedShot? in
                 let name = step.clubName.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty, name != "-" else { return nil }
-                let routeEnd = holePrep?.resolvedMapOverlay?.ln
+                let routeEnd = liveMapOverlay?.ln
                     ?? holePrep?.routeLenM
                     ?? effectiveDistanceToPinMetres
                     ?? 0
@@ -3369,7 +3760,7 @@ public struct CurrentHoleView: View {
               selectedShotType.caseInsensitiveCompare("tee") == .orderedSame,
               let response = caddieDecision ?? makeOfflineCaddieDecision(),
               let targetM = effectiveDistanceToPinMetres
-                ?? holePrep?.resolvedMapOverlay?.ln
+                ?? liveMapOverlay?.ln
                 ?? holePrep?.routeLenM
                 ?? hole.yards.map { CoursePrepRoute.metres(fromYards: Double($0)) },
               targetM > 0 else {

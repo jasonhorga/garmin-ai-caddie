@@ -96,6 +96,17 @@ public struct HoleImageMapView: View {
     /// payload 里的 flat 渲染图(`hole.map.image`);加载中会明确标示,不会把 fallback 冒充完成态。
     /// 两者共用同一投影,叠加层像素级对齐。
     public let topoURL: URL?
+    /// Garmin CN's raster fallback while CourseView geometry is pending. Its projection may have a
+    /// different pixel size from `hole.holeImageProjection`; the view remaps every factual point
+    /// through WGS84 before drawing so the bitmap and overlays stay registered.
+    public let garminRasterURL: URL?
+    public let garminRasterProjection: CoursePrepHoleImageProjection?
+    public let onPreciseImageReady: (() -> Void)?
+    public let onPreciseImageFailed: (() -> Void)?
+    public let onGarminImageReady: (() -> Void)?
+    public let onGarminImageFailed: (() -> Void)?
+    public let onGarminImageRetrying: (() -> Void)?
+    public let onGarminImageVersionConflict: (() -> Void)?
     /// Prep/review use a bounded map card. Live play places the same map directly into its hero, so
     /// the shared map must not add a second rounded card boundary around the instrument backdrop.
     public let showsCardChrome: Bool
@@ -140,7 +151,15 @@ public struct HoleImageMapView: View {
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
                 pinOverlayPixel: CGPoint? = nil,
-                topoURL: URL? = nil, showsCardChrome: Bool = true,
+                topoURL: URL? = nil, garminRasterURL: URL? = nil,
+                garminRasterProjection: CoursePrepHoleImageProjection? = nil,
+                onPreciseImageReady: (() -> Void)? = nil,
+                onPreciseImageFailed: (() -> Void)? = nil,
+                onGarminImageReady: (() -> Void)? = nil,
+                onGarminImageFailed: (() -> Void)? = nil,
+                onGarminImageRetrying: (() -> Void)? = nil,
+                onGarminImageVersionConflict: (() -> Void)? = nil,
+                showsCardChrome: Bool = true,
                 showsFactualRoute: Bool = true, showsRecommendedRoute: Bool = true,
                 showsHazards: Bool = false,
                 showsPrepFactOverlays: Bool = false, allowsRotation: Bool = false,
@@ -153,6 +172,14 @@ public struct HoleImageMapView: View {
         self.selectedClubMetres = selectedClubMetres
         self.pinOverlayPixel = pinOverlayPixel
         self.topoURL = topoURL
+        self.garminRasterURL = garminRasterURL
+        self.garminRasterProjection = garminRasterProjection
+        self.onPreciseImageReady = onPreciseImageReady
+        self.onPreciseImageFailed = onPreciseImageFailed
+        self.onGarminImageReady = onGarminImageReady
+        self.onGarminImageFailed = onGarminImageFailed
+        self.onGarminImageRetrying = onGarminImageRetrying
+        self.onGarminImageVersionConflict = onGarminImageVersionConflict
         self.showsCardChrome = showsCardChrome
         self.showsFactualRoute = showsFactualRoute
         self.showsRecommendedRoute = showsRecommendedRoute
@@ -171,12 +198,22 @@ public struct HoleImageMapView: View {
 
     public var body: some View {
         #if canImport(UIKit)
-        if let overlay = hole.resolvedMapOverlay, overlay.w > 0, overlay.h > 0 {
+        if let overlay = displayOverlay, overlay.w > 0, overlay.h > 0 {
             let map = ZStack {
                 // A partial CourseView package already has factual vectors but no prodgeometry
                 // bitmap. Do not issue a guaranteed 404 and pin AsyncImage in its failure state;
                 // the URL appears only when the same hole later upgrades to precise geometry.
-                TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)
+                TopoHoleBaseImage(
+                    topoURL: preciseTopoURL,
+                    garminRasterURL: garminRasterURL,
+                    fallback: decodedImage,
+                    onTopoImageReady: onPreciseImageReady,
+                    onTopoImageFailed: onPreciseImageFailed,
+                    onGarminImageReady: onGarminImageReady,
+                    onGarminImageFailed: onGarminImageFailed,
+                    onGarminImageRetrying: onGarminImageRetrying,
+                    onGarminImageVersionConflict: onGarminImageVersionConflict
+                )
                     .continuingTerrain(baseEdgeExtension, feather: baseEdgeFeather)
                 Canvas { context, size in
                     draw(&context, size: size, overlay: overlay)
@@ -206,7 +243,7 @@ public struct HoleImageMapView: View {
     }
 
     public var hasMap: Bool {
-        hole.resolvedMapOverlay != nil
+        displayOverlay != nil
     }
 
     #if canImport(UIKit)
@@ -224,6 +261,58 @@ public struct HoleImageMapView: View {
         // A locally installed raster is authoritative even while the lightweight JSON row still
         // says `partial`; only callers that have no local asset pass a remote URL for a ready row.
         topoURL
+    }
+
+    /// Overlay in the currently displayed bitmap's pixel frame. Garmin's image is intentionally
+    /// independent from CourseView's rendered frame, so a geographic remap is required here.
+    private var displayOverlay: CoursePrepOverlay? {
+        guard let overlay = hole.resolvedMapOverlay else {
+            guard preciseTopoURL == nil, garminRasterURL != nil else { return nil }
+            let projection = garminRasterProjection
+            return CoursePrepOverlay(
+                w: projection?.widthPx ?? 1242,
+                h: projection?.heightPx ?? 1920,
+                ppm: 1,
+                ln: 0,
+                route: []
+            )
+        }
+        guard preciseTopoURL == nil else { return overlay }
+        guard garminRasterURL != nil else { return overlay }
+        guard let projection = garminRasterProjection, projection.isUsable else {
+            // An unregistered Garmin image is still useful as a visual background, but no
+            // CourseView pixels may be drawn over it because their frames are unrelated.
+            return CoursePrepOverlay(w: 1242, h: 1920, ppm: 1, ln: 0, route: [])
+        }
+        return GarminRasterProjectionMath.remapOverlay(
+            overlay,
+            from: hole.holeImageProjection,
+            to: projection
+        ) ?? CoursePrepOverlay(w: 1242, h: 1920, ppm: 1, ln: 0, route: [])
+    }
+
+    private var displayProjection: CoursePrepHoleImageProjection? {
+        if preciseTopoURL == nil, let garminRasterProjection, garminRasterProjection.isUsable {
+            return garminRasterProjection
+        }
+        return hole.holeImageProjection
+    }
+
+    private func displayPixel(_ row: [Double]) -> [Double]? {
+        guard row.count >= 2,
+              row[0].isFinite,
+              row[1].isFinite else { return nil }
+        guard preciseTopoURL == nil,
+              let source = hole.holeImageProjection,
+              let destination = garminRasterProjection else {
+            return [row[0], row[1]]
+        }
+        guard let remapped = GarminRasterProjectionMath.remap(
+            pixel: CGPoint(x: row[0], y: row[1]),
+            from: source,
+            to: destination
+        ) else { return nil }
+        return [remapped.x, remapped.y]
     }
     #endif
 
@@ -250,7 +339,8 @@ public struct HoleImageMapView: View {
         }().flatMap { Self.safeLandingMetres($0, for: hole) }
         let landingRow = Self.landingOverlayPoint(overlay, targetMetres: landingTargetMetres)
         let landing = landingRow.map { CGPoint(x: $0[0] * sx, y: $0[1] * sy) }
-        if hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame {
+        if hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame,
+           garminRasterURL == nil {
             drawLightweightFacts(
                 &context,
                 routePoints: routePoints,
@@ -456,8 +546,8 @@ public struct HoleImageMapView: View {
         pin: CGPoint?,
         shots: [(shot: MapPlannedShot, point: CGPoint)]
     ) -> [MapPlannedLeg] {
-        let routeEndMetres = hole.resolvedMapOverlay?.route.last.flatMap { $0.count >= 3 ? $0[2] : nil }
-            ?? hole.resolvedMapOverlay?.ln
+        let routeEndMetres = displayOverlay?.route.last.flatMap { $0.count >= 3 ? $0[2] : nil }
+            ?? displayOverlay?.ln
             ?? hole.routeLenM
         var origin = tee
         var legs: [MapPlannedLeg] = []
@@ -487,7 +577,7 @@ public struct HoleImageMapView: View {
     /// The tee-distance reference arc in topo pixels, for the live viewport layer that lays out its
     /// "N码" label together with the leg labels.
     func teeDistanceArcPixels() -> MapFlightArc? {
-        guard let overlay = hole.resolvedMapOverlay,
+        guard let overlay = displayOverlay,
               let teeDistanceArcYards,
               teeDistanceArcYards > 0 else { return nil }
         return Self.teeDistanceArc(
@@ -500,7 +590,7 @@ public struct HoleImageMapView: View {
     /// The planned route in topo pixels (the overlay's own frame), exactly as the bitmap would draw
     /// it. Empty when the map has no projectable route or recommendation.
     func plannedLegs() -> [MapPlannedLeg] {
-        guard let overlay = hole.resolvedMapOverlay, overlay.w > 0, overlay.h > 0 else { return [] }
+        guard let overlay = displayOverlay, overlay.w > 0, overlay.h > 0 else { return [] }
         let routePoints: [CGPoint] = overlay.route.compactMap { row in
             guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
             return CGPoint(x: row[0], y: row[1])
@@ -652,8 +742,8 @@ public struct HoleImageMapView: View {
 
     private var prepHazardAnnotations: [PrepHazardAnnotation] {
         guard hole.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else { return [] }
-        let route = hole.resolvedMapOverlay?.route
-        let routeLengthM = hole.resolvedMapOverlay?.ln ?? hole.routeLenM
+        let route = displayOverlay?.route
+        let routeLengthM = displayOverlay?.ln ?? hole.routeLenM
         return hole.hazards.details
             .filter {
                 ($0.kind == "bunker" || $0.kind == "water")
@@ -701,21 +791,31 @@ public struct HoleImageMapView: View {
         if let green = hole.greenDistances,
            let latitude = green.middleLat,
            let longitude = green.middleLon,
-           let projection = hole.holeImageProjection,
+           let projection = displayProjection,
            projection.available,
            let refs = projection.refs,
            let px = WatchEventBridge.projectToTopoPx(
                 lat: latitude,
                 lon: longitude,
                 refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
-           ), let projected = mapPoint(px, in: size, overlay: overlay) {
+           ), let projected = mapDisplayPoint(px, in: size, overlay: overlay) {
             return projected
         }
         guard let routeEnd = overlay.route.last else { return nil }
-        return mapPoint(routeEnd, in: size, overlay: overlay)
+        return mapDisplayPoint(routeEnd, in: size, overlay: overlay)
     }
 
     private func mapPoint(_ row: [Double], in size: CGSize, overlay: CoursePrepOverlay) -> CGPoint? {
+        guard let point = displayPixel(row),
+              overlay.w > 0,
+              overlay.h > 0 else { return nil }
+        return CGPoint(
+            x: CGFloat(point[0]) / CGFloat(overlay.w) * size.width,
+            y: CGFloat(point[1]) / CGFloat(overlay.h) * size.height
+        )
+    }
+
+    private func mapDisplayPoint(_ row: [Double], in size: CGSize, overlay: CoursePrepOverlay) -> CGPoint? {
         guard row.count >= 2,
               row[0].isFinite,
               row[1].isFinite,
@@ -752,15 +852,17 @@ public struct HoleImageMapView: View {
                 kind: detail.kind,
                 frontRouteM: detail.frontRouteM,
                 backRouteM: detail.backRouteM,
-                routeLengthM: hole.resolvedMapOverlay?.ln ?? hole.routeLenM,
+                routeLengthM: displayOverlay?.ln ?? hole.routeLenM,
                 hasPreciseOutline: detail.outlinePx.count >= 3
             )
             && detail.frontPx.count >= 2
             && detail.backPx.count >= 2
             && detail.frontPx.prefix(2).allSatisfy(\.isFinite)
             && detail.backPx.prefix(2).allSatisfy(\.isFinite) {
-            let front = CGPoint(x: detail.frontPx[0] * sx, y: detail.frontPx[1] * sy)
-            let back = CGPoint(x: detail.backPx[0] * sx, y: detail.backPx[1] * sy)
+            guard let frontPx = displayPixel(detail.frontPx),
+                  let backPx = displayPixel(detail.backPx) else { continue }
+            let front = CGPoint(x: frontPx[0] * sx, y: frontPx[1] * sy)
+            let back = CGPoint(x: backPx[0] * sx, y: backPx[1] * sy)
             var span = Path()
             span.move(to: front)
             span.addLine(to: back)
@@ -780,9 +882,9 @@ public struct HoleImageMapView: View {
             ? (hole.greenOutline?.pointsPx ?? [])
             : []
         let greenPoints: [CGPoint] = greenRows.compactMap { row in
-                guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
-                return CGPoint(x: row[0] * sx, y: row[1] * sy)
-            }
+            guard let point = displayPixel(row) else { return nil }
+            return CGPoint(x: point[0] * sx, y: point[1] * sy)
+        }
         if greenPoints.count >= 3 {
             var green = Path()
             green.move(to: greenPoints[0])

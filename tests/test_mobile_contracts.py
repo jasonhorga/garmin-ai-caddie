@@ -2548,7 +2548,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
         self.assertIn('public static let topoStyleVersion = "topo-v11"', sync_client)
         self.assertIn('URLQueryItem(name: "v", value: topoStyleVersion)', sync_client)
-        self.assertIn("TopoHoleBaseImage(topoURL: preciseTopoURL, fallback: decodedImage)", hole_map_view)
+        self.assertIn("TopoHoleBaseImage(", hole_map_view)
+        self.assertIn("garminRasterURL: garminRasterURL", hole_map_view)
         # 备战 fitted maps continue the base bitmap's terrain from its own edge pixels (never a
         # flat ground or a second copy of the map): the base layer is wired to the continuation,
         # which only the prep hero turns on, and only while its fitted map does not cover the screen.
@@ -2578,17 +2579,21 @@ class MobileContractTests(unittest.TestCase):
         # B3 review map is full screen on the dark hole base, not a rounded card surface.
         self.assertNotIn(".mapSurface()", shot_map_view)
         self.assertIn("RoundHoleMapStyle.base.ignoresSafeArea()", shot_map_view)
-        self.assertIn("topoURL: liveTopoURL", current_hole)
+        self.assertIn("topoURL: liveMapDisplayState == .precise ? liveTopoURL : nil", current_hole)
+        self.assertIn("garminRasterURL: liveMapDisplayState == .garminRaster", current_hole)
         self.assertIn("baseURL: caddieBaseURL", current_hole)
         self.assertIn("geometryRevision: geometryRevision", current_hole)
-        self.assertIn('"live-hole-map-partial"', current_hole)
-        # CourseView's lightweight route is immediately drawable. Precise topo/hazard work may
-        # continue in the background, but that pending state must not blank an available route.
+        self.assertIn('"live-hole-map-garmin-raster"', current_hole)
+        self.assertIn('"live-hole-map-precise"', current_hole)
+        self.assertIn('"live-map-numeric-placeholder"', live_hole_components)
+        # Precise topo wins, Garmin raster is the short-lived visual fallback, and numeric facts
+        # remain visible when both image paths fail.
         self.assertIn("HoleImageMapView(hole: holePrep", current_hole)
         self.assertIn(
-            "LiveMapDisplayState.resolve(prep: holePrep, pending: isPreciseHoleMapPending) != .waiting",
+            "liveMapDisplayState == .precise",
             current_hole,
         )
+        self.assertIn("if liveMapDisplayState == .garminRaster", current_hole)
         self.assertNotIn(
             "holePrep.resolvedMapOverlay != nil, !isPreciseHoleMapPending",
             current_hole,
@@ -2631,13 +2636,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('return (played < carry * pitchFraction ? "切杆" : club, yards(played))', live_chrome)
         self.assertIn("lineWidth: 3, lineCap: .round", live_chrome)
         self.assertIn("obstacles.append(flagRect(foot: pinLeg.destination, scale: flagScale))", live_chrome)
-        # README 地图降级契约: live play and 备战 share the one full-screen waiting page (hole · Par · yards).
-        self.assertIn(
-            "LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber, par: hole.par, yards: hole.yards)",
-            current_hole,
-        )
+        # Card 454: live play never enters the full-screen waiting page or draws the coarse
+        # lightweight illustration; its fallback is the compact numeric placeholder.
+        self.assertNotIn("LiveMapPreparingSurface(", current_hole)
+        self.assertNotIn("HoleMapWaitingPage(", current_hole)
+        self.assertIn("LiveMapNumericPlaceholder(", current_hole)
         self.assertIn("preciseMapTimedOut", current_hole)
-        self.assertIn('accessibilityIdentifier("live-map-preparing-surface")', live_hole_components)
+        self.assertIn('accessibilityIdentifier("live-map-numeric-placeholder")', live_hole_components)
         self.assertIn("struct HoleMapWaitingPage: View", live_hole_components)
         self.assertIn("HoleMapWaitingPage(holeNumber: holeNumber, par: par, yards: yards)", live_hole_components)
         self.assertIn("HoleMapWaitingPage(", course_review)
@@ -3138,7 +3143,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("PrepHoleRows.build(", course_review)
         self.assertIn("LiveMapDisplayState.resolvePrep(", prep_presentation)
         self.assertIn("static func resolvePrep(", live_components)
-        self.assertIn("var fadesInHoleStrip: Bool { self != .precise }", live_components)
+        self.assertIn("var fadesInHoleStrip: Bool", live_components)
+        self.assertIn("case garminRaster", live_components)
+        self.assertIn("case numericPlaceholder", live_components)
         self.assertIn(".opacity(row.state.fadesInHoleStrip && !isCurrent ? 0.35 : 1)", course_review)
         self.assertIn('accessibilityIdentifier("prep-hole-strip-\\(row.number)")', course_review)
         self.assertIn('accessibilityIdentifier("prep-map-waiting-\\(row?.number ?? 1)")', course_review)

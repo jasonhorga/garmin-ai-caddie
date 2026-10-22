@@ -66,6 +66,11 @@ final class TopoHoleImageStore: ObservableObject {
         Task { _ = await image(for: url) }
     }
 
+    static func ensureLoaded(_ url: URL?) async -> Bool {
+        guard let url else { return false }
+        return await image(for: url) != nil
+    }
+
     private static func image(for url: URL) async -> UIImage? {
         let key = url as NSURL
         if let cached = imageCache.object(forKey: key) { return cached }
@@ -164,7 +169,16 @@ struct TopoHoleBaseImage: View {
     static let groundColor = Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255)
 
     let topoURL: URL?
+    /// Garmin's fixed 1242×1920 fallback. It is selected only while `topoURL` is unavailable;
+    /// once precise geometry arrives the topo remains authoritative.
+    let garminRasterURL: URL?
     let fallback: UIImage?
+    let onTopoImageReady: (() -> Void)?
+    let onTopoImageFailed: (() -> Void)?
+    let onGarminImageReady: (() -> Void)?
+    let onGarminImageFailed: (() -> Void)?
+    let onGarminImageRetrying: (() -> Void)?
+    let onGarminImageVersionConflict: (() -> Void)?
     /// 备战 only: how far (fractions of this layer's own width / height) the surround reaches past
     /// each edge: one calm fill of the bitmap's own dominant edge colour (`TopoEdgeExtension`), so a
     /// fitted map that does not cover the screen never reads as a rectangle on a foreign ground.
@@ -173,6 +187,29 @@ struct TopoHoleBaseImage: View {
     /// With an extension, the sharp bitmap's edges fade over this many points into its surround.
     var edgeFeather: CGFloat = 0
     @StateObject private var imageStore = TopoHoleImageStore()
+    @StateObject private var garminRasterStore = GarminRasterImageStore()
+
+    init(
+        topoURL: URL?,
+        garminRasterURL: URL? = nil,
+        fallback: UIImage?,
+        onTopoImageReady: (() -> Void)? = nil,
+        onTopoImageFailed: (() -> Void)? = nil,
+        onGarminImageReady: (() -> Void)? = nil,
+        onGarminImageFailed: (() -> Void)? = nil,
+        onGarminImageRetrying: (() -> Void)? = nil,
+        onGarminImageVersionConflict: (() -> Void)? = nil
+    ) {
+        self.topoURL = topoURL
+        self.garminRasterURL = garminRasterURL
+        self.fallback = fallback
+        self.onTopoImageReady = onTopoImageReady
+        self.onTopoImageFailed = onTopoImageFailed
+        self.onGarminImageReady = onGarminImageReady
+        self.onGarminImageFailed = onGarminImageFailed
+        self.onGarminImageRetrying = onGarminImageRetrying
+        self.onGarminImageVersionConflict = onGarminImageVersionConflict
+    }
 
     /// This layer with its terrain continued past its frame (`edgeExtension`, `edgeFeather`).
     func continuingTerrain(_ extension: EdgeInsets, feather: CGFloat) -> TopoHoleBaseImage {
@@ -192,12 +229,42 @@ struct TopoHoleBaseImage: View {
                 } else {
                     loadingImage
                 }
+            } else if let garminRasterURL {
+                if let image = garminRasterStore.image ?? GarminRasterImageStore.cachedImage(for: garminRasterURL) {
+                    extended(image) { readyGarminImage(Image(uiImage: image)) }
+                } else if garminRasterStore.failedURL == garminRasterURL {
+                    Self.groundColor
+                } else {
+                    loadingGarminImage
+                }
             } else {
                 fallbackImage
             }
         }
         .task(id: topoURL) {
             await imageStore.load(topoURL)
+            guard let topoURL else { return }
+            if imageStore.image != nil || TopoHoleImageStore.cachedImage(for: topoURL) != nil {
+                onTopoImageReady?()
+            } else if imageStore.failedURL == topoURL {
+                onTopoImageFailed?()
+            }
+        }
+        .task(id: garminRasterURL) {
+            await garminRasterStore.load(garminRasterURL)
+            guard let garminRasterURL else { return }
+            if garminRasterStore.image != nil || GarminRasterImageStore.cachedImage(for: garminRasterURL) != nil {
+                onGarminImageReady?()
+            } else if garminRasterStore.failedURL == garminRasterURL {
+                if garminRasterStore.versionConflictURL == garminRasterURL {
+                    onGarminImageVersionConflict?()
+                } else {
+                    onGarminImageFailed?()
+                }
+            }
+        }
+        .onChange(of: garminRasterStore.isRetrying) { _, retrying in
+            if retrying { onGarminImageRetrying?() }
         }
     }
 
@@ -209,6 +276,13 @@ struct TopoHoleBaseImage: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("球场地图")
             .accessibilityIdentifier("topo-hole-base-ready")
+    }
+
+    private func readyGarminImage(_ image: Image) -> some View {
+        image.resizable().scaledToFit()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Garmin 球道图")
+            .accessibilityIdentifier("garmin-raster-ready")
     }
 
     private var loadingImage: some View {
@@ -224,6 +298,18 @@ struct TopoHoleBaseImage: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("topo-hole-base-loading")
+    }
+
+    private var loadingGarminImage: some View {
+        ZStack(alignment: .topTrailing) {
+            Self.groundColor
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white)
+                .padding(8)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("garmin-raster-loading")
     }
 
     @ViewBuilder private var fallbackImage: some View {
@@ -271,6 +357,33 @@ struct TopoHoleBaseImage: View {
         }
     }
 }
+
+#if canImport(UIKit)
+/// Garmin can be shown before CourseView returns a hole package. With no projection there is no
+/// legal place for GPS/target overlays, so this view deliberately contains only the fixed raster.
+struct GarminRasterStandaloneView: View {
+    let url: URL
+    let onReady: (() -> Void)?
+    let onFailed: (() -> Void)?
+    var onRetrying: (() -> Void)? = nil
+    let onVersionConflict: (() -> Void)?
+
+    var body: some View {
+        TopoHoleBaseImage(
+            topoURL: nil,
+            garminRasterURL: url,
+            fallback: nil,
+            onGarminImageReady: onReady,
+            onGarminImageFailed: onFailed,
+            onGarminImageRetrying: onRetrying,
+            onGarminImageVersionConflict: onVersionConflict
+        )
+        .aspectRatio(1242.0 / 1920.0, contentMode: .fit)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("live-hole-map-garmin-raster")
+    }
+}
+#endif
 
 /// The surround of a fitted map that does not cover the screen: the dominant colour of the bitmap's
 /// own opaque edge (a per-channel median of its outer ring). One calm fill, never the edge pixels

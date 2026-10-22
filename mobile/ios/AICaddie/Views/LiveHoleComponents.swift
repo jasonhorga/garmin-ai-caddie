@@ -1740,7 +1740,13 @@ enum LivePlayMapOverlayLayout {
 
         func bounds(minimum: CGFloat, maximum: CGFloat, viewport: CGFloat) -> (CGFloat, CGFloat) {
             let span = maximum - minimum
-            guard span > viewport else { return (0, 0) }
+            // A fitted map can be letterboxed on one axis. Preserve a deliberate transferred
+            // offset on that axis so a Garmin → precise replacement keeps the geographic centre;
+            // there is no uncovered-map edge to clamp against while the span is smaller than the
+            // viewport. Axes that cover the viewport retain the normal pan bounds below.
+            guard span > viewport else {
+                return (-CGFloat.greatestFiniteMagnitude, CGFloat.greatestFiniteMagnitude)
+            }
             // After translation, the transformed bounds must cover [0, viewport].
             return (viewport - maximum, -minimum)
         }
@@ -1830,6 +1836,44 @@ enum LivePlayMapOverlayLayout {
 
     /// Room kept between the framed plan and the chrome above and below it.
     static let chromeGap: CGFloat = 8
+}
+
+/// Shared Garmin → precise transfer, including the same display-time offset clamp used by the
+/// hero. CurrentHoleView and native acceptance tests call this one path so viewport evidence covers
+/// the value actually rendered on screen.
+enum LiveMapViewportCarryOver {
+    static func transfer(
+        viewportSize: CGSize,
+        sourceFrame: CGRect,
+        destinationFrame: CGRect,
+        sourceOverlay: CoursePrepOverlay,
+        destinationOverlay: CoursePrepOverlay,
+        sourceProjection: CoursePrepHoleImageProjection,
+        destinationProjection: CoursePrepHoleImageProjection,
+        scale: CGFloat,
+        offset: CGSize
+    ) -> (scale: CGFloat, offset: CGSize)? {
+        guard let transfer = GarminRasterViewportTransfer.transfer(
+            viewportSize: viewportSize,
+            sourceFrame: sourceFrame,
+            destinationFrame: destinationFrame,
+            sourceOverlay: sourceOverlay,
+            destinationOverlay: destinationOverlay,
+            sourceProjection: sourceProjection,
+            destinationProjection: destinationProjection,
+            scale: scale,
+            offset: offset
+        ) else { return nil }
+        return (
+            transfer.scale,
+            LivePlayMapOverlayLayout.clampedOffset(
+                transfer.offset,
+                mapFrame: destinationFrame,
+                viewportSize: viewportSize,
+                scale: transfer.scale
+            )
+        )
+    }
 }
 
 /// One floating live-play control's frame in global coordinates. Every control keeps the route
@@ -2213,7 +2257,11 @@ enum LiveMapDisplayState: Equatable {
     case factualPending
     /// Partial facts with nothing better coming (offline, timed out, or no service).
     case factual
+    /// Garmin's raster fallback is visible while the precise CourseView image is pending.
+    case garminRaster
     case precise
+    /// Numeric hole facts remain available when neither raster is usable.
+    case numericPlaceholder
 
     static func isPrecisePending(
         geometryCoverage: String?,
@@ -2231,6 +2279,31 @@ enum LiveMapDisplayState: Equatable {
             return pending ? .factualPending : .factual
         }
         return .precise
+    }
+
+    /// All inputs that can change the live fallback state. Keeping this pure makes the actual hole
+    /// screen and the acceptance tests exercise the same JPEG-failure and descriptor branches.
+    struct LiveInputs: Equatable {
+        let coverage: String?
+        let preciseTopoImageReady: Bool
+        let garminRaster: GarminRasterResponse?
+        let garminImageFailed: Bool
+        let hasCachedPreciseTopo: Bool
+
+        var preciseGeometryReady: Bool {
+            coverage?.caseInsensitiveCompare("ready") == .orderedSame || hasCachedPreciseTopo
+        }
+    }
+
+    /// Phone live-play display priority: precise CourseView raster > Garmin raster image > numeric
+    /// placeholder. A Garmin descriptor with `available=false` can still provide a visual image,
+    /// but its projection is intentionally absent and the caller draws no geo overlays.
+    static func resolveLive(_ inputs: LiveInputs) -> LiveMapDisplayState {
+        if inputs.preciseTopoImageReady && inputs.preciseGeometryReady { return .precise }
+        if !inputs.garminImageFailed, inputs.garminRaster?.hasDisplayableImage == true {
+            return .garminRaster
+        }
+        return .numericPlaceholder
     }
 
     /// 备战 applies the same contract to the installed course. Precise means precise facts AND the
@@ -2253,5 +2326,54 @@ enum LiveMapDisplayState: Equatable {
     }
 
     /// 洞条: a hole whose precise map is not ready is only faded; tapping it still opens it.
-    var fadesInHoleStrip: Bool { self != .precise }
+    var fadesInHoleStrip: Bool { self == .numericPlaceholder || self == .waiting || self == .factualPending || self == .factual }
+}
+
+/// Compact live-hole fallback. It keeps the same numeric facts visible while both raster paths are
+/// unavailable; the copy describes the active download without exposing an implementation state.
+struct LiveMapNumericPlaceholder: View {
+    let holeNumber: Int
+    let par: Int?
+    let yards: Int?
+    let frontYards: Int?
+    let middleYards: Int?
+    let backYards: Int?
+
+    var body: some View {
+        ZStack {
+            LivePlayStyle.base
+            VStack(spacing: 12) {
+                HStack(spacing: 12) {
+                    metric("洞", value: "\(holeNumber)")
+                    metric("Par", value: par.map(String.init) ?? "—")
+                    metric("码数", value: yards.map(String.init) ?? "—")
+                }
+                HStack(spacing: 18) {
+                    metric("前", value: frontYards.map(String.init) ?? "—")
+                    metric("中", value: middleYards.map(String.init) ?? "—")
+                    metric("后", value: backYards.map(String.init) ?? "—")
+                }
+                Text("正在下载")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.ink60)
+            }
+            .padding(20)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("第 \(holeNumber) 洞，正在下载")
+        .accessibilityIdentifier("live-map-numeric-placeholder")
+    }
+
+    private func metric(_ title: String, value: String) -> some View {
+        VStack(spacing: 3) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(LivePlayStyle.ink60)
+            Text(value)
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(LivePlayStyle.ink)
+        }
+        .frame(minWidth: 54)
+    }
 }
