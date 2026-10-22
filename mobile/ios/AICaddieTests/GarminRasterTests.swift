@@ -48,7 +48,7 @@ final class GarminRasterTests: XCTestCase {
     }
 
     private func prep(coverage: String = "partial") throws -> CoursePrepHole {
-        let json = #"{"hole":1,"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":300,"route":[[120,330],[120,30]],"geometryCoverage":"#(coverage)","geometryRevision":"r1","steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},"map":{"overlay":{"w":240,"h":360,"ppm":1,"ln":300,"route":[[120,330,0],[120,30,300]]}},"holeImageProjection":{"available":true,"widthPx":240,"heightPx":360,"refs":[{"lat":40.0,"lon":116.0,"px":120,"py":330},{"lat":40.0,"lon":116.001,"px":120,"py":30},{"lat":40.001,"lon":116.0,"px":240,"py":330}]}}"#
+        let json = #"{"hole":1,"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":300,"route":[[120,330],[120,30]],"geometryCoverage":"\#(coverage)","geometryRevision":"r1","steps":[],"cautions":[],"hazards":{"water_carry":[],"bunkers":[]},"map":{"overlay":{"w":240,"h":360,"ppm":1,"ln":300,"route":[[120,330,0],[120,30,300]]}},"holeImageProjection":{"available":true,"widthPx":240,"heightPx":360,"refs":[{"lat":40.0,"lon":116.0,"px":120,"py":330},{"lat":40.0,"lon":116.001,"px":120,"py":30},{"lat":40.001,"lon":116.0,"px":240,"py":330}]}}"#
         return try JSONDecoder().decode(CoursePrepHole.self, from: Data(json.utf8))
     }
 
