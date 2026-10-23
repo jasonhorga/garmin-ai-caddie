@@ -5,13 +5,15 @@
 and the small synthetic `native_product.json` into AICaddieUITests. No golden is duplicated.
 SwiftPM host tests use a repository-relative path anchored at `#filePath`.
 
-The UI class owns an isolated loopback HTTP server bound to port zero (`.any`). It passes the assigned
-origin and `UITEST_FIXTURE_PORT` to every app launch. DEBUG accepts that exact port only with explicit
-UI-test mode and fixture markers; ordinary fixture configuration retains port 9000. The Python CI
-fixture may keep port 9000. Run this class serially because the tests share the simulator app's state.
-The listener is Sendable, request state is queue-confined, and startup errors cross queues under a lock.
-Port binding/startup failures fail setup. All launches use synthetic credentials. The one-hole input
-template expands into nine physical holes and contains no expected test result.
+UI 测试自带 9000 假后端，运行时不要再起 Python fixture。
+
+The UI class shares one lazily initialized loopback HTTP server for the test process. Its listener
+binds port 9000 with `allowLocalEndpointReuse = true`; each test resets only input state and request
+records, without rebinding or stopping the listener. Run this class serially because its tests share
+the simulator app and backend state. The listener is Sendable, request state is queue-confined, and
+startup errors cross queues under a lock. Port binding/startup failures fail setup. All launches use
+fixture markers and synthetic credentials. The one-hole input template expands into nine physical
+holes and contains no expected test result. Product fixture-origin validation remains at its baseline.
 
 After XcodeGen, select available iOS destinations and run:
 
@@ -47,9 +49,7 @@ rows/sequences, not XCTest assertion counts. J2.2 checks invariants for the obse
 states, without prescribing a legality matrix. Its missing range control gates the four-range checks;
 each selected range has the same three available synthetic rounds, and the server records the app's
 requested window and served sample IDs. Grain changes must preserve both the range and that sample.
-The additional `test_product_fixture_port_requires_explicit_ui_mode_and_matching_origin` has seven
-configuration rows covering opt-in, port matching, invalid ports, loopback scope and the ordinary fixture.
-There are 26 promise primaries, seven companion tests and this one fixture configuration test (34 total).
+There are 26 promise primaries and seven companion tests (33 total).
 
 | Promise | Primary class / method | Rows | Complement |
 |---|---|---|---|

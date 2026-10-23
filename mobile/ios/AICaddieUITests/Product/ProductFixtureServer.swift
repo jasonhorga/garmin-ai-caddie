@@ -2,9 +2,12 @@ import Foundation
 import Network
 import XCTest
 
-/// An isolated synthetic HTTP backend on an OS-assigned port, owned by this UI test process.
+/// One synthetic HTTP backend on port 9000, shared for the lifetime of this UI test process.
 /// Mutable request state stays on `queue`; startup failure crosses queues under `startupLock`.
 final class ProductFixtureServer: @unchecked Sendable {
+    // Static initialization is lazy and runs once, including a cached startup failure.
+    static let shared: Result<ProductFixtureServer, Error> = Result { try ProductFixtureServer() }
+
     struct State {
         var roundCount = 3
         var reviewHoles = 18
@@ -38,7 +41,7 @@ final class ProductFixtureServer: @unchecked Sendable {
         return URL(string: "http://127.0.0.1:\(port.rawValue)")!
     }
 
-    init() throws {
+    private init() throws {
         let fixture = try XCTUnwrap(Bundle(for: ProductPhoneUITests.self).url(forResource: "native_product", withExtension: "json"))
         let document = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as? [String: Any]
         var template = try XCTUnwrap(document?["package"] as? [String: Any])
@@ -53,7 +56,9 @@ final class ProductFixtureServer: @unchecked Sendable {
         }
         template["coursePrep"] = coursePrep
         sourcePackage = template
-        listener = try NWListener(using: .tcp, on: .any)
+        let parameters = NWParameters.tcp
+        parameters.allowLocalEndpointReuse = true
+        listener = try NWListener(using: parameters, on: 9000)
         listener.stateUpdateHandler = { [weak self] value in
             guard let self else { return }
             switch value {
@@ -93,7 +98,7 @@ final class ProductFixtureServer: @unchecked Sendable {
     func configure(_ next: State) { queue.sync { state = next; paths = []; samples = [] } }
     func requestedPaths() -> [String] { queue.sync { paths } }
     func lastSample() -> Sample? { queue.sync { samples.last } }
-    func stop() { listener.cancel() }
+    deinit { listener.cancel() }
 
     private func receive(_ connection: NWConnection, accumulated: Data) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, complete, error in

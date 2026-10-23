@@ -9,13 +9,13 @@ final class ProductPhoneUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        server = try ProductFixtureServer()
+        server = try ProductFixtureServer.shared.get()
+        server.configure(.init())
         app = XCUIApplication()
     }
 
     override func tearDownWithError() throws {
         app?.terminate()
-        server?.stop()
     }
 
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
@@ -24,7 +24,6 @@ final class ProductPhoneUITests: XCTestCase {
         app.launchEnvironment = [
             "UITEST_MODE": "1", "AI_CADDIE_FIXTURE_MODE": "1", "AI_CADDIE_DATA_MODE": "fixture",
             "AI_CADDIE_ADMIN_TOKEN": "synthetic-ui-only", "AI_CADDIE_API_BASE_URL": server.baseURL.absoluteString,
-            "UITEST_FIXTURE_PORT": String(server.baseURL.port!),
             "UITEST_DISABLE_EVENT_SYNC": "1",
         ]
         if reset {
