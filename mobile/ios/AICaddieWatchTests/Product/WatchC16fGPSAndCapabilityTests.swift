@@ -20,17 +20,27 @@ final class WatchC16fGPSAndCapabilityTests: XCTestCase {
         return result
     }
 
-    func test_5_13_watch_normal_track_ends_after_green_and_next_tee_walk() {
-        XCTAssertEqual(ended([(-40, 0, 5), (0, 0, 4), (8, 0, 4), (25, 0, 5), (45, 0, 5)]), 4)
+    func test_5_13_watch_gps_tracks_end_only_after_a_real_green_exit() {
+        // Hand distances: green radius 15 m, exit needs >25 m beyond its edge.
+        // East 45 is 30 m beyond it and toward the tee; west 45 walks away.
+        let rows: [(String, [(Double, Double, Double)], Int?)] = [
+            ("normal", [(-40, 0, 5), (0, 0, 4), (8, 0, 4), (25, 0, 5), (45, 0, 5)], 4),
+            ("loop back", [(0, 0, 4), (-45, 0, 5), (-5, 0, 5), (0, 0, 4), (45, 0, 5)], 4),
+            ("no GPS", [], nil),
+            ("coarse drift", [(0, 0, 40), (60, 0, 40), (120, 0, 40)], nil),
+            ("never reached green", [(-60, 0, 5), (-45, 0, 5), (60, 0, 5)], nil),
+        ]
+        for (label, track, expected) in rows {
+            XCTAssertEqual(ended(track), expected, label)
+        }
     }
 
-    func test_5_13_watch_loop_back_track_waits_for_later_exit() {
-        XCTAssertEqual(ended([(0, 0, 4), (-45, 0, 5), (-5, 0, 5), (0, 0, 4), (45, 0, 5)]), 4)
-    }
-
-    func test_5_13_watch_no_gps_and_coarse_drift_leave_hole_open() {
-        XCTAssertNil(ended([]))
-        XCTAssertNil(ended([(0, 0, 40), (60, 0, 40), (120, 0, 40)]))
+    func test_5_13_watch_accurate_position_spike_does_not_finish_hole() {
+        // A stationary player's isolated 45 m jump returns to the green on the next fix.
+        // Reported accuracy is 4 m throughout: this is positional drift, not coarse accuracy.
+        XCTExpectFailure("5.13: a single accurate-looking position spike is treated as a green exit") {
+            XCTAssertNil(ended([(0, 0, 4), (45, 0, 4), (0, 0, 4), (5, 0, 4)]))
+        }
     }
 
     func test_5_14_watch_capability_gate_fails_closed_and_keeps_round_decision() {
@@ -44,6 +54,7 @@ final class WatchC16fGPSAndCapabilityTests: XCTestCase {
         XCTAssertFalse(failed.allowsCollection(preference: true, capability: unsupported))
         XCTAssertEqual(failed.latchedBlocker, .unsupportedDevice)
         XCTAssertFalse(failed.allowsCollection(preference: true, capability: capable))
-        XCTAssertEqual(WatchSwingCollectionStatus.text(preference: true, roundActive: true, blocker: .unsupportedDevice), "本机不支持")
+        XCTAssertEqual(failed.blocker(capability: capable), .unsupportedDevice)
+        XCTAssertFalse(failed.collected)
     }
 }

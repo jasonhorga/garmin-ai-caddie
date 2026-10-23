@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Services/WatchHoleEndDetector.swift b/mobile/ios/AICaddieWatch/Services/WatchHoleEndDetector.swift
+--- a/mobile/ios/AICaddieWatch/Services/WatchHoleEndDetector.swift
++++ b/mobile/ios/AICaddieWatch/Services/WatchHoleEndDetector.swift
+@@ -53,3 +53,3 @@
+         guard !ended, horizontalAccuracyM.isFinite, horizontalAccuracyM >= 0,
+-              horizontalAccuracyM <= Self.maximumAccuracyM else { return false }
++              true else { return false }
+         let fromCenter = WatchGeoMath.metres(latitude, longitude, green.latitude, green.longitude)
