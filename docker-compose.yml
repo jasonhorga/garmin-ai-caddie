@@ -1,6 +1,12 @@
 services:
   api:
-    build: .
+    build:
+      context: .
+      args:
+        # DEPS_IMAGE is written to .env by bootstrap_nas_vm_api.sh (set_env).
+        # An empty value is tolerated for compose down/logs; Dockerfile's
+        # required ARG rejects an actual build without it.
+        DEPS_IMAGE: ${DEPS_IMAGE:-}
     # A failed boot must stop after a small, observable number of attempts.
     # Infinite retries turn a dependency outage into a host-wide resource storm.
     restart: "on-failure:3"

@@ -1,34 +1,20 @@
-# Garmin sync image — the deployed API image (identical code + Python env) plus the
-# headed-Chromium cookie-minting toolchain (xvfb + Playwright). Kept as a *thin
-# extension* of garmin-ai-caddie-api so the sync pipeline can never drift from the
-# API again: rebuild both together with ops/build_sync_image.sh.
-#
-# Why this file exists: the prod sync image was historically built by an ad-hoc
-# Dockerfile that lived nowhere in the repo. It drifted 10 days behind the code,
-# silently shipping a pipeline that predated fetch.fetch_clubs — so the player's
-# club bag stopped auto-refreshing. This file makes the recipe reproducible.
-#
-# Used by ~/aicaddie-sync.sh (homeserver cron): it mounts the private data volume,
-# mints the CN web cookie via xvfb + Chromium, then runs
-#   python -m ai_caddie.pipeline --shots ...
-# which pulls scorecards/shots AND the real club bag (fetch.fetch_clubs → /club/player).
-#
-# Build from a revision-labelled API image with ops/build_sync_image.sh. The
-# direct command below is retained for CI smoke tests; production cron requires
-# the full-SHA tag produced by that helper.
-#   API_IMAGE=garmin-ai-caddie-api:<full-SHA> bash ops/build_sync_image.sh
-ARG API_IMAGE=garmin-ai-caddie-api:latest
-FROM ${API_IMAGE}
+# Application-only sync image. Dockerfile.sync-deps is built first as
+# aicaddie-sync-deps:<content-hash>; source is copied from the exact API image
+# so a sync tag can never contain code from the checkout used to build it.
+ARG SYNC_DEPS_IMAGE
+ARG API_IMAGE
+FROM ${SYNC_DEPS_IMAGE} AS runtime
+FROM ${API_IMAGE} AS api
+FROM runtime
 
-# xvfb + xauth: run the otherwise-headed Chromium that clears Cloudflare Turnstile
-# during cookie minting under a virtual framebuffer (xvfb-run in the sync entrypoint).
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends xvfb xauth \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
-# The `auth` dependency group (Playwright + login helpers) is excluded from the API
-# image (it builds with --no-dev). Add it here for the cookie-minting path.
-RUN uv sync --frozen --group auth
+COPY --from=api /app/ai_caddie/ ./ai_caddie/
+COPY --from=api /app/contracts/canonical/ ./contracts/canonical/
+COPY --from=api /app/mobile/contracts/ ./mobile/contracts/
+COPY --from=api /app/server_v2/ ./server_v2/
+COPY --from=api /app/ops/ ./ops/
+COPY --from=api /app/alembic.ini ./
+COPY --from=api /app/migrations/ ./migrations/
 
-# Download the Chromium browser Playwright drives, plus its OS-level dependencies.
-RUN uv run --frozen --group auth playwright install --with-deps chromium
+CMD ["sh", "ops/start_api.sh"]

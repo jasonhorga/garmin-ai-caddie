@@ -1,28 +1,13 @@
-FROM node:24-bookworm-slim AS node-deps
+# Application-only API image. Dockerfile.deps is built first as
+# garmin-ai-caddie-deps:<content-hash>; this stage then copies source on top so
+# code changes never invalidate the dependency image.
+# Dockerfile.deps pins ghcr.io/astral-sh/uv:python3.12-bookworm-slim and
+# node:24-bookworm-slim, runs `uv sync --frozen --no-dev` and
+# `npm ci --omit=dev`, and installs postgresql-client before this stage.
+ARG DEPS_IMAGE
+FROM ${DEPS_IMAGE} AS runtime
 
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
-
-WORKDIR /app
-
-ENV PYTHONUNBUFFERED=1 \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    AI_CADDIE_DATA_MODE=local_or_fixture \
-    PORT=9000
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl nodejs libarchive-tools postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
-
-COPY package.json package-lock.json ./
-COPY --from=node-deps /app/node_modules ./node_modules
 
 COPY ai_caddie/ ./ai_caddie/
 COPY contracts/canonical/ ./contracts/canonical/

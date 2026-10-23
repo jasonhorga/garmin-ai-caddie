@@ -186,6 +186,15 @@ def main(argv):
             fail("Error: No such image: " + refs[0])
         print(render(opts["--format"][0], image) if "--format" in opts else json.dumps([image]))
         return 0
+    if command == "image" and args[0] == "ls":
+        opts, _ = take_options(args[1:], set(), {"--format"})
+        fmt = (opts.get("--format") or ["{{.Repository}}:{{.Tag}}"])[0]
+        for item in state["images"]:
+            for tag in item.get("RepoTags", []):
+                repository, _, value = tag.rpartition(":")
+                print(render(fmt, {"Repository": repository, "Tag": value,
+                                   "CreatedAt": item.get("CreatedAt", "")}))
+        return 0
     if command == "build":
         opts, rest = take_options(args, set(), {"--label", "-t", "-f", "--build-arg"})
         dockerfile = (opts.get("-f") or ["Dockerfile"])[0]
@@ -195,9 +204,20 @@ def main(argv):
             if arg.startswith("API_IMAGE=") and find_image(state, arg.split("=", 1)[1]) is None:
                 fail("fake docker: base image missing", 1)
         labels = dict(item.split("=", 1) for item in opts.get("--label", []))
+        final_base_arg = {
+            "Dockerfile": "DEPS_IMAGE",
+            "Dockerfile.sync": "SYNC_DEPS_IMAGE",
+            "Dockerfile.sync-deps": "API_IMAGE",
+        }.get(dockerfile)
+        if final_base_arg:
+            for value in opts.get("--build-arg", []):
+                if value.startswith(final_base_arg + "="):
+                    base = find_image(state, value.split("=", 1)[1])
+                    if base is not None:
+                        labels = {**base.get("Config", {}).get("Labels", {}), **labels}
         state["serial"] += 1
         image = {"Id": "sha256:%064x" % state["serial"], "RepoTags": [], "Config": {"Labels": labels},
-                 "Dockerfile": dockerfile}
+                 "CreatedAt": tick(state), "Dockerfile": dockerfile}
         state["images"].append(image)
         for tag in opts.get("-t", []):
             add_tag(state, image, tag)
@@ -313,9 +333,13 @@ esac
 '''
 
 
-def image(serial: int, tags: list[str], revision: str | None, env: list[str] | None = None) -> dict:
-    labels = {"ai.caddie.source-revision": revision} if revision else {}
-    return {"Id": "sha256:%064x" % serial, "RepoTags": tags, "Config": {"Labels": labels, "Env": env or []}}
+def image(serial: int, tags: list[str], revision: str | None, env: list[str] | None = None,
+          labels: dict[str, str] | None = None) -> dict:
+    image_labels = {"ai.caddie.source-revision": revision} if revision else {}
+    image_labels.update(labels or {})
+    return {"Id": "sha256:%064x" % serial, "RepoTags": tags,
+            "CreatedAt": "2026-10-%02dT12:00:00.000000000Z" % min(serial, 28),
+            "Config": {"Labels": image_labels, "Env": env or []}}
 
 
 def container(serial: int, name: str, image_id: str, revision: str | None, *, running: bool,
@@ -360,11 +384,23 @@ OLD_ENV = IMAGE_ENV + [
 
 def production_fixture() -> dict:
     """One running production container at OLD with its api/sync images."""
+    api_hash = deploy.api_dependency_hash()
+    sync_hash = deploy.sync_dependency_hash(api_hash)
+    api_deps = image(3, [f"{deploy.API_DEPS_REPOSITORY}:{api_hash}"], None)
+    api_deps["Config"]["Labels"] = {deploy.DEPENDENCY_HASH_LABEL: api_hash}
+    sync_deps = image(4, [f"{deploy.SYNC_DEPS_REPOSITORY}:{sync_hash}"], None)
+    sync_deps["Config"]["Labels"] = {
+        deploy.DEPENDENCY_HASH_LABEL: sync_hash,
+        deploy.API_DEPENDENCY_HASH_LABEL: api_hash,
+    }
+    api_image = image(1, [f"garmin-ai-caddie-api:{OLD}"], OLD, IMAGE_ENV)
+    api_image["Config"]["Labels"][deploy.DEPENDENCY_HASH_LABEL] = api_hash
+    sync_image = image(2, [f"aicaddie-sync:{OLD}"], OLD)
+    sync_image["Config"]["Labels"][deploy.API_DEPENDENCY_HASH_LABEL] = api_hash
     return {
         "containers": [container(1, PREFIX + "11111111-production-20261014", "sha256:%064x" % 1, OLD,
                                  running=True, env=list(OLD_ENV)), database()],
-        "images": [image(1, [f"garmin-ai-caddie-api:{OLD}"], OLD, IMAGE_ENV),
-                   image(2, [f"aicaddie-sync:{OLD}"], OLD)],
+        "images": [api_image, sync_image, api_deps, sync_deps],
     }
 
 
@@ -490,8 +526,16 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         state = self.state()
         api = next(i for i in state["images"] if f"garmin-ai-caddie-api:{NEW}" in i["RepoTags"])
         sync = next(i for i in state["images"] if f"aicaddie-sync:{NEW}" in i["RepoTags"])
-        self.assertEqual(api["Config"]["Labels"], {"ai.caddie.source-revision": NEW})
-        self.assertEqual(sync["Config"]["Labels"], {"ai.caddie.source-revision": NEW})
+        self.assertEqual(api["Config"]["Labels"], {
+            "ai.caddie.source-revision": NEW,
+            deploy.DEPENDENCY_HASH_LABEL: deploy.api_dependency_hash(),
+        })
+        expected_dependency_hash = deploy.api_dependency_hash()
+        self.assertEqual(sync["Config"]["Labels"], {
+            "ai.caddie.source-revision": NEW,
+            deploy.DEPENDENCY_HASH_LABEL: deploy.sync_dependency_hash(expected_dependency_hash),
+            deploy.API_DEPENDENCY_HASH_LABEL: expected_dependency_hash,
+        })
         self.assertEqual(sync["Dockerfile"], "Dockerfile.sync")
 
         self.assertEqual(self.running_names(), [new_name])
@@ -707,7 +751,10 @@ class AgenthubDeployScriptTest(unittest.TestCase):
 
     def test_stopped_residual_with_target_name_is_replaced(self) -> None:
         fixture = production_fixture()
-        fixture["images"].append(image(3, [f"garmin-ai-caddie-api:{NEW}"], NEW))
+        fixture["images"].append(image(
+            3, [f"garmin-ai-caddie-api:{NEW}"], NEW,
+            labels={deploy.DEPENDENCY_HASH_LABEL: deploy.api_dependency_hash()},
+        ))
         fixture["containers"].append(container(5, PREFIX + NEW[:8], "sha256:%064x" % 3, NEW, running=False,
                                                finished="2026-10-15T01:00:00Z"))
         self.write_state(fixture)
@@ -738,8 +785,22 @@ class AgenthubDeployScriptTest(unittest.TestCase):
     def test_cleanup_keeps_recent_release_containers_and_foreign_resources(self) -> None:
         revs = {n: str(n) * 40 for n in (3, 4, 5, 6)}
         fixture = production_fixture()
+        api_hash = deploy.api_dependency_hash()
+        sync_hash = deploy.sync_dependency_hash(api_hash)
+        for serial, repository, tag, created in (
+            (60, deploy.API_DEPS_REPOSITORY, "older-a", "2026-10-01T00:00:00Z"),
+            (61, deploy.API_DEPS_REPOSITORY, "older-b", "2026-10-10T00:00:00Z"),
+            (62, deploy.SYNC_DEPS_REPOSITORY, "older-a", "2026-10-01T00:00:00Z"),
+            (63, deploy.SYNC_DEPS_REPOSITORY, "older-b", "2026-10-10T00:00:00Z"),
+        ):
+            old = image(serial, [f"{repository}:{tag}"], None)
+            old["CreatedAt"] = created
+            fixture["images"].append(old)
         for n, rev in revs.items():
-            fixture["images"] += [image(10 + n, [f"garmin-ai-caddie-api:{rev}-candidate-2026100{n}"], rev),
+            api_tags = [f"garmin-ai-caddie-api:{rev}", f"garmin-ai-caddie-api:{rev}-candidate-2026100{n}"]
+            if n == 5:
+                api_tags += ["garmin-ai-caddie-api:latest", "garmin-ai-caddie-api:verify"]
+            fixture["images"] += [image(10 + n, api_tags, rev),
                                   image(20 + n, [f"aicaddie-sync:{rev}"], rev)]
             fixture["containers"].append(container(
                 10 + n, f"{PREFIX}{rev[:8]}-production-2026100{n}", "sha256:%064x" % (10 + n), rev,
@@ -751,6 +812,9 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         next(i for i in fixture["images"] if i["Id"] == "sha256:%064x" % 14)["RepoTags"].append("other/project:keep")
         fixture["containers"].append(container(41, "other-project-api", "sha256:%064x" % 99, None,
                                                running=True, port="2"))
+        orphan_revision = "e" * 40
+        fixture["images"] += [image(80, [f"garmin-ai-caddie-api:{orphan_revision}"], orphan_revision),
+                               image(81, [f"aicaddie-sync:{orphan_revision}"], orphan_revision)]
         self.write_state(fixture)
 
         result = self.deploy()
@@ -766,13 +830,27 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         tags = {tag for i in self.state()["images"] for tag in i["RepoTags"]}
         for kept in (f"garmin-ai-caddie-api:{OLD}", f"aicaddie-sync:{OLD}",
                      f"garmin-ai-caddie-api:{NEW}", f"aicaddie-sync:{NEW}",
-                     f"garmin-ai-caddie-api:{revs[6]}-candidate-20261006", f"aicaddie-sync:{revs[6]}",
+                     f"garmin-ai-caddie-api:{revs[6]}", f"aicaddie-sync:{revs[6]}",
+                     f"garmin-ai-caddie-api:{revs[3]}",
+                     f"garmin-ai-caddie-api:{revs[4]}",
                      f"garmin-ai-caddie-api:{revs[3]}-candidate-20261003",  # used by another container
-                     f"garmin-ai-caddie-api:{revs[4]}-candidate-20261004", "other/project:keep"):
+                     f"garmin-ai-caddie-api:{revs[4]}-candidate-20261004",
+                     "garmin-ai-caddie-api:latest", "garmin-ai-caddie-api:verify", "other/project:keep"):
             self.assertIn(kept, tags)
         for removed in (f"aicaddie-sync:{revs[3]}", f"aicaddie-sync:{revs[4]}",
-                        f"garmin-ai-caddie-api:{revs[5]}-candidate-20261005", f"aicaddie-sync:{revs[5]}"):
+                        f"garmin-ai-caddie-api:{revs[5]}", f"aicaddie-sync:{revs[5]}",
+                        f"garmin-ai-caddie-api:{orphan_revision}", f"aicaddie-sync:{orphan_revision}"):
             self.assertNotIn(removed, tags)
+        self.assertEqual(
+            {tag for i in self.state()["images"] for tag in i["RepoTags"]
+             if tag.startswith(deploy.API_DEPS_REPOSITORY + ":")},
+            {f"{deploy.API_DEPS_REPOSITORY}:{api_hash}", f"{deploy.API_DEPS_REPOSITORY}:older-b"},
+        )
+        self.assertEqual(
+            {tag for i in self.state()["images"] for tag in i["RepoTags"]
+             if tag.startswith(deploy.SYNC_DEPS_REPOSITORY + ":")},
+            {f"{deploy.SYNC_DEPS_REPOSITORY}:{sync_hash}", f"{deploy.SYNC_DEPS_REPOSITORY}:older-b"},
+        )
         for call in self.calls():
             if call[0] == "rm":
                 self.assertTrue(call[-1].startswith(PREFIX), call)

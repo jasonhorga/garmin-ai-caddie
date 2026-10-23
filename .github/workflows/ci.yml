@@ -146,8 +146,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Build the same named dependency layers used by ops/agenthub_deploy.py;
+      # the application stages below only copy source on top of these images.
+      - name: Build API dependency image
+        run: |
+          API_DEPS_HASH="$(python3 -c 'from ops.agenthub_deploy import api_dependency_hash; print(api_dependency_hash())')"
+          echo "API_DEPS_HASH=$API_DEPS_HASH" >> "$GITHUB_ENV"
+          docker build -f Dockerfile.deps --label "ai.caddie.dependencies-hash=$API_DEPS_HASH" -t garmin-ai-caddie-deps:ci .
+      - name: Build sync dependency image
+        run: |
+          SYNC_DEPS_HASH="$(python3 -c 'from ops.agenthub_deploy import sync_dependency_hash, api_dependency_hash; print(sync_dependency_hash(api_dependency_hash()))')"
+          docker build -f Dockerfile.sync-deps --build-arg API_IMAGE=garmin-ai-caddie-deps:ci \
+            --label "ai.caddie.dependencies-hash=$SYNC_DEPS_HASH" \
+            --label "ai.caddie.api-dependencies-hash=$API_DEPS_HASH" \
+            -t aicaddie-sync-deps:ci .
       - name: Build API image
-        run: docker build -f Dockerfile -t garmin-ai-caddie-api:latest .
+        run: docker build -f Dockerfile --build-arg DEPS_IMAGE=garmin-ai-caddie-deps:ci -t garmin-ai-caddie-api:latest .
       - name: Collect readiness runtime paths from the checkout
         run: |
           docker run --rm -v "$PWD:/src" -v "$RUNNER_TEMP:/evidence" -w /src garmin-ai-caddie-api:latest \
@@ -157,7 +171,7 @@ jobs:
           docker run --rm -i garmin-ai-caddie-api:latest \
             /app/.venv/bin/python /app/ops/readiness_runtime_paths.py verify --manifest - --image-root /app < "$RUNNER_TEMP/readiness-runtime-paths.json"
       - name: Build sync image (thin extension of the API image — keeps the sync pipeline from drifting)
-        run: docker build -f Dockerfile.sync --build-arg API_IMAGE=garmin-ai-caddie-api:latest -t aicaddie-sync:latest .
+        run: docker build -f Dockerfile.sync --build-arg SYNC_DEPS_IMAGE=aicaddie-sync-deps:ci --build-arg API_IMAGE=garmin-ai-caddie-api:latest -t aicaddie-sync:latest .
       - name: API container — start, health, and geometry read smoke
         run: |
           # AI_CADDIE_ALLOW_OPEN=1 lets the API start with no security profile AND exercises the
