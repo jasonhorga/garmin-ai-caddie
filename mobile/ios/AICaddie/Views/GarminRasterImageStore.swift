@@ -76,6 +76,41 @@ enum GarminRasterMetadataCache {
 
 /// Garmin fallback images use the same durable, revision-bound cache contract as topo images, but
 /// keep a separate namespace so a JPEG can never collide with a rendered topo PNG.
+struct GarminRasterRetryCursor: Equatable {
+    static let delaysNanoseconds: [UInt64] = [0, 5_000_000_000, 15_000_000_000]
+
+    private(set) var nextAttempt = 0
+    private(set) var nextAttemptEarliestNanoseconds: UInt64?
+
+    init(nextAttempt: Int = 0, nextAttemptEarliestNanoseconds: UInt64? = nil) {
+        self.nextAttempt = nextAttempt
+        self.nextAttemptEarliestNanoseconds = nextAttemptEarliestNanoseconds
+    }
+
+    func nextPlan(nowNanoseconds: UInt64) -> (attempt: Int, delayNanoseconds: UInt64)? {
+        guard nextAttempt < Self.delaysNanoseconds.count else { return nil }
+        guard let earliest = nextAttemptEarliestNanoseconds else {
+            return (nextAttempt, 0)
+        }
+        return (nextAttempt, earliest > nowNanoseconds ? earliest - nowNanoseconds : 0)
+    }
+
+    mutating func recordFailure(at nowNanoseconds: UInt64) {
+        guard nextAttempt + 1 < Self.delaysNanoseconds.count else {
+            nextAttempt = Self.delaysNanoseconds.count
+            nextAttemptEarliestNanoseconds = nil
+            return
+        }
+        nextAttempt += 1
+        nextAttemptEarliestNanoseconds = nowNanoseconds &+ Self.delaysNanoseconds[nextAttempt]
+    }
+
+    mutating func reset() {
+        nextAttempt = 0
+        nextAttemptEarliestNanoseconds = nil
+    }
+}
+
 @MainActor
 final class GarminRasterImageStore: ObservableObject {
     private struct LoadResult {
@@ -96,7 +131,7 @@ final class GarminRasterImageStore: ObservableObject {
     /// Persists the retry cursor across SwiftUI view re-creation when a failed image switches to
     /// the numeric placeholder. The URL therefore receives at most the initial request plus the
     /// 5 s and 15 s attempts.
-    private static var retryAttemptByURL: [URL: Int] = [:]
+    private static var retryCursorByURL: [URL: GarminRasterRetryCursor] = [:]
 
     @Published private(set) var image: UIImage?
     @Published private(set) var isLoading = false
@@ -104,7 +139,9 @@ final class GarminRasterImageStore: ObservableObject {
     private(set) var failedURL: URL?
     private(set) var versionConflictURL: URL?
     private var representedURL: URL?
-    private static let retryDelaysNanoseconds: [UInt64] = [0, 5_000_000_000, 15_000_000_000]
+    static func resetRetryCursors() {
+        retryCursorByURL.removeAll()
+    }
 
     func load(_ url: URL?) async {
         guard representedURL != url || image == nil else { return }
@@ -118,20 +155,18 @@ final class GarminRasterImageStore: ObservableObject {
             return
         }
         isLoading = true
-        let firstAttempt = Self.retryAttemptByURL[url] ?? 0
-        for attempt in firstAttempt..<Self.retryDelaysNanoseconds.count {
+        var cursor = Self.retryCursorByURL[url] ?? GarminRasterRetryCursor()
+        while let plan = cursor.nextPlan(nowNanoseconds: DispatchTime.now().uptimeNanoseconds) {
             if Task.isCancelled {
-                Self.retryAttemptByURL[url] = nil
                 isRetrying = false
                 isLoading = false
                 return
             }
-            let delay = Self.retryDelaysNanoseconds[attempt]
+            let delay = plan.delayNanoseconds
             if delay > 0 {
                 do {
                     try await Task.sleep(nanoseconds: delay)
                 } catch {
-                    Self.retryAttemptByURL[url] = nil
                     isRetrying = false
                     isLoading = false
                     return
@@ -139,13 +174,11 @@ final class GarminRasterImageStore: ObservableObject {
             }
             let resolved = await Self.image(for: url)
             if Task.isCancelled {
-                Self.retryAttemptByURL[url] = nil
                 isRetrying = false
                 isLoading = false
                 return
             }
             guard representedURL == url else {
-                Self.retryAttemptByURL[url] = nil
                 return
             }
             if let image = resolved.image {
@@ -153,7 +186,7 @@ final class GarminRasterImageStore: ObservableObject {
                 failedURL = nil
                 versionConflictURL = nil
                 isRetrying = false
-                Self.retryAttemptByURL[url] = nil
+                Self.retryCursorByURL[url] = nil
                 isLoading = false
                 return
             }
@@ -161,21 +194,22 @@ final class GarminRasterImageStore: ObservableObject {
                 failedURL = url
                 versionConflictURL = url
                 isRetrying = false
-                Self.retryAttemptByURL[url] = nil
+                Self.retryCursorByURL[url] = nil
                 isLoading = false
                 return
             }
-            if attempt == Self.retryDelaysNanoseconds.count - 1 {
+            cursor.recordFailure(at: DispatchTime.now().uptimeNanoseconds)
+            if cursor.nextPlan(nowNanoseconds: DispatchTime.now().uptimeNanoseconds) == nil {
                 failedURL = url
                 versionConflictURL = nil
                 isRetrying = false
-                Self.retryAttemptByURL[url] = nil
+                Self.retryCursorByURL[url] = nil
             } else {
                 // The next attempt is deliberately delayed. The parent switches to its numeric
                 // placeholder while this task remains alive, so a failed JPEG never leaves a
                 // topo/overlay combination on screen during the retry window.
                 isRetrying = true
-                Self.retryAttemptByURL[url] = attempt + 1
+                Self.retryCursorByURL[url] = cursor
             }
         }
         isRetrying = false

@@ -1088,10 +1088,31 @@ final class DesignSnapshotTests: XCTestCase {
                 holes: [partialPrep],
                 missingData: nil
             ))
+            // Partial snapshots use a deterministic Garmin fixture so the pending/factual states
+            // exercise the real raster path instead of falling through to the numeric placeholder.
+            let partialRasterBaseURL = URL(string: "https://caddie.example")!
+            let partialRasterDescriptor = GarminRasterResponse(
+                available: true,
+                imageUrl: "/api/v2/courses/\(firstHole.sourceGlobalId)/holes/\(firstHole.sourceLocalHole)/garmin-raster.jpg?v=snapshot-partial-454",
+                projection: GarminRasterProjection(
+                    widthPx: 1242,
+                    heightPx: 1920,
+                    refs: [
+                        CoursePrepProjectionRef(lat: 40, lon: 116, px: 80, py: 140),
+                        CoursePrepProjectionRef(lat: 40, lon: 116.001, px: 80, py: 1740),
+                        CoursePrepProjectionRef(lat: 40.001, lon: 116, px: 700, py: 140),
+                    ]
+                ),
+                mode: "H"
+            )
+            let partialRasterURL = try XCTUnwrap(
+                partialRasterDescriptor.resolvedImageURL(relativeTo: partialRasterBaseURL)
+            )
+            GarminRasterImageStore.preload(holeImage, for: partialRasterURL)
             // Pending: the precise topo is still expected online (a service URL, nothing cached).
             // Factual route + green outline + the obstacle facts it already has draw at once; one
-            // obstacle is selected through the 障碍 control, with its 前 / 后 labels. The unreachable
-            // host keeps it pending.
+            // obstacle is selected through the 障碍 control, with its 前 / 后 labels. The partial
+            // coverage keeps the precise topo pending while the preloaded Garmin image is visible.
             XCTAssertEqual(
                 LiveMapDisplayState.resolve(
                     prep: partialPrep,
@@ -1109,8 +1130,12 @@ final class DesignSnapshotTests: XCTestCase {
                     CurrentHoleView(
                         package: partialPackage,
                         hole: firstHole,
-                        snapshotState: .init(selectsFirstHazard: true, caddieRoutes: routes),
-                        caddieBaseURL: URL(string: "http://127.0.0.1:9")
+                        snapshotState: .init(
+                            selectsFirstHazard: true,
+                            caddieRoutes: routes,
+                            garminRaster: partialRasterDescriptor
+                        ),
+                        caddieBaseURL: partialRasterBaseURL
                     )
                 },
                 named: "full-hole-map-partial-pending",
@@ -1122,8 +1147,11 @@ final class DesignSnapshotTests: XCTestCase {
                     CurrentHoleView(
                         package: partialPackage,
                         hole: firstHole,
-                        snapshotState: .init(caddieRoutes: routes),
-                        caddieBaseURL: URL(string: "http://127.0.0.1:9")
+                        snapshotState: .init(
+                            caddieRoutes: routes,
+                            garminRaster: partialRasterDescriptor
+                        ),
+                        caddieBaseURL: partialRasterBaseURL
                     )
                 },
                 named: "full-hole-map-partial-pending-default",
@@ -1136,7 +1164,12 @@ final class DesignSnapshotTests: XCTestCase {
                     CurrentHoleView(
                         package: partialPackage,
                         hole: firstHole,
-                        snapshotState: .init(selectsFirstHazard: true, caddieRoutes: routes)
+                        snapshotState: .init(
+                            selectsFirstHazard: true,
+                            caddieRoutes: routes,
+                            garminRaster: partialRasterDescriptor
+                        ),
+                        caddieBaseURL: partialRasterBaseURL
                     )
                 },
                 named: "full-hole-map-partial",

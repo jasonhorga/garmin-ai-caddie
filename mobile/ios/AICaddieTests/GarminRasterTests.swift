@@ -145,6 +145,24 @@ final class GarminRasterTests: XCTestCase {
         )
     }
 
+    func testEmbeddedTopoWinsWhenGarminImageFails() {
+        XCTAssertEqual(
+            LiveMapDisplayState.resolveLive(
+                .init(
+                    coverage: "ready",
+                    preciseTopoImageReady: true, // decoded hole.map.image
+                    garminRaster: GarminRasterResponse(
+                        available: true,
+                        imageUrl: "/raster.jpg"
+                    ),
+                    garminImageFailed: true,
+                    hasCachedPreciseTopo: false
+                )
+            ),
+            .precise
+        )
+    }
+
     func testPartialWithoutCachedTopoDoesNotEnterPreciseOrReuseProjection() throws {
         let hole = try prep(coverage: "partial")
         let preciseProjection = try XCTUnwrap(hole.holeImageProjection)
@@ -210,6 +228,28 @@ final class GarminRasterTests: XCTestCase {
                 garminProjection: nil
             )
         )
+    }
+
+    func testGarminRetryCursorResumesRemainingDelayAndResets() {
+        var cursor = GarminRasterRetryCursor()
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 100)?.attempt, 0)
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 100)?.delayNanoseconds, 0)
+
+        cursor.recordFailure(at: 100)
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 100)?.attempt, 1)
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 100)?.delayNanoseconds, 5_000_000_000)
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 2_000_000_100)?.delayNanoseconds, 2_999_999_900)
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 5_000_000_100)?.delayNanoseconds, 0)
+
+        cursor.recordFailure(at: 5_000_000_100)
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 5_000_000_100)?.attempt, 2)
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 20_000_000_100)?.delayNanoseconds, 0)
+        cursor.recordFailure(at: 20_000_000_100)
+        XCTAssertNil(cursor.nextPlan(nowNanoseconds: 20_000_000_100))
+
+        cursor.reset()
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 20_000_000_100)?.attempt, 0)
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 20_000_000_100)?.delayNanoseconds, 0)
     }
 
     func testGarminWithoutProjectionGestureFrameClampsToFallbackRaster() throws {
@@ -390,7 +430,18 @@ final class GarminRasterTests: XCTestCase {
         let destinationOverlay = CoursePrepOverlay(w: 240, h: 360, ppm: 1, ln: 300, route: [[120, 330, 0], [120, 30, 300]])
         let sourceFrame = CGRect(x: 0, y: 80, width: 390, height: 604)
         let destinationFrame = CGRect(x: 60, y: 80, width: 270, height: 405)
-        let sourceOffset = CGSize(width: -120, height: 150)
+        let sourceOffset = CGSize(width: 450, height: 150)
+        let unclamped = try XCTUnwrap(GarminRasterViewportTransfer.transfer(
+            viewportSize: CGSize(width: 390, height: 844),
+            sourceFrame: sourceFrame,
+            destinationFrame: destinationFrame,
+            sourceOverlay: sourceOverlay,
+            destinationOverlay: destinationOverlay,
+            sourceProjection: source,
+            destinationProjection: destination,
+            scale: 4,
+            offset: sourceOffset
+        ))
         let result = try XCTUnwrap(LiveMapViewportCarryOver.transfer(
             viewportSize: CGSize(width: 390, height: 844),
             sourceFrame: sourceFrame,
@@ -406,6 +457,8 @@ final class GarminRasterTests: XCTestCase {
         ))
         XCTAssertGreaterThanOrEqual(result.scale, 1)
         XCTAssertLessThanOrEqual(result.scale, 4)
+        XCTAssertEqual(result.offset.width, unclamped.offset.width, accuracy: 1e-6)
+        XCTAssertEqual(result.offset.height, unclamped.offset.height, accuracy: 1e-6)
         let displayedOffset = LivePlayMapOverlayLayout.clampedOffset(
             result.offset,
             mapFrame: destinationFrame,

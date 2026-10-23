@@ -60,6 +60,9 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn("garminRasterImageReloadID", current)
         self.assertIn("gestureFrameOverlay(", components)
         self.assertIn("gestureScale(", components)
+        self.assertGreaterEqual(current.count("LiveMapDisplaySelection.gestureFrameOverlay("), 2)
+        self.assertGreaterEqual(current.count("LiveMapDisplaySelection.gestureScale("), 2)
+        self.assertIn("guard liveMapDisplayState != .numericPlaceholder", current)
         self.assertIn("if garminRasterURL != nil, garminRasterProjection?.isUsable != true { return }", source(IOS / "AICaddie" / "Views" / "HoleImageMapView.swift"))
         self.assertIn("static func resolveLive(", components)
 
@@ -120,7 +123,8 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn("request_failed", source(CURRENT))
         self.assertIn('URLComponents(string: $0)?.queryItems?.first(where: { $0.name == "v" })?.value', cache)
         self.assertIn("statusCode == 409", cache)
-        self.assertIn("retryAttemptByURL", cache)
+        self.assertIn("retryCursorByURL", cache)
+        self.assertIn("resetRetryCursors()", cache)
         self.assertIn("retryDelaysNanoseconds: [UInt64] = [0, 5_000_000_000, 15_000_000_000]", source(IOS / "AICaddie" / "Views" / "TopoHoleBaseImage.swift"))
 
     def test_native_tests_and_design_snapshots_cover_all_six_cases(self) -> None:
@@ -129,8 +133,10 @@ class Card454AcceptanceTests(unittest.TestCase):
         expected_native = (
             "testTopoPendingRasterAvailableUsesRasterProjection",
             "testTopoReadyWinsOverRasterAndUsesTopoProjection",
+            "testEmbeddedTopoWinsWhenGarminImageFails",
             "testPartialWithoutCachedTopoDoesNotEnterPreciseOrReuseProjection",
             "testNumericPlaceholderGestureStateResetsScaleAndOffset",
+            "testGarminRetryCursorResumesRemainingDelayAndResets",
             "testGarminWithoutProjectionGestureFrameClampsToFallbackRaster",
             "testUnavailableRasterFallsBackToNumericPlaceholderState",
             "testRasterToTopoTransferKeepsGeographicViewportCenter",

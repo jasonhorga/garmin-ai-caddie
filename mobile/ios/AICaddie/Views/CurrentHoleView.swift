@@ -491,6 +491,7 @@ public struct CurrentHoleView: View {
             garminRasterImageFailed = false
             garminRasterImageRetrying = false
             garminRasterImageReloadID = 0
+            GarminRasterImageStore.resetRetryCursors()
             garminVersionConflictURL = nil
             pinSheetMessage = nil
             heroMapScale = 1
@@ -2181,6 +2182,12 @@ public struct CurrentHoleView: View {
     }
 
     private var hasPreciseTopoImage: Bool {
+        if let imageURI = holePrep?.map?.image,
+           let comma = imageURI.firstIndex(of: ","),
+           let data = Data(base64Encoded: String(imageURI[imageURI.index(after: comma)...])),
+           UIImage(data: data) != nil {
+            return true
+        }
         guard let url = liveTopoURL else { return false }
         if localTopoURL != nil || preciseTopoImageReady { return true }
         return TopoHoleImageStore.cachedImage(for: url) != nil
