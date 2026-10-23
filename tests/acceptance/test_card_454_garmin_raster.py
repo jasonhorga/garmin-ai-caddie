@@ -58,6 +58,7 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn("garminRasterProjection: liveMapDisplayState == .garminRaster", current)
         self.assertIn("LiveMapDisplaySelection.projection(", current)
         self.assertIn("LiveMapDisplaySelection.overlay(", current)
+        self.assertNotIn("isPreciseHoleMapPending", current)
         self.assertIn("garminRasterImageReloadID", current)
         self.assertIn("gestureFrameOverlay(", components)
         self.assertIn("gestureScale(", components)
@@ -153,6 +154,7 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn('named: "live-numeric-placeholder"', snapshots)
         self.assertIn('named: "live-garmin-raster-loading"', snapshots)
         self.assertNotIn('named: "live-garmin-raster-precise-replacement"', snapshots)
+        self.assertNotIn('named: "full-hole-map-partial"', snapshots)
         self.assertIn("func testCaptureGarminRasterWithPosition", snapshots)
         self.assertIn("func testCaptureLiveNumericMapPlaceholder", snapshots)
 

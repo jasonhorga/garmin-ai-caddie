@@ -341,7 +341,6 @@ public struct CurrentHoleView: View {
         var targetDragFocus: CGPoint?
         var garminRaster: GarminRasterResponse?
         var preciseTopoReady = false
-        var preciseMapTimedOut = false
         var currentCoordinate: CLLocationCoordinate2D?
     }
 
@@ -383,7 +382,6 @@ public struct CurrentHoleView: View {
         guard let snapshotState else { return }
         garminRaster = snapshotState.garminRaster
         preciseTopoImageReady = snapshotState.preciseTopoReady
-        preciseMapTimedOut = snapshotState.preciseMapTimedOut
         currentCoordinate = snapshotState.currentCoordinate
         garminRasterImageFailed = false
         garminRasterImageRetrying = false
@@ -2249,18 +2247,6 @@ public struct CurrentHoleView: View {
                   to: destination
               ) else { return nil }
         return [point.x, point.y]
-    }
-
-    /// CourseView's small package is a factual drawing source, but its hazard spans are not a
-    /// completeness guarantee.  Keep map/distance play available while prodgeometry downloads,
-    /// without presenting that provisional subset as the nearest-hazard or final caddie answer.
-    private var isPreciseHoleMapPending: Bool {
-        LiveMapDisplayState.isPrecisePending(
-            geometryCoverage: holePrep?.geometryCoverage,
-            timedOut: preciseMapTimedOut,
-            hasBaseURL: caddieBaseURL != nil,
-            hasCachedTopo: hasCachedTopoForCurrentHole
-        )
     }
 
     private var hasCachedTopoForCurrentHole: Bool {

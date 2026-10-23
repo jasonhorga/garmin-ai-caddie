@@ -1130,16 +1130,16 @@ final class DesignSnapshotTests: XCTestCase {
             // obstacle is selected through the 障碍 control, with its 前 / 后 labels. The partial
             // coverage keeps the precise topo pending while the preloaded Garmin image is visible.
             XCTAssertEqual(
-                LiveMapDisplayState.resolve(
-                    prep: partialPrep,
-                    pending: LiveMapDisplayState.isPrecisePending(
-                        geometryCoverage: partialPrep.geometryCoverage,
-                        timedOut: false,
-                        hasBaseURL: true,
-                        hasCachedTopo: false
+                LiveMapDisplayState.resolveLive(
+                    .init(
+                        coverage: partialPrep.geometryCoverage,
+                        preciseTopoImageReady: false,
+                        garminRaster: partialRasterDescriptor,
+                        garminImageFailed: false,
+                        hasCachedPreciseTopo: false
                     )
                 ),
-                .factualPending
+                .garminRaster
             )
             try captureScreen(
                 NavigationStack {
@@ -1171,25 +1171,6 @@ final class DesignSnapshotTests: XCTestCase {
                     )
                 },
                 named: "full-hole-map-partial-pending-default",
-                dark: true
-            )
-            // Partial facts with nothing better coming (offline / no service): the same map, and the
-            // obstacle facts it has are browsable (one selected here).
-            try captureScreen(
-                NavigationStack {
-                    CurrentHoleView(
-                        package: partialPackage,
-                        hole: firstHole,
-                        snapshotState: .init(
-                            selectsFirstHazard: true,
-                            caddieRoutes: routes,
-                            garminRaster: partialRasterDescriptor,
-                            preciseMapTimedOut: true
-                        ),
-                        caddieBaseURL: partialRasterBaseURL
-                    )
-                },
-                named: "full-hole-map-partial",
                 dark: true
             )
             // ... and with no drawable route at all it shows the numeric placeholder and download
