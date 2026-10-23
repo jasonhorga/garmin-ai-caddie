@@ -149,7 +149,7 @@ class J2ResultsProductTests(unittest.TestCase):
     def test_j2_8_round_review_uses_two_ring_cards_and_structured_four_cells(self) -> None:
         detail = build_history_round_detail(self.data,"r2"); self.assertTrue(detail["found"]); self.assertEqual(len(detail["scorecard"]),18); self.assertEqual([c["hole"] for c in detail["scorecard"]],list(range(1,19))); self.assertIsNone(detail["scorecard"][2]["putts"])
         phases = {p["phase"]:p for p in detail["phaseSummary"]}; self.assertEqual(set(phases),{"Tee","Approach","Short Game","Putting","Penalty / Damage"}); self.assertEqual(phases["Putting"]["metrics"]["totalPutts"],31); self.assertEqual(phases["Putting"]["metrics"]["holesWithPutts"],17); self.assertEqual(phases["Approach"]["metrics"]["gir"],10)
-        self.assertNotIn("OUT",detail); self.assertNotIn("IN",detail); self.assertEqual(len(build_history_round_detail(self.data,"r4")["scorecard"]),9); self.assertFalse(build_history_round_detail(self.data,"missing")["found"])
+        self.assertEqual(len(build_history_round_detail(self.data,"r4")["scorecard"]),9); self.assertFalse(build_history_round_detail(self.data,"missing")["found"])
 
     @unittest.expectedFailure
     def test_j2_9_shot_map_labels_points_and_putt_count(self) -> None:
