@@ -72,13 +72,22 @@ final class TopoHoleImageStore: ObservableObject {
         guard let url else { return false }
         let firstAttempt = retryAttemptByURL[url] ?? 0
         for attempt in firstAttempt..<retryDelaysNanoseconds.count {
+            if Task.isCancelled {
+                retryAttemptByURL[url] = nil
+                return false
+            }
             let delay = retryDelaysNanoseconds[attempt]
             if delay > 0 {
                 do {
                     try await Task.sleep(nanoseconds: delay)
                 } catch {
+                    retryAttemptByURL[url] = nil
                     return false
                 }
+            }
+            if Task.isCancelled {
+                retryAttemptByURL[url] = nil
+                return false
             }
             if await image(for: url) != nil {
                 retryAttemptByURL[url] = nil

@@ -164,21 +164,90 @@ final class GarminRasterTests: XCTestCase {
             )
         )
         XCTAssertEqual(state, .garminRaster)
+        let numericState = LiveMapDisplayState.resolveLive(
+            .init(
+                coverage: hole.geometryCoverage,
+                preciseTopoImageReady: false,
+                garminRaster: GarminRasterResponse(available: true, imageUrl: "/raster.jpg"),
+                garminImageFailed: true,
+                hasCachedPreciseTopo: false
+            )
+        )
+        XCTAssertEqual(numericState, .numericPlaceholder)
         XCTAssertNil(
             LiveMapDisplaySelection.projection(
-                for: .numericPlaceholder,
+                for: numericState,
                 precise: preciseProjection,
                 garmin: garminProjection
             )
         )
         XCTAssertNil(
             LiveMapDisplaySelection.overlay(
-                for: .numericPlaceholder,
+                for: numericState,
                 precise: hole.resolvedMapOverlay,
                 preciseProjection: preciseProjection,
                 garminProjection: garminProjection
             )
         )
+    }
+
+    func testNumericPlaceholderGestureStateResetsScaleAndOffset() {
+        XCTAssertEqual(
+            LiveMapDisplaySelection.gestureScale(for: .numericPlaceholder, proposed: 4),
+            1
+        )
+        XCTAssertEqual(
+            LiveMapDisplaySelection.gestureOffset(
+                for: .numericPlaceholder,
+                proposed: CGSize(width: 120, height: -80)
+            ),
+            .zero
+        )
+        XCTAssertNil(
+            LiveMapDisplaySelection.gestureFrameOverlay(
+                for: .numericPlaceholder,
+                overlay: CoursePrepOverlay(w: 240, h: 360, ppm: 1, ln: 0, route: []),
+                garminProjection: nil
+            )
+        )
+    }
+
+    func testGarminWithoutProjectionGestureFrameClampsToFallbackRaster() throws {
+        let overlay = try XCTUnwrap(
+            LiveMapDisplaySelection.gestureFrameOverlay(
+                for: .garminRaster,
+                overlay: nil,
+                garminProjection: nil
+            )
+        )
+        XCTAssertEqual(overlay.w, 1242)
+        XCTAssertEqual(overlay.h, 1920)
+        let viewport = CGSize(width: 390, height: 844)
+        let frame = try XCTUnwrap(
+            LivePlayMapOverlayLayout.mapFrame(
+                overlayWidth: overlay.w,
+                overlayHeight: overlay.h,
+                in: viewport,
+                topInset: LivePlayMapOverlayLayout.liveMapTopInset
+            )
+        )
+        let proposed = CGSize(width: 900, height: -900)
+        let clamped = LivePlayMapOverlayLayout.clampedOffset(
+            proposed,
+            mapFrame: frame,
+            viewportSize: viewport,
+            scale: 4
+        )
+        let center = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
+        let transformedMinX = center.x + (frame.minX - center.x) * 4
+        let transformedMaxX = center.x + (frame.maxX - center.x) * 4
+        let transformedMinY = center.y + (frame.minY - center.y) * 4
+        let transformedMaxY = center.y + (frame.maxY - center.y) * 4
+        XCTAssertGreaterThanOrEqual(clamped.width, viewport.width - transformedMaxX)
+        XCTAssertLessThanOrEqual(clamped.width, -transformedMinX)
+        XCTAssertGreaterThanOrEqual(clamped.height, viewport.height - transformedMaxY)
+        XCTAssertLessThanOrEqual(clamped.height, -transformedMinY)
+        XCTAssertNotEqual(clamped, proposed)
     }
 
     func testUnavailableRasterFallsBackToNumericPlaceholderState() throws {
@@ -319,10 +388,13 @@ final class GarminRasterTests: XCTestCase {
         )
         let sourceOverlay = CoursePrepOverlay(w: 1242, h: 1920, ppm: 2, ln: 300, route: [[390, 1740, 0], [390, 140, 300]])
         let destinationOverlay = CoursePrepOverlay(w: 240, h: 360, ppm: 1, ln: 300, route: [[120, 330, 0], [120, 30, 300]])
+        let sourceFrame = CGRect(x: 0, y: 80, width: 390, height: 604)
+        let destinationFrame = CGRect(x: 60, y: 80, width: 270, height: 405)
+        let sourceOffset = CGSize(width: -120, height: 150)
         let result = try XCTUnwrap(LiveMapViewportCarryOver.transfer(
             viewportSize: CGSize(width: 390, height: 844),
-            sourceFrame: CGRect(x: 0, y: 80, width: 390, height: 604),
-            destinationFrame: CGRect(x: 60, y: 80, width: 270, height: 405),
+            sourceFrame: sourceFrame,
+            destinationFrame: destinationFrame,
             sourceOverlay: sourceOverlay,
             destinationOverlay: destinationOverlay,
             sourceProjection: source,
@@ -330,7 +402,7 @@ final class GarminRasterTests: XCTestCase {
             // Use a zoom where both destination axes cover the viewport; the helper's actual
             // clamped offset is still used below when reconstructing the displayed centre.
             scale: 4,
-            offset: .zero
+            offset: sourceOffset
         ))
         XCTAssertGreaterThanOrEqual(result.scale, 1)
         XCTAssertLessThanOrEqual(result.scale, 4)
@@ -341,8 +413,8 @@ final class GarminRasterTests: XCTestCase {
             scale: result.scale
         )
         let displayedSourceOffset = LivePlayMapOverlayLayout.clampedOffset(
-            .zero,
-            mapFrame: CGRect(x: 0, y: 80, width: 390, height: 604),
+            sourceOffset,
+            mapFrame: sourceFrame,
             viewportSize: CGSize(width: 390, height: 844),
             scale: 4
         )

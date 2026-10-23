@@ -552,6 +552,11 @@ public struct CurrentHoleView: View {
             carryOverMapInteraction(from: previous, to: next)
         }
         .onChange(of: liveMapDisplayState) { previous, next in
+            if next == .numericPlaceholder {
+                heroMapScale = 1
+                heroMapOffset = .zero
+                heroMapTransientDragOffset = .zero
+            }
             carryOverLiveMapViewport(from: previous, to: next)
         }
         .task(id: liveTopoURL) {
@@ -1117,7 +1122,10 @@ public struct CurrentHoleView: View {
     }
 
     private var heroDisplayedMapScale: CGFloat {
-        max(1, heroMapScale * heroMapPinchScale)
+        LiveMapDisplaySelection.gestureScale(
+            for: liveMapDisplayState,
+            proposed: heroMapScale * heroMapPinchScale
+        )
     }
 
     /// The map bitmap at its rest frame in the hero: the lightweight map's plan framing when there
@@ -1196,7 +1204,12 @@ public struct CurrentHoleView: View {
             width: heroMapOffset.width + heroMapTransientDragOffset.width,
             height: heroMapOffset.height + heroMapTransientDragOffset.height
         )
-        guard let overlay = liveMapOverlay,
+        let state = liveMapDisplayState
+        guard let overlay = LiveMapDisplaySelection.gestureFrameOverlay(
+                  for: state,
+                  overlay: liveMapOverlay,
+                  garminProjection: liveGarminRasterProjection
+              ),
               let frame = LivePlayMapOverlayLayout.mapFrame(
                   overlayWidth: overlay.w,
                   overlayHeight: overlay.h,
@@ -1204,7 +1217,7 @@ public struct CurrentHoleView: View {
                   topInset: LivePlayMapOverlayLayout.liveMapTopInset,
                   fittedFrame: liveMapFittedFrame(in: viewport)
               ) else {
-            return proposed
+            return LiveMapDisplaySelection.gestureOffset(for: state, proposed: proposed)
         }
         return LivePlayMapOverlayLayout.clampedOffset(
             proposed,
@@ -1347,7 +1360,16 @@ public struct CurrentHoleView: View {
                 state = value
             }
             .onEnded { value in
-                heroMapScale = min(max(heroMapScale * value, 1), 4)
+                guard liveMapDisplayState != .numericPlaceholder else {
+                    heroMapScale = 1
+                    heroMapOffset = .zero
+                    heroMapTransientDragOffset = .zero
+                    return
+                }
+                heroMapScale = LiveMapDisplaySelection.gestureScale(
+                    for: liveMapDisplayState,
+                    proposed: heroMapScale * value
+                )
                 heroMapOffset = heroMapClampedOffset(
                     heroMapOffset,
                     scale: heroMapScale,
@@ -1670,7 +1692,12 @@ public struct CurrentHoleView: View {
     }
 
     private func heroMapClampedOffset(_ proposed: CGSize, scale: CGFloat, viewport: CGSize) -> CGSize {
-        guard let overlay = liveMapOverlay,
+        let state = liveMapDisplayState
+        guard let overlay = LiveMapDisplaySelection.gestureFrameOverlay(
+                  for: state,
+                  overlay: liveMapOverlay,
+                  garminProjection: liveGarminRasterProjection
+              ),
               let frame = LivePlayMapOverlayLayout.mapFrame(
                   overlayWidth: overlay.w,
                   overlayHeight: overlay.h,
@@ -1678,7 +1705,7 @@ public struct CurrentHoleView: View {
                   topInset: LivePlayMapOverlayLayout.liveMapTopInset,
                   fittedFrame: liveMapFittedFrame(in: viewport)
               ) else {
-            return proposed
+            return LiveMapDisplaySelection.gestureOffset(for: state, proposed: proposed)
         }
         return LivePlayMapOverlayLayout.clampedOffset(
             proposed,
@@ -2203,6 +2230,9 @@ public struct CurrentHoleView: View {
 
     private func liveDisplayPixel(_ row: [Double]) -> [Double]? {
         guard row.count >= 2, row[0].isFinite, row[1].isFinite else { return nil }
+        if liveMapDisplayState == .precise {
+            return [row[0], row[1]]
+        }
         guard liveMapDisplayState == .garminRaster,
               let source = holePrep?.holeImageProjection,
               let destination = liveGarminRasterProjection,
@@ -2210,9 +2240,7 @@ public struct CurrentHoleView: View {
                   pixel: CGPoint(x: row[0], y: row[1]),
                   from: source,
                   to: destination
-              ) else {
-            return [row[0], row[1]]
-        }
+              ) else { return nil }
         return [point.x, point.y]
     }
 
@@ -3130,6 +3158,7 @@ public struct CurrentHoleView: View {
             .sorted(by: { $0.number < $1.number })
             .first(where: { $0.number > roundHole }) else { return }
         Task { @MainActor in
+            guard next.sourceGlobalId != 0, next.sourceLocalHole > 0 else { return }
             guard let descriptor = try? await client.fetchGarminRaster(
                 globalId: next.sourceGlobalId,
                 localHole: next.sourceLocalHole

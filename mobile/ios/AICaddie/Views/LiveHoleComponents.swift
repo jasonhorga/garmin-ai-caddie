@@ -2327,6 +2327,34 @@ enum LiveMapDisplayState: Equatable {
 /// this decision pure prevents a numeric/error state from accidentally reusing a topo overlay or
 /// projection, and lets native tests exercise the same branch as CurrentHoleView.
 enum LiveMapDisplaySelection {
+    /// Overlay dimensions used by map gestures, including a Garmin bitmap whose projection is
+    /// unavailable and therefore has no factual route to remap. Numeric placeholders have no map
+    /// plane and deliberately return nil.
+    static func gestureFrameOverlay(
+        for state: LiveMapDisplayState,
+        overlay: CoursePrepOverlay?,
+        garminProjection: CoursePrepHoleImageProjection?
+    ) -> CoursePrepOverlay? {
+        if let overlay, (state == .precise || state == .garminRaster) { return overlay }
+        guard state == .garminRaster else { return nil }
+        let width = (garminProjection?.widthPx ?? 0) > 0
+            ? (garminProjection?.widthPx ?? 1242)
+            : 1242
+        let height = (garminProjection?.heightPx ?? 0) > 0
+            ? (garminProjection?.heightPx ?? 1920)
+            : 1920
+        return CoursePrepOverlay(w: width, h: height, ppm: 1, ln: 0, route: [])
+    }
+
+    static func gestureScale(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {
+        guard state != .numericPlaceholder else { return 1 }
+        return min(max(proposed, 1), 4)
+    }
+
+    static func gestureOffset(for state: LiveMapDisplayState, proposed: CGSize) -> CGSize {
+        state == .numericPlaceholder ? .zero : proposed
+    }
+
     static func projection(
         for state: LiveMapDisplayState,
         precise: CoursePrepHoleImageProjection?,

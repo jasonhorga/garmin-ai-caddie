@@ -120,18 +120,34 @@ final class GarminRasterImageStore: ObservableObject {
         isLoading = true
         let firstAttempt = Self.retryAttemptByURL[url] ?? 0
         for attempt in firstAttempt..<Self.retryDelaysNanoseconds.count {
+            if Task.isCancelled {
+                Self.retryAttemptByURL[url] = nil
+                isRetrying = false
+                isLoading = false
+                return
+            }
             let delay = Self.retryDelaysNanoseconds[attempt]
             if delay > 0 {
                 do {
                     try await Task.sleep(nanoseconds: delay)
                 } catch {
+                    Self.retryAttemptByURL[url] = nil
                     isRetrying = false
                     isLoading = false
                     return
                 }
             }
             let resolved = await Self.image(for: url)
-            guard representedURL == url else { return }
+            if Task.isCancelled {
+                Self.retryAttemptByURL[url] = nil
+                isRetrying = false
+                isLoading = false
+                return
+            }
+            guard representedURL == url else {
+                Self.retryAttemptByURL[url] = nil
+                return
+            }
             if let image = resolved.image {
                 self.image = image
                 failedURL = nil

@@ -58,6 +58,8 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn("LiveMapDisplaySelection.projection(", current)
         self.assertIn("LiveMapDisplaySelection.overlay(", current)
         self.assertIn("garminRasterImageReloadID", current)
+        self.assertIn("gestureFrameOverlay(", components)
+        self.assertIn("gestureScale(", components)
         self.assertIn("if garminRasterURL != nil, garminRasterProjection?.isUsable != true { return }", source(IOS / "AICaddie" / "Views" / "HoleImageMapView.swift"))
         self.assertIn("static func resolveLive(", components)
 
@@ -128,6 +130,8 @@ class Card454AcceptanceTests(unittest.TestCase):
             "testTopoPendingRasterAvailableUsesRasterProjection",
             "testTopoReadyWinsOverRasterAndUsesTopoProjection",
             "testPartialWithoutCachedTopoDoesNotEnterPreciseOrReuseProjection",
+            "testNumericPlaceholderGestureStateResetsScaleAndOffset",
+            "testGarminWithoutProjectionGestureFrameClampsToFallbackRaster",
             "testUnavailableRasterFallsBackToNumericPlaceholderState",
             "testRasterToTopoTransferKeepsGeographicViewportCenter",
             "testSameCoordinateIsPixelAccurateInBothProjectionFrames",
