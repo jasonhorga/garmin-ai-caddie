@@ -133,6 +133,8 @@ class Card454AcceptanceTests(unittest.TestCase):
         native = source(NATIVE)
         snapshots = source(SNAPSHOTS)
         self.assertIn('"geometryCoverage":"ready"', snapshots)
+        self.assertIn('"holeImageProjection"', snapshots)
+        self.assertIn("LiveMapDisplaySelection.overlay(for: .garminRaster", snapshots)
         expected_native = (
             "testTopoPendingRasterAvailableUsesRasterProjection",
             "testTopoReadyWinsOverRasterAndUsesTopoProjection",

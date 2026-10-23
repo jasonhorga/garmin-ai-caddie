@@ -1091,9 +1091,10 @@ final class DesignSnapshotTests: XCTestCase {
                 )
                 .replacingOccurrences(
                     of: "\"map\":{\"image\":\"\(b64)\",",
-                    with: "\"greenOutline\":{\"available\":true,\"source\":\"fixture\",\"pointsPx\":[\(greenOutlineJSON)]},\"map\":{"
+                    with: "\"greenOutline\":{\"available\":true,\"source\":\"fixture\",\"pointsPx\":[\(greenOutlineJSON)]},\"holeImageProjection\":{\"available\":true,\"widthPx\":240,\"heightPx\":360,\"refs\":[{\"lat\":40,\"lon\":116,\"px\":15.458937,\"py\":26.25},{\"lat\":40,\"lon\":116.001,\"px\":15.458937,\"py\":326.25},{\"lat\":40.001,\"lon\":116,\"px\":135.265700,\"py\":26.25}]},\"map\":{"
                 )
             XCTAssertNotEqual(partialPrepJSON, livePrepJSON, "fixture: the topo image must be removed")
+            XCTAssertTrue(partialPrepJSON.contains("\"holeImageProjection\""), "fixture: partial projection must be injected")
             let partialPrep = try JSONDecoder().decode(CoursePrepHole.self, from: Data(partialPrepJSON.utf8))
             XCTAssertEqual(partialPrep.geometryCoverage, "partial")
             XCTAssertEqual(partialPrep.greenOutline?.available, true)
@@ -1125,10 +1126,8 @@ final class DesignSnapshotTests: XCTestCase {
                 partialRasterDescriptor.resolvedImageURL(relativeTo: partialRasterBaseURL)
             )
             GarminRasterImageStore.preload(holeImage, for: partialRasterURL)
-            // Pending: the precise topo is still expected online (a service URL, nothing cached).
-            // Factual route + green outline + the obstacle facts it already has draw at once; one
-            // obstacle is selected through the 障碍 control, with its 前 / 后 labels. The partial
-            // coverage keeps the precise topo pending while the preloaded Garmin image is visible.
+            // Pending: Garmin 图 + 按投影 remap 的路线、果岭、障碍 are visible while the precise
+            // topo is still expected online (a service URL, nothing cached).
             XCTAssertEqual(
                 LiveMapDisplayState.resolveLive(
                     .init(
@@ -1141,6 +1140,21 @@ final class DesignSnapshotTests: XCTestCase {
                 ),
                 .garminRaster
             )
+            let garminProjection = try XCTUnwrap(partialRasterDescriptor.projection?.coursePrepProjection)
+            let remapped = try XCTUnwrap(LiveMapDisplaySelection.overlay(for: .garminRaster, precise: partialPrep.resolvedMapOverlay, preciseProjection: partialPrep.holeImageProjection, garminProjection: garminProjection))
+            XCTAssertEqual(remapped.w, 1242)
+            XCTAssertEqual(remapped.h, 1920)
+            let firstRemappedPoint = try XCTUnwrap(remapped.route.first)
+            XCTAssertGreaterThanOrEqual(firstRemappedPoint.count, 2)
+            XCTAssertEqual(firstRemappedPoint[0], 621, accuracy: 1)
+            XCTAssertEqual(firstRemappedPoint[1], 1760, accuracy: 1)
+            for point in remapped.route {
+                XCTAssertGreaterThanOrEqual(point.count, 2)
+                XCTAssertGreaterThanOrEqual(point[0], 0)
+                XCTAssertLessThanOrEqual(point[0], 1242)
+                XCTAssertGreaterThanOrEqual(point[1], 0)
+                XCTAssertLessThanOrEqual(point[1], 1920)
+            }
             try captureScreen(
                 NavigationStack {
                     CurrentHoleView(
