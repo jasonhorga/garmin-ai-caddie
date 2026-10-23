@@ -2,10 +2,9 @@ import Foundation
 import Network
 import XCTest
 
-/// An isolated synthetic HTTP backend owned by this UI test process. The product's DEBUG
-/// fixture origin permits loopback port 9000 only. Run this class alone on an idle simulator;
-/// binding failure is a test setup error, never permission to contact a shared backend.
-final class ProductFixtureServer {
+/// An isolated synthetic HTTP backend on an OS-assigned port, owned by this UI test process.
+/// Mutable request state stays on `queue`; startup failure crosses queues under `startupLock`.
+final class ProductFixtureServer: @unchecked Sendable {
     struct State {
         var roundCount = 3
         var reviewHoles = 18
@@ -19,8 +18,27 @@ final class ProductFixtureServer {
     private var state = State()
     private var paths: [String] = []
     private let sourcePackage: [String: Any]
+    private let startupSemaphore = DispatchSemaphore(value: 0)
+    private let startupLock = NSLock()
+    private var startupFailure: Error?
 
-    init(test: XCTestCase) throws {
+    struct Sample: Equatable {
+        let window: String
+        let roundIDs: [String]
+    }
+    private var samples: [Sample] = []
+
+    private enum StartupFailure: Error {
+        case timedOut
+        case missingPort
+    }
+
+    var baseURL: URL {
+        guard let port = listener.port else { preconditionFailure("fixture has no bound port") }
+        return URL(string: "http://127.0.0.1:\(port.rawValue)")!
+    }
+
+    init() throws {
         let fixture = try XCTUnwrap(Bundle(for: ProductPhoneUITests.self).url(forResource: "native_product", withExtension: "json"))
         let document = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as? [String: Any]
         var template = try XCTUnwrap(document?["package"] as? [String: Any])
@@ -35,13 +53,17 @@ final class ProductFixtureServer {
         }
         template["coursePrep"] = coursePrep
         sourcePackage = template
-        listener = try NWListener(using: .tcp, on: 9000)
-        let ready = XCTestExpectation(description: "isolated synthetic backend binds port 9000")
-        var startupError: Error?
-        listener.stateUpdateHandler = { value in
+        listener = try NWListener(using: .tcp, on: .any)
+        listener.stateUpdateHandler = { [weak self] value in
+            guard let self else { return }
             switch value {
-            case .ready: ready.fulfill()
-            case .failed(let error): startupError = error; ready.fulfill()
+            case .ready:
+                self.startupSemaphore.signal()
+            case .failed(let error):
+                self.startupLock.lock()
+                self.startupFailure = error
+                self.startupLock.unlock()
+                self.startupSemaphore.signal()
             default: break
             }
         }
@@ -51,12 +73,26 @@ final class ProductFixtureServer {
             self.receive(connection, accumulated: Data())
         }
         listener.start(queue: queue)
-        test.wait(for: [ready], timeout: 5)
-        if let startupError { throw startupError }
+        guard startupSemaphore.wait(timeout: .now() + 5) == .success else {
+            listener.cancel()
+            throw StartupFailure.timedOut
+        }
+        startupLock.lock()
+        let failure = startupFailure
+        startupLock.unlock()
+        if let failure {
+            listener.cancel()
+            throw failure
+        }
+        guard listener.port != nil else {
+            listener.cancel()
+            throw StartupFailure.missingPort
+        }
     }
 
-    func configure(_ next: State) { queue.sync { state = next; paths = [] } }
+    func configure(_ next: State) { queue.sync { state = next; paths = []; samples = [] } }
     func requestedPaths() -> [String] { queue.sync { paths } }
+    func lastSample() -> Sample? { queue.sync { samples.last } }
     func stop() { listener.cancel() }
 
     private func receive(_ connection: NWConnection, accumulated: Data) {
@@ -113,7 +149,18 @@ final class ProductFixtureServer {
                 "readyHoles": state.coverage == "ready" ? 9 : 0, "totalHoles": 9]
             return (200, package)
         }
-        if path == "/api/v2/history/stats/mobile" { return (200, stats()) }
+        if path == "/api/v2/history/stats/mobile" {
+            let window = query["window"] ?? "all"
+            let ids = (1...max(1, state.roundCount)).filter { $0 <= state.roundCount }
+            let selected: [Int]
+            switch window {
+            case "last10": selected = Array(ids.suffix(10))
+            case "last20": selected = Array(ids.suffix(20))
+            default: selected = ids // All three synthetic dates fall inside the twelve-month sample.
+            }
+            samples.append(Sample(window: window, roundIDs: selected.map { "r\($0)" }))
+            return (200, stats(roundIDs: selected))
+        }
         if path == "/api/v2/history/rounds" {
             // Q2's hand-written sample is r1/r2; Q3 contains r3.
             let ids: [Int] = query["period"] == "2026-Q2" ? [2, 1] : Array((1...max(1, state.roundCount)).reversed()).filter { $0 <= state.roundCount }
@@ -125,13 +172,17 @@ final class ProductFixtureServer {
         }
         if path.hasSuffix("/shotmap") {
             let hole = Int(path.split(separator: "/").dropLast().last ?? "1") ?? 1
-            var prep = ((sourcePackage["coursePrep"] as? [String: Any])?["holes"] as? [[String: Any]])?.first ?? [:]
-            prep["hole"] = hole
-            return (200, ["found": true, "hole": hole, "par": 4, "globalId": 81001, "localHole": hole <= 9 ? hole + 9 : hole - 9,
-                "geometryRevision": "native-r1", "mapKind": "prodgeometry", "map": prep["map"] ?? [:], "shots": state.hasShots ? [
-                    ["id": "s\(hole)-1", "order": 1, "start": [100, 350], "end": [100, 200], "club": "7I", "endLie": "fairway"],
-                    ["id": "s\(hole)-2", "order": 2, "start": [100, 200], "end": [100, 16], "club": "6I", "endLie": "green"],
-                ] : [], "manualPenalty": 0, "missingData": []])
+            let prep = ((sourcePackage["coursePrep"] as? [String: Any])?["holes"] as? [[String: Any]])?.first ?? [:]
+            let first: [String: Any] = ["id": "s\(hole)-1", "order": 1, "start": [100, 350],
+                "end": [100, 200], "club": "7I", "endLie": "fairway"]
+            let second: [String: Any] = ["id": "s\(hole)-2", "order": 2, "start": [100, 200],
+                "end": [100, 16], "club": "6I", "endLie": "green"]
+            let shots: [[String: Any]] = state.hasShots ? [first, second] : []
+            let result: [String: Any] = ["found": true, "hole": hole, "par": 4, "globalId": 81001,
+                "localHole": hole <= 9 ? hole + 9 : hole - 9, "geometryRevision": "native-r1",
+                "mapKind": "prodgeometry", "map": prep["map"] ?? [:], "shots": shots,
+                "manualPenalty": 0, "missingData": []]
+            return (200, result)
         }
         if path.hasPrefix("/api/v2/history/rounds/") && !path.contains("/report") {
             let ref = path.split(separator: "/").last.map(String.init) ?? "r1"
@@ -141,15 +192,19 @@ final class ProductFixtureServer {
             let extra = total - pars
             let perHole = extra / state.reviewHoles
             let remainder = extra % state.reviewHoles
-            return (200, ["roundRef": ref, "found": true,
-                "round": ["courseName": "Example", "date": date(index), "score": total,
-                          "par": pars, "toPar": extra, "holesCompleted": state.reviewHoles],
-                "scorecard": (1...state.reviewHoles).map { n in
-                    ["hole": n, "par": 4, "score": 4 + perHole + (n <= remainder ? 1 : 0), "toPar": perHole + (n <= remainder ? 1 : 0),
-                     "putts": state.includePutts ? (2 as Any) : NSNull(),
-                     "localHole": n <= 9 ? n + 9 : n - 9, "globalId": 81001,
-                     "shotRefs": state.hasShots ? ["s\(n)-1", "s\(n)-2"] : []] as [String: Any]
-                }, "phaseSummary": [], "missingData": []])
+            let round: [String: Any] = ["courseName": "Example", "date": date(index), "score": total,
+                "par": pars, "toPar": extra, "holesCompleted": state.reviewHoles]
+            let scorecard: [[String: Any]] = (1...state.reviewHoles).map { n in
+                let toPar = perHole + (n <= remainder ? 1 : 0)
+                let putts: Any
+                if state.includePutts { putts = 2 } else { putts = NSNull() }
+                let refs: [String] = state.hasShots ? ["s\(n)-1", "s\(n)-2"] : []
+                return ["hole": n, "par": 4, "score": 4 + toPar, "toPar": toPar, "putts": putts,
+                    "localHole": n <= 9 ? n + 9 : n - 9, "globalId": 81001, "shotRefs": refs]
+            }
+            let detail: [String: Any] = ["roundRef": ref, "found": true, "round": round,
+                "scorecard": scorecard, "phaseSummary": [], "missingData": []]
+            return (200, detail)
         }
         if path.contains("report") || path.contains("caddie/decision") {
             return (state.providerFailure ? 503 : 404, ["error": "synthetic-provider-unavailable"])
@@ -190,27 +245,31 @@ final class ProductFixtureServer {
          "scoreStrip": [], "badges": []]
     }
 
-    private func stats() -> [String: Any] {
-        ["summary": ["totalRounds": state.roundCount, "eighteenHoleRounds": state.roundCount,
-                     "recent10Average": 82, "bestScore": 80, "handicapEstimate": 10],
-         "trend": ["points": (1...max(1, state.roundCount)).filter { $0 <= state.roundCount }.map {
-             ["roundId": "r\($0)", "date": date($0), "score": 78 + $0 * 2] as [String: Any]
-         }],
-         "time": ["byMonth": [], "byYear": [], "byQuarter": [
-            ["key": "2026-Q2", "roundCount": 2, "eighteenHoleRounds": 2, "average18": 81,
-             "bestScore": 80, "worstScore": 82, "roundIds": ["r1", "r2"]],
-            ["key": "2026-Q3", "roundCount": 1, "eighteenHoleRounds": 1, "average18": 84,
-             "bestScore": 84, "worstScore": 84, "roundIds": ["r3"]],
-         ]],
-         "courses": [["courseKey": "example", "courseName": "Example", "roundCount": 3, "average18": 82,
-                      "loopKeys": ["gid:81001:1-9", "gid:81001:10-18"], "nineOnlyRounds": 1,
-                      "rounds": [["roundId": "r1", "date": "2026-06-01", "score": 80, "holesCompleted": 18]]]],
-         "scoring": ["loops": [
-            ["loopKey": "gid:81001:1-9", "label": "1–9", "holes": [["hole": 1, "par": 4, "averageToPar": 1.5, "samples": 2]]],
-            ["loopKey": "gid:81001:10-18", "label": "10–18", "holes": [["hole": 10, "par": 4, "averageToPar": 3, "samples": 1]]],
-         ], "nineCombos": [
-            ["frontKey": "gid:81001:1-9", "backKey": "gid:81001:10-18", "front": "1–9", "back": "10–18", "rounds": 2, "average": 81],
-            ["frontKey": "gid:81001:10-18", "backKey": "gid:81001:1-9", "front": "10–18", "back": "1–9", "rounds": 1, "average": 84],
-         ]]]
+    private func stats(roundIDs: [Int]) -> [String: Any] {
+        let summary: [String: Any] = ["totalRounds": roundIDs.count, "eighteenHoleRounds": roundIDs.count,
+            "recent10Average": 82, "bestScore": 80, "handicapEstimate": 10]
+        let points: [[String: Any]] = roundIDs.map {
+            ["roundId": "r\($0)", "date": date($0), "score": 78 + $0 * 2]
+        }
+        let q2: [String: Any] = ["key": "2026-Q2", "roundCount": 2, "eighteenHoleRounds": 2,
+            "average18": 81, "bestScore": 80, "worstScore": 82, "roundIds": ["r1", "r2"]]
+        let q3: [String: Any] = ["key": "2026-Q3", "roundCount": 1, "eighteenHoleRounds": 1,
+            "average18": 84, "bestScore": 84, "worstScore": 84, "roundIds": ["r3"]]
+        let time: [String: Any] = ["byMonth": [], "byYear": [], "byQuarter": [q2, q3]]
+        let courseRound: [String: Any] = ["roundId": "r1", "date": "2026-06-01", "score": 80, "holesCompleted": 18]
+        let course: [String: Any] = ["courseKey": "example", "courseName": "Example", "roundCount": 3,
+            "average18": 82, "loopKeys": ["gid:81001:1-9", "gid:81001:10-18"], "nineOnlyRounds": 1,
+            "rounds": [courseRound]]
+        let frontHole: [String: Any] = ["hole": 1, "par": 4, "averageToPar": 1.5, "samples": 2]
+        let backHole: [String: Any] = ["hole": 10, "par": 4, "averageToPar": 3, "samples": 1]
+        let front: [String: Any] = ["loopKey": "gid:81001:1-9", "label": "1–9", "holes": [frontHole]]
+        let back: [String: Any] = ["loopKey": "gid:81001:10-18", "label": "10–18", "holes": [backHole]]
+        let frontBack: [String: Any] = ["frontKey": "gid:81001:1-9", "backKey": "gid:81001:10-18",
+            "front": "1–9", "back": "10–18", "rounds": 2, "average": 81]
+        let backFront: [String: Any] = ["frontKey": "gid:81001:10-18", "backKey": "gid:81001:1-9",
+            "front": "10–18", "back": "1–9", "rounds": 1, "average": 84]
+        let scoring: [String: Any] = ["loops": [front, back], "nineCombos": [frontBack, backFront]]
+        return ["summary": summary, "trend": ["points": points], "time": time,
+            "courses": [course], "scoring": scoring]
     }
 }

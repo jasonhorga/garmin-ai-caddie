@@ -28,7 +28,11 @@ public struct BackendConfigurationStore {
         KeychainAdminToken.save(token, service: adminTokenService, account: adminTokenAccount)
     }
 
-    public static func normalizedAPIBaseURL(from value: String?, allowFixtureLoopback: Bool = false) -> URL? {
+    public static func normalizedAPIBaseURL(
+        from value: String?,
+        allowFixtureLoopback: Bool = false,
+        fixtureLoopbackPort: Int = 9000
+    ) -> URL? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let trimmed, !trimmed.isEmpty, !trimmed.contains("$(") else {
             return nil
@@ -39,7 +43,8 @@ public struct BackendConfigurationStore {
         let scheme = components.scheme?.lowercased()
         let isFixtureLoopback = allowFixtureLoopback
             && scheme == "http"
-            && components.port == 9000
+            && (1...65535).contains(fixtureLoopbackPort)
+            && components.port == fixtureLoopbackPort
             && ["127.0.0.1", "localhost", "::1"].contains(components.host?.lowercased() ?? "")
             && (components.percentEncodedPath.isEmpty || components.percentEncodedPath == "/")
         guard (scheme == "https" || isFixtureLoopback),

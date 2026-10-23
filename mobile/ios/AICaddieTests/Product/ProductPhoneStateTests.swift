@@ -4,6 +4,28 @@ import XCTest
 
 @MainActor
 final class ProductPhoneStateTests: XCTestCase {
+    #if DEBUG && !SWIFT_PACKAGE
+    func test_product_fixture_port_requires_explicit_ui_mode_and_matching_origin() {
+        let rows: [(String, String?, String?, String, Bool)] = [
+            ("explicit-ui", "1", "54321", "http://127.0.0.1:54321", true),
+            ("no-ui-mode", nil, "54321", "http://127.0.0.1:54321", false),
+            ("no-port-opt-in", "1", nil, "http://127.0.0.1:54321", false),
+            ("mismatched-port", "1", "54320", "http://127.0.0.1:54321", false),
+            ("invalid-port", "1", "0", "http://127.0.0.1:54321", false),
+            ("external-host", "1", "54321", "http://example.invalid:54321", false),
+            ("ordinary-fixture", nil, nil, "http://127.0.0.1:9000", true),
+        ]
+        for (name, uiMode, port, origin, accepted) in rows {
+            var environment = ["AI_CADDIE_FIXTURE_MODE": "1", "AI_CADDIE_DATA_MODE": "fixture",
+                "AI_CADDIE_ADMIN_TOKEN": "synthetic-ui-only", "AI_CADDIE_API_BASE_URL": origin]
+            environment["UITEST_MODE"] = uiMode
+            environment["UITEST_FIXTURE_PORT"] = port
+            let url = LiveRoundAppModel.resolveAPIBaseURL(environment: environment, persistedValue: nil, bundleValue: nil)
+            XCTAssertEqual(url?.absoluteString, accepted ? origin : nil, name)
+        }
+    }
+    #endif
+
     func test_j2_7_distance_ladder_flags_only_abnormal_gaps() throws {
         // Metres are exactly yards * .9144; the 150/142 gap is legal,
         // 142/135 overlaps, 135/115 is legal, 115/94 leaves a hole.
@@ -124,7 +146,9 @@ final class ProductPhoneStateTests: XCTestCase {
         let weather = HomeWeather(temperatureC: 18.4, windSpeedMps: 3, windDirectionDeg: 90,
                                   condition: "clear", precipitationProbabilityPct: 40)
         XCTAssertNotNil(weather.presentation)
-        XCTAssertEqual(weather.presentation?.temperatureText, "18°", "round 18.4, no invented default")
+        XCTAssertEqual(weather.temperatureC, 18.4, "provider temperature fact")
+        let renderedTemperature = weather.presentation?.temperatureText.split(whereSeparator: { !$0.isNumber }).first.flatMap { Int($0) }
+        XCTAssertEqual(renderedTemperature, 18, "rounded temperature value, independent of suffix copy")
         XCTAssertEqual(HomeWeather.beaufortForce(3), 2)
         let recent: [HistoryRoundCard] = try (80...88).map { score in
             try ProductSharedVectors.decode(["id": "r\(score)", "courseName": "Example", "holesCompleted": 18, "score": score])
@@ -135,7 +159,7 @@ final class ProductPhoneStateTests: XCTestCase {
             ClubProfile(clubName: "7I", sampleSize: 20, medianM: 137.16, p10M: 128.016, p90M: 146.304),
             ClubProfile(clubName: "3W", sampleSize: 20, medianM: 182.88, p10M: 173.736, p90M: 192.024),
         ])
-        XCTAssertEqual(carries.map(\.yards), [200, 150], "longest club leads the home tile")
+        XCTAssertEqual(carries.map { $0.yards }, [200, 150], "longest club leads the home tile")
         let latest = try ProductInputs.card("newest")
         XCTAssertEqual(HubHeroState.lastRoundStrip(lastRoundId: "newest", newest: latest).map(\.score), [5])
         XCTAssertTrue(HubHeroState.lastRoundStrip(lastRoundId: "older", newest: latest).isEmpty)

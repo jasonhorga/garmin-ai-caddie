@@ -4260,11 +4260,18 @@ public final class LiveRoundAppModel: ObservableObject {
         let markerPresent = environment["AI_CADDIE_FIXTURE_MODE"] != nil
             || environment["AI_CADDIE_DATA_MODE"] != nil
         if markerPresent {
+            // Each UI test owns an ephemeral listener; the ordinary fixture keeps its default port.
+            var fixturePort = 9000
+            if environment["UITEST_MODE"] == "1", let value = environment["UITEST_FIXTURE_PORT"] {
+                guard let port = Int(value), (1...65535).contains(port) else { return nil }
+                fixturePort = port
+            }
             guard environment["AI_CADDIE_FIXTURE_MODE"] == "1",
                   environment["AI_CADDIE_DATA_MODE"] == "fixture",
                   sanitizedConfigurationValue(environment["AI_CADDIE_ADMIN_TOKEN"]) != nil,
                   let fixtureURL = BackendConfigurationStore.normalizedAPIBaseURL(
-                      from: environment["AI_CADDIE_API_BASE_URL"], allowFixtureLoopback: true
+                      from: environment["AI_CADDIE_API_BASE_URL"], allowFixtureLoopback: true,
+                      fixtureLoopbackPort: fixturePort
                   ),
                   fixtureURL.scheme?.lowercased() == "http" else { return nil }
             return fixtureURL

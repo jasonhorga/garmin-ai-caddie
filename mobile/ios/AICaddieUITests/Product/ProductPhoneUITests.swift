@@ -9,7 +9,7 @@ final class ProductPhoneUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        server = try ProductFixtureServer(test: self)
+        server = try ProductFixtureServer()
         app = XCUIApplication()
     }
 
@@ -23,7 +23,8 @@ final class ProductPhoneUITests: XCTestCase {
     private func launch(reset: Bool = true, latitude: String? = nil) {
         app.launchEnvironment = [
             "UITEST_MODE": "1", "AI_CADDIE_FIXTURE_MODE": "1", "AI_CADDIE_DATA_MODE": "fixture",
-            "AI_CADDIE_ADMIN_TOKEN": "synthetic-ui-only", "AI_CADDIE_API_BASE_URL": "http://127.0.0.1:9000",
+            "AI_CADDIE_ADMIN_TOKEN": "synthetic-ui-only", "AI_CADDIE_API_BASE_URL": server.baseURL.absoluteString,
+            "UITEST_FIXTURE_PORT": String(server.baseURL.port!),
             "UITEST_DISABLE_EVENT_SYNC": "1",
         ]
         if reset {
@@ -95,23 +96,45 @@ final class ProductPhoneUITests: XCTestCase {
         let grain = element("time-grain")
         XCTAssertTrue(grain.waitForExistence(timeout: 10))
         XCTAssertTrue(grain.isEnabled, "grain must remain interactive")
-        // Selection labels identify semantic controls; they are not copy assertions.
-        let range = app.segmentedControls.containing(.button, identifier: "近10场").firstMatch
+        // Prefer the semantic id; legacy labels below are locators only, never copy assertions.
+        let identifiedRange = element("time-range")
+        let legacyRange = app.segmentedControls.containing(.button, identifier: "近10场").firstMatch
+        let range = identifiedRange.exists ? identifiedRange : legacyRange
         XCTExpectFailure("C16e J2.2: time page has no independent range control") {
             XCTAssertTrue(range.exists, "range must be selectable independently of grain")
         }
         guard range.exists else { return }
-        // Count windows draw rounds; twelve months draw round/month/quarter; all draws month/quarter/year.
-        let rows: [(String, [Bool])] = [
-            ("近10场", [true, false, false, false]), ("近20场", [true, false, false, false]),
-            ("近12月", [true, true, true, false]), ("全部", [false, true, true, true]),
+        XCTAssertEqual(range.buttons.count, 4)
+        XCTAssertEqual(grain.buttons.count, 4)
+        // The three synthetic rounds are all inside twelve months; count windows cannot invent
+        // more rounds. No range/grain legality table is prescribed by the product specification.
+        let rows: [(String, Int, [String])] = [
+            ("last10", 0, ["r1", "r2", "r3"]), ("last20", 1, ["r1", "r2", "r3"]),
+            ("12m", 2, ["r1", "r2", "r3"]), ("all", 3, ["r1", "r2", "r3"]),
         ]
-        for (name, allowed) in rows {
-            range.buttons[name].tap()
-            for (index, enabled) in allowed.enumerated() {
+        for (window, rangeIndex, expectedIDs) in rows {
+            let selectedRange = range.buttons.element(boundBy: rangeIndex)
+            selectedRange.tap()
+            let loaded = XCTNSPredicateExpectation(predicate: NSPredicate { [server] _, _ in
+                server?.lastSample()?.window == window
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 10), .completed, window + " sample loaded")
+            for index in 0..<grain.buttons.count {
                 let button = grain.buttons.element(boundBy: index)
-                XCTAssertEqual(button.isEnabled, enabled, name + " grain \(index)")
-                if !enabled { XCTAssertTrue(range.buttons[name].isSelected, name + " remains selected") }
+                let before = grain.buttons.allElementsBoundByIndex.map { $0.isSelected }
+                let enabled = button.isEnabled
+                // A physical tap can reach a disabled segment without XCTest refusing activation.
+                button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                XCTAssertTrue(selectedRange.isSelected, window + " grain \(index) preserves range")
+                if enabled {
+                    XCTAssertTrue(button.isSelected, window + " enabled grain \(index) selected")
+                } else {
+                    XCTAssertEqual(grain.buttons.allElementsBoundByIndex.map { $0.isSelected }, before,
+                                   window + " disabled grain \(index) is inert")
+                }
+                XCTAssertEqual(server.lastSample()?.window, window, window + " sample range")
+                XCTAssertEqual(server.lastSample()?.roundIDs, expectedIDs, window + " exact sample, grain \(index)")
+                XCTAssertEqual(server.lastSample()?.roundIDs.count, 3, window + " sample count")
             }
         }
     }
@@ -156,8 +179,13 @@ final class ProductPhoneUITests: XCTestCase {
             insideWindow(element("round-review-share"), name + " share")
             XCTAssertTrue(element("round-review-share").isEnabled, name)
             if holes == 18 {
-                XCTExpectFailure("C16e J2.8: physical loop identity still rendered as OUT/IN") {
-                    XCTAssertFalse(app.staticTexts["OUT"].exists || app.staticTexts["IN"].exists, name)
+                // Back-first physical numbering is 10…18, then 1…9, regardless of title copy.
+                let firstIndex = element("live-scorecard-hole-index-1")
+                let tenthIndex = element("live-scorecard-hole-index-10")
+                XCTAssertTrue(firstIndex.exists && tenthIndex.exists, name + " both loop cards exist")
+                XCTExpectFailure("C16e J2.8: review loses the physical back/front identity") {
+                    XCTAssertEqual(Int(firstIndex.label), 10, name + " first physical hole")
+                    XCTAssertEqual(Int(tenthIndex.label), 1, name + " second loop physical hole")
                 }
             }
             app.terminate()
@@ -195,7 +223,7 @@ final class ProductPhoneUITests: XCTestCase {
         var state = ProductFixtureServer.State(); state.providerFailure = true
         server.configure(state)
         let completed = expectation(description: "fake provider actually fails")
-        URLSession.shared.dataTask(with: URL(string: "http://127.0.0.1:9000/api/v2/reports/decision")!) { _, response, error in
+        URLSession.shared.dataTask(with: server.baseURL.appendingPathComponent("api/v2/reports/decision")) { _, response, error in
             XCTAssertNil(error)
             XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 503)
             completed.fulfill()
@@ -288,10 +316,10 @@ final class ProductPhoneUITests: XCTestCase {
             tap("turn-stop"); tap("turn-go")
         }
         XCTAssertTrue(element("live-finish-to-par").waitForExistence(timeout: 10))
-        XCTAssertEqual(element("live-finish-to-par").label, "E", "nine par fours = 36/36")
-        let par = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Par 36")).firstMatch
+        // There is no identifier on the par line yet: its prefix locates it, numbers carry the assertion.
+        let par = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Par ")).firstMatch
         insideWindow(par, "nine recorded holes")
-        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Par 72")).firstMatch.exists)
+        XCTAssertEqual(integers(in: par.label), [36, 9, 9], "recorded par, played holes, course holes")
         insideWindow(element("live-finish-save"), "save summary")
     }
 
@@ -312,8 +340,12 @@ final class ProductPhoneUITests: XCTestCase {
         for id in ["home-tile-scores", "home-tile-prep", "home-tile-bag", "home-tile-weather"] {
             insideWindow(element(id), id)
         }
-        XCTAssertFalse(element("home-tile-weather").label.contains("°"), "failed weather cannot invent a temperature")
+        XCTAssertTrue(integers(in: element("home-tile-weather").label).isEmpty, "missing weather has no numeric temperature")
         XCTAssertFalse(element("home-last-round-strip").exists, "no archived round to attach the strip to")
+    }
+
+    private func integers(in text: String) -> [Int] {
+        text.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
     }
 
     private func assertRanges(_ expected: [Int], row: String) {

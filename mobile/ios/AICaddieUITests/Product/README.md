@@ -5,11 +5,13 @@
 and the small synthetic `native_product.json` into AICaddieUITests. No golden is duplicated.
 SwiftPM host tests use a repository-relative path anchored at `#filePath`.
 
-The UI class owns an isolated loopback HTTP server. Run it serially on an idle simulator with port
-9000 free; the app's existing DEBUG fixture-origin policy requires that port. Do not also start the
-Python CI fixture. Port binding failures fail setup instead of using another backend. All app launches
-set fixture markers and synthetic credentials explicitly. The one-hole input template is expanded
-into nine physical holes; it contains no expected test result.
+The UI class owns an isolated loopback HTTP server bound to port zero (`.any`). It passes the assigned
+origin and `UITEST_FIXTURE_PORT` to every app launch. DEBUG accepts that exact port only with explicit
+UI-test mode and fixture markers; ordinary fixture configuration retains port 9000. The Python CI
+fixture may keep port 9000. Run this class serially because the tests share the simulator app's state.
+The listener is Sendable, request state is queue-confined, and startup errors cross queues under a lock.
+Port binding/startup failures fail setup. All launches use synthetic credentials. The one-hole input
+template expands into nine physical holes and contains no expected test result.
 
 After XcodeGen, select available iOS destinations and run:
 
@@ -41,12 +43,18 @@ post-tee range recomputation against explicit tee and moved-position numbers.
 
 Names below omit only the common `test_` prefix. Each promise has one primary test; additional tests
 with the same promise number are complementary UI or phone-adapter checks. Counts describe input
-rows/sequences, not XCTest assertion counts. The J2.2 matrix is gated by its missing range control.
+rows/sequences, not XCTest assertion counts. J2.2 checks invariants for the observed enabled/disabled
+states, without prescribing a legality matrix. Its missing range control gates the four-range checks;
+each selected range has the same three available synthetic rounds, and the server records the app's
+requested window and served sample IDs. Grain changes must preserve both the range and that sample.
+The additional `test_product_fixture_port_requires_explicit_ui_mode_and_matching_origin` has seven
+configuration rows covering opt-in, port matching, invalid ports, loopback scope and the ordinary fixture.
+There are 26 promise primaries, seven companion tests and this one fixture configuration test (34 total).
 
 | Promise | Primary class / method | Rows | Complement |
 |---|---|---|---|
 | J2.1 | ProductPhoneUITests / j2_1_results_entries_remain_enabled_for_zero_one_and_many_rounds | 3 home states × 5 entries | — |
-| J2.2 | ProductPhoneUITests / j2_2_range_and_grain_disable_illegal_combinations_without_changing_range | 4 ranges × 4 grains | Missing range is strict known-red |
+| J2.2 | ProductPhoneUITests / j2_2_range_and_grain_disable_illegal_combinations_without_changing_range | 4 ranges × 4 observed grain states; 3 exact sample IDs each | No legality matrix; missing range is strict known-red |
 | J2.3 | ProductPhoneUITests / j2_3_quarter_drilldown_opens_only_its_two_real_rounds_then_review | 1 quarter, 2 included + 1 excluded rounds | — |
 | J2.6 | ProductPhoneUITests / j2_6_course_sections_fit_and_keep_ordered_combinations_separate | 1 course, 2 ordered combos, 2 hardest-hole sample cases | — |
 | J2.7 | ProductPhoneStateTests / j2_7_distance_ladder_flags_only_abnormal_gaps | 4 gap boundaries + 1 ladder | — |
