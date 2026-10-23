@@ -14,10 +14,11 @@
 #   API_IMAGE=... SYNC_DEPS_IMAGE=aicaddie-sync-deps:<hash> bash ops/build_sync_image.sh
 #   SYNC_IMAGE_TAG=verify API_IMAGE=... bash ops/build_sync_image.sh
 #
-# When SYNC_DEPS_IMAGE is omitted this script finds a local sync-deps image
-# whose ai.caddie.api-dependencies-hash matches the API image's dependency
-# hash. It prints the exact build command when no matching image exists and
-# exits instead of allowing Docker to pull an unlabelled or :local image.
+# When SYNC_DEPS_IMAGE is omitted this script computes the sync-deps hash from
+# the API dependency hash and the sync dependency inputs, then uses the exact
+# `aicaddie-sync-deps:<sync-hash>` tag. It prints the exact build command when
+# that local tag is missing and exits instead of allowing Docker to pull an
+# unlabelled or :local image.
 #
 # A custom tag is useful for inspection, but the canonical full-SHA tag is
 # always created as well. Set PUBLISH_LATEST=1 only when a compatibility alias
@@ -135,19 +136,9 @@ CANONICAL_TAG="aicaddie-sync:${API_SOURCE_REVISION}"
 
 SYNC_DEPS_IMAGE="${SYNC_DEPS_IMAGE:-}"
 if [[ -z "$SYNC_DEPS_IMAGE" ]]; then
-  mapfile -t sync_dependency_candidates < <(
-    docker image ls aicaddie-sync-deps --format '{{.Repository}}:{{.Tag}}' 2>/dev/null || true
-  )
-  for candidate in "${sync_dependency_candidates[@]}"; do
-    candidate_api_hash="$(docker image inspect --format '{{index .Config.Labels "ai.caddie.api-dependencies-hash"}}' "$candidate" 2>/dev/null || true)"
-    if [[ "$candidate_api_hash" == "$API_DEPENDENCIES_HASH" ]]; then
-      SYNC_DEPS_IMAGE="$candidate"
-      break
-    fi
-  done
-  if [[ -z "$SYNC_DEPS_IMAGE" ]]; then
-    SYNC_DEPS_HASH="$(python3 -c "from ops.agenthub_deploy import sync_dependency_hash; print(sync_dependency_hash('${API_DEPENDENCIES_HASH}'))")"
-    SYNC_DEPS_IMAGE="aicaddie-sync-deps:${SYNC_DEPS_HASH}"
+  SYNC_DEPS_HASH="$(python3 -c "from ops.agenthub_deploy import sync_dependency_hash; print(sync_dependency_hash('${API_DEPENDENCIES_HASH}'))")"
+  SYNC_DEPS_IMAGE="aicaddie-sync-deps:${SYNC_DEPS_HASH}"
+  if ! docker image inspect "$SYNC_DEPS_IMAGE" >/dev/null 2>&1; then
     echo "error: sync dependency image '$SYNC_DEPS_IMAGE' is missing locally" >&2
     echo "build it first with:" >&2
     echo "  docker build -f Dockerfile.sync-deps --build-arg API_IMAGE=garmin-ai-caddie-deps:${API_DEPENDENCIES_HASH} --label ai.caddie.dependencies-hash=${SYNC_DEPS_HASH} --label ai.caddie.api-dependencies-hash=${API_DEPENDENCIES_HASH} -t ${SYNC_DEPS_IMAGE} ." >&2
