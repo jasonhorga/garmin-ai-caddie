@@ -1,0 +1,4507 @@
+{
+ "_about": "C16b golden, written before any product run. value + formula per item. Round positions P1 (newest) .. P31 (oldest); ids in round_ids.json; P25 = merged same-day cards P25a+P25b.",
+ "roundIdByPos": {
+  "P1": "310000211",
+  "P2": "310000027",
+  "P3": "310000310",
+  "P4": "310000105",
+  "P5": "310000420",
+  "P6": "310000013",
+  "P7": "310000398",
+  "P8": "310000077",
+  "P9": "310000256",
+  "P10": "310000141",
+  "P11": "310000333",
+  "P12": "310000002",
+  "P13": "310000188",
+  "P14": "310000270",
+  "P15": "310000055",
+  "P16": "310000366",
+  "P17": "310000099",
+  "P18": "310000232",
+  "P19": "310000164",
+  "P20": "310000301",
+  "P21": "310000044",
+  "P22": "310000289",
+  "P23": "310000122",
+  "P24": "310000377",
+  "P25": "merged_310000066_310000245",
+  "P26": "310000199",
+  "P27": "310000318",
+  "P28": "310000088",
+  "P29": "310000355",
+  "P30": "310000177",
+  "P31": "310000011"
+ },
+ "2.1": {
+  "handicapEstimate": {
+   "value": 10.0,
+   "formula": "WHS: differential=(score-71.0)*113/113; most recent 20 priceable records (unpriceable P2,P4,P5,P9,P11,P17 skipped) lowest 7 of 19 [10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0] -> 70.0/7; ambiguity-proof: reading 'latest 20 rounds minus unpriceable' = 14 diffs -> lowest 4 [10.0, 10.0, 10.0, 10.0] -> same"
+  },
+  "handicapBefore20": {
+   "value": 14.0,
+   "formula": "estimate on rounds older than the latest 20 (P21..P31): lowest 1 of 5 [14.0] -> 14.0/1 (every older priceable diff is 14.0 -> any WHS sample rule gives 14.0)"
+  },
+  "handicapChangeRecent20": {
+   "value": -4.0,
+   "formula": "[B5a] now 10.0 - before 14.0"
+  },
+  "recent10Average": {
+   "value": 82.3,
+   "formula": "P1..P10 scores [81, 78, 85, 81, 83, 81, 88, 81, 84, 81] sum 823 / 10"
+  },
+  "careerAverage18": {
+   "value": 84.8,
+   "formula": "all 18-hole rounds (27, incl. merged P25) sum 2289 / 27 -- must differ from recent10Average (生涯不冒充近期)"
+  },
+  "bestScore": {
+   "value": 78,
+   "formula": "min 18-hole score; best overall = P2 78, which is also the best of the last 10 (ambiguity-proof for '近 10 场 ... 最佳')"
+  },
+  "bestScoreLast10": {
+   "value": 78,
+   "formula": "min of P1..P10"
+  },
+  "totalRounds": {
+   "value": 31,
+   "formula": "31 rounds (32 cards, P25a+P25b merge into one)"
+  },
+  "courseCount": {
+   "value": 3,
+   "formula": "Kestrel Hills, Lark Valley, Pine Field"
+  },
+  "trendLast20": {
+   "value": [
+    {
+     "roundId": "310000301",
+     "pos": "P20",
+     "score": 81
+    },
+    {
+     "roundId": "310000164",
+     "pos": "P19",
+     "score": 90
+    },
+    {
+     "roundId": "310000232",
+     "pos": "P18",
+     "score": 81
+    },
+    {
+     "roundId": "310000099",
+     "pos": "P17",
+     "score": 92
+    },
+    {
+     "roundId": "310000366",
+     "pos": "P16",
+     "score": 89
+    },
+    {
+     "roundId": "310000055",
+     "pos": "P15",
+     "score": 81
+    },
+    {
+     "roundId": "310000270",
+     "pos": "P14",
+     "score": 87
+    },
+    {
+     "roundId": "310000188",
+     "pos": "P13",
+     "score": 81
+    },
+    {
+     "roundId": "310000002",
+     "pos": "P12",
+     "score": 86
+    },
+    {
+     "roundId": "310000333",
+     "pos": "P11",
+     "score": 90
+    },
+    {
+     "roundId": "310000141",
+     "pos": "P10",
+     "score": 81
+    },
+    {
+     "roundId": "310000256",
+     "pos": "P9",
+     "score": 84
+    },
+    {
+     "roundId": "310000077",
+     "pos": "P8",
+     "score": 81
+    },
+    {
+     "roundId": "310000398",
+     "pos": "P7",
+     "score": 88
+    },
+    {
+     "roundId": "310000013",
+     "pos": "P6",
+     "score": 81
+    },
+    {
+     "roundId": "310000420",
+     "pos": "P5",
+     "score": 83
+    },
+    {
+     "roundId": "310000105",
+     "pos": "P4",
+     "score": 81
+    },
+    {
+     "roundId": "310000310",
+     "pos": "P3",
+     "score": 85
+    },
+    {
+     "roundId": "310000027",
+     "pos": "P2",
+     "score": 78
+    },
+    {
+     "roundId": "310000211",
+     "pos": "P1",
+     "score": 81
+    }
+   ],
+   "formula": "18-hole rounds oldest->newest, last 20 = P20..P1 (all 18-hole)"
+  },
+  "line10": {
+   "value": [
+    86.1,
+    86.6,
+    86.0,
+    86.7,
+    86.1,
+    85.7,
+    85.9,
+    85.2,
+    85.3,
+    85.8,
+    85.8,
+    85.2,
+    85.2,
+    84.8,
+    84.0,
+    84.2,
+    83.6,
+    84.0,
+    83.2,
+    82.3
+   ],
+   "formula": "info for C16e (drawn client-side): mean of each point and the up-to-9 18-hole rounds before it; last value must equal recent10Average"
+  },
+  "recentThree": {
+   "value": [
+    {
+     "roundId": "310000211",
+     "pos": "P1",
+     "score": 81,
+     "toPar": [
+      0,
+      1,
+      0,
+      1,
+      1,
+      0,
+      1,
+      2,
+      0,
+      1,
+      0,
+      0,
+      1,
+      -1,
+      1,
+      0,
+      1,
+      0
+     ]
+    },
+    {
+     "roundId": "310000027",
+     "pos": "P2",
+     "score": 78,
+     "toPar": [
+      0,
+      -1,
+      0,
+      1,
+      1,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      0,
+      -1,
+      1,
+      1,
+      1
+     ]
+    },
+    {
+     "roundId": "310000310",
+     "pos": "P3",
+     "score": 85,
+     "toPar": [
+      1,
+      1,
+      0,
+      1,
+      2,
+      0,
+      1,
+      1,
+      0,
+      1,
+      0,
+      1,
+      1,
+      -1,
+      1,
+      2,
+      0,
+      1
+     ]
+    }
+   ],
+   "formula": "archive newest first P1,P2,P3; strip = per-hole strokes-par in hole order"
+  }
+ },
+ "2.2": {
+  "windows": {
+   "all": {
+    "roundIds": {
+     "value": [
+      "310000211",
+      "310000027",
+      "310000310",
+      "310000105",
+      "310000420",
+      "310000013",
+      "310000398",
+      "310000077",
+      "310000256",
+      "310000141",
+      "310000333",
+      "310000002",
+      "310000188",
+      "310000270",
+      "310000055",
+      "310000366",
+      "310000099",
+      "310000232",
+      "310000164",
+      "310000301",
+      "310000044",
+      "310000289",
+      "310000122",
+      "310000377",
+      "merged_310000066_310000245",
+      "310000199",
+      "310000318",
+      "310000088",
+      "310000355",
+      "310000177",
+      "310000011"
+     ],
+     "formula": "all: P1,P2,P3,P4,P5,P6,P7,P8,P9,P10,P11,P12,P13,P14,P15,P16,P17,P18,P19,P20,P21,P22,P23,P24,P25,P26,P27,P28,P29,P30,P31"
+    },
+    "roundCount": {
+     "value": 31,
+     "formula": "len = 31"
+    }
+   },
+   "last10": {
+    "roundIds": {
+     "value": [
+      "310000211",
+      "310000027",
+      "310000310",
+      "310000105",
+      "310000420",
+      "310000013",
+      "310000398",
+      "310000077",
+      "310000256",
+      "310000141"
+     ],
+     "formula": "last10: P1,P2,P3,P4,P5,P6,P7,P8,P9,P10"
+    },
+    "roundCount": {
+     "value": 10,
+     "formula": "len = 10"
+    }
+   },
+   "last20": {
+    "roundIds": {
+     "value": [
+      "310000211",
+      "310000027",
+      "310000310",
+      "310000105",
+      "310000420",
+      "310000013",
+      "310000398",
+      "310000077",
+      "310000256",
+      "310000141",
+      "310000333",
+      "310000002",
+      "310000188",
+      "310000270",
+      "310000055",
+      "310000366",
+      "310000099",
+      "310000232",
+      "310000164",
+      "310000301"
+     ],
+     "formula": "last20: P1,P2,P3,P4,P5,P6,P7,P8,P9,P10,P11,P12,P13,P14,P15,P16,P17,P18,P19,P20"
+    },
+    "roundCount": {
+     "value": 20,
+     "formula": "len = 20"
+    }
+   },
+   "12m": {
+    "roundIds": {
+     "value": [
+      "310000211",
+      "310000027",
+      "310000310",
+      "310000105",
+      "310000420",
+      "310000013",
+      "310000398",
+      "310000077",
+      "310000256",
+      "310000141",
+      "310000333",
+      "310000002",
+      "310000188",
+      "310000270",
+      "310000055",
+      "310000366",
+      "310000099",
+      "310000232",
+      "310000164",
+      "310000301",
+      "310000044"
+     ],
+     "formula": "12m: P1,P2,P3,P4,P5,P6,P7,P8,P9,P10,P11,P12,P13,P14,P15,P16,P17,P18,P19,P20,P21"
+    },
+    "roundCount": {
+     "value": 21,
+     "formula": "len = 21"
+    }
+   }
+  },
+  "last10Months": {
+   "value": [
+    "2026-09",
+    "2026-08",
+    "2026-07",
+    "2026-06",
+    "2026-05"
+   ],
+   "formula": "范围定样本: months of P1..P10 only (not 12 months)"
+  },
+  "previous": {
+   "last10": {
+    "value": {
+     "window": "prev10",
+     "roundCount": 10,
+     "requiredRounds": 10,
+     "hasScoring": true
+    },
+    "formula": "prev10 = P11,P12,P13,P14,P15,P16,P17,P18,P19,P20 (10 rounds); full -> compare"
+   },
+   "last20": {
+    "value": {
+     "window": "prev20",
+     "roundCount": 11,
+     "requiredRounds": 20,
+     "hasScoring": false
+    },
+    "formula": "prev20 = P21,P22,P23,P24,P25,P26,P27,P28,P29,P30,P31 (11 rounds); short of 20 -> no comparison"
+   },
+   "12m": {
+    "value": {
+     "window": "prev12m",
+     "roundCount": 10,
+     "requiredRounds": null,
+     "hasScoring": true
+    },
+    "formula": "prev12m = P22,P23,P24,P25,P26,P27,P28,P29,P30,P31 (10 rounds); full -> compare"
+   },
+   "all": {
+    "value": null,
+    "formula": "[B5a] 全部不比较: no previous block"
+   }
+  },
+  "compareScoring": {
+   "last10": {
+    "totalPutts": {
+     "value": 337,
+     "formula": "P1:35 + P2:28 + P3:35 + P4:36 + P5:34 + P6:33 + P7:35 + P8:36 + P9:31 + P10:34 = 337 (corrected values used: ['P2#12=1', 'P4#5=3'])"
+    },
+    "holesWithPutts": {
+     "value": 176,
+     "formula": "sum per round P1:18 + P2:16 + P3:18 + P4:18 + P5:18 + P6:18 + P7:18 + P8:18 + P9:16 + P10:18 = 176; eligible holes without putts (Garmin did not record) {} are unknown, not 0"
+    },
+    "zeroPutts": {
+     "value": 1,
+     "formula": "holes ['P6#11'] = 1"
+    },
+    "onePutts": {
+     "value": 18,
+     "formula": "holes ['P1#13', 'P1#14', 'P2#2', 'P2#9', 'P2#12', 'P2#15', 'P3#10', 'P3#14', 'P4#14', 'P5#2', 'P5#14', 'P6#14', 'P7#9', 'P7#14', 'P8#14', 'P9#14', 'P10#1', 'P10#14'] = 18"
+    },
+    "twoPutts": {
+     "value": 152,
+     "formula": "176 - zero 1 - one 18 - three+ 5 = 152"
+    },
+    "threePlusPutts": {
+     "value": 5,
+     "formula": "holes ['P1#7', 'P3#5', 'P4#5', 'P7#2', 'P8#15'] = 5"
+    },
+    "girRecorded": {
+     "value": 176,
+     "formula": "holes with known putts (GIR 按推杆推算 strokes-putts<=par-2) P1:18 + P2:16 + P3:18 + P4:18 + P5:18 + P6:18 + P7:18 + P8:18 + P9:16 + P10:18 = 176"
+    },
+    "gir": {
+     "value": 71,
+     "formula": "P1:10 + P2:6 + P3:6 + P4:10 + P5:6 + P6:8 + P7:3 + P8:10 + P9:4 + P10:8 = 71"
+    },
+    "fairwaysRecorded": {
+     "value": 84,
+     "formula": "P1:14 + P3:14 + P6:14 + P7:14 + P8:14 + P10:14 = 84 (manual rounds record no fairway; par 3 none)"
+    },
+    "fairwaysHit": {
+     "value": 38,
+     "formula": "HIT holes = 38"
+    },
+    "fairwayMissLeft": {
+     "value": 21,
+     "formula": "LEFT holes = 21"
+    },
+    "fairwayMissRight": {
+     "value": 25,
+     "formula": "RIGHT holes = 25"
+    },
+    "scrambleChances": {
+     "value": 105,
+     "formula": "girRecorded 176 - gir 71 = 105"
+    },
+    "scrambleSaves": {
+     "value": 6,
+     "formula": "missed-GIR holes with strokes<=par: ['P2#9', 'P2#12', 'P5#2', 'P6#11', 'P7#9', 'P10#1']"
+    }
+   },
+   "prev10": {
+    "totalPutts": {
+     "value": 351,
+     "formula": "P11:36 + P12:36 + P13:35 + P14:34 + P15:35 + P16:36 + P17:35 + P18:35 + P19:34 + P20:35 = 351 (corrected values used: [])"
+    },
+    "holesWithPutts": {
+     "value": 180,
+     "formula": "sum per round P11:18 + P12:18 + P13:18 + P14:18 + P15:18 + P16:18 + P17:18 + P18:18 + P19:18 + P20:18 = 180; eligible holes without putts (Garmin did not record) {} are unknown, not 0"
+    },
+    "zeroPutts": {
+     "value": 0,
+     "formula": "holes [] = 0"
+    },
+    "onePutts": {
+     "value": 12,
+     "formula": "holes ['P11#14', 'P12#14', 'P13#14', 'P14#12', 'P14#14', 'P15#14', 'P16#14', 'P17#14', 'P18#14', 'P19#3', 'P19#14', 'P20#14'] = 12"
+    },
+    "twoPutts": {
+     "value": 165,
+     "formula": "180 - zero 0 - one 12 - three+ 3 = 165"
+    },
+    "threePlusPutts": {
+     "value": 3,
+     "formula": "holes ['P11#4', 'P12#10', 'P16#17'] = 3"
+    },
+    "girRecorded": {
+     "value": 180,
+     "formula": "holes with known putts (GIR 按推杆推算 strokes-putts<=par-2) P11:18 + P12:18 + P13:18 + P14:18 + P15:18 + P16:18 + P17:18 + P18:18 + P19:18 + P20:18 = 180"
+    },
+    "gir": {
+     "value": 60,
+     "formula": "P11:4 + P12:6 + P13:9 + P14:4 + P15:9 + P16:4 + P17:3 + P18:9 + P19:3 + P20:9 = 60"
+    },
+    "fairwaysRecorded": {
+     "value": 140,
+     "formula": "P11:14 + P12:14 + P13:14 + P14:14 + P15:14 + P16:14 + P17:14 + P18:14 + P19:14 + P20:14 = 140 (manual rounds record no fairway; par 3 none)"
+    },
+    "fairwaysHit": {
+     "value": 46,
+     "formula": "HIT holes = 46"
+    },
+    "fairwayMissLeft": {
+     "value": 46,
+     "formula": "LEFT holes = 46"
+    },
+    "fairwayMissRight": {
+     "value": 48,
+     "formula": "RIGHT holes = 48"
+    },
+    "scrambleChances": {
+     "value": 120,
+     "formula": "girRecorded 180 - gir 60 = 120"
+    },
+    "scrambleSaves": {
+     "value": 1,
+     "formula": "missed-GIR holes with strokes<=par: ['P14#12']"
+    }
+   },
+   "prev12m": {
+    "totalPutts": {
+     "value": 141,
+     "formula": "P22:17 + P23:18 + P24:35 + P25:36 + P26:35 = 141 (corrected values used: [])"
+    },
+    "holesWithPutts": {
+     "value": 72,
+     "formula": "sum per round P22:9 + P23:9 + P24:18 + P25:18 + P26:18 = 72; eligible holes without putts (Garmin did not record) {'P27': 9, 'P28': 18, 'P29': 18, 'P30': 9, 'P31': 18} are unknown, not 0"
+    },
+    "zeroPutts": {
+     "value": 0,
+     "formula": "holes [] = 0"
+    },
+    "onePutts": {
+     "value": 3,
+     "formula": "holes ['P22#13', 'P24#14', 'P26#14'] = 3"
+    },
+    "twoPutts": {
+     "value": 69,
+     "formula": "72 - zero 0 - one 3 - three+ 0 = 69"
+    },
+    "threePlusPutts": {
+     "value": 0,
+     "formula": "holes [] = 0"
+    },
+    "girRecorded": {
+     "value": 72,
+     "formula": "holes with known putts (GIR 按推杆推算 strokes-putts<=par-2) P22:9 + P23:9 + P24:18 + P25:18 + P26:18 = 72"
+    },
+    "gir": {
+     "value": 20,
+     "formula": "P22:2 + P23:3 + P24:6 + P25:3 + P26:6 = 20"
+    },
+    "fairwaysRecorded": {
+     "value": 112,
+     "formula": "P22:7 + P23:7 + P24:14 + P25:14 + P26:14 + P27:7 + P28:14 + P29:14 + P30:7 + P31:14 = 112 (manual rounds record no fairway; par 3 none)"
+    },
+    "fairwaysHit": {
+     "value": 33,
+     "formula": "HIT holes = 33"
+    },
+    "fairwayMissLeft": {
+     "value": 37,
+     "formula": "LEFT holes = 37"
+    },
+    "fairwayMissRight": {
+     "value": 42,
+     "formula": "RIGHT holes = 42"
+    },
+    "scrambleChances": {
+     "value": 52,
+     "formula": "girRecorded 72 - gir 20 = 52"
+    },
+    "scrambleSaves": {
+     "value": 0,
+     "formula": "missed-GIR holes with strokes<=par: []"
+    }
+   }
+  },
+  "periods": {
+   "byQuarter": {
+    "2026-Q3": {
+     "roundCount": 6,
+     "roundIds": [
+      "310000013",
+      "310000027",
+      "310000105",
+      "310000211",
+      "310000310",
+      "310000420"
+     ],
+     "average18": 81.5,
+     "bestScore": 78,
+     "worstScore": 85,
+     "birdies": 7,
+     "doubleOrWorse": 6,
+     "formula": "P1,P2,P3,P4,P5,P6; 18-hole scores [81, 78, 85, 81, 83, 81]; birdie holes 7; double+ holes 6 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-Q2": {
+     "roundCount": 6,
+     "roundIds": [
+      "310000002",
+      "310000077",
+      "310000141",
+      "310000256",
+      "310000333",
+      "310000398"
+     ],
+     "average18": 85.0,
+     "bestScore": 81,
+     "worstScore": 90,
+     "birdies": 6,
+     "doubleOrWorse": 12,
+     "formula": "P7,P8,P9,P10,P11,P12; 18-hole scores [88, 81, 84, 81, 90, 86]; birdie holes 6; double+ holes 12 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-Q1": {
+     "roundCount": 4,
+     "roundIds": [
+      "310000055",
+      "310000188",
+      "310000270",
+      "310000366"
+     ],
+     "average18": 84.5,
+     "bestScore": 81,
+     "worstScore": 89,
+     "birdies": 4,
+     "doubleOrWorse": 9,
+     "formula": "P13,P14,P15,P16; 18-hole scores [81, 87, 81, 89]; birdie holes 4; double+ holes 9 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-Q4": {
+     "roundCount": 5,
+     "roundIds": [
+      "310000044",
+      "310000099",
+      "310000164",
+      "310000232",
+      "310000301"
+     ],
+     "average18": 85.8,
+     "bestScore": 81,
+     "worstScore": 92,
+     "birdies": 5,
+     "doubleOrWorse": 14,
+     "formula": "P17,P18,P19,P20,P21; 18-hole scores [92, 81, 90, 81, 85]; birdie holes 5; double+ holes 14 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-Q3": {
+     "roundCount": 3,
+     "roundIds": [
+      "310000122",
+      "310000289",
+      "310000377"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 2,
+     "doubleOrWorse": 2,
+     "formula": "P22,P23,P24; 18-hole scores [85]; birdie holes 2; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-Q2": {
+     "roundCount": 3,
+     "roundIds": [
+      "310000199",
+      "310000318",
+      "merged_310000066_310000245"
+     ],
+     "average18": 86.5,
+     "bestScore": 85,
+     "worstScore": 88,
+     "birdies": 1,
+     "doubleOrWorse": 4,
+     "formula": "P25,P26,P27; 18-hole scores [88, 85]; birdie holes 1; double+ holes 4 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-Q1": {
+     "roundCount": 3,
+     "roundIds": [
+      "310000088",
+      "310000177",
+      "310000355"
+     ],
+     "average18": 90.0,
+     "bestScore": 85,
+     "worstScore": 95,
+     "birdies": 2,
+     "doubleOrWorse": 8,
+     "formula": "P28,P29,P30; 18-hole scores [85, 95]; birdie holes 2; double+ holes 8 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2024-Q4": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000011"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P31; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    }
+   },
+   "byYear": {
+    "2026": {
+     "roundCount": 16,
+     "roundIds": [
+      "310000002",
+      "310000013",
+      "310000027",
+      "310000055",
+      "310000077",
+      "310000105",
+      "310000141",
+      "310000188",
+      "310000211",
+      "310000256",
+      "310000270",
+      "310000310",
+      "310000333",
+      "310000366",
+      "310000398",
+      "310000420"
+     ],
+     "average18": 83.6,
+     "bestScore": 78,
+     "worstScore": 90,
+     "birdies": 17,
+     "doubleOrWorse": 27,
+     "formula": "P1,P2,P3,P4,P5,P6,P7,P8,P9,P10,P11,P12,P13,P14,P15,P16; 18-hole scores [81, 78, 85, 81, 83, 81, 88, 81, 84, 81, 90, 86, 81, 87, 81, 89]; birdie holes 17; double+ holes 27 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025": {
+     "roundCount": 14,
+     "roundIds": [
+      "310000044",
+      "310000088",
+      "310000099",
+      "310000122",
+      "310000164",
+      "310000177",
+      "310000199",
+      "310000232",
+      "310000289",
+      "310000301",
+      "310000318",
+      "310000355",
+      "310000377",
+      "merged_310000066_310000245"
+     ],
+     "average18": 86.7,
+     "bestScore": 81,
+     "worstScore": 95,
+     "birdies": 10,
+     "doubleOrWorse": 28,
+     "formula": "P17,P18,P19,P20,P21,P22,P23,P24,P25,P26,P27,P28,P29,P30; 18-hole scores [92, 81, 90, 81, 85, 85, 88, 85, 85, 95]; birdie holes 10; double+ holes 28 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2024": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000011"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P31; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    }
+   },
+   "byMonth": {
+    "2026-09": {
+     "roundCount": 2,
+     "roundIds": [
+      "310000027",
+      "310000211"
+     ],
+     "average18": 79.5,
+     "bestScore": 78,
+     "worstScore": 81,
+     "birdies": 3,
+     "doubleOrWorse": 1,
+     "formula": "P1,P2; 18-hole scores [81, 78]; birdie holes 3; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-08": {
+     "roundCount": 2,
+     "roundIds": [
+      "310000105",
+      "310000310"
+     ],
+     "average18": 83.0,
+     "bestScore": 81,
+     "worstScore": 85,
+     "birdies": 2,
+     "doubleOrWorse": 3,
+     "formula": "P3,P4; 18-hole scores [85, 81]; birdie holes 2; double+ holes 3 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-07": {
+     "roundCount": 2,
+     "roundIds": [
+      "310000013",
+      "310000420"
+     ],
+     "average18": 82.0,
+     "bestScore": 81,
+     "worstScore": 83,
+     "birdies": 2,
+     "doubleOrWorse": 2,
+     "formula": "P5,P6; 18-hole scores [83, 81]; birdie holes 2; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-06": {
+     "roundCount": 3,
+     "roundIds": [
+      "310000077",
+      "310000256",
+      "310000398"
+     ],
+     "average18": 84.3,
+     "bestScore": 81,
+     "worstScore": 88,
+     "birdies": 3,
+     "doubleOrWorse": 5,
+     "formula": "P7,P8,P9; 18-hole scores [88, 81, 84]; birdie holes 3; double+ holes 5 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-05": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000141"
+     ],
+     "average18": 81.0,
+     "bestScore": 81,
+     "worstScore": 81,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P10; 18-hole scores [81]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-04": {
+     "roundCount": 2,
+     "roundIds": [
+      "310000002",
+      "310000333"
+     ],
+     "average18": 88.0,
+     "bestScore": 86,
+     "worstScore": 90,
+     "birdies": 2,
+     "doubleOrWorse": 6,
+     "formula": "P11,P12; 18-hole scores [90, 86]; birdie holes 2; double+ holes 6 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-03": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000188"
+     ],
+     "average18": 81.0,
+     "bestScore": 81,
+     "worstScore": 81,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P13; 18-hole scores [81]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-02": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000270"
+     ],
+     "average18": 87.0,
+     "bestScore": 87,
+     "worstScore": 87,
+     "birdies": 1,
+     "doubleOrWorse": 3,
+     "formula": "P14; 18-hole scores [87]; birdie holes 1; double+ holes 3 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-01": {
+     "roundCount": 2,
+     "roundIds": [
+      "310000055",
+      "310000366"
+     ],
+     "average18": 85.0,
+     "bestScore": 81,
+     "worstScore": 89,
+     "birdies": 2,
+     "doubleOrWorse": 5,
+     "formula": "P15,P16; 18-hole scores [81, 89]; birdie holes 2; double+ holes 5 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-12": {
+     "roundCount": 2,
+     "roundIds": [
+      "310000099",
+      "310000232"
+     ],
+     "average18": 86.5,
+     "bestScore": 81,
+     "worstScore": 92,
+     "birdies": 2,
+     "doubleOrWorse": 7,
+     "formula": "P17,P18; 18-hole scores [92, 81]; birdie holes 2; double+ holes 7 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-11": {
+     "roundCount": 2,
+     "roundIds": [
+      "310000164",
+      "310000301"
+     ],
+     "average18": 85.5,
+     "bestScore": 81,
+     "worstScore": 90,
+     "birdies": 2,
+     "doubleOrWorse": 5,
+     "formula": "P19,P20; 18-hole scores [90, 81]; birdie holes 2; double+ holes 5 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-10": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000044"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P21; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-09": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000289"
+     ],
+     "average18": null,
+     "bestScore": null,
+     "worstScore": null,
+     "birdies": 1,
+     "doubleOrWorse": 0,
+     "formula": "P22; 18-hole scores []; birdie holes 1; double+ holes 0 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-08": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000122"
+     ],
+     "average18": null,
+     "bestScore": null,
+     "worstScore": null,
+     "birdies": 0,
+     "doubleOrWorse": 0,
+     "formula": "P23; 18-hole scores []; birdie holes 0; double+ holes 0 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-07": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000377"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P24; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-06": {
+     "roundCount": 1,
+     "roundIds": [
+      "merged_310000066_310000245"
+     ],
+     "average18": 88.0,
+     "bestScore": 88,
+     "worstScore": 88,
+     "birdies": 0,
+     "doubleOrWorse": 1,
+     "formula": "P25; 18-hole scores [88]; birdie holes 0; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-05": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000199"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P26; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-04": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000318"
+     ],
+     "average18": null,
+     "bestScore": null,
+     "worstScore": null,
+     "birdies": 0,
+     "doubleOrWorse": 1,
+     "formula": "P27; 18-hole scores []; birdie holes 0; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-03": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000088"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P28; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-02": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000355"
+     ],
+     "average18": 95.0,
+     "bestScore": 95,
+     "worstScore": 95,
+     "birdies": 0,
+     "doubleOrWorse": 6,
+     "formula": "P29; 18-hole scores [95]; birdie holes 0; double+ holes 6 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-01": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000177"
+     ],
+     "average18": null,
+     "bestScore": null,
+     "worstScore": null,
+     "birdies": 1,
+     "doubleOrWorse": 0,
+     "formula": "P30; 18-hole scores []; birdie holes 1; double+ holes 0 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2024-12": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000011"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P31; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    }
+   },
+   "byDay": {
+    "2026-09-27": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000211"
+     ],
+     "average18": 81.0,
+     "bestScore": 81,
+     "worstScore": 81,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P1; 18-hole scores [81]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-09-12": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000027"
+     ],
+     "average18": 78.0,
+     "bestScore": 78,
+     "worstScore": 78,
+     "birdies": 2,
+     "doubleOrWorse": 0,
+     "formula": "P2; 18-hole scores [78]; birdie holes 2; double+ holes 0 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-08-30": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000310"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P3; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-08-09": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000105"
+     ],
+     "average18": 81.0,
+     "bestScore": 81,
+     "worstScore": 81,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P4; 18-hole scores [81]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-07-19": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000420"
+     ],
+     "average18": 83.0,
+     "bestScore": 83,
+     "worstScore": 83,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P5; 18-hole scores [83]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-07-04": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000013"
+     ],
+     "average18": 81.0,
+     "bestScore": 81,
+     "worstScore": 81,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P6; 18-hole scores [81]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-06-27": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000398"
+     ],
+     "average18": 88.0,
+     "bestScore": 88,
+     "worstScore": 88,
+     "birdies": 1,
+     "doubleOrWorse": 3,
+     "formula": "P7; 18-hole scores [88]; birdie holes 1; double+ holes 3 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-06-14": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000077"
+     ],
+     "average18": 81.0,
+     "bestScore": 81,
+     "worstScore": 81,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P8; 18-hole scores [81]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-06-02": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000256"
+     ],
+     "average18": 84.0,
+     "bestScore": 84,
+     "worstScore": 84,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P9; 18-hole scores [84]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-05-17": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000141"
+     ],
+     "average18": 81.0,
+     "bestScore": 81,
+     "worstScore": 81,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P10; 18-hole scores [81]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-04-26": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000333"
+     ],
+     "average18": 90.0,
+     "bestScore": 90,
+     "worstScore": 90,
+     "birdies": 1,
+     "doubleOrWorse": 4,
+     "formula": "P11; 18-hole scores [90]; birdie holes 1; double+ holes 4 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-04-05": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000002"
+     ],
+     "average18": 86.0,
+     "bestScore": 86,
+     "worstScore": 86,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P12; 18-hole scores [86]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-03-15": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000188"
+     ],
+     "average18": 81.0,
+     "bestScore": 81,
+     "worstScore": 81,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P13; 18-hole scores [81]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-02-22": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000270"
+     ],
+     "average18": 87.0,
+     "bestScore": 87,
+     "worstScore": 87,
+     "birdies": 1,
+     "doubleOrWorse": 3,
+     "formula": "P14; 18-hole scores [87]; birdie holes 1; double+ holes 3 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-01-31": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000055"
+     ],
+     "average18": 81.0,
+     "bestScore": 81,
+     "worstScore": 81,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P15; 18-hole scores [81]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2026-01-10": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000366"
+     ],
+     "average18": 89.0,
+     "bestScore": 89,
+     "worstScore": 89,
+     "birdies": 1,
+     "doubleOrWorse": 4,
+     "formula": "P16; 18-hole scores [89]; birdie holes 1; double+ holes 4 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-12-20": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000099"
+     ],
+     "average18": 92.0,
+     "bestScore": 92,
+     "worstScore": 92,
+     "birdies": 1,
+     "doubleOrWorse": 6,
+     "formula": "P17; 18-hole scores [92]; birdie holes 1; double+ holes 6 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-12-06": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000232"
+     ],
+     "average18": 81.0,
+     "bestScore": 81,
+     "worstScore": 81,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P18; 18-hole scores [81]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-11-15": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000164"
+     ],
+     "average18": 90.0,
+     "bestScore": 90,
+     "worstScore": 90,
+     "birdies": 1,
+     "doubleOrWorse": 4,
+     "formula": "P19; 18-hole scores [90]; birdie holes 1; double+ holes 4 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-11-01": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000301"
+     ],
+     "average18": 81.0,
+     "bestScore": 81,
+     "worstScore": 81,
+     "birdies": 1,
+     "doubleOrWorse": 1,
+     "formula": "P20; 18-hole scores [81]; birdie holes 1; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-10-12": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000044"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P21; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-09-20": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000289"
+     ],
+     "average18": null,
+     "bestScore": null,
+     "worstScore": null,
+     "birdies": 1,
+     "doubleOrWorse": 0,
+     "formula": "P22; 18-hole scores []; birdie holes 1; double+ holes 0 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-08-24": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000122"
+     ],
+     "average18": null,
+     "bestScore": null,
+     "worstScore": null,
+     "birdies": 0,
+     "doubleOrWorse": 0,
+     "formula": "P23; 18-hole scores []; birdie holes 0; double+ holes 0 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-07-27": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000377"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P24; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-06-29": {
+     "roundCount": 1,
+     "roundIds": [
+      "merged_310000066_310000245"
+     ],
+     "average18": 88.0,
+     "bestScore": 88,
+     "worstScore": 88,
+     "birdies": 0,
+     "doubleOrWorse": 1,
+     "formula": "P25; 18-hole scores [88]; birdie holes 0; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-05-25": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000199"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P26; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-04-20": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000318"
+     ],
+     "average18": null,
+     "bestScore": null,
+     "worstScore": null,
+     "birdies": 0,
+     "doubleOrWorse": 1,
+     "formula": "P27; 18-hole scores []; birdie holes 0; double+ holes 1 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-03-16": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000088"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P28; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-02-09": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000355"
+     ],
+     "average18": 95.0,
+     "bestScore": 95,
+     "worstScore": 95,
+     "birdies": 0,
+     "doubleOrWorse": 6,
+     "formula": "P29; 18-hole scores [95]; birdie holes 0; double+ holes 6 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2025-01-19": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000177"
+     ],
+     "average18": null,
+     "bestScore": null,
+     "worstScore": null,
+     "birdies": 1,
+     "doubleOrWorse": 0,
+     "formula": "P30; 18-hole scores []; birdie holes 1; double+ holes 0 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    },
+    "2024-12-15": {
+     "roundCount": 1,
+     "roundIds": [
+      "310000011"
+     ],
+     "average18": 85.0,
+     "bestScore": 85,
+     "worstScore": 85,
+     "birdies": 1,
+     "doubleOrWorse": 2,
+     "formula": "P31; 18-hole scores [85]; birdie holes 1; double+ holes 2 (鸟/场 = birdies/roundCount, 双柏+/场 = doubleOrWorse/roundCount, drawn client-side)"
+    }
+   }
+  },
+  "playFrequency": {
+   "totalMonths": {
+    "value": 22,
+    "formula": "2024-12..2026-09 = 22 months, each with >=1 round"
+   },
+   "roundsPerMonth": {
+    "value": 1.4,
+    "formula": "31 rounds / 22 months = 1.4091"
+   },
+   "mostActiveMonth": {
+    "value": {
+     "key": "2026-06",
+     "roundCount": 3
+    },
+    "formula": "unique max: 2026-06 has P7,P8,P9"
+   }
+  }
+ },
+ "2.3": {
+  "quarter2026Q2": {
+   "value": [
+    "310000002",
+    "310000077",
+    "310000141",
+    "310000256",
+    "310000333",
+    "310000398"
+   ],
+   "formula": "2026-Q2 (Apr-Jun) = P7,P8,P9,P10,P11,P12"
+  },
+  "scoreBands": {
+   "value": {
+    "80s": [
+     "310000002",
+     "310000011",
+     "310000013",
+     "310000044",
+     "310000055",
+     "310000077",
+     "310000088",
+     "310000105",
+     "310000141",
+     "310000188",
+     "310000199",
+     "310000211",
+     "310000232",
+     "310000256",
+     "310000270",
+     "310000301",
+     "310000310",
+     "310000366",
+     "310000377",
+     "310000398",
+     "310000420",
+     "merged_310000066_310000245"
+    ],
+    "70s": [
+     "310000027"
+    ],
+    "90s": [
+     "310000099",
+     "310000164",
+     "310000333",
+     "310000355"
+    ]
+   },
+   "formula": "80s: P1,P3,P4,P5,P6,P7,P8,P9,P10,P12,P13,P14,P15,P16,P18,P20,P21,P24,P25,P26,P28,P31; 70s: P2; 90s: P11,P17,P19,P29"
+  },
+  "day20260614": {
+   "value": [
+    "310000077"
+   ],
+   "formula": "calendar cell 2026-06-14 = P8"
+  },
+  "larkCourseRounds": {
+   "value": [
+    "310000310",
+    "310000077",
+    "310000333",
+    "310000270",
+    "310000099",
+    "310000289",
+    "310000199",
+    "310000355"
+   ],
+   "formula": "Lark Valley newest first: P3,P8,P11,P14,P17,P22,P26,P29"
+  },
+  "larkCourseKey": {
+   "value": "c_3aff57bebd",
+   "formula": "c_ + sha1('Lark Valley')[:10]"
+  },
+  "kestrelCourseKey": {
+   "value": "c_fe9f11d848",
+   "formula": "c_ + sha1('Kestrel Hills')[:10]"
+  },
+  "pineCourseKey": {
+   "value": "c_e045d2f4d8",
+   "formula": "c_ + sha1('Pine Field')[:10]"
+  },
+  "hardestHoleVisits": {
+   "value": [
+    {
+     "roundId": "310000310",
+     "pos": "P3",
+     "displayHole": 8
+    },
+    {
+     "roundId": "310000077",
+     "pos": "P8",
+     "displayHole": 8
+    },
+    {
+     "roundId": "310000333",
+     "pos": "P11",
+     "displayHole": 8
+    },
+    {
+     "roundId": "310000270",
+     "pos": "P14",
+     "displayHole": 8
+    },
+    {
+     "roundId": "310000099",
+     "pos": "P17",
+     "displayHole": 8
+    },
+    {
+     "roundId": "310000199",
+     "pos": "P26",
+     "displayHole": 8
+    },
+    {
+     "roundId": "310000355",
+     "pos": "P29",
+     "displayHole": 8
+    }
+   ],
+   "formula": "every round/display hole that played gid:7201:1-9 hole 8"
+  }
+ },
+ "2.4": {
+  "searchLark": {
+   "value": [
+    "310000310",
+    "310000077",
+    "310000333",
+    "310000270",
+    "310000099",
+    "310000289",
+    "310000199",
+    "310000355"
+   ],
+   "formula": "course name contains 'Lark' (case-insensitive): P3,P8,P11,P14,P17,P22,P26,P29"
+  },
+  "searchDate202606": {
+   "value": [
+    "310000398",
+    "310000077",
+    "310000256"
+   ],
+   "formula": "date 2026-06: P7,P8,P9"
+  },
+  "year2025": {
+   "value": [
+    "310000099",
+    "310000232",
+    "310000164",
+    "310000301",
+    "310000044",
+    "310000289",
+    "310000122",
+    "310000377",
+    "merged_310000066_310000245",
+    "310000199",
+    "310000318",
+    "310000088",
+    "310000355",
+    "310000177"
+   ],
+   "formula": "year 2025: P17,P18,P19,P20,P21,P22,P23,P24,P25,P26,P27,P28,P29,P30"
+  },
+  "hasShots": {
+   "value": [
+    "310000211",
+    "310000310",
+    "310000398",
+    "310000002"
+   ],
+   "formula": "rounds with a shot file: P1,P3,P7,P12"
+  },
+  "kestrel2026": {
+   "value": [
+    "310000211",
+    "310000027",
+    "310000105",
+    "310000013",
+    "310000398",
+    "310000256",
+    "310000141",
+    "310000002",
+    "310000188",
+    "310000055",
+    "310000366"
+   ],
+   "formula": "Kestrel Hills x 2026: P1,P2,P4,P6,P7,P9,P10,P12,P13,P15,P16"
+  },
+  "larkNoShots": {
+   "value": [
+    "310000077",
+    "310000333",
+    "310000270",
+    "310000099",
+    "310000289",
+    "310000199",
+    "310000355"
+   ],
+   "formula": "Lark Valley x no shots: P8,P11,P14,P17,P22,P26,P29"
+  },
+  "monthGroups2026": {
+   "value": [
+    {
+     "key": "2026-09",
+     "roundIds": [
+      "310000211",
+      "310000027"
+     ]
+    },
+    {
+     "key": "2026-08",
+     "roundIds": [
+      "310000310",
+      "310000105"
+     ]
+    },
+    {
+     "key": "2026-07",
+     "roundIds": [
+      "310000420",
+      "310000013"
+     ]
+    },
+    {
+     "key": "2026-06",
+     "roundIds": [
+      "310000398",
+      "310000077",
+      "310000256"
+     ]
+    },
+    {
+     "key": "2026-05",
+     "roundIds": [
+      "310000141"
+     ]
+    },
+    {
+     "key": "2026-04",
+     "roundIds": [
+      "310000333",
+      "310000002"
+     ]
+    },
+    {
+     "key": "2026-03",
+     "roundIds": [
+      "310000188"
+     ]
+    },
+    {
+     "key": "2026-02",
+     "roundIds": [
+      "310000270"
+     ]
+    },
+    {
+     "key": "2026-01",
+     "roundIds": [
+      "310000055",
+      "310000366"
+     ]
+    }
+   ],
+   "formula": "year=2026 grouped by month, newest month first, rounds newest first inside"
+  },
+  "total": {
+   "value": 31,
+   "formula": "全部 N 场 = 31"
+  }
+ },
+ "2.5": {
+  "all": {
+   "puttEligibleHoles": {
+    "value": 518,
+    "formula": "522 holes - 4 unedited default ['P2#6', 'P2#14', 'P9#3', 'P9#6'] = 518 (corrected default holes stay in: ['P2#12=1', 'P4#5=3'])"
+   },
+   "holesWithPutts": {
+    "value": 446,
+    "formula": "sum per round P1:18 + P2:16 + P3:18 + P4:18 + P5:18 + P6:18 + P7:18 + P8:18 + P9:16 + P10:18 + P11:18 + P12:18 + P13:18 + P14:18 + P15:18 + P16:18 + P17:18 + P18:18 + P19:18 + P20:18 + P21:18 + P22:9 + P23:9 + P24:18 + P25:18 + P26:18 = 446; eligible holes without putts (Garmin did not record) {'P27': 9, 'P28': 18, 'P29': 18, 'P30': 9, 'P31': 18} are unknown, not 0"
+   },
+   "totalPutts": {
+    "value": 864,
+    "formula": "P1:35 + P2:28 + P3:35 + P4:36 + P5:34 + P6:33 + P7:35 + P8:36 + P9:31 + P10:34 + P11:36 + P12:36 + P13:35 + P14:34 + P15:35 + P16:36 + P17:35 + P18:35 + P19:34 + P20:35 + P21:35 + P22:17 + P23:18 + P24:35 + P25:36 + P26:35 = 864 (corrected values used: ['P2#12=1', 'P4#5=3'])"
+   },
+   "zeroPutts": {
+    "value": 1,
+    "formula": "holes ['P6#11'] = 1"
+   },
+   "onePutts": {
+    "value": 34,
+    "formula": "holes ['P1#13', 'P1#14', 'P2#2', 'P2#9', 'P2#12', 'P2#15', 'P3#10', 'P3#14', 'P4#14', 'P5#2', 'P5#14', 'P6#14', 'P7#9', 'P7#14', 'P8#14', 'P9#14', 'P10#1', 'P10#14', 'P11#14', 'P12#14', 'P13#14', 'P14#12', 'P14#14', 'P15#14', 'P16#14', 'P17#14', 'P18#14', 'P19#3', 'P19#14', 'P20#14', 'P21#14', 'P22#13', 'P24#14', 'P26#14'] = 34"
+   },
+   "twoPutts": {
+    "value": 403,
+    "formula": "446 - zero 1 - one 34 - three+ 8 = 403"
+   },
+   "threePlusPutts": {
+    "value": 8,
+    "formula": "holes ['P1#7', 'P3#5', 'P4#5', 'P7#2', 'P8#15', 'P11#4', 'P12#10', 'P16#17'] = 8"
+   },
+   "puttBucketsSum": {
+    "value": 446,
+    "formula": "zero+one+two+three+ = holesWithPutts (four buckets total 100%)"
+   },
+   "girRecorded": {
+    "value": 446,
+    "formula": "holes with known putts (GIR 按推杆推算 strokes-putts<=par-2) P1:18 + P2:16 + P3:18 + P4:18 + P5:18 + P6:18 + P7:18 + P8:18 + P9:16 + P10:18 + P11:18 + P12:18 + P13:18 + P14:18 + P15:18 + P16:18 + P17:18 + P18:18 + P19:18 + P20:18 + P21:18 + P22:9 + P23:9 + P24:18 + P25:18 + P26:18 = 446"
+   },
+   "gir": {
+    "value": 157,
+    "formula": "P1:10 + P2:6 + P3:6 + P4:10 + P5:6 + P6:8 + P7:3 + P8:10 + P9:4 + P10:8 + P11:4 + P12:6 + P13:9 + P14:4 + P15:9 + P16:4 + P17:3 + P18:9 + P19:3 + P20:9 + P21:6 + P22:2 + P23:3 + P24:6 + P25:3 + P26:6 = 157"
+   },
+   "girEligibleHoles": {
+    "value": 518,
+    "formula": "same denominator rule as putting: all holes minus unedited default holes"
+   },
+   "scrambleChances": {
+    "value": 289,
+    "formula": "girRecorded 446 - gir 157 = 289"
+   },
+   "scrambleSaves": {
+    "value": 7,
+    "formula": "missed-GIR holes with strokes<=par: ['P2#9', 'P2#12', 'P5#2', 'P6#11', 'P7#9', 'P10#1', 'P14#12']"
+   },
+   "fairwaysRecorded": {
+    "value": 350,
+    "formula": "P1:14 + P3:14 + P6:14 + P7:14 + P8:14 + P10:14 + P11:14 + P12:14 + P13:14 + P14:14 + P15:14 + P16:14 + P17:14 + P18:14 + P19:14 + P20:14 + P21:14 + P22:7 + P23:7 + P24:14 + P25:14 + P26:14 + P27:7 + P28:14 + P29:14 + P30:7 + P31:14 = 350 (manual rounds record no fairway; par 3 none)"
+   },
+   "fairwaysHit": {
+    "value": 122,
+    "formula": "HIT holes = 122"
+   },
+   "fairwayMissLeft": {
+    "value": 106,
+    "formula": "LEFT holes = 106"
+   },
+   "fairwayMissRight": {
+    "value": 122,
+    "formula": "RIGHT holes = 122"
+   },
+   "penaltiesTotal": {
+    "value": 3,
+    "formula": "P4#8:1 + P5#8:1 + P9#7:1 = 3"
+   },
+   "penaltyHolesRecorded": {
+    "value": 67,
+    "formula": "P2:15 + P4:18 + P5:18 + P9:16 = 67 (Garmin holes carry no penalties field -> not recorded, not 0)"
+   },
+   "penaltyRoundsRecorded": {
+    "value": 4,
+    "formula": "rounds ['P2', 'P4', 'P5', 'P9']"
+   },
+   "penaltyAveragePerRound": {
+    "value": 0.75,
+    "formula": "3 / 4"
+   },
+   "composition": {
+    "value": {
+     "eagle": 1,
+     "birdie": 28,
+     "par": 154,
+     "bogey": 282,
+     "double": 55,
+     "triple": 1,
+     "quadPlus": 1
+    },
+    "formula": "count of (strokes-par) over 522 holes: <=-2 eagle, -1 birdie, 0 par, 1 bogey, 2 double, 3 triple, >=4 quadPlus"
+   },
+   "byPar": {
+    "value": {
+     "par3": {
+      "holeCount": 116,
+      "strokes": 450,
+      "averageScore": 3.9,
+      "parOrBetter": 36
+     },
+     "par4": {
+      "holeCount": 290,
+      "strokes": 1343,
+      "averageScore": 4.6,
+      "parOrBetter": 111
+     },
+     "par5": {
+      "holeCount": 116,
+      "strokes": 664,
+      "averageScore": 5.7,
+      "parOrBetter": 36
+     }
+    },
+    "formula": "per par: holeCount, sum strokes / holeCount -> averageScore (1 dp), parOrBetter = strokes<=par (保帕)"
+   }
+  },
+  "holeStates": {
+   "valued": {
+    "value": {
+     "roundId": "310000211",
+     "hole": 1,
+     "putts": 2,
+     "gir": true,
+     "fairway": "hit",
+     "penaltyCounted": false
+    },
+    "formula": "P1#1: strokes 4 par 4 raw putts 2 default=False corrected=False -> putts 2, GIR (4-2<=2)"
+   },
+   "garminNoPutts": {
+    "value": {
+     "roundId": "310000088",
+     "hole": 1,
+     "putts": null,
+     "gir": null,
+     "fairway": "left",
+     "penaltyCounted": false
+    },
+    "formula": "P28#1: strokes 5 par 4 raw putts None default=False corrected=False -> putts None, GIR unknown"
+   },
+   "defaultUnedited": {
+    "value": {
+     "roundId": "310000027",
+     "hole": 6,
+     "putts": null,
+     "gir": null,
+     "fairway": null,
+     "penaltyCounted": false
+    },
+    "formula": "P2#6: strokes 3 par 3 raw putts 2 default=True corrected=False -> putts None, GIR unknown"
+   },
+   "defaultCorrected": {
+    "value": {
+     "roundId": "310000027",
+     "hole": 12,
+     "putts": 1,
+     "gir": false,
+     "fairway": null,
+     "penaltyCounted": false
+    },
+    "formula": "P2#12: strokes 3 par 3 raw putts 2 default=True corrected=True -> putts 1, GIR (3-1<=1)"
+   },
+   "normalCorrected": {
+    "value": {
+     "roundId": "310000105",
+     "hole": 5,
+     "putts": 3,
+     "gir": true,
+     "fairway": null,
+     "penaltyCounted": true
+    },
+    "formula": "P4#5: strokes 5 par 4 raw putts 2 default=False corrected=True -> putts 3, GIR (5-3<=2)"
+   },
+   "manualPenaltyZero": {
+    "value": {
+     "roundId": "310000027",
+     "hole": 1,
+     "putts": 2,
+     "gir": true,
+     "fairway": null,
+     "penaltyCounted": true
+    },
+    "formula": "P2#1: strokes 4 par 4 raw putts 2 default=False corrected=False -> putts 2, GIR (4-2<=2)"
+   },
+   "manualPenaltyOne": {
+    "value": {
+     "roundId": "310000105",
+     "hole": 8,
+     "putts": 2,
+     "gir": false,
+     "fairway": null,
+     "penaltyCounted": true
+    },
+    "formula": "P4#8: strokes 6 par 4 raw putts 2 default=False corrected=False -> putts 2, GIR (6-2<=2)"
+   },
+   "garminNoPenaltyField": {
+    "value": {
+     "roundId": "310000211",
+     "hole": 8,
+     "putts": 2,
+     "gir": false,
+     "fairway": "right",
+     "penaltyCounted": false
+    },
+    "formula": "P1#8: strokes 6 par 4 raw putts 2 default=False corrected=False -> putts 2, GIR (6-2<=2)"
+   }
+  }
+ },
+ "2.6": {
+  "loops": {
+   "value": {
+    "gid:7101:1-9": {
+     "label": "Kestrel Hills A",
+     "roundCount": 16,
+     "rounds": [
+      "P1",
+      "P2",
+      "P4",
+      "P7",
+      "P9",
+      "P10",
+      "P12",
+      "P13",
+      "P16",
+      "P18",
+      "P19",
+      "P21",
+      "P24",
+      "P25",
+      "P28",
+      "P31"
+     ],
+     "holes": [
+      {
+       "hole": 1,
+       "par": 4,
+       "averageToPar": 0.76,
+       "samples": 17,
+       "formula": "(+0[P1] + +1[P2] + +0[P4] + +1[P4] + +1[P7] + +1[P9] + +0[P10] + +1[P12] + +0[P13] + +1[P16] + +1[P18] + +1[P19] + +1[P21] + +1[P24] + +1[P25] + +1[P28] + +1[P31]) / 17 = 0.7647"
+      },
+      {
+       "hole": 2,
+       "par": 4,
+       "averageToPar": 0.82,
+       "samples": 17,
+       "formula": "(+1[P1] + +0[P2] + +1[P4] + +0[P4] + +2[P7] + +1[P9] + +1[P10] + +1[P12] + +1[P13] + +2[P16] + +0[P18] + +2[P19] + +1[P21] + +0[P24] + +0[P25] + +1[P28] + +0[P31]) / 17 = 0.8235"
+      },
+      {
+       "hole": 3,
+       "par": 3,
+       "averageToPar": 0.41,
+       "samples": 17,
+       "formula": "(+0[P1] + +0[P2] + +0[P4] + +0[P4] + +1[P7] + +0[P9] + +0[P10] + +0[P12] + +0[P13] + +1[P16] + +0[P18] + +2[P19] + +0[P21] + +1[P24] + +1[P25] + +0[P28] + +1[P31]) / 17 = 0.4118"
+      },
+      {
+       "hole": 4,
+       "par": 5,
+       "averageToPar": 1.0,
+       "samples": 17,
+       "formula": "(+1[P1] + +1[P2] + +1[P4] + +1[P4] + +1[P7] + +1[P9] + +1[P10] + +1[P12] + +1[P13] + +1[P16] + +1[P18] + +1[P19] + +1[P21] + +1[P24] + +1[P25] + +1[P28] + +1[P31]) / 17 = 1.0000"
+      },
+      {
+       "hole": 5,
+       "par": 4,
+       "averageToPar": 0.35,
+       "samples": 17,
+       "formula": "(+1[P1] + +0[P2] + +1[P4] + -1[P4] + +0[P7] + -1[P9] + +1[P10] + -1[P12] + +1[P13] + +2[P16] + -1[P18] + +1[P19] + +2[P21] + -1[P24] + +1[P25] + +2[P28] + -1[P31]) / 17 = 0.3529"
+      },
+      {
+       "hole": 6,
+       "par": 4,
+       "averageToPar": 0.41,
+       "samples": 17,
+       "formula": "(+0[P1] + -1[P2] + +0[P4] + +1[P4] + +1[P7] + +1[P9] + +0[P10] + +1[P12] + +0[P13] + +0[P16] + +1[P18] + +0[P19] + +0[P21] + +1[P24] + +1[P25] + +0[P28] + +1[P31]) / 17 = 0.4118"
+      },
+      {
+       "hole": 7,
+       "par": 3,
+       "averageToPar": 1.12,
+       "samples": 17,
+       "formula": "(+1[P1] + +1[P2] + +1[P4] + +0[P4] + +2[P7] + +1[P9] + +1[P10] + +2[P12] + +1[P13] + +1[P16] + +0[P18] + +1[P19] + +1[P21] + +2[P24] + +1[P25] + +1[P28] + +2[P31]) / 17 = 1.1176"
+      },
+      {
+       "hole": 8,
+       "par": 4,
+       "averageToPar": 1.18,
+       "samples": 17,
+       "formula": "(+2[P1] + +1[P2] + +2[P4] + +1[P4] + +1[P7] + +1[P9] + +2[P10] + +0[P12] + +2[P13] + +2[P16] + +1[P18] + +2[P19] + +1[P21] + +0[P24] + +1[P25] + +1[P28] + +0[P31]) / 17 = 1.1765"
+      },
+      {
+       "hole": 9,
+       "par": 5,
+       "averageToPar": 0.35,
+       "samples": 17,
+       "formula": "(+0[P1] + +1[P2] + +0[P4] + +0[P4] + +0[P7] + +0[P9] + +0[P10] + +1[P12] + +0[P13] + +1[P16] + +0[P18] + +1[P19] + +0[P21] + +1[P24] + +0[P25] + +0[P28] + +1[P31]) / 17 = 0.3529"
+      }
+     ]
+    },
+    "gid:7102:1-9": {
+     "label": "Kestrel Hills B",
+     "roundCount": 18,
+     "rounds": [
+      "P1",
+      "P2",
+      "P6",
+      "P7",
+      "P10",
+      "P12",
+      "P13",
+      "P15",
+      "P16",
+      "P18",
+      "P19",
+      "P20",
+      "P21",
+      "P23",
+      "P24",
+      "P28",
+      "P30",
+      "P31"
+     ],
+     "holes": [
+      {
+       "hole": 1,
+       "par": 4,
+       "averageToPar": 0.72,
+       "samples": 18,
+       "formula": "(+1[P1] + +0[P2] + +0[P6] + +1[P7] + +1[P10] + +1[P12] + +1[P13] + +0[P15] + +1[P16] + +0[P18] + +1[P19] + +0[P20] + +1[P21] + +1[P23] + +1[P24] + +1[P28] + +1[P30] + +1[P31]) / 18 = 0.7222"
+      },
+      {
+       "hole": 2,
+       "par": 5,
+       "averageToPar": 0.5,
+       "samples": 18,
+       "formula": "(+0[P1] + -1[P2] + +1[P6] + +1[P7] + +0[P10] + +1[P12] + +0[P13] + +1[P15] + +1[P16] + +1[P18] + +1[P19] + +1[P20] + +0[P21] + +0[P23] + +1[P24] + +0[P28] + +0[P30] + +1[P31]) / 18 = 0.5000"
+      },
+      {
+       "hole": 3,
+       "par": 3,
+       "averageToPar": 0.5,
+       "samples": 18,
+       "formula": "(+0[P1] + +0[P2] + +0[P6] + +2[P7] + +0[P10] + +1[P12] + +0[P13] + +0[P15] + +1[P16] + +0[P18] + +1[P19] + +0[P20] + +1[P21] + +1[P23] + +0[P24] + +1[P28] + +1[P30] + +0[P31]) / 18 = 0.5000"
+      },
+      {
+       "hole": 4,
+       "par": 4,
+       "averageToPar": 0.78,
+       "samples": 18,
+       "formula": "(+1[P1] + +1[P2] + +1[P6] + +0[P7] + +1[P10] + +1[P12] + +1[P13] + +1[P15] + +0[P16] + +1[P18] + +0[P19] + +1[P20] + +1[P21] + +1[P23] + +1[P24] + +1[P28] + +0[P30] + +1[P31]) / 18 = 0.7778"
+      },
+      {
+       "hole": 5,
+       "par": 4,
+       "averageToPar": 0.11,
+       "samples": 18,
+       "formula": "(-1[P1] + +1[P2] + +1[P6] + -1[P7] + -1[P10] + +2[P12] + -1[P13] + +1[P15] + -1[P16] + +1[P18] + -1[P19] + +1[P20] + -1[P21] + +0[P23] + +2[P24] + -1[P28] + -1[P30] + +2[P31]) / 18 = 0.1111"
+      },
+      {
+       "hole": 6,
+       "par": 3,
+       "averageToPar": 0.56,
+       "samples": 18,
+       "formula": "(+1[P1] + +0[P2] + +0[P6] + +1[P7] + +1[P10] + +0[P12] + +1[P13] + +0[P15] + +1[P16] + +0[P18] + +1[P19] + +0[P20] + +1[P21] + +1[P23] + +0[P24] + +1[P28] + +1[P30] + +0[P31]) / 18 = 0.5556"
+      },
+      {
+       "hole": 7,
+       "par": 4,
+       "averageToPar": 1.06,
+       "samples": 18,
+       "formula": "(+0[P1] + +1[P2] + +1[P6] + +1[P7] + +0[P10] + +1[P12] + +0[P13] + +1[P15] + +2[P16] + +1[P18] + +2[P19] + +1[P20] + +2[P21] + +1[P23] + +1[P24] + +2[P28] + +1[P30] + +1[P31]) / 18 = 1.0556"
+      },
+      {
+       "hole": 8,
+       "par": 5,
+       "averageToPar": 1.0,
+       "samples": 18,
+       "formula": "(+1[P1] + +0[P2] + +2[P6] + +1[P7] + +1[P10] + +1[P12] + +1[P13] + +2[P15] + +0[P16] + +2[P18] + +1[P19] + +2[P20] + +0[P21] + +1[P23] + +1[P24] + +0[P28] + +1[P30] + +1[P31]) / 18 = 1.0000"
+      },
+      {
+       "hole": 9,
+       "par": 4,
+       "averageToPar": 0.28,
+       "samples": 18,
+       "formula": "(+0[P1] + +0[P2] + +0[P6] + +1[P7] + +0[P10] + +0[P12] + +0[P13] + +0[P15] + +1[P16] + +0[P18] + +1[P19] + +0[P20] + +1[P21] + +0[P23] + +0[P24] + +1[P28] + +0[P30] + +0[P31]) / 18 = 0.2778"
+      }
+     ]
+    },
+    "gid:7201:1-9": {
+     "label": "Lark Valley 1–9 洞",
+     "roundCount": 7,
+     "rounds": [
+      "P3",
+      "P8",
+      "P11",
+      "P14",
+      "P17",
+      "P26",
+      "P29"
+     ],
+     "holes": [
+      {
+       "hole": 1,
+       "par": 4,
+       "averageToPar": 0.86,
+       "samples": 7,
+       "formula": "(+1[P3] + +0[P8] + +1[P11] + +1[P14] + +1[P17] + +1[P26] + +1[P29]) / 7 = 0.8571"
+      },
+      {
+       "hole": 2,
+       "par": 5,
+       "averageToPar": 1.0,
+       "samples": 7,
+       "formula": "(+1[P3] + +1[P8] + +2[P11] + +2[P14] + +2[P17] + +1[P26] + -2[P29]) / 7 = 1.0000"
+      },
+      {
+       "hole": 3,
+       "par": 4,
+       "averageToPar": 0.86,
+       "samples": 7,
+       "formula": "(+0[P3] + +0[P8] + +2[P11] + +1[P14] + +2[P17] + +0[P26] + +1[P29]) / 7 = 0.8571"
+      },
+      {
+       "hole": 4,
+       "par": 3,
+       "averageToPar": 1.29,
+       "samples": 7,
+       "formula": "(+1[P3] + +1[P8] + +1[P11] + +1[P14] + +1[P17] + +1[P26] + +3[P29]) / 7 = 1.2857"
+      },
+      {
+       "hole": 5,
+       "par": 4,
+       "averageToPar": 1.43,
+       "samples": 7,
+       "formula": "(+2[P3] + +1[P8] + +1[P11] + +1[P14] + +2[P17] + +2[P26] + +1[P29]) / 7 = 1.4286"
+      },
+      {
+       "hole": 6,
+       "par": 4,
+       "averageToPar": 0.29,
+       "samples": 7,
+       "formula": "(+0[P3] + +0[P8] + +0[P11] + +0[P14] + +0[P17] + +0[P26] + +2[P29]) / 7 = 0.2857"
+      },
+      {
+       "hole": 7,
+       "par": 5,
+       "averageToPar": 1.0,
+       "samples": 7,
+       "formula": "(+1[P3] + +1[P8] + +1[P11] + +1[P14] + +1[P17] + +1[P26] + +1[P29]) / 7 = 1.0000"
+      },
+      {
+       "hole": 8,
+       "par": 3,
+       "averageToPar": 2.0,
+       "samples": 7,
+       "formula": "(+1[P3] + +2[P8] + +2[P11] + +2[P14] + +2[P17] + +1[P26] + +4[P29]) / 7 = 2.0000"
+      },
+      {
+       "hole": 9,
+       "par": 4,
+       "averageToPar": 0.71,
+       "samples": 7,
+       "formula": "(+0[P3] + +0[P8] + +1[P11] + +0[P14] + +2[P17] + +0[P26] + +2[P29]) / 7 = 0.7143"
+      }
+     ]
+    },
+    "gid:7201:10-18": {
+     "label": "Lark Valley 10–18 洞",
+     "roundCount": 8,
+     "rounds": [
+      "P3",
+      "P8",
+      "P11",
+      "P14",
+      "P17",
+      "P22",
+      "P26",
+      "P29"
+     ],
+     "holes": [
+      {
+       "hole": 10,
+       "par": 4,
+       "averageToPar": 1.0,
+       "samples": 8,
+       "formula": "(+1[P3] + +1[P8] + +1[P11] + +1[P14] + +1[P17] + +1[P22] + +1[P26] + +1[P29]) / 8 = 1.0000"
+      },
+      {
+       "hole": 11,
+       "par": 4,
+       "averageToPar": 0.63,
+       "samples": 8,
+       "formula": "(+0[P3] + +0[P8] + +1[P11] + +1[P14] + +1[P17] + +1[P22] + +0[P26] + +1[P29]) / 8 = 0.6250"
+      },
+      {
+       "hole": 12,
+       "par": 3,
+       "averageToPar": 0.5,
+       "samples": 8,
+       "formula": "(+1[P3] + +0[P8] + +1[P11] + +0[P14] + +1[P17] + +0[P22] + +1[P26] + +0[P29]) / 8 = 0.5000"
+      },
+      {
+       "hole": 13,
+       "par": 5,
+       "averageToPar": 0.63,
+       "samples": 8,
+       "formula": "(+1[P3] + +1[P8] + +0[P11] + +1[P14] + +0[P17] + -1[P22] + +1[P26] + +2[P29]) / 8 = 0.6250"
+      },
+      {
+       "hole": 14,
+       "par": 4,
+       "averageToPar": -0.5,
+       "samples": 8,
+       "formula": "(-1[P3] + -1[P8] + -1[P11] + -1[P14] + -1[P17] + +1[P22] + -1[P26] + +1[P29]) / 8 = -0.5000"
+      },
+      {
+       "hole": 15,
+       "par": 4,
+       "averageToPar": 1.0,
+       "samples": 8,
+       "formula": "(+1[P3] + +1[P8] + +1[P11] + +1[P14] + +1[P17] + +1[P22] + +1[P26] + +1[P29]) / 8 = 1.0000"
+      },
+      {
+       "hole": 16,
+       "par": 3,
+       "averageToPar": 1.5,
+       "samples": 8,
+       "formula": "(+2[P3] + +0[P8] + +2[P11] + +2[P14] + +2[P17] + +1[P22] + +2[P26] + +1[P29]) / 8 = 1.5000"
+      },
+      {
+       "hole": 17,
+       "par": 5,
+       "averageToPar": 0.63,
+       "samples": 8,
+       "formula": "(+0[P3] + +1[P8] + +1[P11] + +0[P14] + +1[P17] + +1[P22] + +0[P26] + +1[P29]) / 8 = 0.6250"
+      },
+      {
+       "hole": 18,
+       "par": 4,
+       "averageToPar": 1.0,
+       "samples": 8,
+       "formula": "(+1[P3] + +0[P8] + +1[P11] + +1[P14] + +1[P17] + +1[P22] + +1[P26] + +2[P29]) / 8 = 1.0000"
+      }
+     ]
+    },
+    "course:c_e045d2f4d8:1-9": {
+     "label": "Pine Field 1–9 洞",
+     "roundCount": 1,
+     "rounds": [
+      "P5"
+     ],
+     "holes": [
+      {
+       "hole": 1,
+       "par": 4,
+       "averageToPar": 1.0,
+       "samples": 1,
+       "formula": "(+1[P5]) / 1 = 1.0000"
+      },
+      {
+       "hole": 2,
+       "par": 4,
+       "averageToPar": 0.0,
+       "samples": 1,
+       "formula": "(+0[P5]) / 1 = 0.0000"
+      },
+      {
+       "hole": 3,
+       "par": 4,
+       "averageToPar": 1.0,
+       "samples": 1,
+       "formula": "(+1[P5]) / 1 = 1.0000"
+      },
+      {
+       "hole": 4,
+       "par": 3,
+       "averageToPar": 1.0,
+       "samples": 1,
+       "formula": "(+1[P5]) / 1 = 1.0000"
+      },
+      {
+       "hole": 5,
+       "par": 5,
+       "averageToPar": 1.0,
+       "samples": 1,
+       "formula": "(+1[P5]) / 1 = 1.0000"
+      },
+      {
+       "hole": 6,
+       "par": 4,
+       "averageToPar": 0.0,
+       "samples": 1,
+       "formula": "(+0[P5]) / 1 = 0.0000"
+      },
+      {
+       "hole": 7,
+       "par": 4,
+       "averageToPar": 1.0,
+       "samples": 1,
+       "formula": "(+1[P5]) / 1 = 1.0000"
+      },
+      {
+       "hole": 8,
+       "par": 3,
+       "averageToPar": 2.0,
+       "samples": 1,
+       "formula": "(+2[P5]) / 1 = 2.0000"
+      },
+      {
+       "hole": 9,
+       "par": 5,
+       "averageToPar": 0.0,
+       "samples": 1,
+       "formula": "(+0[P5]) / 1 = 0.0000"
+      }
+     ]
+    },
+    "course:c_e045d2f4d8:10-18": {
+     "label": "Pine Field 10–18 洞",
+     "roundCount": 1,
+     "rounds": [
+      "P5"
+     ],
+     "holes": [
+      {
+       "hole": 10,
+       "par": 4,
+       "averageToPar": 1.0,
+       "samples": 1,
+       "formula": "(+1[P5]) / 1 = 1.0000"
+      },
+      {
+       "hole": 11,
+       "par": 4,
+       "averageToPar": 1.0,
+       "samples": 1,
+       "formula": "(+1[P5]) / 1 = 1.0000"
+      },
+      {
+       "hole": 12,
+       "par": 4,
+       "averageToPar": 0.0,
+       "samples": 1,
+       "formula": "(+0[P5]) / 1 = 0.0000"
+      },
+      {
+       "hole": 13,
+       "par": 3,
+       "averageToPar": 1.0,
+       "samples": 1,
+       "formula": "(+1[P5]) / 1 = 1.0000"
+      },
+      {
+       "hole": 14,
+       "par": 5,
+       "averageToPar": -1.0,
+       "samples": 1,
+       "formula": "(-1[P5]) / 1 = -1.0000"
+      },
+      {
+       "hole": 15,
+       "par": 4,
+       "averageToPar": 0.0,
+       "samples": 1,
+       "formula": "(+0[P5]) / 1 = 0.0000"
+      },
+      {
+       "hole": 16,
+       "par": 4,
+       "averageToPar": 1.0,
+       "samples": 1,
+       "formula": "(+1[P5]) / 1 = 1.0000"
+      },
+      {
+       "hole": 17,
+       "par": 3,
+       "averageToPar": 1.0,
+       "samples": 1,
+       "formula": "(+1[P5]) / 1 = 1.0000"
+      },
+      {
+       "hole": 18,
+       "par": 5,
+       "averageToPar": 0.0,
+       "samples": 1,
+       "formula": "(+0[P5]) / 1 = 0.0000"
+      }
+     ]
+    },
+    "gid:7103:1-9": {
+     "label": "Kestrel Hills C",
+     "roundCount": 6,
+     "rounds": [
+      "P6",
+      "P9",
+      "P15",
+      "P20",
+      "P25",
+      "P27"
+     ],
+     "holes": [
+      {
+       "hole": 1,
+       "par": 5,
+       "averageToPar": 1.0,
+       "samples": 6,
+       "formula": "(+1[P6] + +1[P9] + +1[P15] + +1[P20] + +1[P25] + +1[P27]) / 6 = 1.0000"
+      },
+      {
+       "hole": 2,
+       "par": 4,
+       "averageToPar": 0.5,
+       "samples": 6,
+       "formula": "(+0[P6] + +1[P9] + +0[P15] + +0[P20] + +1[P25] + +1[P27]) / 6 = 0.5000"
+      },
+      {
+       "hole": 3,
+       "par": 4,
+       "averageToPar": 0.5,
+       "samples": 6,
+       "formula": "(+0[P6] + +0[P9] + +0[P15] + +0[P20] + +1[P25] + +2[P27]) / 6 = 0.5000"
+      },
+      {
+       "hole": 4,
+       "par": 3,
+       "averageToPar": 1.0,
+       "samples": 6,
+       "formula": "(+1[P6] + +1[P9] + +1[P15] + +1[P20] + +1[P25] + +1[P27]) / 6 = 1.0000"
+      },
+      {
+       "hole": 5,
+       "par": 4,
+       "averageToPar": -0.17,
+       "samples": 6,
+       "formula": "(-1[P6] + +1[P9] + -1[P15] + -1[P20] + +1[P25] + +0[P27]) / 6 = -0.1667"
+      },
+      {
+       "hole": 6,
+       "par": 4,
+       "averageToPar": 0.67,
+       "samples": 6,
+       "formula": "(+1[P6] + +0[P9] + +1[P15] + +1[P20] + +0[P25] + +1[P27]) / 6 = 0.6667"
+      },
+      {
+       "hole": 7,
+       "par": 5,
+       "averageToPar": 0.67,
+       "samples": 6,
+       "formula": "(+0[P6] + +2[P9] + +0[P15] + +0[P20] + +1[P25] + +1[P27]) / 6 = 0.6667"
+      },
+      {
+       "hole": 8,
+       "par": 3,
+       "averageToPar": 1.17,
+       "samples": 6,
+       "formula": "(+1[P6] + +1[P9] + +1[P15] + +1[P20] + +2[P25] + +1[P27]) / 6 = 1.1667"
+      },
+      {
+       "hole": 9,
+       "par": 4,
+       "averageToPar": 0.17,
+       "samples": 6,
+       "formula": "(+0[P6] + +0[P9] + +0[P15] + +0[P20] + +1[P25] + +0[P27]) / 6 = 0.1667"
+      }
+     ]
+    }
+   },
+   "formula": "[B0d1] key = gid:<id>:<span> (no id -> course:<courseKey>:<span>); per loop hole mean(strokes-par) over every time it was played, 2 dp"
+  },
+  "nineCombos": {
+   "value": [
+    {
+     "frontKey": "gid:7101:1-9",
+     "backKey": "gid:7102:1-9",
+     "rounds": 8,
+     "average": 85.0,
+     "formula": "P1,P7,P10,P13,P16,P19,P21,P28 scores [81, 88, 81, 81, 89, 90, 85, 85]"
+    },
+    {
+     "frontKey": "gid:7201:1-9",
+     "backKey": "gid:7201:10-18",
+     "rounds": 7,
+     "average": 87.9,
+     "formula": "P3,P8,P11,P14,P17,P26,P29 scores [85, 81, 90, 87, 92, 85, 95]"
+    },
+    {
+     "frontKey": "gid:7102:1-9",
+     "backKey": "gid:7101:1-9",
+     "rounds": 5,
+     "average": 83.0,
+     "formula": "P2,P12,P18,P24,P31 scores [78, 86, 81, 85, 85]"
+    },
+    {
+     "frontKey": "gid:7102:1-9",
+     "backKey": "gid:7103:1-9",
+     "rounds": 3,
+     "average": 81.0,
+     "formula": "P6,P15,P20 scores [81, 81, 81]"
+    },
+    {
+     "frontKey": "gid:7101:1-9",
+     "backKey": "gid:7101:1-9",
+     "rounds": 1,
+     "average": 81.0,
+     "formula": "P4 scores [81]"
+    },
+    {
+     "frontKey": "course:c_e045d2f4d8:1-9",
+     "backKey": "course:c_e045d2f4d8:10-18",
+     "rounds": 1,
+     "average": 83.0,
+     "formula": "P5 scores [83]"
+    },
+    {
+     "frontKey": "gid:7103:1-9",
+     "backKey": "gid:7101:1-9",
+     "rounds": 1,
+     "average": 84.0,
+     "formula": "P9 scores [84]"
+    },
+    {
+     "frontKey": "gid:7101:1-9",
+     "backKey": "gid:7103:1-9",
+     "rounds": 1,
+     "average": 88.0,
+     "formula": "P25 scores [88]"
+    }
+   ],
+   "formula": "[B0d1] holesCompleted==18 rounds grouped front loop -> back loop (A/B != B/A); rows with >1 round have distinct counts"
+  },
+  "nineOnlyRounds": {
+   "value": 4,
+   "formula": "holesCompleted==9: P22,P23,P27,P30"
+  },
+  "kestrelNineOnly": {
+   "value": 3,
+   "formula": "Kestrel 9-hole rounds"
+  },
+  "kestrelLoopKeys": {
+   "value": [
+    "gid:7101:1-9",
+    "gid:7102:1-9",
+    "gid:7103:1-9"
+   ],
+   "formula": "loops played at Kestrel Hills"
+  },
+  "kestrelComboCount": {
+   "value": 6,
+   "formula": "全部 N 种组合 at Kestrel"
+  },
+  "kestrelTopThreeCombos": {
+   "value": [
+    {
+     "frontKey": "gid:7101:1-9",
+     "backKey": "gid:7102:1-9",
+     "rounds": 8
+    },
+    {
+     "frontKey": "gid:7102:1-9",
+     "backKey": "gid:7101:1-9",
+     "rounds": 5
+    },
+    {
+     "frontKey": "gid:7102:1-9",
+     "backKey": "gid:7103:1-9",
+     "rounds": 3
+    }
+   ],
+   "formula": "常打三种: highest round counts 8,5,3 (no ties)"
+  },
+  "hardestHoles": {
+   "value": [
+    {
+     "loopKey": "gid:7201:1-9",
+     "label": "Lark Valley 1–9 洞",
+     "hole": 8,
+     "par": 3,
+     "averageToPar": 2.0,
+     "samples": 7
+    },
+    {
+     "loopKey": "gid:7201:10-18",
+     "label": "Lark Valley 10–18 洞",
+     "hole": 16,
+     "par": 3,
+     "averageToPar": 1.5,
+     "samples": 8
+    },
+    {
+     "loopKey": "gid:7201:1-9",
+     "label": "Lark Valley 1–9 洞",
+     "hole": 5,
+     "par": 4,
+     "averageToPar": 1.43,
+     "samples": 7
+    },
+    {
+     "loopKey": "gid:7201:1-9",
+     "label": "Lark Valley 1–9 洞",
+     "hole": 4,
+     "par": 3,
+     "averageToPar": 1.29,
+     "samples": 7
+    },
+    {
+     "loopKey": "gid:7101:1-9",
+     "label": "Kestrel Hills A",
+     "hole": 8,
+     "par": 4,
+     "averageToPar": 1.18,
+     "samples": 17
+    }
+   ],
+   "formula": "[B0d1] loop holes with >=2 samples, by averageToPar desc, top 5; boundary and order tie-free"
+  },
+  "kestrelHardestThree": {
+   "value": [
+    {
+     "loopKey": "gid:7101:1-9",
+     "hole": 8,
+     "averageToPar": 1.18,
+     "samples": 17
+    },
+    {
+     "loopKey": "gid:7103:1-9",
+     "hole": 8,
+     "averageToPar": 1.17,
+     "samples": 6
+    },
+    {
+     "loopKey": "gid:7101:1-9",
+     "hole": 7,
+     "averageToPar": 1.12,
+     "samples": 17
+    }
+   ],
+   "formula": "[SPEC 2.6] course page: that course's own loop holes, >=2 samples, top 3 (selection drawn client-side; info for C16e)"
+  }
+ },
+ "2.7": {
+  "clubs": {
+   "value": {
+    "3w": {
+     "sampleCount": 1,
+     "median": 195.0,
+     "p10": 195.0,
+     "p90": 195.0,
+     "spellings": {
+      "3W": 1
+     },
+     "formula": "sorted [195]"
+    },
+    "7i": {
+     "sampleCount": 11,
+     "median": 148.0,
+     "p10": 140.0,
+     "p90": 156.0,
+     "spellings": {
+      "7I": 11
+     },
+     "formula": "sorted [138, 140, 142, 144, 146, 148, 150, 152, 154, 156, 158]"
+    },
+    "driver": {
+     "sampleCount": 11,
+     "median": 220.0,
+     "p10": 210.0,
+     "p90": 230.0,
+     "spellings": {
+      "Driver": 6,
+      "driver": 5
+     },
+     "formula": "sorted [205, 210, 212, 215, 218, 220, 222, 225, 228, 230, 235]"
+    },
+    "pw": {
+     "sampleCount": 11,
+     "median": 105.0,
+     "p10": 98.0,
+     "p90": 112.0,
+     "spellings": {
+      "PW": 11
+     },
+     "formula": "sorted [95, 98, 100, 102, 104, 105, 106, 108, 110, 112, 115]"
+    }
+   },
+   "formula": "[GUIDE] Driver(clubId101)+driver(clubId102) merge case-insensitively into one club of 11; clubId 0 (Unknown, 3 shots) dropped; 3W has 1 sample (low sample)"
+  },
+  "unknownShots": {
+   "value": 3,
+   "formula": "clubId 0 shots, excluded from every club row"
+  },
+  "bagGarmin": {
+   "value": {
+    "source": "garmin",
+    "clubs": [
+     {
+      "token": "driver",
+      "distanceM": 215
+     },
+     {
+      "token": "iron7",
+      "distanceM": 145
+     },
+     {
+      "token": "pw",
+      "distanceM": null
+     }
+    ]
+   },
+   "formula": "[MANUAL] no manual bag -> the synced Garmin bag; PW advice 0 = no distance (empty, not 0)"
+  },
+  "bagNone": {
+   "value": {
+    "source": "none",
+    "clubs": []
+   },
+   "formula": "a player with neither manual nor synced bag -> empty"
+  },
+  "bagManual": {
+   "value": {
+    "source": "manual",
+    "clubs": [
+     {
+      "token": "driver",
+      "distanceM": null
+     },
+     {
+      "token": "iron7",
+      "distanceM": 150
+     },
+     {
+      "token": "pw",
+      "distanceM": null
+     }
+    ]
+   },
+   "formula": "PUT manual bag [driver (no distance), iron7 150 m, pw (no distance)] -> manual wins over Garmin"
+  },
+  "ladderAfterManual": {
+   "value": [
+    [
+     "driver",
+     220.0
+    ],
+    [
+     "iron7",
+     150
+    ],
+    [
+     "pw",
+     105.0
+    ]
+   ],
+   "formula": "[course_prep.effective_club_ladder contract] manual distance > own measured median > catalog: driver median 220.0 (11 merged shots), iron7 typed 150 (measured 148.0 ignored), pw median 105.0; sorted longest first"
+  }
+ },
+ "2.8": {
+  "P12": {
+   "value": {
+    "roundId": "310000002",
+    "score": 86,
+    "par": 72,
+    "holesCompleted": 18,
+    "cells": [
+     {
+      "hole": 1,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 1
+     },
+     {
+      "hole": 2,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 2
+     },
+     {
+      "hole": 3,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 3
+     },
+     {
+      "hole": 4,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 4
+     },
+     {
+      "hole": 5,
+      "par": 4,
+      "score": 6,
+      "toPar": 2,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 5
+     },
+     {
+      "hole": 6,
+      "par": 3,
+      "score": 3,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 6
+     },
+     {
+      "hole": 7,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 7
+     },
+     {
+      "hole": 8,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 8
+     },
+     {
+      "hole": 9,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 9
+     },
+     {
+      "hole": 10,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 3,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 1
+     },
+     {
+      "hole": 11,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 2
+     },
+     {
+      "hole": 12,
+      "par": 3,
+      "score": 3,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 3
+     },
+     {
+      "hole": 13,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 4
+     },
+     {
+      "hole": 14,
+      "par": 4,
+      "score": 3,
+      "toPar": -1,
+      "putts": 1,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 5
+     },
+     {
+      "hole": 15,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 6
+     },
+     {
+      "hole": 16,
+      "par": 3,
+      "score": 5,
+      "toPar": 2,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 7
+     },
+     {
+      "hole": 17,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 8
+     },
+     {
+      "hole": 18,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 9
+     }
+    ],
+    "cumulativeToPar": [
+     1,
+     2,
+     3,
+     4,
+     6,
+     6,
+     7,
+     8,
+     8,
+     9,
+     10,
+     10,
+     11,
+     10,
+     11,
+     13,
+     13,
+     14
+    ],
+    "four": {
+     "tee": {
+      "state": "ready",
+      "fairwaysHit": 3,
+      "fairwaysRecorded": 14
+     },
+     "approach": {
+      "state": "ready",
+      "gir": 6,
+      "girRecorded": 18
+     },
+     "putting": {
+      "state": "ready",
+      "totalPutts": 36
+     },
+     "penalty": {
+      "totalPenalties": null
+     }
+    },
+    "loopCards": [
+     {
+      "side": "front",
+      "globalId": 7102,
+      "localHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ],
+      "displayHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ]
+     },
+     {
+      "side": "back",
+      "globalId": 7101,
+      "localHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ],
+      "displayHoles": [
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       17,
+       18
+      ]
+     }
+    ]
+   },
+   "formula": "Garmin B/A composite: card 1 = loop B holes 1-9 (id 7102), card 2 = loop A holes 1-9 (id 7101); GIR by putts strokes-putts<=par-2; penalty total only from holes that carry penalties"
+  },
+  "P3": {
+   "value": {
+    "roundId": "310000310",
+    "score": 85,
+    "par": 72,
+    "holesCompleted": 18,
+    "cells": [
+     {
+      "hole": 1,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 1
+     },
+     {
+      "hole": 2,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 2
+     },
+     {
+      "hole": 3,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 3
+     },
+     {
+      "hole": 4,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 4
+     },
+     {
+      "hole": 5,
+      "par": 4,
+      "score": 6,
+      "toPar": 2,
+      "putts": 3,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 5
+     },
+     {
+      "hole": 6,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 6
+     },
+     {
+      "hole": 7,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 7
+     },
+     {
+      "hole": 8,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 8
+     },
+     {
+      "hole": 9,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 9
+     },
+     {
+      "hole": 10,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 1,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 10
+     },
+     {
+      "hole": 11,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 11
+     },
+     {
+      "hole": 12,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 12
+     },
+     {
+      "hole": 13,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 13
+     },
+     {
+      "hole": 14,
+      "par": 4,
+      "score": 3,
+      "toPar": -1,
+      "putts": 1,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 14
+     },
+     {
+      "hole": 15,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 15
+     },
+     {
+      "hole": 16,
+      "par": 3,
+      "score": 5,
+      "toPar": 2,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 16
+     },
+     {
+      "hole": 17,
+      "par": 5,
+      "score": 5,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 17
+     },
+     {
+      "hole": 18,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 18
+     }
+    ],
+    "cumulativeToPar": [
+     1,
+     2,
+     2,
+     3,
+     5,
+     5,
+     6,
+     7,
+     7,
+     8,
+     8,
+     9,
+     10,
+     9,
+     10,
+     12,
+     12,
+     13
+    ],
+    "four": {
+     "tee": {
+      "state": "ready",
+      "fairwaysHit": 6,
+      "fairwaysRecorded": 14
+     },
+     "approach": {
+      "state": "ready",
+      "gir": 6,
+      "girRecorded": 18
+     },
+     "putting": {
+      "state": "ready",
+      "totalPutts": 35
+     },
+     "penalty": {
+      "totalPenalties": null
+     }
+    },
+    "loopCards": [
+     {
+      "side": "front",
+      "globalId": 7201,
+      "localHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ],
+      "displayHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ]
+     },
+     {
+      "side": "back",
+      "globalId": 7201,
+      "localHoles": [
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       17,
+       18
+      ],
+      "displayHoles": [
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       17,
+       18
+      ]
+     }
+    ]
+   },
+   "formula": "Lark single 18: holes 10-18 are holes 10-18 of the same id 7201; GIR by putts strokes-putts<=par-2; penalty total only from holes that carry penalties"
+  },
+  "P25": {
+   "value": {
+    "roundId": "merged_310000066_310000245",
+    "score": 88,
+    "par": 72,
+    "holesCompleted": 18,
+    "cells": [
+     {
+      "hole": 1,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 1
+     },
+     {
+      "hole": 2,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 2
+     },
+     {
+      "hole": 3,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 3
+     },
+     {
+      "hole": 4,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 4
+     },
+     {
+      "hole": 5,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 5
+     },
+     {
+      "hole": 6,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 6
+     },
+     {
+      "hole": 7,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 7
+     },
+     {
+      "hole": 8,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 8
+     },
+     {
+      "hole": 9,
+      "par": 5,
+      "score": 5,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 9
+     },
+     {
+      "hole": 10,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7103,
+      "localHole": 1
+     },
+     {
+      "hole": 11,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7103,
+      "localHole": 2
+     },
+     {
+      "hole": 12,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7103,
+      "localHole": 3
+     },
+     {
+      "hole": 13,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7103,
+      "localHole": 4
+     },
+     {
+      "hole": 14,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7103,
+      "localHole": 5
+     },
+     {
+      "hole": 15,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7103,
+      "localHole": 6
+     },
+     {
+      "hole": 16,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7103,
+      "localHole": 7
+     },
+     {
+      "hole": 17,
+      "par": 3,
+      "score": 5,
+      "toPar": 2,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7103,
+      "localHole": 8
+     },
+     {
+      "hole": 18,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7103,
+      "localHole": 9
+     }
+    ],
+    "cumulativeToPar": [
+     1,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     12,
+     13,
+     15,
+     16
+    ],
+    "four": {
+     "tee": {
+      "state": "ready",
+      "fairwaysHit": 3,
+      "fairwaysRecorded": 14
+     },
+     "approach": {
+      "state": "ready",
+      "gir": 3,
+      "girRecorded": 18
+     },
+     "putting": {
+      "state": "ready",
+      "totalPutts": 36
+     },
+     "penalty": {
+      "totalPenalties": null
+     }
+    },
+    "loopCards": [
+     {
+      "side": "front",
+      "globalId": 7101,
+      "localHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ],
+      "displayHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ]
+     },
+     {
+      "side": "back",
+      "globalId": 7103,
+      "localHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ],
+      "displayHoles": [
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       17,
+       18
+      ]
+     }
+    ]
+   },
+   "formula": "two same-day 9-hole cards A then C merged: 10-18 are loop C holes 1-9 (id 7103); GIR by putts strokes-putts<=par-2; penalty total only from holes that carry penalties"
+  },
+  "P22": {
+   "value": {
+    "roundId": "310000289",
+    "score": 42,
+    "par": 36,
+    "holesCompleted": 9,
+    "cells": [
+     {
+      "hole": 10,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 10
+     },
+     {
+      "hole": 11,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 11
+     },
+     {
+      "hole": 12,
+      "par": 3,
+      "score": 3,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 12
+     },
+     {
+      "hole": 13,
+      "par": 5,
+      "score": 4,
+      "toPar": -1,
+      "putts": 1,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 13
+     },
+     {
+      "hole": 14,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 14
+     },
+     {
+      "hole": 15,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 15
+     },
+     {
+      "hole": 16,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 16
+     },
+     {
+      "hole": 17,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 17
+     },
+     {
+      "hole": 18,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": null,
+      "globalId": 7201,
+      "localHole": 18
+     }
+    ],
+    "cumulativeToPar": [
+     1,
+     2,
+     2,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "four": {
+     "tee": {
+      "state": "ready",
+      "fairwaysHit": 1,
+      "fairwaysRecorded": 7
+     },
+     "approach": {
+      "state": "ready",
+      "gir": 2,
+      "girRecorded": 9
+     },
+     "putting": {
+      "state": "ready",
+      "totalPutts": 17
+     },
+     "penalty": {
+      "totalPenalties": null
+     }
+    },
+    "loopCards": [
+     {
+      "side": "back",
+      "globalId": 7201,
+      "localHoles": [
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       17,
+       18
+      ],
+      "displayHoles": [
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       17,
+       18
+      ]
+     }
+    ]
+   },
+   "formula": "9-hole round on Lark back nine: one card, holes 10-18 of id 7201; GIR by putts strokes-putts<=par-2; penalty total only from holes that carry penalties"
+  },
+  "P28": {
+   "value": {
+    "roundId": "310000088",
+    "score": 85,
+    "par": 72,
+    "holesCompleted": 18,
+    "cells": [
+     {
+      "hole": 1,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 1
+     },
+     {
+      "hole": 2,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 2
+     },
+     {
+      "hole": 3,
+      "par": 3,
+      "score": 3,
+      "toPar": 0,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 3
+     },
+     {
+      "hole": 4,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 4
+     },
+     {
+      "hole": 5,
+      "par": 4,
+      "score": 6,
+      "toPar": 2,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 5
+     },
+     {
+      "hole": 6,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 6
+     },
+     {
+      "hole": 7,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 7
+     },
+     {
+      "hole": 8,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 8
+     },
+     {
+      "hole": 9,
+      "par": 5,
+      "score": 5,
+      "toPar": 0,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7101,
+      "localHole": 9
+     },
+     {
+      "hole": 10,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 1
+     },
+     {
+      "hole": 11,
+      "par": 5,
+      "score": 5,
+      "toPar": 0,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 2
+     },
+     {
+      "hole": 12,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 3
+     },
+     {
+      "hole": 13,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 4
+     },
+     {
+      "hole": 14,
+      "par": 4,
+      "score": 3,
+      "toPar": -1,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 5
+     },
+     {
+      "hole": 15,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 6
+     },
+     {
+      "hole": 16,
+      "par": 4,
+      "score": 6,
+      "toPar": 2,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 7
+     },
+     {
+      "hole": 17,
+      "par": 5,
+      "score": 5,
+      "toPar": 0,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 8
+     },
+     {
+      "hole": 18,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": null,
+      "penalties": null,
+      "globalId": 7102,
+      "localHole": 9
+     }
+    ],
+    "cumulativeToPar": [
+     1,
+     2,
+     2,
+     3,
+     5,
+     5,
+     6,
+     7,
+     7,
+     8,
+     8,
+     9,
+     10,
+     9,
+     10,
+     12,
+     12,
+     13
+    ],
+    "four": {
+     "tee": {
+      "state": "ready",
+      "fairwaysHit": 5,
+      "fairwaysRecorded": 14
+     },
+     "approach": {
+      "state": "missing",
+      "gir": null,
+      "girRecorded": 0
+     },
+     "putting": {
+      "state": "missing",
+      "totalPutts": null
+     },
+     "penalty": {
+      "totalPenalties": null
+     }
+    },
+    "loopCards": [
+     {
+      "side": "front",
+      "globalId": 7101,
+      "localHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ],
+      "displayHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ]
+     },
+     {
+      "side": "back",
+      "globalId": 7102,
+      "localHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ],
+      "displayHoles": [
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       17,
+       18
+      ]
+     }
+    ]
+   },
+   "formula": "Garmin round without putts: GIR/putting unknown (missing, not 0); GIR by putts strokes-putts<=par-2; penalty total only from holes that carry penalties"
+  },
+  "P5": {
+   "value": {
+    "roundId": "310000420",
+    "score": 83,
+    "par": 72,
+    "holesCompleted": 18,
+    "cells": [
+     {
+      "hole": 1,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 2,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 1,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 3,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 4,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 5,
+      "par": 5,
+      "score": 6,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 6,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 7,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 8,
+      "par": 3,
+      "score": 5,
+      "toPar": 2,
+      "putts": 2,
+      "penalties": 1,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 9,
+      "par": 5,
+      "score": 5,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 10,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 11,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 12,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 13,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 14,
+      "par": 5,
+      "score": 4,
+      "toPar": -1,
+      "putts": 1,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 15,
+      "par": 4,
+      "score": 4,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 16,
+      "par": 4,
+      "score": 5,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 17,
+      "par": 3,
+      "score": 4,
+      "toPar": 1,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     },
+     {
+      "hole": 18,
+      "par": 5,
+      "score": 5,
+      "toPar": 0,
+      "putts": 2,
+      "penalties": 0,
+      "globalId": null,
+      "localHole": null
+     }
+    ],
+    "cumulativeToPar": [
+     1,
+     1,
+     2,
+     3,
+     4,
+     4,
+     5,
+     7,
+     7,
+     8,
+     9,
+     9,
+     10,
+     9,
+     9,
+     10,
+     11,
+     11
+    ],
+    "four": {
+     "tee": {
+      "state": "missing",
+      "fairwaysHit": 0,
+      "fairwaysRecorded": 0
+     },
+     "approach": {
+      "state": "ready",
+      "gir": 6,
+      "girRecorded": 18
+     },
+     "putting": {
+      "state": "ready",
+      "totalPutts": 34
+     },
+     "penalty": {
+      "totalPenalties": 1
+     }
+    },
+    "loopCards": [
+     {
+      "side": "front",
+      "globalId": null,
+      "localHoles": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "displayHoles": [
+       1,
+       2,
+       3,
+       4,
+       5,
+       6,
+       7,
+       8,
+       9
+      ]
+     },
+     {
+      "side": "back",
+      "globalId": null,
+      "localHoles": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "displayHoles": [
+       10,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       17,
+       18
+      ]
+     }
+    ]
+   },
+   "formula": "manual round, no Garmin id: penalties recorded (1), no fairway; GIR by putts strokes-putts<=par-2; penalty total only from holes that carry penalties"
+  }
+ },
+ "2.9": {
+  "P1h4": {
+   "value": {
+    "roundId": "310000211",
+    "hole": 4,
+    "orders": [
+     1,
+     2,
+     3,
+     4
+    ],
+    "clubs": [
+     "driver",
+     "7I",
+     "PW",
+     "PW"
+    ],
+    "endLies": [
+     "Fairway",
+     "Rough",
+     "Rough",
+     "Green"
+    ],
+    "meters": [
+     222,
+     140,
+     95,
+     98
+    ],
+    "putts": 2
+   },
+   "formula": "P1 #4 (A par 5, 6 strokes, 2 putts): 4 shots driver/7I/PW/PW, ends Fairway/Rough/Rough/Green; 推 x2"
+  },
+  "P7h1": {
+   "value": {
+    "roundId": "310000398",
+    "hole": 1,
+    "orders": [
+     1,
+     2,
+     3
+    ],
+    "clubs": [
+     "Driver",
+     "7I",
+     null
+    ],
+    "endLies": [
+     "Fairway",
+     "Rough",
+     "Green"
+    ],
+    "meters": [
+     218,
+     154,
+     120
+    ],
+    "putts": 2
+   },
+   "formula": "P7 #1: Driver, 7I, then a clubId-0 shot (no club label, not 'Unknown'); 推 x2"
+  },
+  "P12h12": {
+   "value": {
+    "roundId": "310000002",
+    "hole": 12,
+    "orders": [
+     1
+    ],
+    "clubs": [
+     "PW"
+    ],
+    "endLies": [
+     "Green"
+    ],
+    "meters": [
+     115
+    ],
+    "putts": 2
+   },
+   "formula": "P12 #12 (A#3 par 3): one PW shot to Green, 推 x2"
+  }
+ },
+ "2.10": {
+  "totalRounds": {
+   "value": 31,
+   "formula": "summary.totalRounds"
+  },
+  "average18": {
+   "value": 84.8,
+   "formula": "all 18-hole rounds (27, incl. merged P25) sum 2289 / 27 -- must differ from recent10Average (生涯不冒充近期)"
+  },
+  "bestScore": {
+   "value": 78,
+   "formula": "min 18-hole score; best overall = P2 78, which is also the best of the last 10 (ambiguity-proof for '近 10 场 ... 最佳')"
+  },
+  "roundP1": {
+   "value": {
+    "roundId": "310000211",
+    "score": 81,
+    "par": 72
+   },
+   "formula": "P1 scorecard 81 on par 72"
+  },
+  "noShotRound": {
+   "value": "310000027",
+   "formula": "P2 has no shot file -> the report must not cite shots for it"
+  }
+ }
+}

@@ -1,0 +1,161 @@
+{
+ "source": "manual",
+ "scorecardDetails": [
+  {
+   "scorecard": {
+    "id": 310000027,
+    "formattedStartTime": "2026-09-12T08:20:00",
+    "startTime": "2026-09-12T08:20:00",
+    "strokes": 78,
+    "holesCompleted": 18,
+    "courseGlobalId": 7102,
+    "frontNineGlobalCourseId": 7102,
+    "backNineGlobalCourseId": 7101,
+    "courseSnapshotId": null,
+    "teeBox": "Blue",
+    "teeBoxRating": null,
+    "teeBoxSlope": null,
+    "holes": [
+     {
+      "number": 1,
+      "strokes": 4,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 2,
+      "strokes": 4,
+      "putts": 1,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 3,
+      "strokes": 3,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 4,
+      "strokes": 5,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 5,
+      "strokes": 5,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 6,
+      "strokes": 3,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "default"
+     },
+     {
+      "number": 7,
+      "strokes": 5,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 8,
+      "strokes": 5,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 9,
+      "strokes": 4,
+      "putts": 1,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 10,
+      "strokes": 5,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 11,
+      "strokes": 4,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 12,
+      "strokes": 3,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "default"
+     },
+     {
+      "number": 13,
+      "strokes": 6,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 14,
+      "strokes": 4,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "default"
+     },
+     {
+      "number": 15,
+      "strokes": 3,
+      "putts": 1,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 16,
+      "strokes": 4,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 17,
+      "strokes": 5,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     },
+     {
+      "number": 18,
+      "strokes": 6,
+      "putts": 2,
+      "penalties": 0,
+      "scoreSource": "manual_edit"
+     }
+    ]
+   },
+   "scorecardStats": {
+    "round": {}
+   }
+  }
+ ],
+ "courseSnapshots": [
+  {
+   "name": "Kestrel Hills ~ B/A",
+   "holePars": "453443454443544345",
+   "roundPar": 72,
+   "lat": 31200000,
+   "lon": 121400000
+  }
+ ]
+}
