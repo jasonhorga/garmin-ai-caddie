@@ -22,6 +22,8 @@ from ai_caddie.history.history_stats import (
     windowed_history_data,
 )
 from ai_caddie.history.mobile_stats import build_mobile_previous, build_mobile_stats
+from ai_caddie.rounds.round_shot_map import build_round_hole_shot_map
+from server_v2.history_round_detail import load_round_hole_shot_map_response
 from server_v2.history_rounds import build_history_rounds_response
 from ai_caddie.reports.reports import generate_deterministic_report, generate_report
 
@@ -60,7 +62,7 @@ class J2ResultsProductTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.tmp.cleanup()
 
-    def test_21_home_windows_use_handwritten_sample_and_handicap_oracle(self) -> None:
+    def test_j2_1_home_windows_use_handwritten_sample_and_handicap_oracle(self) -> None:
         expected = self.fixture["expected"]
         summary = self.stats["summary"]
         self.assertEqual(summary["totalRounds"], expected["summary"]["totalRounds"])
@@ -74,16 +76,17 @@ class J2ResultsProductTests(unittest.TestCase):
         # The implementation preserves source order inside a selected window; the fixture records
         # the same selected set in newest-first UI order.
         for window in ("last10", "last20"):
-            actual = [str(r.get("id")) for r in windowed_history_data(self.data, window).rounds]
-            self.assertEqual(set(actual), set(expected["windows"][window]))
-            self.assertEqual(len(actual), len(expected["windows"][window]))
+            with self.subTest(window=window):
+                actual = [str(r.get("id")) for r in windowed_history_data(self.data, window).rounds]
+                self.assertEqual(set(actual), set(expected["windows"][window]))
+                self.assertEqual(len(actual), len(expected["windows"][window]))
 
         mobile = build_mobile_stats(build_history_stats(windowed_history_data(self.data, "last20"), data_mode="fixture"))
         self.assertEqual(mobile["summary"]["totalRounds"], 20)
         self.assertLessEqual(len(mobile["scoring"]["roundSequences"]), 20)
         self.assertEqual([row["roundId"] for row in mobile["scoring"]["roundSequences"]], expected["windows"]["last20"])
 
-    def test_22_range_and_previous_period_never_invent_a_comparison(self) -> None:
+    def test_j2_2_range_and_previous_period_never_invent_a_comparison(self) -> None:
         last10 = windowed_history_data(self.data, "last10")
         previous10 = windowed_history_data(self.data, "prev10")
         self.assertEqual(set(str(r.get("id")) for r in previous10.rounds), set(self.fixture["expected"]["windows"]["previous10"]))
@@ -100,13 +103,14 @@ class J2ResultsProductTests(unittest.TestCase):
         self.assertEqual(short_previous, {"window": "prev10", "roundCount": 5, "requiredRounds": 10})
         self.assertEqual(len(last10.rounds), 10)
 
-    def test_23_every_drilldown_ref_is_the_handwritten_round_set(self) -> None:
+    def test_j2_3_every_drilldown_ref_is_the_handwritten_round_set(self) -> None:
         expected = self.fixture["expected"]["drilldown_round_ids"]
         self.assertEqual(self.stats["drillDown"]["roundIds"], expected)
         sections = self.fixture["expected"]["drilldown_sections"]
         for name in ("byYear", "byQuarter", "byMonth"):
-            actual = {row["key"]: row["roundIds"] for row in self.stats["time"][name]}
-            self.assertEqual(actual, sections[name])
+            with self.subTest(section=name):
+                actual = {row["key"]: row["roundIds"] for row in self.stats["time"][name]}
+                self.assertEqual(actual, sections[name])
         self.assertEqual(
             {row["courseKey"]: row["roundIds"] for row in self.stats["courses"]},
             sections["courses"],
@@ -124,7 +128,7 @@ class J2ResultsProductTests(unittest.TestCase):
         self.assertEqual(resolved["round"]["id"], "r01")
         self.assertEqual(resolved["hole"]["number"], 1)
 
-    def test_24_all_rounds_search_filters_and_month_groups(self) -> None:
+    def test_j2_4_all_rounds_search_filters_and_month_groups(self) -> None:
         response = build_history_rounds_response(self.data, year="2025", course="mega", search="Mega", limit=120)
         ids = [card.id for group in response.groups for card in group.rounds]
         self.assertEqual(ids, ["r06", "r05", "r04", "r03", "r02", "r01"])
@@ -138,7 +142,7 @@ class J2ResultsProductTests(unittest.TestCase):
         self.assertEqual(quarter_ids, ["r07", "r06", "r05", "r04", "r03", "r02", "r01"])
         self.assertEqual(sum(group.count for group in response.groups), 6)
 
-    def test_25_statistics_keep_unknowns_out_of_denominators_and_apply_correction(self) -> None:
+    def test_j2_5_statistics_keep_unknowns_out_of_denominators_and_apply_correction(self) -> None:
         scoring = self.stats["scoring"]
         putting = scoring["putting"]
         self.assertNotIn("r01:18", putting["holeRefs"])  # default 2-putt is not evidence
@@ -152,7 +156,13 @@ class J2ResultsProductTests(unittest.TestCase):
         self.assertAlmostEqual(putting["zeroPuttPct"] + putting["onePuttPct"] + putting["twoPuttPct"] + putting["threePlusPuttPct"], 100.0, places=1)
         expected = self.fixture["expected"]["scoring"]
         for key, value in expected["putting"].items():
-            self.assertEqual(putting[key], value)
+            with self.subTest(putting_field=key):
+                if key == "coverageReady":
+                    self.assertEqual(putting["coverage"]["ready"], value)
+                elif key == "coverageTotal":
+                    self.assertEqual(putting["coverage"]["total"], value)
+                else:
+                    self.assertEqual(putting[key], value)
         self.assertEqual(scoring["penalties"], self.fixture["expected"]["penalties"])
         self.assertEqual(scoring["scrambling"], expected["scrambling"])
         self.assertEqual(scoring["byPar"][0]["parOrBetter"], expected["byParPar3"]["parOrBetter"])
@@ -165,7 +175,7 @@ class J2ResultsProductTests(unittest.TestCase):
         self.assertEqual([row["coverage"]["ready"] for row in scoring["phaseStats"][:2]], expected["phaseReady"])
         self.assertEqual([row["coverage"]["total"] for row in scoring["phaseStats"][:2]], expected["phaseTotal"])
 
-    def test_26_loops_are_physical_and_ordered(self) -> None:
+    def test_j2_6_loops_are_physical_and_ordered(self) -> None:
         scoring = self.stats["scoring"]
         loop_keys = {row["loopKey"] for row in scoring["loops"]}
         self.assertIn("gid:2701:1-9", loop_keys)
@@ -181,7 +191,7 @@ class J2ResultsProductTests(unittest.TestCase):
         )
         self.assertTrue(all(row["samples"] >= expected["hardestHoleMinimumSamples"] for row in scoring["hardestHoles"]), scoring["hardestHoles"])
 
-    def test_27_round_review_preserves_hole_numbers_and_missing_values(self) -> None:
+    def test_j2_8_round_review_preserves_hole_numbers_and_missing_values(self) -> None:
         detail = build_history_round_detail(self.data, "r02")
         self.assertTrue(detail["found"])
         self.assertEqual(detail["roundRef"], "r02")
@@ -194,7 +204,7 @@ class J2ResultsProductTests(unittest.TestCase):
         missing = build_history_round_detail(self.data, "not-a-round")
         self.assertFalse(missing["found"])
 
-    def test_28_club_ladder_cleans_names_unknowns_and_uses_handwritten_percentiles(self) -> None:
+    def test_j2_7_club_ladder_cleans_names_unknowns_and_uses_handwritten_percentiles(self) -> None:
         profile = next(row for row in self.stats["clubs"] if row["club"] == "7 iron")
         expected = self.fixture["expected"]["club"]
         for key in ("sampleCount", "median", "p10", "p90"):
@@ -203,7 +213,7 @@ class J2ResultsProductTests(unittest.TestCase):
         self.assertEqual(len(self.stats["clubs"]), 1)
         self.assertEqual(profile["dispersionRange"], expected["dispersionRange"])
 
-    def test_29_structured_report_keeps_facts_missing_and_resolvable_sources_separate(self) -> None:
+    def test_j2_10_structured_report_keeps_facts_missing_and_resolvable_sources_separate(self) -> None:
         facts = {
             "schema": "ai-caddie-report-facts-v1",
             "kind": "round",
@@ -217,7 +227,7 @@ class J2ResultsProductTests(unittest.TestCase):
         self.assertEqual(set(report["sourceRefs"]), {"r01", "r01:5"})
         self.assertEqual(report["unsupportedClaims"], [])
 
-    def test_210_model_receives_only_structured_facts(self) -> None:
+        # The model call receives the same structured facts and no ambient secrets.
         seen: list[str] = []
 
         class RecordingProvider:
@@ -231,10 +241,32 @@ class J2ResultsProductTests(unittest.TestCase):
         report = generate_report(facts, RecordingProvider())
         self.assertEqual(report["provider"], "RecordingProvider")
         self.assertIn("factsUsed", seen[0])
+        self.assertIn('"r01"', seen[0])
         self.assertNotIn("password", seen[0].lower())
         self.assertNotIn("cookie", seen[0].lower())
 
-    def test_211_failed_supplier_falls_back_to_static_report(self) -> None:
+    def test_j2_9_shot_map_keeps_fixture_shot_order_and_missing_geometry_honest(self) -> None:
+        expected = self.fixture["expected"]["shotMap"]
+        payload = build_round_hole_shot_map(self.data, expected["roundRef"], expected["hole"], include_image=False)
+        self.assertTrue(payload["found"])
+        self.assertEqual(payload["roundRef"], expected["roundRef"])
+        self.assertEqual(payload["hole"], expected["hole"])
+        self.assertEqual([shot["order"] for shot in payload["shots"]], expected["orders"])
+        self.assertEqual([shot["club"] for shot in payload["shots"]], expected["clubs"])
+        self.assertEqual([shot["gpsAvailable"] for shot in payload["shots"]], expected["gpsAvailable"])
+        self.assertIsNone(payload["map"])
+        self.assertEqual(payload["missingData"][0]["label"], "geometry")
+        with mock.patch(
+            "server_v2.history_round_detail.load_history_data_for_mode",
+            return_value=(self.data, "fixture"),
+        ):
+            response = load_round_hole_shot_map_response(
+                expected["roundRef"], expected["hole"], include_image=False
+            )
+        self.assertEqual(response.roundRef, expected["roundRef"])
+        self.assertEqual([shot["order"] for shot in response.shots], expected["orders"])
+
+    def test_j2_11_failed_supplier_falls_back_to_static_report(self) -> None:
         from server_v2 import reports as reports_api
 
         class FailingProvider:

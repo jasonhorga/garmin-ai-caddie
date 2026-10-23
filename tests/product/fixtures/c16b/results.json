@@ -4634,7 +4634,18 @@
       "distance": 130,
       "club": "7 iron",
       "surface": "fairway",
-      "_ref": "r01:1:0"
+      "_ref": "r01:1:0",
+      "order": 1,
+      "clubName": "7 iron",
+      "type": "approach",
+      "start": {
+        "lat": 30.0001,
+        "lon": 120.0001
+      },
+      "end": {
+        "lat": 30.0006,
+        "lon": 120.0006
+      }
     },
     {
       "roundId": "r01",
@@ -4661,7 +4672,18 @@
       "distance": 160,
       "club": "7 iron",
       "surface": "fairway",
-      "_ref": "r01:1:3"
+      "_ref": "r01:1:3",
+      "order": 2,
+      "clubName": "7 iron",
+      "type": "approach",
+      "start": {
+        "lat": 30.0002,
+        "lon": 120.0002
+      },
+      "end": {
+        "lat": 30.0007,
+        "lon": 120.0007
+      }
     },
     {
       "roundId": "r01",
@@ -4688,7 +4710,18 @@
       "distance": 135,
       "club": "7 iron",
       "surface": "fairway",
-      "_ref": "r01:1:6"
+      "_ref": "r01:1:6",
+      "order": 3,
+      "clubName": "7 iron",
+      "type": "approach",
+      "start": {
+        "lat": 30.0003,
+        "lon": 120.0003
+      },
+      "end": {
+        "lat": 30.0008,
+        "lon": 120.0008
+      }
     },
     {
       "roundId": "r01",
@@ -4715,7 +4748,18 @@
       "distance": 165,
       "club": "7 iron",
       "surface": "fairway",
-      "_ref": "r01:1:9"
+      "_ref": "r01:1:9",
+      "order": 4,
+      "clubName": "7 iron",
+      "type": "approach",
+      "start": {
+        "lat": 30.0004,
+        "lon": 120.0004
+      },
+      "end": {
+        "lat": 30.0009,
+        "lon": 120.0009
+      }
     },
     {
       "roundId": "r01",
@@ -4786,13 +4830,14 @@
     "putt_distribution": "all non-default/non-missing putts plus corrected r03:1; counts are asserted from hand-picked hole rows in test fixture",
     "summary_counts": "total=29 identified ids + 1 missing id = 30; 18-hole priced=30 - 3 nine-hole - 1 missing-score row (r08) = 26; nine-hole=3; merged=true rows r01,r02,r03 = 3; courses={mega,solo18}=2",
     "handicap": "26 eligible differentials; newest 20, take ceil(20*0.4)=8; lowest eight average=-19.4792; WHS factor 0.96 => round(-18.7,1); recent20 delta=1.1",
-    "putting_totals": "eligible holes=512 (513 physical holes - r01:18 default); recorded=511 (eligible minus r02:5 missing); count buckets 0/1/2/3+=0/171/257/83; 3+ values sum=249; total putts=0*0+171*1+257*2+249=934",
+    "putting_totals": "eligible holes=512 (513 physical holes - r01:18 default); recorded=511 (eligible minus r02:5 missing); count buckets 0/1/2/3+=0/171/257/83; 3+ values sum=249; total putts=0*0+171*1+257*2+249=934; coverage ready/total=511/512",
     "scrambling": "GIR misses = 168 chances; par-or-better after miss = 96 saves; pct=round(96/168*100,1)=57.1",
     "par3": "par-3 holes=114; par-or-better=56; pct=round(56/114*100,1)=49.1",
     "outcomes": "scored holes=513; eagle+=73, birdie=92, par=109, bogey=102, double+=137; par-or-better=73+92+109=274; bogey-or-worse=102+137=239",
     "phase_counts": "physical holes=513; fairway recorded=385; GIR eligible denominator=511 (r01:18 and r03:1 are unedited defaults); GIR recorded=510 (r02:5 has no GIR)",
     "drilldown_sections": "Year/quarter/month/course/club buckets are hand-enumerated from the dated 30-row table; score bands use complete 18-hole strokes (<80, 80-89, 90-99, >=100).",
-    "loops": "r04,r05,r06 are the three 9-hole-only rounds; Mega physical front/back pairs have one round each for A→B, B→A, and A→A; Solo 18 has 23 complete scored rounds in its front/back pair (r08 has no score); hardest-hole display requires at least 2 samples."
+    "loops": "r04,r05,r06 are the three 9-hole-only rounds; Mega physical front/back pairs have one round each for A→B, B→A, and A→A; Solo 18 has 23 complete scored rounds in its front/back pair (r08 has no score); hardest-hole display requires at least 2 samples.",
+    "shot_map": "r01 hole 1 has four fixture shots; hand order 1,2,3,4 and each has complete start/end lat+lon, so GPS flags are four true values."
   },
   "expected": {
     "summary": {
@@ -4909,7 +4954,9 @@
         "zeroPutts": 0,
         "onePutts": 171,
         "twoPutts": 257,
-        "threePlusPutts": 83
+        "threePlusPutts": 83,
+        "coverageReady": 511,
+        "coverageTotal": 512
       },
       "scrambling": {
         "chances": 168,
@@ -5163,6 +5210,28 @@
           "None"
         ]
       }
+    },
+    "shotMap": {
+      "roundRef": "r01",
+      "hole": 1,
+      "orders": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "clubs": [
+        "7 iron",
+        "7 iron",
+        "7 iron",
+        "7 iron"
+      ],
+      "gpsAvailable": [
+        true,
+        true,
+        true,
+        true
+      ]
     }
   }
 }
