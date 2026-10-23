@@ -33,18 +33,31 @@ round slot. Single-loop cases have exactly nine holes.
 
 ## caddie_golden.json — 5.11 / 4.6
 
-All distances and local coordinates are metres, x east / y north. Two holes,
-each with two parallel tee positions, use a straight factual `routeLocal` from
+All distances and local coordinates are metres, x east / y north. Two clear holes,
+each with two parallel tee positions, and a third hole with water use a straight factual `routeLocal` from
 `ballLocal` to `pinLocal`. `par`, `shotType`, `distanceToPin_m`, `clubProfiles`
 and `openingClubs` are input facts; the three opening clubs describe supplied
 prep candidates, not a selected answer. Profiles contain `median_m`, `p10_m`,
 `p90_m`, `sampleSize`. A consumer adapts these input facts to its evaluator.
 Each `expected` item is keyed by strategy `id` (`safe`, `stock`, `attack`) and
 contains the full ordered `clubNames`, cumulative `routeOffsets_m`, projected
-`landingsLocal`, and zero-based `planIndices`. Python checks decision sequences;
+`landingsLocal`, zero-based `planIndices`, and `plannedStrokes` (whole-route
+physical shots, excluding putting). Python checks decision sequences;
 Swift checks the same sequence plus route projection. Do not feed `expected`
 into the planner. The two positions have equal distances but translated landing
 coordinates; an evaluator cannot hard-code an origin of (0,0).
 The three strategies differ in first club and at least one route offset. Safe
 uses three equal short shots, stock two equal medium shots, attack a long shot
-then a short shot. The bag deliberately requires the safe/stock repeat fallback.
+then a short shot. These are independent acceptance routes for the supplied
+opening choices; no undocumented continuation threshold defines the golden.
+
+The water row adds optional factual `hazards` (id, kind, front/clear route
+distances, sourceRefs), `greenDistances`, and per-strategy `routeRiskScores`.
+`expectedAvoidZones` is an independent projection of the known water interval.
+All three initial measured carry windows clear it. `nextShotExpectedStrokes`
+is the separate current-shot estimate: one stroke in this zero-additional-risk
+case; it must not be confused with whole-route `plannedStrokes` (3/2/2).
+The measured green window also lets Python check the structured `shotsToGreen`
+count against the same whole-route arithmetic. A consumer must adapt only
+the input fields and must never feed `expected` or `expectedAvoidZones` back
+into its evaluator.

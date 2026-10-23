@@ -5,6 +5,16 @@
 and the small synthetic `native_product.json` into AICaddieUITests. No golden is duplicated.
 SwiftPM host tests use a repository-relative path anchored at `#filePath`.
 
+The caddie adapter follows C16c's `golden_context` in `tests/product/_support_c16c.py`:
+it supplies the same opening choices, profile carries/dispersion/sample sizes, risk scores,
+ball/pin evidence, candidate IDs and measured green/hazard facts. Native profiles additionally
+carry their dictionary key as `clubName`, and factual line risks are also supplied as typed
+`planningHazards`. Only shared rows with measured green facts enable prep green distances;
+inventing a middle-only green would trigger seed augmentation and replace the stock opening.
+The water hole's package par comes from the input row. Expected routes and avoid zones are
+never sent to either evaluator. Both tests assert whole-route `plannedStrokes`; the measured
+green row also checks structured `shotsToGreen` in the offline response.
+
 UI 测试自带 9000 假后端，运行时不要再起 Python fixture。
 
 The UI class shares one lazily initialized loopback HTTP server for the test process. Its listener
@@ -66,7 +76,7 @@ There are 26 promise primaries and seven companion tests (33 total).
 | J4.2 | ProductMapAndPackageTests / j4_2_cached_package_lifecycle_and_revision_adoption | 3 time boundaries + 1 lifecycle sequence + 3 invalid keys | Partial/complete, revision, job restart, unavailable server, corrupt/v1 |
 | J4.3 | ProductLoopMapTests / j4_3_offline_composition_matches_shared_hole_tables | 13 shared vectors | Projecting + composing at turn |
 | J4.5 | ProductMapAndPackageTests / j4_5_map_degradation_and_upgrade_preserve_physical_points | 5 live + 4 prep states, 2 points, 3 refreshes, 3 hazard matches | UI: 3 map states |
-| J4.6 | ProductCaddieGoldenTests / j4_6_prep_and_live_select_same_independent_plan_for_both_tees | 4 shared vectors, 2 viewport sizes, 2 tee selections, 1 no-seed case | Plan selection / hole reset |
+| J4.6 | ProductCaddieGoldenTests / j4_6_prep_and_live_select_same_independent_plan_for_both_tees | 5 shared vectors, 2 viewport sizes, 2 tee selections, 1 no-seed case | Plan selection / hole reset |
 | J5.1 | ProductNineLoopTests / j5_1_first_loop_turn_defaults_and_lock | 6 course/default rows + 1 reset sequence | Phone: 3 default sources + 4 orders × 8 event kinds at lock boundary |
 | J5.2 | ProductPhoneStateTests / j5_2_home_hero_priorities_with_and_without_downloads | 4 priorities + 2 downloaded states | UI: active card, leave/resume |
 | J5.3 | ProductPhoneStateTests / j5_3_home_weather_and_latest_round_strip_are_factual | 3 bad weather + 1 good, 3 archive matches, 1 recent-eight, 1 longest-club | UI: secondary tile boundaries with missing weather/archive |
@@ -76,10 +86,11 @@ There are 26 promise primaries and seven companion tests (33 total).
 | J5.8 | ProductTeeResultTests / j5_8_tee_results_match_shared_vectors | 14 shared vectors | — |
 | J5.9 | ProductPhoneStateTests / j5_9_queue_survives_restart_replay_and_round_discard | 1 restart/replay/ACK/discard sequence with 2 rounds | — |
 | J5.10 | ProductPhoneStateTests / j5_10_summary_uses_recorded_holes_and_updates_edits | 3 score rows + 1 physical back/front card | UI: finish 9 recorded par fours = Par36 |
-| J5.11 | ProductCaddieGoldenTests / j5_11_offline_plans_and_projected_landings_match_shared_golden | 4 shared vectors × 3 routes | Each full chain + projected landing, safe scoped known-red |
+| J5.11 | ProductCaddieGoldenTests / j5_11_offline_plans_and_projected_landings_match_shared_golden | 5 shared vectors × 3 routes, 1 factual water zone | Full chain / planned strokes / projected landing; safe and missing response zone scoped known-red |
 | J6.2 | ProductWatchHandoffTests / j6_2_phone_snapshots_replace_hole_ranges_and_clear_absent_advice | 1 populated advice + 3 replacement snapshots | Phone wire scope; Watch expiry/fallback belongs to Watch tests |
 | J8.3 | ProductMapAndPackageTests / j8_3_optional_sections_old_and_future_data_decode_without_losing_facts | 3 prep shapes + 1 malformed optional stats section | — |
 
 KNOWN-RED details: `tests/product/known-red/C16e.md`.
 Mutation patches and validation status: `tests/product/faults/C16e.md`.
-Native baseline, Swift parsing and mutant execution require Apple tooling and have not run on Linux.
+This revision's native baseline, Swift parsing and mutant execution have not run on Linux;
+Swift/Xcode tooling is unavailable here.
