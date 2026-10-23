@@ -1,0 +1,7 @@
+--- a/web_v2/src/components/ResultsLanding.tsx
++++ b/web_v2/src/components/ResultsLanding.tsx
+@@ -68,3 +68,3 @@
+         <div className="results-kpis">
+-          <span><b>{fmt(s.average18)}</b><small>18 洞均杆</small></span>
++          <span><b>{fmt(s.bestScore)}</b><small>18 洞均杆</small></span>
+           <span><b>{fmt(s.bestScore, 0)}</b><small>历史最佳</small></span>
