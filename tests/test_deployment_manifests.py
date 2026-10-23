@@ -258,6 +258,8 @@ class DeploymentManifestTests(unittest.TestCase):
         self.assertIn("ai-caddie-private:/var/lib/ai-caddie", compose_text)
         self.assertIn('restart: "on-failure:3"', compose_text)
         self.assertIn('restart: "on-failure:5"', compose_text)
+        self.assertIn("pg_isready -h 127.0.0.1 -U aicaddie", compose_text)
+        self.assertNotIn('"pg_isready -U aicaddie', compose_text)
         self.assertIn("mem_limit:", compose_text)
         self.assertIn("max-size: \"10m\"", compose_text)
         self.assertIn("VITE_AI_CADDIE_API_BASE_URL", compose_text)
