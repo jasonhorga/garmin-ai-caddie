@@ -116,7 +116,7 @@ def build_round(card_list):
                 "display": display, "number": number, "par": par, "strokes": h["strokes"],
                 "rawPutts": raw_putts, "putts": eff_putts, "default": default, "corrected": corrected,
                 "penalties": h.get("penalties"), "fairway": (h.get("fairwayShotOutcome") or "").lower() or None,
-                "side": side, "gid": gid, "localHole": loop_hole if gid else None, "loopKey": key,
+                "side": side, "gid": gid, "localHole": loop_hole, "loopKey": key,  # course hole number exists without a Garmin id [B0d1]
                 "loopHole": loop_hole, "ref": ref,
             })
     holes.sort(key=lambda x: x["display"])
@@ -463,10 +463,10 @@ for key, L in loops.items():
         vals = L["holes"][hn]
         par = min(L["pars"][hn].items(), key=lambda kv: (-kv[1], kv[0]))[0]
         a = sum(v for v, _ in vals) / len(vals)
-        hole_rows.append({"hole": hn, "par": par, "averageToPar": r2(a), "samples": len(vals),
+        hole_rows.append({"hole": hn, "par": par, "averageToPar": round(a, 4), "samples": len(vals),
                           "formula": f"({' + '.join(f'{v:+d}[{p}]' for v, p in vals)}) / {len(vals)} = {a:.4f}"})
         if len(vals) >= 2:
-            hard.append({"loopKey": key, "label": label, "hole": hn, "par": par, "averageToPar": r2(a), "exact": a, "samples": len(vals)})
+            hard.append({"loopKey": key, "label": label, "hole": hn, "par": par, "averageToPar": round(a, 4), "exact": a, "samples": len(vals)})
     loop_out[key] = {"label": label, "roundCount": len(L["rounds"]), "rounds": sorted(L["rounds"], key=lambda p: int(p[1:])), "holes": hole_rows}
 hard.sort(key=lambda x: (-x["exact"], -x["samples"], x["label"], x["hole"]))
 assert hard[4]["exact"] > hard[5]["exact"] + 1e-9, "top-5 boundary must not tie"
@@ -484,7 +484,7 @@ combo_rows = sorted(({"frontKey": f, "backKey": b, "rounds": len(v), "average": 
                       "formula": f"{plist(v)} scores {[x['score'] for x in v]}"} for (f, b), v in combos.items()),
                     key=lambda x: -x["rounds"])
 golden["2.6"] = {
-    "loops": g(loop_out, "[B0d1] key = gid:<id>:<span> (no id -> course:<courseKey>:<span>); per loop hole mean(strokes-par) over every time it was played, 2 dp"),
+    "loops": g(loop_out, "[B0d1] key = gid:<id>:<span> (no id -> course:<courseKey>:<span>); per loop hole mean(strokes-par) over every time it was played, exact (4 dp); docs fix no display precision, tests allow +-0.005 display rounding"),
     "nineCombos": g(combo_rows, "[B0d1] holesCompleted==18 rounds grouped front loop -> back loop (A/B != B/A); rows with >1 round have distinct counts"),
     "nineOnlyRounds": g(len(nine_only), "holesCompleted==9: " + plist(nine_only)),
     "kestrelNineOnly": g(sum(1 for r in nine_only if r["venue"] == k_venue), "Kestrel 9-hole rounds"),
