@@ -1,0 +1,5168 @@
+{
+  "schemaVersion": 1,
+  "rounds": [
+    {
+      "date": "2025-01-01",
+      "courseKey": "mega",
+      "course": "Mega ~ A",
+      "courseCanonical": "Mega",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 38,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 1,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots",
+          "penalties": 1
+        },
+        {
+          "number": 2,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots",
+          "penalties": 2
+        },
+        {
+          "number": 3,
+          "strokes": 1,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 2,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 1,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 1,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 2,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 2,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "default"
+        }
+      ],
+      "hasShots": true,
+      "rating": 72,
+      "slope": 113,
+      "id": "r01",
+      "merged": true,
+      "frontNineGlobalCourseId": 2701,
+      "backNineGlobalCourseId": 2702
+    },
+    {
+      "date": "2025-01-15",
+      "courseKey": "mega",
+      "course": "Mega ~ B",
+      "courseCanonical": "Mega",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 60,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 2,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots",
+          "penalties": 2
+        },
+        {
+          "number": 4,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 3,
+          "putts": null,
+          "gir": null,
+          "fairway": "right",
+          "scoreSource": "manual_edit"
+        },
+        {
+          "number": 6,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": true,
+      "rating": 72,
+      "slope": 113,
+      "id": "r02",
+      "merged": true,
+      "frontNineGlobalCourseId": 2702,
+      "backNineGlobalCourseId": 2701
+    },
+    {
+      "date": "2025-01-29",
+      "courseKey": "mega",
+      "course": "Mega ~ A/A",
+      "courseCanonical": "Mega",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 78,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "default"
+        },
+        {
+          "number": 2,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots",
+          "penalties": 2
+        },
+        {
+          "number": 5,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": true,
+      "rating": 72,
+      "slope": 113,
+      "id": "r03",
+      "merged": true,
+      "frontNineGlobalCourseId": 2701,
+      "backNineGlobalCourseId": 2701
+    },
+    {
+      "date": "2025-02-12",
+      "courseKey": "mega",
+      "course": "Mega ~ C",
+      "courseCanonical": "Mega",
+      "holesCompleted": 9,
+      "par": 36,
+      "strokes": 46,
+      "holePars": "443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots",
+          "penalties": 1
+        },
+        {
+          "number": 7,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r04",
+      "globalId": 2703
+    },
+    {
+      "date": "2025-02-26",
+      "courseKey": "mega",
+      "course": "Mega ~ A",
+      "courseCanonical": "Mega",
+      "holesCompleted": 9,
+      "par": 36,
+      "strokes": 57,
+      "holePars": "443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 7,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 7,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 7,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r05",
+      "globalId": 2701
+    },
+    {
+      "date": "2025-03-12",
+      "courseKey": "mega",
+      "course": "Mega ~ B",
+      "courseCanonical": "Mega",
+      "holesCompleted": 9,
+      "par": 36,
+      "strokes": 21,
+      "holePars": "443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 2,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 2,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 1,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r06",
+      "globalId": 2702
+    },
+    {
+      "date": "2025-03-26",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 56,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 2,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 2,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 2,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": true,
+      "rating": 72,
+      "slope": 113,
+      "id": "r07",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-04-09",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": null,
+      "strokes": null,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": null,
+      "slope": null,
+      "id": "r08",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-04-23",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 96,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 7,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 8,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r09",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-05-07",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 110,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 8,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 7,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 8,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 7,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r10",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-05-21",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 42,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 1,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 2,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 1,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 1,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 1,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r11",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-06-04",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 60,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 2,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 2,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r12",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-06-18",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 74,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r13",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-07-02",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 96,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r14",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-07-16",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 126,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 7,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 7,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 8,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 7,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 8,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 7,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 8,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 7,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 8,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r15",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-07-30",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 42,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 1,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 2,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 1,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 2,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 1,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r16",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-08-13",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 60,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 2,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r17",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-08-27",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 78,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r18",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-09-10",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 92,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 7,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r19",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-09-24",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 114,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 7,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 7,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 7,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 7,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 7,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 7,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 7,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r20",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-10-08",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 42,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 2,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 2,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 1,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 2,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 2,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 2,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 1,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r21",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-10-22",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 72,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r22",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-11-05",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 78,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r23",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-11-19",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 96,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r24",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-12-03",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 110,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 8,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 7,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 8,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 7,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r25",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-12-17",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 42,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 1,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 1,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 2,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 1,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 2,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 1,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r26",
+      "globalId": 1800
+    },
+    {
+      "date": "2025-12-31",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 60,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 2,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 2,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r27",
+      "globalId": 1800
+    },
+    {
+      "date": "2026-01-14",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 74,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 3,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 3,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 4,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 4,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 5,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 3,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 3,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 4,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 4,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r28",
+      "globalId": 1800
+    },
+    {
+      "date": "2026-01-28",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 108,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 5,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 6,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 7,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "id": "r29",
+      "globalId": 1800
+    },
+    {
+      "date": "2026-02-11",
+      "courseKey": "solo18",
+      "course": "Solo 18",
+      "courseCanonical": "Solo 18",
+      "holesCompleted": 18,
+      "par": 72,
+      "strokes": 114,
+      "holePars": "443544345443544345",
+      "holes": [
+        {
+          "number": 1,
+          "strokes": 8,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 2,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 3,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 4,
+          "strokes": 7,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 5,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 6,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 7,
+          "strokes": 7,
+          "putts": 1,
+          "gir": false,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 8,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 9,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 10,
+          "strokes": 6,
+          "putts": 3,
+          "gir": false,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 11,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 12,
+          "strokes": 5,
+          "putts": 2,
+          "gir": true,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 13,
+          "strokes": 9,
+          "putts": 1,
+          "gir": false,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 14,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 15,
+          "strokes": 6,
+          "putts": 2,
+          "gir": true,
+          "fairway": "hit",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 16,
+          "strokes": 5,
+          "putts": 3,
+          "gir": false,
+          "fairway": "left",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 17,
+          "strokes": 6,
+          "putts": 1,
+          "gir": true,
+          "fairway": "right",
+          "scoreSource": "phone_shots"
+        },
+        {
+          "number": 18,
+          "strokes": 7,
+          "putts": 2,
+          "gir": true,
+          "fairway": null,
+          "scoreSource": "phone_shots"
+        }
+      ],
+      "hasShots": false,
+      "rating": 72,
+      "slope": 113,
+      "globalId": 1800
+    }
+  ],
+  "shots": [
+    {
+      "roundId": "r01",
+      "hole": 1,
+      "index": 0,
+      "distance": 130,
+      "club": "7 iron",
+      "surface": "fairway",
+      "_ref": "r01:1:0"
+    },
+    {
+      "roundId": "r01",
+      "hole": 2,
+      "index": 1,
+      "distance": 140,
+      "club": "7 IRON",
+      "surface": "fairway",
+      "_ref": "r01:2:1"
+    },
+    {
+      "roundId": "r01",
+      "hole": 3,
+      "index": 2,
+      "distance": 150,
+      "club": "7 iron",
+      "surface": "fairway",
+      "_ref": "r01:3:2"
+    },
+    {
+      "roundId": "r01",
+      "hole": 1,
+      "index": 3,
+      "distance": 160,
+      "club": "7 iron",
+      "surface": "fairway",
+      "_ref": "r01:1:3"
+    },
+    {
+      "roundId": "r01",
+      "hole": 2,
+      "index": 4,
+      "distance": 170,
+      "club": "Unknown",
+      "surface": "fairway",
+      "_ref": "r01:2:4"
+    },
+    {
+      "roundId": "r01",
+      "hole": 3,
+      "index": 5,
+      "distance": 180,
+      "club": null,
+      "surface": "fairway",
+      "_ref": "r01:3:5"
+    },
+    {
+      "roundId": "r01",
+      "hole": 1,
+      "index": 6,
+      "distance": 135,
+      "club": "7 iron",
+      "surface": "fairway",
+      "_ref": "r01:1:6"
+    },
+    {
+      "roundId": "r01",
+      "hole": 2,
+      "index": 7,
+      "distance": 145,
+      "club": "7 IRON",
+      "surface": "fairway",
+      "_ref": "r01:2:7"
+    },
+    {
+      "roundId": "r01",
+      "hole": 3,
+      "index": 8,
+      "distance": 155,
+      "club": "7 iron",
+      "surface": "fairway",
+      "_ref": "r01:3:8"
+    },
+    {
+      "roundId": "r01",
+      "hole": 1,
+      "index": 9,
+      "distance": 165,
+      "club": "7 iron",
+      "surface": "fairway",
+      "_ref": "r01:1:9"
+    },
+    {
+      "roundId": "r01",
+      "hole": 2,
+      "index": 10,
+      "distance": 175,
+      "club": "7 iron",
+      "surface": "fairway",
+      "_ref": "r01:2:10"
+    },
+    {
+      "roundId": "r01",
+      "hole": 3,
+      "index": 11,
+      "distance": 185,
+      "club": "7 iron",
+      "surface": "fairway",
+      "_ref": "r01:3:11"
+    },
+    {
+      "roundId": "r02",
+      "hole": 2,
+      "index": 0,
+      "distance": 138,
+      "club": "7 iron",
+      "surface": "rough",
+      "_ref": "r02:2:0"
+    },
+    {
+      "roundId": "r02",
+      "hole": 2,
+      "index": 1,
+      "distance": 148,
+      "club": "7 IRON",
+      "surface": "rough",
+      "_ref": "r02:2:1"
+    },
+    {
+      "roundId": "r02",
+      "hole": 2,
+      "index": 2,
+      "distance": 158,
+      "club": "7 iron",
+      "surface": "rough",
+      "_ref": "r02:2:2"
+    }
+  ],
+  "annotations": [
+    {
+      "kind": "putt_correction",
+      "targetType": "hole",
+      "targetId": "r03:1",
+      "payload": {
+        "to": 1
+      },
+      "id": "ann-putt-r03-1"
+    }
+  ],
+  "hand_calculations": {
+    "round_count": "30 rows = 29 identified + 1 row with no id (public ref 'None')",
+    "last10_ids": "newest by date = [None,r29,r28,r27,r26,r25,r24,r23,r22,r21]",
+    "last20_ids": "newest by date = [None,r29,r28,r27,r26,r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14,r13,r12,r11]",
+    "previous10_ids": "rows 11-20 from newest = [r20,r19,r18,r17,r16,r15,r14,r13,r12,r11]",
+    "previous20_ids": "rows 21-40 from newest = [r10,r09,r08,r07,r06,r05,r04,r03,r02,r01]",
+    "default_putt": "r01:18 is scoreSource=default, so excluded; r03:1 annotation to 1 re-includes it",
+    "club_distance": "7 iron/7 IRON merged; valid distances [130,135,138,140,145,148,150,155,158,160,165,175,185]; median=150; p10=135; p90=175; Unknown and null club excluded",
+    "penalties": "recorded holes = r01:1,r01:2,r02:3,r03:4,r04:6; total = 1+2+2+1+2=8; four rounds => 8/4=2.00",
+    "putt_distribution": "all non-default/non-missing putts plus corrected r03:1; counts are asserted from hand-picked hole rows in test fixture",
+    "summary_counts": "total=29 identified ids + 1 missing id = 30; 18-hole priced=30 - 3 nine-hole - 1 missing-score row (r08) = 26; nine-hole=3; merged=true rows r01,r02,r03 = 3; courses={mega,solo18}=2",
+    "handicap": "26 eligible differentials; newest 20, take ceil(20*0.4)=8; lowest eight average=-19.4792; WHS factor 0.96 => round(-18.7,1); recent20 delta=1.1",
+    "putting_totals": "eligible holes=512 (513 physical holes - r01:18 default); recorded=511 (eligible minus r02:5 missing); count buckets 0/1/2/3+=0/171/257/83; 3+ values sum=249; total putts=0*0+171*1+257*2+249=934",
+    "scrambling": "GIR misses = 168 chances; par-or-better after miss = 96 saves; pct=round(96/168*100,1)=57.1",
+    "par3": "par-3 holes=114; par-or-better=56; pct=round(56/114*100,1)=49.1",
+    "outcomes": "scored holes=513; eagle+=73, birdie=92, par=109, bogey=102, double+=137; par-or-better=73+92+109=274; bogey-or-worse=102+137=239",
+    "phase_counts": "physical holes=513; fairway recorded=385; GIR eligible denominator=511 (r01:18 and r03:1 are unedited defaults); GIR recorded=510 (r02:5 has no GIR)",
+    "drilldown_sections": "Year/quarter/month/course/club buckets are hand-enumerated from the dated 30-row table; score bands use complete 18-hole strokes (<80, 80-89, 90-99, >=100).",
+    "loops": "r04,r05,r06 are the three 9-hole-only rounds; Mega physical front/back pairs have one round each for A→B, B→A, and A→A; Solo 18 has 23 complete scored rounds in its front/back pair (r08 has no score); hardest-hole display requires at least 2 samples."
+  },
+  "expected": {
+    "summary": {
+      "totalRounds": 30,
+      "eighteenHoleRounds": 26,
+      "nineHoleRounds": 3,
+      "mergedRounds": 3,
+      "courseCount": 2,
+      "handicapEstimate": -18.7,
+      "handicapChangeRecent20": 1.1
+    },
+    "drilldown_round_ids": [
+      "r01",
+      "r02",
+      "r03",
+      "r04",
+      "r05",
+      "r06",
+      "r07",
+      "r08",
+      "r09",
+      "r10",
+      "r11",
+      "r12",
+      "r13",
+      "r14",
+      "r15",
+      "r16",
+      "r17",
+      "r18",
+      "r19",
+      "r20",
+      "r21",
+      "r22",
+      "r23",
+      "r24",
+      "r25",
+      "r26",
+      "r27",
+      "r28",
+      "r29",
+      "None"
+    ],
+    "windows": {
+      "last10": [
+        "None",
+        "r29",
+        "r28",
+        "r27",
+        "r26",
+        "r25",
+        "r24",
+        "r23",
+        "r22",
+        "r21"
+      ],
+      "last20": [
+        "None",
+        "r29",
+        "r28",
+        "r27",
+        "r26",
+        "r25",
+        "r24",
+        "r23",
+        "r22",
+        "r21",
+        "r20",
+        "r19",
+        "r18",
+        "r17",
+        "r16",
+        "r15",
+        "r14",
+        "r13",
+        "r12",
+        "r11"
+      ],
+      "previous10": [
+        "r20",
+        "r19",
+        "r18",
+        "r17",
+        "r16",
+        "r15",
+        "r14",
+        "r13",
+        "r12",
+        "r11"
+      ]
+    },
+    "club": {
+      "club": "7 iron",
+      "sampleCount": 13,
+      "median": 150.0,
+      "p10": 135.0,
+      "p90": 175.0,
+      "roundIds": [
+        "r01",
+        "r02"
+      ],
+      "dispersionRange": 40.0
+    },
+    "penalties": {
+      "total": 8,
+      "holesRecorded": 5,
+      "roundsRecorded": 4,
+      "averagePerRound": 2.0
+    },
+    "scoring": {
+      "putting": {
+        "totalPutts": 934,
+        "holesWithPutts": 511,
+        "zeroPutts": 0,
+        "onePutts": 171,
+        "twoPutts": 257,
+        "threePlusPutts": 83
+      },
+      "scrambling": {
+        "chances": 168,
+        "saves": 96,
+        "pct": 57.1
+      },
+      "byParPar3": {
+        "parOrBetter": 56,
+        "parOrBetterPct": 49.1
+      },
+      "outcomes": {
+        "eagleOrBetter": 73,
+        "birdie": 92,
+        "par": 109,
+        "bogey": 102,
+        "doubleOrWorse": 137,
+        "parOrBetter": 274,
+        "bogeyOrWorse": 239
+      },
+      "outcomesTotal": 513,
+      "phaseReady": [
+        385,
+        510
+      ],
+      "phaseTotal": [
+        513,
+        511
+      ],
+      "nineOnlyRounds": 3,
+      "nineCombos": {
+        "gid:2701:1-9|gid:2702:1-9": 1,
+        "gid:2702:1-9|gid:2701:1-9": 1,
+        "gid:2701:1-9|gid:2701:1-9": 1,
+        "course:solo18:1-9|course:solo18:10-18": 23
+      },
+      "hardestHoleMinimumSamples": 2
+    },
+    "drilldown_sections": {
+      "byYear": {
+        "2026": [
+          "r28",
+          "r29",
+          "None"
+        ],
+        "2025": [
+          "r01",
+          "r02",
+          "r03",
+          "r04",
+          "r05",
+          "r06",
+          "r07",
+          "r08",
+          "r09",
+          "r10",
+          "r11",
+          "r12",
+          "r13",
+          "r14",
+          "r15",
+          "r16",
+          "r17",
+          "r18",
+          "r19",
+          "r20",
+          "r21",
+          "r22",
+          "r23",
+          "r24",
+          "r25",
+          "r26",
+          "r27"
+        ]
+      },
+      "byQuarter": {
+        "2026-Q1": [
+          "r28",
+          "r29",
+          "None"
+        ],
+        "2025-Q4": [
+          "r21",
+          "r22",
+          "r23",
+          "r24",
+          "r25",
+          "r26",
+          "r27"
+        ],
+        "2025-Q3": [
+          "r14",
+          "r15",
+          "r16",
+          "r17",
+          "r18",
+          "r19",
+          "r20"
+        ],
+        "2025-Q2": [
+          "r08",
+          "r09",
+          "r10",
+          "r11",
+          "r12",
+          "r13"
+        ],
+        "2025-Q1": [
+          "r01",
+          "r02",
+          "r03",
+          "r04",
+          "r05",
+          "r06",
+          "r07"
+        ]
+      },
+      "byMonth": {
+        "2026-02": [
+          "None"
+        ],
+        "2026-01": [
+          "r28",
+          "r29"
+        ],
+        "2025-12": [
+          "r25",
+          "r26",
+          "r27"
+        ],
+        "2025-11": [
+          "r23",
+          "r24"
+        ],
+        "2025-10": [
+          "r21",
+          "r22"
+        ],
+        "2025-09": [
+          "r19",
+          "r20"
+        ],
+        "2025-08": [
+          "r17",
+          "r18"
+        ],
+        "2025-07": [
+          "r14",
+          "r15",
+          "r16"
+        ],
+        "2025-06": [
+          "r12",
+          "r13"
+        ],
+        "2025-05": [
+          "r10",
+          "r11"
+        ],
+        "2025-04": [
+          "r08",
+          "r09"
+        ],
+        "2025-03": [
+          "r06",
+          "r07"
+        ],
+        "2025-02": [
+          "r04",
+          "r05"
+        ],
+        "2025-01": [
+          "r01",
+          "r02",
+          "r03"
+        ]
+      },
+      "courses": {
+        "solo18": [
+          "None",
+          "r29",
+          "r28",
+          "r27",
+          "r26",
+          "r25",
+          "r24",
+          "r23",
+          "r22",
+          "r21",
+          "r20",
+          "r19",
+          "r18",
+          "r17",
+          "r16",
+          "r15",
+          "r14",
+          "r13",
+          "r12",
+          "r11",
+          "r10",
+          "r09",
+          "r08",
+          "r07"
+        ],
+        "mega": [
+          "r06",
+          "r05",
+          "r04",
+          "r03",
+          "r02",
+          "r01"
+        ]
+      },
+      "clubs": {
+        "7 iron": [
+          "r01",
+          "r02"
+        ]
+      },
+      "scoreBands": {
+        "70s": [
+          "r01",
+          "r02",
+          "r03",
+          "r07",
+          "r11",
+          "r12",
+          "r13",
+          "r16",
+          "r17",
+          "r18",
+          "r21",
+          "r22",
+          "r23",
+          "r26",
+          "r27",
+          "r28"
+        ],
+        "80s": [],
+        "90s": [
+          "r09",
+          "r14",
+          "r19",
+          "r24"
+        ],
+        "100+": [
+          "r10",
+          "r15",
+          "r20",
+          "r25",
+          "r29",
+          "None"
+        ]
+      }
+    }
+  }
+}
