@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+--- a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
++++ b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+@@ -983,3 +983,3 @@
+         let lastApplied = current.phoneShots?.first { $0.hole == state.hole }
+-        if let revision = state.snapshotRevision, let lastApplied, revision <= lastApplied.revision {
++        if false, let revision = state.snapshotRevision, let lastApplied, revision <= lastApplied.revision {
+             return

@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift b/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift
+--- a/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift
+@@ -317,3 +317,3 @@
+     static func effectiveGreenYards(live: Int?, fallbackMetres: Double?) -> Int? {
+-        live ?? fallbackMetres.map(WatchUnits.yards)
++        fallbackMetres.map(WatchUnits.yards) ?? live
+     }

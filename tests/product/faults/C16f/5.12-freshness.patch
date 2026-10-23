@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+--- a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
++++ b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+@@ -560,3 +560,3 @@
+               generatedAt <= current,
+-              current < validUntil,
++              true,
+               fixCapturedAt <= current,
