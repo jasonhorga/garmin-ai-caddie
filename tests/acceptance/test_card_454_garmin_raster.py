@@ -52,9 +52,13 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn("case numericPlaceholder", components)
         self.assertIn("static func resolveLive(", components)
         self.assertIn("preciseTopoImageReady: hasPreciseTopoImage", current)
-        self.assertIn("garminImageFailed: garminRasterImageFailed", current)
+        self.assertIn("garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying", current)
         self.assertIn("if liveMapDisplayState == .garminRaster", current)
         self.assertIn("garminRasterProjection: liveMapDisplayState == .garminRaster", current)
+        self.assertIn("LiveMapDisplaySelection.projection(", current)
+        self.assertIn("LiveMapDisplaySelection.overlay(", current)
+        self.assertIn("garminRasterImageReloadID", current)
+        self.assertIn("if garminRasterURL != nil, garminRasterProjection?.isUsable != true { return }", source(IOS / "AICaddie" / "Views" / "HoleImageMapView.swift"))
         self.assertIn("static func resolveLive(", components)
 
     def test_raster_available_path_uses_image_and_projection(self) -> None:
@@ -114,6 +118,8 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn("request_failed", source(CURRENT))
         self.assertIn('URLComponents(string: $0)?.queryItems?.first(where: { $0.name == "v" })?.value', cache)
         self.assertIn("statusCode == 409", cache)
+        self.assertIn("retryAttemptByURL", cache)
+        self.assertIn("retryDelaysNanoseconds: [UInt64] = [0, 5_000_000_000, 15_000_000_000]", source(IOS / "AICaddie" / "Views" / "TopoHoleBaseImage.swift"))
 
     def test_native_tests_and_design_snapshots_cover_all_six_cases(self) -> None:
         native = source(NATIVE)
@@ -121,6 +127,7 @@ class Card454AcceptanceTests(unittest.TestCase):
         expected_native = (
             "testTopoPendingRasterAvailableUsesRasterProjection",
             "testTopoReadyWinsOverRasterAndUsesTopoProjection",
+            "testPartialWithoutCachedTopoDoesNotEnterPreciseOrReuseProjection",
             "testUnavailableRasterFallsBackToNumericPlaceholderState",
             "testRasterToTopoTransferKeepsGeographicViewportCenter",
             "testSameCoordinateIsPixelAccurateInBothProjectionFrames",
@@ -133,7 +140,7 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn('named: "live-garmin-raster-position"', snapshots)
         self.assertIn('named: "live-numeric-placeholder"', snapshots)
         self.assertIn('named: "live-garmin-raster-loading"', snapshots)
-        self.assertIn('named: "live-garmin-raster-precise-replacement"', snapshots)
+        self.assertNotIn('named: "live-garmin-raster-precise-replacement"', snapshots)
         self.assertIn("func testCaptureGarminRasterWithPosition", snapshots)
         self.assertIn("func testCaptureLiveNumericMapPlaceholder", snapshots)
 

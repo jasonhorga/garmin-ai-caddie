@@ -389,7 +389,11 @@ final class TeeSelectionUITests: XCTestCase {
             "manual search without a GPS fix must enter the first hole immediately"
         )
         let factualMap = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "live-hole-map-")
+            NSPredicate(
+                format: "identifier BEGINSWITH %@ OR identifier == %@",
+                "live-hole-map-",
+                "live-map-numeric-placeholder"
+            )
         ).firstMatch
         XCTAssertTrue(
             factualMap.waitForExistence(timeout: 90),

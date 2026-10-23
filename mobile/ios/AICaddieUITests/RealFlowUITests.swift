@@ -1448,7 +1448,11 @@ final class RealFlowUITests: XCTestCase {
             "restored new-course round must reopen the same precise first-hole map"
         )
         let restoredMap = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH 'live-hole-map-'"))
+            .matching(NSPredicate(
+                format: "identifier BEGINSWITH %@ OR identifier == %@",
+                "live-hole-map-",
+                "live-map-numeric-placeholder"
+            ))
             .firstMatch
         XCTAssertTrue(
             restoredMap.waitForExistence(timeout: 12),

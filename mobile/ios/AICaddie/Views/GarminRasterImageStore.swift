@@ -93,6 +93,10 @@ final class GarminRasterImageStore: ObservableObject {
         return cache
     }()
     private static var inFlight: [URL: Task<DownloadResult, Never>] = [:]
+    /// Persists the retry cursor across SwiftUI view re-creation when a failed image switches to
+    /// the numeric placeholder. The URL therefore receives at most the initial request plus the
+    /// 5 s and 15 s attempts.
+    private static var retryAttemptByURL: [URL: Int] = [:]
 
     @Published private(set) var image: UIImage?
     @Published private(set) var isLoading = false
@@ -114,7 +118,9 @@ final class GarminRasterImageStore: ObservableObject {
             return
         }
         isLoading = true
-        for (attempt, delay) in Self.retryDelaysNanoseconds.enumerated() {
+        let firstAttempt = Self.retryAttemptByURL[url] ?? 0
+        for attempt in firstAttempt..<Self.retryDelaysNanoseconds.count {
+            let delay = Self.retryDelaysNanoseconds[attempt]
             if delay > 0 {
                 do {
                     try await Task.sleep(nanoseconds: delay)
@@ -131,6 +137,7 @@ final class GarminRasterImageStore: ObservableObject {
                 failedURL = nil
                 versionConflictURL = nil
                 isRetrying = false
+                Self.retryAttemptByURL[url] = nil
                 isLoading = false
                 return
             }
@@ -138,6 +145,7 @@ final class GarminRasterImageStore: ObservableObject {
                 failedURL = url
                 versionConflictURL = url
                 isRetrying = false
+                Self.retryAttemptByURL[url] = nil
                 isLoading = false
                 return
             }
@@ -145,11 +153,13 @@ final class GarminRasterImageStore: ObservableObject {
                 failedURL = url
                 versionConflictURL = nil
                 isRetrying = false
+                Self.retryAttemptByURL[url] = nil
             } else {
                 // The next attempt is deliberately delayed. The parent switches to its numeric
                 // placeholder while this task remains alive, so a failed JPEG never leaves a
                 // topo/overlay combination on screen during the retry window.
                 isRetrying = true
+                Self.retryAttemptByURL[url] = attempt + 1
             }
         }
         isRetrying = false

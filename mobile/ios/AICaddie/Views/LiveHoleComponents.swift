@@ -1740,13 +1740,7 @@ enum LivePlayMapOverlayLayout {
 
         func bounds(minimum: CGFloat, maximum: CGFloat, viewport: CGFloat) -> (CGFloat, CGFloat) {
             let span = maximum - minimum
-            // A fitted map can be letterboxed on one axis. Preserve a deliberate transferred
-            // offset on that axis so a Garmin → precise replacement keeps the geographic centre;
-            // there is no uncovered-map edge to clamp against while the span is smaller than the
-            // viewport. Axes that cover the viewport retain the normal pan bounds below.
-            guard span > viewport else {
-                return (-CGFloat.greatestFiniteMagnitude, CGFloat.greatestFiniteMagnitude)
-            }
+            guard span > viewport else { return (0, 0) }
             // After translation, the transformed bounds must cover [0, viewport].
             return (viewport - maximum, -minimum)
         }
@@ -2327,6 +2321,48 @@ enum LiveMapDisplayState: Equatable {
 
     /// 洞条: a hole whose precise map is not ready is only faded; tapping it still opens it.
     var fadesInHoleStrip: Bool { self == .numericPlaceholder || self == .waiting || self == .factualPending || self == .factual }
+}
+
+/// Selects the pixel facts that belong to the bitmap currently shown by the live hole. Keeping
+/// this decision pure prevents a numeric/error state from accidentally reusing a topo overlay or
+/// projection, and lets native tests exercise the same branch as CurrentHoleView.
+enum LiveMapDisplaySelection {
+    static func projection(
+        for state: LiveMapDisplayState,
+        precise: CoursePrepHoleImageProjection?,
+        garmin: CoursePrepHoleImageProjection?
+    ) -> CoursePrepHoleImageProjection? {
+        switch state {
+        case .garminRaster:
+            return garmin
+        case .precise:
+            return precise
+        case .waiting, .factualPending, .factual, .numericPlaceholder:
+            return nil
+        }
+    }
+
+    static func overlay(
+        for state: LiveMapDisplayState,
+        precise: CoursePrepOverlay?,
+        preciseProjection: CoursePrepHoleImageProjection?,
+        garminProjection: CoursePrepHoleImageProjection?
+    ) -> CoursePrepOverlay? {
+        switch state {
+        case .precise:
+            return precise
+        case .garminRaster:
+            guard let precise,
+                  let garminProjection else { return nil }
+            return GarminRasterProjectionMath.remapOverlay(
+                precise,
+                from: preciseProjection,
+                to: garminProjection
+            )
+        case .waiting, .factualPending, .factual, .numericPlaceholder:
+            return nil
+        }
+    }
 }
 
 /// Compact live-hole fallback. It keeps the same numeric facts visible while both raster paths are

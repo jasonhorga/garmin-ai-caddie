@@ -1213,10 +1213,8 @@ public final class SyncClient {
     /// fall back to its numeric placeholder without affecting the factual course package.
     public func fetchGarminRaster(
         globalId: Int,
-        localHole: Int,
-        geometryRevision: String? = nil
+        localHole: Int
     ) async throws -> GarminRasterResponse {
-        guard globalId != 0, localHole > 0 else { throw URLError(.badURL) }
         let endpoint = endpointURL(
             "/api/v2/courses/\(globalId)/holes/\(localHole)/garmin-raster"
         )

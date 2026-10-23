@@ -101,6 +101,7 @@ public struct HoleImageMapView: View {
     /// through WGS84 before drawing so the bitmap and overlays stay registered.
     public let garminRasterURL: URL?
     public let garminRasterProjection: CoursePrepHoleImageProjection?
+    public let garminRasterReloadID: Int
     public let onPreciseImageReady: (() -> Void)?
     public let onPreciseImageFailed: (() -> Void)?
     public let onGarminImageReady: (() -> Void)?
@@ -153,6 +154,7 @@ public struct HoleImageMapView: View {
                 pinOverlayPixel: CGPoint? = nil,
                 topoURL: URL? = nil, garminRasterURL: URL? = nil,
                 garminRasterProjection: CoursePrepHoleImageProjection? = nil,
+                garminRasterReloadID: Int = 0,
                 onPreciseImageReady: (() -> Void)? = nil,
                 onPreciseImageFailed: (() -> Void)? = nil,
                 onGarminImageReady: (() -> Void)? = nil,
@@ -174,6 +176,7 @@ public struct HoleImageMapView: View {
         self.topoURL = topoURL
         self.garminRasterURL = garminRasterURL
         self.garminRasterProjection = garminRasterProjection
+        self.garminRasterReloadID = garminRasterReloadID
         self.onPreciseImageReady = onPreciseImageReady
         self.onPreciseImageFailed = onPreciseImageFailed
         self.onGarminImageReady = onGarminImageReady
@@ -206,6 +209,7 @@ public struct HoleImageMapView: View {
                 TopoHoleBaseImage(
                     topoURL: preciseTopoURL,
                     garminRasterURL: garminRasterURL,
+                    garminRasterReloadID: garminRasterReloadID,
                     fallback: decodedImage,
                     onTopoImageReady: onPreciseImageReady,
                     onTopoImageFailed: onPreciseImageFailed,
@@ -302,21 +306,28 @@ public struct HoleImageMapView: View {
         guard row.count >= 2,
               row[0].isFinite,
               row[1].isFinite else { return nil }
-        guard preciseTopoURL == nil,
-              let source = hole.holeImageProjection,
+        guard preciseTopoURL == nil else { return [row[0], row[1]] }
+        guard garminRasterURL != nil else { return [row[0], row[1]] }
+        guard let source = hole.holeImageProjection,
               let destination = garminRasterProjection else {
-            return [row[0], row[1]]
+            return nil
         }
         guard let remapped = GarminRasterProjectionMath.remap(
             pixel: CGPoint(x: row[0], y: row[1]),
             from: source,
             to: destination
-        ) else { return nil }
+        ) else {
+            return nil
+        }
+        guard remapped.x.isFinite, remapped.y.isFinite else { return nil }
         return [remapped.x, remapped.y]
     }
     #endif
 
     private func draw(_ context: inout GraphicsContext, size: CGSize, overlay: CoursePrepOverlay) {
+        // An unregistered Garmin bitmap may still be shown as a useful background, but no
+        // CourseView route, flag, target, or planned-shot pixels are valid in that frame.
+        if garminRasterURL != nil, garminRasterProjection?.isUsable != true { return }
         let sx = size.width / CGFloat(overlay.w)
         let sy = size.height / CGFloat(overlay.h)
         let routePoints: [CGPoint] = overlay.route.compactMap { row in

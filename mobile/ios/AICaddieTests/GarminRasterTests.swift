@@ -68,6 +68,29 @@ final class GarminRasterTests: XCTestCase {
             )
         )
         XCTAssertEqual(state, .garminRaster)
+        let preciseProjection = try XCTUnwrap(hole.holeImageProjection)
+        let garminProjection = CoursePrepHoleImageProjection(
+            available: true,
+            widthPx: 1242,
+            heightPx: 1920,
+            refs: preciseProjection.refs ?? []
+        )
+        XCTAssertEqual(
+            LiveMapDisplaySelection.projection(
+                for: state,
+                precise: preciseProjection,
+                garmin: garminProjection
+            ),
+            garminProjection
+        )
+        XCTAssertNotNil(
+            LiveMapDisplaySelection.overlay(
+                for: state,
+                precise: hole.resolvedMapOverlay,
+                preciseProjection: preciseProjection,
+                garminProjection: garminProjection
+            )
+        )
         let raster = projection(
             originPixel: CGPoint(x: 80, y: 140),
             xPixel: CGPoint(x: 80, y: 1740),
@@ -83,7 +106,14 @@ final class GarminRasterTests: XCTestCase {
     }
 
     func testTopoReadyWinsOverRasterAndUsesTopoProjection() throws {
-        let hole = try prep()
+        let hole = try prep(coverage: "ready")
+        let preciseProjection = try XCTUnwrap(hole.holeImageProjection)
+        let garminProjection = CoursePrepHoleImageProjection(
+            available: true,
+            widthPx: 1242,
+            heightPx: 1920,
+            refs: preciseProjection.refs ?? []
+        )
         XCTAssertEqual(
             LiveMapDisplayState.resolveLive(
                 .init(
@@ -95,6 +125,59 @@ final class GarminRasterTests: XCTestCase {
                 )
             ),
             .precise
+        )
+        XCTAssertEqual(
+            LiveMapDisplaySelection.projection(
+                for: .precise,
+                precise: preciseProjection,
+                garmin: garminProjection
+            ),
+            preciseProjection
+        )
+        XCTAssertEqual(
+            LiveMapDisplaySelection.overlay(
+                for: .precise,
+                precise: hole.resolvedMapOverlay,
+                preciseProjection: preciseProjection,
+                garminProjection: garminProjection
+            ),
+            hole.resolvedMapOverlay
+        )
+    }
+
+    func testPartialWithoutCachedTopoDoesNotEnterPreciseOrReuseProjection() throws {
+        let hole = try prep(coverage: "partial")
+        let preciseProjection = try XCTUnwrap(hole.holeImageProjection)
+        let garminProjection = CoursePrepHoleImageProjection(
+            available: true,
+            widthPx: 1242,
+            heightPx: 1920,
+            refs: preciseProjection.refs ?? []
+        )
+        let state = LiveMapDisplayState.resolveLive(
+            .init(
+                coverage: hole.geometryCoverage,
+                preciseTopoImageReady: true,
+                garminRaster: GarminRasterResponse(available: true, imageUrl: "/raster.jpg"),
+                garminImageFailed: false,
+                hasCachedPreciseTopo: false
+            )
+        )
+        XCTAssertEqual(state, .garminRaster)
+        XCTAssertNil(
+            LiveMapDisplaySelection.projection(
+                for: .numericPlaceholder,
+                precise: preciseProjection,
+                garmin: garminProjection
+            )
+        )
+        XCTAssertNil(
+            LiveMapDisplaySelection.overlay(
+                for: .numericPlaceholder,
+                precise: hole.resolvedMapOverlay,
+                preciseProjection: preciseProjection,
+                garminProjection: garminProjection
+            )
         )
     }
 
@@ -244,18 +327,38 @@ final class GarminRasterTests: XCTestCase {
             destinationOverlay: destinationOverlay,
             sourceProjection: source,
             destinationProjection: destination,
-            scale: 2,
-            offset: CGSize(width: -24, height: 18)
+            // Use a zoom where both destination axes cover the viewport; the helper's actual
+            // clamped offset is still used below when reconstructing the displayed centre.
+            scale: 4,
+            offset: .zero
         ))
         XCTAssertGreaterThanOrEqual(result.scale, 1)
         XCTAssertLessThanOrEqual(result.scale, 4)
-        let oldCenter = CGPoint(x: 390 / 2 - (-24) / 2, y: 844 / 2 - 18 / 2)
+        let displayedOffset = LivePlayMapOverlayLayout.clampedOffset(
+            result.offset,
+            mapFrame: destinationFrame,
+            viewportSize: CGSize(width: 390, height: 844),
+            scale: result.scale
+        )
+        let displayedSourceOffset = LivePlayMapOverlayLayout.clampedOffset(
+            .zero,
+            mapFrame: CGRect(x: 0, y: 80, width: 390, height: 604),
+            viewportSize: CGSize(width: 390, height: 844),
+            scale: 4
+        )
+        let oldCenter = CGPoint(
+            x: 390 / 2 - displayedSourceOffset.width / 4,
+            y: 844 / 2 - displayedSourceOffset.height / 4
+        )
         let oldPixel = CGPoint(
             x: (oldCenter.x - 0) / 390 * 1242,
             y: (oldCenter.y - 80) / 604 * 1920
         )
         let oldCoordinate = try XCTUnwrap(GarminRasterProjectionMath.projectFromPixel(oldPixel, projection: source))
-        let newCenter = CGPoint(x: 195 - result.offset.width / result.scale, y: 422 - result.offset.height / result.scale)
+        let newCenter = CGPoint(
+            x: 195 - displayedOffset.width / result.scale,
+            y: 422 - displayedOffset.height / result.scale
+        )
         let newPixel = CGPoint(
             x: (newCenter.x - 60) / 270 * 240,
             y: (newCenter.y - 80) / 405 * 360

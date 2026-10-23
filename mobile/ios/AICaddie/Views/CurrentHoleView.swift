@@ -209,7 +209,9 @@ public struct CurrentHoleView: View {
     @State private var preciseTopoImageReady = false
     @State private var garminRasterImageFailed = false
     @State private var garminRasterImageRetrying = false
+    @State private var garminRasterImageReloadID = 0
     @State private var garminVersionConflictURL: URL?
+    @State private var activeRasterRequestKey: String?
     @State private var liveMapFitMemo = LiveMapFitMemo()
     /// Direct-manipulation offset is ordinary state, matching the Touch Target detail surface.
     /// GestureState can be coalesced behind the ancestor ScrollView and make the bitmap catch up
@@ -454,6 +456,11 @@ public struct CurrentHoleView: View {
             Task { await loadCaddieDecision(syncClub: true) }
         }
         .task(id: hole.number) {
+            activeRasterRequestKey = rasterRequestKey(
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
+                roundHole: hole.number
+            )
             // A navigation destination can be retained while the package publishes more prep
             // rows. Rebind the factual row for this display hole before reconciling routes; without
             // this explicit step a reused view can keep the previous hole's route and briefly show
@@ -483,6 +490,7 @@ public struct CurrentHoleView: View {
             preciseTopoImageReady = false
             garminRasterImageFailed = false
             garminRasterImageRetrying = false
+            garminRasterImageReloadID = 0
             garminVersionConflictURL = nil
             pinSheetMessage = nil
             heroMapScale = 1
@@ -547,8 +555,14 @@ public struct CurrentHoleView: View {
             carryOverLiveMapViewport(from: previous, to: next)
         }
         .task(id: liveTopoURL) {
-            guard liveTopoURL != nil else { return }
-            preciseTopoImageReady = await TopoHoleImageStore.ensureLoaded(liveTopoURL)
+            guard let requestedURL = liveTopoURL else { return }
+            let ready = await TopoHoleImageStore.ensureLoaded(requestedURL)
+            guard !Task.isCancelled, liveTopoURL == requestedURL else { return }
+            preciseTopoImageReady = ready
+        }
+        .task(id: garminVersionConflictURL) {
+            guard garminVersionConflictURL != nil else { return }
+            await loadGarminRaster()
         }
         .onChange(of: pinSheetItems) { _, items in
             guard !items.isEmpty else { return }
@@ -1382,21 +1396,20 @@ public struct CurrentHoleView: View {
     // MARK: - Map degradation contract
 
     private func projection(for state: LiveMapDisplayState) -> CoursePrepHoleImageProjection? {
-        switch state {
-        case .garminRaster:
-            return liveGarminRasterProjection
-        case .precise:
-            return holePrep?.holeImageProjection
-        default:
-            return nil
-        }
+        LiveMapDisplaySelection.projection(
+            for: state,
+            precise: holePrep?.holeImageProjection,
+            garmin: liveGarminRasterProjection
+        )
     }
 
     private func overlay(for state: LiveMapDisplayState) -> CoursePrepOverlay? {
-        guard let prep = holePrep, let source = prep.resolvedMapOverlay else { return nil }
-        guard state == .garminRaster else { return source }
-        guard let destination = liveGarminRasterProjection else { return nil }
-        return GarminRasterProjectionMath.remapOverlay(source, from: prep.holeImageProjection, to: destination)
+        LiveMapDisplaySelection.overlay(
+            for: state,
+            precise: holePrep?.resolvedMapOverlay,
+            preciseProjection: holePrep?.holeImageProjection,
+            garminProjection: liveGarminRasterProjection
+        )
     }
 
     private func carryOverLiveMapViewport(
@@ -1683,9 +1696,10 @@ public struct CurrentHoleView: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("live-hole-map-garmin-raster")
             } else if let liveGarminRasterURL {
-                GarminRasterStandaloneView(
-                    url: liveGarminRasterURL,
-                    onReady: {
+                    GarminRasterStandaloneView(
+                        url: liveGarminRasterURL,
+                        reloadID: garminRasterImageReloadID,
+                        onReady: {
                         garminRasterImageRetrying = false
                         garminRasterImageFailed = false
                     },
@@ -1730,6 +1744,7 @@ public struct CurrentHoleView: View {
                 if garminRasterImageRetrying, let retryURL = liveGarminRasterURL {
                     GarminRasterStandaloneView(
                         url: retryURL,
+                        reloadID: garminRasterImageReloadID,
                         onReady: {
                             garminRasterImageRetrying = false
                             garminRasterImageFailed = false
@@ -1757,6 +1772,7 @@ public struct CurrentHoleView: View {
                              topoURL: liveMapDisplayState == .precise ? liveTopoURL : nil,
                              garminRasterURL: liveMapDisplayState == .garminRaster ? liveGarminRasterURL : nil,
                              garminRasterProjection: liveMapDisplayState == .garminRaster ? liveGarminRasterProjection : nil,
+                             garminRasterReloadID: garminRasterImageReloadID,
                              onPreciseImageReady: { preciseTopoImageReady = true },
                              onPreciseImageFailed: { preciseTopoImageReady = false },
                              onGarminImageReady: {
@@ -2158,21 +2174,19 @@ public struct CurrentHoleView: View {
     /// The map frame used by every phone overlay and gesture. Garmin's projection remaps the
     /// retained CourseView overlay through geographic coordinates before layout.
     private var liveMapProjection: CoursePrepHoleImageProjection? {
-        if liveMapDisplayState == .garminRaster {
-            return liveGarminRasterProjection
-        }
-        return holePrep?.holeImageProjection
+        LiveMapDisplaySelection.projection(
+            for: liveMapDisplayState,
+            precise: holePrep?.holeImageProjection,
+            garmin: liveGarminRasterProjection
+        )
     }
 
     private var liveMapOverlay: CoursePrepOverlay? {
-        guard let prep = holePrep,
-              let overlay = prep.resolvedMapOverlay else { return nil }
-        guard liveMapDisplayState == .garminRaster else { return overlay }
-        guard let projection = liveGarminRasterProjection else { return nil }
-        return GarminRasterProjectionMath.remapOverlay(
-            overlay,
-            from: prep.holeImageProjection,
-            to: projection
+        LiveMapDisplaySelection.overlay(
+            for: liveMapDisplayState,
+            precise: holePrep?.resolvedMapOverlay,
+            preciseProjection: holePrep?.holeImageProjection,
+            garminProjection: liveGarminRasterProjection
         )
     }
 
@@ -3040,35 +3054,37 @@ public struct CurrentHoleView: View {
         let requestGlobalId = hole.sourceGlobalId
         let requestLocalHole = hole.sourceLocalHole
         let requestRoundHole = hole.number
+        let requestKey = rasterRequestKey(
+            globalId: requestGlobalId,
+            localHole: requestLocalHole,
+            roundHole: requestRoundHole
+        )
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
         let revision = holePrep?.geometryRevision ?? hole.geometryRevision
         if let cached = GarminRasterMetadataCache.cached(
             globalId: requestGlobalId,
             localHole: requestLocalHole,
             revision: revision
-        ), isCurrentRasterRequest(
-            globalId: requestGlobalId,
-            localHole: requestLocalHole,
-            roundHole: requestRoundHole
-        ) {
+        ), isCurrentRasterRequest(requestKey) {
             garminRaster = cached
         }
         do {
             let descriptor = try await client.fetchGarminRaster(
                 globalId: requestGlobalId,
-                localHole: requestLocalHole,
-                geometryRevision: revision
+                localHole: requestLocalHole
             )
-            guard !Task.isCancelled,
-                  isCurrentRasterRequest(
-                      globalId: requestGlobalId,
-                      localHole: requestLocalHole,
-                      roundHole: requestRoundHole
-                  ) else { return }
-            if let conflictURL = garminVersionConflictURL,
-               descriptor.resolvedImageURL(relativeTo: caddieBaseURL) != conflictURL {
+            guard !Task.isCancelled, isCurrentRasterRequest(requestKey) else { return }
+            let descriptorURL = descriptor.resolvedImageURL(relativeTo: caddieBaseURL)
+            let repeatsConflictURL = garminVersionConflictURL != nil
+                && descriptorURL == garminVersionConflictURL
+            if let conflictURL = garminVersionConflictURL, descriptorURL != conflictURL {
                 garminVersionConflictURL = nil
             }
+            if descriptorURL != liveGarminRasterURL {
+                garminRasterImageRetrying = false
+                garminRasterImageFailed = false
+            }
+            if repeatsConflictURL { garminRasterImageReloadID &+= 1 }
             garminRaster = descriptor
             GarminRasterMetadataCache.store(
                 descriptor,
@@ -3081,12 +3097,7 @@ public struct CurrentHoleView: View {
             }
             prefetchNextGarminRaster(after: hole.number, using: client)
         } catch {
-            guard !Task.isCancelled,
-                  isCurrentRasterRequest(
-                      globalId: requestGlobalId,
-                      localHole: requestLocalHole,
-                      roundHole: requestRoundHole
-                  ) else { return }
+            guard !Task.isCancelled, isCurrentRasterRequest(requestKey) else { return }
             garminRaster = GarminRasterResponse(
                 available: false,
                 mode: "none",
@@ -3095,17 +3106,23 @@ public struct CurrentHoleView: View {
         }
     }
 
-    private func isCurrentRasterRequest(globalId: Int, localHole: Int, roundHole: Int) -> Bool {
-        hole.number == roundHole
-            && hole.sourceGlobalId == globalId
-            && hole.sourceLocalHole == localHole
+    private func rasterRequestKey(globalId: Int, localHole: Int, roundHole: Int) -> String {
+        "\(globalId):\(localHole):\(roundHole)"
+    }
+
+    private func isCurrentRasterRequest(_ requestKey: String) -> Bool {
+        activeRasterRequestKey == requestKey
     }
 
     @MainActor
     private func retryGarminDescriptorAfterVersionConflict(_ url: URL?) {
-        guard let url, garminVersionConflictURL != url else { return }
+        guard let url else { return }
+        guard garminVersionConflictURL != url else {
+            garminRasterImageRetrying = false
+            garminRasterImageFailed = true
+            return
+        }
         garminVersionConflictURL = url
-        Task { await loadGarminRaster() }
     }
 
     private func prefetchNextGarminRaster(after roundHole: Int, using client: SyncClient) {
@@ -3115,8 +3132,7 @@ public struct CurrentHoleView: View {
         Task { @MainActor in
             guard let descriptor = try? await client.fetchGarminRaster(
                 globalId: next.sourceGlobalId,
-                localHole: next.sourceLocalHole,
-                geometryRevision: next.geometryRevision
+                localHole: next.sourceLocalHole
             ), descriptor.hasDisplayableImage,
             let url = descriptor.resolvedImageURL(relativeTo: client.baseURL) else { return }
             GarminRasterImageStore.prefetch(url)

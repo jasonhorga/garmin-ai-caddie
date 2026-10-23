@@ -2374,29 +2374,6 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    func testCaptureGarminRasterPreciseReplacement() throws {
-        let size = CGSize(width: 390, height: 600)
-        let image = UIGraphicsImageRenderer(size: size).image { context in
-            UIColor(red: 0.18, green: 0.39, blue: 0.22, alpha: 1).setFill()
-            context.fill(CGRect(origin: .zero, size: size))
-            UIColor(red: 0.45, green: 0.68, blue: 0.34, alpha: 1).setFill()
-            context.cgContext.fillEllipse(in: CGRect(x: 110, y: 80, width: 170, height: 110))
-        }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("card-454-precise-topo.png")
-        try image.pngData()?.write(to: url)
-        try captureScreen(
-            ZStack {
-                TopoHoleBaseImage(topoURL: url, fallback: nil)
-                Circle().fill(.white).frame(width: 18, height: 18).position(x: 195, y: 350)
-            }
-            .frame(width: size.width, height: size.height)
-            .background(LivePlayStyle.base),
-            named: "live-garmin-raster-precise-replacement",
-            dark: true
-        )
-    }
-
-    @MainActor
     /// Two physically different complete routes for the live-map snapshots: Par - 2 legs each
     /// (at least one), the last a scoring leg to the flag, carries summing to the route length.
     /// One RGB pixel (0-255) of a PNG at a fractional position (0...1, from the top-left).

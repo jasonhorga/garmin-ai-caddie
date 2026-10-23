@@ -23,6 +23,8 @@ final class TopoHoleImageStore: ObservableObject {
     /// detached from a SwiftUI view task: changing holes or dismissing a surface may cancel the
     /// waiter, but must not cancel the one download shared by the next view that needs the bitmap.
     private static var inFlight: [URL: Task<Data?, Never>] = [:]
+    private static var retryAttemptByURL: [URL: Int] = [:]
+    private static let retryDelaysNanoseconds: [UInt64] = [0, 5_000_000_000, 15_000_000_000]
 
     @Published private(set) var image: UIImage?
     @Published private(set) var isLoading = false
@@ -63,12 +65,32 @@ final class TopoHoleImageStore: ObservableObject {
     /// maps, so page changes normally hit decoded memory instead of showing another network wait.
     static func prefetch(_ url: URL?) {
         guard let url, imageCache.object(forKey: url as NSURL) == nil else { return }
-        Task { _ = await image(for: url) }
+        Task { _ = await ensureLoaded(url) }
     }
 
     static func ensureLoaded(_ url: URL?) async -> Bool {
         guard let url else { return false }
-        return await image(for: url) != nil
+        let firstAttempt = retryAttemptByURL[url] ?? 0
+        for attempt in firstAttempt..<retryDelaysNanoseconds.count {
+            let delay = retryDelaysNanoseconds[attempt]
+            if delay > 0 {
+                do {
+                    try await Task.sleep(nanoseconds: delay)
+                } catch {
+                    return false
+                }
+            }
+            if await image(for: url) != nil {
+                retryAttemptByURL[url] = nil
+                return true
+            }
+            if attempt == retryDelaysNanoseconds.count - 1 {
+                retryAttemptByURL[url] = nil
+                return false
+            }
+            retryAttemptByURL[url] = attempt + 1
+        }
+        return false
     }
 
     private static func image(for url: URL) async -> UIImage? {
@@ -172,6 +194,7 @@ struct TopoHoleBaseImage: View {
     /// Garmin's fixed 1242×1920 fallback. It is selected only while `topoURL` is unavailable;
     /// once precise geometry arrives the topo remains authoritative.
     let garminRasterURL: URL?
+    let garminRasterReloadID: Int
     let fallback: UIImage?
     let onTopoImageReady: (() -> Void)?
     let onTopoImageFailed: (() -> Void)?
@@ -192,6 +215,7 @@ struct TopoHoleBaseImage: View {
     init(
         topoURL: URL?,
         garminRasterURL: URL? = nil,
+        garminRasterReloadID: Int = 0,
         fallback: UIImage?,
         onTopoImageReady: (() -> Void)? = nil,
         onTopoImageFailed: (() -> Void)? = nil,
@@ -202,6 +226,7 @@ struct TopoHoleBaseImage: View {
     ) {
         self.topoURL = topoURL
         self.garminRasterURL = garminRasterURL
+        self.garminRasterReloadID = garminRasterReloadID
         self.fallback = fallback
         self.onTopoImageReady = onTopoImageReady
         self.onTopoImageFailed = onTopoImageFailed
@@ -250,7 +275,7 @@ struct TopoHoleBaseImage: View {
                 onTopoImageFailed?()
             }
         }
-        .task(id: garminRasterURL) {
+        .task(id: garminRasterTaskID) {
             await garminRasterStore.load(garminRasterURL)
             guard let garminRasterURL else { return }
             if garminRasterStore.image != nil || GarminRasterImageStore.cachedImage(for: garminRasterURL) != nil {
@@ -266,6 +291,10 @@ struct TopoHoleBaseImage: View {
         .onChange(of: garminRasterStore.isRetrying) { _, retrying in
             if retrying { onGarminImageRetrying?() }
         }
+    }
+
+    private var garminRasterTaskID: String {
+        (garminRasterURL?.absoluteString ?? "none") + "#\(garminRasterReloadID)"
     }
 
     /// topo-v11 has a transparent off-course canvas. Preserve it in every context so review/prep do
@@ -363,6 +392,7 @@ struct TopoHoleBaseImage: View {
 /// legal place for GPS/target overlays, so this view deliberately contains only the fixed raster.
 struct GarminRasterStandaloneView: View {
     let url: URL
+    var reloadID: Int = 0
     let onReady: (() -> Void)?
     let onFailed: (() -> Void)?
     var onRetrying: (() -> Void)? = nil
@@ -372,6 +402,7 @@ struct GarminRasterStandaloneView: View {
         TopoHoleBaseImage(
             topoURL: nil,
             garminRasterURL: url,
+            garminRasterReloadID: reloadID,
             fallback: nil,
             onGarminImageReady: onReady,
             onGarminImageFailed: onFailed,
