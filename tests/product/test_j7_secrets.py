@@ -1,15 +1,15 @@
 """J7.3 runtime secret-safety checks.
 
-The values below are created at runtime and are never present in the repository fixtures.  Each
-test checks the actual response, captured logs, model prompt, and durable non-credential data
-written by the operation.  Credential files are intentionally excluded from the non-credential
-scan because a captured Garmin session is the input to a later sync; the API must never echo it.
+The values below are created at runtime and are never present in the repository fixtures. Each
+test checks the actual response, captured logs, model prompt, and every durable file written by
+the operation; this does not depend on source-text searches or repository fixtures.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import secrets
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,18 +27,14 @@ from server_v2.main import app
 
 
 ADMIN = "runtime-admin-secret"
-COOKIE = "JWT_WEB=runtime-cookie-4f8a"
-CSRF = "runtime-csrf-91b2"
-PASSWORD = "runtime-garmin-password-0d7e"
-PRIVATE_PATH = "/srv/ai-caddie/private/runtime-secret.json"
 
 
-def _non_credential_text(root: Path) -> str:
+def _data_tree_text(root: Path) -> str:
     chunks: list[str] = []
     if not root.exists():
         return ""
     for path in root.rglob("*"):
-        if not path.is_file() or ".garmin_tokens" in path.parts:
+        if not path.is_file():
             continue
         try:
             chunks.append(path.read_text(encoding="utf-8", errors="replace"))
@@ -65,16 +61,43 @@ class J7SecretTests(unittest.TestCase):
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
+        # Every sensitive sample is fresh per test process; no fixture or source-text value is
+        # reused as the oracle.
+        self.cookie = f"JWT_WEB=runtime-cookie-{secrets.token_hex(8)}"
+        self.csrf = f"runtime-csrf-{secrets.token_hex(8)}"
+        self.password = f"runtime-garmin-password-{secrets.token_hex(8)}"
+        self.private_path = str(self.root / "private" / f"runtime-secret-{secrets.token_hex(8)}.json")
+        self.share_player = players.create_player("Share recipient", root=self.root)
         self.client = TestClient(app)
 
-    def _assert_secret_free(self, *texts: object) -> None:
+    def _assert_secret_free(self, *texts: object, extra: tuple[str, ...] = ()) -> None:
         joined = "\n".join(str(value) for value in texts)
-        for secret in (COOKIE, CSRF, PASSWORD, PRIVATE_PATH):
+        for secret in (self.cookie, self.csrf, self.password, self.private_path, *extra):
             self.assertNotIn(secret, joined, f"secret leaked: {secret}")
 
-    def test_session_import_error_redacts_cookie_csrf_and_private_path(self) -> None:
+    def test_j7_3_share_response_and_runtime_files_do_not_contain_share_token(self) -> None:
+        log_messages: list[str] = []
+        handler = logging.Handler()
+        handler.emit = lambda record: log_messages.append(record.getMessage())
+        logging.getLogger().addHandler(handler)
+        try:
+            response = self.client.get(
+                "/api/v2/history/rounds",
+                headers={"Authorization": f"Bearer {self.share_player['token']}"},
+            )
+        finally:
+            logging.getLogger().removeHandler(handler)
+        self.assertEqual(response.status_code, 200, response.text)
+        self._assert_secret_free(
+            response.text,
+            "\n".join(log_messages),
+            _data_tree_text(self.root),
+            extra=(str(self.share_player["token"]),),
+        )
+
+    def test_j7_3_session_import_error_redacts_cookie_csrf_and_private_path(self) -> None:
         error = ValueError(
-            f"provider failed Cookie: {COOKIE}; connect-csrf-token: {CSRF}; path={PRIVATE_PATH}"
+            f"provider failed Cookie: {self.cookie}; connect-csrf-token: {self.csrf}; path={self.private_path}"
         )
         log_messages: list[str] = []
         handler = logging.Handler()
@@ -86,50 +109,57 @@ class J7SecretTests(unittest.TestCase):
                     "/api/v2/sync/garmin/session",
                     headers={"X-AI-Caddie-Admin-Token": ADMIN},
                     json={
-                        "webSessionHeader": f"Cookie: {COOKIE}",
-                        "antiForgeryValue": f"connect-csrf-token: {CSRF}",
+                        "webSessionHeader": f"Cookie: {self.cookie}",
+                        "antiForgeryValue": f"connect-csrf-token: {self.csrf}",
                     },
                 )
         finally:
             logging.getLogger().removeHandler(handler)
         self.assertEqual(response.status_code, 422, response.text)
-        self._assert_secret_free(response.text, "\n".join(log_messages), _non_credential_text(self.root))
+        self._assert_secret_free(response.text, "\n".join(log_messages), _data_tree_text(self.root))
 
-    def test_password_source_is_rejected_without_any_durable_password(self) -> None:
+    def test_j7_3_password_source_is_rejected_without_any_durable_password(self) -> None:
         with self.assertRaises(ValueError):
             save_garmin_cn_web_session(
-                web_session_header=f"Cookie: {COOKIE}",
-                anti_forgery_value=f"connect-csrf-token: {CSRF}",
+                web_session_header=f"Cookie: {self.cookie}",
+                anti_forgery_value=f"connect-csrf-token: {self.csrf}",
                 source="username_password",
                 root=self.root,
             )
         self.assertFalse((self.root / ".garmin_tokens").exists())
-        self._assert_secret_free(_non_credential_text(self.root))
-        self.assertNotIn(PASSWORD, json.dumps(self.root.as_posix()))
+        self._assert_secret_free(_data_tree_text(self.root))
+        self.assertNotIn(self.password, json.dumps(self.root.as_posix()))
 
-    def test_sync_failure_redacts_connector_metadata_and_status(self) -> None:
+    def test_j7_3_sync_failure_redacts_connector_metadata_and_status(self) -> None:
         connector = mock.Mock()
         connector.sync.return_value = ConnectorRunResult(
             connector="garmin_cn_web_session",
             state="error",
-            detail=f"failed Cookie: {COOKIE} path={PRIVATE_PATH}",
+            detail=f"failed Cookie: {self.cookie} path={self.private_path}",
             error_code="sync_failed",
-            safe_meta={"cookie": COOKIE, "csrf": CSRF, "sourceError": f"password={PASSWORD}"},
+            safe_meta={"cookie": self.cookie, "csrf": self.csrf, "sourceError": f"password={self.password}"},
         )
-        with (
-            mock.patch.object(main_api, "GarminCnWebSessionConnector", return_value=connector),
-            mock.patch.object(main_api, "_history_input_signature", return_value=None),
-            mock.patch.object(main_api, "warm_stats_cache_in_background"),
-            mock.patch.object(main_api, "_prepare_recent_bg"),
-        ):
-            result = main_api._run_garmin_sync_job(
-                {"playerId": "me", "request": {"withShots": True}}
-            )
-        self._assert_secret_free(result, _non_credential_text(self.root))
+        log_messages: list[str] = []
+        handler = logging.Handler()
+        handler.emit = lambda record: log_messages.append(record.getMessage())
+        logging.getLogger().addHandler(handler)
+        try:
+            with (
+                mock.patch.object(main_api, "GarminCnWebSessionConnector", return_value=connector),
+                mock.patch.object(main_api, "_history_input_signature", return_value=None),
+                mock.patch.object(main_api, "warm_stats_cache_in_background"),
+                mock.patch.object(main_api, "_prepare_recent_bg"),
+            ):
+                result = main_api._run_garmin_sync_job(
+                    {"playerId": "me", "request": {"withShots": True}}
+                )
+        finally:
+            logging.getLogger().removeHandler(handler)
+        self._assert_secret_free(result, "\n".join(log_messages), _data_tree_text(self.root))
         status_files = list(self.root.rglob("*status*.json"))
         self._assert_secret_free(*(path.read_text(encoding="utf-8") for path in status_files))
 
-    def test_report_model_input_and_stored_report_are_secret_free(self) -> None:
+    def test_j7_3_report_model_input_and_stored_report_are_secret_free(self) -> None:
         captured: list[str] = []
 
         class CaptureProvider:
@@ -143,7 +173,7 @@ class J7SecretTests(unittest.TestCase):
         facts = {
             "kind": "round",
             "subjectId": "round-1",
-            "factsUsed": [{"label": "note", "value": f"cookie={COOKIE} path={PRIVATE_PATH}"}],
+            "factsUsed": [{"label": "note", "value": f"cookie={self.cookie} path={self.private_path}"}],
             "missingData": [],
         }
         with (
@@ -153,7 +183,7 @@ class J7SecretTests(unittest.TestCase):
             mock.patch.object(reports_api, "_history_data", return_value=None),
         ):
             report = reports_api.generate_round_report_response("round-1")
-        self._assert_secret_free(captured, report.model_dump(), _non_credential_text(self.root))
+        self._assert_secret_free(captured, report.model_dump(), _data_tree_text(self.root))
         self.assertTrue((self.root / "data" / "reports" / "reports.jsonl").exists())
 
 

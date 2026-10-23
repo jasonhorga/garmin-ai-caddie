@@ -10,7 +10,7 @@ import os
 import re
 import tempfile
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -19,7 +19,9 @@ from fastapi.testclient import TestClient
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players
 from ai_caddie.core import data as core_data
-from server_v2 import auth_api
+from server_v2 import auth_api, db, identity_repo
+from server_v2.apple_auth import AppleIdentity
+from server_v2.identity_models import Base
 from server_v2.main import app
 from server_v2.players_api import assert_admin_security_config, is_player_scoped_route
 
@@ -142,10 +144,10 @@ def _session_body() -> dict[str, str]:
 
 
 class J7RouteInventoryTests(unittest.TestCase):
-    def test_route_table_has_exactly_the_declared_player_id_surface(self) -> None:
+    def test_j7_1_route_table_has_exactly_the_declared_player_id_surface(self) -> None:
         self.assertEqual(_route_inventory(), set(PLAYER_ID_ROUTES))
 
-    def test_route_table_has_exactly_the_declared_bearer_scoped_surface(self) -> None:
+    def test_j7_1_route_table_has_exactly_the_declared_bearer_scoped_surface(self) -> None:
         self.assertEqual(_player_scoped_inventory(), set(PLAYER_SCOPED_ROUTES))
 
 
@@ -179,7 +181,7 @@ class J7MemberIsolationTests(unittest.TestCase):
     def _auth(self, token: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {token}"}
 
-    def test_owner_self_other_and_anonymous_matrix_for_targeted_writes(self) -> None:
+    def test_j7_1_owner_self_other_and_anonymous_matrix_for_targeted_writes(self) -> None:
         cases = (
             (
                 "round ingest",
@@ -212,7 +214,7 @@ class J7MemberIsolationTests(unittest.TestCase):
                 response = call(self.alice["id"], {})
                 self.assertEqual(response.status_code, 401, response.text)
 
-    def test_every_explicit_player_route_enforces_owner_self_other_anonymous(self) -> None:
+    def test_j7_1_every_explicit_player_route_enforces_owner_self_other_anonymous(self) -> None:
         """Exercise every route in ``PLAYER_ID_ROUTES`` at its authorization boundary.
 
         The successful owner/self calls are allowed to return a normal 2xx or a resource-level
@@ -263,7 +265,7 @@ class J7MemberIsolationTests(unittest.TestCase):
                     anonymous = call(method, path, self.alice["id"], {})
                     self.assertEqual(anonymous.status_code, 401, anonymous.text)
 
-    def test_member_round_is_in_member_history_and_never_owner_or_other_member(self) -> None:
+    def test_j7_1_member_round_is_in_member_history_and_never_owner_or_other_member(self) -> None:
         own = self.client.post(
             f"/api/v2/players/{self.alice['id']}/rounds",
             json=_round_body(),
@@ -297,7 +299,7 @@ class J7AuthorizationTests(unittest.TestCase):
         self.member = players.create_player("Member", root=self.root)
         self.client = TestClient(app)
 
-    def test_member_cannot_elevate_with_admin_header_and_anonymous_is_401(self) -> None:
+    def test_j7_2_member_cannot_elevate_with_admin_header_and_anonymous_is_401(self) -> None:
         member = {"Authorization": f"Bearer {self.member['token']}"}
         self.assertEqual(self.client.get("/api/v2/admin/players", headers=member).status_code, 403)
         self.assertEqual(
@@ -307,7 +309,7 @@ class J7AuthorizationTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/v2/admin/players").status_code, 401)
         self.assertEqual(self.client.get("/api/v2/admin/players", headers=ADMIN_HEADER).status_code, 200)
 
-    def test_production_without_admin_token_fails_closed_at_startup(self) -> None:
+    def test_j7_2_production_without_admin_token_fails_closed_at_startup(self) -> None:
         with mock.patch.dict(
             os.environ,
             {"AI_CADDIE_SECURITY_PROFILE": "production"},
@@ -316,9 +318,48 @@ class J7AuthorizationTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 assert_admin_security_config()
 
-    def test_session_ttl_is_bounded_by_configured_duration(self) -> None:
+    def test_j7_2_session_ttl_is_bounded_by_configured_duration(self) -> None:
         with mock.patch.dict(os.environ, {"AI_CADDIE_SESSION_TTL_HOURS": "2"}):
             self.assertEqual(auth_api._session_ttl(), timedelta(hours=2))
+
+    def test_j7_2_apple_sign_in_mints_a_time_limited_member_session(self) -> None:
+        database_url = f"sqlite:///{self.root / 'identity.db'}"
+        with mock.patch.dict(
+            os.environ,
+            {
+                "AI_CADDIE_DATABASE_URL": database_url,
+                "AI_CADDIE_APPLE_BUNDLE_ID": "com.example.caddie",
+                "AI_CADDIE_SESSION_TTL_HOURS": "2",
+            },
+        ):
+            db.reset_engine_for_tests()
+            self.addCleanup(db.reset_engine_for_tests)
+            Base.metadata.create_all(db.get_engine())
+            with db.session_scope() as session:
+                family, owner = identity_repo.create_family_with_owner(
+                    session, family_name="J7 family", owner_display_name="Owner"
+                )
+                identity_repo.map_legacy_player(session, legacy_player_id="me", user_id=owner.id)
+                session.flush()
+            with mock.patch.object(
+                auth_api,
+                "_verify",
+                return_value=AppleIdentity(subject="runtime-member-sub", email=None),
+            ):
+                response = self.client.post(
+                    "/api/v2/auth/apple",
+                    json={"identityToken": "runtime-apple-jwt", "displayName": "Member A"},
+                )
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertTrue(payload["token"])
+        expires = datetime.fromisoformat(payload["expiresAt"])
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        remaining = expires - datetime.now(timezone.utc)
+        self.assertGreater(remaining, timedelta(hours=1, minutes=59))
+        self.assertLess(remaining, timedelta(hours=2, minutes=1))
+        self.assertTrue(str(payload["playerId"]).startswith("p_"))
 
 
 if __name__ == "__main__":
