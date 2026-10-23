@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/ResultsView.swift
++++ b/mobile/ios/AICaddie/Views/ResultsView.swift
+@@ -704,6 +704,6 @@
+                             apiBaseURL: apiBaseURL, adminToken: adminToken,
+                             globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox)
+         case let .period(period):
+-            ResultsArchiveView(apiBaseURL: apiBaseURL, adminToken: adminToken, initialPeriod: period)
++            ResultsArchiveView(apiBaseURL: apiBaseURL, adminToken: adminToken, initialPeriod: nil)
+         }
+     }

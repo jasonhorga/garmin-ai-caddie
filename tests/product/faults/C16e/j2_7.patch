@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Models/BagPresentation.swift
++++ b/mobile/ios/AICaddie/Models/BagPresentation.swift
+@@ -6,7 +6,7 @@
+ /// typed distance (the one the caddie uses) replaces the history median and is drawn as a dot.
+ /// Pure, so ordering, gaps and the axis are testable.
+ enum BagPresentation {
+-    static let narrowGap = 8
++    static let narrowGap = 9
+     static let wideGap = 20
+
+     struct Row: Equatable, Identifiable {

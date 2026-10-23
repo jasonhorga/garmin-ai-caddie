@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/ResultsView.swift
++++ b/mobile/ios/AICaddie/Views/ResultsView.swift
+@@ -410,6 +410,7 @@
+         .buttonStyle(.plain)
+         .foregroundStyle(.primary)
+         .hubCard(padding: 14)
++        .disabled(true)
+         .accessibilityIdentifier("results-entry-\(id)")
+     }
+ }

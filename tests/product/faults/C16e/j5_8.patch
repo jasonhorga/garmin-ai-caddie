@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddieDomain/TeeResult.swift
++++ b/mobile/ios/AICaddieDomain/TeeResult.swift
+@@ -142,7 +142,7 @@
+         let end = routeM[bestIndex + 1]
+         // x east / y north: a positive cross product is to the left of the direction of play.
+         let cross = (end.x - start.x) * (p.y - start.y) - (end.y - start.y) * (p.x - start.x)
+-        if cross > 0 { return .left }
++        if cross > 0 { return .right }
+         if cross < 0 { return .right }
+         return nil
+     }

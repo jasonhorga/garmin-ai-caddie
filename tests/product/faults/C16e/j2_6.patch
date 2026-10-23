@@ -1,0 +1,9 @@
+--- a/mobile/ios/AICaddie/Views/StatsView.swift
++++ b/mobile/ios/AICaddie/Views/StatsView.swift
+@@ -274,5 +274,6 @@
+             Text(P.subtitle(course)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+         }
+         .padding(.top, 24)
++        .frame(width: 2000)
+         .accessibilityIdentifier("course-header")
+     }

@@ -52,6 +52,8 @@ targets:
           - Fixtures
       - path: mobile/ios/AICaddieDomainTests/Fixtures
         buildPhase: resources
+      - path: tests/product/fixtures/shared/tee_result.json
+        buildPhase: resources
     dependencies:
       - target: AICaddieDomain
       - target: SwiftJCS
@@ -97,6 +99,10 @@ targets:
           - Fixtures
       - path: mobile/ios/AICaddieTests/Fixtures
         buildPhase: resources
+      - path: tests/product/fixtures/shared/loop_map.json
+        buildPhase: resources
+      - path: tests/product/fixtures/shared/caddie_golden.json
+        buildPhase: resources
     dependencies:
       - target: AICaddie
     settings:
@@ -109,6 +115,10 @@ targets:
     platform: iOS
     sources:
       - path: mobile/ios/AICaddieUITests
+        excludes:
+          - Product/Fixtures
+      - path: mobile/ios/AICaddieUITests/Product/Fixtures
+        buildPhase: resources
     dependencies:
       - target: AICaddie
     settings:

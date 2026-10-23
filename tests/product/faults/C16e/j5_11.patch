@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Services/OfflineCaddieDecisionEvaluator.swift
++++ b/mobile/ios/AICaddie/Services/OfflineCaddieDecisionEvaluator.swift
+@@ -891,7 +891,7 @@
+             "clubName": .string(profile.name),
+             "role": .string(role),
+             "targetCarry_m": .number(profile.carryM),
+-            "routeOffset_m": .number(routeOffsetM),
++            "routeOffset_m": .number(routeOffsetM + 1),
+             "landing_m": .number(routeOffsetM),
+             "expectedRemaining_m": .number(expectedRemainingM),
+             "planIndex": .number(Double(index)),

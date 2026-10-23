@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Services/WatchEventBridge.swift
++++ b/mobile/ios/AICaddie/Services/WatchEventBridge.swift
+@@ -680,7 +680,7 @@
+             expectedRemainingM: number(selectedSequence?["expectedRemaining_m"]) ?? number(selectedSequence?["expectedRemainingM"]),
+             evidenceSummary: evidenceSummary(from: decision, offlineOption: offlineSelected),
+             missingDataSummary: missingDataSummary(from: decision),
+-            frontGreenM: frontGreenM,
++            frontGreenM: nil,
+             centerGreenM: centerGreenM,
+             backGreenM: backGreenM,
+             frontGreenLat: frontGreenLat,

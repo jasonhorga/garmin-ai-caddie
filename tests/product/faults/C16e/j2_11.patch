@@ -1,0 +1,12 @@
+--- a/mobile/ios/AICaddie/Views/RoundReviewView.swift
++++ b/mobile/ios/AICaddie/Views/RoundReviewView.swift
+@@ -148,7 +148,8 @@
+         case .cancelled, .staleAccount:
+             return
+         case let .answer(fresh?):
+-            detail = fresh
++            _ = fresh
++            detail = nil
+         case .answer(nil):
+             if detail == nil { errorText = "这场暂时取不到(网络或数据)" }
+         }
