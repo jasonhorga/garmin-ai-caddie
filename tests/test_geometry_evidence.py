@@ -180,6 +180,24 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertIn({"label": "hazards", "reason": "prodgeometry hazard file missing"}, evidence["missingData"])
         self.assertIn({"label": "meshes", "reason": "prodgeometry mesh file missing"}, evidence["missingData"])
 
+    def test_mesh_only_is_topo_ready_but_full_geometry_stays_partial(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mesh = root / "gid31795_h02_meshes.json"
+            hazard = root / "gid31795_h02_hazards.json"
+            mesh.write_text("{}", encoding="utf-8")
+            with (
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
+            ):
+                topo = geometry_coverage_for_hole(31795, 2, require_hazards=False)
+                full = geometry_coverage_for_hole(31795, 2, require_hazards=True)
+
+        self.assertEqual(topo["coverage"], "ready")
+        self.assertEqual(topo["topoCoverage"], "ready")
+        self.assertEqual(topo["fullCoverage"], "partial")
+        self.assertEqual(full["coverage"], "partial")
+
     def test_ready_geometry_returns_secret_free_path_refs(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

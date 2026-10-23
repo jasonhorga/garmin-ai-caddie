@@ -134,7 +134,11 @@ def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 
         total_ms = (time.perf_counter() - started) * 1000
         logger.info("map_startup gid=%s hole=%s metadata_ms=%.1f geometry_ms=%.1f vector_ms=%.1f total_ms=%.1f drawable=%s",
                     gid, hole, metadata_ms, geometry_ms, total_ms - metadata_ms - geometry_ms, total_ms, bool(vector))
-        return {"globalId": gid, "localHole": hole, "drawable": bool(vector), "durationMs": round(total_ms)}
+        from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
+        coverage = geometry_coverage_for_hole(gid, hole) if not vector and result.get("ok") else {}
+        pending = any(row.get("state") == "pending" for row in coverage.get("missingData") or [])
+        return {"globalId": gid, "localHole": hole, "drawable": bool(vector),
+                "pending": pending, "durationMs": round(total_ms)}
 
     with _LOCK:
         future = _STARTING.get(key)
