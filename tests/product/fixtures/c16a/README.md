@@ -35,6 +35,13 @@ export. No input or assertion is copied from the old test suite.
   to one makes 35 round putts; changing four strokes to six makes 74 strokes;
   changing zero penalties to two makes two round penalties. These are the
   independent answers used for the projection KNOWN-RED tests.
+- Correcting shot 2's start lie to Bunker also identifies shot 1's landing
+  (the same connected point) as bunker: the Driver has one bunker landing.
+  Reordering the three IDs as 3/1/2 gives PW/Driver/7I, numbered 1/2/3.
+  The additional move row places the 7I landing at its snapshot start
+  (160,680), so its review distance is exactly 0m; no projection or scale
+  helper is needed to calculate this answer. These three statistics/review
+  checks are separate KNOWN-RED tests, rather than masking passing map rows.
 
 The HTTP routes, append-only JSONL stores, locks, cached file readers, audit
 and repair code are real. `Sandbox` binds them to a temporary tree populated

@@ -93,6 +93,11 @@ class CorrectionProductTests(unittest.TestCase):
                         if label == 'putts':
                             self.assertEqual(s.get('history/rounds/101')['scorecard'][0]['putts'], 1)
                             self.assertEqual(s.get('history/stats')['scoring']['putting']['totalPutts'], 35)
+                        if label == 'total':
+                            # Seventeen fours plus the corrected six = 74; only one round.
+                            self.assertEqual(s.get('history/summary')['summary']['average18'], 74)
+                            record = s.get('history/stats')['records']['best18']
+                            self.assertEqual((record['roundRef'], record['score']), ('101', 74))
                         if phase == 'immediate':
                             # Force a real fixture refetch, rather than testing only the cached skip.
                             for path in sources:
@@ -311,13 +316,50 @@ class CorrectionProductTests(unittest.TestCase):
     def test_j3_1_review_consumes_corrected_total(self):
         with Sandbox() as s:
             s.seed()
-            s.get('history/stats')
             self.assertEqual(annotation(s,'score_correction',6).status_code,200)
             # Hole 1: 4 -> 6, so round total 72 -> 74.
-            self.assertEqual(s.get('history/summary')['summary']['average18'],74)
             detail = s.get('history/rounds/101')
             self.assertEqual(detail['scorecard'][0]['score'],6)
             self.assertEqual(detail['round']['score'],74)
+
+    @unittest.expectedFailure  # C16a KNOWN-RED: statistics omit corrected landing lie
+    def test_j3_1_statistics_consume_corrected_lie(self):
+        with Sandbox() as s:
+            prepare(s)
+            s.get('history/stats')
+            self.assertEqual(s.correct({'op':'editField','shotId':'s:101:2',
+                                        'field':'lie','value':'Bunker'}).status_code,201)
+            # The second shot starts at the first shot's landing: changing its lie
+            # to Bunker means the Driver landed in a bunker, not on the fairway.
+            clubs = s.get('history/stats')['clubs']
+            driver = next(c for c in clubs if c['club'] == 'Driver')
+            self.assertEqual([(r['surface'], r['count']) for r in driver['surfaceDistribution']],
+                             [('bunker', 1)])
+
+    @unittest.expectedFailure  # C16a KNOWN-RED: review retains source ordering
+    def test_j3_1_review_consumes_reordered_shots(self):
+        with Sandbox() as s:
+            prepare(s)
+            s.get('history/rounds/101')
+            self.assertEqual(s.correct({'op':'reorderShot',
+                                        'order':['s:101:3','s:101:1','s:101:2']}).status_code,201)
+            shots = s.get('history/rounds/101')['holeDetails'][0]['shots']
+            # The authored permutation places PW first, Driver second and 7I third.
+            self.assertEqual([(x['club'], x['order']) for x in shots],
+                             [('PW',1),('Driver',2),('7I',3)])
+
+    @unittest.expectedFailure  # C16a KNOWN-RED: review retains source distance
+    def test_j3_1_review_consumes_moved_landing(self):
+        with Sandbox() as s:
+            prepare(s)
+            s.get('history/rounds/101')
+            # Place the second landing on its start (160,680): zero-length shot.
+            # This independent distance answer needs no product pixel conversion.
+            self.assertEqual(s.correct({'op':'editField','shotId':'s:101:2',
+                                        'field':'position','value':[160,680]}).status_code,201)
+            shots = s.get('history/rounds/101')['holeDetails'][0]['shots']
+            self.assertEqual(shots[1]['club'], '7I')
+            self.assertEqual(shots[1]['distance'], 0)
 
     @unittest.expectedFailure  # C16a KNOWN-RED: projection omits persisted correction
     def test_j3_1_statistics_consume_corrected_penalty(self):
