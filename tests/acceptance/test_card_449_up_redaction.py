@@ -231,6 +231,7 @@ class UpRedactionTest(unittest.TestCase):
             "PATH": f"{self.bin}{os.pathsep}{os.environ.get('PATH', '/usr/bin:/bin')}",
             "HOME": str(self.tmp), "LANG": "C.UTF-8", "FAKE_STATE": str(self.state_path),
             "AICADDIE_API_PORT": PORT, "AICADDIE_SYNC_LOCK": str(self.lock),
+            "AICADDIE_DEPLOY_RELEASE_STATE": str(self.tmp / "release-state.json"),
             "AICADDIE_UP_DOCKER_TIMEOUT_SECONDS": "0.08",
             "AICADDIE_DB_READY_TIMEOUT_SECONDS": "0.08",
             "AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS": "0.08",
@@ -251,7 +252,7 @@ class UpRedactionTest(unittest.TestCase):
     def assert_grammar(self, proc: subprocess.CompletedProcess[str]) -> None:
         output = proc.stdout + proc.stderr
         for line in output.splitlines():
-            self.assertRegex(line, r"^agenthub-deploy: (action=up|result=(ok|failed) .*)$", output)
+            self.assertRegex(line, r"^agenthub-deploy: (action=up(?: .*)?|result=(ok|failed) .*)$", output)
             fields = line.removeprefix("agenthub-deploy: ").split()
             reason = dict(field.split("=", 1) for field in fields).get("reason")
             for field in fields:
@@ -271,7 +272,10 @@ class UpRedactionTest(unittest.TestCase):
                     self.assertRegex(value, r"[0-9]+\.[0-9]+", line)
                 elif key == "reason":
                     self.assertIn(value, {"docker_unavailable", "database_missing", "database_unhealthy",
-                                          "no_release_candidate", "release_tie", "api_unhealthy", "lock_timeout", "unexpected"}, line)
+                                          "no_release_candidate", "release_tie", "api_unhealthy", "lock_timeout", "unexpected",
+                                          "release_record_missing", "release_record_invalid", "release_record_unavailable"}, line)
+                elif key == "selection":
+                    self.assertIn(value, {"record", "legacy"}, line)
                 elif key == "candidates":
                     self.assertEqual(reason, "release_tie", line)
                     for name in value.split(","):

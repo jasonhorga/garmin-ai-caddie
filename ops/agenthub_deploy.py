@@ -39,6 +39,7 @@ import sys
 import tempfile
 import time
 import traceback
+from datetime import datetime, timezone
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GATE_SCRIPT = REPO_ROOT / "ops" / "complete_homeserver_api_deploy.sh"
@@ -53,6 +54,7 @@ PRIVATE_ROOT = "/var/lib/ai-caddie"
 CONTAINER_PORT = "9000"
 STOP_TIMEOUT_SECONDS = "30"
 SYNC_CHECK_MARKER = "sync contract ok (check-only)"
+DEFAULT_RELEASE_STATE_RELATIVE = Path(".local/state/aicaddie/current-release")
 # Stop timeout plus gate/sync check time, on top of the health waits.
 SWITCH_OVERHEAD_SECONDS = 90.0
 SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
@@ -69,7 +71,8 @@ CONTAINER_FORMAT = (
     '"labels":{{json .Config.Labels}},"running":{{json .State.Running}},'
     '"finishedAt":{{json .State.FinishedAt}},'
     '"ports":{{json .HostConfig.PortBindings}},'
-    '"network":{{json .HostConfig.NetworkMode}},"mounts":{{json .Mounts}},'
+    '"network":{{json .HostConfig.NetworkMode}},'
+    '"networks":{{json .NetworkSettings.Networks}},"mounts":{{json .Mounts}},'
     '"memory":{{json .HostConfig.Memory}},"nanoCpus":{{json .HostConfig.NanoCpus}}}'
 )
 DATABASE_FORMAT = '{"running":{{json .State.Running}},"health":{{json .State.Health}}}'
@@ -138,8 +141,11 @@ UP_REASONS = frozenset({
     "api_unhealthy",
     "lock_timeout",
     "unexpected",
+    "release_record_missing",
+    "release_record_invalid",
+    "release_record_unavailable",
 })
-UP_FIELDS = frozenset({"action", "result", "part", "container", "revision", "elapsed_s", "reason", "candidates"})
+UP_FIELDS = frozenset({"action", "result", "part", "container", "revision", "elapsed_s", "reason", "candidates", "selection"})
 
 
 def _up_value(key: str, value: object) -> str | None:
@@ -161,6 +167,8 @@ def _up_value(key: str, value: object) -> str | None:
         return value if re.fullmatch(r"\d+\.\d+", value) else "invalid"
     if key == "reason":
         return value if value in UP_REASONS else "invalid"
+    if key == "selection":
+        return value if value in {"record", "legacy"} else "invalid"
     if key == "candidates":
         return value if all(PREFIX_PATTERN.fullmatch(name) for name in value.split(",")) else "invalid"
     return "invalid"
@@ -194,6 +202,18 @@ class Config:
         self.sync_script = env.get("AICADDIE_SYNC_SCRIPT") or ""
         self.public_health_url = env.get("AICADDIE_DEPLOY_PUBLIC_HEALTH_URL") or ""
         self.bootstrap_env_file = env.get("AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE") or ""
+        release_state = env.get("AICADDIE_DEPLOY_RELEASE_STATE") or ""
+        if release_state:
+            self.release_state_path = Path(release_state)
+            if not self.release_state_path.is_absolute():
+                raise ConfigError("AICADDIE_DEPLOY_RELEASE_STATE must be an absolute path")
+        else:
+            home = Path(env["HOME"]) if env.get("HOME") else None
+            self.release_state_path = (
+                home / DEFAULT_RELEASE_STATE_RELATIVE
+                if home is not None and home.is_absolute()
+                else None
+            )
         self.keep_stopped = _int(env, "AICADDIE_DEPLOY_KEEP_STOPPED", 2, minimum=1)
         self.default_cpus = _float(env, "AICADDIE_DEPLOY_DEFAULT_CPUS", 2.0, positive=True)
         self.default_memory = _int(env, "AICADDIE_DEPLOY_DEFAULT_MEMORY_BYTES", 3 * 1024**3, minimum=1)
@@ -203,6 +223,8 @@ class Config:
         self.deadline_seconds = _float(env, "AICADDIE_DEPLOY_DEADLINE_SECONDS", 2280.0)
         self.poll = _float(env, "AICADDIE_DEPLOY_POLL_SECONDS", 2.0)
         self.started = time.monotonic()
+        self.release_selection = "legacy"
+        self.release_selection_reason = "release_record_unavailable" if self.release_state_path is None else None
 
     @property
     def local_health_url(self) -> str:
@@ -313,6 +335,11 @@ class Container:
         self.finished_key = _finished_key(data.get("finishedAt") or "")
         self.ports = data.get("ports") or {}
         self.network = data.get("network") or ""
+        # Older docker projections (and older test fixtures) do not carry
+        # NetworkSettings.Networks.  None means the projection predates the
+        # self-healing check; an explicit empty mapping means the attachment
+        # is missing and must be repaired before start.
+        self.networks = data.get("networks")
         self.mounts = data.get("mounts") or []
         self.memory = int(data.get("memory") or 0)
         self.nano_cpus = int(data.get("nanoCpus") or 0)
@@ -532,6 +559,7 @@ def restore_previous(cfg: Config, previous: Container | None) -> bool | None:
         log("no previous container to restore")
         return None
     try:
+        ensure_network(cfg, previous)
         docker("start", previous.name)
     except DeployError as exc:
         log(f"error: {exc}")
@@ -613,7 +641,7 @@ def run_api_container(cfg: Config, private: Path, name: str, sha: str,
     env_file = write_env_file(private, values)
     try:
         docker("run", "-d", "--init", "--pull", "never", "--name", name,
-               "--restart", "on-failure:3",
+               "--restart", "no",
                "--cpus", str(cpus), "--memory", str(memory),
                "--network", cfg.network,
                "--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
@@ -684,6 +712,7 @@ def deploy(cfg: Config, sha: str) -> str:
         wait_database_healthy(cfg)
         containers = list_containers()
         current = find_current(cfg, containers)
+        normalize_restart_policy(cfg, containers)
         if current is not None and current.revision == sha:
             verify_live(cfg, sha, current, containers, private)
             deployed = current.name
@@ -695,6 +724,7 @@ def deploy(cfg: Config, sha: str) -> str:
         except Exception as exc:  # the new release is live; cleanup is best effort
             reason = str(exc) if isinstance(exc, DeployError) else type(exc).__name__
             log(f"warning: cleanup incomplete: {reason}")
+        write_release_state(cfg, sha)
     return deployed
 
 
@@ -718,7 +748,11 @@ def verify_live(cfg: Config, sha: str, current: Container, containers: list[Cont
         restored = restore_previous(cfg, previous)
         if not restored:
             docker("stop", "--time", STOP_TIMEOUT_SECONDS, previous.name, capture=True, check=False)
-            docker("start", current.name, capture=True, check=False)
+            try:
+                ensure_network(cfg, current)
+                docker("start", current.name, capture=True, check=False)
+            except BaseException as restore_exc:
+                log(f"error: failed to re-start {current.name} after restore failure: {type(restore_exc).__name__}")
         raise CutoverFailed(reason, restored) from None
     shield_signals()
 
@@ -834,10 +868,12 @@ def rollback(cfg: Config, sha: str) -> str:
     with SyncLock(cfg):
         wait_database_healthy(cfg)
         current, target = select_rollback(cfg, sha)
+        normalize_restart_policy(cfg, list_containers())
         if target is None:
             if not wait_health(cfg.local_health_url, sha, cfg.health_timeout, cfg.poll):
                 raise DeployError(f"{current.name} runs revision {sha} but its health check fails")
             log(f"{current.name} already runs revision {sha}")
+            write_release_state(cfg, sha)
             return current.name
 
         cfg.require_time_for_switch()
@@ -846,6 +882,7 @@ def rollback(cfg: Config, sha: str) -> str:
                 log(f"stopping {current.name}")
                 docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name, capture=True)
             log(f"starting {target.name}")
+            ensure_network(cfg, target)
             docker("start", target.name, capture=True)
             if not wait_health(cfg.local_health_url, sha, cfg.health_timeout, cfg.poll):
                 raise DeployError(f"{target.name} did not report status=ok revision={sha}")
@@ -857,7 +894,104 @@ def rollback(cfg: Config, sha: str) -> str:
             restored = restore_previous(cfg, current)
             raise CutoverFailed(reason, restored) from None
         shield_signals()
+        write_release_state(cfg, sha)
         return target.name
+
+
+def normalize_restart_policy(cfg: Config, containers: list[Container]) -> None:
+    """Make every release container independently safe across daemon restarts."""
+    for container in containers:
+        if container.name.startswith(cfg.prefix):
+            docker("update", "--restart=no", container.name, label="release restart policy")
+
+
+def ensure_network(cfg: Config, container: Container) -> None:
+    """Repair a missing runtime network attachment before starting a container."""
+    if container.networks is None:
+        # Projection compatibility for old callers/tests. Docker installations
+        # using CONTAINER_FORMAT always provide an explicit mapping.
+        attached = container.network == cfg.network
+    else:
+        attached = isinstance(container.networks, dict) and cfg.network in container.networks
+    if attached:
+        return
+    log(f"connecting {container.name} to configured network before start")
+    docker("network", "connect", cfg.network, container.name, label="network connect")
+
+
+def write_release_state(cfg: Config, revision: str) -> None:
+    """Atomically publish the revision selected by the last successful action."""
+    path = cfg.release_state_path
+    if path is None:
+        log("HOME is unavailable; release record not written")
+        return
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        payload = {
+            "revision": revision,
+            "recorded_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except OSError:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            log("WARNING: release record write failed and stale record could not be removed")
+        else:
+            log("WARNING: release record write failed; stale record removed")
+        log("release record could not be written; continuing without it")
+
+
+def read_release_state(cfg: Config) -> str | None:
+    if cfg.release_state_path is None:
+        log("HOME is unavailable; using legacy stopped-container selection")
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_unavailable"
+        return None
+    try:
+        data = json.loads(cfg.release_state_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_missing"
+        return None
+    except OSError:
+        log("release state is unreadable; falling back to stopped-container selection")
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_unavailable"
+        return None
+    except (ValueError, TypeError):
+        log("release state is invalid; falling back to stopped-container selection")
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_invalid"
+        return None
+    revision = data.get("revision") if isinstance(data, dict) else None
+    if not isinstance(revision, str) or not SHA_PATTERN.fullmatch(revision):
+        log("release state has no valid revision; falling back to stopped-container selection")
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_invalid"
+        return None
+    cfg.release_selection = "record"
+    cfg.release_selection_reason = None
+    return revision
 
 
 # ---------------------------------------------------------------------------
@@ -911,6 +1045,29 @@ def assert_up_release(cfg: Config, container: Container) -> None:
 
 
 def select_up_api(cfg: Config, containers: list[Container]) -> Container | None:
+    recorded = read_release_state(cfg)
+    if recorded is not None:
+        recorded_candidates = [
+            candidate for candidate in containers
+            if candidate.name.startswith(cfg.prefix)
+            and candidate.revision == recorded
+            and candidate.publishes(cfg.port)
+        ]
+        valid_recorded = []
+        for candidate in recorded_candidates:
+            try:
+                assert_up_release(cfg, candidate)
+            except DeployError:
+                continue
+            valid_recorded.append(candidate)
+        if valid_recorded:
+            running = [candidate for candidate in valid_recorded if candidate.running]
+            if running:
+                return running[0]
+            return max(valid_recorded, key=lambda candidate: candidate.finished_key)
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_missing"
+        log(f"recorded release {recorded} is missing or invalid; falling back to stopped-container selection")
     try:
         current = find_current(cfg, containers)
     except DeployError:
@@ -955,10 +1112,15 @@ def up(cfg: UpConfig) -> Container:
         wait_up_database(cfg)
         part, container = "api", "none"
         api = select_up_api(cfg, list_containers())
+        selection_fields = {"action": "up", "selection": cfg.release_selection}
+        if cfg.release_selection_reason:
+            selection_fields["reason"] = cfg.release_selection_reason
+        up_line(**selection_fields)
         if api is None:
             raise UpFailed("api", "none", "no valid release candidate",
                            reason="no_release_candidate")
         container = api.name
+        previous_api = None
         if not api.running:
             with SyncLock(cfg):
                 # A deploy can change the release set while recovery waits for this lock.
@@ -969,9 +1131,31 @@ def up(cfg: UpConfig) -> Container:
                                    reason="no_release_candidate")
                 container = api.name
                 if not api.running:
+                    try:
+                        current = find_current(cfg, list_containers())
+                    except DeployError:
+                        raise UpFailed("api", "none", "no valid release candidate",
+                                       reason="no_release_candidate") from None
+                    if current is not None and current.name != api.name:
+                        previous_api = current
+                        up_line(action="up", selection="record", container=current.name,
+                                revision=api.revision)
+                        log(f"stopping {current.name} for recorded release {api.revision}")
+                        docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name,
+                               label="API stop", capture=True, quiet=True)
                     log(f"starting {api.name}")
+                    ensure_network(cfg, api)
                     docker("start", api.name, label="API start", capture=True, quiet=True)
         if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
+            if previous_api is not None:
+                docker("stop", api.name, label="API stop after failed health", capture=True,
+                       quiet=True, check=False)
+                try:
+                    ensure_network(cfg, previous_api)
+                    docker("start", previous_api.name, label="API restore after failed health",
+                           capture=True, quiet=True, check=False)
+                except BaseException as restore_exc:
+                    log(f"error: failed to restore {previous_api.name}: {type(restore_exc).__name__}")
             raise UpFailed("api", api.name, "API health check failed", reason="api_unhealthy")
         return api
     except UpFailed:
@@ -1017,14 +1201,15 @@ def main(argv: list[str]) -> int:
         except UpFailed as exc:
             up_line(result="failed", action="up", part=exc.part, container=exc.container,
                     elapsed_s=f"{time.monotonic() - started:.1f}", reason=exc.reason,
-                    candidates=exc.candidates)
+                    candidates=exc.candidates, selection=cfg.release_selection)
             return EXIT_FAILED
         except BaseException:
             up_line(result="failed", action="up", part="api", container="none",
-                    elapsed_s=f"{time.monotonic() - started:.1f}", reason="unexpected")
+                    elapsed_s=f"{time.monotonic() - started:.1f}", reason="unexpected",
+                    selection=cfg.release_selection)
             return EXIT_FAILED
         up_line(result="ok", action="up", container=api.name, revision=api.revision,
-                elapsed_s=f"{time.monotonic() - started:.1f}")
+                elapsed_s=f"{time.monotonic() - started:.1f}", selection=cfg.release_selection)
         return EXIT_OK
     log(f"action={action} revision={sha}")
     try:

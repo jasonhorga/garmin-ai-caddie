@@ -398,6 +398,7 @@ class StackUpUnitTest(unittest.TestCase):
             "FAKE_DOCKER_STATE": str(self.state_path),
             "FAKE_TOOL_LOG": str(self.tool_log),
             "AICADDIE_SYNC_LOCK": str(self.lock),
+            "AICADDIE_DEPLOY_RELEASE_STATE": str(self.tmp / "release-state.json"),
             "AICADDIE_DEPLOY_POLL_SECONDS": "0.05",
         }
 

@@ -467,6 +467,7 @@ class UpSelectionTest(unittest.TestCase):
             "AICADDIE_API_PORT": PORT,
             "AICADDIE_SYNC_LOCK": str(self.lock),
             "AICADDIE_SYNC_SCRIPT": str(self.sync_script),
+            "AICADDIE_DEPLOY_RELEASE_STATE": str(self.tmp / "release-state.json"),
             "AICADDIE_DEPLOY_PUBLIC_HEALTH_URL": PUBLIC_URL,
             "AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS": "5",
             "AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS": "10",

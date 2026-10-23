@@ -245,13 +245,30 @@ def main(argv):
             "State": {"Running": True, "Status": "running", "FinishedAt": "0001-01-01T00:00:00Z"},
             "HostConfig": {"PortBindings": {container_port + "/tcp": [{"HostIp": ip, "HostPort": host_port}]},
                            "NetworkMode": opts["--network"][0],
+                           "RestartPolicy": {"Name": opts["--restart"][0].split(":", 1)[0]},
                            "Memory": int(opts["--memory"][0]),
                            "NanoCpus": int(float(opts["--cpus"][0]) * 1e9)},
+            "NetworkSettings": {"Networks": {opts["--network"][0]: {}}},
             "Mounts": [{"Type": "volume", "Name": volume, "Destination": destination, "RW": True}],
             "Run": record,
         })
         save(state)
         print("%064x" % state["serial"])
+        return 0
+    if command == "update":
+        if not args or not args[0].startswith("--restart="):
+            fail("fake docker: update requires --restart", 2)
+        policy = args[0].split("=", 1)[1]
+        c = find_container(state, args[1]) or fail("Error: No such container: " + args[1])
+        c.setdefault("HostConfig", {})["RestartPolicy"] = {"Name": policy}
+        c.setdefault("Run", {})["--restart"] = [policy]
+        save(state)
+        return 0
+    if command == "network" and args and args[0] == "connect":
+        network, name = args[1], args[2]
+        c = find_container(state, name) or fail("Error: No such container: " + name)
+        c.setdefault("NetworkSettings", {"Networks": {}}).setdefault("Networks", {})[network] = {}
+        save(state)
         return 0
     if command in ("stop", "start", "rm"):
         opts, refs = take_options(args, {"-f", "-v"}, {"--time"})
@@ -330,6 +347,7 @@ def container(serial: int, name: str, image_id: str, revision: str | None, *, ru
                   "FinishedAt": finished},
         "HostConfig": {"PortBindings": {"9000/tcp": [{"HostIp": "127.0.0.1", "HostPort": port}]},
                        "NetworkMode": network, "Memory": memory, "NanoCpus": nano_cpus},
+        "NetworkSettings": {"Networks": {network: {}}},
         "Mounts": [{"Type": "volume", "Name": volume, "Destination": "/var/lib/ai-caddie", "RW": True}],
     }
 
@@ -419,6 +437,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
             "AICADDIE_API_PORT": PORT,
             "AICADDIE_SYNC_LOCK": str(self.lock),
             "AICADDIE_SYNC_SCRIPT": str(self.sync_script),
+            "AICADDIE_DEPLOY_RELEASE_STATE": str(self.tmp / "release-state.json"),
             "AICADDIE_DEPLOY_PUBLIC_HEALTH_URL": PUBLIC_URL,
             "AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS": "0.3",
             "AICADDIE_DEPLOY_PUBLIC_HEALTH_TIMEOUT_SECONDS": "0.3",
@@ -504,7 +523,7 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         run = new["Run"]
         self.assertEqual(run["env_file_mode"], "0o600")
         self.assertTrue(run["env_file_dir"].startswith(str(self.runtime)))
-        self.assertEqual(run["--restart"], ["on-failure:3"])
+        self.assertEqual(run["--restart"], ["no"])
         self.assertEqual(run["--pull"], ["never"])
         self.assertTrue(run["--init"] and run["-d"])
         self.assertEqual(run["--log-driver"], ["json-file"])
