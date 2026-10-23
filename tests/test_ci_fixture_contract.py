@@ -9,6 +9,8 @@ import base64
 import math
 import struct
 import zlib
+from io import BytesIO
+from PIL import Image
 
 from ai_caddie.core.fixtures import fixture_history_data
 
@@ -25,6 +27,29 @@ def _png_chunks(data: bytes) -> dict[bytes, list[bytes]]:
 
 
 class CIFixtureContractTests(unittest.TestCase):
+    def test_fixture_garmin_raster_jpg_contract_and_version_cache_headers(self) -> None:
+        from server_v2.ci_fixture import FIXTURE_REVISION, garmin_raster_jpg
+        response = garmin_raster_jpg(31795, 1, v=FIXTURE_REVISION)
+        self.assertEqual(response.media_type, "image/jpeg")
+        self.assertEqual(response.headers.get("etag"), f'"{FIXTURE_REVISION}"')
+        self.assertIn("immutable", response.headers.get("cache-control", ""))
+        with Image.open(BytesIO(response.body)) as decoded:
+            self.assertEqual(decoded.size, (1242, 1920))
+
+    def test_fixture_garmin_raster_metadata_contract_and_unready_null_projection(self) -> None:
+        from fastapi import HTTPException
+        from server_v2.ci_fixture import FIXTURE_REVISION, garmin_raster, garmin_raster_jpg
+        ready = garmin_raster(31795, 1)
+        self.assertTrue(ready["available"])
+        self.assertEqual(ready["projection"]["widthPx"], 1242)
+        self.assertEqual(ready["imageUrl"].split("?v=", 1)[1], FIXTURE_REVISION)
+        unavailable = garmin_raster(31798, 13)
+        self.assertFalse(unavailable["available"])
+        self.assertIsNone(unavailable["projection"])
+        self.assertEqual(unavailable["reason"], "geometry_not_ready")
+        with self.assertRaises(HTTPException) as context:
+            garmin_raster_jpg(31795, 1, v="old-version")
+        self.assertEqual(context.exception.status_code, 409)
     def test_fixture_images_are_real_decodable_rasters_above_native_gate(self) -> None:
         try:
             from server_v2.ci_fixture import _png_data_uri, prep, shotmap
