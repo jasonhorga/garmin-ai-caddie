@@ -1,0 +1,87 @@
+{
+ "source": "garmin",
+ "scorecardDetails": [
+  {
+   "scorecard": {
+    "id": 310000289,
+    "formattedStartTime": "2025-09-20T08:00:00",
+    "startTime": "2025-09-20T08:00:00",
+    "strokes": 42,
+    "holesCompleted": 9,
+    "courseGlobalId": 7201,
+    "frontNineGlobalCourseId": 7201,
+    "backNineGlobalCourseId": null,
+    "courseSnapshotId": null,
+    "teeBox": "Blue",
+    "teeBoxRating": null,
+    "teeBoxSlope": null,
+    "holes": [
+     {
+      "number": 10,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 11,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 12,
+      "strokes": 3,
+      "putts": 2
+     },
+     {
+      "number": 13,
+      "strokes": 4,
+      "putts": 1,
+      "fairwayShotOutcome": "HIT"
+     },
+     {
+      "number": 14,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 15,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 16,
+      "strokes": 4,
+      "putts": 2
+     },
+     {
+      "number": 17,
+      "strokes": 6,
+      "putts": 2,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 18,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "RIGHT"
+     }
+    ]
+   },
+   "scorecardStats": {
+    "round": {}
+   }
+  }
+ ],
+ "courseSnapshots": [
+  {
+   "name": "Lark Valley",
+   "holePars": "454344534443544354",
+   "roundPar": 36,
+   "lat": 31300000,
+   "lon": 121500000
+  }
+ ]
+}
