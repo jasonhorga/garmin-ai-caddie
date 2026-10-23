@@ -264,3 +264,13 @@ gh workflow run ios-testflight-testers.yml --repo jasonhorga/garmin-ai-caddie --
 不再有 AgentHub 的"卡住提醒"。项目台每次等东西（CI、Codex、上线脚本、TestFlight）都用
 后台任务或有上限的 until 循环，超时设该活正常耗时的约 2 倍（CI 10 分钟、native 45 分钟、
 上线 40 分钟、TestFlight 60 分钟）；超时 = 卡住，先查为什么，不直接重试。
+
+<!-- agenthub:collab -->
+## AgentHub 协作
+
+- 派活：`ah codex say caddie "<话>"`（或 `--file 卡.md`），打出 `TURN <id> 预计 HH:MM`。
+- 等：后台跑 `ah codex wait caddie`（最多 110 分钟）；退出 0 = 回话已打出；退出 3 = 还在跑，再起一次 wait；退出 1 = 异常，看输出和 `ah codex status caddie`。
+- 兜底：say 之后 `send_later` 2 小时，醒来先 `ah codex status caddie`（防 wait 被 /clear 或重启带走）。
+- 同一会话上一轮没完不能再 say；要并行用 `--lane <卡>`。
+- 推送之前必须 `ah scan <base>..<head>`；退出 1 不推。
+- Codex 回话控制在一页以内。
