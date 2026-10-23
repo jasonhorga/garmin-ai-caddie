@@ -1023,7 +1023,7 @@ final class DesignSnapshotTests: XCTestCase {
         // second of two plans, and a zoomed map with 回到.
         if let firstHole = package.holes.first {
             let livePrepJSON = """
-            {"hole":\(firstHole.number),"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,\
+            {"hole":\(firstHole.number),"par":4,"par_source":"courseview","blue_yards":410,"route_len_m":375,"geometryCoverage":"ready",\
             "route":[[120,330],[118,180],[120,55]],"steps":[{"club":"D","note":"开球"}],"cautions":[],\
             "hazards":{"water_carry":[],"bunkers":[],"details":[\
             {"kind":"water","frontM":175,"backM":195,"frontRouteM":175,"backRouteM":195,"frontPx":[112,175],"backPx":[110,155],\
@@ -1035,6 +1035,19 @@ final class DesignSnapshotTests: XCTestCase {
             "greenDistances":{"available":true,"frontM":360,"middleM":375,"backM":390}}
             """
             let livePrepHole = try JSONDecoder().decode(CoursePrepHole.self, from: Data(livePrepJSON.utf8))
+            XCTAssertEqual(
+                LiveMapDisplayState.resolveLive(
+                    .init(
+                        coverage: livePrepHole.geometryCoverage,
+                        preciseTopoImageReady: CoursePrepHole.hasDecodableEmbeddedTopo(livePrepHole.map?.image),
+                        garminRaster: nil,
+                        garminImageFailed: true,
+                        hasCachedPreciseTopo: false
+                    )
+                ),
+                .precise,
+                "ready embedded map must remain precise when Garmin fails"
+            )
             let mappedPackage = package.replacingCoursePrep(
                 CoursePrepPackage(
                     schema: "ai-caddie-course-prep-v1",
@@ -1071,12 +1084,15 @@ final class DesignSnapshotTests: XCTestCase {
                 let angle = Double(index) / 24 * 2 * Double.pi
                 return String(format: "[%.1f,%.1f]", 120 + 22 * cos(angle), 52 + 18 * sin(angle))
             }.joined(separator: ",")
-            let partialPrepJSON = livePrepJSON.replacingOccurrences(
-                of: "\"map\":{\"image\":\"\(b64)\",",
-                with: "\"geometryCoverage\":\"partial\","
-                    + "\"greenOutline\":{\"available\":true,\"source\":\"fixture\",\"pointsPx\":[\(greenOutlineJSON)]},"
-                    + "\"map\":{"
-            )
+            let partialPrepJSON = livePrepJSON
+                .replacingOccurrences(
+                    of: "\"geometryCoverage\":\"ready\",",
+                    with: "\"geometryCoverage\":\"partial\","
+                )
+                .replacingOccurrences(
+                    of: "\"map\":{\"image\":\"\(b64)\",",
+                    with: "\"greenOutline\":{\"available\":true,\"source\":\"fixture\",\"pointsPx\":[\(greenOutlineJSON)]},\"map\":{"
+                )
             XCTAssertNotEqual(partialPrepJSON, livePrepJSON, "fixture: the topo image must be removed")
             let partialPrep = try JSONDecoder().decode(CoursePrepHole.self, from: Data(partialPrepJSON.utf8))
             XCTAssertEqual(partialPrep.geometryCoverage, "partial")
@@ -1167,7 +1183,8 @@ final class DesignSnapshotTests: XCTestCase {
                         snapshotState: .init(
                             selectsFirstHazard: true,
                             caddieRoutes: routes,
-                            garminRaster: partialRasterDescriptor
+                            garminRaster: partialRasterDescriptor,
+                            preciseMapTimedOut: true
                         ),
                         caddieBaseURL: partialRasterBaseURL
                     )

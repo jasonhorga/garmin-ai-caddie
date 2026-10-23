@@ -752,6 +752,19 @@ public struct CoursePrepHole: Codable, Equatable {
         teeYards ?? blueYards
     }
 
+    /// Returns whether an embedded data URI contains a non-empty decodable image payload.
+    /// Keeping this Foundation-only makes the decision pure and lets the live view cache it once
+    /// when a prep row is assigned instead of decoding the bitmap on every map gesture frame.
+    public static func hasDecodableEmbeddedTopo(_ imageURI: String?) -> Bool {
+        guard let imageURI,
+              let comma = imageURI.firstIndex(of: ","),
+              imageURI[..<comma].lowercased().hasPrefix("data:image/"),
+              let data = Data(base64Encoded: String(imageURI[imageURI.index(after: comma)...])) else {
+            return false
+        }
+        return !data.isEmpty
+    }
+
     /// Overlay in the shared `/topo.png` pixel frame. Rendered prep already embeds this value; the
     /// lightweight `render=false` response instead carries the route in local metres plus three affine
     /// anchors. The backend fixes those anchors at local (0,0), (120,0), and (0,120), in that order.

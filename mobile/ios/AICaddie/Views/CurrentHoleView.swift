@@ -207,6 +207,7 @@ public struct CurrentHoleView: View {
     @State private var liveChromeRects: [LiveChromeRect] = []
     @State private var liveHeroFrame: CGRect = .zero
     @State private var preciseTopoImageReady = false
+    @State private var hasEmbeddedTopoImage = false
     @State private var garminRasterImageFailed = false
     @State private var garminRasterImageRetrying = false
     @State private var garminRasterImageReloadID = 0
@@ -299,8 +300,10 @@ public struct CurrentHoleView: View {
         self._selectedStrategyMode = State(initialValue: restoredHoleState?.selectedStrategyMode ?? "stock")
         self._distanceToPinText = State(initialValue: Self.validDistanceText(restoredHoleState?.distanceToPinM))
         self._selectedLie = State(initialValue: restoredHoleState?.lie ?? "fairway")
-        self._holePrep = State(
-            initialValue: package.coursePrep?.holes.first { $0.hole == hole.number }
+        let initialHolePrep = package.coursePrep?.holes.first { $0.hole == hole.number }
+        self._holePrep = State(initialValue: initialHolePrep)
+        self._hasEmbeddedTopoImage = State(
+            initialValue: CoursePrepHole.hasDecodableEmbeddedTopo(initialHolePrep?.map?.image)
         )
         self._currentHorizontalAccuracyM = State(initialValue: restoredHoleState?.horizontalAccuracyM)
         self._lastAppliedRestoredHoleState = State(initialValue: restoredHoleState)
@@ -338,6 +341,7 @@ public struct CurrentHoleView: View {
         var targetDragFocus: CGPoint?
         var garminRaster: GarminRasterResponse?
         var preciseTopoReady = false
+        var preciseMapTimedOut = false
         var currentCoordinate: CLLocationCoordinate2D?
     }
 
@@ -379,6 +383,7 @@ public struct CurrentHoleView: View {
         guard let snapshotState else { return }
         garminRaster = snapshotState.garminRaster
         preciseTopoImageReady = snapshotState.preciseTopoReady
+        preciseMapTimedOut = snapshotState.preciseMapTimedOut
         currentCoordinate = snapshotState.currentCoordinate
         garminRasterImageFailed = false
         garminRasterImageRetrying = false
@@ -474,10 +479,10 @@ public struct CurrentHoleView: View {
                     incoming: packagePrep,
                     authoritativeRevision: hole.geometryRevision
                 ) {
-                    holePrep = packagePrep
+                    setHolePrep(packagePrep)
                 }
             } else if currentPrepForHole == nil {
-                holePrep = nil
+                setHolePrep(nil)
             }
             // A reused CurrentHoleView must not carry a manual choice into the next hole. The
             // persisted `selectedStrategyMode` remains available for legacy event replay, while
@@ -535,7 +540,7 @@ public struct CurrentHoleView: View {
                 incoming: incoming,
                 authoritativeRevision: hole.geometryRevision
             ) {
-                holePrep = incoming
+                setHolePrep(incoming)
                 reconcileCaddieRoutes()
             }
         }
@@ -2182,12 +2187,7 @@ public struct CurrentHoleView: View {
     }
 
     private var hasPreciseTopoImage: Bool {
-        if let imageURI = holePrep?.map?.image,
-           let comma = imageURI.firstIndex(of: ","),
-           let data = Data(base64Encoded: String(imageURI[imageURI.index(after: comma)...])),
-           UIImage(data: data) != nil {
-            return true
-        }
+        if hasEmbeddedTopoImage { return true }
         guard let url = liveTopoURL else { return false }
         if localTopoURL != nil || preciseTopoImageReady { return true }
         return TopoHoleImageStore.cachedImage(for: url) != nil
@@ -3313,6 +3313,12 @@ public struct CurrentHoleView: View {
         }
     }
 
+    @MainActor
+    private func setHolePrep(_ prep: CoursePrepHole?) {
+        holePrep = prep
+        hasEmbeddedTopoImage = CoursePrepHole.hasDecodableEmbeddedTopo(prep?.map?.image)
+    }
+
     /// A ready prep and its bitmap are one user-visible fact. Make both durable before assigning
     /// `holePrep`; otherwise the player can see the precise map, kill the app, and resume from the
     /// older partial round package. Partial CourseView facts remain intentionally immediate.
@@ -3330,7 +3336,7 @@ public struct CurrentHoleView: View {
         ) else {
             return false
         }
-        holePrep = prep
+        setHolePrep(prep)
         // The prep response is factual even while the caddie request is in flight or returns a
         // sparse card. Publish its route immediately so response ordering cannot hide the chain.
         reconcileCaddieRoutes()

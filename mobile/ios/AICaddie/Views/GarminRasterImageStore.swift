@@ -74,8 +74,7 @@ enum GarminRasterMetadataCache {
     }
 }
 
-/// Garmin fallback images use the same durable, revision-bound cache contract as topo images, but
-/// keep a separate namespace so a JPEG can never collide with a rendered topo PNG.
+/// A pure retry cursor keeps bounded image attempts independent from SwiftUI view lifetime.
 struct GarminRasterRetryCursor: Equatable {
     static let delaysNanoseconds: [UInt64] = [0, 5_000_000_000, 15_000_000_000]
 
@@ -111,6 +110,9 @@ struct GarminRasterRetryCursor: Equatable {
     }
 }
 
+/// Garmin fallback images use the same durable, revision-bound cache contract as topo images, but
+/// keep a separate namespace so a JPEG can never collide with a rendered topo PNG. Loading uses a
+/// bounded retry cursor so a view recreation cannot restart the same display process.
 @MainActor
 final class GarminRasterImageStore: ObservableObject {
     private struct LoadResult {

@@ -52,6 +52,7 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn("case numericPlaceholder", components)
         self.assertIn("static func resolveLive(", components)
         self.assertIn("preciseTopoImageReady: hasPreciseTopoImage", current)
+        self.assertNotIn("Data(base64Encoded:", current)
         self.assertIn("garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying", current)
         self.assertIn("if liveMapDisplayState == .garminRaster", current)
         self.assertIn("garminRasterProjection: liveMapDisplayState == .garminRaster", current)
@@ -130,6 +131,7 @@ class Card454AcceptanceTests(unittest.TestCase):
     def test_native_tests_and_design_snapshots_cover_all_six_cases(self) -> None:
         native = source(NATIVE)
         snapshots = source(SNAPSHOTS)
+        self.assertIn('"geometryCoverage":"ready"', snapshots)
         expected_native = (
             "testTopoPendingRasterAvailableUsesRasterProjection",
             "testTopoReadyWinsOverRasterAndUsesTopoProjection",

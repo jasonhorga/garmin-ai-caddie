@@ -146,11 +146,15 @@ final class GarminRasterTests: XCTestCase {
     }
 
     func testEmbeddedTopoWinsWhenGarminImageFails() {
+        let validPNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        XCTAssertTrue(CoursePrepHole.hasDecodableEmbeddedTopo(validPNG))
+        XCTAssertFalse(CoursePrepHole.hasDecodableEmbeddedTopo("data:image/png;base64,not-base64"))
+        XCTAssertFalse(CoursePrepHole.hasDecodableEmbeddedTopo("data:image/png;base64"))
         XCTAssertEqual(
             LiveMapDisplayState.resolveLive(
                 .init(
                     coverage: "ready",
-                    preciseTopoImageReady: true, // decoded hole.map.image
+                    preciseTopoImageReady: CoursePrepHole.hasDecodableEmbeddedTopo(validPNG),
                     garminRaster: GarminRasterResponse(
                         available: true,
                         imageUrl: "/raster.jpg"
@@ -238,7 +242,7 @@ final class GarminRasterTests: XCTestCase {
         cursor.recordFailure(at: 100)
         XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 100)?.attempt, 1)
         XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 100)?.delayNanoseconds, 5_000_000_000)
-        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 2_000_000_100)?.delayNanoseconds, 2_999_999_900)
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 2_000_000_100)?.delayNanoseconds, 3_000_000_000)
         XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 5_000_000_100)?.delayNanoseconds, 0)
 
         cursor.recordFailure(at: 5_000_000_100)
