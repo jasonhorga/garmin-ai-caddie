@@ -34,7 +34,10 @@ Container stack:
 ```bash
 cp .env.example .env
 # edit .env with a private AI_CADDIE_ADMIN_TOKEN before exposing the API
-docker compose up --build
+API_DEPS_HASH="$(python3 -c 'from ops.agenthub_deploy import api_dependency_hash; print(api_dependency_hash())')"
+docker build -f Dockerfile.deps --label "ai.caddie.dependencies-hash=$API_DEPS_HASH" \
+  -t "garmin-ai-caddie-deps:$API_DEPS_HASH" .
+DEPS_IMAGE="garmin-ai-caddie-deps:$API_DEPS_HASH" docker compose up --build
 ```
 
 The container entrypoint honors `AI_CADDIE_PRIVATE_ROOT` and symlinks private
@@ -157,13 +160,14 @@ whose sync toolchain is still downloading. Use the already built, revision-label
 candidate API image explicitly:
 
 ```bash
-API_IMAGE=<the-built-candidate-api-image> bash ops/build_sync_image.sh
+SOURCE_REVISION=<candidate-full-SHA> \
+  API_IMAGE=<the-built-candidate-api-image> bash ops/build_sync_image.sh
 ```
 
 Verify that `aicaddie-sync:<candidate-full-SHA>` exists and has the same
 `ai.caddie.source-revision` label. Only then switch the healthy API container to
 the production port. Immediately run the mandatory post-switch deployment gate
-from this checkout; the matching image's cached build should finish quickly:
+from the deployed SHA's tarball tree; the matching image's cached build should finish quickly:
 
 ```bash
 AICADDIE_API_CONTAINER=<the-container-on-the-production-port> \
@@ -177,23 +181,37 @@ candidate when multiple `aicaddie-release-*` containers are running. If the
 API was already switched and only the image is missing, the lower-level helper
 can be run directly:
 
-The current homeserver also keeps a pinned operational copy at
-`/home/jason/garmin-ai-caddie-data/operations/deploy-tools/ops/`; its
-`SOURCE_REVISION` file records the reviewed source commit. Use the checkout
-version for normal development and refresh this host copy as part of the same
-reviewed deployment change.
+The pinned host copy contains only the operational shell wrappers and
+`Dockerfile.sync`; it is not a standalone build tree. For a manual build,
+export the exact reviewed SHA into a clean tarball tree first:
 
 ```bash
-bash ops/build_sync_image.sh
+SHA=<reviewed-full-SHA>; T="<codex-runs>/caddie-sync-$SHA"
+rm -rf -- "$T"; mkdir -m 700 "$T"
+(umask 022; gh api "repos/jasonhorga/garmin-ai-caddie/tarball/$SHA" | tar -xz --strip-components=1 -C "$T")
+cd "$T"
+SOURCE_REVISION="$SHA" API_IMAGE=<the-built-api-image> bash ops/build_sync_image.sh
 ```
 
 It resolves the active API image, requires its full
 `ai.caddie.source-revision` label, and creates
 `aicaddie-sync:<same-full-SHA>`, which is the only tag the cron job accepts.
-When building before the candidate is started, pass the labelled image
-explicitly with `API_IMAGE=...`. The helper does not silently fall back to a
-moving `:latest` tag; `PUBLISH_LATEST=1` is an explicit compatibility alias
-only and is not used by cron.
+The optional `SOURCE_REVISION` is checked against the API image (and git HEAD
+when supplied in a git checkout); it never substitutes for the checked-out
+revision. The sync application code itself is copied from `API_IMAGE`, so the
+source cannot drift from that revision. When `SYNC_DEPS_IMAGE` is omitted, the
+helper reads the API image's `ai.caddie.dependencies-hash` and finds a local
+`aicaddie-sync-deps:*` image carrying the same
+`ai.caddie.api-dependencies-hash` label. If no matching image exists, it prints
+the exact `Dockerfile.sync-deps` build command and exits; it never falls back to
+a registry or `:local` tag. When building before the candidate is started, pass
+the labelled image explicitly with `API_IMAGE=...`. The helper does not silently
+fall back to a moving `:latest` tag; `PUBLISH_LATEST=1` is an explicit
+compatibility alias only and is not used by cron.
+
+Fly.io deployment via `fly.toml` and `backend-fly-deploy.yml` is unsupported:
+that path invokes a standalone Docker build and cannot prebuild or label the
+two named dependency images, so use the agenthub deployment path above.
 
 ### Homeserver Sync Cron
 
@@ -247,9 +265,17 @@ ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
    prefix publishes the configured port, it mounts only the configured private
    volume read-write at `/var/lib/ai-caddie`, and it is on the configured
    network. A container outside the prefix on that port is also refused.
-2. Builds `garmin-ai-caddie-api:<sha>` (label
-   `ai.caddie.source-revision=<sha>`) and, through `ops/build_sync_image.sh`,
-   `aicaddie-sync:<sha>`. An existing image with the correct label is reused.
+2. Computes a content hash for each dependency set. The API dependency inputs
+   (`pyproject.toml`, `uv.lock`, the npm lockfiles and `Dockerfile.deps`) are
+   built as `garmin-ai-caddie-deps:<dependency-hash>`; the sync inputs in
+   `Dockerfile.sync-deps` are built as
+   `aicaddie-sync-deps:<dependency-hash>`. Existing dependency images with the
+   matching `ai.caddie.dependencies-hash` label are reused even after BuildKit
+   cache cleanup. The application images `garmin-ai-caddie-api:<sha>` and
+   `aicaddie-sync:<sha>` then use those named images as their bases. Cleanup is
+   passed the hashes used by the current build, retains each current hash plus
+   the newest other hash by image creation time, and removes older dependency
+   tags only from these two repositories.
 3. Takes the sync cron's flock, so no sync runs during the switch.
 4. If the current container already runs `<sha>`, it only re-checks health
    and step 7 (idempotent re-run). Otherwise it re-verifies both images and
@@ -292,8 +318,15 @@ ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
    prefix containers, removes older ones with `docker rm -v`, and removes
    their `garmin-ai-caddie-api`/`aicaddie-sync` image tags only when no
    remaining container (of any name) uses the image or its revision and the
-   image carries no other repository's tag. A cleanup failure is reported
-   as a warning; the deploy still succeeds. Then the lock is released.
+   image carries no other repository's tag. It also keeps only the current and
+   immediately previous hash in `garmin-ai-caddie-deps:*` and
+   `aicaddie-sync-deps:*`; older tags in those two repositories are removed.
+   It also removes unreferenced `garmin-ai-caddie-api:*` and `aicaddie-sync:*`
+   orphan tags when their revision is neither current nor one of the stopped
+   rollback revisions retained above, and never removes an image shared with
+   another repository. Other repositories are never touched. A cleanup failure
+   is reported as a warning; the deploy still succeeds. Then the lock is
+   released.
 
 `rollback <sha>` picks the most recently stopped prefix container labelled
 `<sha>`, requires its layout and port to match and `aicaddie-sync:<sha>` to

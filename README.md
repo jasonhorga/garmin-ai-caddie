@@ -96,7 +96,10 @@ ops/backup_data.sh
 
 ```bash
 cp .env.example .env
-docker compose up --build
+API_DEPS_HASH="$(python3 -c 'from ops.agenthub_deploy import api_dependency_hash; print(api_dependency_hash())')"
+docker build -f Dockerfile.deps --label "ai.caddie.dependencies-hash=$API_DEPS_HASH" \
+  -t "garmin-ai-caddie-deps:$API_DEPS_HASH" .
+DEPS_IMAGE="garmin-ai-caddie-deps:$API_DEPS_HASH" docker compose up --build
 ```
 
 更多说明：

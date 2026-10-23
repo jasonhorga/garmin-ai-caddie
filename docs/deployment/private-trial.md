@@ -79,7 +79,10 @@ on Fly.io, or on a small VPS:
 ```bash
 cp .env.example .env
 # edit .env; do not commit it
-docker compose up --build
+API_DEPS_HASH="$(python3 -c 'from ops.agenthub_deploy import api_dependency_hash; print(api_dependency_hash())')"
+docker build -f Dockerfile.deps --label "ai.caddie.dependencies-hash=$API_DEPS_HASH" \
+  -t "garmin-ai-caddie-deps:$API_DEPS_HASH" .
+DEPS_IMAGE="garmin-ai-caddie-deps:$API_DEPS_HASH" docker compose up --build
 ```
 
 Open:
@@ -92,7 +95,9 @@ and maps it into the app through `AI_CADDIE_PRIVATE_ROOT`. This keeps Garmin
 session material, downloaded Garmin data, generated output, logs, and backups
 out of the image.
 
-Fly.io can use the committed `fly.toml` as a starting point:
+Fly.io deployment is not supported for this dependency-image deployment path:
+the Fly workflow performs a standalone Docker build and cannot prebuild and
+label both named dependency images. Use the agenthub deployment path instead.
 
 ```bash
 fly volumes create ai_caddie_private --size 3 --region sin

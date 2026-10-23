@@ -28,6 +28,7 @@ configured paths/URLs.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -48,8 +49,16 @@ SYNC_BUILD_SCRIPT = REPO_ROOT / "ops" / "build_sync_image.sh"
 SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 PREFIX_PATTERN = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*")
 REVISION_LABEL = "ai.caddie.source-revision"
+DEPENDENCY_HASH_LABEL = "ai.caddie.dependencies-hash"
+API_DEPENDENCY_HASH_LABEL = "ai.caddie.api-dependencies-hash"
+DEPENDENCY_START = "# BEGIN DEPENDENCY IMAGE"
+DEPENDENCY_END = "# END DEPENDENCY IMAGE"
+NODE_BASE_DIGEST = "sha256:91acba91b842bec0bf7ea6f5e09c644c7ccad72c4996ed9616d861d1c7cd60d4"
+UV_BASE_DIGEST = "sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58"
 API_REPOSITORY = "garmin-ai-caddie-api"
 SYNC_REPOSITORY = "aicaddie-sync"
+API_DEPS_REPOSITORY = "garmin-ai-caddie-deps"
+SYNC_DEPS_REPOSITORY = "aicaddie-sync-deps"
 PRIVATE_ROOT = "/var/lib/ai-caddie"
 CONTAINER_PORT = "9000"
 STOP_TIMEOUT_SECONDS = "30"
@@ -88,7 +97,10 @@ FIXED_ENV = {
 }
 
 # Caller variables that would bypass the revision binding of the helpers.
-UNSAFE_CHILD_ENV = ("API_IMAGE", "SYNC_IMAGE_TAG", "PUBLISH_LATEST", "AICADDIE_SYNC_IMAGE")
+UNSAFE_CHILD_ENV = (
+    "API_IMAGE", "SYNC_IMAGE_TAG", "PUBLISH_LATEST", "AICADDIE_SYNC_IMAGE",
+    "SYNC_DEPS_IMAGE",
+)
 
 
 class DeployError(Exception):
@@ -397,6 +409,86 @@ def image_revision(reference: str) -> str:
     return info["labels"].get(REVISION_LABEL, "") if info else ""
 
 
+def image_label(reference: str, label: str) -> str:
+    """Return one image label without exposing the rest of its metadata."""
+    info = image_info(reference)
+    return info["labels"].get(label, "") if info else ""
+
+
+def _dependency_section(path: Path) -> bytes:
+    """Read the marked dependency part of a Dockerfile.
+
+    Application COPY instructions deliberately live after the end marker. This
+    keeps a code-only change out of the dependency image hash while retaining
+    the base image and apt/uv/npm instructions as hash inputs.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        raise DeployError("a dependency Dockerfile cannot be read") from None
+    start = text.find(DEPENDENCY_START)
+    end = text.find(DEPENDENCY_END, start + len(DEPENDENCY_START)) if start >= 0 else -1
+    if start < 0 or end < 0:
+        raise DeployError("a dependency Dockerfile has no complete dependency section")
+    end += len(DEPENDENCY_END)
+    return text[start:end].encode("utf-8")
+
+
+def _hash_inputs(inputs: list[tuple[str, bytes]]) -> str:
+    digest = hashlib.sha256()
+    for name, data in inputs:
+        name_bytes = name.encode("utf-8")
+        digest.update(len(name_bytes).to_bytes(4, "big"))
+        digest.update(name_bytes)
+        digest.update(len(data).to_bytes(8, "big"))
+        digest.update(data)
+    return digest.hexdigest()
+
+
+def _read_dependency_file(name: str) -> tuple[str, bytes]:
+    path = REPO_ROOT / name
+    try:
+        return name, path.read_bytes()
+    except OSError:
+        raise DeployError("a dependency input file cannot be read") from None
+
+
+def api_dependency_hash() -> str:
+    """Hash only inputs that require rebuilding the API dependency image."""
+    inputs = [
+        ("node-base-digest", NODE_BASE_DIGEST.encode("ascii")),
+        ("uv-base-digest", UV_BASE_DIGEST.encode("ascii")),
+        _read_dependency_file("pyproject.toml"),
+        _read_dependency_file("uv.lock"),
+        _read_dependency_file("package.json"),
+        _read_dependency_file("package-lock.json"),
+        ("Dockerfile.deps:dependency-section",
+         _dependency_section(REPO_ROOT / "Dockerfile.deps")),
+    ]
+    return _hash_inputs(inputs)
+
+
+def sync_dependency_hash(api_hash: str | None = None) -> str:
+    """Hash the sync-only dependency stage plus the API dependency hash."""
+    api_hash = api_hash or api_dependency_hash()
+    inputs = [
+        ("api-dependency-hash", api_hash.encode("ascii")),
+        ("uv-base-digest", UV_BASE_DIGEST.encode("ascii")),
+        ("Dockerfile.sync-deps:dependency-section",
+         _dependency_section(REPO_ROOT / "Dockerfile.sync-deps")),
+    ]
+    return _hash_inputs(inputs)
+
+
+def dependency_hash(kind: str) -> str:
+    """Return the named dependency hash used by deploy and acceptance tests."""
+    if kind == "api":
+        return api_dependency_hash()
+    if kind == "sync":
+        return sync_dependency_hash()
+    raise ValueError("kind must be 'api' or 'sync'")
+
+
 def fetch_health(url: str) -> dict | None:
     # curl's own error text may echo the URL, so it is discarded.
     result = subprocess.run(
@@ -574,26 +666,80 @@ def restore_previous(cfg: Config, previous: Container | None) -> bool | None:
 # deploy
 
 
-def ensure_images(sha: str) -> None:
+def _ensure_dependency_image(repository: str, dependency_hash_value: str, *, dockerfile: str,
+                             build_args: list[str], label: str,
+                             extra_labels: dict[str, str] | None = None) -> str:
+    image = f"{repository}:{dependency_hash_value}"
+    expected_labels = {DEPENDENCY_HASH_LABEL: dependency_hash_value, **(extra_labels or {})}
+    if all(image_label(image, key) == value for key, value in expected_labels.items()):
+        log(f"dependency image {image} present; build skipped")
+        return image
+    log(f"building dependency image {image}")
+    args = ["docker", "build"]
+    for key, value in expected_labels.items():
+        args.extend(["--label", f"{key}={value}"])
+    args.extend(["-t", image])
+    for value in build_args:
+        args.extend(["--build-arg", value])
+    args.extend(["-f", dockerfile, "."])
+    run(args, label=label)
+    if image_label(image, DEPENDENCY_HASH_LABEL) != dependency_hash_value:
+        raise DeployError(f"{image} is not labelled with its dependency hash after the build")
+    return image
+
+
+def ensure_images(sha: str) -> dict[str, str]:
     api_image = f"{API_REPOSITORY}:{sha}"
-    if image_revision(api_image) == sha:
-        log(f"api image {api_image} present; build skipped")
-    else:
+    api_needs_build = image_revision(api_image) != sha
+    sync_image = f"{SYNC_REPOSITORY}:{sha}"
+    sync_needs_build = image_revision(sync_image) != sha
+
+    # A pre-existing application image is already usable even if it predates
+    # this optimisation. Build/publish a named dependency image whenever a
+    # new application image (API or sync) needs one.
+    api_hash = api_dependency_hash()
+    api_deps_image = ""
+    if sync_needs_build and not api_needs_build:
+        actual_api_hash = image_label(api_image, DEPENDENCY_HASH_LABEL)
+        if actual_api_hash != api_hash:
+            detail = actual_api_hash or "missing"
+            raise DeployError(
+                f"{api_image} has dependency hash {detail}; expected {api_hash} "
+                "before building sync dependencies"
+            )
+    if api_needs_build or sync_needs_build:
+        api_deps_image = _ensure_dependency_image(
+            API_DEPS_REPOSITORY, api_hash, dockerfile="Dockerfile.deps",
+            build_args=[], label="api dependency image build",
+        )
+
+    if api_needs_build:
         log(f"building api image {api_image}")
         run(["docker", "build", "--label", f"{REVISION_LABEL}={sha}", "-t", api_image,
+             "--build-arg", f"DEPS_IMAGE={api_deps_image}",
              "-f", "Dockerfile", "."], label="api image build")
         if image_revision(api_image) != sha:
             raise DeployError(f"{api_image} is not labelled with revision {sha} after the build")
-
-    sync_image = f"{SYNC_REPOSITORY}:{sha}"
-    if image_revision(sync_image) == sha:
-        log(f"sync image {sync_image} present; build skipped")
+        if image_label(api_image, DEPENDENCY_HASH_LABEL) != api_hash:
+            raise DeployError(f"{api_image} did not inherit dependency hash {api_hash} from {api_deps_image}")
     else:
+        log(f"api image {api_image} present; build skipped")
+
+    sync_hash = sync_dependency_hash(api_hash)
+    if sync_needs_build:
+        sync_deps_image = _ensure_dependency_image(
+            SYNC_DEPS_REPOSITORY, sync_hash, dockerfile="Dockerfile.sync-deps",
+            build_args=[f"API_IMAGE={api_deps_image}"], label="sync dependency image build",
+            extra_labels={API_DEPENDENCY_HASH_LABEL: api_hash},
+        )
         log(f"building sync image {sync_image}")
         run(["bash", str(SYNC_BUILD_SCRIPT)], label="sync image build",
-            env=child_env(API_IMAGE=api_image))
+            env=child_env(API_IMAGE=api_image, SYNC_DEPS_IMAGE=sync_deps_image))
         if image_revision(sync_image) != sha:
             raise DeployError(f"{sync_image} is not labelled with revision {sha} after the build")
+    else:
+        log(f"sync image {sync_image} present; build skipped")
+    return {"api": api_hash, "sync": sync_hash}
 
 
 def read_env_file(path: str) -> list[str]:
@@ -706,7 +852,7 @@ def deploy(cfg: Config, sha: str) -> str:
     # Fail fast before the long image builds; everything is re-read under the lock.
     check_deploy_source(cfg, find_current(cfg, list_containers()))
     wait_database_healthy(cfg)
-    ensure_images(sha)
+    dependency_hashes = ensure_images(sha)
 
     with PrivateDir() as private, SyncLock(cfg):
         wait_database_healthy(cfg)
@@ -720,7 +866,7 @@ def deploy(cfg: Config, sha: str) -> str:
             switch(cfg, sha, new_name, current, containers, private)
             deployed = new_name
         try:
-            cleanup(cfg)
+            cleanup(cfg, dependency_hashes)
         except Exception as exc:  # the new release is live; cleanup is best effort
             reason = str(exc) if isinstance(exc, DeployError) else type(exc).__name__
             log(f"warning: cleanup incomplete: {reason}")
@@ -804,38 +950,138 @@ def switch(cfg: Config, sha: str, new_name: str, current: Container | None,
     shield_signals()
 
 
-def cleanup(cfg: Config) -> None:
+def _dependency_image_refs() -> list[str]:
+    """List only the two named dependency repositories owned by this deploy."""
+    result = docker("image", "ls", "--format", "{{.Repository}}:{{.Tag}}|{{.CreatedAt}}",
+                    capture=True, quiet=True, check=False)
+    if result.returncode != 0:
+        log("cleanup: warning: dependency image listing failed; leaving dependency tags unchanged")
+        return []
+    entries: list[tuple[str, str]] = []
+    for line in result.stdout.splitlines():
+        ref, _, created = line.strip().partition("|")
+        if ref.startswith(f"{API_DEPS_REPOSITORY}:") or ref.startswith(f"{SYNC_DEPS_REPOSITORY}:"):
+            if ref.rsplit(":", 1)[-1] and ref.rsplit(":", 1)[-1] != "<none>":
+                entries.append((ref, created))
+    entries.sort(key=lambda item: item[1], reverse=True)
+    return [ref for ref, _created in entries]
+
+
+def cleanup_dependency_images(current_hashes: dict[str, str]) -> None:
+    """Keep the current hash and newest other hash in each dependency repo."""
+    refs = _dependency_image_refs()
+    if not refs:
+        return
+    current_by_repo = {
+        API_DEPS_REPOSITORY: current_hashes.get(API_DEPS_REPOSITORY) or current_hashes.get("api", ""),
+        SYNC_DEPS_REPOSITORY: current_hashes.get(SYNC_DEPS_REPOSITORY) or current_hashes.get("sync", ""),
+    }
+    keep: set[str] = set()
+    # Docker's image ls ordering is newest-first by default. Keep the explicit
+    # current hash even when it is older, then the newest other hash as the
+    # rollback dependency. Never inspect or remove another repository's tags.
+    for repository, current_hash in current_by_repo.items():
+        repo_refs = [ref for ref in refs if ref.startswith(repository + ":")]
+        current_ref = f"{repository}:{current_hash}" if current_hash else ""
+        if current_ref in repo_refs:
+            keep.add(current_ref)
+        for ref in repo_refs:
+            if ref not in keep:
+                keep.add(ref)
+                break
+    for ref in refs:
+        if ref in keep:
+            continue
+        removed = docker("rmi", ref, capture=True, check=False)
+        if removed.returncode == 0:
+            log(f"cleanup: removed dependency image {ref}")
+        else:
+            log(f"cleanup: warning: could not remove dependency image {ref}")
+
+
+def _application_image_refs() -> list[str]:
+    result = docker("image", "ls", "--format", "{{.Repository}}:{{.Tag}}",
+                    capture=True, quiet=True, check=False)
+    if result.returncode != 0:
+        log("cleanup: warning: application image listing failed; leaving orphan tags unchanged")
+        return []
+    refs = []
+    for line in result.stdout.splitlines():
+        ref = line.strip()
+        repository, _, tag = ref.rpartition(":")
+        if repository in {API_REPOSITORY, SYNC_REPOSITORY} and SHA_PATTERN.fullmatch(tag):
+            refs.append(ref)
+    return refs
+
+
+def cleanup_orphan_application_images(cfg: Config, containers: list[Container]) -> None:
+    """Remove unreferenced old API/sync tags while protecting rollback images."""
+    stopped = sorted((c for c in containers if c.name.startswith(cfg.prefix) and not c.running),
+                     key=lambda c: c.finished_key, reverse=True)
+    retained_revisions = {
+        c.revision for c in containers
+        if c.running and c.name.startswith(cfg.prefix)
+    }
+    retained_revisions.update(c.revision for c in stopped[:cfg.keep_stopped] if c.revision)
+    used_image_ids = {c.image_id for c in containers if c.image_id}
+    for ref in _application_image_refs():
+        repository, _, tag = ref.rpartition(":")
+        if repository not in {API_REPOSITORY, SYNC_REPOSITORY} or tag in retained_revisions:
+            continue
+        info = image_info(ref)
+        if not info or info["id"] in used_image_ids:
+            continue
+        repositories = {item.rsplit(":", 1)[0] for item in info["tags"]}
+        if not repositories <= {API_REPOSITORY, SYNC_REPOSITORY}:
+            continue
+        removed = docker("rmi", ref, capture=True, check=False)
+        if removed.returncode == 0:
+            log(f"cleanup: removed orphan image {ref}")
+        else:
+            log(f"cleanup: warning: could not remove orphan image {ref}")
+
+
+def cleanup(cfg: Config, dependency_hashes: dict[str, str]) -> None:
     containers = list_containers()
+    remaining = containers
     stopped = sorted((c for c in containers if c.name.startswith(cfg.prefix) and not c.running),
                      key=lambda c: c.finished_key, reverse=True)
     doomed = stopped[cfg.keep_stopped:]
     if not doomed:
         log(f"cleanup: nothing to remove ({len(stopped)} stopped release container(s) kept)")
-        return
-    for container in doomed:
-        docker("rm", "-v", container.name, capture=True)
-        log(f"cleanup: removed container {container.name}")
+    else:
+        for container in doomed:
+            docker("rm", "-v", container.name, capture=True)
+            log(f"cleanup: removed container {container.name}")
 
-    doomed_ids = {c.id for c in doomed}
-    remaining = [c for c in containers if c.id not in doomed_ids]
-    used_images = {c.image_id for c in remaining}
-    used_revisions = {c.revision for c in remaining if c.revision}
-    handled: set[str] = set()
-    for container in doomed:
-        candidates = [image_info(container.image_id)] if container.image_id else []
-        if SHA_PATTERN.fullmatch(container.revision) and container.revision not in used_revisions:
-            candidates.append(image_info(f"{SYNC_REPOSITORY}:{container.revision}"))
-        for info in candidates:
-            if not info or info["id"] in handled or info["id"] in used_images:
-                continue
-            handled.add(info["id"])
-            repositories = {tag.rsplit(":", 1)[0] for tag in info["tags"]}
-            if not info["tags"] or not repositories <= {API_REPOSITORY, SYNC_REPOSITORY}:
-                log(f"cleanup: kept image {info['id'][:19]} (untagged or not an api/sync image)")
-                continue
-            for tag in info["tags"]:
-                removed = docker("rmi", tag, capture=True, check=False)
-                log(f"cleanup: {'removed' if removed.returncode == 0 else 'could not remove'} image {tag}")
+        doomed_ids = {c.id for c in doomed}
+        remaining = [c for c in containers if c.id not in doomed_ids]
+        used_images = {c.image_id for c in remaining}
+        used_revisions = {c.revision for c in remaining if c.revision}
+        handled: set[str] = set()
+        for container in doomed:
+            candidates = [image_info(container.image_id)] if container.image_id else []
+            if SHA_PATTERN.fullmatch(container.revision) and container.revision not in used_revisions:
+                candidates.append(image_info(f"{SYNC_REPOSITORY}:{container.revision}"))
+            for info in candidates:
+                if not info or info["id"] in handled or info["id"] in used_images:
+                    continue
+                handled.add(info["id"])
+                repositories = {tag.rsplit(":", 1)[0] for tag in info["tags"]}
+                if not info["tags"] or not repositories <= {API_REPOSITORY, SYNC_REPOSITORY}:
+                    log(f"cleanup: kept image {info['id'][:19]} (untagged or not an api/sync image)")
+                    continue
+                for tag in info["tags"]:
+                    repository, _, tag_value = tag.rpartition(":")
+                    if repository not in {API_REPOSITORY, SYNC_REPOSITORY} or not SHA_PATTERN.fullmatch(tag_value):
+                        continue
+                    removed = docker("rmi", tag, capture=True, check=False)
+                    if removed.returncode == 0:
+                        log(f"cleanup: removed image {tag}")
+                    else:
+                        log(f"cleanup: warning: could not remove image {tag}")
+    cleanup_dependency_images(dependency_hashes)
+    cleanup_orphan_application_images(cfg, remaining)
 
 
 # ---------------------------------------------------------------------------

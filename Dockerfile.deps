@@ -1,0 +1,36 @@
+# Named API dependency image. This is the single source of truth for API
+# dependency installation; Dockerfile only copies application source on top.
+
+# BEGIN DEPENDENCY IMAGE
+FROM node:24-bookworm-slim@sha256:91acba91b842bec0bf7ea6f5e09c644c7ccad72c4996ed9616d861d1c7cd60d4 AS node-deps
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
+
+# The pinned uv digest reports org.opencontainers.image.version=
+# 0.9.30-python3.12-bookworm-slim and runs `uv --version` as 0.9.30.
+ARG UV_VERSION=0.9.30
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    AI_CADDIE_DATA_MODE=local_or_fixture \
+    PORT=9000
+
+RUN test "$(uv --version)" = "uv ${UV_VERSION}"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl nodejs libarchive-tools postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+
+COPY package.json package-lock.json ./
+COPY --from=node-deps /app/node_modules ./node_modules
+# END DEPENDENCY IMAGE

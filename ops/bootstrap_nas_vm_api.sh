@@ -77,14 +77,14 @@ if [ "$install_system" -eq 1 ]; then
     exit 2
   fi
   run_root apt-get update
-  run_root apt-get install -y ca-certificates curl git openssl docker.io
+  run_root apt-get install -y ca-certificates curl git openssl python3 docker.io
   if ! run_root apt-get install -y docker-compose-plugin; then
     run_root apt-get install -y docker-compose-v2
   fi
   run_root systemctl enable --now docker
 fi
 
-for required in git curl openssl docker; do
+for required in git curl openssl python3 docker; do
   if ! have "$required"; then
     echo "Missing $required. Re-run with --install-system on Debian/Ubuntu, or install it first." >&2
     exit 2
@@ -103,6 +103,14 @@ compose() {
     docker compose "$@"
   else
     run_root docker compose "$@"
+  fi
+}
+
+docker_build() {
+  if docker info >/dev/null 2>&1; then
+    docker build "$@"
+  else
+    run_root docker build "$@"
   fi
 }
 
@@ -164,6 +172,10 @@ if [ -n "$api_base_url" ]; then
 fi
 chmod 600 .env
 
+api_deps_hash="$(python3 -c 'from ops.agenthub_deploy import api_dependency_hash; print(api_dependency_hash())')"
+docker_build -f Dockerfile.deps --label "ai.caddie.dependencies-hash=$api_deps_hash" \
+  -t "garmin-ai-caddie-deps:$api_deps_hash" .
+set_env DEPS_IMAGE "garmin-ai-caddie-deps:$api_deps_hash"
 compose up -d --build api
 
 for attempt in $(seq 1 60); do

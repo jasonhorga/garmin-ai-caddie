@@ -121,12 +121,12 @@ ls -1t "$D"/release-snapshots/*caddie-*.dump | tail -n +4 | xargs -r rm --
 # (b) 导出这一提交的干净树（无 .git），在树根跑部署脚本
 T=<codex-runs>/caddie-deploy-${SHA:0:12}
 rm -rf -- "$T"; mkdir -m 700 "$T"
-gh api "repos/jasonhorga/garmin-ai-caddie/tarball/$SHA" | tar -xz --strip-components=1 -C "$T"
+(umask 022; gh api "repos/jasonhorga/garmin-ai-caddie/tarball/$SHA" | tar -xz --strip-components=1 -C "$T")
 mkdir -p "$D/deploy-logs"; L="$D/deploy-logs/$(date -u +%Y%m%dT%H%M%SZ)-${SHA:0:12}.log"
 cd "$T"
 set +e
 env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8 bash -c \
-  'set -a; . "$0"; set +a; exec timeout 2400 ./ops/agenthub_deploy.py deploy "$1"' \
+  'set -a; . "$0"; set +a; exec timeout 2280 ./ops/agenthub_deploy.py deploy "$1"' \
   "$D/secrets/deploy.env" "$SHA" > "$L" 2>&1
 RC=$?
 set -e
@@ -170,6 +170,20 @@ docker image inspect "aicaddie-sync:$SHA" --format '{{index .Config.Labels "ai.c
 
 ## 5. 失败、回滚、冻结
 
+合并后首次上线会连续构建 API 和 sync 两张依赖镜像，可能撞上 2280 秒
+时限；超时直接重跑 `deploy $SHA`（依赖镜像已经按哈希打标签，会复用），或首次上线前先单独构建：
+```bash
+cd "$T"  # the SHA's tarball tree from §3.1
+API_DEPS_HASH="$(python3 -c 'from ops.agenthub_deploy import api_dependency_hash; print(api_dependency_hash())')"
+SYNC_DEPS_HASH="$(python3 -c 'from ops.agenthub_deploy import sync_dependency_hash, api_dependency_hash; print(sync_dependency_hash(api_dependency_hash()))')"
+docker build -f Dockerfile.deps --label "ai.caddie.dependencies-hash=$API_DEPS_HASH" \
+  -t "garmin-ai-caddie-deps:$API_DEPS_HASH" .
+docker build -f Dockerfile.sync-deps --build-arg "API_IMAGE=garmin-ai-caddie-deps:$API_DEPS_HASH" \
+  --label "ai.caddie.dependencies-hash=$SYNC_DEPS_HASH" \
+  --label "ai.caddie.api-dependencies-hash=$API_DEPS_HASH" \
+  -t "aicaddie-sync-deps:$SYNC_DEPS_HASH" .
+```
+
 | 情况 | 线上状态 | 项目台做什么 |
 |---|---|---|
 | `exit=2` | 没动 | 配置/参数错（多半是 `<deploy-env>`）；修好重跑，不冻结 |
@@ -192,7 +206,7 @@ docker ps -a --filter name=aicaddie-release- \
 ```bash
 cd "$T"
 env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8 bash -c \
-  'set -a; . "$0"; set +a; exec timeout 2400 ./ops/agenthub_deploy.py rollback "$1"' \
+  'set -a; . "$0"; set +a; exec timeout 2280 ./ops/agenthub_deploy.py rollback "$1"' \
   <caddie-data>/secrets/deploy.env "$PREV"
 ```
 
