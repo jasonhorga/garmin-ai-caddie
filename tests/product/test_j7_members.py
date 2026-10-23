@@ -6,6 +6,7 @@ owner/self/other/anonymous treatment; an accidental route cannot silently become
 """
 from __future__ import annotations
 
+import base64
 import os
 import re
 import tempfile
@@ -19,7 +20,7 @@ from fastapi.testclient import TestClient
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players
 from ai_caddie.core import data as core_data
-from server_v2 import auth_api, db, identity_repo
+from server_v2 import auth_api, db, identity_repo, media, mobile, reports, history_stats, history_round_detail, annotations
 from server_v2.apple_auth import AppleIdentity
 from server_v2.identity_models import Base
 from server_v2.main import app
@@ -143,6 +144,13 @@ def _session_body() -> dict[str, str]:
     }
 
 
+class _StaticReportProvider:
+    model = "fixture"
+
+    def chat(self, messages, max_tokens=None):
+        return "只复述输入事实。"
+
+
 class J7RouteInventoryTests(unittest.TestCase):
     def test_j7_1_route_table_has_exactly_the_declared_player_id_surface(self) -> None:
         self.assertEqual(_route_inventory(), set(PLAYER_ID_ROUTES))
@@ -159,12 +167,19 @@ class J7MemberIsolationTests(unittest.TestCase):
         patches = [
             mock.patch.object(players, "ROOT", self.root),
             mock.patch.object(history, "ROOT", self.root),
+            mock.patch.object(media, "MEDIA_ROOT", self.root),
+            mock.patch.object(mobile, "MOBILE_ROOT", self.root),
+            mock.patch.object(reports, "REPORT_ROOT", self.root),
+            mock.patch.object(history_round_detail, "ANNOTATION_ROOT", self.root),
+            mock.patch.object(annotations, "ANNOTATION_ROOT", self.root),
+            *[mock.patch.object(history_stats, name, self.root) for name in
+              ("ANNOTATION_ROOT", "WEATHER_ROOT", "REPORTS_ROOT", "DECISION_AUDIT_ROOT")],
             mock.patch.object(stats_cache, "_PLAYERS_DIR", self.root / "data" / "players"),
             mock.patch.object(core_data, "DATA_DIR", self.root / "data"),
             mock.patch.object(core_data, "CLUBS_BAG_FILE", self.root / "data" / "club_bag.json"),
             mock.patch.dict(
                 os.environ,
-                {"AI_CADDIE_ADMIN_TOKEN": ADMIN, "AI_CADDIE_DATA_MODE": "local_or_fixture"},
+                {"AI_CADDIE_ADMIN_TOKEN": ADMIN, "AI_CADDIE_DATA_MODE": "local"},
             ),
             mock.patch("server_v2.main._prepare_recent_bg"),
             mock.patch("server_v2.session.SESSION_ROOT", self.root),
@@ -248,22 +263,23 @@ class J7MemberIsolationTests(unittest.TestCase):
                 return self.client.post(url, headers=headers, json=body)
             return self.client.put(url, headers=headers, json=body)
 
+        callers = [("owner", ADMIN_HEADER, "me"),
+                   ("A", self._auth(self.alice["token"]), self.alice["id"]),
+                   ("B", self._auth(self.bob["token"]), self.bob["id"]),
+                   ("anonymous", {}, None)]
         with mock.patch.object(main_api, "_enqueue_garmin_sync_job", side_effect=fake_enqueue):
             for method, path in sorted(PLAYER_ID_ROUTES):
-                with self.subTest(method=method, path=path, caller="owner"):
-                    owner = call(method, path, self.alice["id"], ADMIN_HEADER)
-                    self.assertNotEqual(owner.status_code, 401)
-                    self.assertNotEqual(owner.status_code, 403, owner.text)
-                with self.subTest(method=method, path=path, caller="self"):
-                    own = call(method, path, self.alice["id"], self._auth(self.alice["token"]))
-                    self.assertNotEqual(own.status_code, 401)
-                    self.assertNotEqual(own.status_code, 403, own.text)
-                with self.subTest(method=method, path=path, caller="other"):
-                    other = call(method, path, self.bob["id"], self._auth(self.alice["token"]))
-                    self.assertEqual(other.status_code, 403, other.text)
-                with self.subTest(method=method, path=path, caller="anonymous"):
-                    anonymous = call(method, path, self.alice["id"], {})
-                    self.assertEqual(anonymous.status_code, 401, anonymous.text)
+                for caller, headers, caller_pid in callers:
+                    for target in ("me", self.alice["id"], self.bob["id"]):
+                        with self.subTest(method=method, path=path, caller=caller, target=target):
+                            response = call(method, path, target, headers)
+                            if caller == "anonymous":
+                                self.assertEqual(response.status_code, 401)
+                            elif caller != "owner" and caller_pid != target:
+                                self.assertEqual(response.status_code, 403)
+                            else:
+                                expected = 404 if "{job_id}" in path else (201 if path.endswith("/rounds") else 202 if path.endswith("/sync/garmin") else 200)
+                                self.assertEqual(response.status_code, expected, response.text)
 
     def test_j7_1_member_round_is_in_member_history_and_never_owner_or_other_member(self) -> None:
         own = self.client.post(
@@ -283,6 +299,153 @@ class J7MemberIsolationTests(unittest.TestCase):
         self.assertNotIn("Member test course", bob_history.text)
         anonymous = self.client.get("/api/v2/history/rounds")
         self.assertEqual(anonymous.status_code, 401, anonymous.text)
+
+    def test_j7_1_bearer_scope_matrix(self) -> None:
+        # Handwritten fixture: one par-4 hole per player; owner=6, A=4, B=5 strokes,
+        # 2 putts each. One note event, one photo and one report per partition.
+        # Exactly one own round/evidence item is visible; every foreign projection is empty.
+        rows = [("owner", "me", ADMIN_HEADER, 6, 210),
+                ("A", self.alice["id"], self._auth(self.alice["token"]), 4, 170),
+                ("B", self.bob["id"], self._auth(self.bob["token"]), 5, 190)]
+        seeded = {}
+        for label, pid, headers, strokes, distance in rows:
+            body = _round_body()
+            body["events"][0]["payload"]["strokes"] = strokes
+            body["meta"].update(courseName=f"Scope {label} course", courseGlobalId=991601,
+                                date="2026-10-20T08:00:00Z")
+            response = self.client.post(f"/api/v2/players/{pid}/rounds", headers=headers, json=body)
+            self.assertEqual(response.status_code, 201, response.text)
+            rid = str(response.json()["id"])
+            seeded[label] = (pid, headers, rid, strokes, distance)
+            event = {"schema": "ai-caddie-live-round-event-v1", "eventId": f"scope-{label}",
+                     "roundId": rid, "timestamp": "2026-10-20T08:00:00Z", "hole": 1,
+                     "kind": "note", "payload": {"note": f"scope-note-{label}"}}
+            response = self.client.post(f"/api/v2/mobile/rounds/{rid}/events", headers={**headers, "Idempotency-Key": f"seed-{label}"},
+                                        json={"roundId": rid, "events": [event]})
+            self.assertEqual(response.status_code, 200, response.text)
+            response = self.client.post("/api/v2/media", headers=headers, json={
+                "targetType": "round", "targetId": rid, "mediaKind": "photo",
+                "fileName": f"scope-{label}.png", "capturedAt": "2026-10-20T08:00:00Z",
+                "contentBase64": base64.b64encode(b"\x89PNG\r\n\x1a\nfixture").decode(),
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+            response = self.client.put(f"/api/v2/players/{pid}/clubs/bag", headers=headers,
+                json={"clubs": [{"token": "driver", "customName": f"scope-club-{label}", "distanceM": distance}]})
+            self.assertEqual(response.status_code, 200, response.text)
+            with mock.patch.object(reports, "build_text_provider", return_value=_StaticReportProvider()):
+                response = self.client.post(f"/api/v2/reports/round/{rid}/generate", headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+
+        for caller in ("owner", "A", "B", "anonymous"):
+            headers = seeded[caller][1] if caller != "anonymous" else {}
+            for target, (pid, _headers, rid, strokes, distance) in seeded.items():
+                own = caller == target
+                paths = [
+                    ("detail", f"/api/v2/history/rounds/{rid}"),
+                    ("shotmap", f"/api/v2/history/rounds/{rid}/holes/1/shotmap?includeImage=false"),
+                    ("events", f"/api/v2/mobile/rounds/{rid}/events/replay"),
+                    ("media", f"/api/v2/media/target/round/{rid}"),
+                    ("bag", f"/api/v2/players/{pid}/clubs/bag"),
+                    ("report", f"/api/v2/reports/round/{rid}"),
+                ]
+                for kind, path in paths:
+                    with self.subTest(caller=caller, target=target, route=kind):
+                        response = self.client.get(path, headers=headers)
+                        if caller == "anonymous":
+                            self.assertEqual(response.status_code, 401)
+                            continue
+                        if kind == "bag" and not own and caller != "owner":
+                            self.assertEqual(response.status_code, 403)
+                            continue
+                        self.assertEqual(response.status_code, 200, response.text)
+                        payload = response.json()
+                        if kind == "detail":
+                            self.assertEqual(payload["found"], own, response.text)
+                            if own:
+                                self.assertEqual(payload["round"]["score"], strokes)
+                                self.assertEqual([(h["score"], h["putts"]) for h in payload["scorecard"]], [(strokes, 2)])
+                            else:
+                                self.assertIsNone(payload["round"])
+                                self.assertEqual(payload["scorecard"], [])
+                        elif kind == "shotmap":
+                            self.assertEqual(payload["found"], own, response.text)
+                            self.assertEqual(payload["shots"], [])
+                        elif kind == "events":
+                            self.assertEqual(payload["eventCount"], 1 if own else 0)
+                            self.assertEqual([e["event"]["eventId"] for e in payload["events"]],
+                                             [f"scope-{target}"] if own else [])
+                        elif kind == "media":
+                            self.assertEqual(payload["total"], 1 if own else 0)
+                            if own:
+                                self.assertEqual(payload["media"][0]["targetId"], rid)
+                            else:
+                                self.assertEqual(payload["media"], [])
+                        elif kind == "bag":
+                            self.assertEqual([(c["customName"], c["distanceM"]) for c in payload["clubs"]],
+                                             [(f"scope-club-{target}", distance)])
+                        elif kind == "report":
+                            scorecards = [f["value"] for f in payload["factsUsed"] if f["label"] == "round_scorecard"]
+                            if own:
+                                self.assertEqual(len(scorecards), 1)
+                                self.assertEqual(scorecards[0]["score"], strokes)
+                            else:
+                                self.assertEqual(scorecards, [])
+
+            # Statistics and indexes have no target parameter: their id sets must contain
+            # exactly the caller's one round, never owner/A/B's other rounds.
+            for kind, path in [("stats", "/api/v2/history/stats"),
+                               ("rounds", "/api/v2/history/rounds"),
+                               ("reports", "/api/v2/reports")]:
+                with self.subTest(caller=caller, route=kind):
+                    response = self.client.get(path, headers=headers)
+                    if caller == "anonymous":
+                        self.assertEqual(response.status_code, 401)
+                        continue
+                    self.assertEqual(response.status_code, 200, response.text)
+                    payload = response.json()
+                    own_rid = seeded[caller][2]
+                    if kind == "stats":
+                        self.assertEqual(payload["summary"]["totalRounds"], 1)
+                        self.assertEqual(payload["drillDown"]["roundIds"], [own_rid])
+                    elif kind == "reports":
+                        self.assertEqual([r["subjectId"] for r in payload["reports"]], [own_rid])
+                    else:
+                        self.assertEqual([str(r["id"]) for g in payload["groups"] for r in g["rounds"]], [own_rid])
+
+    def test_j7_1_guessed_event_id_never_changes_victim_partition(self) -> None:
+        # Event round ids are client-generated, so the API may accept a guessed id into
+        # the CALLER's partition. The victim's original event must remain byte-for-byte.
+        victim_rows = [("owner", "me", ADMIN_HEADER),
+                       ("B", self.bob["id"], self._auth(self.bob["token"]))]
+        for label, pid, victim_headers in victim_rows:
+            rid = f"victim-round-{label}"
+            event = {"schema": "ai-caddie-live-round-event-v1", "eventId": "victim-note",
+                     "roundId": rid, "timestamp": "2026-10-20T08:00:00Z", "hole": 1,
+                     "kind": "note", "payload": {"note": f"private-{label}"}}
+            def post(headers, note, key):
+                return self.client.post(f"/api/v2/mobile/rounds/{rid}/events",
+                    headers={**headers, "Idempotency-Key": key},
+                    json={"roundId": rid, "events": [{**event, "payload": {"note": note}}]})
+            self.assertEqual(post(victim_headers, f"private-{label}", "victim-seed").status_code, 200)
+            before = self.client.get(f"/api/v2/mobile/rounds/{rid}/events/replay", headers=victim_headers).json()
+            with self.subTest(victim=label):
+                response = post(self._auth(self.alice["token"]), "attacker-note", "attacker-write")
+                self.assertIn(response.status_code, {200, 403, 404})
+                after = self.client.get(f"/api/v2/mobile/rounds/{rid}/events/replay", headers=victim_headers)
+                self.assertEqual(after.json(), before)
+                self.assertEqual(after.json()["events"][0]["event"]["payload"]["note"], f"private-{label}")
+
+    def test_j7_1_course_capability_is_available_to_members(self) -> None:
+        # Course tees are public course facts, available to both members as to owner.
+        # No release/geometry is present for this synthetic id: generic tee tiers are valid.
+        for label, headers in [("owner", ADMIN_HEADER), ("A", self._auth(self.alice["token"])),
+                               ("B", self._auth(self.bob["token"]))]:
+            with self.subTest(caller=label):
+                response = self.client.get("/api/v2/courses/991601/tees", headers=headers)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["globalId"], 991601)
+                self.assertTrue(response.json()["tees"])
+
 
 
 class J7AuthorizationTests(unittest.TestCase):

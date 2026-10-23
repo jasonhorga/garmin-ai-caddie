@@ -6,11 +6,12 @@ the operation; this does not depend on source-text searches or repository fixtur
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import secrets
 import tempfile
+import time
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -18,12 +19,13 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from ai_caddie.connectors.base import ConnectorRunResult
-from ai_caddie.connectors.session_material import save_garmin_cn_web_session
 from ai_caddie.rounds import players
 from server_v2 import reports as reports_api
 from server_v2 import session as session_api
 import server_v2.main as main_api
 from server_v2.main import app
+from server_v2.sync_jobs import GarminSyncJobStore
+from server_v2.sync_status import build_sync_status_response
 
 
 ADMIN = "runtime-admin-secret"
@@ -36,10 +38,8 @@ def _data_tree_text(root: Path) -> str:
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        try:
-            chunks.append(path.read_text(encoding="utf-8", errors="replace"))
-        except OSError:
-            continue
+        chunks.append(str(path.relative_to(root)))
+        chunks.append(path.read_text(encoding="utf-8", errors="replace"))
     return "\n".join(chunks)
 
 
@@ -67,68 +67,77 @@ class J7SecretTests(unittest.TestCase):
         self.csrf = f"runtime-csrf-{secrets.token_hex(8)}"
         self.password = f"runtime-garmin-password-{secrets.token_hex(8)}"
         self.private_path = str(self.root / "private" / f"runtime-secret-{secrets.token_hex(8)}.json")
-        self.share_player = players.create_player("Share recipient", root=self.root)
+        self.member_player = players.create_player("Member recipient", root=self.root)
         self.client = TestClient(app)
+        self.log_messages: list[str] = []
+        handler = logging.Handler()
+        handler.emit = lambda record: self.log_messages.append(logging.Formatter().format(record))
+        logging.getLogger().addHandler(handler)
+        self.addCleanup(logging.getLogger().removeHandler, handler)
 
     def _assert_secret_free(self, *texts: object, extra: tuple[str, ...] = ()) -> None:
         joined = "\n".join(str(value) for value in texts)
-        for secret in (self.cookie, self.csrf, self.password, self.private_path, *extra):
+        for secret in (self.cookie, self.cookie.split("=", 1)[1], self.csrf, self.password, self.private_path, *extra):
             self.assertNotIn(secret, joined, f"secret leaked: {secret}")
 
-    def test_j7_3_share_response_and_runtime_files_do_not_contain_share_token(self) -> None:
-        log_messages: list[str] = []
-        handler = logging.Handler()
-        handler.emit = lambda record: log_messages.append(record.getMessage())
-        logging.getLogger().addHandler(handler)
-        try:
-            response = self.client.get(
-                "/api/v2/history/rounds",
-                headers={"Authorization": f"Bearer {self.share_player['token']}"},
-            )
-        finally:
-            logging.getLogger().removeHandler(handler)
-        self.assertEqual(response.status_code, 200, response.text)
+    def test_j7_3_member_link_response_and_runtime_files_do_not_contain_token(self) -> None:
+        # /p/<token> authenticates a member. A true anonymous share view is missing (J9.5).
+        response = self.client.get(
+            "/api/v2/history/rounds",
+            headers={"Authorization": f"Bearer {self.member_player['token']}"},
+        )
+        self.assertEqual(response.status_code, 200)
         self._assert_secret_free(
-            response.text,
-            "\n".join(log_messages),
-            _data_tree_text(self.root),
-            extra=(str(self.share_player["token"]),),
+            response.text, *self.log_messages, _data_tree_text(self.root),
+            extra=(str(self.member_player["token"]),),
         )
 
-    def test_j7_3_session_import_error_redacts_cookie_csrf_and_private_path(self) -> None:
-        error = ValueError(
-            f"provider failed Cookie: {self.cookie}; connect-csrf-token: {self.csrf}; path={self.private_path}"
-        )
-        log_messages: list[str] = []
-        handler = logging.Handler()
-        handler.emit = lambda record: log_messages.append(record.getMessage())
-        logging.getLogger().addHandler(handler)
-        try:
-            with mock.patch.object(session_api, "save_garmin_cn_web_session", side_effect=error):
+    def _invalid_import_rows(self):
+        # Each body goes through the real request validator and session-material function.
+        valid = {"webSessionHeader": f"Cookie: {self.cookie}",
+                 "antiForgeryValue": f"connect-csrf-token: {self.csrf}"}
+        return [
+            ("multiline cookie", {**valid, "webSessionHeader": f"{self.cookie}\npath={self.private_path}"}),
+            ("no equals", {**valid, "webSessionHeader": self.password}),
+            ("multiline csrf", {**valid, "antiForgeryValue": f"{self.csrf}\n{self.private_path}"}),
+            ("prefix only", {**valid, "webSessionHeader": "Cookie:"}),
+            ("invalid source", {**valid, "source": self.password}),
+            ("long invalid cookie", {**valid, "webSessionHeader": self.password * 8192}),
+        ]
+
+    def test_j7_3_invalid_session_inputs_never_echo_or_persist_secrets(self) -> None:
+        for label, body in self._invalid_import_rows():
+            with self.subTest(input=label):
                 response = self.client.post(
                     "/api/v2/sync/garmin/session",
-                    headers={"X-AI-Caddie-Admin-Token": ADMIN},
-                    json={
-                        "webSessionHeader": f"Cookie: {self.cookie}",
-                        "antiForgeryValue": f"connect-csrf-token: {self.csrf}",
-                    },
+                    headers={"X-AI-Caddie-Admin-Token": ADMIN}, json=body,
                 )
-        finally:
-            logging.getLogger().removeHandler(handler)
-        self.assertEqual(response.status_code, 422, response.text)
-        self._assert_secret_free(response.text, "\n".join(log_messages), _data_tree_text(self.root))
+                self.assertEqual(response.status_code, 422)
+                self._assert_secret_free(response.text, *self.log_messages, _data_tree_text(self.root))
+                self.assertFalse(list(self.root.rglob("web_cookie.txt")))
 
-    def test_j7_3_password_source_is_rejected_without_any_durable_password(self) -> None:
-        with self.assertRaises(ValueError):
-            save_garmin_cn_web_session(
-                web_session_header=f"Cookie: {self.cookie}",
-                anti_forgery_value=f"connect-csrf-token: {self.csrf}",
-                source="username_password",
-                root=self.root,
-            )
-        self.assertFalse((self.root / ".garmin_tokens").exists())
-        self._assert_secret_free(_data_tree_text(self.root))
-        self.assertNotIn(self.password, json.dumps(self.root.as_posix()))
+    def test_j7_3_password_in_import_path_is_not_stored(self) -> None:
+        rows = [
+            ("unsupported password login", {
+                "webSessionHeader": f"Cookie: {self.cookie}", "antiForgeryValue": self.csrf,
+                "source": "username_password", "username": "fixture-user", "password": self.password,
+            }),
+            ("password pasted as cookie", {
+                "webSessionHeader": self.password, "antiForgeryValue": self.csrf,
+            }),
+            ("password pasted after csrf", {
+                "webSessionHeader": self.cookie, "antiForgeryValue": f"{self.csrf}\n{self.password}",
+            }),
+        ]
+        for label, body in rows:
+            with self.subTest(input=label):
+                response = self.client.post(
+                    "/api/v2/sync/garmin/session",
+                    headers={"X-AI-Caddie-Admin-Token": ADMIN}, json=body,
+                )
+                self.assertEqual(response.status_code, 422)
+                self._assert_secret_free(response.text, *self.log_messages, _data_tree_text(self.root))
+                self.assertFalse(list(self.root.rglob("web_cookie.txt")))
 
     def test_j7_3_sync_failure_redacts_connector_metadata_and_status(self) -> None:
         connector = mock.Mock()
@@ -139,25 +148,34 @@ class J7SecretTests(unittest.TestCase):
             error_code="sync_failed",
             safe_meta={"cookie": self.cookie, "csrf": self.csrf, "sourceError": f"password={self.password}"},
         )
-        log_messages: list[str] = []
-        handler = logging.Handler()
-        handler.emit = lambda record: log_messages.append(record.getMessage())
-        logging.getLogger().addHandler(handler)
-        try:
-            with (
-                mock.patch.object(main_api, "GarminCnWebSessionConnector", return_value=connector),
-                mock.patch.object(main_api, "_history_input_signature", return_value=None),
-                mock.patch.object(main_api, "warm_stats_cache_in_background"),
-                mock.patch.object(main_api, "_prepare_recent_bg"),
-            ):
-                result = main_api._run_garmin_sync_job(
-                    {"playerId": "me", "request": {"withShots": True}}
-                )
-        finally:
-            logging.getLogger().removeHandler(handler)
-        self._assert_secret_free(result, "\n".join(log_messages), _data_tree_text(self.root))
-        status_files = list(self.root.rglob("*status*.json"))
-        self._assert_secret_free(*(path.read_text(encoding="utf-8") for path in status_files))
+        jobs = GarminSyncJobStore(root=self.root)
+        with (
+            mock.patch.object(main_api, "GarminCnWebSessionConnector", return_value=connector),
+            mock.patch.object(main_api, "_garmin_sync_jobs", jobs),
+            mock.patch.object(main_api, "_history_input_signature", return_value=None),
+            mock.patch.object(main_api, "warm_stats_cache_in_background"),
+            mock.patch.object(main_api, "_prepare_recent_bg"),
+            mock.patch.object(main_api, "load_sync_status_response",
+                              side_effect=lambda: build_sync_status_response(root=self.root, data_mode="local")),
+        ):
+            headers = {"X-AI-Caddie-Admin-Token": ADMIN}
+            queued = self.client.post("/api/v2/sync/garmin", headers=headers)
+            self.assertEqual(queued.status_code, 202)
+            self._assert_secret_free(queued.text)
+            deadline = time.monotonic() + 3
+            while True:
+                response = self.client.get(f"/api/v2/sync/garmin/jobs/{queued.json()['jobId']}", headers=headers)
+                self.assertEqual(response.status_code, 200)
+                self._assert_secret_free(response.text)
+                if response.json()["state"] not in {"queued", "running"} or time.monotonic() >= deadline:
+                    break
+                threading.Event().wait(0.01)
+            self.assertEqual(response.json()["state"], "error")
+            status = self.client.get("/api/v2/sync/status", headers=headers)
+            self.assertEqual(status.status_code, 200)
+            self._assert_secret_free(status.text, *self.log_messages, _data_tree_text(self.root))
+        self.assertTrue(list(jobs.directory.glob("*.json")), "scan a real persisted sync job")
+
 
     def test_j7_3_report_model_input_and_stored_report_are_secret_free(self) -> None:
         captured: list[str] = []
@@ -173,7 +191,7 @@ class J7SecretTests(unittest.TestCase):
         facts = {
             "kind": "round",
             "subjectId": "round-1",
-            "factsUsed": [{"label": "note", "value": f"cookie={self.cookie} path={self.private_path}"}],
+            "factsUsed": [{"label": "note", "value": f"cookie={self.cookie}; csrf={self.csrf}; path={self.private_path}"}],
             "missingData": [],
         }
         with (
@@ -182,8 +200,13 @@ class J7SecretTests(unittest.TestCase):
             mock.patch.object(reports_api, "_history_stats_dict", return_value={}),
             mock.patch.object(reports_api, "_history_data", return_value=None),
         ):
-            report = reports_api.generate_round_report_response("round-1")
-        self._assert_secret_free(captured, report.model_dump(), _data_tree_text(self.root))
+            response = self.client.post(
+                "/api/v2/reports/round/round-1/generate",
+                headers={"X-AI-Caddie-Admin-Token": ADMIN},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(captured, "the fake model must actually receive input")
+        self._assert_secret_free(captured, response.text, *self.log_messages, _data_tree_text(self.root))
         self.assertTrue((self.root / "data" / "reports" / "reports.jsonl").exists())
 
 

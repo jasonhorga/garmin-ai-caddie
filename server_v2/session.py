@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from ai_caddie.connectors.garmin_cn import garmin_token_dir, sanitize_error
+from ai_caddie.connectors.garmin_cn import garmin_token_dir
 from ai_caddie.connectors.session_material import save_garmin_cn_web_session
 from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 from ai_caddie.core.data import ROOT
@@ -47,8 +47,5 @@ def save_garmin_session_response(
             detail="Garmin sync is in progress; retry session connection after it finishes.",
         ) from exc
     except ValueError as exc:
-        # Connector validation errors can contain the pasted cookie/CSRF header or a local
-        # credential path.  Keep the useful 422 contract while applying the same redactor used by
-        # sync status, logs, and model-facing report inputs.
-        raise HTTPException(status_code=422, detail=sanitize_error(exc)) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return GarminSessionImportResponse(**payload)
