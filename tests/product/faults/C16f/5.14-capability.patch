@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Services/WatchSwingCollectionGate.swift b/mobile/ios/AICaddieWatch/Services/WatchSwingCollectionGate.swift
+--- a/mobile/ios/AICaddieWatch/Services/WatchSwingCollectionGate.swift
++++ b/mobile/ios/AICaddieWatch/Services/WatchSwingCollectionGate.swift
+@@ -176,3 +176,3 @@
+         guard preference else { return false }
+-        if let blocker = blocker(capability: capability) {
++        if let blocker = blocker(capability: capability), false {
+             latchedBlocker = blocker

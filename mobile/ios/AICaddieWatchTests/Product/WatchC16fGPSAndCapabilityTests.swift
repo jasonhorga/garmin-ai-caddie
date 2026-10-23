@@ -20,20 +20,20 @@ final class WatchC16fGPSAndCapabilityTests: XCTestCase {
         return result
     }
 
-    func testNormalTrackEndsOnlyAfterGreenAndWalkingTowardNextTee() {
+    func test_5_13_watch_normal_track_ends_after_green_and_next_tee_walk() {
         XCTAssertEqual(ended([(-40, 0, 5), (0, 0, 4), (8, 0, 4), (25, 0, 5), (45, 0, 5)]), 4)
     }
 
-    func testLoopBackTrackDoesNotEndUntilTheLaterExitTowardTheNextTee() {
+    func test_5_13_watch_loop_back_track_waits_for_later_exit() {
         XCTAssertEqual(ended([(0, 0, 4), (-45, 0, 5), (-5, 0, 5), (0, 0, 4), (45, 0, 5)]), 4)
     }
 
-    func testNoGPSLeavesTheHoleOpenAndCoarseDriftIsIgnored() {
+    func test_5_13_watch_no_gps_and_coarse_drift_leave_hole_open() {
         XCTAssertNil(ended([]))
         XCTAssertNil(ended([(0, 0, 40), (60, 0, 40), (120, 0, 40)]))
     }
 
-    func testCapabilityGateFailsClosedAndKeepsItsDecisionForTheRound() {
+    func test_5_14_watch_capability_gate_fails_closed_and_keeps_round_decision() {
         let t0 = Date(timeIntervalSince1970: 1_800_000_000)
         let capable = WatchSwingCapability(sensorsSupported: true, motionPermissionDenied: false, workoutFailed: false)
         var gate = WatchSwingCollectionGate(roundId: "c16f", startedAt: t0, baselinePerHour: 0.10)

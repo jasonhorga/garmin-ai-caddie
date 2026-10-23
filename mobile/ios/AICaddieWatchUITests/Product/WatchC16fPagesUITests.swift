@@ -4,7 +4,7 @@ import XCTest
 final class WatchC16fPagesUITests: XCTestCase {
     private let app = XCUIApplication()
 
-    func testD02PagesArePlanHazardAndGreen() {
+    func test_5_12_watch_d02_pages_are_plan_hazard_and_green() {
         continueAfterFailure = false
         app.launchArguments = ["-uitest-screen", "standalone-course-page-plan"]
         app.launchEnvironment["UITEST_GPS_LAT"] = "40.0454995"

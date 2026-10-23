@@ -1,60 +1,51 @@
 import XCTest
 @testable import AICaddieWatch
 
-/// C16f product vectors for the Watch-facing parts of 4.5 and 5.1.
-/// The expected rows below are hand calculated from the shared C16c vectors; they are
-/// deliberately not produced by the objects under test.
+/// C16f product vectors for Watch 4.5 and the Watch side of 5.1.
 final class WatchC16fSharedRulesTests: XCTestCase {
-    func testWatchCaddiePlansKeepThreeDistinctRoutesAndMeasuredOffsets() {
-        let options = [
-            WatchCaddieOption(
-                optionId: "safe", label: "safe",
-                plan: [
-                    WatchCaddiePlanStep(clubName: "9I", carryM: 100, routeOffsetM: 100, planIndex: 0),
-                    WatchCaddiePlanStep(clubName: "9I", carryM: 100, routeOffsetM: 200, planIndex: 1),
-                    WatchCaddiePlanStep(clubName: "9I", carryM: 100, routeOffsetM: 300, planIndex: 2),
-                ], confidence: "offline", routeOffsetBasis: .tee
-            ),
-            WatchCaddieOption(
-                optionId: "stock", label: "stock",
-                plan: [
-                    WatchCaddiePlanStep(clubName: "6I", carryM: 150, routeOffsetM: 150, planIndex: 0),
-                    WatchCaddiePlanStep(clubName: "6I", carryM: 150, routeOffsetM: 300, planIndex: 1),
-                ], confidence: "offline", routeOffsetBasis: .tee
-            ),
-            WatchCaddieOption(
-                optionId: "attack", label: "attack",
-                plan: [
-                    WatchCaddiePlanStep(clubName: "3W", carryM: 200, routeOffsetM: 200, planIndex: 0),
-                    WatchCaddiePlanStep(clubName: "9I", carryM: 100, routeOffsetM: 300, planIndex: 1),
-                ], confidence: "offline", routeOffsetBasis: .tee
-            ),
+    func test_4_5_watch_map_degradation_rows() {
+        let rows: [(String, WatchHoleRootPresentation)] = [
+            ("precise geometry", .map),
+            ("route-only while the package is pending", .mapPreparing),
+            ("no geometry or distance", .scoreOnly),
         ]
-        let expected: [(String, [String], [Double], [Int])] = [
-            ("safe", ["9I", "9I", "9I"], [100, 200, 300], [0, 1, 2]),
-            ("stock", ["6I", "6I"], [150, 300], [0, 1]),
-            ("attack", ["3W", "9I"], [200, 300], [0, 1]),
+        let actual: [WatchHoleRootPresentation] = [
+            WatchHoleRootPresentation.resolve(hasQualifiedWristFix: false, hasGeometry: true, hasLiveCenterDistance: false),
+            WatchHoleRootPresentation.resolve(hasQualifiedWristFix: false, hasGeometry: false, hasLiveCenterDistance: false, courseDataPending: true),
+            WatchHoleRootPresentation.resolve(hasQualifiedWristFix: true, hasGeometry: false, hasLiveCenterDistance: false),
         ]
-
-        for (option, row) in zip(options, expected) {
-            XCTAssertEqual(option.id, row.0)
-            XCTAssertEqual(option.plan?.map(\.clubName), row.1)
-            XCTAssertEqual(option.plan?.compactMap(\.routeOffsetM), row.2)
-            XCTAssertEqual(option.plan?.compactMap(\.planIndex), row.3)
+        for ((label, expected), result) in zip(rows, actual) {
+            XCTAssertEqual(result, expected, label)
         }
-        XCTAssertEqual(options.map { $0.plan?.last?.routeOffsetM }, [300, 300, 300])
-        XCTAssertNotEqual(options[0].plan?.map(\.clubName), options[1].plan?.map(\.clubName))
-        XCTAssertNotEqual(options[1].plan?.map(\.clubName), options[2].plan?.map(\.clubName))
     }
 
-    func testWatchDistanceBoundaryUsesYardsAndLeavesPlaysLikeMissingWhenFactsAreMissing() {
-        XCTAssertEqual(WatchUnits.yards(100), 109)
-        XCTAssertEqual(WatchUnits.yards(300), 328)
-        XCTAssertEqual(WatchUnits.playsLikeMetres(distanceMetres: 150, elevationDeltaMetres: 6), 156)
-        XCTAssertNil(WatchUnits.playsLikeMetres(distanceMetres: 150, elevationDeltaMetres: nil))
+    func test_4_5_watch_map_upgrade_replaces_geometry_but_keeps_player_facts() {
+        let baseMap = WatchHoleMap(w: 300, h: 200, you: [10, 20], pin: [250, 20], layup: [120, 20], apex: [80, 20], greenCtrl: [220, 20], route: [[10, 20, 0], [250, 20, 240]])
+        let readyMap = WatchHoleMap(w: 600, h: 400, you: [20, 30], pin: [500, 30], layup: [250, 30], apex: [160, 30], greenCtrl: [450, 30], route: [[20, 30, 0], [500, 30, 240]])
+        let base = WatchRoundState(
+            roundId: "map-round", hole: 1, par: 4, distanceM: 180,
+            targetNote: "落点右侧", targetLatitude: 40, targetLongitude: 116,
+            targetKind: "layup", suggestedClub: "6I", selectedClub: "8I",
+            holeMap: baseMap, geometryCoverage: "partial", score: 5, putts: 2,
+            penaltyCount: 0, caddieConfidence: "medium"
+        )
+        let upgraded = WatchRoundState(
+            roundId: "map-round", hole: 1, par: 4, distanceM: 170,
+            suggestedClub: "7I", selectedClub: nil, holeMap: readyMap,
+            geometryCoverage: "ready", geometryRevision: "release-2", score: 0,
+            putts: 0, penaltyCount: 0, caddieConfidence: "offline"
+        )
+        let result = base.applyingCourseMapUpgrade(upgraded)
+        XCTAssertEqual(result.geometryCoverage, "ready")
+        XCTAssertEqual(result.geometryRevision, "release-2")
+        XCTAssertEqual(result.holeMap, readyMap)
+        XCTAssertEqual(result.score, 5)
+        XCTAssertEqual(result.putts, 2)
+        XCTAssertEqual(result.selectedClub, "8I")
+        XCTAssertEqual(result.targetNote, "落点右侧")
     }
 
-    func testWatchLoopIdentityPreservesAllFourOrderedHalfStarts() {
+    func test_5_1_watch_loop_identity_preserves_all_ordered_half_starts() {
         let course = WatchCourseOption(globalId: 81001, name: "Example Eighteen", holes: 18)
         let cases: [(String, String?, String, [Int], [Int])] = [
             ("front", nil, "81001:front", Array(1...9), Array(1...9)),

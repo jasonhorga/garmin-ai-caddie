@@ -10,7 +10,7 @@ final class WatchC16fStandaloneSyncDecodeTests: XCTestCase {
         return url
     }
 
-    func testStandaloneRoundScoresOfflineAndRestoresAfterRelaunch() throws {
+    func test_6_1_watch_standalone_round_scores_offline_and_restores_after_relaunch() throws {
         let store = WatchRoundStore(directoryURL: directory())
         let model = WatchRoundModel(store: store, autoShotEnabled: false, makeEventId: { "offline-round" })
         model.startPracticeRound(holeCount: 9, par: 4, courseName: "离线九洞")
@@ -30,7 +30,7 @@ final class WatchC16fStandaloneSyncDecodeTests: XCTestCase {
         XCTAssertEqual(relaunched.courseName, "离线九洞")
     }
 
-    func testStandaloneRoundKeepsEachOrderedLoopIdentityAcrossRestart() {
+    func test_6_1_watch_standalone_round_keeps_each_ordered_loop_identity_across_restart() {
         let loopKeys = [
             "81001:front", "81001:back", "81001:front+81001:back", "81001:back+81001:front",
         ]
@@ -53,7 +53,7 @@ final class WatchC16fStandaloneSyncDecodeTests: XCTestCase {
         }
     }
 
-    func testPhoneFactsArriveWhenConnectedButAStaleSnapshotCannotReplaceThemWhenDisconnected() {
+    func test_6_2_watch_phone_facts_refresh_and_stale_snapshot_is_ignored_when_disconnected() {
         let store = WatchRoundStore(directoryURL: directory())
         let model = WatchRoundModel(store: store)
         let base = WatchRoundState(
@@ -82,7 +82,7 @@ final class WatchC16fStandaloneSyncDecodeTests: XCTestCase {
         XCTAssertEqual(model.activeHoleState?.centerGreenM, 140)
     }
 
-    func testOldWatchStatePayloadIgnoresUnknownFieldsAndFillsOptionalFacts() throws {
+    func test_8_3_watch_old_state_payload_ignores_unknown_fields_and_fills_optional_facts() throws {
         let data = #"{"schema":"ai-caddie-watch-round-state-v1","roundId":"legacy","hole":7,"par":4,"distanceM":142,"score":4,"putts":2,"penaltyCount":0,"caddieConfidence":"medium","futureField":{"x":1}}"#.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(WatchRoundState.self, from: data)
         XCTAssertEqual(decoded.roundId, "legacy")
@@ -93,7 +93,7 @@ final class WatchC16fStandaloneSyncDecodeTests: XCTestCase {
         XCTAssertEqual(decoded.caddieOptions, [])
     }
 
-    func testOldCaddieCacheWithoutDispersionOrOriginStillDecodes() throws {
+    func test_8_3_watch_old_caddie_cache_without_dispersion_or_origin_still_decodes() throws {
         let data = #"{"optionId":"stock","label":"推荐","clubName":"6I","carryM":150,"confidence":"offline","futureVersion":4}"#.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(WatchCaddieOption.self, from: data)
         XCTAssertEqual(decoded.optionId, "stock")

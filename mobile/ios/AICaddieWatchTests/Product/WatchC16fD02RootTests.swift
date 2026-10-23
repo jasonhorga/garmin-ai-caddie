@@ -47,7 +47,7 @@ final class WatchC16fD02RootTests: XCTestCase {
         )
     }
 
-    func testOnlyAFreshTrustedMeasuredRecommendationCanOpenRoot() {
+    func test_5_12_watch_only_a_fresh_trusted_measured_recommendation_can_open_root() {
         XCTAssertTrue(model(with: recommendation()).rootCaddieLayerAvailable(at: fix))
         XCTAssertFalse(model(with: recommendation(source: "offline")).rootCaddieLayerAvailable(at: fix))
         XCTAssertFalse(model(with: recommendation(mode: "automatic", confidence: "low")).rootCaddieLayerAvailable(at: fix))
@@ -56,7 +56,7 @@ final class WatchC16fD02RootTests: XCTestCase {
         XCTAssertFalse(model(with: recommendation()).rootCaddieLayerAvailable(at: nil))
     }
 
-    func testRootRejectsMovementBeyondTheRecommendationOriginWindow() {
+    func test_5_12_watch_root_rejects_movement_beyond_origin_window() {
         let moved = WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: 40.0003, longitude: 116),
             horizontalAccuracyM: 5,
@@ -65,7 +65,7 @@ final class WatchC16fD02RootTests: XCTestCase {
         XCTAssertFalse(model(with: recommendation(movementM: 20)).rootCaddieLayerAvailable(at: moved))
     }
 
-    func testMeasuredCarryDepthProjectsToTheHandWrittenRouteInMetres() throws {
+    func test_5_12_watch_measured_carry_depth_projects_to_handwritten_route_and_yards() throws {
         let route = [[0.0, 0.0, 0.0], [100.0, 0.0, 100.0], [300.0, 0.0, 300.0]]
         let layout = try XCTUnwrap(WatchCurrentShotLayout.resolve(
             route: route,

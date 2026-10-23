@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift b/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift
+--- a/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift
++++ b/mobile/ios/AICaddieWatch/Views/WatchRoundContainerView.swift
+@@ -85,3 +85,3 @@
+         // sentinel only for presentation and never fabricates a coordinate or shot fact.
+-        if hasGeometry { return .map }
++        if hasGeometry { return .scoreOnly }
+         if courseDataPending { return .mapPreparing }
