@@ -1,0 +1,7 @@
+--- a/web_v2/src/components/ResultsLanding.tsx
++++ b/web_v2/src/components/ResultsLanding.tsx
+@@ -82,3 +82,3 @@
+         {recentRounds.length ? recentRounds.map((round) => (
+-          <RecentRound key={round.id} round={round} onOpen={() => onOpenRound(round.id)} />
++          <RecentRound key={round.id} round={round} onOpen={() => undefined} />
+         )) : <p>暂无可显示的球局。</p>}

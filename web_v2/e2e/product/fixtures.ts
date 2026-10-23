@@ -6,7 +6,7 @@ import { expect, test as base, type Page } from '@playwright/test'
 export const COURSE = 'Fixture Orchard'
 export const GID = 99001
 export const ROUND = 'fixture-18-par'
-export const LINK = 'fixture-read-only-link'
+export const PLAYER_LINK = 'fixture-player-capability'
 export const ADMIN = 'fixture-admin-only'
 export const SESSION_HEADER = 'fixture-session-material'
 export const CSRF = 'fixture-antiforgery-material'
@@ -54,7 +54,11 @@ const stats = {
     { courseKey: 'fixture_orchard', hole: 1, sampleCount: 3, averageToPar: 0.7, worstToPar: 1, holeRefs: [`${ROUND}:1`] },
     { courseKey: 'fixture_orchard', hole: 2, sampleCount: 3, averageToPar: 0.7, worstToPar: 1, holeRefs: [`${ROUND}:2`] },
   ],
-  clubs: [{ club: '1D', sampleCount: 9, median: 200, p10: 180, p90: 220, max: 230, confidence: 'medium', shotRefs: [`${ROUND}:1:0`] }],
+  clubs: [
+    { club: '1D', sampleCount: 3, median: 200, p10: 200, p90: 200, max: 200, confidence: 'low', shotRefs: [`${ROUND}:1:0`] },
+    { club: '7I', sampleCount: 3, median: 50, p10: 50, p90: 50, max: 50, confidence: 'low', shotRefs: [`${ROUND}:1:1`] },
+    { club: 'PW', sampleCount: 3, median: 50, p10: 50, p90: 50, max: 50, confidence: 'low', shotRefs: [`${ROUND}:1:2`] },
+  ],
   issues: [], diagnosis: {}, courseDistribution: [], records: {}, dataQuality: [],
   drillDown: { roundIds: [ROUND], roundRefs: [ROUND] },
 }
@@ -64,10 +68,11 @@ const secondOverlay = { w: 300, h: 500, ppm: 1, ln: 200, route: [[150, 450, 0], 
 const topo = readFileSync(new URL('../../public/hole-sample.png', import.meta.url))
 const prep = {
   schema: 'ai-caddie-course-prep-v1', globalId: GID, holeCount: 2,
-  clubs: [{ name: '1D', m: 200, yd: 219 }, { name: '7I', m: 150, yd: 164 }],
+  // First hole matches C16c caddie_golden.json h1_tee_0: 100/150/200 m.
+  clubs: [{ name: '9I', m: 100, yd: 109 }, { name: '6I', m: 150, yd: 164 }, { name: '3W', m: 200, yd: 219 }],
   holes: [
-    { hole: 1, par: 4, par_source: 'courseview', blue_yards: 328, route_len_m: 300, route: overlay.route, geometryCoverage: 'ready', geometryRevision: 'fixture-v1', map: { overlay }, landing_m: 200, tee_club: '1D', steps: [{ club: '1D', note: 'Centre line' }, { club: '7I', note: 'Green centre' }], cautions: [], hazards: { water_carry: [], bunkers: [] }, sourceRefs: [`course:${GID}`], missingData: [], candidateRoutes: [], carryTargets: [], yourShots: [] },
-    { hole: 2, par: 4, par_source: 'courseview', blue_yards: 219, route_len_m: 200, route: secondOverlay.route, geometryCoverage: 'ready', geometryRevision: 'fixture-v1', map: { overlay: secondOverlay }, landing_m: 150, tee_club: '7I', steps: [{ club: '7I', note: 'Centre line' }], cautions: [], hazards: { water_carry: [], bunkers: [] }, sourceRefs: [`course:${GID}`], missingData: [], candidateRoutes: [], carryTargets: [], yourShots: [] },
+    { hole: 1, par: 4, par_source: 'courseview', blue_yards: 328, route_len_m: 300, route: overlay.route, geometryCoverage: 'ready', geometryRevision: 'fixture-v1', map: { overlay }, landing_m: 150, tee_club: '6I', steps: [{ club: '6I', note: 'Centre line' }, { club: '6I', note: 'Green centre' }], cautions: [], hazards: { water_carry: [], bunkers: [] }, sourceRefs: [`course:${GID}`], missingData: [], candidateRoutes: [], carryTargets: [], yourShots: [] },
+    { hole: 2, par: 4, par_source: 'courseview', blue_yards: 219, route_len_m: 200, route: secondOverlay.route, geometryCoverage: 'ready', geometryRevision: 'fixture-v1', map: { overlay: secondOverlay }, landing_m: 100, tee_club: '9I', steps: [{ club: '9I', note: 'Centre line' }], cautions: [], hazards: { water_carry: [], bunkers: [] }, sourceRefs: [`course:${GID}`], missingData: [], candidateRoutes: [], carryTargets: [], yourShots: [] },
   ],
 }
 
@@ -84,15 +89,14 @@ export const correctedShots = [
   { id: 's3', start: [150, 250], end: [150, 150], club: 'PW', lie: 'Fairway', endLie: 'Green', shotType: 'APPROACH', order: 2, synthetic: false },
 ]
 
-interface Options {
-  identity?: 'owner' | 'member' | 'share'
+export interface Options {
+  identity?: 'owner' | 'member' | 'player-link'
   diagnostics?: boolean
   imported?: boolean
   corrected?: boolean
   importRejected?: boolean
   correctionRejected?: boolean
   missingPhases?: boolean
-  revokedLink?: boolean
 }
 
 export async function productApi(page: Page, options: Options = {}) {
@@ -127,14 +131,20 @@ export async function productApi(page: Page, options: Options = {}) {
     const method = request.method()
     records.calls.push({ path, method, auth: request.headers().authorization, admin: request.headers()['x-ai-caddie-admin-token'] })
     const json = (payload: unknown) => route.fulfill({ json: payload })
-    if (options.revokedLink) return route.fulfill({ status: 401, json: { detail: 'Fixture link expired' } })
     if (path === '/api/v2/history/overview' && method === 'GET') return json({ schema: 'ai-caddie-history-overview-v2', metrics: summary, recentRounds: rounds, distribution: { total: 3, average: 81, best: 72, worst: 90, families: [], histogram: [] }, dataQuality: [], emptyState: null, currentPlayer: { id: identity === 'owner' ? 'me' : 'fixture-member', name: 'Fixture Player', avatar: null, isOwner: identity === 'owner' } })
-    if (['/api/v2/history/stats', '/api/v2/history/stats/mobile'].includes(path) && method === 'GET') return json(options.missingPhases ? { ...stats, scoring: { ...stats.scoring, phaseStats: [], putting: {} } } : stats)
+    if (['/api/v2/history/stats', '/api/v2/history/stats/mobile'].includes(path) && method === 'GET') {
+      const snapshot = corrected ? {
+        ...stats, summary: { ...summary, shotCount: 8 },
+        // Fixed projection after deleting one of three 7I shots (3 - 1 = 2).
+        clubs: [stats.clubs[0], { ...stats.clubs[1], sampleCount: 2 }, { ...stats.clubs[2], p90: 100, max: 100 }],
+      } : stats
+      return json(options.missingPhases ? { ...snapshot, scoring: { ...stats.scoring, phaseStats: [], putting: {} } } : snapshot)
+    }
     if (path === '/api/v2/history/summary' && method === 'GET') return json({ schema: 'ai-caddie-history-summary-v1', summary, topIssue: null })
     if (path === '/api/v2/history/rounds' && method === 'GET') return json({ schema: 'ai-caddie-history-rounds-v2', total: 3, groups: [{ key: '2026-05', label: 'May 2026', count: 3, average18: 81, bestScore: 72, rounds }], emptyState: null, availableYears: ['2026'], availableCourses: [{ key: 'fixture_orchard', label: COURSE }] })
     if (path === `/api/v2/history/rounds/${ROUND}` && method === 'GET') return json({ schema: 'ai-caddie-history-round-detail-v1', roundRef: ROUND, requestedRef: ROUND, found: true, title: `${COURSE} - 2026-05-20`, round: { id: ROUND, score: 72, toPar: 0, holesScored: 18, shotCount: 3, confidence: 'high', coverage: { scorecard: 'full', shots: 'partial', putts: 'full' } }, scorecard: rounds[0].scoreStrip.map((hole) => ({ ...hole, putts: 2, gir: true, fairway: 'hit', holeRef: `${ROUND}:${hole.hole}`, shotRefs: [], sourceRefs: [`${ROUND}:${hole.hole}`], status: 'complete' })), phaseSummary: [], holeDetails: [], relatedRefs: { roundRefs: [ROUND], holeRefs: [`${ROUND}:1`], shotRefs: [], sourceRefs: [] }, sourceFields: {}, missingData: [] })
     if (path === `/api/v2/history/rounds/${ROUND}/holes/1/shotmap` && method === 'GET') return json({ schema: 'ai-caddie-round-hole-shotmap-v1', found: true, roundRef: ROUND, hole: 1, par: 4, globalId: GID, localHole: 1, geometryRevision: 'fixture-v1', mapKind: 'prodgeometry', map: { overlay }, shots: corrected ? correctedShots : originalShots, missingData: [] })
-    if (path === `/api/v2/history/rounds/${ROUND}/corrections` && method === 'POST' && identity !== 'share') {
+    if (path === `/api/v2/history/rounds/${ROUND}/corrections` && method === 'POST' && identity !== 'player-link') {
       records.corrections.push(request.postDataJSON())
       if (options.correctionRejected) return route.fulfill({ status: 503, json: { detail: 'Fixture save unavailable' } })
       corrected = true
@@ -158,7 +168,7 @@ export async function productApi(page: Page, options: Options = {}) {
       const body = request.postDataJSON() as Record<string, unknown>
       records.decisions.push(body)
       const mode = (body.context as { strategyMode?: string })?.strategyMode
-      return json({ schema: 'ai-caddie-decision-v2', decisionId: 'fixture-decision', sourceRef: `${ROUND}:1`, shotType: 'tee', options: [{ id: 'stock', label: 'Stock', recommendedClub: '1D', carry_m: 200, riskScore: 2 }, { id: 'attack', label: 'Attack', recommendedClub: '3W', carry_m: 220, riskScore: 4 }], selectedOptionId: mode === 'attack' ? 'attack' : 'stock', evidenceRefs: [`${ROUND}:1`], evidence: [], explanation: { narrative: 'Centre line' }, acceptableMiss: { direction: 'left' }, missingData: [], auditCriteria: [] })
+      return json({ schema: 'ai-caddie-decision-v2', decisionId: 'fixture-decision', sourceRef: `${ROUND}:1`, shotType: 'tee', options: [{ id: 'safe', label: 'Safe', recommendedClub: '9I', carry_m: 100, riskScore: 1 }, { id: 'stock', label: 'Stock', recommendedClub: '6I', carry_m: 150, riskScore: 2 }, { id: 'attack', label: 'Attack', recommendedClub: '3W', carry_m: 200, riskScore: 4 }], selectedOptionId: mode === 'attack' ? 'attack' : mode === 'safe' ? 'safe' : 'stock', evidenceRefs: [`${ROUND}:1`], evidence: [], explanation: { narrative: 'Centre line' }, acceptableMiss: { direction: 'left' }, missingData: [], auditCriteria: [] })
     }
     if (path === '/api/v2/sync/status' && method === 'GET') return json(identity !== 'owner' ? { schema: 'ai-caddie-sync-status-v2', status: 'ready' } : { schema: 'ai-caddie-sync-status-v2', connector: { name: 'garmin_cn_web_session', state: imported ? 'ready' : 'reauth_required', detail: '', canSync: imported, reauthRequired: !imported, nextAction: imported ? 'review_history' : 'reauthenticate_garmin' }, snapshot: { dataMode: 'fixture', scorecardCount: 3, shotFileCount: 3, summaryPresent: true, lastSuccessfulSyncAt: null }, lastRun: null })
     if (path === '/api/v2/sync/garmin/session' && method === 'POST' && identity === 'owner') {

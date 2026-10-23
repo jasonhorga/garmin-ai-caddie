@@ -1,0 +1,7 @@
+--- a/web_v2/src/App.tsx
++++ b/web_v2/src/App.tsx
+@@ -1105,3 +1105,3 @@
+         statusPromise.then((status) => {
+-          if (!controller.signal.aborted) setSyncStatus(status)
++          if (!controller.signal.aborted) setSyncStatus(syncStatus)
+         }),
