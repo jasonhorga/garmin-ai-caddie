@@ -21,7 +21,7 @@ from ops import agenthub_deploy as deploy
 
 SHA = "2b" * 20
 API_HASH = "a" * 64
-SYNC_HASH = "b" * 64
+SYNC_HASH = deploy.sync_dependency_hash(API_HASH)
 API_DEPS = f"{deploy.API_DEPS_REPOSITORY}:{API_HASH}"
 SYNC_DEPS = f"{deploy.SYNC_DEPS_REPOSITORY}:{SYNC_HASH}"
 API_IMAGE = f"{deploy.API_REPOSITORY}:{SHA}"
@@ -435,7 +435,8 @@ with open(state["log"], "a") as log:
     log.write("docker " + " ".join(args) + "\\n")
 if args[:2] == ["image", "inspect"]:
     ref = args[-1]
-    if ref != state["api_ref"] and ref not in state["sync_labels"] and not ref.startswith("aicaddie-sync:"):
+    if ref != state["api_ref"] and ref not in state["sync_labels"] and \
+            (ref.startswith("aicaddie-sync-deps:") or not ref.startswith("aicaddie-sync:")):
         sys.exit(1)
     if "--format" in args:
         fmt = args[args.index("--format") + 1]
@@ -495,20 +496,37 @@ sys.exit(1)
         self.assertIn(f"API_IMAGE={API_IMAGE}", build)
         self.assertIn(f"SYNC_DEPS_IMAGE={SYNC_DEPS}", build)
 
-    def test_g25_automatic_selection_uses_matching_second_sync_dependency_image(self):
+    def test_g25_automatic_selection_uses_exact_sync_dependency_hash_regardless_of_listing_order(self):
         first = "aicaddie-sync-deps:first"
-        second = "aicaddie-sync-deps:second"
-        result, log = self._run_sync_builder(
+        second = SYNC_DEPS
+        sync_labels = {
+            first: {deploy.API_DEPENDENCY_HASH_LABEL: API_HASH},
+            second: {deploy.API_DEPENDENCY_HASH_LABEL: API_HASH},
+        }
+        for candidates in ([first, second], [second, first]):
+            with self.subTest(candidates=candidates):
+                result, log = self._run_sync_builder(
+                    api_labels={"ai.caddie.source-revision": "2b" * 20,
+                                deploy.DEPENDENCY_HASH_LABEL: API_HASH},
+                    sync_labels=sync_labels,
+                    candidates=list(candidates),
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                build = next(line for line in log.splitlines() if "-f Dockerfile.sync" in line)
+                self.assertIn(f"SYNC_DEPS_IMAGE={second}", build)
+                self.assertNotIn(f"SYNC_DEPS_IMAGE={first}", build)
+
+    def test_g26_automatic_selection_missing_exact_hash_prints_build_command(self):
+        wrong = "aicaddie-sync-deps:wrong"
+        result, _log = self._run_sync_builder(
             api_labels={"ai.caddie.source-revision": "2b" * 20,
                         deploy.DEPENDENCY_HASH_LABEL: API_HASH},
-            sync_labels={first: {deploy.API_DEPENDENCY_HASH_LABEL: "c" * 64},
-                         second: {deploy.API_DEPENDENCY_HASH_LABEL: API_HASH}},
-            candidates=[first, second],
+            sync_labels={wrong: {deploy.API_DEPENDENCY_HASH_LABEL: API_HASH}},
+            candidates=[wrong],
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        build = next(line for line in log.splitlines() if "-f Dockerfile.sync" in line)
-        self.assertIn(f"SYNC_DEPS_IMAGE={second}", build)
-        self.assertNotIn(f"SYNC_DEPS_IMAGE={first}", build)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"aicaddie-sync-deps:{SYNC_HASH}", result.stderr)
+        self.assertIn("docker build -f Dockerfile.sync-deps", result.stderr)
 
     def test_g19_sync_builder_passes_api_image_to_dockerfile(self):
         script = (deploy.REPO_ROOT / "ops" / "build_sync_image.sh").read_text(encoding="utf-8")
@@ -545,7 +563,7 @@ sys.exit(1)
                 deploy.ensure_images(SHA)
         self.assertEqual(calls, [])
 
-    def test_g26_api_build_dependency_label_mismatch_fails_before_sync_build(self):
+    def test_g27_api_build_dependency_label_mismatch_fails_before_sync_build(self):
         images, calls, image_revision, image_label, run = self._planner(
             existing_api_deps=True, existing_sync_deps=False,
         )
