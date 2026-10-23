@@ -8,6 +8,14 @@ npm run test:e2e -- --list
 npx eslint e2e/product
 ```
 
+For a local run, set `use.launchOptions.executablePath` in an external
+Playwright config to the already installed `chrome-headless-shell` executable
+(including when its revision differs from Playwright's default). Preserve the
+repository config's projects and web servers; if the external config is outside
+`web_v2`, point its `testDir` at this repository's `web_v2/e2e`. Run it from
+`web_v2` with `heavy-lock npx playwright test e2e/product --config <external-config>`.
+Do not run `playwright install`.
+
 The existing Playwright configuration starts Vite and runs desktop/mobile
 Chromium with one worker. The CI `test:e2e` entrypoint discovers all 30 product
 cases (15 data rows × 2 projects). No configuration changes are required.
@@ -36,7 +44,9 @@ yet been substituted. The first prep/sandbox hole matches C16c's new shared
 `h1_tee_0` golden for distance and opening clubs/carries. The second hole is a
 small independent navigation fixture, not C16c's second hole.
 
-The real round-share feature is absent. The legacy `/p/<player-token>` is a
+The read-only share view is unimplemented: Web has no entrypoint, the backend
+has no single-round share token/API, and App's `ShareLink` sends text only.
+The legacy `/p/<player-token>` is a
 player capability, not a round share. Its diagnostic check is supplementary
 coverage for 9.4; it cannot satisfy the share-view row. The 9.5 test deliberately
 stops at the missing Share button rather than inventing an endpoint or mocking
@@ -86,14 +96,17 @@ text. Chinese labels locate controls; explanatory prose is not a golden.
 
 ## Known red and verification limits
 
-See `tests/product/known-red/C16g.md` for two code-confirmed gaps and their
-pending browser reproduction. Expected-failure annotations occur immediately
+See `tests/product/known-red/C16g.md` for two reproduced gaps.
+Expected-failure annotations occur immediately
 before the specific failing assertion, after review/edit setup succeeds. A
 fixed assertion produces an unexpected pass so the annotation must be removed.
 Do not count browser-launch errors as product failures or mutation kills.
 
-The browser cache was unavailable in the execution sandbox. Collection and
-lint passed; browser assertions and the five prepared mutations remain
-unverified. `tests/product/faults/C16g.md` gives patch commands and exact target
-rows for rerunning with an accessible installed Chromium. No browser download
-or harness workaround was added.
+The project console ran both projects with installed
+`chromium_headless_shell-1234`, selected through an external config's
+`launchOptions.executablePath`: all 30 cases completed successfully (26 passed,
+4 expected failures), and all five fault patches made their target tests red.
+The 9.5 mutation covers the review prerequisite, not share authorization.
+`tests/product/faults/C16g.md` records those results and exact target rows.
+The execution sandbox still has no visible browser cache; its local checks
+cover collection and lint. No browser was downloaded.

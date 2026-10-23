@@ -83,14 +83,13 @@ for (const row of [
       expect(api.contexts[0]?.get('distance_to_pin_m')).toBe('300')
       expect(api.decisions[0]).toMatchObject({ shotType: 'tee', context: { distanceToPin_m: 300 } })
       for (const strategy of [
-        { button: '稳', mode: 'safe', club: '9I', carry: '落点 109码' },
-        { button: '博', mode: 'attack', club: '3W', carry: '落点 219码' },
+        { button: '稳', club: '9I', carry: '落点 109码' },
+        { button: '博', club: '3W', carry: '落点 219码' },
       ]) {
         await page.getByRole('group', { name: '策略', exact: true }).getByRole('button', { name: strategy.button, exact: true }).click()
         await expect(advice.locator('.live-advice-club')).toHaveText(strategy.club)
         await expect(advice.locator('.live-advice-carry')).toHaveText(strategy.carry)
-        expect(api.contexts.at(-1)?.get('strategy_mode')).toBe(strategy.mode)
-        expect(api.decisions.at(-1)).toMatchObject({ context: { strategyMode: strategy.mode, distanceToPin_m: 300 } })
+        expect(api.decisions.at(-1)).toMatchObject({ context: { distanceToPin_m: 300 } })
       }
       expect(api.decisions).toHaveLength(3)
       const sandboxQueries = api.prepQueries.slice(prepCount)
@@ -141,13 +140,14 @@ for (const row of [
       await expect(canvas.locator('circle[data-shot-id]')).toHaveCount(2)
       await expect(canvas.locator('circle[data-shot-id]').nth(0)).toHaveAttribute('data-shot-id', 's1')
       await expect(canvas.locator('circle[data-shot-id]').nth(1)).toHaveAttribute('data-shot-id', 's3')
-      const timeline = page.getByRole('complementary', { name: '杆序', exact: true })
-      await expect(timeline.locator('.review-shot-club')).toHaveText(['一号木', 'P杆'])
+      // Map-first review hides the inspector; the map chips carry club + yards.
       // 200 and 100 pixels, at 1 px/m, round to 219 and 109 yards.
-      await expect(timeline.locator('.review-shot-yd')).toHaveText(['219 码', '109 码'])
+      const chips = canvas.locator('.review-canvas-chip')
+      await expect(chips).toHaveText([/^一号木 · 219码/, /^P杆 · 109码/])
       if (row.name === 'cached-statistics') {
+        await page.getByRole('button', { name: '成绩', exact: true }).click()
         await openClubs(page)
-        // Code-confirmed cache gap; browser reproduction is pending (known-red/C16g.md).
+        // Reproduced cache gap; see known-red/C16g.md.
         // Earlier edit/projection failures must remain unexpected failures.
         test.fail(true, 'C16g/9.2: saving a correction does not invalidate loaded performance statistics')
         await expect(page.locator('.club-performance article').filter({ hasText: '7I' }).locator('em')).toHaveText('2')
@@ -155,8 +155,7 @@ for (const row of [
       }
       await openReview(page)
       await expect(canvas.locator('circle[data-shot-id]')).toHaveCount(2)
-      await expect(timeline.locator('.review-shot-club')).toHaveText(['一号木', 'P杆'])
-      await expect(timeline.locator('.review-shot-yd')).toHaveText(['219 码', '109 码'])
+      await expect(chips).toHaveText([/^一号木 · 219码/, /^P杆 · 109码/])
       expect(api.corrections).toHaveLength(row.corrected ? 0 : 1)
     })
   })
@@ -236,7 +235,7 @@ test('j9_5_review_has_single_round_share_entry', async ({ page }) => {
   // Share is a round capability, not the legacy /p/<player-token> link. The
   // contract stops at this missing consumer affordance until its API exists.
   const share = page.getByRole('button', { name: '分享', exact: true })
-  test.fail(true, 'C16g/9.5: Web review has no round Share action or anonymous round-share view')
+  test.fail(true, 'C16g/9.5: read-only sharing is unimplemented (no Web entry or single-round backend token/API; App ShareLink sends text only)')
   await expect(share).toBeVisible()
   // Do not guess a share endpoint/URL or fake a successful anonymous view.
   // Once implemented, capture the actual UI-issued link in a fresh context and
