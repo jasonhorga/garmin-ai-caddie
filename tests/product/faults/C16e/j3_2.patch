@@ -1,0 +1,12 @@
+--- a/mobile/ios/AICaddie/Models/RoundEditModel.swift
++++ b/mobile/ios/AICaddie/Models/RoundEditModel.swift
+@@ -117,7 +117,8 @@
+         if let afterShotId,
+            isEditableShot(afterShotId),
+            let index = map.shots.firstIndex(where: { $0.id == afterShotId }) {
+-            insertIndex = index + 1
++            insertIndex = map.shots.count
++            _ = index
+         } else {
+             // Nothing selected: the new full shot goes after the last full shot, before any putts.
+             insertIndex = map.shots.firstIndex(where: roundShotIsPutt) ?? map.shots.count

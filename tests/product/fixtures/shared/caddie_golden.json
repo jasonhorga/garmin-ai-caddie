@@ -1,0 +1,730 @@
+{
+  "schemaVersion": 1,
+  "units": "metres",
+  "localAxes": "x east, y north",
+  "cases": [
+    {
+      "id": "h1_tee_0",
+      "hole": 1,
+      "par": 4,
+      "shotType": "tee",
+      "ballLocal": [
+        0,
+        0
+      ],
+      "pinLocal": [
+        0,
+        300
+      ],
+      "routeLocal": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          300
+        ]
+      ],
+      "distanceToPin_m": 300,
+      "clubProfiles": {
+        "9I": {
+          "median_m": 100,
+          "p10_m": 95,
+          "p90_m": 105,
+          "sampleSize": 20
+        },
+        "6I": {
+          "median_m": 150.0,
+          "p10_m": 145.0,
+          "p90_m": 155.0,
+          "sampleSize": 20
+        },
+        "3W": {
+          "median_m": 200,
+          "p10_m": 195,
+          "p90_m": 205,
+          "sampleSize": 20
+        }
+      },
+      "openingClubs": {
+        "safe": "9I",
+        "stock": "6I",
+        "attack": "3W"
+      },
+      "expected": [
+        {
+          "id": "safe",
+          "clubNames": [
+            "9I",
+            "9I",
+            "9I"
+          ],
+          "routeOffsets_m": [
+            100,
+            200,
+            300
+          ],
+          "landingsLocal": [
+            [
+              0,
+              100
+            ],
+            [
+              0,
+              200
+            ],
+            [
+              0,
+              300
+            ]
+          ],
+          "planIndices": [
+            0,
+            1,
+            2
+          ],
+          "plannedStrokes": 3
+        },
+        {
+          "id": "stock",
+          "clubNames": [
+            "6I",
+            "6I"
+          ],
+          "routeOffsets_m": [
+            150.0,
+            300
+          ],
+          "landingsLocal": [
+            [
+              0,
+              150.0
+            ],
+            [
+              0,
+              300
+            ]
+          ],
+          "planIndices": [
+            0,
+            1
+          ],
+          "plannedStrokes": 2
+        },
+        {
+          "id": "attack",
+          "clubNames": [
+            "3W",
+            "9I"
+          ],
+          "routeOffsets_m": [
+            200,
+            300
+          ],
+          "landingsLocal": [
+            [
+              0,
+              200
+            ],
+            [
+              0,
+              300
+            ]
+          ],
+          "planIndices": [
+            0,
+            1
+          ],
+          "plannedStrokes": 2
+        }
+      ],
+      "handCalculation": "Straight 300m route; safe = 100+100+100; stock = 150.0+150.0; attack = 200+100. The supplied safe/stock/attack opening choices define three candidate strategies; these complete routes are the independent product acceptance golden, without assumptions about evaluator thresholds. Route offsets are cumulative sums; local landings follow the stated axis and tee translation."
+    },
+    {
+      "id": "h1_tee_20",
+      "hole": 1,
+      "par": 4,
+      "shotType": "tee",
+      "ballLocal": [
+        20,
+        0
+      ],
+      "pinLocal": [
+        20,
+        300
+      ],
+      "routeLocal": [
+        [
+          20,
+          0
+        ],
+        [
+          20,
+          300
+        ]
+      ],
+      "distanceToPin_m": 300,
+      "clubProfiles": {
+        "9I": {
+          "median_m": 100,
+          "p10_m": 95,
+          "p90_m": 105,
+          "sampleSize": 20
+        },
+        "6I": {
+          "median_m": 150.0,
+          "p10_m": 145.0,
+          "p90_m": 155.0,
+          "sampleSize": 20
+        },
+        "3W": {
+          "median_m": 200,
+          "p10_m": 195,
+          "p90_m": 205,
+          "sampleSize": 20
+        }
+      },
+      "openingClubs": {
+        "safe": "9I",
+        "stock": "6I",
+        "attack": "3W"
+      },
+      "expected": [
+        {
+          "id": "safe",
+          "clubNames": [
+            "9I",
+            "9I",
+            "9I"
+          ],
+          "routeOffsets_m": [
+            100,
+            200,
+            300
+          ],
+          "landingsLocal": [
+            [
+              20,
+              100
+            ],
+            [
+              20,
+              200
+            ],
+            [
+              20,
+              300
+            ]
+          ],
+          "planIndices": [
+            0,
+            1,
+            2
+          ],
+          "plannedStrokes": 3
+        },
+        {
+          "id": "stock",
+          "clubNames": [
+            "6I",
+            "6I"
+          ],
+          "routeOffsets_m": [
+            150.0,
+            300
+          ],
+          "landingsLocal": [
+            [
+              20,
+              150.0
+            ],
+            [
+              20,
+              300
+            ]
+          ],
+          "planIndices": [
+            0,
+            1
+          ],
+          "plannedStrokes": 2
+        },
+        {
+          "id": "attack",
+          "clubNames": [
+            "3W",
+            "9I"
+          ],
+          "routeOffsets_m": [
+            200,
+            300
+          ],
+          "landingsLocal": [
+            [
+              20,
+              200
+            ],
+            [
+              20,
+              300
+            ]
+          ],
+          "planIndices": [
+            0,
+            1
+          ],
+          "plannedStrokes": 2
+        }
+      ],
+      "handCalculation": "Straight 300m route; safe = 100+100+100; stock = 150.0+150.0; attack = 200+100. The supplied safe/stock/attack opening choices define three candidate strategies; these complete routes are the independent product acceptance golden, without assumptions about evaluator thresholds. Route offsets are cumulative sums; local landings follow the stated axis and tee translation."
+    },
+    {
+      "id": "h2_tee_0",
+      "hole": 2,
+      "par": 4,
+      "shotType": "tee",
+      "ballLocal": [
+        0,
+        0
+      ],
+      "pinLocal": [
+        360,
+        0
+      ],
+      "routeLocal": [
+        [
+          0,
+          0
+        ],
+        [
+          360,
+          0
+        ]
+      ],
+      "distanceToPin_m": 360,
+      "clubProfiles": {
+        "9I": {
+          "median_m": 120,
+          "p10_m": 115,
+          "p90_m": 125,
+          "sampleSize": 20
+        },
+        "6I": {
+          "median_m": 180.0,
+          "p10_m": 175.0,
+          "p90_m": 185.0,
+          "sampleSize": 20
+        },
+        "3W": {
+          "median_m": 240,
+          "p10_m": 235,
+          "p90_m": 245,
+          "sampleSize": 20
+        }
+      },
+      "openingClubs": {
+        "safe": "9I",
+        "stock": "6I",
+        "attack": "3W"
+      },
+      "expected": [
+        {
+          "id": "safe",
+          "clubNames": [
+            "9I",
+            "9I",
+            "9I"
+          ],
+          "routeOffsets_m": [
+            120,
+            240,
+            360
+          ],
+          "landingsLocal": [
+            [
+              120,
+              0
+            ],
+            [
+              240,
+              0
+            ],
+            [
+              360,
+              0
+            ]
+          ],
+          "planIndices": [
+            0,
+            1,
+            2
+          ],
+          "plannedStrokes": 3
+        },
+        {
+          "id": "stock",
+          "clubNames": [
+            "6I",
+            "6I"
+          ],
+          "routeOffsets_m": [
+            180.0,
+            360
+          ],
+          "landingsLocal": [
+            [
+              180.0,
+              0
+            ],
+            [
+              360,
+              0
+            ]
+          ],
+          "planIndices": [
+            0,
+            1
+          ],
+          "plannedStrokes": 2
+        },
+        {
+          "id": "attack",
+          "clubNames": [
+            "3W",
+            "9I"
+          ],
+          "routeOffsets_m": [
+            240,
+            360
+          ],
+          "landingsLocal": [
+            [
+              240,
+              0
+            ],
+            [
+              360,
+              0
+            ]
+          ],
+          "planIndices": [
+            0,
+            1
+          ],
+          "plannedStrokes": 2
+        }
+      ],
+      "handCalculation": "Straight 360m route; safe = 120+120+120; stock = 180.0+180.0; attack = 240+120. The supplied safe/stock/attack opening choices define three candidate strategies; these complete routes are the independent product acceptance golden, without assumptions about evaluator thresholds. Route offsets are cumulative sums; local landings follow the stated axis and tee translation."
+    },
+    {
+      "id": "h2_tee_20",
+      "hole": 2,
+      "par": 4,
+      "shotType": "tee",
+      "ballLocal": [
+        0,
+        20
+      ],
+      "pinLocal": [
+        360,
+        20
+      ],
+      "routeLocal": [
+        [
+          0,
+          20
+        ],
+        [
+          360,
+          20
+        ]
+      ],
+      "distanceToPin_m": 360,
+      "clubProfiles": {
+        "9I": {
+          "median_m": 120,
+          "p10_m": 115,
+          "p90_m": 125,
+          "sampleSize": 20
+        },
+        "6I": {
+          "median_m": 180.0,
+          "p10_m": 175.0,
+          "p90_m": 185.0,
+          "sampleSize": 20
+        },
+        "3W": {
+          "median_m": 240,
+          "p10_m": 235,
+          "p90_m": 245,
+          "sampleSize": 20
+        }
+      },
+      "openingClubs": {
+        "safe": "9I",
+        "stock": "6I",
+        "attack": "3W"
+      },
+      "expected": [
+        {
+          "id": "safe",
+          "clubNames": [
+            "9I",
+            "9I",
+            "9I"
+          ],
+          "routeOffsets_m": [
+            120,
+            240,
+            360
+          ],
+          "landingsLocal": [
+            [
+              120,
+              20
+            ],
+            [
+              240,
+              20
+            ],
+            [
+              360,
+              20
+            ]
+          ],
+          "planIndices": [
+            0,
+            1,
+            2
+          ],
+          "plannedStrokes": 3
+        },
+        {
+          "id": "stock",
+          "clubNames": [
+            "6I",
+            "6I"
+          ],
+          "routeOffsets_m": [
+            180.0,
+            360
+          ],
+          "landingsLocal": [
+            [
+              180.0,
+              20
+            ],
+            [
+              360,
+              20
+            ]
+          ],
+          "planIndices": [
+            0,
+            1
+          ],
+          "plannedStrokes": 2
+        },
+        {
+          "id": "attack",
+          "clubNames": [
+            "3W",
+            "9I"
+          ],
+          "routeOffsets_m": [
+            240,
+            360
+          ],
+          "landingsLocal": [
+            [
+              240,
+              20
+            ],
+            [
+              360,
+              20
+            ]
+          ],
+          "planIndices": [
+            0,
+            1
+          ],
+          "plannedStrokes": 2
+        }
+      ],
+      "handCalculation": "Straight 360m route; safe = 120+120+120; stock = 180.0+180.0; attack = 240+120. The supplied safe/stock/attack opening choices define three candidate strategies; these complete routes are the independent product acceptance golden, without assumptions about evaluator thresholds. Route offsets are cumulative sums; local landings follow the stated axis and tee translation."
+    },
+    {
+      "id": "h3_water_tee",
+      "hole": 3,
+      "par": 5,
+      "shotType": "tee",
+      "ballLocal": [
+        40,
+        10
+      ],
+      "pinLocal": [
+        40,
+        310
+      ],
+      "routeLocal": [
+        [
+          40,
+          10
+        ],
+        [
+          40,
+          310
+        ]
+      ],
+      "distanceToPin_m": 300,
+      "clubProfiles": {
+        "9I": {
+          "median_m": 100,
+          "p10_m": 95,
+          "p90_m": 105,
+          "sampleSize": 20
+        },
+        "6I": {
+          "median_m": 150,
+          "p10_m": 145,
+          "p90_m": 155,
+          "sampleSize": 20
+        },
+        "3W": {
+          "median_m": 200,
+          "p10_m": 195,
+          "p90_m": 205,
+          "sampleSize": 20
+        }
+      },
+      "openingClubs": {
+        "safe": "9I",
+        "stock": "6I",
+        "attack": "3W"
+      },
+      "routeRiskScores": {
+        "safe": 0,
+        "stock": 0,
+        "attack": 0
+      },
+      "greenDistances": {
+        "frontM": 299,
+        "middleM": 300,
+        "backM": 301,
+        "source": "fixture"
+      },
+      "hazards": [
+        {
+          "id": "water-short",
+          "kind": "water",
+          "carryToFront_m": 30,
+          "carryToClear_m": 50,
+          "sourceRefs": [
+            "hazard:81001:3:water-short"
+          ]
+        }
+      ],
+      "expectedAvoidZones": [
+        {
+          "id": "water-short",
+          "kind": "water",
+          "carryToFront_m": 30,
+          "carryToClear_m": 50
+        }
+      ],
+      "expected": [
+        {
+          "id": "safe",
+          "clubNames": [
+            "9I",
+            "9I",
+            "9I"
+          ],
+          "routeOffsets_m": [
+            100,
+            200,
+            300
+          ],
+          "landingsLocal": [
+            [
+              40,
+              110
+            ],
+            [
+              40,
+              210
+            ],
+            [
+              40,
+              310
+            ]
+          ],
+          "planIndices": [
+            0,
+            1,
+            2
+          ],
+          "plannedStrokes": 3,
+          "nextShotExpectedStrokes": 1
+        },
+        {
+          "id": "stock",
+          "clubNames": [
+            "6I",
+            "6I"
+          ],
+          "routeOffsets_m": [
+            150,
+            300
+          ],
+          "landingsLocal": [
+            [
+              40,
+              160
+            ],
+            [
+              40,
+              310
+            ]
+          ],
+          "planIndices": [
+            0,
+            1
+          ],
+          "plannedStrokes": 2,
+          "nextShotExpectedStrokes": 1
+        },
+        {
+          "id": "attack",
+          "clubNames": [
+            "3W",
+            "9I"
+          ],
+          "routeOffsets_m": [
+            200,
+            300
+          ],
+          "landingsLocal": [
+            [
+              40,
+              210
+            ],
+            [
+              40,
+              310
+            ]
+          ],
+          "planIndices": [
+            0,
+            1
+          ],
+          "plannedStrokes": 2,
+          "nextShotExpectedStrokes": 1
+        }
+      ],
+      "handCalculation": "Spec 5.11: three factual club/route alternatives, an avoid zone and explicit planned strokes. Water occupies route metres 30..50; all three opening carry windows (95..105,145..155,195..205) clear it. Safe 100+100+100 = 3 planned strokes; stock 150+150 = 2; attack 200+100 = 2; each ends at the measured 299..301m green. All candidates have supplied risk score zero, narrow measured dispersion and no additional penalty/history fact, so the current-shot baseline is one stroke, separately from the whole-route count. This degenerate zero-additional-risk case requires no undocumented numeric penalty or carry-increase threshold."
+    }
+  ]
+}

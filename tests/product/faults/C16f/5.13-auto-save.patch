@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+--- a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
++++ b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+@@ -1449,3 +1449,3 @@
+                 // B6: 本洞成绩 was open and not confirmed; the next hole's tee shot saves it as drafted.
+-                persistScoreDraft()
++                startScoringActiveHole()
+             } else {

@@ -1,0 +1,31 @@
+{
+ "clubs": [
+  {
+   "id": 101,
+   "clubTypeId": 1,
+   "customName": "Driver",
+   "adviceDistance": 215,
+   "averageDistance": 0,
+   "retired": false,
+   "deleted": false
+  },
+  {
+   "id": 107,
+   "clubTypeId": 7,
+   "customName": "7I",
+   "adviceDistance": 145,
+   "averageDistance": 0,
+   "retired": false,
+   "deleted": false
+  },
+  {
+   "id": 110,
+   "clubTypeId": 10,
+   "customName": "PW",
+   "adviceDistance": 0,
+   "averageDistance": 0,
+   "retired": false,
+   "deleted": false
+  }
+ ]
+}

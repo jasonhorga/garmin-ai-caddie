@@ -1,0 +1,7 @@
+diff --git a/mobile/ios/AICaddieWatch/Services/WatchRoundStore.swift b/mobile/ios/AICaddieWatch/Services/WatchRoundStore.swift
+--- a/mobile/ios/AICaddieWatch/Services/WatchRoundStore.swift
++++ b/mobile/ios/AICaddieWatch/Services/WatchRoundStore.swift
+@@ -357,3 +357,2 @@
+         }
+-        try save(round)
+         return round

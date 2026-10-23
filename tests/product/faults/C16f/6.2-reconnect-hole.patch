@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+--- a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
++++ b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
+@@ -999,3 +999,3 @@
+         }
+-        guard var persisted = try? store.upsertHoleState(merged, makeActive: false) else {
++        guard var persisted = try? store.upsertHoleState(merged, makeActive: true) else {
+             return

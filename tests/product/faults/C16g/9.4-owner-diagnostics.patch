@@ -1,0 +1,7 @@
+--- a/web_v2/src/App.tsx
++++ b/web_v2/src/App.tsx
+@@ -171,3 +171,3 @@
+   // localStorage flag (no UI) — also how tests exercise that owner-only surface.
+-  const [diagnostics] = useState(() => isOwnerMode && readStoredDiagnostics())
++  const [diagnostics] = useState(() => readStoredDiagnostics())
+   const [activePage, setActivePage] = useState<ProductPage>('overview')

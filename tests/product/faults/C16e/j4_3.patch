@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
++++ b/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
+@@ -702,7 +702,7 @@
+             let number = roundStartHole + index
+             loop.holes.append(source.renumbered(
+                 to: number,
+-                courseHoleNumber: entry.half == "all" ? number : source.sourceLocalHole
++                courseHoleNumber: number
+             ))
+             if let prep = coursePrep?.holes.first(where: { $0.hole == source.number }) {
+                 loop.prep.append(prep.renumbered(to: number))

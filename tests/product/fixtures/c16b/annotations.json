@@ -1,0 +1,18 @@
+[
+ {
+  "targetType": "hole",
+  "targetId": "310000027:12",
+  "kind": "putt_correction",
+  "payload": {
+   "to": 1
+  }
+ },
+ {
+  "targetType": "hole",
+  "targetId": "310000105:5",
+  "kind": "putt_correction",
+  "payload": {
+   "to": 3
+  }
+ }
+]

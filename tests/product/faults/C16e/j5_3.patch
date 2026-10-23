@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Models/HomeWeather.swift
++++ b/mobile/ios/AICaddie/Models/HomeWeather.swift
+@@ -30,7 +30,7 @@
+     public var presentation: HomeWeatherPresentation? {
+         guard state == "ready", let temperatureC, temperatureC.isFinite else { return nil }
+         return HomeWeatherPresentation(
+-            temperatureText: "\(Int(temperatureC.rounded()))°",
++            temperatureText: "0°",
+             conditionText: Self.conditionText(condition),
+             symbolName: Self.symbolName(condition),
+             windText: Self.windText(speedMps: windSpeedMps, directionDeg: windDirectionDeg),

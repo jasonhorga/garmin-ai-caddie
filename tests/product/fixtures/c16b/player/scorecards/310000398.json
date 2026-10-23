@@ -1,0 +1,139 @@
+{
+ "source": "garmin",
+ "scorecardDetails": [
+  {
+   "scorecard": {
+    "id": 310000398,
+    "formattedStartTime": "2026-06-27T08:15:00",
+    "startTime": "2026-06-27T08:15:00",
+    "strokes": 88,
+    "holesCompleted": 18,
+    "courseGlobalId": 7101,
+    "frontNineGlobalCourseId": 7101,
+    "backNineGlobalCourseId": 7102,
+    "courseSnapshotId": null,
+    "teeBox": "Blue",
+    "teeBoxRating": 71.0,
+    "teeBoxSlope": 113,
+    "holes": [
+     {
+      "number": 1,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 2,
+      "strokes": 6,
+      "putts": 3,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 3,
+      "strokes": 4,
+      "putts": 2
+     },
+     {
+      "number": 4,
+      "strokes": 6,
+      "putts": 2,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 5,
+      "strokes": 4,
+      "putts": 2,
+      "fairwayShotOutcome": "HIT"
+     },
+     {
+      "number": 6,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 7,
+      "strokes": 5,
+      "putts": 2
+     },
+     {
+      "number": 8,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 9,
+      "strokes": 5,
+      "putts": 1,
+      "fairwayShotOutcome": "HIT"
+     },
+     {
+      "number": 10,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 11,
+      "strokes": 6,
+      "putts": 2,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 12,
+      "strokes": 5,
+      "putts": 2
+     },
+     {
+      "number": 13,
+      "strokes": 4,
+      "putts": 2,
+      "fairwayShotOutcome": "HIT"
+     },
+     {
+      "number": 14,
+      "strokes": 3,
+      "putts": 1,
+      "fairwayShotOutcome": "HIT"
+     },
+     {
+      "number": 15,
+      "strokes": 4,
+      "putts": 2
+     },
+     {
+      "number": 16,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 17,
+      "strokes": 6,
+      "putts": 2,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 18,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "RIGHT"
+     }
+    ]
+   },
+   "scorecardStats": {
+    "round": {}
+   }
+  }
+ ],
+ "courseSnapshots": [
+  {
+   "name": "Kestrel Hills ~ A/B",
+   "holePars": "443544345453443454",
+   "roundPar": 72,
+   "lat": 31200000,
+   "lon": 121400000
+  }
+ ]
+}

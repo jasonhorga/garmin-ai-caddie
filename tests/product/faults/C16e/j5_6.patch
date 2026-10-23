@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Models/LiveScoreConfirmation.swift
++++ b/mobile/ios/AICaddie/Models/LiveScoreConfirmation.swift
+@@ -75,7 +75,7 @@
+         let defaultPutts = 2
+         if let swings = watchSwingCount, swings > 0 {
+             let putts = max(0, watchPuttCount ?? defaultPutts)
+-            self.score = swings + putts
++            self.score = swings + 2
+             self.putts = putts
+             self.preselectedSource = .watchDetected
+         } else if phoneShotCount > 0 {

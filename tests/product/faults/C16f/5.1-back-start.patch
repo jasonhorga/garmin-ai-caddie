@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Models/WatchCourseDownload.swift b/mobile/ios/AICaddieWatch/Models/WatchCourseDownload.swift
+--- a/mobile/ios/AICaddieWatch/Models/WatchCourseDownload.swift
++++ b/mobile/ios/AICaddieWatch/Models/WatchCourseDownload.swift
+@@ -493,3 +493,3 @@
+     public static func physicalStartHole(_ half: String) -> Int {
+-        normalizedHalf(half) == "back" ? 10 : 1
++        1
+     }

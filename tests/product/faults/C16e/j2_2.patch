@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/ResultsView.swift
++++ b/mobile/ios/AICaddie/Views/ResultsView.swift
+@@ -737,6 +737,7 @@
+                 }
+             }
+             .pickerStyle(.segmented)
++            .disabled(true)
+             .accessibilityIdentifier("time-grain")
+             chart(rows)
+             if !cards.cards.isEmpty {

@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
++++ b/mobile/ios/AICaddie/Views/LiveHoleComponents.swift
+@@ -2080,7 +2080,7 @@
+     /// or orientation. Beyond either end the end segment is extrapolated.
+     static func transfer(_ pixel: CGPoint, from old: CoursePrepOverlay, to new: CoursePrepOverlay) -> CGPoint? {
+         guard pixel.x.isFinite, pixel.y.isFinite else { return nil }
+-        if old == new { return pixel }
++        if old != new { return pixel }
+         if old.w == new.w, old.h == new.h, old.ppm == new.ppm, old.route == new.route { return pixel }
+         guard old.ppm.isFinite, old.ppm > 0, new.ppm.isFinite, new.ppm > 0,
+               let oldRoute = stations(old), let newRoute = stations(new),
