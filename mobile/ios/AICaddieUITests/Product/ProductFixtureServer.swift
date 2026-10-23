@@ -1,0 +1,216 @@
+import Foundation
+import Network
+import XCTest
+
+/// An isolated synthetic HTTP backend owned by this UI test process. The product's DEBUG
+/// fixture origin permits loopback port 9000 only. Run this class alone on an idle simulator;
+/// binding failure is a test setup error, never permission to contact a shared backend.
+final class ProductFixtureServer {
+    struct State {
+        var roundCount = 3
+        var reviewHoles = 18
+        var hasShots = true
+        var includePutts = false
+        var providerFailure = false
+        var coverage = "ready"
+    }
+    private let queue = DispatchQueue(label: "product-native-fixture")
+    private let listener: NWListener
+    private var state = State()
+    private var paths: [String] = []
+    private let sourcePackage: [String: Any]
+
+    init(test: XCTestCase) throws {
+        let fixture = try XCTUnwrap(Bundle(for: ProductPhoneUITests.self).url(forResource: "native_product", withExtension: "json"))
+        let document = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as? [String: Any]
+        var template = try XCTUnwrap(document?["package"] as? [String: Any])
+        let hole = try XCTUnwrap((template["holes"] as? [[String: Any]])?.first)
+        var coursePrep = try XCTUnwrap(template["coursePrep"] as? [String: Any])
+        let prep = try XCTUnwrap((coursePrep["holes"] as? [[String: Any]])?.first)
+        template["holes"] = (1...9).map { number -> [String: Any] in
+            var row = hole; row["number"] = number; row["sourceLocalHole"] = number; row["courseHoleNumber"] = number; return row
+        }
+        coursePrep["holes"] = (1...9).map { number -> [String: Any] in
+            var row = prep; row["hole"] = number; return row
+        }
+        template["coursePrep"] = coursePrep
+        sourcePackage = template
+        listener = try NWListener(using: .tcp, on: 9000)
+        let ready = XCTestExpectation(description: "isolated synthetic backend binds port 9000")
+        var startupError: Error?
+        listener.stateUpdateHandler = { value in
+            switch value {
+            case .ready: ready.fulfill()
+            case .failed(let error): startupError = error; ready.fulfill()
+            default: break
+            }
+        }
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let self else { connection.cancel(); return }
+            connection.start(queue: self.queue)
+            self.receive(connection, accumulated: Data())
+        }
+        listener.start(queue: queue)
+        test.wait(for: [ready], timeout: 5)
+        if let startupError { throw startupError }
+    }
+
+    func configure(_ next: State) { queue.sync { state = next; paths = [] } }
+    func requestedPaths() -> [String] { queue.sync { paths } }
+    func stop() { listener.cancel() }
+
+    private func receive(_ connection: NWConnection, accumulated: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, complete, error in
+            guard let self, error == nil else { connection.cancel(); return }
+            var buffer = accumulated
+            if let data { buffer.append(data) }
+            guard let boundary = buffer.range(of: Data("\r\n\r\n".utf8)) else {
+                if complete { connection.cancel() } else { self.receive(connection, accumulated: buffer) }
+                return
+            }
+            let headers = String(decoding: buffer[..<boundary.lowerBound], as: UTF8.self)
+            let length = headers.components(separatedBy: "\r\n").first { $0.lowercased().hasPrefix("content-length:") }
+                .flatMap { Int($0.split(separator: ":", maxSplits: 1)[1].trimmingCharacters(in: .whitespaces)) } ?? 0
+            guard buffer.count >= boundary.upperBound + length else {
+                self.receive(connection, accumulated: buffer)
+                return
+            }
+            let target = headers.components(separatedBy: "\r\n").first?.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+            self.paths.append(target)
+            let (code, object) = self.response(target)
+            guard let body = try? JSONSerialization.data(withJSONObject: object) else { connection.cancel(); return }
+            var response = Data("HTTP/1.1 \(code) \(code == 200 ? "OK" : "Unavailable")\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
+            response.append(body)
+            connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+        }
+    }
+
+    private func response(_ target: String) -> (Int, Any) {
+        let components = URLComponents(string: "http://localhost\(target)")
+        let path = components?.path ?? target
+        let query = Dictionary((components?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
+        if path == "/api/v2/health" { return (200, ["status": "ok", "dataMode": "fixture"]) }
+        if path == "/api/v2/mobile/courses/options" {
+            return (200, ["schema": "ai-caddie-course-options-v1", "dataMode": "fixture", "total": 1,
+                "courses": [["globalId": 82001, "name": "Example", "holes": 9, "roundCount": 3, "teeBox": "blue"]],
+                "generatedAt": "2026-10-23T00:00:00Z"])
+        }
+        if path.hasSuffix("/package") {
+            var package = sourcePackage
+            let roundFromPath = path.hasPrefix("/api/v2/mobile/rounds/") ? path.split(separator: "/").dropLast().last.map(String.init) : nil
+            let roundID = query["round_id"] ?? roundFromPath ?? "home-82001"
+            package["roundId"] = roundID
+            if var coverage = package["sourceCoverage"] as? [String: Any] {
+                coverage["requestedRoundId"] = roundID
+                package["sourceCoverage"] = coverage
+            }
+            package["coursePrep"] = configuredPrep()
+            if var holes = package["holes"] as? [[String: Any]] {
+                for i in holes.indices { holes[i]["geometryCoverage"] = state.coverage }
+                package["holes"] = holes
+            }
+            package["geometryCoverage"] = ["state": state.coverage,
+                "readyHoles": state.coverage == "ready" ? 9 : 0, "totalHoles": 9]
+            return (200, package)
+        }
+        if path == "/api/v2/history/stats/mobile" { return (200, stats()) }
+        if path == "/api/v2/history/rounds" {
+            // Q2's hand-written sample is r1/r2; Q3 contains r3.
+            let ids: [Int] = query["period"] == "2026-Q2" ? [2, 1] : Array((1...max(1, state.roundCount)).reversed()).filter { $0 <= state.roundCount }
+            let groups: [[String: Any]] = ["2026-09", "2026-06"].compactMap { month in
+                let members = ids.filter { ($0 == 3 ? "2026-09" : "2026-06") == month }
+                return members.isEmpty ? nil : ["key": month, "label": month, "count": members.count, "rounds": members.map(card)]
+            }
+            return (200, ["total": ids.count, "groups": groups, "availableYears": ["2026"], "availableCourses": []])
+        }
+        if path.hasSuffix("/shotmap") {
+            let hole = Int(path.split(separator: "/").dropLast().last ?? "1") ?? 1
+            var prep = ((sourcePackage["coursePrep"] as? [String: Any])?["holes"] as? [[String: Any]])?.first ?? [:]
+            prep["hole"] = hole
+            return (200, ["found": true, "hole": hole, "par": 4, "globalId": 81001, "localHole": hole <= 9 ? hole + 9 : hole - 9,
+                "geometryRevision": "native-r1", "mapKind": "prodgeometry", "map": prep["map"] ?? [:], "shots": state.hasShots ? [
+                    ["id": "s\(hole)-1", "order": 1, "start": [100, 350], "end": [100, 200], "club": "7I", "endLie": "fairway"],
+                    ["id": "s\(hole)-2", "order": 2, "start": [100, 200], "end": [100, 16], "club": "6I", "endLie": "green"],
+                ] : [], "manualPenalty": 0, "missingData": []])
+        }
+        if path.hasPrefix("/api/v2/history/rounds/") && !path.contains("/report") {
+            let ref = path.split(separator: "/").last.map(String.init) ?? "r1"
+            let index = Int(ref.dropFirst()) ?? 1
+            let total = 78 + index * 2
+            let pars = state.reviewHoles * 4
+            let extra = total - pars
+            let perHole = extra / state.reviewHoles
+            let remainder = extra % state.reviewHoles
+            return (200, ["roundRef": ref, "found": true,
+                "round": ["courseName": "Example", "date": date(index), "score": total,
+                          "par": pars, "toPar": extra, "holesCompleted": state.reviewHoles],
+                "scorecard": (1...state.reviewHoles).map { n in
+                    ["hole": n, "par": 4, "score": 4 + perHole + (n <= remainder ? 1 : 0), "toPar": perHole + (n <= remainder ? 1 : 0),
+                     "putts": state.includePutts ? (2 as Any) : NSNull(),
+                     "localHole": n <= 9 ? n + 9 : n - 9, "globalId": 81001,
+                     "shotRefs": state.hasShots ? ["s\(n)-1", "s\(n)-2"] : []] as [String: Any]
+                }, "phaseSummary": [], "missingData": []])
+        }
+        if path.contains("report") || path.contains("caddie/decision") {
+            return (state.providerFailure ? 503 : 404, ["error": "synthetic-provider-unavailable"])
+        }
+        if path.hasSuffix("/tees") { return (200, ["schema": "ai-caddie-course-tees-v1", "globalId": 82001, "tees": [["teeBox": "blue", "name": "blue", "holeCount": 9, "yards": 3285, "default": true]], "defaultTeeBox": "blue"]) }
+        if path.hasSuffix("/prep") {
+            var prep = configuredPrep()
+            prep["holeCount"] = 9
+            prep["clubs"] = []
+            prep["missingData"] = []
+            return (200, prep)
+        }
+        return (404, ["error": "synthetic-unavailable"])
+    }
+
+    private func configuredPrep() -> [String: Any] {
+        var prep = sourcePackage["coursePrep"] as? [String: Any] ?? [:]
+        var holes = prep["holes"] as? [[String: Any]] ?? []
+        for i in holes.indices {
+            holes[i]["geometryCoverage"] = state.coverage
+            if state.coverage == "missing" {
+                holes[i]["route"] = []
+                for key in ["map", "holeImageProjection", "greenDistances", "greenOutline"] {
+                    holes[i].removeValue(forKey: key)
+                }
+                holes[i]["hazards"] = [:]
+            }
+        }
+        prep["holes"] = holes
+        return prep
+    }
+
+    private func date(_ n: Int) -> String { n == 3 ? "2026-09-03" : "2026-06-0\(n)" }
+
+    private func card(_ n: Int) -> [String: Any] {
+        ["id": "r\(n)", "date": date(n), "courseName": "Example", "holesCompleted": 18,
+         "score": 78 + n * 2, "par": 72, "toPar": 6 + n * 2, "globalId": 81001,
+         "scoreStrip": [], "badges": []]
+    }
+
+    private func stats() -> [String: Any] {
+        ["summary": ["totalRounds": state.roundCount, "eighteenHoleRounds": state.roundCount,
+                     "recent10Average": 82, "bestScore": 80, "handicapEstimate": 10],
+         "trend": ["points": (1...max(1, state.roundCount)).filter { $0 <= state.roundCount }.map {
+             ["roundId": "r\($0)", "date": date($0), "score": 78 + $0 * 2] as [String: Any]
+         }],
+         "time": ["byMonth": [], "byYear": [], "byQuarter": [
+            ["key": "2026-Q2", "roundCount": 2, "eighteenHoleRounds": 2, "average18": 81,
+             "bestScore": 80, "worstScore": 82, "roundIds": ["r1", "r2"]],
+            ["key": "2026-Q3", "roundCount": 1, "eighteenHoleRounds": 1, "average18": 84,
+             "bestScore": 84, "worstScore": 84, "roundIds": ["r3"]],
+         ]],
+         "courses": [["courseKey": "example", "courseName": "Example", "roundCount": 3, "average18": 82,
+                      "loopKeys": ["gid:81001:1-9", "gid:81001:10-18"], "nineOnlyRounds": 1,
+                      "rounds": [["roundId": "r1", "date": "2026-06-01", "score": 80, "holesCompleted": 18]]]],
+         "scoring": ["loops": [
+            ["loopKey": "gid:81001:1-9", "label": "1–9", "holes": [["hole": 1, "par": 4, "averageToPar": 1.5, "samples": 2]]],
+            ["loopKey": "gid:81001:10-18", "label": "10–18", "holes": [["hole": 10, "par": 4, "averageToPar": 3, "samples": 1]]],
+         ], "nineCombos": [
+            ["frontKey": "gid:81001:1-9", "backKey": "gid:81001:10-18", "front": "1–9", "back": "10–18", "rounds": 2, "average": 81],
+            ["frontKey": "gid:81001:10-18", "backKey": "gid:81001:1-9", "front": "10–18", "back": "1–9", "rounds": 1, "average": 84],
+         ]]]
+    }
+}

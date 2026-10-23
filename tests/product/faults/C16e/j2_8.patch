@@ -1,0 +1,9 @@
+--- a/mobile/ios/AICaddie/Views/RoundReviewView.swift
++++ b/mobile/ios/AICaddie/Views/RoundReviewView.swift
+@@ -452,5 +452,6 @@
+         }
+         .buttonStyle(.plain)
+         .padding(.top, 4)
++        .disabled(true)
+         .accessibilityIdentifier("round-review-share")
+     }

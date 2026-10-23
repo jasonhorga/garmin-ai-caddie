@@ -19,12 +19,15 @@ final class ProductTeeResultTests: XCTestCase {
         let expected: String?
     }
 
-    func testTeeResultsMatchIndependentSharedVectors() throws {
-        // Native CI runs from a checkout. #filePath anchors this to the test source,
-        // independent of Xcode's working directory and the simulator's bundle layout.
+    func test_j5_8_tee_results_match_shared_vectors() throws {
+        // Xcode copies the authoritative vector into this bundle, without a duplicate fixture.
+        #if SWIFT_PACKAGE
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { root.deleteLastPathComponent() }
         let url = root.appendingPathComponent("tests/product/fixtures/shared/tee_result.json")
+        #else
+        let url = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "tee_result", withExtension: "json"))
+        #endif
         let document = try JSONDecoder().decode(Document.self, from: Data(contentsOf: url))
         XCTAssertEqual(document.schemaVersion, 1)
         XCTAssertFalse(document.cases.isEmpty, "the shared vector table must be exercised")

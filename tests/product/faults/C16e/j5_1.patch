@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddieDomain/NineLoopPlan.swift
++++ b/mobile/ios/AICaddieDomain/NineLoopPlan.swift
+@@ -122,6 +122,6 @@
+     public var canChangeSecond: Bool {
+         switch phase {
+         case .choosing, .firstLoop, .atTurn: return true
+-        case .secondLoop, .finishedAfterNine: return false
++        case .secondLoop, .finishedAfterNine: return true
+         }
+     }

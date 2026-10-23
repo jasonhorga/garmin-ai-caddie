@@ -12,7 +12,7 @@ final class ProductLoopMapTests: XCTestCase {
         let cases: [Vector]
     }
 
-    private struct InputCourse: Decodable {
+    struct InputCourse: Decodable {
         let globalId: Int
         let holeCount: Int
         let venue: String
@@ -26,13 +26,13 @@ final class ProductLoopMapTests: XCTestCase {
         let expectedHoles: [[Int]]
     }
 
-    func testOfflineCompositionMatchesEverySharedHoleTable() throws {
+    func test_j4_3_offline_composition_matches_shared_hole_tables() throws {
         let document: Document = try ProductSharedVectors.read("loop_map")
         XCTAssertEqual(document.schemaVersion, 1)
         XCTAssertEqual(document.holeColumns, ["number", "sourceGlobalId", "sourceLocalHole", "courseHoleNumber"])
         XCTAssertFalse(document.cases.isEmpty)
         let templates = try Dictionary(uniqueKeysWithValues: document.courses.map {
-            ($0.globalId, try template($0))
+            ($0.globalId, try Self.template($0))
         })
         for vector in document.cases {
             let entries = try XCTUnwrap(
@@ -65,7 +65,7 @@ final class ProductLoopMapTests: XCTestCase {
         package.holes.map { [$0.number, $0.sourceGlobalId, $0.sourceLocalHole, $0.courseHoleNumber] }
     }
 
-    private func template(_ course: InputCourse) throws -> LiveRoundPackage {
+    static func template(_ course: InputCourse) throws -> LiveRoundPackage {
         let loops: [[String: Any]] = course.holeCount == 18 ? [
             ["globalId": course.globalId, "half": "front", "roundStartHole": 1, "sourceStartHole": 1, "holeCount": 9],
             ["globalId": course.globalId, "half": "back", "roundStartHole": 10, "sourceStartHole": 10, "holeCount": 9],
