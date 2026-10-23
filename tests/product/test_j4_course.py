@@ -1,10 +1,13 @@
 """J4: course identity over HTTP and independent, small polygon arithmetic."""
 import copy
+import json
 import unittest
 from unittest.mock import patch
 
 from ai_caddie.courses import course_prep, course_reference, course_search
 from ai_caddie.geometry import elevation
+from ai_caddie.caddie import mobile_live
+from ai_caddie.history.history import HistoryData
 from tests.product._support_c16c import HTTPFixture, vectors
 
 
@@ -41,7 +44,8 @@ class CourseHTTPTests(HTTPFixture, unittest.TestCase):
             side_effect=lambda gid, **kw: names.get(int(gid))))
 
     def test_j4_1_discovery_deduplicates_and_names_venues(self):
-        from server_v2 import map_startup
+        from server_v2 import main, map_startup
+        self.catalogue()
         # Fake Garmin protobuf bytes at the transport boundary: duplicate catalogue id.
         def varint(value):
             out = bytearray()
@@ -57,7 +61,22 @@ class CourseHTTPTests(HTTPFixture, unittest.TestCase):
             return field(4,b"".join(field(k,v) for k,v in [
                 (7,gid),(12,name),(13,holes),(9,lat),(10,0)]))
         a = record(82001,"Example Venue ~ A",9,0)
-        pb = a+a+record(81001,"Example Eighteen",18,119305)
+        pb = (a+a+record(82002,"Example Venue ~ B",9,100)+record(82003,"Example Venue ~ C",9,200)
+              +record(81001,"Example Eighteen",18,119305))
+        # All three nines belong to one 27-hole venue. A played A/C round has
+        # 18 holes, but neither A nor C may be advertised as an 18-hole layout.
+        rounds=[{"id":str(i),"globalId":gid,"course":name,"date":"2026-01-02",
+                 "holesCompleted":18,"holePars":"4"*18,"lat":0,"lon":0}
+                for i,(gid,name) in enumerate([(82001,"Example Venue ~ A/C"),
+                    (82001,"Example Venue ~ A/C"),(82002,"Example Venue ~ B/A"),
+                    (82003,"Example Venue ~ C/A"),(81001,"Example Eighteen")])]
+        self.data=lambda: HistoryData(raw_rounds=rounds,rounds=rounds,shots=[])
+        self.stack.enter_context(patch.object(main,"cached_load_history_data",side_effect=lambda **kw:self.data()))
+        self.stack.enter_context(patch.object(mobile_live,"_courseview_tee_names",return_value=[]))
+        sources={}
+        # Golden is physical source coverage, not the hole count of a past played combination.
+        expected=[(81001,"Example Eighteen",18),(82001,"Example Venue",9),
+                  (82002,"Example Venue",9),(82003,"Example Venue",9)]
         course_search._clear_nearby_cache_for_tests()
         for mode in ["search", "nearby"]:
             with self.subTest(row=mode), \
@@ -67,8 +86,51 @@ class CourseHTTPTests(HTTPFixture, unittest.TestCase):
                     "latitude":0,"longitude":0})
                 self.assertEqual(response.status_code,200,response.text)
                 matches = response.json()["matches"]
-                self.assertEqual([(r["globalId"],r["venueName"],r["holes"]) for r in matches],
-                    [(82001,"Example Venue",9),(81001,"Example Eighteen",18)])
+                actual=[(r["globalId"],r["venueName"],r["holes"]) for r in matches]
+                self.assertEqual(sorted(actual),expected,"source layout coverage must be explicit: 9,9,9 and 18")
+                sources[mode]=actual
+        with self.subTest(row="recent"):
+            response=self.client.get("/api/v2/mobile/courses/options")
+            self.assertEqual(response.status_code,200,response.text)
+            courses=response.json()["courses"]
+            actual=[(r["globalId"],r["venueName"],r["segmentHoles"]) for r in courses]
+            self.assertEqual(sorted(actual),expected,"recent played 18-hole combos still expose 9-hole layouts")
+            sources["recent"]=actual
+        with self.subTest(row="downloaded"):
+            # The downloaded source is a locally retained HTTP package. Native list grouping
+            # belongs to Swift; here verify the server facts consumed by that same grouping.
+            saved=[]
+            for gid,loops in [(81001,"81001:front,81001:back"),(82001,"82001:all"),
+                              (82002,"82002:all"),(82003,"82003:all")]:
+                response=self.client.get(f"/api/v2/mobile/courses/{gid}/package",
+                    params={"loops":loops,"include_event_cursor":"false"})
+                self.assertEqual(response.status_code,200,response.text)
+                path=self.root/f"downloaded-{gid}.json"
+                path.write_text(response.text)
+                package=json.loads(path.read_text())
+                saved.append((gid,package["course"]["venueName"],len(package["holes"])))
+            self.assertEqual(sorted(saved),expected,"retained package coverage must match the chosen physical layout")
+            sources["downloaded"]=saved
+        with self.subTest(row="downloaded_A_only"):
+            only_a=json.loads((self.root/"downloaded-82001.json").read_text())
+            self.assertEqual((only_a["course"]["venueName"],len(only_a["holes"])),("Example Venue",9),
+                             "a retained A package covers nine physical holes of a 27-hole venue")
+        if len(sources)!=4:
+            return  # Source assertions already failed; do not obscure them with a missing-key error.
+        for names in [("nearby","search"),("recent","nearby","search"),
+                      ("downloaded","nearby","search"),("recent","downloaded","nearby","search")]:
+            with self.subTest(row="+".join(names)):
+                # This is an identity/coverage projection of actual backend outputs, not a
+                # replacement implementation of the native picker. Repeated source records
+                # must supply identical grouping keys; all three loop ids map to one venue.
+                facts=[fact for name in names for fact in sources[name]]
+                self.assertEqual(sorted(set(facts)),expected)
+                self.assertEqual({venue for _,venue,_ in facts},{"Example Venue","Example Eighteen"})
+                self.assertEqual({(gid,coverage) for gid,venue,coverage in facts if venue=="Example Venue"},
+                                 {(82001,9),(82002,9),(82003,9)})
+                self.assertEqual(sum(dict((gid,coverage) for gid,venue,coverage in facts
+                                          if venue=="Example Venue").values()),27,
+                                 "three distinct physical nines cover 27 holes; repeated sources add no coverage")
 
     def test_j4_2_illegal_course_parameters_are_rejected(self):
         self.catalogue()
@@ -96,6 +158,19 @@ class CourseHTTPTests(HTTPFixture, unittest.TestCase):
         columns = vectors("loop_map.json")["holeColumns"]
         for row in vectors("loop_map.json")["cases"]:
             with self.subTest(row=row["id"]):
+                # Inspect construction independently of its defensive identity validator.
+                # A shifted/wrong-half package must fail this golden comparison even if
+                # validation is disabled, rather than merely returning an HTTP 422.
+                loops=[(int(part.split(":")[0]),part.split(":")[1]) for part in row["loops"].split(",")]
+                with patch.object(mobile_live,"validate_round_identity"):
+                    raw=mobile_live.build_live_round_package_for_loops(loops,data=self.data(),
+                        root=self.root,annotations_root=self.root,include_event_cursor=False,
+                        allow_lightweight_fetch=False)
+                self.assertEqual([[h["number"],h["sourceGlobalId"],h["sourceLocalHole"]] for h in raw["holes"]],
+                                 [hole[:3] for hole in row["expectedHoles"]],
+                                 "physical-hole golden with identity validation disabled")
+                self.assertEqual([[h[k] for k in columns] for h in raw["holes"]],row["expectedHoles"],
+                                 "physical-hole golden with identity validation disabled")
                 response = self.client.get(f"/api/v2/mobile/courses/{row['pathGlobalId']}/package",
                     params={"loops":row["loops"],"include_event_cursor":"false"})
                 self.assertEqual(response.status_code,200,response.text)

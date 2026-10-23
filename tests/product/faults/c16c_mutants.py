@@ -21,6 +21,16 @@ CASES = [
      'int(hole["sourceLocalHole"]) if loop["half"] in ("front", "back") else number',
      'int(hole["sourceLocalHole"]) + 1 if loop["half"] in ("front", "back") else number',
      'tests.product.test_j4_course.CourseHTTPTests.test_j4_3_packages_equal_hand_physical_hole_table'),
+    ("4.3/no-shift", "ai_caddie/caddie/mobile_live.py",
+     'offset = len(front.get("holes") or [])', 'offset = 0',
+     'tests.product.test_j4_course.CourseHTTPTests.test_j4_3_packages_equal_hand_physical_hole_table'),
+    ("4.3/forced-back", "ai_caddie/caddie/mobile_live.py",
+     '_filter_package_to_nine(base, half)', '_filter_package_to_nine(base, "back" if loop_packages else half)',
+     'tests.product.test_j4_course.CourseHTTPTests.test_j4_3_packages_equal_hand_physical_hole_table'),
+    ("4.1/coverage", "ai_caddie/caddie/mobile_live.py",
+     '"segmentHoles": int(segment_holes) if segment_holes else played_holes,',
+     '"segmentHoles": played_holes,',
+     'tests.product.test_j4_course.CourseHTTPTests.test_j4_1_discovery_deduplicates_and_names_venues'),
     ("4.4", "ai_caddie/courses/course_prep.py",
      'front_pt = min(boundary_points, key=_from_tee)', 'front_pt = max(boundary_points, key=_from_tee)',
      'tests.product.test_j4_course.GeometryTests.test_j4_4_geometry_equals_polygon_arithmetic'),
@@ -35,6 +45,12 @@ CASES = [
     ("5.11", "ai_caddie/caddie/decision.py",
      '"clubName": row.get("clubName"),\n        "role": role,',
      '"clubName": "9I",\n        "role": role,',
+     'tests.product.test_j5_play.DecisionGoldenTests.test_j5_11_decisions_equal_hand_routes'),
+    ("5.11/hazards", "ai_caddie/caddie/decision.py",
+     'forbidden = _forbidden_zones_from_route(route)', 'forbidden = []',
+     'tests.product.test_j5_play.DecisionGoldenTests.test_j5_11_decisions_equal_hand_routes'),
+    ("5.11/strokes", "ai_caddie/caddie/decision.py",
+     '"expectedStrokes": round(1.0 + expected_delta, 2),', '"expectedStrokes": 99,',
      'tests.product.test_j5_play.DecisionGoldenTests.test_j5_11_decisions_equal_hand_routes'),
     ("5.15", "ai_caddie/rounds/swing_candidates.py",
      'merged = {c["id"]: c for c in load_candidates(player_id, round_id, root)}', 'merged = {}',
@@ -83,6 +99,8 @@ def main():
             if not dead:
                 print(result.stderr)
                 raise RuntimeError(f"{promise}: survived or failed for the wrong reason")
+            if promise.startswith("4.3/") and "physical-hole golden with identity validation disabled" not in result.stderr:
+                raise RuntimeError(f"{promise}: failed before the physical-hole comparison\n{result.stderr}")
             killed += 1
             print(f"{promise}: KILLED {relative}:{line} ({test.rsplit('.',1)[1]})",flush=True)
         finally:

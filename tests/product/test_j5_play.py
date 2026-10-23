@@ -184,14 +184,36 @@ class DecisionGoldenTests(unittest.TestCase):
                     self.assertEqual([s["clubName"] for s in steps], expected["clubNames"])
                     self.assertEqual([s["routeOffset_m"] for s in steps], expected["routeOffsets_m"])
                     self.assertEqual([s["planIndex"] for s in steps], expected["planIndices"])
+                    self.assertEqual(len(steps),expected["plannedStrokes"],row["handCalculation"])
+                    if "greenDistances" in row:
+                        self.assertEqual(sequences[expected["id"]]["shotsToGreen"],expected["plannedStrokes"])
                 options = {o["id"]:o for o in plan["options"]}
                 for expected in row["expected"]:
                     self.assertEqual(options[expected["id"]]["targetLocal"], expected["landingsLocal"][0])
+                    if "nextShotExpectedStrokes" in expected:
+                        self.assertEqual(options[expected["id"]]["scoreImpact"]["expectedStrokes"],
+                                         expected["nextShotExpectedStrokes"],row["handCalculation"])
                 self.assertEqual(len({tuple(s["clubNames"]) for s in row["expected"]}), 3)
-                self.assertEqual(plan["avoidZones"], [])  # The small course has no hazard facts.
+                columns=("id","kind","carryToFront_m","carryToClear_m")
+                expected_zones=row.get("expectedAvoidZones",[])
+                for advice in [plan,*options.values()]:
+                    self.assertEqual([{k:z[k] for k in columns} for z in advice["avoidZones"]],expected_zones)
+                # Every hazard identity anywhere in advice must be a supplied physical fact.
+                def hazard_ids(value):
+                    if isinstance(value,dict):
+                        if value.get("kind") in {"water","bunker","ob","out_of_bounds","tree_area"}:
+                            yield value.get("id") or value.get("hazardId")
+                        for k,v in value.items():
+                            if k in {"hazardId","criticalHazardId"} and v:
+                                yield v
+                            yield from hazard_ids(v)
+                    elif isinstance(value,list):
+                        for v in value:
+                            yield from hazard_ids(v)
+                self.assertEqual(set(hazard_ids(plan)),{z["id"] for z in expected_zones})
                 self.assertTrue(plan["evidence"])
                 # Every club/route reference must be an input fact, never a made-up hazard.
-                allowed = {golden_context(row)["sourceRef"]}
+                allowed = {golden_context(row)["sourceRef"],*[ref for z in row.get("hazards",[]) for ref in z.get("sourceRefs",[])]}
                 def refs(value):
                     if isinstance(value, dict):
                         for k,v in value.items():
@@ -203,6 +225,8 @@ class DecisionGoldenTests(unittest.TestCase):
                         for v in value:
                             yield from refs(v)
                 self.assertLessEqual(set(refs(plan)), allowed)
+                self.assertLessEqual({ref for z in row.get("hazards",[]) for ref in z.get("sourceRefs",[])},
+                                     set(refs(plan)),"Known hazards must retain a resolvable evidence reference")
         # No measured bag/geometry means an explicit missing-data result, no invented club chain.
         missing = build_decision_plan({"par":4, "hole":1, "geometry":{}})
         self.assertEqual(missing["sequences"], [])

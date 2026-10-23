@@ -41,11 +41,16 @@ def golden_context(row):
                ("hole", "par", "shotType", "distanceToPin_m", "clubProfiles")}
     context.update({"source": "fixture", "sourceRef": f"course:81001:hole:{row['hole']}",
                     "routeEvidence": {"startLocal": row["ballLocal"], "targetLocal": row["pinLocal"]}})
+    if "greenDistances" in row:
+        context["greenDistances"] = copy.deepcopy(row["greenDistances"])
     context["candidateRoutes"] = [
         {"id": route_id, "club": row["openingClubs"][strategy],
          "carry_m": row["clubProfiles"][row["openingClubs"][strategy]]["median_m"],
          "landingLocal": [a + (b-a) * row["clubProfiles"][row["openingClubs"][strategy]]["median_m"] / row["distanceToPin_m"]
-                          for a, b in zip(row["ballLocal"], row["pinLocal"])], "riskScore": risk, "sourceRefs": [context["sourceRef"]]}
+                          for a, b in zip(row["ballLocal"], row["pinLocal"])],
+         "riskScore": row.get("routeRiskScores",{}).get(strategy,risk),
+         "lineRisks": copy.deepcopy(row.get("hazards",[])),
+         "sourceRefs": [context["sourceRef"],*[ref for hazard in row.get("hazards",[]) for ref in hazard.get("sourceRefs",[])]]}
         for strategy, route_id, risk in [
             ("safe", "conservative_layup", 0),
             ("stock", "stock_line", 1),
