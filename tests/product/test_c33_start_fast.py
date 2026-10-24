@@ -388,15 +388,17 @@ class ReworkContractTests(unittest.TestCase):
         ready = {"globalId": 123, "localHole": 2, "geometryCoverage": "partial",
                  "candidateRoutes": [], "carryTargets": [], "missingData": [],
                  "par": 4, "parSource": "courseview", "blueYards": 330, "routeLenM": 300,
-                 "steps": [], "cautions": [], "hazards": [], "route": [[0, 0, 0], [0, 300, 300]],
-                 "map": {"image": None, "overlay": {"w": 678, "h": 1060, "route": [[0, 0], [0, 300]]}}}
+                 "steps": [], "cautions": [], "hazards": {"water_carry": [], "bunkers": [], "details": []},
+                 "route": [[0, 0, 0], [0, 300, 300]],
+                 "map": {"image": None, "overlay": {"w": 678, "h": 1060, "ppm": 1.2, "ln": 300,
+                                                     "route": [[0, 0, 0], [0, 300, 300]]}}}
         with (cold_package() as mobile,
               patch('ai_caddie.core.data.mesh_path', return_value=Path(__file__)),
               patch('ai_caddie.caddie.analysis.tee_set_for_box', return_value=2),
               patch('ai_caddie.courses.vector_prep.cached_vector_hole', side_effect=lambda gid, hole, **kw: ready if hole == 2 else None)):
             result = mobile.build_mobile_course_package_response(
                 123, loops=[(123, 'front'), (123, 'back')], map_only=True, include_event_cursor=False)
-        payload = result.model_dump(by_alias=True, exclude_none=True)
+        payload = result.model_dump(by_alias=True)
         schema = json.loads(Path('mobile/contracts/live_round_package.schema.json').read_text())
         errors = list(Draft202012Validator(schema).iter_errors(payload))
         self.assertEqual([], [e.message for e in errors])  # P0: a real cold package remains decodable.

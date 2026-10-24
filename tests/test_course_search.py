@@ -528,7 +528,9 @@ class CourseSearchEndpointTests(unittest.TestCase):
     def test_mobile_options_discovery_uses_30km_and_enqueues_without_waiting_for_maps(self) -> None:
         from server_v2 import main as server_main
         canned = [cs.CourseMatch(1, "Golf", 9, None, None, 1, distance_km=1)]
-        with (patch.object(server_main.course_search, "courseview_nearby", return_value=canned) as discover,
+        with (patch.object(server_main, "_ACTIVE_ROUNDS", {}),
+              patch.object(server_main.course_install, "_ACTIVE", set()),
+              patch.object(server_main.course_search, "courseview_nearby", return_value=canned) as discover,
               patch("server_v2.map_startup.enqueue_nearby") as enqueue,
               patch.object(server_main, "record_courseview_catalogue_names")):
             server_main._discover_nearby_maps(47.0, 12.0)

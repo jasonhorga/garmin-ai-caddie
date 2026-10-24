@@ -34,6 +34,12 @@ class PriorityLaneTests(unittest.TestCase):
 
 
 class NearbyWarmTests(unittest.TestCase):
+    def setUp(self):
+        from server_v2 import main
+        # These cases exercise discovery in an idle service, independently of other test jobs.
+        self.enterContext(patch.object(main, "_ACTIVE_ROUNDS", {}))
+        self.enterContext(patch.object(main.course_install, "_ACTIVE", set()))
+
     def test_optional_catalogue_failure_is_shared_but_new_release_retries(self):
         from server_v2 import map_startup as ms
         from ai_caddie.courses import courseview_core as cv
@@ -250,7 +256,7 @@ class ColdPriorityTests(unittest.TestCase):
 
     def test_nearby_chunk_leaves_one_geometry_worker_free_for_foreground(self):
         from server_v2 import course_install as ci, main
-        with TemporaryDirectory() as directory, patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}), patch.object(ci, "_launch"):
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}), patch.object(ci, "_launch"), patch.object(main, "_ACTIVE_ROUNDS", {}), patch.object(ci, "_ACTIVE", set()):
             job = ci.enqueue(global_id=123, tee_box="blue", loop_key="123:nearby-assets", player_id="public", refs=[{"globalId": 123, "localHole": h} for h in (1, 2)], requested={123: [1, 2]}, ready={}, priority=NEARBY)
             def ensure(gid, *, holes, on_hole_complete, priority):
                 self.assertEqual(holes, [1])

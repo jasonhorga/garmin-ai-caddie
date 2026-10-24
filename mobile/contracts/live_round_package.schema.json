@@ -334,6 +334,10 @@
         }
       }
     },
+    "courseInstallJob": {
+      "type": ["object", "null"],
+      "description": "Public background course-install status; null when no job was requested."
+    },
     "coursePrep": {
       "type": ["object", "null"],
       "additionalProperties": false,

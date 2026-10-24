@@ -62,6 +62,8 @@ def _fetch(client: TestClient, loops: str) -> dict:
         patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "local")),
         patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=_coverage),
         patch.object(course_reference, "courseview_par", return_value=PARS),
+        # Keep the complete holes comparison: retry timestamps use a fixed fixture clock.
+        patch("ai_caddie.caddie.mobile_live.time.time", return_value=1_780_000_000.0),
     ):
         response = client.get(
             f"/api/v2/mobile/courses/{GLOBAL_ID}/package",
@@ -115,6 +117,12 @@ def _stable(value):
 
 
 class B4b2LoopTablesFixtureTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Oracle packages start real rounds; keep their leases local to this fixture test.
+        activity = patch("server_v2.main._ACTIVE_ROUNDS", {})
+        activity.start()
+        self.addCleanup(activity.stop)
+
     def test_fixture_matches_the_server_route(self) -> None:
         current = build_fixture()
         if os.environ.get("REGENERATE_B4B2_FIXTURE") == "1":
