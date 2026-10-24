@@ -676,3 +676,20 @@ import ai_caddie.caddie.mobile_live
             count = ms.enqueue_nearby([CourseMatch(123, 'Fixture', 9, None, None, 1, distance_km=1)])
         self.assertEqual(count, 1)  # P2: admission uses an injected policy, not a reverse import at call time.
         enqueue.assert_called_once()
+
+
+class ReworkTeeScopeTests(unittest.TestCase):
+    def test_requested_tees_are_scoped_to_vector_cache_root(self):
+        from ai_caddie.courses import vector_prep as vp
+        with TemporaryDirectory() as d, patch.dict(vp._REQUESTED_TEES, {}, clear=True):
+            with patch.object(vp, '_CACHE_DIR', Path(d)/'first'):
+                vp.request_vector_tee(123, 1, 4)
+            with patch.object(vp, '_CACHE_DIR', Path(d)/'second'):
+                vp.request_vector_tee(123, 1, 2)
+                with patch.object(vp, 'cached_vector_hole', return_value={}) as build:
+                    vp.warm_requested_vectors(123, 1)
+            self.assertNotIn(4, [c.kwargs.get('tee_set') for c in build.call_args_list])  # Tee requests cannot cross data/cache roots.
+            with patch.object(vp, '_CACHE_DIR', Path(d)/'first'):
+                with patch.object(vp, 'cached_vector_hole', return_value={}) as build:
+                    vp.warm_requested_vectors(123, 1)
+            self.assertIn(4, [c.kwargs.get('tee_set') for c in build.call_args_list])
