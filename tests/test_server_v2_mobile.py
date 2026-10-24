@@ -4233,3 +4233,19 @@ class ServerV2MobileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class C33StartFastRouteTests(unittest.TestCase):
+    def test_route_returns_pending_raster_package_with_busy_geometry(self):
+        from tests.product.test_c33_start_fast import cold_package, StartFastTests
+        from server_v2 import main
+        import time
+        with cold_package(), patch.object(main.course_install, "enqueue", return_value={"phase": "queued"}):
+            start = time.monotonic()
+            result = main.mobile_course_package(
+                123, BackgroundTasks(), loops="123:front,123:back", background_geometry=True,
+                include_event_cursor=False, player_id="owner")
+            elapsed = time.monotonic() - start
+        # C33 card 1 sets a 1 s API budget with 10 s geometry/lock blockers.
+        self.assertLess(elapsed, 1.0)
+        StartFastTests.assert_pending(self, result)

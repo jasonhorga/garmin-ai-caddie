@@ -1,0 +1,331 @@
+"""C33s: expectations are handwritten from the card's startup/queue budgets.
+
+Provider IO is fake; blockers have a ten-second ceiling and are always released.
+"""
+from contextlib import ExitStack, contextmanager
+from concurrent.futures import Future
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+import asyncio
+import logging
+import threading
+import time
+import unittest
+from unittest.mock import patch
+
+from ai_caddie.core.priority_work import FOREGROUND, NEARBY, PriorityExecutor
+
+
+@contextmanager
+def cold_package():
+    from ai_caddie.caddie import mobile_live as ml
+    from ai_caddie.courses import course_reference as cr, vector_prep as vp
+    from ai_caddie.geometry import geometry_sync as gs
+    from ai_caddie.core.data import ROOT
+    from server_v2 import mobile, map_startup as ms
+    release, entered = threading.Event(), threading.Event()
+    pool = PriorityExecutor(1, name="c33-geometry")
+    template = {"id": "live-course-123", "globalId": 123, "course": "Fixture Golf",
+                "courseKey": "gid_123", "holesCompleted": 18,
+                "holes": [{"number": n, "par": 4} for n in range(1, 19)]}
+    def hold():
+        with cr._release_lock(123, ROOT), vp._LOCKS[hash((123, 1, 2)) % len(vp._LOCKS)]:
+            entered.set()
+            release.wait(10)
+    def slow(*a, **kw):
+        release.wait(10)
+        return None
+    holder = threading.Thread(target=hold)
+    holder.start()
+    assert entered.wait(1)
+    try:
+        with ExitStack() as stack:
+            for obj, name, kw in [
+                (cr, "load_release_pb", {"side_effect": OSError("fixture provider offline")}),
+                (ml, "_GEOMETRY_INSTALL_POOL", {"new": pool}),
+                (ml, "_geometry_only_course_template", {"return_value": template}),
+                (ml, "_authoritative_course_holes", {"return_value": 18}),
+                (ml, "_courseview_segment_resolver", {"return_value": ("Fixture Golf", 18)}),
+                (ml, "_load_mobile_hazards", {"return_value": {}}),
+                (ml.course_prep, "precise_route_seed_hole", {"side_effect": slow}),
+                (ml.course_prep, "lightweight_prep_hole", {"return_value": None}),
+                (ml.course_prep, "effective_club_ladder", {"return_value": []}),
+                (gs, "ensure_prodgeometry", {"side_effect": slow}),
+                (ms, "ensure_startup_course_data", {"return_value": None}),
+                (mobile, "load_history_data_for_mode", {"return_value": (ml.HistoryData(raw_rounds=[], rounds=[], shots=[]), "fixture")}),
+            ]:
+                stack.enter_context(patch.object(obj, name, **kw))
+            yield mobile
+    finally:
+        release.set()
+        holder.join(2)
+        pool.shutdown()
+
+
+class StartFastTests(unittest.TestCase):
+    def assert_pending(self, package):
+        # Card 1: first hole always describes the Garmin fallback and a retryable geometry state.
+        first = package.holes[0]
+        self.assertEqual(first["geometryState"], "pending")
+        self.assertGreater(first["retryAfterEpoch"], time.time())
+        self.assertEqual(first["garminRaster"]["imageUrl"], "/api/v2/courses/123/holes/1/garmin-raster.jpg")
+
+    def test_package_under_release_vector_locks_and_slow_geometry(self):
+        with cold_package() as mobile:
+            start = time.monotonic()
+            result = mobile.build_mobile_course_package_response(
+                123, loops=[(123, "front"), (123, "back")], prepare_map=True, include_event_cursor=False)
+            elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 1.0)  # Card's 1 s budget versus blockers capped at 10 s.
+        self.assert_pending(result)
+
+    def test_course_prep_never_decodes_mesh_on_cache_miss(self):
+        from ai_caddie.caddie import mobile_live as ml
+        from ai_caddie.courses import vector_prep as vp
+        package = {"course": {"globalId": 123}, "holes": [
+            {"number": 1, "sourceGlobalId": 123, "sourceLocalHole": 1},
+            {"number": 2, "sourceGlobalId": 123, "sourceLocalHole": 2}]}
+        with (patch("ai_caddie.core.data.mesh_path", return_value=Path(__file__)),
+              patch.object(vp, "cached_vector_hole", return_value=None) as cached,
+              patch("ai_caddie.caddie.analysis.tee_set_for_box", return_value=2),
+              patch.object(ml.course_prep, "lightweight_prep_hole", return_value=None),
+              patch.object(ml.course_prep, "precise_route_seed_hole", return_value=None) as decode):
+            result = ml.first_hole_lightweight_course_prep(package, map_only=True)
+        self.assertFalse(decode.called)  # Card 2: cache misses belong to background work.
+        self.assertTrue(all(c.kwargs["build_if_missing"] is False for c in cached.call_args_list))
+        self.assertEqual(result["holes"][0]["geometryState"], "pending")
+
+    def test_cache_only_vector_read_does_not_wait_for_writer(self):
+        from ai_caddie.courses import vector_prep as vp
+        ready = {"coverage": "ready", "geometryRevision": "r1"}
+        release, entered = threading.Event(), threading.Event()
+        def hold():
+            with vp._LOCKS[hash((123, 1, 2)) % len(vp._LOCKS)]:
+                entered.set()
+                release.wait(10)
+        t = threading.Thread(target=hold)
+        t.start()
+        self.assertTrue(entered.wait(1))
+        try:
+            with TemporaryDirectory() as d, patch.object(vp, "_CACHE_DIR", Path(d)):
+                start = time.monotonic()
+                self.assertIsNone(vp.cached_vector_hole(123, 1, tee_set=2, coverage=ready, build_if_missing=False))
+                elapsed = time.monotonic() - start
+            self.assertLess(elapsed, 1)  # Card 1/2: an atomic cache read cannot wait on a producer.
+        finally:
+            release.set()
+            t.join()
+
+    def test_singleflight_timeout_returns_pending_package(self):
+        from server_v2 import mobile
+        with cold_package(), patch.dict(mobile._PACKAGE_SINGLEFLIGHT, {}, clear=True):
+            # Capture the actual course key, then simulate a leader still producing that package.
+            with patch.object(mobile, "_package_singleflight", side_effect=lambda key, build, **kw: key):
+                key = None
+                try:
+                    mobile.build_mobile_course_package_response(123, loops=[(123, "front"), (123, "back")], map_only=True, captured_at="2026-10-24T00:00:00Z", include_event_cursor=False)
+                except AttributeError:
+                    pass
+                key = mobile._package_singleflight.call_args.args[0]
+            blocked = Future()
+            mobile._PACKAGE_SINGLEFLIGHT[key] = blocked
+            timer = threading.Timer(10, lambda: blocked.set_exception(TimeoutError("fixture leader deadline")))
+            timer.daemon = True
+            timer.start()
+            self.addCleanup(timer.cancel)
+            start = time.monotonic()
+            result = mobile.build_mobile_course_package_response(123, loops=[(123, "front"), (123, "back")], map_only=True, captured_at="2026-10-24T00:00:00Z", include_event_cursor=False)
+            elapsed = time.monotonic() - start
+            self.assertLess(elapsed, 1)  # Card 4: follower uses the same <=1 s start budget.
+            self.assert_pending(result)
+
+    def test_mesh_ready_hazards_pending_advertises_topo(self):
+        from ai_caddie.caddie import mobile_live as ml
+        evidence = {"coverage": "partial", "topoCoverage": "ready", "topoRevision": "mesh-r1",
+                    "geometryRevision": None, "hasMeshes": True, "hasHazards": False}
+        with patch.object(ml, "_geometry_evidence_for_package_hole", return_value=evidence):
+            holes = ml._package_holes({"globalId": 123, "holes": [{"number": 1, "par": 4}]}, {}, course_key="fixture", hole_numbers=[1])
+        # Card 6: topo depends on mesh authority, independently of obstacle supplementation.
+        self.assertTrue(holes[0]["topoAvailable"])
+        self.assertEqual(holes[0]["topoRevision"], "mesh-r1")
+        self.assertEqual(holes[0]["geometryCoverage"], "partial")
+
+
+class WarmBudgetTests(unittest.TestCase):
+    def test_ten_nearby_courses_enqueue_nearest_three(self):
+        from ai_caddie.courses.course_search import CourseMatch
+        from server_v2 import map_startup as ms
+        matches = [CourseMatch(i, "Fixture", 9, None, None, 1, distance_km=i) for i in range(10, 0, -1)]
+        with (patch.dict(ms._REGION_ENQUEUED, {}, clear=True),
+              patch("server_v2.main.nearby_work_blocked", return_value=False, create=True),
+              patch.object(ms.course_install, "enqueue") as enqueue):
+            self.assertEqual(ms.enqueue_nearby(matches), 3)  # Card 5 explicitly caps the nearest set at 3.
+        self.assertEqual([c.kwargs["global_id"] for c in enqueue.call_args_list], [1, 2, 3])
+
+    def test_active_round_or_install_defers_nearby(self):
+        from server_v2 import main, map_startup as ms
+        from ai_caddie.courses.course_search import CourseMatch
+        match = CourseMatch(123, "Fixture", 9, None, None, 1, distance_km=1)
+        for active_round, install in [(True, False), (False, True)]:
+            with self.subTest(round=active_round, install=install), ExitStack() as s:
+                s.enter_context(patch.dict(ms._REGION_ENQUEUED, {}, clear=True))
+                s.enter_context(patch.object(main, "_ACTIVE_ROUNDS", {("fixture", "r1"): time.monotonic() + 3600} if active_round else {}, create=True))
+                s.enter_context(patch.object(main.course_install, "_ACTIVE", {"selected"} if install else set()))
+                s.enter_context(patch.object(main.course_install, "state_for_worker", return_value={"priority": 10, "loopKey": "123:all"}))
+                enqueue = s.enter_context(patch.object(ms.course_install, "enqueue"))
+                self.assertEqual(ms.enqueue_nearby([match]), 0)  # Card 5: active play/install leaves zero nearby work.
+                enqueue.assert_not_called()
+
+    def test_nearby_worker_does_not_fetch_when_play_is_active(self):
+        from server_v2 import main
+        state = {"globalId": 123, "loopKey": "123:nearby-assets", "priority": NEARBY}
+        with (patch.object(main.course_install, "state_for_worker", return_value=state),
+              patch.object(main, "nearby_work_blocked", return_value=True, create=True),
+              patch("ai_caddie.courses.course_reference.courseview_release_info", return_value=None) as fetch,
+              patch.object(main.course_install, "update")):
+            main.run_course_install_job("nearby")
+        fetch.assert_not_called()  # Card 5 also checks admission when an already queued job starts.
+
+    def test_derivatives_serialize_and_inherit_foreground_priority(self):
+        from ai_caddie.geometry import batch_prodgeometry_course as bp
+        from ai_caddie.core import priority_work as pw
+        entered, release = threading.Event(), threading.Event()
+        lock = threading.Lock()
+        order, running, peak = [], 0, 0
+        def work(gid, hole, *args):
+            nonlocal running, peak
+            with lock:
+                running += 1
+                peak = max(peak, running)
+            if hole == 1:
+                entered.set()
+                release.wait(10)
+            order.append(hole)
+            with lock:
+                running -= 1
+        caller = PriorityExecutor(1, name="c33-caller")
+        try:
+            with TemporaryDirectory() as d, patch.object(bp, "_run_derivatives", side_effect=work), patch.object(bp, "_derivative_snapshot", return_value=("r1", "digest", ())), patch.object(bp, "load_derivatives_status", return_value=None):
+                def submit(h):
+                    return bp._start_derivative_job(123, h, Path(d) / f"{h}.json", Path(d)/f"d{h}", Path(d)/f"h{h}")
+                caller.submit(submit, 1, priority=NEARBY).result(1)
+                self.assertTrue(entered.wait(1))
+                for h in [2, 3, 4]:
+                    caller.submit(submit, h, priority=NEARBY).result(1)
+                caller.submit(submit, 5, priority=FOREGROUND).result(1)
+                release.set()
+                deadline = time.monotonic() + 2
+                while len(order) < 5 and time.monotonic() < deadline:
+                    threading.Event().wait(.01)
+                self.assertEqual(peak, 1)  # Card 5: five submissions share exactly one derivative worker.
+                self.assertEqual(order, [1, 5, 2, 3, 4])  # Foreground overtakes all queued NEARBY work.
+        finally:
+            release.set()
+            caller.shutdown()
+
+    def test_foreground_topo_overtakes_waiting_background(self):
+        from ai_caddie.geometry import topo_render as tr
+        bg = PriorityExecutor(3, name="c33-topo-bg")
+        fg = PriorityExecutor(1, name="c33-topo-fg")
+        release, full, fg_waiting, bg_waiting = (threading.Event() for _ in range(4))
+        lock, order = threading.Lock(), []
+        occupied = 0
+        def occupy():
+            nonlocal occupied
+            with tr._cold_render_slot:
+                with lock:
+                    occupied += 1
+                    if occupied == 2:
+                        full.set()
+                release.wait(10)
+        def queued(name, event):
+            event.set()
+            with tr._cold_render_slot:
+                order.append(name)
+        try:
+            initial = [bg.submit(occupy, priority=NEARBY) for _ in range(2)]
+            self.assertTrue(full.wait(1))
+            back = bg.submit(queued, "background", bg_waiting, priority=NEARBY)
+            self.assertTrue(bg_waiting.wait(1))
+            threading.Event().wait(.05)
+            front = fg.submit(queued, "foreground", fg_waiting, priority=FOREGROUND)
+            self.assertTrue(fg_waiting.wait(1))
+            threading.Event().wait(.05)
+            release.set()
+            for f in initial + [front, back]:
+                f.result(2)
+            self.assertEqual(order[0], "foreground")  # Card 6: next free cold render slot serves foreground first.
+        finally:
+            release.set()
+            bg.shutdown()
+            fg.shutdown()
+
+    def test_nearby_export_subprocess_uses_nice(self):
+        from ai_caddie.geometry import batch_prodgeometry_course as bp
+        pool = PriorityExecutor(1, name="c33-nice")
+        try:
+            with patch.object(bp.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout="")) as run:
+                pool.submit(bp.run, ["fixture-export"], priority=NEARBY).result(1)
+            self.assertEqual(run.call_args.args[0][:3], ["nice", "-n", "10"])  # Card 5: only background subprocess CPU gets a lower OS priority.
+        finally:
+            pool.shutdown()
+
+
+class ObservabilityTests(unittest.TestCase):
+    def test_request_timing_info_is_enabled_and_has_mobile_segments(self):
+        from server_v2 import timing
+        # Card 7: production must enable INFO on this named logger without a debug flag.
+        self.assertTrue(timing.logger.isEnabledFor(logging.INFO))
+        with cold_package() as mobile, timing.bind(timing.RequestTiming("c33-fixture")) as clock:
+            mobile.build_mobile_course_package_response(123, loops=[(123, "front"), (123, "back")], map_only=True, include_event_cursor=False)
+            with self.assertLogs("server_v2.timing", level="INFO") as logs:
+                clock.finish(method="GET", path="/api/v2/mobile/courses/123/package", status=200)
+        self.assertTrue({"mobile_stats", "mobile_holes", "mobile_weather", "mobile_seeds"}.issubset(clock.marks))
+        self.assertIn("mobile_holes;dur=", clock.server_timing())
+        self.assertIn("request_id=c33-fixture", logs.output[0])
+        self.assertEqual(logs.records[0].levelno, logging.INFO)
+
+    def test_derivative_failure_logs_message_and_retries_after_thirty_seconds(self):
+        from ai_caddie.geometry import batch_prodgeometry_course as bp
+        from ai_caddie.geometry.geometry_authority import load_derivatives_status
+        with TemporaryDirectory() as d:
+            mesh = Path(d)/"mesh.json"
+            mesh.write_text('{}')
+            with (patch.object(bp, "_derivative_target_is_current", return_value=True),
+                  patch.object(bp, "run", side_effect=RuntimeError("fixture exporter stalled")),
+                  self.assertLogs(bp.logger, level="WARNING") as logs):
+                before = time.time()
+                bp._run_derivatives(123, 1, mesh, Path(d)/"d.json", Path(d)/"h.json", "r1", "digest", ())
+            status = load_derivatives_status(mesh)
+            self.assertIn("fixture exporter stalled", " ".join(logs.output))
+            self.assertGreaterEqual(status["retryAfterEpoch"], before + 30)  # Card 7 minimum first backoff is 30 s.
+
+    def test_pending_derivative_status_exposes_retry_epoch(self):
+        from ai_caddie.geometry import batch_prodgeometry_course as bp
+        from ai_caddie.geometry.geometry_authority import load_derivatives_status
+        with TemporaryDirectory() as d:
+            mesh = Path(d)/"mesh.json"
+            mesh.write_text('{}')
+            observed = []
+            def run(*a, **kw):
+                observed.append(load_derivatives_status(mesh))
+                return False, "fixture failure"
+            with patch.object(bp, "_derivative_target_is_current", return_value=True), patch.object(bp, "run", side_effect=run):
+                bp._run_derivatives(123, 1, mesh, Path(d)/"d", Path(d)/"h", "r1", "digest", ())
+            self.assertGreater(observed[0]["retryAfterEpoch"], time.time())  # Card 7: pending polls also know when to retry.
+
+    def test_event_422_logs_only_field_path_and_error_type(self):
+        from fastapi.exceptions import RequestValidationError
+        from starlette.requests import Request
+        from server_v2 import main
+        secret = "private-event-content-sentinel"
+        error = RequestValidationError([{"loc": ("body", "events", 0, "strategyMode"), "type": "literal_error", "msg": secret, "input": secret}], body={"events": [secret]})
+        request = Request({"type": "http", "method": "POST", "path": "/api/v2/mobile/rounds/r1/events", "headers": []})
+        with self.assertLogs(main.logger, level="INFO") as logs:
+            response = asyncio.run(main.validation_exception_handler(request, error))
+        self.assertEqual(response.status_code, 422)
+        text = " ".join(logs.output)
+        self.assertIn("body.events.0.strategyMode", text)
+        self.assertIn("literal_error", text)
+        self.assertNotIn(secret, text)  # Card 7: validation diagnostics never echo an event's body/message.
