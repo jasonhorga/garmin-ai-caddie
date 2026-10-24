@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4235,7 +4235,7 @@
+             return result
+         } catch SyncClientError.http(status: 422, body: let body) {
+             guard !Task.isCancelled, offlineStore.storageScope == scope else { throw CancellationError() }
+-            if events.count == 1, isSingleEventPayloadValidation422(body) {
++            if events.count == 1 {
+                 try offlineStore.quarantineEvent(events[0], status: 422, reason: body ?? "HTTP 422")
+                 quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: roundId).count
+                 AICaddieLog.storage.error("Invalid event quarantined; outbox continues (HTTP 422)")

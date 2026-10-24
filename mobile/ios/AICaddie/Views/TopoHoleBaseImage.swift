@@ -52,7 +52,15 @@ final class TopoHoleImageStore: ObservableObject {
     /// The decoded image already in memory for `url`, so a view can draw it on its first frame
     /// instead of flashing the loading state.
     static func cachedImage(for url: URL?) -> UIImage? {
-        url.flatMap { imageCache.object(forKey: $0 as NSURL) }
+        guard let url else { return nil }
+        if let cached = imageCache.object(forKey: url as NSURL) { return cached }
+        if url.isFileURL, let image = UIImage(contentsOfFile: url.path) {
+            preload(image, for: url)
+            return image
+        }
+        guard let disk = diskImage(for: url) else { return nil }
+        preload(disk, for: url)
+        return disk
     }
 
     /// Put an already-decoded image in memory for `url` (design snapshots render deterministically).

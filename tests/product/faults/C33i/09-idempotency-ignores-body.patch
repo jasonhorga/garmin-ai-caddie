@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -5793,7 +5793,7 @@
+         encoder.outputFormatting = [.sortedKeys]
+         let body = try encoder.encode(EventBatch(roundId: roundId, events: events))
+         let digest = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
+-        return "ios-events-v2-\(digest)"
++        return "\(roundId)-\(events.map(\.eventId).joined(separator: "-"))"
+     }
+ 
+     private func loadFixturePackage() throws -> LiveRoundPackage {

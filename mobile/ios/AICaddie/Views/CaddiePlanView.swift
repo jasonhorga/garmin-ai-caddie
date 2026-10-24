@@ -80,9 +80,8 @@ func caddieOptionId(forStrategyMode value: String?) -> String? {
     }
 }
 
-/// Return a stable transport token for a displayed route. Known legacy aliases collapse to the
-/// canonical mode; unknown ids remain selectable without making the UI depend on three fixed
-/// strategy categories.
+/// Return the route token used by the UI and decision request. Route identity is intentionally
+/// preserved so an unknown route can still be selected and matched to selectedSequence.
 func caddieSelectionToken(forRouteId value: String?) -> String? {
     guard let value else { return nil }
     if let mode = caddieStrategyMode(forRouteId: value) {
@@ -94,6 +93,18 @@ func caddieSelectionToken(forRouteId value: String?) -> String? {
         .replacingOccurrences(of: "-", with: "_")
         .replacingOccurrences(of: " ", with: "_")
     return token.isEmpty ? nil : token
+}
+
+/// Map a UI route token at the event boundary. The server accepts only these three values;
+/// unknown route identities are represented by omitting the optional field.
+func eventStrategyMode(forRouteId value: String?) -> String? {
+    guard let value else { return nil }
+    switch caddieStrategyMode(forRouteId: value) {
+    case "protect_score", "stock", "attack":
+        return caddieStrategyMode(forRouteId: value)
+    default:
+        return nil
+    }
 }
 
 /// Read the server's selected route without assuming that its id is one of the old three mode
