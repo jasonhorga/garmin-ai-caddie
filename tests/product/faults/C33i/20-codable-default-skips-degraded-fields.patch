@@ -1,13 +1,13 @@
 --- a/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
 +++ b/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
-@@ -1455,8 +1455,8 @@
- 
- public struct OfflinePackageStatus: Codable, Equatable {
-     public let state: String
--    public let cacheable: Bool?
--    public let degradationReason: String?
-+    public let cacheable: Bool? = nil
-+    public let degradationReason: String? = nil
-     public let preparedAt: String
-     public let expiresAt: String
-     public let cachePolicy: CachePolicy
+@@ -1484,8 +1484,8 @@
+     public init(from decoder: Decoder) throws {
+         let container = try decoder.container(keyedBy: CodingKeys.self)
+         state = try container.decode(String.self, forKey: .state)
+-        cacheable = try container.decodeIfPresent(Bool.self, forKey: .cacheable)
+-        degradationReason = try container.decodeIfPresent(String.self, forKey: .degradationReason)
++        cacheable = nil
++        degradationReason = nil
+         preparedAt = try container.decode(String.self, forKey: .preparedAt)
+         expiresAt = try container.decode(String.self, forKey: .expiresAt)
+         cachePolicy = try container.decode(CachePolicy.self, forKey: .cachePolicy)
