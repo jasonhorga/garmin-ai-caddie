@@ -166,6 +166,50 @@ final class C33PackageTests: XCTestCase {
         XCTAssertEqual(observed, 1)
     }
 
+    func testPendingGeometryFailureReschedulesWithBackoff() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c33-geometry-backoff.example.test")!, session: session)
+        let model = c33Model(OfflineStore(directoryURL: directory), client)
+        var pendingJSON = try packageJSON()
+        pendingJSON["roundId"] = "c33-geometry-backoff"
+        try replaceFirstHole(&pendingJSON, with: ["geometryState": "pending", "retryAfterEpoch": Date().timeIntervalSince1970 - 1])
+        var readyJSON = try packageJSON()
+        readyJSON["roundId"] = "c33-geometry-backoff"
+        try replaceFirstHole(&readyJSON, with: ["geometryState": "ready", "retryAfterEpoch": NSNull()])
+        let pendingData = try JSONSerialization.data(withJSONObject: pendingJSON)
+        let readyData = try JSONSerialization.data(withJSONObject: readyJSON)
+        let secondAttempt = expectation(description: "failed geometry retry is rescheduled")
+        let lock = NSLock()
+        var attempts = 0
+        C33URLProtocol.setHandlers(onStart: { proto in
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/api/v2/mobile/courses/32850/package") {
+                proto.reply(200, pendingData); return
+            }
+            if path.hasSuffix("/package") {
+                lock.lock(); attempts += 1; let count = attempts; lock.unlock()
+                if count == 1 { proto.reply(500); return }
+                secondAttempt.fulfill(); proto.reply(200, readyData); return
+            }
+            proto.reply(404)
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let start = Task {
+            await model.prepareCourseRound(
+                roundId: "c33-geometry-backoff", teeBox: "blue", loops: [.init(globalId: 32850, half: "all")]
+            )
+        }
+        await fulfillment(of: [secondAttempt], timeout: 6)
+        await start.value
+        lock.lock(); let observed = attempts; lock.unlock()
+        XCTAssertEqual(observed, 2)
+    }
+
     func testDegradedSingleflightPackageNeverReplacesCachedCompletePackage() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = OfflineStore(directoryURL: directory)
