@@ -769,6 +769,7 @@ public final class LiveRoundAppModel: ObservableObject {
             do {
                 if let roundId = try offlineStore.inProgressRoundId() {
                     try offlineStore.discardRound(roundId: roundId)
+                    try? offlineStore.removeQuarantinedEvents(roundId: roundId)
                     watchBridge?.clearRoundSeed(roundId: roundId)
                 }
             } catch {
@@ -784,6 +785,7 @@ public final class LiveRoundAppModel: ObservableObject {
             do {
                 let fixture = try loadScoringUITestFixture()
                 try? offlineStore.discardRound(roundId: fixture.roundId)
+                try? offlineStore.removeQuarantinedEvents(roundId: fixture.roundId)
                 try offlineStore.saveRoundPackage(fixture)
                 try activatePackage(fixture, status: "离线记分测试")
             } catch {
@@ -3075,6 +3077,12 @@ public final class LiveRoundAppModel: ObservableObject {
         #endif
 
         do {
+            let quarantined = try offlineStore.loadQuarantinedEvents(roundId: package.roundId)
+            if quarantined.contains(where: { [.score, .putt, .penalty].contains($0.event.kind) }) {
+                finishErrorMessage = "本场有异常的记分记录仍在隔离区，请联网同步后再结束球局"
+                syncStatus = "结束已暂停 · 先处理隔离记录"
+                return false
+            }
             let events = try offlineStore.loadEvents().filter { $0.roundId == package.roundId }
             let completedHoles = Set(events.compactMap { event in
                 event.kind == .score && event.hole > 0 ? event.hole : nil
@@ -3198,6 +3206,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     throw LiveRoundFinishError.incompleteAcknowledgement
                 }
                 try offlineStore.discardRound(roundId: record.roundId)
+                try? offlineStore.removeQuarantinedEvents(roundId: record.roundId)
                 if let refreshedHome {
                     if liveRoundState == nil {
                         try activateHomePackage(refreshedHome, status: "本场已同步")
@@ -3225,6 +3234,7 @@ public final class LiveRoundAppModel: ObservableObject {
         let homePackage = package
         watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
         try offlineStore.discardRound(roundId: roundId)
+        try? offlineStore.removeQuarantinedEvents(roundId: roundId)
         if let homePackage {
             try offlineStore.saveHomePackage(homePackage)
         }
@@ -3337,7 +3347,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     loops: loops,
                     ensureGeometry: false,
                     backgroundGeometry: true,
-                    includeEventCursor: false
+                    includeEventCursor: false,
+                    requestKind: .watchStart
                 )
             }
 
@@ -3494,6 +3505,7 @@ public final class LiveRoundAppModel: ObservableObject {
         watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
         do {
             try offlineStore.discardRound(roundId: package.roundId)
+            try? offlineStore.removeQuarantinedEvents(roundId: package.roundId)
             watchBridge?.sendRoundClosureToWatch(
                 roundId: package.roundId,
                 disposition: .abandoned
@@ -4105,11 +4117,25 @@ public final class LiveRoundAppModel: ObservableObject {
         guard Set(expected).count == expected.count else {
             throw LiveRoundFinishError.incompleteAcknowledgement
         }
+        let quarantinedBefore = try offlineStore.loadQuarantinedEvents(roundId: roundId)
+        let quarantinedBeforeIDs = Set(quarantinedBefore.map { $0.event.eventId })
+        let resolvedBySanitizedRetry = try await retrySanitizedQuarantine(
+            quarantinedBefore, roundId: roundId, syncClient: syncClient, scope: scope
+        )
         let quarantined = try offlineStore.loadQuarantinedEvents(roundId: roundId)
         let blocked = Set(quarantined.map { $0.event.eventId })
-        let uploadable = events.filter { !blocked.contains($0.eventId) }
-        let result = try await uploadIsolatingInvalidEvents(
+        let uploadable = events.filter {
+            !blocked.contains($0.eventId) && !resolvedBySanitizedRetry.contains($0.eventId)
+        }
+        let uploadedResult = try await uploadIsolatingInvalidEvents(
             uploadable, roundId: roundId, syncClient: syncClient, scope: scope
+        )
+        let result = SyncResult(
+            accepted: uploadedResult.accepted + resolvedBySanitizedRetry.count,
+            duplicate: uploadedResult.duplicate,
+            acceptedEventIds: uploadedResult.acceptedEventIds + resolvedBySanitizedRetry.sorted(),
+            duplicateEventIds: uploadedResult.duplicateEventIds,
+            serverSequence: uploadedResult.serverSequence
         )
         guard !Task.isCancelled, offlineStore.storageScope == scope else { throw CancellationError() }
         quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: roundId).count
@@ -4121,8 +4147,12 @@ public final class LiveRoundAppModel: ObservableObject {
         let quarantinedIDs = Set(try offlineStore.loadQuarantinedEvents(roundId: roundId).map { $0.event.eventId })
         // A quarantined singleton is intentionally still present in the append-only log, but it
         // is resolved from the upload queue once its diagnostic record is durable.
-        guard Set(stillPending) == quarantinedIDs,
-              Set(expected).isSuperset(of: quarantinedIDs) else {
+        // loadPendingEvents includes the append-only tail after the previous marker, including
+        // events that were just ACKed and durable quarantine records. The marker is safe only when
+        // that tail is exactly the snapshot we started with; quarantine may grow only from it (or
+        // from an already quarantined id being retried).
+        guard Set(stillPending) == Set(expected),
+              quarantinedIDs.isSubset(of: Set(expected).union(quarantinedBeforeIDs)) else {
             throw LiveRoundFinishError.incompleteAcknowledgement
         }
         try offlineStore.appendSyncMarker(
@@ -4131,6 +4161,58 @@ public final class LiveRoundAppModel: ObservableObject {
             result: result
         )
         return result
+    }
+
+    private func retrySanitizedQuarantine(
+        _ records: [QuarantinedLiveEvent], roundId: String, syncClient: SyncClient,
+        scope: OfflineStorageScope
+    ) async throws -> Set<String> {
+        guard offlineStore.storageScope == scope else { throw CancellationError() }
+        let candidates = records.compactMap { record -> LiveRoundEvent? in
+            guard record.event.roundId == roundId,
+                  var payload = record.event.payload,
+                  case let .string(mode)? = payload["strategyMode"],
+                  eventStrategyMode(forRouteId: mode) == nil else { return nil }
+            payload.removeValue(forKey: "strategyMode")
+            return LiveRoundEvent(
+                eventId: record.event.eventId, roundId: record.event.roundId,
+                clientId: record.event.clientId,
+                timestamp: record.event.timestamp, hole: record.event.hole,
+                kind: record.event.kind, payload: payload
+            )
+        }
+        guard !candidates.isEmpty else { return [] }
+        do {
+            let result = try await syncClient.postEventBatchWithRetry(
+                candidates, roundId: roundId,
+                idempotencyKey: try idempotencyKey(roundId: roundId, events: candidates)
+            )
+            let ids = Set(result.acceptedEventIds + result.duplicateEventIds)
+            guard ids == Set(candidates.map(\.eventId)) else { return [] }
+            try offlineStore.removeQuarantinedEvents(roundId: roundId, ids: ids)
+            return ids
+        } catch {
+            return []
+        }
+    }
+
+    private func isSingleEventPayloadValidation422(_ body: String?) -> Bool {
+        guard let body else { return false }
+        let detail: String
+        if let data = body.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let value = object["detail"] as? String {
+            detail = value
+        } else {
+            detail = body
+        }
+        let lower = detail.lowercased()
+        let forbidden = ["event_commit_store_corrupt", "request_reservation_store_corrupt",
+                         "roundid", "round_id", "idempotency", "reservation", "store_corrupt"]
+        guard !forbidden.contains(where: { lower.contains($0) }) else { return false }
+        return lower.contains("payload") || lower.contains("required keys")
+            || lower.contains("unsupported keys") || lower.contains("must be ")
+            || lower.contains("target fields") || lower.contains("non-empty")
     }
 
     /// A 422 rejects a batch atomically. Split it until the invalid singleton is known; only that
@@ -4153,11 +4235,14 @@ public final class LiveRoundAppModel: ObservableObject {
             return result
         } catch SyncClientError.http(status: 422, body: let body) {
             guard !Task.isCancelled, offlineStore.storageScope == scope else { throw CancellationError() }
-            if events.count == 1 {
+            if events.count == 1, isSingleEventPayloadValidation422(body) {
                 try offlineStore.quarantineEvent(events[0], status: 422, reason: body ?? "HTTP 422")
                 quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: roundId).count
                 AICaddieLog.storage.error("Invalid event quarantined; outbox continues (HTTP 422)")
                 return SyncResult(accepted: 0, duplicate: false)
+            }
+            guard events.count > 1 else {
+                throw SyncClientError.http(status: 422, body: body)
             }
             let middle = events.count / 2
             let left = try await uploadIsolatingInvalidEvents(
@@ -5258,7 +5343,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 loops: record.loops,
                 ensureGeometry: false,
                 backgroundGeometry: true,
-                includeEventCursor: false
+                includeEventCursor: false,
+                requestKind: .userDownload
             )
             let canonicalFetched = fetched
             guard !Task.isCancelled,
@@ -5851,6 +5937,20 @@ extension OfflineStore {
         // A failed write throws and leaves the original tail pending. Never advance past an event
         // until both the original and its diagnostic are durably retained.
         try JSONEncoder().encode(records).write(to: url, options: [.atomic])
+    }
+
+    func removeQuarantinedEvents(roundId: String, ids: Set<String>? = nil) throws {
+        let records = try loadQuarantinedEvents(roundId: roundId)
+        let remaining = records.filter { record in
+            guard let ids else { return false }
+            return !ids.contains(record.event.eventId)
+        }
+        let url = eventQuarantineURL(roundId: roundId)
+        if remaining.isEmpty {
+            try? FileManager.default.removeItem(at: url)
+        } else {
+            try JSONEncoder().encode(remaining).write(to: url, options: [.atomic])
+        }
     }
 
     private func eventQuarantineURL(roundId: String) -> URL {

@@ -455,6 +455,12 @@ public enum SyncClientError: Error, Equatable {
 }
 
 public final class SyncClient {
+    public enum PackageRequestKind: Equatable {
+        case foregroundStart
+        case background
+        case userDownload
+        case watchStart
+    }
     /// Renderer contract shared with the phone's on-disk topo cache and Watch transfer metadata.
     /// Bump this whenever existing rendered pixels must be invalidated on installed devices.
     public static let topoStyleVersion = "topo-v11"
@@ -485,10 +491,10 @@ public final class SyncClient {
     private let adminToken: String?
     private let clientId: String
     private let session: URLSession
-    private let roundStartSession: URLSession
+    private lazy var roundStartSession: URLSession = URLSession(configuration: session.configuration)
     private let roundStartTimeoutInterval: TimeInterval
     private let packageWorkLock = NSLock()
-    private var packageWork: [UUID: Task<Data, Error>] = [:]
+    private var packageWork: [UUID: (task: Task<Data, Error>, kind: PackageRequestKind)] = [:]
     private var roundStartOwner: UUID?
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -500,8 +506,6 @@ public final class SyncClient {
         self.adminToken = adminToken
         self.clientId = clientId
         self.session = session
-        // A user start never shares connection slots with home/revalidation/asset downloads.
-        self.roundStartSession = URLSession(configuration: session.configuration)
         self.roundStartTimeoutInterval = min(30, max(0.001, roundStartTimeoutInterval))
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
@@ -522,8 +526,6 @@ public final class SyncClient {
         self.adminToken = adminToken
         self.clientId = clientId
         self.session = session
-        // A user start never shares connection slots with home/revalidation/asset downloads.
-        self.roundStartSession = URLSession(configuration: session.configuration)
         self.roundStartTimeoutInterval = min(30, max(0.001, roundStartTimeoutInterval))
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
@@ -531,14 +533,12 @@ public final class SyncClient {
         self.monotonicNow = monotonicNow
     }
 
-    deinit { roundStartSession.invalidateAndCancel() }
-
     /// Called synchronously before any start work. Cancelling producers releases even a held
     /// URLProtocol/URLSession request, rather than only ignoring its eventual response.
     func beginRoundStart(_ owner: UUID) {
         let previous = packageWorkLock.withLock { () -> [Task<Data, Error>] in
             roundStartOwner = owner
-            return Array(packageWork.values)
+            return packageWork.values.compactMap { $0.kind == .background ? $0.task : nil }
         }
         previous.forEach { $0.cancel() }
     }
@@ -549,10 +549,16 @@ public final class SyncClient {
         }
     }
 
-    private func coursePackageData(_ request: URLRequest, foregroundStart: Bool, maximumAttempts: Int = SyncClient.courseAssetMaximumAttempts) async throws -> Data {
+    #if DEBUG
+    func invalidateForTesting() {
+        roundStartSession.invalidateAndCancel()
+    }
+    #endif
+
+    private func coursePackageData(_ request: URLRequest, foregroundStart: Bool, requestKind: PackageRequestKind = .background, maximumAttempts: Int = SyncClient.courseAssetMaximumAttempts) async throws -> Data {
         let id = UUID()
         let producer = try packageWorkLock.withLock { () throws -> Task<Data, Error> in
-            guard foregroundStart || roundStartOwner == nil else { throw CancellationError() }
+            guard requestKind != .background || roundStartOwner == nil else { throw CancellationError() }
             let task = Task<Data, Error> {
                 try Task.checkCancellation()
                 if foregroundStart {
@@ -560,7 +566,7 @@ public final class SyncClient {
                 }
                 return try await self.fetchRetriableGetData(request, maximumAttempts: maximumAttempts)
             }
-            packageWork[id] = task
+            packageWork[id] = (task, requestKind)
             return task
         }
         defer { _ = packageWorkLock.withLock { packageWork.removeValue(forKey: id) } }
@@ -590,7 +596,7 @@ public final class SyncClient {
         }
     }
 
-    public func fetchRoundPackage(roundId: String, capturedAt: Date = Date(), ensureGeometry: Bool = false, foregroundStart: Bool = false) async throws -> LiveRoundPackage {
+    public func fetchRoundPackage(roundId: String, capturedAt: Date = Date(), ensureGeometry: Bool = false, foregroundStart: Bool = false, requestKind: PackageRequestKind? = nil) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/rounds/\(roundId)/package"),
             resolvingAgainstBaseURL: false
@@ -614,12 +620,13 @@ public final class SyncClient {
             request.timeoutInterval = roundStartTimeoutInterval
             request.networkServiceType = .responsiveData
         }
-        let data = try await coursePackageData(request, foregroundStart: foregroundStart, maximumAttempts: 1)
+        let kind = requestKind ?? (foregroundStart ? .foregroundStart : .background)
+        let data = try await coursePackageData(request, foregroundStart: foregroundStart, requestKind: kind, maximumAttempts: 1)
         return try decoder.decode(LiveRoundPackage.self, from: data).validatedRoundIdentity()
     }
 
     /// The round's ordered loops (`loops=`): one or two entries, the first on `globalId`.
-    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, includeEventCursor: Bool = true, foregroundStart: Bool = false) async throws -> LiveRoundPackage {
+    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, includeEventCursor: Bool = true, foregroundStart: Bool = false, requestKind: PackageRequestKind? = nil) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
             resolvingAgainstBaseURL: false
@@ -645,7 +652,8 @@ public final class SyncClient {
             : (ensureGeometry ? 900 : Self.coursePackageTimeoutInterval)
         if foregroundStart { request.networkServiceType = .responsiveData }
         applyAuth(to: &request)
-        let data = try await coursePackageData(request, foregroundStart: foregroundStart)
+        let kind = requestKind ?? (foregroundStart ? .foregroundStart : .background)
+        let data = try await coursePackageData(request, foregroundStart: foregroundStart, requestKind: kind)
         // B4b-2 §6: a contradictory or incomplete v2 identity is rejected before any use.
         return try decoder.decode(LiveRoundPackage.self, from: data).validatedRoundIdentity()
     }

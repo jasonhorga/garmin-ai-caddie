@@ -1119,7 +1119,7 @@ public final class WatchEventBridge: NSObject {
         if let shotType = nonEmpty(event.shotType) {
             payload["shotType"] = .string(shotType)
         }
-        if let strategyMode = nonEmpty(event.strategyMode) {
+        if let strategyMode = eventStrategyMode(forRouteId: nonEmpty(event.strategyMode)) {
             payload["strategyMode"] = .string(strategyMode)
         }
         if let lie = nonEmpty(event.lie) {
@@ -1293,7 +1293,7 @@ public final class WatchEventBridge: NSObject {
     }
 
     private func strategyMode(selectedOption: [String: JSONValue]?, selectedOptionId: String?) -> String? {
-        if let explicit = nonEmpty(string(selectedOption?["strategyMode"])) {
+        if let explicit = caddieSelectionToken(forRouteId: nonEmpty(string(selectedOption?["strategyMode"]))) {
             return explicit
         }
         switch nonEmpty(selectedOptionId)?.lowercased() {

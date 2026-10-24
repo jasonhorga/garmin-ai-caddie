@@ -1,19 +1,19 @@
 --- a/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
 +++ b/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
-@@ -38,7 +38,7 @@
-         if let topo = TopoHoleImageStore.cachedImage(for: topoURL) {
+@@ -51,7 +51,7 @@
+         if let topo = topoImage {
              return Selection(source: .topo, image: cropped(topo, width: width, height: height, crop: crop))
          }
--        if let raster = GarminRasterImageStore.cachedImage(for: garminURL),
+-        if let raster = garminImage,
 +        if let raster = Optional<UIImage>.none,
             let source = garminProjection, source.isUsable,
             let destination = hole.holeImageProjection, destination.isUsable,
             let sourceWidth = source.widthPx, let sourceHeight = source.heightPx,
-@@ -63,7 +63,7 @@
+@@ -76,7 +76,7 @@
              }
              return Selection(source: .garmin, image: image)
          }
--        if let raster = GarminRasterImageStore.cachedImage(for: garminURL) {
+-        if let raster = garminImage {
 +        if let raster = Optional<UIImage>.none {
              // A visual-only Garmin descriptor has no legal green crop. Keep its factual picture
              // visible, with geo interactions disabled until a registered asset arrives.

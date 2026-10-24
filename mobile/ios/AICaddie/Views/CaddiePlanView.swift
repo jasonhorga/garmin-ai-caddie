@@ -80,11 +80,31 @@ func caddieOptionId(forStrategyMode value: String?) -> String? {
     }
 }
 
-/// Strategy is a closed server enum. A route's identity belongs in the route/option selection,
-/// never in club.strategyMode. Unknown routes omit the optional strategy preference.
+/// Return the route token used by the UI and decision request. Route identity is intentionally
+/// preserved so an unknown route can still be selected and matched to selectedSequence.
 func caddieSelectionToken(forRouteId value: String?) -> String? {
     guard let value else { return nil }
-    return caddieStrategyMode(forRouteId: value)
+    if let mode = caddieStrategyMode(forRouteId: value) {
+        return mode
+    }
+    let token = value
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+        .replacingOccurrences(of: "-", with: "_")
+        .replacingOccurrences(of: " ", with: "_")
+    return token.isEmpty ? nil : token
+}
+
+/// Map a UI route token at the event boundary. The server accepts only these three values;
+/// unknown route identities are represented by omitting the optional field.
+func eventStrategyMode(forRouteId value: String?) -> String? {
+    guard let value else { return nil }
+    switch caddieStrategyMode(forRouteId: value) {
+    case "protect_score", "stock", "attack":
+        return caddieStrategyMode(forRouteId: value)
+    default:
+        return nil
+    }
 }
 
 /// Read the server's selected route without assuming that its id is one of the old three mode

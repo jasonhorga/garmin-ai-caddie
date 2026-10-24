@@ -7,10 +7,25 @@ import XCTest
 final class C33URLProtocol: URLProtocol {
     static var onStart: ((C33URLProtocol) -> Void)?
     static var onStop: ((URLRequest) -> Void)?
-    override class func canInit(with request: URLRequest) -> Bool { true }
+    private static let callbackLock = NSLock()
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host?.hasSuffix(".example.test") == true
+    }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-    override func startLoading() { if let handler = Self.onStart { handler(self) } else { reply(404) } }
-    override func stopLoading() { Self.onStop?(request) }
+    override func startLoading() {
+        Self.callbackLock.lock(); let handler = Self.onStart; Self.callbackLock.unlock()
+        if let handler { handler(self) } else { reply(404) }
+    }
+    override func stopLoading() {
+        guard request.url?.host?.hasSuffix(".example.test") == true else { return }
+        Self.callbackLock.lock(); let handler = Self.onStop; Self.callbackLock.unlock()
+        handler?(request)
+    }
+    static func setHandlers(
+        onStart: ((C33URLProtocol) -> Void)?, onStop: ((URLRequest) -> Void)? = nil
+    ) {
+        callbackLock.lock(); self.onStart = onStart; self.onStop = onStop; callbackLock.unlock()
+    }
     func reply(_ status: Int, _ data: Data = Data()) {
         client?.urlProtocol(self, didReceive: HTTPURLResponse(
             url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil

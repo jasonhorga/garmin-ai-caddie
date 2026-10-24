@@ -13,11 +13,14 @@ final class C33EventTests: XCTestCase {
             "standard", "standard line", "neutral", "recommended", "recommended line", "aggressive line",
             "attack", "attack line", "aggressive", "go for it", "go for it line", "unknown-route",
             "driver-3w", "route:7I", "", "   ", "未知方案"]
-        let builder = LiveRoundEventBuilder(roundId: "c33-round")
+        let bridgeDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let bridge = WatchEventBridge(offlineStore: OfflineStore(directoryURL: bridgeDirectory))
+        defer { try? FileManager.default.removeItem(at: bridgeDirectory) }
         for route in aliases + aliases.map({ $0.uppercased().replacingOccurrences(of: " ", with: "_") }) {
-            let event = builder.makeClubEvent(
-                hole: 1, clubName: "7I", strategyMode: caddieSelectionToken(forRouteId: route)
-            )
+            let event = try bridge.mapWatchInputEvent(WatchInputEvent(
+                eventId: UUID().uuidString, roundId: "c33-round", hole: 1, kind: .club,
+                value: "7I", createdAt: "2026-01-01T00:00:00Z", strategyMode: route
+            ))
             if let value = event.payload["strategyMode"] {
                 guard case let .string(mode) = value else { return XCTFail("strategyMode must be string") }
                 XCTAssertTrue(allowed.contains(mode), "route=\(route), payload=\(mode)")
@@ -31,6 +34,7 @@ final class C33EventTests: XCTestCase {
         let package = try c33Package()
         let packageData = try JSONEncoder().encode(package)
         var keys: [String: [String]] = [:]
+        let keysLock = NSLock()
         C33URLProtocol.onStart = { proto in
             if proto.request.url!.path.hasSuffix("/package") { proto.reply(200, packageData); return }
             guard proto.request.httpMethod == "POST", proto.request.url!.path.hasSuffix("/events") else {
@@ -41,14 +45,17 @@ final class C33EventTests: XCTestCase {
                 guard let value = batch.events[0].payload["strategyMode"], case let .string(mode) = value else {
                     XCTFail("missing strategy"); proto.reply(422); return
                 }
+                keysLock.lock()
                 keys[mode, default: []].append(proto.request.value(forHTTPHeaderField: "Idempotency-Key") ?? "")
-                if keys[mode]!.count == 1 { proto.reply(503); return }
+                let first = keys[mode]!.count == 1
+                keysLock.unlock()
+                if first { proto.reply(503); return }
                 proto.reply(200, try JSONEncoder().encode(SyncResult(accepted: 1, duplicate: false, acceptedEventIds: ["e1"])))
             } catch { XCTFail("\(error)"); proto.reply(500) }
         }
         URLProtocol.registerClass(C33URLProtocol.self)
         defer {
-            session.invalidateAndCancel(); C33URLProtocol.onStart = nil
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.onStart = nil
             URLProtocol.unregisterClass(C33URLProtocol.self)
         }
         for mode in ["stock", "attack"] {
@@ -63,6 +70,7 @@ final class C33EventTests: XCTestCase {
             ))
             await model.syncPendingEvents()
             XCTAssertTrue(try store.loadPendingEvents(roundId: package.roundId).isEmpty)
+            XCTAssertEqual(try store.loadEvents().filter { $0.kind == .syncMarker }.count, 1)
         }
         // Same immutable body retries with the same key; a changed body cannot reuse that key.
         XCTAssertEqual(keys["stock"]?.count, 2)
@@ -97,13 +105,15 @@ final class C33EventTests: XCTestCase {
                 keysByRoster[roster] = proto.request.value(forHTTPHeaderField: "Idempotency-Key")
                 if !ids.contains("e3") { accepted.formUnion(ids) }
                 lock.unlock()
-                if ids.contains("e3") { proto.reply(422, Data(#"{"detail":"invalid strategyMode"}"#.utf8)); return }
+                if ids.contains("e3") {
+                    proto.reply(422, Data(#"{"detail":"club payload field strategyMode must be one of attack, protect_score, stock"}"#.utf8)); return
+                }
                 proto.reply(200, try JSONEncoder().encode(SyncResult(accepted: ids.count, duplicate: false, acceptedEventIds: ids)))
             } catch { XCTFail("\(error)"); proto.reply(500) }
         }
         URLProtocol.registerClass(C33URLProtocol.self)
         defer {
-            session.invalidateAndCancel(); C33URLProtocol.onStart = nil
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.onStart = nil
             URLProtocol.unregisterClass(C33URLProtocol.self)
             try? FileManager.default.removeItem(at: directory)
         }
@@ -126,6 +136,59 @@ final class C33EventTests: XCTestCase {
         XCTAssertEqual(try OfflineStore(directoryURL: directory).loadQuarantinedEvents(roundId: package.roundId), quarantined)
         XCTAssertEqual(try store.loadEvents().filter { $0.kind != .syncMarker }.count, 5)
         XCTAssertEqual(model.pendingEventCount, 0)
+        XCTAssertEqual(try store.loadEvents().filter { $0.kind == .syncMarker }.count, 1)
+    }
+
+    func testStoreOrIdempotency422KeepsWholeBatchRetryable() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c33-store-error.example.test")!, session: session)
+        let model = c33Model(store, client)
+        let package = try c33Package()
+        C33URLProtocol.onStart = { proto in
+            if proto.request.url!.path.hasSuffix("/package") {
+                proto.reply(200, try! JSONEncoder().encode(package)); return
+            }
+            proto.reply(422, Data(#"{"detail":"idempotency_key_body_mismatch"}"#.utf8))
+        }
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.onStart = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        try store.appendEvent(LiveRoundEvent(eventId: "bad-store", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 1, kind: .club,
+            payload: ["clubName": .string("7I"), "strategyMode": .string("stock")]))
+        await model.syncPendingEvents()
+        XCTAssertEqual(try store.loadPendingEvents(roundId: package.roundId).map(\.eventId), ["bad-store"])
+        XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
+        XCTAssertEqual(try store.loadEvents().filter { $0.kind == .syncMarker }.count, 0)
+    }
+
+    func testDiscardActiveRoundRemovesItsQuarantineDiagnostics() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c33-discard.example.test")!, session: session)
+        let model = c33Model(store, client)
+        let package = try c33Package()
+        C33URLProtocol.onStart = { proto in
+            if proto.request.url!.path.hasSuffix("/package") {
+                proto.reply(200, try! JSONEncoder().encode(package))
+            } else { proto.reply(404) }
+        }
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.onStart = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        let event = LiveRoundEvent(eventId: "q1", roundId: package.roundId, timestamp: "2026-01-01T00:00:00Z",
+            hole: 1, kind: .club, payload: ["clubName": .string("7I")])
+        try store.quarantineEvent(event, status: 422, reason: "payload")
+        XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).count, 1)
+        model.discardActiveRound()
+        XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
     }
 }
 #endif

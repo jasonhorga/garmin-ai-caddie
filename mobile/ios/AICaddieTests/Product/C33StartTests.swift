@@ -42,7 +42,7 @@ final class C33StartTests: XCTestCase {
             loops: [.init(globalId: 31796, half: "all")]
         ) }
         defer {
-            old.cancel(); session.invalidateAndCancel()
+            old.cancel(); client.invalidateForTesting(); session.invalidateAndCancel()
             C33URLProtocol.onStart = nil; C33URLProtocol.onStop = nil
             try? FileManager.default.removeItem(at: directory)
         }
@@ -62,13 +62,14 @@ final class C33StartTests: XCTestCase {
         let session = C33URLProtocol.session()
         let client = SyncClient(baseURL: URL(string: "https://c33-budget.example.test")!, session: session)
         var requests = 0
+        let requestsLock = NSLock()
         C33URLProtocol.onStart = { proto in
-            requests += 1
+            requestsLock.lock(); requests += 1; requestsLock.unlock()
             // The card gives one total 30 s budget; a 503 is an explicit failure for retry.
             XCTAssertEqual(proto.request.timeoutInterval, 30)
             proto.reply(503)
         }
-        defer { session.invalidateAndCancel(); C33URLProtocol.onStart = nil }
+        defer { client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.onStart = nil }
         do {
             _ = try await client.fetchCoursePackage(
                 globalId: 32850, roundId: "c33-budget", teeBox: "blue",
@@ -77,6 +78,32 @@ final class C33StartTests: XCTestCase {
             XCTFail("503 must fail the start")
         } catch SyncClientError.http(status: 503, body: _) { }
         XCTAssertEqual(requests, 1)
+    }
+
+    func testUserDownloadAndWatchStartSurviveForegroundStartCancellation() async throws {
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c33-kinds.example.test")!, session: session)
+        let owner = UUID(); client.beginRoundStart(owner)
+        let sent = expectation(description: "non-background requests sent")
+        var count = 0
+        C33URLProtocol.onStart = { proto in
+            count += 1
+            sent.fulfill()
+            proto.reply(503)
+        }
+        defer { client.endRoundStart(owner); client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.onStart = nil }
+        async let download = client.fetchCoursePackage(
+            globalId: 32850, roundId: "download", teeBox: "blue",
+            loops: [.init(globalId: 32850, half: "all")], requestKind: .userDownload
+        )
+        async let watch = client.fetchCoursePackage(
+            globalId: 32850, roundId: "watch", teeBox: "blue",
+            loops: [.init(globalId: 32850, half: "all")], requestKind: .watchStart
+        )
+        _ = try? await download
+        _ = try? await watch
+        await fulfillment(of: [sent], timeout: 1)
+        XCTAssertGreaterThanOrEqual(count, 2)
     }
 
     func testUnresponsiveStartHasThirtySecondBudgetAndRetryableFailure() async throws {
@@ -100,7 +127,7 @@ final class C33StartTests: XCTestCase {
         C33URLProtocol.onStop = { _ in stopped.fulfill() }
         let subscription = model.$isPreparingRound.dropFirst().filter { !$0 }.first().sink { _ in failed.fulfill() }
         defer {
-            subscription.cancel(); session.invalidateAndCancel()
+            subscription.cancel(); client.invalidateForTesting(); session.invalidateAndCancel()
             C33URLProtocol.onStart = nil; C33URLProtocol.onStop = nil
             try? FileManager.default.removeItem(at: directory)
         }

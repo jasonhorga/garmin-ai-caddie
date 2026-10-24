@@ -34,6 +34,20 @@ final class C33DrawingTests: XCTestCase {
         )), .precise)
     }
 
+    func testPartialPrepDrawsOverlayOnlyWhenTopoPixelFrameMatches() throws {
+        let package = try c33Package()
+        let hole = try XCTUnwrap(package.holes.first)
+        let prep = try XCTUnwrap(package.coursePrep?.holes.first)
+        // The fixture records identical 678x1060 projection/overlay dimensions and revision.
+        XCTAssertTrue(LiveTopoAvailability.overlayCompatible(hole: hole, prep: prep))
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(prep)) as? [String: Any])
+        object["geometryRevision"] = "different-revision"
+        let mismatched = try JSONDecoder().decode(
+            CoursePrepHole.self, from: JSONSerialization.data(withJSONObject: object)
+        )
+        XCTAssertFalse(LiveTopoAvailability.overlayCompatible(hole: hole, prep: mismatched))
+    }
+
     func testFourthGarminAttemptDisplaysImageAndBackoffStaysCapped() async throws {
         let url = URL(string: "https://c33.example.test/\(UUID().uuidString).jpg")!
         let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 30)).image { _ in UIColor.green.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 20, height: 30)) }

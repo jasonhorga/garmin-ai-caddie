@@ -43,6 +43,21 @@ enum LiveTopoAvailability {
             || hasRevision || TopoHoleImageStore.cachedImage(for: url) != nil else { return nil }
         return url
     }
+
+    /// Lightweight prep is safe to place over topo only when it uses the same pixel frame. A
+    /// partial row with mismatched dimensions/revision still provides a useful topo background,
+    /// but its route and geo overlays must stay hidden until precise prep arrives.
+    static func overlayCompatible(hole: Hole, prep: CoursePrepHole?) -> Bool {
+        guard let prep, let overlay = prep.resolvedMapOverlay else { return false }
+        guard let projection = prep.holeImageProjection,
+              projection.available,
+              projection.widthPx == overlay.w,
+              projection.heightPx == overlay.h else { return false }
+        if prep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame { return true }
+        guard let packageRevision = hole.geometryRevision?.lowercased(),
+              let prepRevision = prep.geometryRevision?.lowercased() else { return false }
+        return packageRevision == prepRevision
+    }
 }
 
 /// Shared horizontal-navigation decision for live and review hole maps. Vertical scrolls and short
@@ -1459,7 +1474,7 @@ public struct CurrentHoleView: View {
     // MARK: - Map degradation contract
 
     private func projection(for state: LiveMapDisplayState) -> CoursePrepHoleImageProjection? {
-        LiveMapDisplaySelection.projection(
+        return LiveMapDisplaySelection.projection(
             for: state,
             precise: holePrep?.holeImageProjection,
             garmin: liveGarminRasterProjection
@@ -1467,7 +1482,7 @@ public struct CurrentHoleView: View {
     }
 
     private func overlay(for state: LiveMapDisplayState) -> CoursePrepOverlay? {
-        LiveMapDisplaySelection.overlay(
+        return LiveMapDisplaySelection.overlay(
             for: state,
             precise: holePrep?.resolvedMapOverlay,
             preciseProjection: holePrep?.holeImageProjection,
@@ -2246,7 +2261,11 @@ public struct CurrentHoleView: View {
     /// The map frame used by every phone overlay and gesture. Garmin's projection remaps the
     /// retained CourseView overlay through geographic coordinates before layout.
     private var liveMapProjection: CoursePrepHoleImageProjection? {
-        LiveMapDisplaySelection.projection(
+        if let holePrep,
+           !LiveTopoAvailability.overlayCompatible(hole: hole, prep: holePrep) {
+            return nil
+        }
+        return LiveMapDisplaySelection.projection(
             for: liveMapDisplayState,
             precise: holePrep?.holeImageProjection,
             garmin: liveGarminRasterProjection
@@ -2254,7 +2273,11 @@ public struct CurrentHoleView: View {
     }
 
     private var liveMapOverlay: CoursePrepOverlay? {
-        LiveMapDisplaySelection.overlay(
+        if let holePrep,
+           !LiveTopoAvailability.overlayCompatible(hole: hole, prep: holePrep) {
+            return nil
+        }
+        return LiveMapDisplaySelection.overlay(
             for: liveMapDisplayState,
             precise: holePrep?.resolvedMapOverlay,
             preciseProjection: holePrep?.holeImageProjection,
@@ -3023,7 +3046,9 @@ public struct CurrentHoleView: View {
             "distanceToPinM": targetDistance.map(JSONValue.number) ?? .null,
         ]
         payload["shotType"] = .string(selectedShotType)
-        payload["strategyMode"] = .string(caddieSelectionToken(forRouteId: selectedStrategyMode) ?? "stock")
+        if let mode = eventStrategyMode(forRouteId: selectedStrategyMode) {
+            payload["strategyMode"] = .string(mode)
+        }
         payload["lie"] = .string(selectedLie)
         // A target / flag edit carries the current club, but not as a new manual choice.
         if !hasUserSelectedClub {
@@ -3912,13 +3937,16 @@ public struct CurrentHoleView: View {
         selectedClub = club
         guard changed, !club.isEmpty else { return }
         hasUserSelectedClub = true
-        emit(kind: .club, timestamp: ISO8601DateFormatter().string(from: Date()), payload: [
+        var payload: [String: JSONValue] = [
             "clubName": .string(selectedClub),
             "shotType": .string(selectedShotType),
-            "strategyMode": .string(caddieSelectionToken(forRouteId: selectedStrategyMode) ?? "stock"),
             "lie": .string(selectedLie),
             "distanceToPinM": distanceToPinPayload(),
-        ])
+        ]
+        if let mode = eventStrategyMode(forRouteId: selectedStrategyMode) {
+            payload["strategyMode"] = .string(mode)
+        }
+        emit(kind: .club, timestamp: ISO8601DateFormatter().string(from: Date()), payload: payload)
     }
 
     /// The selected club's typical distance (metres) from the bag model — drives the live map marker.
@@ -4770,7 +4798,7 @@ public struct CurrentHoleView: View {
             sourceLocationEventId: pendingShot.locationEvent.eventId,
             shotOrder: pendingShot.shotOrder,
             shotType: selectedShotType,
-            strategyMode: caddieSelectionToken(forRouteId: selectedStrategyMode),
+            strategyMode: eventStrategyMode(forRouteId: selectedStrategyMode),
             lie: selectedLie,
             distanceToPinM: effectiveDistanceToPinMetres,
             offlineOptionId: selectedOfflineOption?.optionId,

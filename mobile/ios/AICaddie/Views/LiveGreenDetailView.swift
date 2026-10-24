@@ -1,4 +1,5 @@
 import CoreLocation
+import Combine
 import SwiftUI
 import AICaddieDomain
 #if canImport(UIKit)
@@ -26,6 +27,18 @@ enum GreenDetailImageResolver {
         hole: CoursePrepHole, detailImage: UIImage?, topoURL: URL?, garminURL: URL?,
         garminProjection: CoursePrepHoleImageProjection?
     ) -> Selection {
+        resolve(
+            hole: hole, detailImage: detailImage,
+            topoImage: TopoHoleImageStore.cachedImage(for: topoURL),
+            garminImage: GarminRasterImageStore.cachedImage(for: garminURL),
+            garminProjection: garminProjection
+        )
+    }
+
+    static func resolve(
+        hole: CoursePrepHole, detailImage: UIImage?, topoImage: UIImage?, garminImage: UIImage?,
+        garminProjection: CoursePrepHoleImageProjection?
+    ) -> Selection {
         if let detailImage { return Selection(source: .detail, image: detailImage) }
         let width = Double(hole.holeImageProjection?.widthPx ?? hole.resolvedMapOverlay?.w ?? 678)
         let height = Double(hole.holeImageProjection?.heightPx ?? hole.resolvedMapOverlay?.h ?? 1060)
@@ -35,10 +48,10 @@ enum GreenDetailImageResolver {
         guard width > 1, height > 1, crop.width > 0, crop.height > 0 else {
             return Selection(source: .schematic, image: nil)
         }
-        if let topo = TopoHoleImageStore.cachedImage(for: topoURL) {
+        if let topo = topoImage {
             return Selection(source: .topo, image: cropped(topo, width: width, height: height, crop: crop))
         }
-        if let raster = GarminRasterImageStore.cachedImage(for: garminURL),
+        if let raster = garminImage,
            let source = garminProjection, source.isUsable,
            let destination = hole.holeImageProjection, destination.isUsable,
            let sourceWidth = source.widthPx, let sourceHeight = source.heightPx,
@@ -63,7 +76,7 @@ enum GreenDetailImageResolver {
             }
             return Selection(source: .garmin, image: image)
         }
-        if let raster = GarminRasterImageStore.cachedImage(for: garminURL) {
+        if let raster = garminImage {
             // A visual-only Garmin descriptor has no legal green crop. Keep its factual picture
             // visible, with geo interactions disabled until a registered asset arrives.
             return Selection(source: .garmin, image: raster, registered: false)
@@ -119,6 +132,7 @@ public struct LiveGreenDetailView: View {
     @StateObject private var detailImageStore = TopoHoleImageStore()
     @StateObject private var fallbackTopoStore = TopoHoleImageStore()
     @StateObject private var fallbackGarminStore = GarminRasterImageStore()
+    @State private var resolvedFallback: GreenDetailImageResolver.Selection?
     @Binding public var targetCoordinate: CLLocationCoordinate2D?
     /// Full-hole topo pixel for the edited flag.  This remains authoritative when a searched
     /// course has a drawable map but no geo projection anchors yet.
@@ -198,6 +212,15 @@ public struct LiveGreenDetailView: View {
             guard TopoHoleImageStore.cachedImage(for: topoURL) == nil else { return }
             await fallbackGarminStore.load(garminURL)
         }
+        .task(id: "\(detailURL?.absoluteString ?? "")|\(topoURL?.absoluteString ?? "")|\(garminURL?.absoluteString ?? "")") {
+            // Resolve once per input set. The stores publish into this view, and this task keeps
+            // the crop off the body evaluation path so scrolling/gesture updates never recrop or
+            // synchronously decode disk images on the main render pass.
+            await refreshFallbackSelection()
+        }
+        .onReceive(detailImageStore.$image) { _ in refreshFallbackSelectionNow() }
+        .onReceive(fallbackTopoStore.$image) { _ in refreshFallbackSelectionNow() }
+        .onReceive(fallbackGarminStore.$image) { _ in refreshFallbackSelectionNow() }
     }
 
     private var header: some View {
@@ -307,6 +330,9 @@ public struct LiveGreenDetailView: View {
                 TopoHoleBaseImage(topoURL: detailURL, fallback: detailFallbackImage)
                     .frame(width: baseRect.width, height: baseRect.height)
                     .position(x: baseRect.midX, y: baseRect.midY)
+            } else if let image = detailFallbackImage {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .frame(width: size.width, height: size.height)
             } else {
                 TopoHoleBaseImage(topoURL: topoURL, fallback: detailFallbackImage)
                     .frame(width: size.width, height: size.height)
@@ -496,26 +522,34 @@ public struct LiveGreenDetailView: View {
         return crop()
     }
 
-    private var decodedHoleImage: UIImage? {
-        guard let uri = hole.map?.image,
-              let comma = uri.firstIndex(of: ","),
-              let data = Data(base64Encoded: String(uri[uri.index(after: comma)...])) else {
-            return nil
-        }
-        return UIImage(data: data)
-    }
-
     private var detailFallbackSelection: GreenDetailImageResolver.Selection {
-        // Observe arrivals so an available bitmap replaces the schematic immediately.
-        _ = fallbackTopoStore.image
-        _ = fallbackGarminStore.image
-        return GreenDetailImageResolver.resolve(
-            hole: hole, detailImage: detailImageStore.image, topoURL: topoURL, garminURL: garminURL,
+        resolvedFallback ?? GreenDetailImageResolver.resolve(
+            hole: hole, detailImage: detailImageStore.image,
+            topoImage: fallbackTopoStore.image, garminImage: fallbackGarminStore.image,
             garminProjection: garminProjection
         )
     }
 
     private var detailFallbackImage: UIImage? { detailFallbackSelection.image }
+
+    private func refreshFallbackSelectionNow() {
+        resolvedFallback = GreenDetailImageResolver.resolve(
+            hole: hole, detailImage: detailImageStore.image,
+            topoImage: fallbackTopoStore.image, garminImage: fallbackGarminStore.image,
+            garminProjection: garminProjection
+        )
+    }
+
+    @MainActor
+    private func refreshFallbackSelection() async {
+        // Published store values are read after each load task completes. The resolver receives
+        // URLs only for cache lookup and stores its final crop in state, so body never repeats it.
+        resolvedFallback = GreenDetailImageResolver.resolve(
+            hole: hole, detailImage: detailImageStore.image,
+            topoImage: fallbackTopoStore.image, garminImage: fallbackGarminStore.image,
+            garminProjection: garminProjection
+        )
+    }
 
     /// Four thin lines from the flag to the front / back / left / right edges, a short cross tick at
     /// each edge point and the yardage in a small dark capsule just beyond it, then the flag itself.

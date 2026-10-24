@@ -2,7 +2,7 @@
 +++ b/mobile/ios/AICaddie/Services/SyncClient.swift
 @@ -540,7 +540,7 @@
              roundStartOwner = owner
-             return Array(packageWork.values)
+             return packageWork.values.compactMap { $0.kind == .background ? $0.task : nil }
          }
 -        previous.forEach { $0.cancel() }
 +        _ = previous
