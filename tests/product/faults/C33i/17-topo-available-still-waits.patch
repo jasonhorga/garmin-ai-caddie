@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -47,6 +47,6 @@
+         let packageTopoReady = hole.topoAvailable == true
+             && !(hole.topoRevision?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+         guard coverage(hole: hole, prep: prep)?.caseInsensitiveCompare("ready") == .orderedSame
+-            || packageTopoReady || hasRevision || TopoHoleImageStore.cachedImage(for: url) != nil else { return nil }
++            || hasRevision || TopoHoleImageStore.cachedImage(for: url) != nil else { return nil }
+         return url
+     }

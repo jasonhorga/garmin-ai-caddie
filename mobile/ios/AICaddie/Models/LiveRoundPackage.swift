@@ -954,6 +954,16 @@ public struct Hole: Codable, Equatable, Identifiable {
     public let par: Int
     public let yards: Int?
     public let geometryCoverage: GeometryCoverageState
+    /// Server-side geometry preparation state. This is deliberately a string so an older client
+    /// can decode a future state without rejecting the complete package.
+    public let geometryState: String?
+    /// Epoch seconds after which a pending geometry row is worth asking for again.
+    public let retryAfterEpoch: Double?
+    /// A lightweight Garmin raster that can be displayed while CourseView geometry is pending.
+    public let garminRaster: GarminRasterPackageDescriptor?
+    /// Whether the revision-bound topo bitmap is available independently of course prep.
+    public let topoAvailable: Bool?
+    public let topoRevision: String?
     /// Stable identity of the Garmin release-bound geometry used by prep/topo; nil when the server
     /// has no current release for the hole. (v1 packages are never played — contract §6.)
     public let geometryRevision: String?
@@ -968,12 +978,61 @@ public struct Hole: Codable, Equatable, Identifiable {
     public let teeLatitude: Double?
     public let teeLongitude: Double?
 
+    private enum CodingKeys: String, CodingKey {
+        case number, par, yards, geometryCoverage, geometryRevision, geometryState, retryAfterEpoch
+        case garminRaster, topoAvailable, topoRevision
+        case sourceGlobalId, sourceLocalHole, courseHoleNumber, teeLatitude, teeLongitude
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        number = try container.decode(Int.self, forKey: .number)
+        par = try container.decode(Int.self, forKey: .par)
+        yards = try container.decodeIfPresent(Int.self, forKey: .yards)
+        geometryCoverage = try container.decode(GeometryCoverageState.self, forKey: .geometryCoverage)
+        geometryRevision = try container.decodeIfPresent(String.self, forKey: .geometryRevision)
+        geometryState = try container.decodeIfPresent(String.self, forKey: .geometryState)
+        retryAfterEpoch = try container.decodeIfPresent(Double.self, forKey: .retryAfterEpoch)
+        garminRaster = try container.decodeIfPresent(GarminRasterPackageDescriptor.self, forKey: .garminRaster)
+        topoAvailable = try container.decodeIfPresent(Bool.self, forKey: .topoAvailable)
+        topoRevision = try container.decodeIfPresent(String.self, forKey: .topoRevision)
+        sourceGlobalId = try container.decode(Int.self, forKey: .sourceGlobalId)
+        sourceLocalHole = try container.decode(Int.self, forKey: .sourceLocalHole)
+        courseHoleNumber = try container.decode(Int.self, forKey: .courseHoleNumber)
+        teeLatitude = try container.decodeIfPresent(Double.self, forKey: .teeLatitude)
+        teeLongitude = try container.decodeIfPresent(Double.self, forKey: .teeLongitude)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(number, forKey: .number)
+        try container.encode(par, forKey: .par)
+        try container.encodeIfPresent(yards, forKey: .yards)
+        try container.encode(geometryCoverage, forKey: .geometryCoverage)
+        try container.encodeIfPresent(geometryRevision, forKey: .geometryRevision)
+        try container.encodeIfPresent(geometryState, forKey: .geometryState)
+        try container.encodeIfPresent(retryAfterEpoch, forKey: .retryAfterEpoch)
+        try container.encodeIfPresent(garminRaster, forKey: .garminRaster)
+        try container.encodeIfPresent(topoAvailable, forKey: .topoAvailable)
+        try container.encodeIfPresent(topoRevision, forKey: .topoRevision)
+        try container.encode(sourceGlobalId, forKey: .sourceGlobalId)
+        try container.encode(sourceLocalHole, forKey: .sourceLocalHole)
+        try container.encode(courseHoleNumber, forKey: .courseHoleNumber)
+        try container.encodeIfPresent(teeLatitude, forKey: .teeLatitude)
+        try container.encodeIfPresent(teeLongitude, forKey: .teeLongitude)
+    }
+
     public init(
         number: Int,
         par: Int,
         yards: Int?,
         geometryCoverage: GeometryCoverageState,
         geometryRevision: String? = nil,
+        geometryState: String? = nil,
+        retryAfterEpoch: Double? = nil,
+        garminRaster: GarminRasterPackageDescriptor? = nil,
+        topoAvailable: Bool? = nil,
+        topoRevision: String? = nil,
         sourceGlobalId: Int,
         sourceLocalHole: Int,
         courseHoleNumber: Int,
@@ -985,11 +1044,46 @@ public struct Hole: Codable, Equatable, Identifiable {
         self.yards = yards
         self.geometryCoverage = geometryCoverage
         self.geometryRevision = geometryRevision
+        self.geometryState = geometryState
+        self.retryAfterEpoch = retryAfterEpoch
+        self.garminRaster = garminRaster
+        self.topoAvailable = topoAvailable
+        self.topoRevision = topoRevision
         self.sourceGlobalId = sourceGlobalId
         self.sourceLocalHole = sourceLocalHole
         self.courseHoleNumber = courseHoleNumber
         self.teeLatitude = teeLatitude
         self.teeLongitude = teeLongitude
+    }
+}
+
+/// The package-level Garmin fallback is intentionally smaller than the live descriptor. The
+/// metadata URL is retained for a later projection refresh; the image URL is enough to draw the
+/// cold-start background immediately.
+public struct GarminRasterPackageDescriptor: Codable, Equatable {
+    public let imageUrl: String
+    public let metadataUrl: String
+
+    public init(imageUrl: String, metadataUrl: String) {
+        self.imageUrl = imageUrl
+        self.metadataUrl = metadataUrl
+    }
+}
+
+public enum PackageGeometryRetryPolicy {
+    public static func pendingHole(_ hole: Hole, nowEpoch: Double) -> Bool {
+        hole.geometryState?.caseInsensitiveCompare("pending") == .orderedSame
+            && (hole.retryAfterEpoch.map { nowEpoch >= $0 } ?? false)
+    }
+
+    public static func shouldRefresh(
+        hole: Hole,
+        nowEpoch: Double,
+        packageRoundId: String,
+        activeRoundId: String?
+    ) -> Bool {
+        guard !packageRoundId.isEmpty, packageRoundId == activeRoundId else { return false }
+        return pendingHole(hole, nowEpoch: nowEpoch)
     }
 }
 
@@ -1315,6 +1409,8 @@ public struct ClubProfile: Codable, Equatable, Identifiable {
 
 public struct OfflinePackageStatus: Codable, Equatable {
     public let state: String
+    public let cacheable: Bool? = nil
+    public let degradationReason: String? = nil
     public let preparedAt: String
     public let expiresAt: String
     public let cachePolicy: CachePolicy
@@ -1351,6 +1447,12 @@ public struct OfflinePackageStatus: Codable, Equatable {
             return .stale
         }
         return .ready
+    }
+
+    /// A singleflight timeout is a transient projection. It may be shown in memory while the
+    /// client retries, but it must never replace a complete package on disk.
+    public var mustNotCache: Bool {
+        state.caseInsensitiveCompare("degraded") == .orderedSame && cacheable == false
     }
 }
 

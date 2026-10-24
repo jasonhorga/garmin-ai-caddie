@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
++++ b/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
+@@ -1082,7 +1082,6 @@
+         packageRoundId: String,
+         activeRoundId: String?
+     ) -> Bool {
+-        guard !packageRoundId.isEmpty, packageRoundId == activeRoundId else { return false }
+         return pendingHole(hole, nowEpoch: nowEpoch)
+     }
+ }

@@ -298,6 +298,11 @@ public enum RoundStartFailure: Equatable {
 public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var package: LiveRoundPackage? {
         didSet {
+            if oldValue?.roundId != package?.roundId {
+                pendingGeometryRefreshTask?.cancel()
+                pendingGeometryRefreshTask = nil
+                pendingGeometryLastAttemptEpoch = nil
+            }
             // A new playable hole set (another round, a second nine added or dropped, another
             // tee, sign-out) never inherits the old count: recompute it from disk right away
             // instead of waiting for the next download pass, which may need the network first.
@@ -405,6 +410,10 @@ public final class LiveRoundAppModel: ObservableObject {
     private var deferredRoundFinishGeneration: UUID?
     private var deferredRoundFinishRetryRequested = false
     private var offlineCourseDownloadTask: Task<Void, Never>?
+    /// Package-level geometry retries are server-scheduled by `retryAfterEpoch`; they never spin
+    /// while a hole is pending and are cancelled as soon as the active round changes.
+    private var pendingGeometryRefreshTask: Task<Void, Never>?
+    private var pendingGeometryLastAttemptEpoch: Double?
     /// The round whose all-hole download is still running (cleared when a pass finishes).
     private var offlineCourseDownloadRoundId: String?
     /// The round whose all-hole download course discovery stopped; its live view resumes it.
@@ -678,6 +687,9 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
+        pendingGeometryRefreshTask?.cancel()
+        pendingGeometryRefreshTask = nil
+        pendingGeometryLastAttemptEpoch = nil
         pausePrepCourseDownload()
         // Requested 备战 jobs belong to the previous player's library.
         userRequestedPrepDownloadIDs.removeAll()
@@ -3502,6 +3514,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// the Watch only after the matching phone data has been removed.
     public func discardActiveRound() {
         guard let package, liveRoundState?.roundId == package.roundId else { return }
+        pendingGeometryRefreshTask?.cancel()
+        pendingGeometryRefreshTask = nil
+        pendingGeometryLastAttemptEpoch = nil
         watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
         do {
             try offlineStore.discardRound(roundId: package.roundId)
@@ -5605,6 +5620,7 @@ public final class LiveRoundAppModel: ObservableObject {
         if isPreparingRound { roundStartFailure = nil }
         recordUITestLatency("activate.live-state-published globalId=\(nextPackage.course.globalId)")
         package = nextPackage
+        schedulePendingGeometryRefresh(for: nextPackage)
         recordUITestLatency("activate.package-published globalId=\(nextPackage.course.globalId)")
         recordUITestLatency("activate.pending-events.begin globalId=\(nextPackage.course.globalId)")
         pendingEventCount = try offlineStore.loadPendingEvents(roundId: nextPackage.roundId).count
@@ -5628,6 +5644,67 @@ public final class LiveRoundAppModel: ObservableObject {
         // The round's maps already on the phone go to the Watch now, not after a network pass
         // (a resumed round whose refresh fails never starts one). Reads run off the main actor.
         watchTopoSender?.sync()
+    }
+
+    private func schedulePendingGeometryRefresh(for snapshot: LiveRoundPackage) {
+        pendingGeometryRefreshTask?.cancel()
+        pendingGeometryRefreshTask = nil
+        guard let syncClient,
+              liveRoundState?.roundId == snapshot.roundId,
+              let retryAfter = snapshot.holes
+                .filter({ $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame })
+                .compactMap(\.retryAfterEpoch)
+                .min() else { return }
+        let nowEpoch = Date().timeIntervalSince1970
+        guard retryAfter > nowEpoch || pendingGeometryLastAttemptEpoch != retryAfter else { return }
+        let roundId = snapshot.roundId
+        let globalId = snapshot.course.globalId
+        let teeBox = snapshot.course.teeBox
+        let loops = snapshot.loopEntries
+        pendingGeometryRefreshTask = Task { [weak self] in
+            let delay = max(0, retryAfter - Date().timeIntervalSince1970)
+            do {
+                if delay > 0 {
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            guard let self,
+                  self.package?.roundId == roundId,
+                  self.liveRoundState?.roundId == roundId,
+                  self.package?.course.globalId == globalId else { return }
+            self.pendingGeometryLastAttemptEpoch = retryAfter
+            do {
+                let refreshed = try await syncClient.fetchRoundPackage(
+                    roundId: roundId,
+                    capturedAt: Date(),
+                    ensureGeometry: false,
+                    foregroundStart: false,
+                    requestKind: .background
+                )
+                guard !Task.isCancelled,
+                      self.package?.roundId == roundId,
+                      self.liveRoundState?.roundId == roundId,
+                      refreshed.roundId == roundId,
+                      refreshed.course.globalId == globalId else { return }
+                let persisted = try self.offlineStore.saveRoundPackage(refreshed)
+                try self.activatePackage(persisted, status: "几何地图已更新")
+                if persisted.holes.contains(where: {
+                    $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame
+                }) {
+                    _ = try? await syncClient.fetchCourseInstallStatus(
+                        globalId: globalId, teeBox: teeBox, loops: loops
+                    )
+                    self.schedulePendingGeometryRefresh(for: persisted)
+                }
+            } catch {
+                AICaddieLog.network.info(
+                    "Pending package geometry refresh deferred: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
     }
 
     /// Convert a successfully activated Garmin package into the small, account-scoped recovery

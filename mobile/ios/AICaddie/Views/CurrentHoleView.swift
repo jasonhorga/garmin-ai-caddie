@@ -26,6 +26,11 @@ enum LiveTopoAvailability {
     }
 
     static func revision(hole: Hole, prep: CoursePrepHole?) -> String? {
+        if hole.topoAvailable == true,
+           let topoRevision = hole.topoRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !topoRevision.isEmpty {
+            return topoRevision
+        }
         if prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
            let revision = prep?.geometryRevision, !revision.isEmpty { return revision }
         return hole.geometryRevision ?? prep?.geometryRevision
@@ -39,8 +44,10 @@ enum LiveTopoAvailability {
                   geometryRevision: revision(hole: hole, prep: prep)
               ) else { return nil }
         let hasRevision = !(prep?.geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        let packageTopoReady = hole.topoAvailable == true
+            && !(hole.topoRevision?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         guard coverage(hole: hole, prep: prep)?.caseInsensitiveCompare("ready") == .orderedSame
-            || hasRevision || TopoHoleImageStore.cachedImage(for: url) != nil else { return nil }
+            || packageTopoReady || hasRevision || TopoHoleImageStore.cachedImage(for: url) != nil else { return nil }
         return url
     }
 
@@ -431,7 +438,7 @@ public struct CurrentHoleView: View {
             _explicitlySelectedCaddieRouteHoles = State(initialValue: [hole.number])
         }
         _heroMapScale = State(initialValue: min(max(snapshotState.mapScale, 1), 4))
-        _garminRaster = State(initialValue: snapshotState.garminRaster)
+        _garminRaster = State(initialValue: snapshotState.garminRaster ?? Self.packageGarminRaster(for: hole))
         _preciseTopoImageReady = State(initialValue: snapshotState.preciseTopoReady)
         _currentCoordinate = State(initialValue: snapshotState.currentCoordinate)
         if let targetPixel = snapshotState.targetPixel {
@@ -443,7 +450,7 @@ public struct CurrentHoleView: View {
     @MainActor
     private func applySnapshotState() {
         guard let snapshotState else { return }
-        garminRaster = snapshotState.garminRaster
+        garminRaster = snapshotState.garminRaster ?? Self.packageGarminRaster(for: hole)
         preciseTopoImageReady = snapshotState.preciseTopoReady
         currentCoordinate = snapshotState.currentCoordinate
         garminRasterImageFailed = false
@@ -466,6 +473,16 @@ public struct CurrentHoleView: View {
             self.targetPixel = targetPixel
             heroTargetDragLocation = snapshotState.targetDragFocus
         }
+    }
+
+    private static func packageGarminRaster(for hole: Hole) -> GarminRasterResponse? {
+        guard let descriptor = hole.garminRaster else { return nil }
+        return GarminRasterResponse(
+            available: true,
+            imageUrl: descriptor.imageUrl,
+            mode: "package",
+            reason: nil
+        )
     }
 
     public var body: some View {
@@ -552,7 +569,7 @@ public struct CurrentHoleView: View {
             selectedPlanIndex = nil
             selectedHazardID = nil
             preciseMapTimedOut = false
-            garminRaster = nil
+            garminRaster = Self.packageGarminRaster(for: hole)
             preciseTopoImageReady = false
             garminRasterImageFailed = false
             garminRasterImageRetrying = false
