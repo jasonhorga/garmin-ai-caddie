@@ -179,6 +179,16 @@ final class C33DrawingTests: XCTestCase {
             CoursePrepHole.self, from: JSONSerialization.data(withJSONObject: json)
         )
         XCTAssertNil(GreenDetailImageResolver.crop(for: withoutProjection))
+        var unavailableJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any]
+        )
+        var projectionJSON = try XCTUnwrap(unavailableJSON["holeImageProjection"] as? [String: Any])
+        projectionJSON["available"] = false
+        unavailableJSON["holeImageProjection"] = projectionJSON
+        let unavailable = try JSONDecoder().decode(
+            CoursePrepHole.self, from: JSONSerialization.data(withJSONObject: unavailableJSON)
+        )
+        XCTAssertNil(GreenDetailImageResolver.crop(for: unavailable))
     }
 
     func testChangingHoleCancelsGarminRetry() async {
