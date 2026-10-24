@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class C33EventTests: XCTestCase {
-    func testEveryRouteTokenProducesOnlyServerStrategyEnumsOrOmission() {
+    func testEveryRouteTokenProducesOnlyServerStrategyEnumsOrOmission() throws {
         // Server _LIVE_EVENT_PAYLOAD_ENUMS is the authority, not another client mapper.
         let allowed: Set<String> = ["protect_score", "stock", "attack"]
         let aliases = ["conservative layup", "safe", "safe line", "safe route", "conservative", "protect",
