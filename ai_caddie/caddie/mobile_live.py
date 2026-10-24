@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from server_v2.timing import mark as mark_request_stage
+
 from concurrent.futures import FIRST_COMPLETED, wait
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
@@ -982,6 +984,20 @@ def _ensure_geometry_for_course(
     return _geometry_ensure_summary(results, requested=True)
 
 
+def _startup_hole_assets(global_id: int | None, local_hole: int | None, evidence: dict) -> dict:
+    """Describe fetchable maps without fetching, rendering or parsing a mesh."""
+    base = f"/api/v2/courses/{int(global_id or 0)}/holes/{int(local_hole or 0)}"
+    ready = evidence.get("coverage") == "ready"
+    topo = evidence.get("topoCoverage", evidence.get("coverage")) == "ready"
+    revision = evidence.get("topoRevision") or evidence.get("geometryRevision")
+    retry = next((row.get("retryAfterEpoch") for row in evidence.get("missingData") or []
+                  if row.get("retryAfterEpoch")), None)
+    return {"geometryState": "ready" if ready else "pending",
+            "retryAfterEpoch": None if ready else max(time.time() + 30, float(retry or 0)),
+            "garminRaster": {"imageUrl": base + "/garmin-raster.jpg", "metadataUrl": base + "/garmin-raster"},
+            "topoAvailable": bool(topo and revision), "topoRevision": revision if topo else None}
+
+
 def _package_holes(
     round_row: dict[str, Any],
     stats: dict[str, Any],
@@ -1066,6 +1082,7 @@ def _package_holes(
             "number": number,
             "par": par,
             "yards": yards,
+            **_startup_hole_assets(source_gid, source_local, geometry_evidence),
             "geometryCoverage": coverage or "missing",
             "geometryRevision": str(geometry_revision) if geometry_revision else None,
             "geometryAuthorityObservation": str(
@@ -1207,14 +1224,10 @@ def first_hole_lightweight_course_prep(
     player_id: str = OWNER_ID,
     map_only: bool = False,
 ) -> dict[str, Any] | None:
-    """Return immediately drawable CourseView-only seeds for the live course package.
+    """Read persisted vectors and lightweight CourseView seeds for every playable hole.
 
-    The function name is retained for source compatibility with the first-hole bootstrap path,
-    but the package must carry a route for every playable hole.  Previously only the first row was
-    embedded, which meant a player who swiped to hole 2+ saw a perfectly usable bitmap with no
-    centreline until the asynchronous precise-prep batch happened to finish.  CourseView route
-    extraction is the cheap factual layer; precise prodgeometry/topo installation remains a
-    separate background job and is never pulled onto the first-screen path here.
+    Missing routes carry a Garmin raster descriptor and a pending state. Mesh decoding and
+    factual vector construction belong to the startup/install workers.
     """
     holes = [row for row in (package.get("holes") or []) if isinstance(row, dict)]
     if not holes:
@@ -1239,7 +1252,6 @@ def first_hole_lightweight_course_prep(
     # renumber the returned factual row for each display hole instead of doing duplicate work.
     by_source: dict[tuple[int, int], dict[str, Any] | None] = {}
     tee_sets: dict[int, int | None] = {}
-    priority_display_holes = set((package.get("enrichmentState") or {}).get("priorityHoles") or [1])
     seeded_rows: list[dict[str, Any]] = []
     missing_rows: list[dict[str, Any]] = []
     for package_hole in holes:
@@ -1265,7 +1277,7 @@ def first_hole_lightweight_course_prep(
                         )
                     vector = cached_vector_hole(
                         source_global_id, source_local_hole, tee_set=tee_sets[source_global_id],
-                        build_if_missing=round_hole in priority_display_holes,
+                        build_if_missing=False,
                     )
                 except Exception:
                     pass
@@ -1284,41 +1296,14 @@ def first_hole_lightweight_course_prep(
         prep = by_source[source_key]
 
         if not _has_drawable_route_seed(prep):
-            # A number of Garmin releases ship precise prodgeometry without the optional
-            # CourseView courseData catalogue.  In that shape the old lightweight-only branch
-            # dropped the hole entirely, so swiping to it showed a bitmap with no route.  Extract
-            # the renderer's precise centreline/frame as a cheap visual bootstrap; the row stays
-            # partial and the active-hole refresh still owns hazards and recommendations.
-            try:
-                package_coverage = str(package_hole.get("geometryCoverage") or "").strip().lower()
-                package_revision = str(package_hole.get("geometryRevision") or "").strip()
-                trusted_coverage = None
-                # _package_holes has already checked the release-bound mesh/hazard authority. Reuse
-                # that result when it is complete, otherwise let the fallback perform its own
-                # authority read. This keeps the visual bootstrap cheap without allowing a stale
-                # package row to promote partial geometry.
-                if package_coverage == "ready" and package_revision:
-                    trusted_coverage = {
-                        "coverage": "ready",
-                        "geometryRevision": package_revision,
-                        "missingData": [],
-                    }
-                prep = course_prep.precise_route_seed_hole(
-                    source_global_id,
-                    source_local_hole,
-                    coverage=trusted_coverage,
-                )
-            except Exception:
-                prep = None
-            # Cache the fallback as well; composite A+A rounds may reference the same physical
-            # hole twice and must not decode its meshes a second time during one package build.
-            by_source[source_key] = prep
-        if not _has_drawable_route_seed(prep):
             missing_rows.append({
                 "label": "course_prep",
                 "reason": f"route unavailable for hole {round_hole}",
             })
-            continue
+            prep = {"globalId": source_global_id, "localHole": source_local_hole,
+                    "geometryState": "pending", "retryAfterEpoch": time.time() + 30,
+                    "garminRaster": _startup_hole_assets(source_global_id, source_local_hole, {})["garminRaster"],
+                    "route": [], "steps": [], "map": {"image": None}, "missingData": []}
         seeded = dict(prep)
         seeded["hole"] = round_hole
         seeded_rows.append(seeded)
@@ -2285,7 +2270,7 @@ def _route_evidence_seed(
             start=start,
             target=target,
             landing_radius_m=18.0,
-            _hazards_override=hazard_source,
+            _hazards_override=hazard_source or {},
         )
     except Exception:
         return None, [], [{"label": "route_geometry", "reason": "route geometry evidence could not be loaded for offline seed"}]
@@ -3371,6 +3356,7 @@ def build_live_round_package(
         decision_audit_root=root,
         window=stats_window,
     )
+    mark_request_stage("mobile_stats")
     requested_id = str(round_id)
     lookup_id = str(template_round_id or requested_id)
     round_row = next(
@@ -3407,6 +3393,7 @@ def build_live_round_package(
         hole_numbers=hole_numbers,
         tee_box=tee_box,
     )
+    mark_request_stage("mobile_holes")
     club_profiles = [
         {
             "clubName": row.get("club"),
@@ -3448,6 +3435,7 @@ def build_live_round_package(
         allow_fetch=allow_weather_fetch and not map_only,
         player_id=player_id,
     )
+    mark_request_stage("mobile_weather")
     weather_coverage, weather_by_hole = _weather_coverage_for_package(
         round_id,
         holes,
@@ -3645,6 +3633,7 @@ def build_live_round_package(
     # v2 identity is stamped by the caller: a course start from its explicit, proven loop order
     # (``build_live_round_package_for_loops``); a past round from durable proof only
     # (``apply_past_round_loop_identity``). The raw build never guesses a loop table.
+    mark_request_stage("mobile_seeds")
     return {
         "schema": LIVE_ROUND_PACKAGE_SCHEMA,
         "roundId": round_id,

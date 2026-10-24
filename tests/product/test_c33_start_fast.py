@@ -228,23 +228,23 @@ class WarmBudgetTests(unittest.TestCase):
         from ai_caddie.geometry import topo_render as tr
         bg = PriorityExecutor(3, name="c33-topo-bg")
         fg = PriorityExecutor(1, name="c33-topo-fg")
-        release, full, fg_waiting, bg_waiting = (threading.Event() for _ in range(4))
+        release, second_release, full, fg_waiting, bg_waiting = (threading.Event() for _ in range(5))
         lock, order = threading.Lock(), []
         occupied = 0
-        def occupy():
+        def occupy(done):
             nonlocal occupied
             with tr._cold_render_slot:
                 with lock:
                     occupied += 1
                     if occupied == 2:
                         full.set()
-                release.wait(10)
+                done.wait(10)
         def queued(name, event):
             event.set()
             with tr._cold_render_slot:
                 order.append(name)
         try:
-            initial = [bg.submit(occupy, priority=NEARBY) for _ in range(2)]
+            initial = [bg.submit(occupy, event, priority=NEARBY) for event in (release, second_release)]
             self.assertTrue(full.wait(1))
             back = bg.submit(queued, "background", bg_waiting, priority=NEARBY)
             self.assertTrue(bg_waiting.wait(1))
@@ -253,11 +253,15 @@ class WarmBudgetTests(unittest.TestCase):
             self.assertTrue(fg_waiting.wait(1))
             threading.Event().wait(.05)
             release.set()
-            for f in initial + [front, back]:
+            front.result(2)
+            back.result(2)
+            second_release.set()
+            for f in initial:
                 f.result(2)
             self.assertEqual(order[0], "foreground")  # Card 6: next free cold render slot serves foreground first.
         finally:
             release.set()
+            second_release.set()
             bg.shutdown()
             fg.shutdown()
 
@@ -329,3 +333,47 @@ class ObservabilityTests(unittest.TestCase):
         self.assertIn("body.events.0.strategyMode", text)
         self.assertIn("literal_error", text)
         self.assertNotIn(secret, text)  # Card 7: validation diagnostics never echo an event's body/message.
+
+
+class TimingHeaderTests(unittest.TestCase):
+    def test_server_timing_header_carries_live_package_segments(self):
+        from starlette.requests import Request
+        from starlette.responses import JSONResponse
+        from server_v2 import main
+        request = Request({"type": "http", "method": "GET", "path": "/api/v2/mobile/courses/123/package", "headers": []})
+        with cold_package() as mobile:
+            async def call_next(_request):
+                mobile.build_mobile_course_package_response(123, loops=[(123, "front"), (123, "back")], map_only=True, include_event_cursor=False)
+                return JSONResponse({"fixture": True})
+            response = asyncio.run(main.request_timing_middleware(request, call_next))
+        # Card 7 exposes internal mobile_live stages on the actual middleware response header.
+        self.assertIn("mobile_holes;dur=", response.headers["Server-Timing"])
+        self.assertIn("mobile_seeds;dur=", response.headers["Server-Timing"])
+
+
+class ActivityLifecycleTests(unittest.TestCase):
+    def test_package_marks_play_and_finish_releases_nearby(self):
+        from fastapi import BackgroundTasks
+        from server_v2 import main
+        with (patch.dict(main._ACTIVE_ROUNDS, {}, clear=True),
+              patch.object(main.course_install, "_ACTIVE", set()),
+              patch.object(main, "build_mobile_course_package_response", return_value=SimpleNamespace()),
+              patch.object(main, "finish_mobile_round_response", return_value=SimpleNamespace())):
+            self.assertFalse(main.nearby_work_blocked())
+            main.mobile_course_package(123, BackgroundTasks(), round_id="fixture-round", loops="123:front,123:back", player_id="fixture")
+            self.assertTrue(main.nearby_work_blocked())  # Card 5: starting play suspends regional warming.
+            main.mobile_round_finish("fixture-round", SimpleNamespace(), acting_player_id="fixture")
+            self.assertFalse(main.nearby_work_blocked())  # Finished play releases the admission gate.
+
+
+class CachedRouteTests(unittest.TestCase):
+    def test_missing_hazard_cache_never_falls_back_to_mesh_decode(self):
+        from ai_caddie.caddie import mobile_live as ml
+        from ai_caddie.geometry import geometry_evidence as ge
+        with (patch.object(ml, "_load_mobile_hazards", return_value={}),
+              patch.object(ge, "geometry_coverage_for_hole", return_value={"coverage": "missing", "missingData": []}),
+              patch.object(ge, "_load_hole_sources", side_effect=AssertionError("mesh parser reached")) as parse):
+            route, _, _ = ml._route_evidence_seed(123, 1, {"yards": 300}, "fixture:1", [])
+        # Common goal 1: even an absent compact hazard cache cannot pull mesh parsing onto startup.
+        parse.assert_not_called()
+        self.assertIsNotNone(route)

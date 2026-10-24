@@ -35,6 +35,8 @@ Pure rendering — no network, no AI. PIL + numpy only (no scipy / cv2).
 """
 from __future__ import annotations
 
+from ai_caddie.core.priority_work import PrioritySlots
+
 import atexit
 import gc
 import hashlib
@@ -997,7 +999,7 @@ _cache_inflight: dict[Path, threading.Event] = {}
 # render concurrently (the per-path singleflight only protects duplicate requests), so an iPhone
 # download plus Web/Watch prewarm could multiply that peak until the API host swapped or died.
 # Serialise cold renders process-wide; warm PNG reads never take this gate.
-_cold_render_slot = threading.BoundedSemaphore(2)
+_cold_render_slot = PrioritySlots(2)
 
 
 def _release_cold_render_working_set() -> None:

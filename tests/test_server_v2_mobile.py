@@ -2300,7 +2300,7 @@ class ServerV2MobileTests(unittest.TestCase):
         )
         ladder.assert_called_once_with("member-a")
 
-    def test_lightweight_seed_uses_precise_route_when_courseview_catalogue_is_missing(self) -> None:
+    def test_lightweight_seed_reuses_cached_precise_route_when_courseview_catalogue_is_missing(self) -> None:
         """A precise-only release must still publish a drawable route for every display hole."""
         from ai_caddie.caddie import mobile_live
         from ai_caddie.courses import course_prep
@@ -2333,7 +2333,8 @@ class ServerV2MobileTests(unittest.TestCase):
         }
         with patch.object(course_prep, "effective_club_ladder", return_value=[]), \
                 patch.object(course_prep, "lightweight_prep_hole", return_value=None), \
-                patch.object(course_prep, "precise_route_seed_hole", side_effect=precise) as fallback:
+                patch("ai_caddie.core.data.mesh_path", return_value=Path(__file__)), \
+                patch("ai_caddie.courses.vector_prep.cached_vector_hole", side_effect=precise) as fallback:
             result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
 
         self.assertIsNotNone(result)
@@ -2344,6 +2345,8 @@ class ServerV2MobileTests(unittest.TestCase):
             [(call.args[0], call.args[1]) for call in fallback.call_args_list],
             [(31702, 1), (31702, 2)],
         )
+
+        self.assertTrue(all(call.kwargs["build_if_missing"] is False for call in fallback.call_args_list))
 
     def test_lightweight_seed_accepts_pixel_overlay_without_gps_projection(self) -> None:
         """A route-only mesh seed must not be discarded just because GPS refs are unavailable."""
@@ -2385,7 +2388,7 @@ class ServerV2MobileTests(unittest.TestCase):
         fallback.assert_not_called()
 
     def test_lightweight_seed_rejects_degenerate_route_even_with_projection(self) -> None:
-        """A one-point/zero-length route must fall through to the precise mesh extractor."""
+        """A degenerate cached route stays pending until background vectors are ready."""
         from ai_caddie.caddie import mobile_live
         from ai_caddie.courses import course_prep
 
@@ -2417,8 +2420,9 @@ class ServerV2MobileTests(unittest.TestCase):
             result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
 
         self.assertIsNotNone(result)
-        self.assertEqual(result["holes"][0]["route"], precise["route"])
-        fallback.assert_called_once_with(31702, 1, coverage=None)
+        self.assertEqual(result["holes"][0]["route"], [])
+        self.assertEqual(result["holes"][0]["geometryState"], "pending")
+        fallback.assert_not_called()
 
     def test_mobile_course_package_caps_nine_hole_loop_to_nine_holes(self) -> None:
         # A 9-hole CourseView loop (黑骑士 C / gid 31796) whose played rounds were 18-hole combos

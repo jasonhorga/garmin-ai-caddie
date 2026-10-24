@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import copy
 import hashlib
 import json
@@ -46,7 +47,7 @@ def cached_vector_hole(global_id: int, local_hole: int, *, tee_set: int | None =
     before = signature()
     token = hashlib.sha256(json.dumps(before, sort_keys=True).encode()).hexdigest()[:32]
     path = _CACHE_DIR / str(gid) / f"h{hole:02d}-{token}.json"
-    with _LOCKS[hash((gid, hole, tee_set)) % len(_LOCKS)]:
+    with (_LOCKS[hash((gid, hole, tee_set)) % len(_LOCKS)] if build_if_missing else nullcontext()):
         try:
             stored = json.loads(path.read_text())
             if stored.get("schema") == _VERSION and stored.get("geometryRevision") == revision:

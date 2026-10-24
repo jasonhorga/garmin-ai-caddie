@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
+from contextvars import ContextVar
 import heapq
 import itertools
 import threading
@@ -11,6 +12,45 @@ from typing import Any, Callable, Hashable
 FOREGROUND = 0
 SELECTED_COURSE = 10
 NEARBY = 20
+
+
+_CURRENT_PRIORITY: ContextVar[int | None] = ContextVar("work_priority", default=None)
+
+
+def current_priority() -> int:
+    """HTTP work defaults to foreground; child jobs inherit their executor's lane."""
+    value = _CURRENT_PRIORITY.get()
+    return FOREGROUND if value is None else value
+
+
+class PrioritySlots:
+    """A bounded render gate that admits the highest priority waiting caller first.
+
+    Running renders complete normally; priority only chooses the next admission.
+    """
+    def __init__(self, capacity: int):
+        self._condition = threading.Condition()
+        self._available = capacity
+        self._waiters: list[tuple[int, int]] = []
+        self._sequence = itertools.count()
+
+    def __enter__(self):
+        # A direct HTTP render precedes queued pipeline work, including an install
+        # job that itself carries FOREGROUND for the current playing hole.
+        priority = -1 if _CURRENT_PRIORITY.get() is None else current_priority()
+        ticket = (priority, next(self._sequence))
+        with self._condition:
+            heapq.heappush(self._waiters, ticket)
+            self._condition.wait_for(lambda: self._available > 0 and self._waiters[0] == ticket)
+            heapq.heappop(self._waiters)
+            self._available -= 1
+            self._condition.notify_all()
+        return self
+
+    def __exit__(self, *exc):
+        with self._condition:
+            self._available += 1
+            self._condition.notify_all()
 
 
 class PriorityExecutor:
@@ -163,12 +203,15 @@ class PriorityExecutor:
                         continue
             if not future.set_running_or_notify_cancel():
                 continue
+            token = _CURRENT_PRIORITY.set(_priority)
             try:
                 result = fn(*args, **kwargs)
             except BaseException as exc:
                 future.set_exception(exc)
             else:
                 future.set_result(result)
+            finally:
+                _CURRENT_PRIORITY.reset(token)
 
     def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
         with self._condition:

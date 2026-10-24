@@ -107,6 +107,7 @@ def geometry_coverage_for_hole(
             "state": state,
             "failureCount": int((status or {}).get("failureCount") or 0),
             "lastErrorType": (status or {}).get("lastErrorType"),
+            "retryAfterEpoch": (status or {}).get("retryAfterEpoch"),
         } if has_meshes else {"label": "hazards", "reason": "prodgeometry hazard file missing"})
 
     if has_meshes:

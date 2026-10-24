@@ -338,7 +338,15 @@ def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, objec
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
-    return JSONResponse({"detail": _safe_validation_errors(exc)}, status_code=422)
+    detail = _safe_validation_errors(exc)
+    if _request.method == "POST" and re.fullmatch(r"/api/v2/mobile/rounds/[^/]+/events", _request.url.path):
+        # Validation messages/input may contain the complete event or a sensitive field value.
+        # Only schema locations and machine-readable error types belong in production logs.
+        logger.warning("mobile_events validation_failed status=422 detail=%s", [
+            {"path": ".".join(str(part) for part in row["loc"]), "type": row["type"]}
+            for row in detail
+        ])
+    return JSONResponse({"detail": detail}, status_code=422)
 
 
 def _security_profile_requires_admin() -> bool:
@@ -1827,6 +1835,7 @@ def mobile_round_package(
     ensure_geometry: bool = False,
     player_id: str = Depends(current_player_id),
 ) -> LiveRoundPackageResponse:
+    _record_round_activity(player_id, round_id)
     return build_mobile_round_package_response(
         round_id,
         captured_at=captured_at,
@@ -1854,6 +1863,9 @@ def mobile_course_options(
 
 def _discover_nearby_maps(latitude: float, longitude: float) -> None:
     from server_v2.map_startup import enqueue_nearby
+
+    if nearby_work_blocked():
+        return
 
     try:
         result = course_search.courseview_nearby(latitude=latitude, longitude=longitude, radius_km=30)
@@ -2047,6 +2059,41 @@ def _current_geometry_revision(global_id: int, hole: int) -> str | None:
     return revision if observation != "stale" else None
 
 
+# A package with a caller round id or an accepted event keeps play foreground for six hours.
+# Explicit finish releases it; a lost/offline client expires without a resident timer.
+_ACTIVE_ROUNDS: dict[tuple[str, str], float] = {}
+_ACTIVE_ROUNDS_LOCK = threading.Lock()
+
+
+def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False) -> None:
+    if not round_id:
+        return
+    with _ACTIVE_ROUNDS_LOCK:
+        key = (str(player_id), str(round_id))
+        if finished:
+            _ACTIVE_ROUNDS.pop(key, None)
+        else:
+            _ACTIVE_ROUNDS[key] = time.monotonic() + 6 * 3600
+
+
+def nearby_work_blocked() -> bool:
+    """Gate both discovery admission and each durable nearby worker pass."""
+    now = time.monotonic()
+    with _ACTIVE_ROUNDS_LOCK:
+        for key, deadline in list(_ACTIVE_ROUNDS.items()):
+            if deadline <= now:
+                _ACTIVE_ROUNDS.pop(key, None)
+        if _ACTIVE_ROUNDS:
+            return True
+    with course_install._LOCK:
+        active = list(course_install._ACTIVE)
+    for identifier in active:
+        state = course_install.state_for_worker(identifier) or {}
+        if int(state.get("priority", SELECTED_COURSE)) < NEARBY:
+            return True
+    return False
+
+
 def run_course_install_job(identifier: str) -> None:
     """Run one durable course-install journal to completion.
 
@@ -2059,6 +2106,9 @@ def run_course_install_job(identifier: str) -> None:
     if state is None:
         return
     if str(state.get("loopKey") or "").endswith(":nearby-assets"):
+        if nearby_work_blocked():
+            course_install.update(identifier, phase="queued", stage="deferred", clear_error=True)
+            return
         from ai_caddie.courses.course_reference import courseview_release_info
         from server_v2.map_startup import ensure_startup_course_data
 
@@ -2397,6 +2447,7 @@ def mobile_course_package(
     effective_priority_hole = 1 if priority_hole is None else priority_hole
     if not 1 <= effective_priority_hole <= len(round_loops) * 9:
         raise HTTPException(status_code=422, detail="priority_hole is outside the selected round")
+    _record_round_activity(player_id, round_id)
     try:
         package = build_mobile_course_package_response(
             global_id,
@@ -2619,9 +2670,11 @@ def mobile_round_events(
 ) -> LiveRoundEventBatchResponse:
     # Auth = the global middleware (admin OR a valid per-player token for this player-scoped route).
     # Events write to the ACTING player's OWN partition (mobile_event_log(player_id)) — owner unchanged.
-    return append_mobile_events_response(
+    result = append_mobile_events_response(
         round_id, request, idempotency_key=idempotency_key, player_id=acting_player_id
     )
+    _record_round_activity(acting_player_id, round_id)
+    return result
 
 
 @app.post(
@@ -2634,7 +2687,9 @@ def mobile_round_finish(
     request: MobileRoundFinishRequest,
     acting_player_id: str = Depends(current_player_id),
 ) -> RoundIngestResponse:
-    return finish_mobile_round_response(round_id, request, player_id=acting_player_id)
+    result = finish_mobile_round_response(round_id, request, player_id=acting_player_id)
+    _record_round_activity(acting_player_id, round_id, finished=True)
+    return result
 
 
 @app.post("/api/v2/mobile/pin-sheet")

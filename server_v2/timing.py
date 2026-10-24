@@ -20,6 +20,11 @@ from typing import Iterator
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{1,96}$")
 _CURRENT: ContextVar["RequestTiming | None"] = ContextVar("ai_caddie_request_timing", default=None)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+# Uvicorn configures this handler in production; standalone callers retain normal propagation.
+if not logger.handlers:
+    logger.handlers.extend(logging.getLogger("uvicorn.error").handlers or [logging.StreamHandler()])
+logger.propagate = False
 
 
 def request_id(value: str | None = None) -> str:
@@ -38,7 +43,7 @@ class RequestTiming:
         clean = re.sub(r"[^A-Za-z0-9_.-]", "_", str(name or "stage"))[:64] or "stage"
         now = time.perf_counter()
         previous = self._last if self._last is not None else self.started
-        self.marks[clean] = max(0.0, (now - previous) * 1000.0)
+        self.marks[clean] = self.marks.get(clean, 0.0) + max(0.0, (now - previous) * 1000.0)
         self._last = now
 
     @property
