@@ -377,3 +377,246 @@ class CachedRouteTests(unittest.TestCase):
         # Common goal 1: even an absent compact hazard cache cannot pull mesh parsing onto startup.
         parse.assert_not_called()
         self.assertIsNotNone(route)
+
+
+class ReworkContractTests(unittest.TestCase):
+    def test_cold_package_schema_and_missing_prep_hole(self):
+        import json
+        from jsonschema import Draft202012Validator
+        with cold_package() as mobile:
+            result = mobile.build_mobile_course_package_response(
+                123, loops=[(123, 'front'), (123, 'back')], map_only=True, include_event_cursor=False)
+        payload = result.model_dump(by_alias=True, exclude_none=True)
+        schema = json.loads(Path('mobile/contracts/live_round_package.schema.json').read_text())
+        errors = list(Draft202012Validator(schema).iter_errors(payload))
+        self.assertEqual([], [e.message for e in errors])  # P0: a real cold package remains decodable.
+        self.assertNotIn(1, [h['hole'] for h in (result.coursePrep or {}).get('holes', [])])
+
+    def test_selected_tee_cache_miss_uses_blue_route(self):
+        from ai_caddie.caddie import mobile_live as ml
+        route = {'globalId': 123, 'localHole': 1, 'route': [[0, 0, 0], [0, 300, 300]],
+                 'map': {'image': None, 'overlay': {'route': [[0, 0], [0, 300]]}}}
+        package = {'course': {'globalId': 123, 'teeBox': 'white'}, 'clubProfiles': [],
+                   'holes': [{'number': 1, 'sourceGlobalId': 123, 'sourceLocalHole': 1}]}
+        with (patch('ai_caddie.core.data.mesh_path', return_value=Path(__file__)),
+              patch('ai_caddie.caddie.analysis.tee_set_for_box', side_effect=lambda gid, box, **kw: 4 if box == 'white' else 2),
+              patch('ai_caddie.courses.vector_prep.cached_vector_hole', side_effect=lambda *a, **kw: route if kw.get('tee_set') == 2 else None),
+              patch.object(ml.course_prep, 'lightweight_prep_hole', return_value=None)):
+            result = ml.first_hole_lightweight_course_prep(package, map_only=True)
+        self.assertEqual(result['holes'][0]['route'], route['route'])  # P1: blue cache keeps non-blue starts drawable.
+
+    def test_follower_waits_one_second_and_marks_uncacheable(self):
+        from server_v2 import mobile
+        future = Future()
+        with patch.dict(mobile._PACKAGE_SINGLEFLIGHT, {('rework',): future}, clear=True):
+            start = time.monotonic()
+            result = mobile._package_singleflight(('rework',), lambda: None,
+                fallback=lambda: SimpleNamespace(sourceCoverage={}, offlinePackageStatus={}))
+            elapsed = time.monotonic() - start
+        self.assertGreaterEqual(elapsed, .9)  # P2: follower shares up to the specified 1 s leader window.
+        self.assertLess(elapsed, 1.8)
+        self.assertFalse(result.offlinePackageStatus['cacheable'])
+        self.assertEqual(result.offlinePackageStatus['degradationReason'], 'singleflight_timeout')
+
+
+class ReworkActivityTests(unittest.TestCase):
+    def test_preview_prefixes_do_not_block_and_events_expire_after_thirty_minutes(self):
+        from server_v2 import main
+        with (patch.dict(main._ACTIVE_ROUNDS, {}, clear=True),
+              patch.object(main.course_install, '_ACTIVE', set()),
+              patch.object(main.time, 'monotonic', return_value=100) as now,
+              patch.object(main, 'append_mobile_events_response', return_value=SimpleNamespace())):
+            for rid in ['home-123', 'prep-library-123']:
+                main._record_round_activity('fixture', rid)
+                self.assertFalse(main.nearby_work_blocked())  # P1: preview reads are not playing activity.
+            main.mobile_round_events('home-123', SimpleNamespace(), 'key', acting_player_id='fixture')
+            self.assertTrue(main.nearby_work_blocked())
+            now.return_value = 100 + 31 * 60
+            self.assertFalse(main.nearby_work_blocked())  # P1: last event + 30 min lease.
+
+    def test_ten_minutes_deferred_survives_real_finally_then_runs(self):
+        import os
+        from server_v2 import main, course_install as ci
+        class Timer:
+            def __init__(self, delay, callback):
+                self.delay, self.callback = delay, callback
+            def start(self):
+                pass
+            def cancel(self):
+                pass
+        with (TemporaryDirectory() as d,
+              patch.dict(os.environ, {'AI_CADDIE_COURSE_INSTALL_DIR': d}),
+              patch.dict(ci._RETRY_ATTEMPTS, {}, clear=True),
+              patch.dict(ci._RETRY_TIMERS, {}, clear=True),
+              patch.object(ci, '_ACTIVE', set()), patch.object(ci, '_RESUME_BACKLOG', []),
+              patch.object(ci, '_launch'), patch.object(ci.threading, 'Timer', Timer),
+              patch.object(main, 'nearby_work_blocked', return_value=True) as blocked,
+              patch('ai_caddie.courses.course_reference.courseview_release_info', return_value=None) as fetch):
+            state = ci.enqueue(global_id=123, tee_box='blue', loop_key='123:nearby-assets', player_id='fixture',
+                refs=[{'globalId': 123, 'localHole': 1, 'displayHole': 1}], requested={123: [1]}, ready={}, priority=NEARBY)
+            jid = state['jobId']
+            for _minute in range(11):
+                ci._RETRY_TIMERS.pop(jid, None)
+                ci._run(jid)  # Real update + finally + durable journal, not an isolated mocked worker.
+            saved = ci.state_for_worker(jid)
+            self.assertEqual(saved['phase'], 'queued')  # P1: 10 min resource deferral cannot exhaust failure retries.
+            self.assertEqual(ci._RETRY_ATTEMPTS.get(jid, 0), 0)
+            blocked.return_value = False
+            ci._RETRY_TIMERS.pop(jid, None)
+            ci._run(jid)
+            fetch.assert_called_once()
+
+
+class ReworkSchedulingTests(unittest.TestCase):
+    def test_no_context_render_yields_to_foreground(self):
+        from ai_caddie.core import priority_work as pw
+        slot = pw.PrioritySlots(1)
+        order, ready = [], threading.Event()
+        slot.__enter__()
+        def background():
+            ready.set()
+            with slot:
+                order.append('background')
+        thread = threading.Thread(target=background)
+        pool = PriorityExecutor(1, name='c33-rework-fg')
+        def foreground():
+            with slot:
+                order.append('foreground')
+        try:
+            thread.start()
+            self.assertTrue(ready.wait(1))
+            job = pool.submit(foreground, priority=FOREGROUND)
+            deadline = time.monotonic() + 1
+            while len(slot._waiters) < 2 and time.monotonic() < deadline:
+                threading.Event().wait(.005)
+            slot.__exit__()
+            job.result(1)
+            thread.join(1)
+            self.assertEqual(order, ['foreground', 'background'])  # P2: unknown thread defaults below explicit foreground.
+        finally:
+            thread.join(1)
+            pool.shutdown()
+
+    def test_interrupted_slot_wait_removes_ticket(self):
+        from ai_caddie.core.priority_work import PrioritySlots
+        slot = PrioritySlots(1)
+        with patch.object(slot._condition, 'wait_for', side_effect=RuntimeError('fixture interruption')):
+            with self.assertRaises(RuntimeError):
+                slot.__enter__()
+        self.assertEqual(slot._waiters, [])  # P2: an abandoned head ticket cannot strand later renders.
+        with slot:
+            self.assertEqual(slot._available, 0)
+
+    def test_prepare_recent_enters_nearby_context(self):
+        from server_v2 import main
+        from ai_caddie.core.priority_work import current_priority
+        seen = []
+        with (patch('ai_caddie.history.stats_cache.cached_load_history_data', return_value=SimpleNamespace()),
+              patch('ai_caddie.rounds.prepare_recent.prepare_recent_round', side_effect=lambda *a, **kw: seen.append(current_priority()))):
+            main._prepare_recent_bg('fixture')
+        self.assertEqual(seen, [NEARBY])  # P2: boot/sync/ingest warmer explicitly enters the background lane.
+
+
+class ReworkLoggingTests(unittest.TestCase):
+    def test_timing_reload_preserves_logging_configuration(self):
+        import importlib
+        from server_v2 import timing
+        with patch.object(timing.logger, 'propagate', True), patch.object(timing.logger, 'handlers', []):
+            importlib.reload(timing)
+            self.assertTrue(timing.logger.propagate)  # P2: importing hooks must not configure service logging.
+            self.assertEqual(timing.logger.handlers, [])
+
+    def test_derivative_stdout_is_limited_to_two_kib(self):
+        from ai_caddie.geometry import batch_prodgeometry_course as bp
+        sentinel = 'UNBOUNDED_OUTPUT_TAIL'
+        with TemporaryDirectory() as d:
+            mesh = Path(d) / 'mesh.json'
+            mesh.write_text('{}')
+            with (patch.object(bp, '_derivative_target_is_current', return_value=True),
+                  patch.object(bp, 'run', return_value=(False, 'x' * 2048 + sentinel)),
+                  self.assertLogs(bp.logger, level='WARNING') as logs):
+                bp._run_derivatives(123, 1, mesh, Path(d)/'d', Path(d)/'h', 'r1', 'digest', ())
+        self.assertNotIn(sentinel, '\n'.join(logs.output))  # P2: retain at most first 2 KiB of exporter diagnostics.
+
+
+class ReworkTeeWarmTests(unittest.TestCase):
+    def test_completed_derivatives_build_requested_tee(self):
+        from ai_caddie.courses import vector_prep as vp
+        from ai_caddie.geometry import batch_prodgeometry_course as bp
+        with TemporaryDirectory() as d:
+            mesh, distance, hazard = [Path(d)/n for n in ('mesh', 'distance', 'hazard')]
+            for p in (mesh, distance, hazard):
+                p.write_text('{}')
+            vp.request_vector_tee(123, 1, 4)
+            with (patch.object(bp, '_derivative_target_is_current', return_value=True),
+                  patch.object(bp, 'run', return_value=(True, '')),
+                  patch.object(vp, 'cached_vector_hole') as build):
+                bp._run_derivatives(123, 1, mesh, distance, hazard, 'r1', 'digest', ())
+            self.assertIn(4, [c.kwargs.get('tee_set') for c in build.call_args_list])  # P1: export completion warms the requested white Tee.
+
+
+class ReworkPreemptionTests(unittest.TestCase):
+    def test_foreground_preempts_early_nearby_export_and_requeues_it(self):
+        from ai_caddie.geometry import batch_prodgeometry_course as bp
+        from ai_caddie.core import priority_work as pw
+        entered, stopped, release = threading.Event(), threading.Event(), threading.Event()
+        order = []
+        class Process:
+            returncode = 0
+            def __init__(self, cmd, **kw):
+                self.cmd = cmd
+                self.first = pw.current_priority() == NEARBY and not entered.is_set()
+                if self.first:
+                    entered.set()
+            def communicate(self, timeout=None):
+                if self.first and not stopped.is_set() and not release.wait(.01):
+                    raise bp.subprocess.TimeoutExpired(self.cmd, timeout)
+                if not self.first:
+                    Path(self.cmd[self.cmd.index('--out') + 1]).write_text('{}')
+                    if 'distances' in ' '.join(self.cmd):
+                        order.append(pw.current_priority())
+                return '', None
+            def terminate(self):
+                stopped.set()
+            def kill(self):
+                stopped.set()
+        pool = PriorityExecutor(1, name='c33-preempt-derivatives')
+        try:
+            with (TemporaryDirectory() as d, patch.object(bp, '_DERIVATIVE_POOL', pool),
+                  patch.dict(bp._DERIVATIVE_JOBS, {}, clear=True),
+                  patch.object(bp, '_derivative_target_is_current', return_value=True),
+                  patch.object(bp.subprocess, 'Popen', Process),
+                  patch('ai_caddie.courses.vector_prep.cached_vector_hole', return_value=None)):
+                paths = [Path(d)/str(h) for h in (1, 2)]
+                for p in paths:
+                    p.mkdir()
+                    (p/'mesh').write_text('{}')
+                def submit(h, priority):
+                    token = pw._CURRENT_PRIORITY.set(priority)
+                    try:
+                        p = paths[h-1]
+                        bp._start_derivative_job(123, h, p/'mesh', p/'distance', p/'hazard')
+                    finally:
+                        pw._CURRENT_PRIORITY.reset(token)
+                # Both the legacy subprocess.run and replacement Popen use this fake provider.
+                def legacy_run(cmd, **kw):
+                    proc = Process(cmd)
+                    while True:
+                        try:
+                            stdout, _ = proc.communicate(.01)
+                            return SimpleNamespace(returncode=0, stdout=stdout)
+                        except bp.subprocess.TimeoutExpired:
+                            pass
+                with patch.object(bp.subprocess, 'run', side_effect=legacy_run):
+                    submit(1, NEARBY)
+                    self.assertTrue(entered.wait(1))
+                    submit(2, FOREGROUND)
+                    self.assertTrue(stopped.wait(1))  # P2: early NEARBY child is terminated for foreground admission.
+                    deadline = time.monotonic() + 2
+                    while len(order) < 2 and time.monotonic() < deadline:
+                        threading.Event().wait(.01)
+                    self.assertEqual(order[:2], [FOREGROUND, NEARBY])
+                    self.assertEqual(bp._DERIVATIVE_FAILURES, {})  # Yielding does not spend failure backoff.
+        finally:
+            release.set()
+            pool.shutdown()
