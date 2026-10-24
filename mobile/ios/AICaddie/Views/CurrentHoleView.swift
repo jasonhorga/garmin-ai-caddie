@@ -14,6 +14,37 @@ private struct PendingPhoneShot: Identifiable {
     var id: String { locationEvent.eventId }
 }
 
+/// Package facts and cached pixels can precede the heavyweight per-hole prep refresh.
+@MainActor
+enum LiveTopoAvailability {
+    static func coverage(hole: Hole, prep: CoursePrepHole?) -> String? {
+        if hole.geometryCoverage == .ready
+            || !(hole.geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+            return "ready"
+        }
+        return prep?.geometryCoverage
+    }
+
+    static func revision(hole: Hole, prep: CoursePrepHole?) -> String? {
+        if prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+           let revision = prep?.geometryRevision, !revision.isEmpty { return revision }
+        return hole.geometryRevision ?? prep?.geometryRevision
+    }
+
+    static func url(hole: Hole, prep: CoursePrepHole?, localURL: URL?, baseURL: URL?) -> URL? {
+        if let localURL { return localURL }
+        guard let baseURL,
+              let url = SyncClient.topoImageURL(
+                  baseURL: baseURL, globalId: hole.sourceGlobalId, localHole: hole.sourceLocalHole,
+                  geometryRevision: revision(hole: hole, prep: prep)
+              ) else { return nil }
+        let hasRevision = !(prep?.geometryRevision?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        guard coverage(hole: hole, prep: prep)?.caseInsensitiveCompare("ready") == .orderedSame
+            || hasRevision || TopoHoleImageStore.cachedImage(for: url) != nil else { return nil }
+        return url
+    }
+}
+
 /// Shared horizontal-navigation decision for live and review hole maps. Vertical scrolls and short
 /// map adjustments are ignored; edit/precision surfaces can disable the transition explicitly.
 enum HoleSwipeNavigation {
@@ -222,6 +253,7 @@ public struct CurrentHoleView: View {
     @State private var preciseMapTimedOut = false
     /// Garmin CN's fallback descriptor/image for this physical hole. It is deliberately separate
     /// from `holePrep`: the CourseView facts can be retained offline while the raster request fails.
+    @State private var garminDescriptorLoadingKey: String?
     @State private var garminRaster: GarminRasterResponse?
     /// Highlighted leg from the complete caddie sequence.  The map keeps all legs visible; this
     /// only changes the emphasized landing after a player taps a step in the detail sheet.
@@ -569,6 +601,9 @@ public struct CurrentHoleView: View {
             guard !Task.isCancelled, liveTopoURL == requestedURL else { return }
             preciseTopoImageReady = ready
         }
+        .task(id: garminDescriptorRecoveryKey) {
+            await recoverGarminDescriptor()
+        }
         .task(id: garminVersionConflictURL) {
             guard garminVersionConflictURL != nil else { return }
             await loadGarminRaster()
@@ -865,6 +900,8 @@ public struct CurrentHoleView: View {
                 hole: holePrep,
                 detailURL: greenDetailURL,
                 topoURL: liveTopoURL,
+                garminURL: liveGarminRasterURL,
+                garminProjection: liveGarminRasterProjection,
                 targetCoordinate: $greenPinCoordinate,
                 targetPixel: $greenPinPixel,
                 referenceCoordinate: mapReferenceCoordinate,
@@ -981,7 +1018,7 @@ public struct CurrentHoleView: View {
     /// Apply a strategy tap immediately. The network request that follows refreshes the authoritative
     /// decision, but the first frame already switches both the selected card and the next-club answer.
     private func selectStrategyMode(_ mode: String, route explicitRoute: CaddiePlanSequence? = nil) {
-        let normalized = caddieSelectionToken(forRouteId: mode) ?? mode.lowercased()
+        let normalized = caddieSelectionToken(forRouteId: mode) ?? "stock"
         guard !normalized.isEmpty else { return }
         requestedStrategyMode = normalized
         selectedStrategyMode = normalized
@@ -1762,6 +1799,9 @@ public struct CurrentHoleView: View {
                     "live-hole-map-precise"
                 )
                 .transition(.opacity)
+        } else if liveMapDisplayState == .precise, let liveTopoURL {
+            TopoHoleBaseImage(topoURL: liveTopoURL, fallback: nil)
+                .accessibilityIdentifier("live-hole-map-precise")
         } else {
             ZStack {
                 LiveMapNumericPlaceholder(
@@ -2194,7 +2234,7 @@ public struct CurrentHoleView: View {
     private var liveMapDisplayState: LiveMapDisplayState {
         LiveMapDisplayState.resolveLive(
             .init(
-                coverage: holePrep?.geometryCoverage,
+                coverage: LiveTopoAvailability.coverage(hole: hole, prep: holePrep),
                 preciseTopoImageReady: hasPreciseTopoImage,
                 garminRaster: garminRaster,
                 garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying,
@@ -2250,7 +2290,8 @@ public struct CurrentHoleView: View {
     }
 
     private var hasCachedTopoForCurrentHole: Bool {
-        holePrep != nil && localTopoURL != nil
+        if localTopoURL != nil { return true }
+        return TopoHoleImageStore.cachedImage(for: liveTopoURL) != nil
     }
 
     /// The downloaded topo of this physical hole. The bitmap is keyed by the hole's geometry
@@ -2258,45 +2299,23 @@ public struct CurrentHoleView: View {
     /// fallback before treating the map as missing (and waiting on the network for it).
     private var localTopoURL: URL? {
         guard let offlineStore else { return nil }
-        let prepRevision = holePrep?.geometryRevision ?? hole.geometryRevision
-        if let url = offlineStore.loadCourseTopoImageURL(
-            globalId: hole.sourceGlobalId,
-            localHole: hole.sourceLocalHole,
-            geometryRevision: prepRevision
-        ) {
-            return url
-        }
-        guard let holeRevision = hole.geometryRevision, holeRevision != prepRevision else { return nil }
         return offlineStore.loadCourseTopoImageURL(
             globalId: hole.sourceGlobalId,
             localHole: hole.sourceLocalHole,
-            geometryRevision: holeRevision
+            geometryRevision: LiveTopoAvailability.revision(hole: hole, prep: holePrep)
         )
     }
 
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
     /// gid)。给 `HoleImageMapView` 当底图;无后端地址/占位球场时为 nil → 回退到 payload flat 渲染图。
     private var liveTopoURL: URL? {
-        let mapGlobalId = hole.sourceGlobalId
-        let mapLocalHole = hole.sourceLocalHole
-        let geometryRevision = holePrep?.geometryRevision ?? hole.geometryRevision
-        if let local = localTopoURL {
-            return local
-        }
-        guard holePrep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
-            return nil
-        }
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
-            return nil
+            return localTopoURL
         }
         #endif
-        guard let caddieBaseURL else { return nil }
-        return SyncClient.topoImageURL(
-            baseURL: caddieBaseURL,
-            globalId: mapGlobalId,
-            localHole: mapLocalHole,
-            geometryRevision: geometryRevision
+        return LiveTopoAvailability.url(
+            hole: hole, prep: holePrep, localURL: localTopoURL, baseURL: caddieBaseURL
         )
     }
 
@@ -3004,7 +3023,7 @@ public struct CurrentHoleView: View {
             "distanceToPinM": targetDistance.map(JSONValue.number) ?? .null,
         ]
         payload["shotType"] = .string(selectedShotType)
-        payload["strategyMode"] = .string(selectedStrategyMode)
+        payload["strategyMode"] = .string(caddieSelectionToken(forRouteId: selectedStrategyMode) ?? "stock")
         payload["lie"] = .string(selectedLie)
         // A target / flag edit carries the current club, but not as a new manual choice.
         if !hasUserSelectedClub {
@@ -3061,6 +3080,25 @@ public struct CurrentHoleView: View {
         await loadGarminRaster()
     }
 
+    private var garminDescriptorRecoveryKey: String {
+        "\(hole.sourceGlobalId):\(hole.sourceLocalHole):\(hole.number)|\(garminVersionConflictURL?.absoluteString ?? "")"
+    }
+
+    /// Descriptor failures recover independently, so they never hold up the initial hole load or
+    /// stop the precise-geometry refresh. SwiftUI cancels this task when the physical hole changes.
+    private func recoverGarminDescriptor() async {
+        guard snapshotState == nil, caddieBaseURL != nil, hole.sourceGlobalId > 0 else { return }
+        var cursor = GarminRasterRetryCursor()
+        while !Task.isCancelled {
+            cursor.recordFailure(at: DispatchTime.now().uptimeNanoseconds)
+            guard let plan = cursor.nextPlan(nowNanoseconds: DispatchTime.now().uptimeNanoseconds) else { return }
+            do { try await Task.sleep(nanoseconds: plan.delayNanoseconds) } catch { return }
+            guard !Task.isCancelled else { return }
+            if garminRaster?.hasDisplayableImage == true, garminVersionConflictURL == nil { return }
+            await loadGarminRaster()
+        }
+    }
+
     /// Garmin's image is a short, independent request. A timeout/500 is intentionally converted to
     /// an unavailable descriptor so the numeric live placeholder stays usable and the precise poll
     /// continues unaffected.
@@ -3080,6 +3118,11 @@ public struct CurrentHoleView: View {
             localHole: requestLocalHole,
             roundHole: requestRoundHole
         )
+        guard garminDescriptorLoadingKey != requestKey else { return }
+        garminDescriptorLoadingKey = requestKey
+        defer {
+            if garminDescriptorLoadingKey == requestKey { garminDescriptorLoadingKey = nil }
+        }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
         let revision = holePrep?.geometryRevision ?? hole.geometryRevision
         if let cached = GarminRasterMetadataCache.cached(
@@ -3119,11 +3162,9 @@ public struct CurrentHoleView: View {
             prefetchNextGarminRaster(after: hole.number, using: client)
         } catch {
             guard !Task.isCancelled, isCurrentRasterRequest(requestKey) else { return }
-            garminRaster = GarminRasterResponse(
-                available: false,
-                mode: "none",
-                reason: "request_failed"
-            )
+            if garminRaster?.hasDisplayableImage != true {
+                garminRaster = GarminRasterResponse(available: false, mode: "none", reason: "request_failed")
+            }
         }
     }
 
@@ -3874,7 +3915,7 @@ public struct CurrentHoleView: View {
         emit(kind: .club, timestamp: ISO8601DateFormatter().string(from: Date()), payload: [
             "clubName": .string(selectedClub),
             "shotType": .string(selectedShotType),
-            "strategyMode": .string(selectedStrategyMode),
+            "strategyMode": .string(caddieSelectionToken(forRouteId: selectedStrategyMode) ?? "stock"),
             "lie": .string(selectedLie),
             "distanceToPinM": distanceToPinPayload(),
         ])
@@ -4729,7 +4770,7 @@ public struct CurrentHoleView: View {
             sourceLocationEventId: pendingShot.locationEvent.eventId,
             shotOrder: pendingShot.shotOrder,
             shotType: selectedShotType,
-            strategyMode: selectedStrategyMode,
+            strategyMode: caddieSelectionToken(forRouteId: selectedStrategyMode),
             lie: selectedLie,
             distanceToPinM: effectiveDistanceToPinMetres,
             offlineOptionId: selectedOfflineOption?.optionId,

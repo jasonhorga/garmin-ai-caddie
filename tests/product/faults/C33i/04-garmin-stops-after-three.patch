@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/GarminRasterImageStore.swift
++++ b/mobile/ios/AICaddie/Views/GarminRasterImageStore.swift
+@@ -87,6 +87,7 @@
+     }
+ 
+     func nextPlan(nowNanoseconds: UInt64) -> (attempt: Int, delayNanoseconds: UInt64)? {
++        guard nextAttempt < 3 else { return nil }
+         guard let earliest = nextAttemptEarliestNanoseconds else {
+             return (nextAttempt, 0)
+         }

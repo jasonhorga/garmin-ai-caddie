@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Views/CaddiePlanView.swift
++++ b/mobile/ios/AICaddie/Views/CaddiePlanView.swift
+@@ -84,7 +84,7 @@
+ /// never in club.strategyMode. Unknown routes omit the optional strategy preference.
+ func caddieSelectionToken(forRouteId value: String?) -> String? {
+     guard let value else { return nil }
+-    return caddieStrategyMode(forRouteId: value)
++    return caddieStrategyMode(forRouteId: value) ?? value.lowercased()
+ }
+ 
+ /// Read the server's selected route without assuming that its id is one of the old three mode

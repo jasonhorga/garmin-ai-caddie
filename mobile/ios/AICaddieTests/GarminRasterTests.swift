@@ -249,7 +249,7 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 5_000_000_100)?.attempt, 2)
         XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 20_000_000_100)?.delayNanoseconds, 0)
         cursor.recordFailure(at: 20_000_000_100)
-        XCTAssertNil(cursor.nextPlan(nowNanoseconds: 20_000_000_100))
+        XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 20_000_000_100)?.delayNanoseconds, 30_000_000_000)
 
         cursor.reset()
         XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 20_000_000_100)?.attempt, 0)

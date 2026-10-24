@@ -80,20 +80,11 @@ func caddieOptionId(forStrategyMode value: String?) -> String? {
     }
 }
 
-/// Return a stable transport token for a displayed route. Known legacy aliases collapse to the
-/// canonical mode; unknown ids remain selectable without making the UI depend on three fixed
-/// strategy categories.
+/// Strategy is a closed server enum. A route's identity belongs in the route/option selection,
+/// never in club.strategyMode. Unknown routes omit the optional strategy preference.
 func caddieSelectionToken(forRouteId value: String?) -> String? {
     guard let value else { return nil }
-    if let mode = caddieStrategyMode(forRouteId: value) {
-        return mode
-    }
-    let token = value
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
-        .replacingOccurrences(of: "-", with: "_")
-        .replacingOccurrences(of: " ", with: "_")
-    return token.isEmpty ? nil : token
+    return caddieStrategyMode(forRouteId: value)
 }
 
 /// Read the server's selected route without assuming that its id is one of the old three mode

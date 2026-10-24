@@ -1,4 +1,5 @@
 import Combine
+import CryptoKit
 import Foundation
 import os
 import SwiftUI
@@ -288,6 +289,11 @@ public final class PrepCourseDownloadPresentationState: ObservableObject {
     }
 }
 
+public enum RoundStartFailure: Equatable {
+    case timedOut
+    case unavailable
+}
+
 @MainActor
 public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var package: LiveRoundPackage? {
@@ -305,6 +311,7 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
     @Published public private(set) var pendingEventCount: Int = 0
+    @Published public private(set) var quarantinedEventCount: Int = 0
     @Published public private(set) var syncStatus: String = "离线就绪"
     @Published public private(set) var localEventUploadStatus: String = "自动上传已开启"
     @Published public private(set) var garminConnectionState: GarminConnectionState = .disconnected
@@ -339,6 +346,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private var garminSyncPresentationWatermark: Date?
     @Published public private(set) var apiBaseURL: URL?
     @Published public private(set) var adminToken: String?
+    @Published public private(set) var roundStartFailure: RoundStartFailure?
     @Published public private(set) var isPreparingRound = false
     @Published public private(set) var isFinishingRound = false
     @Published public private(set) var finishErrorMessage: String?
@@ -442,6 +450,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// while a fresh entry is pending; every automatic job waits for the release.
     private var userRequestedPrepDownloadIDs = Set<String>()
     private var roundPreparationToken: UUID?
+    private var roundPreparationGeneration: UInt64 = 0
     /// Courses picked on 开始一场 / 在这个球场 in this launch. Storage eviction keeps them even when
     /// their row is already ready, because picking a course does not count as a use.
     private var intendedGlobalIds = Set<Int>()
@@ -702,6 +711,7 @@ public final class LiveRoundAppModel: ObservableObject {
         liveRoundState = nil
         pendingWatchRoundStart = nil
         pendingEventCount = 0
+        quarantinedEventCount = 0
         pendingLiveHole = nil
         restoreCachedCourseOptions()
         recentCourseOption = try? offlineStore.loadRecentCourseSelection()
@@ -733,6 +743,7 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     public func bootstrap() async {
+        let preparationGeneration = roundPreparationGeneration
         defer {
             isBootstrapping = false
             // Before the download queue resumes, so a queued job cannot postpone it every launch;
@@ -812,6 +823,7 @@ public final class LiveRoundAppModel: ObservableObject {
         // Phase 2 — BACKGROUND refresh (network): course options + a fresh active/home package.
         // Runs after the menu is already on screen (when a cache existed), so it never delays it.
         await refreshCourseOptions()
+        guard preparationGeneration == roundPreparationGeneration else { return }
         do {
             // RESUME an in-progress round first — recorded holes must never be lost/clobbered.
             if let active = try offlineStore.loadResumablePackage(),
@@ -839,10 +851,11 @@ public final class LiveRoundAppModel: ObservableObject {
             // Guard: never overwrite a round Phase 1 already resumed (activateHomePackage nils
             // liveRoundState). If Phase 1 restored an active round, keep it and skip the home swap.
             if let home = await fetchHomePackage() {
-                guard liveRoundState == nil else { return }
+                guard preparationGeneration == roundPreparationGeneration, liveRoundState == nil else { return }
                 try activateHomePackage(home, status: "主页就绪")
                 return
             }
+            guard preparationGeneration == roundPreparationGeneration else { return }
             #if DEBUG
             let fixture = try loadFixturePackage()
             try offlineStore.saveRoundPackage(fixture)
@@ -1260,6 +1273,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private func beginRoundPreparation() -> UUID {
         let token = UUID()
         roundPreparationToken = token
+        roundPreparationGeneration &+= 1
+        roundStartFailure = nil
+        syncClient?.beginRoundStart(token)
         newAreaTask?.cancel()
         offlineCourseDownloadTask?.cancel()
         offlineCourseDownloadTask = nil
@@ -1284,6 +1300,7 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func finishRoundPreparation(_ token: UUID) {
+        syncClient?.endRoundStart(token)
         guard roundPreparationToken == token else { return }
         roundPreparationToken = nil
         isPreparingRound = false
@@ -1345,10 +1362,12 @@ public final class LiveRoundAppModel: ObservableObject {
                     return
                 }
             } else {
-                syncStatus = "暂时无法开始,稍后重试"
+                roundStartFailure = roundStartFailure ?? .unavailable
+                syncStatus = roundStartFailure == .timedOut ? "开始超时（30 秒），请重试" : "暂时无法开始,稍后重试"
             }
         } catch {
             AICaddieLog.network.error("Round package prepare failed: \(String(describing: error), privacy: .public)")
+            roundStartFailure = .unavailable
             syncStatus = "开始失败,稍后重试"
         }
     }
@@ -1468,10 +1487,12 @@ public final class LiveRoundAppModel: ObservableObject {
                     beginOfflineCourseDownload(revalidatePackage: true)
                 }
             } else {
-                syncStatus = "暂时无法开始,稍后重试"
+                roundStartFailure = roundStartFailure ?? .unavailable
+                syncStatus = roundStartFailure == .timedOut ? "开始超时（30 秒），请重试" : "暂时无法开始,稍后重试"
             }
         } catch {
             AICaddieLog.network.error("Course package prepare failed: \(String(describing: error), privacy: .public)")
+            roundStartFailure = .unavailable
             syncStatus = "开始失败,稍后重试"
         }
     }
@@ -1536,26 +1557,10 @@ public final class LiveRoundAppModel: ObservableObject {
         #if canImport(UIKit)
         guard let client = syncClient,
               let first = snapshot.holes.first else { return }
-        // Course packages seed only a lightweight CourseView prep whose coverage is always
-        // "partial", so gating on the prep alone meant this prefetch never ran. The package hole
-        // row carries the precise geometry state and the revision the live view will request once
-        // its precise prep arrives.
         let prep = snapshot.coursePrep?.holes.first(where: { $0.hole == first.number })
-        let prepReady = prep.map {
-            $0.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame && $0.resolvedMapOverlay != nil
-        } ?? false
-        guard prepReady || first.geometryCoverage == .ready else { return }
-        let globalId = first.sourceGlobalId
-        let localHole = first.sourceLocalHole
-        let revision = (prepReady ? prep?.geometryRevision : nil) ?? first.geometryRevision
-        TopoHoleImageStore.prefetch(
-            SyncClient.topoImageURL(
-                baseURL: client.baseURL,
-                globalId: globalId,
-                localHole: localHole,
-                geometryRevision: revision
-            )
-        )
+        TopoHoleImageStore.prefetch(LiveTopoAvailability.url(
+            hole: first, prep: prep, localURL: nil, baseURL: client.baseURL
+        ))
         #endif
     }
 
@@ -3104,6 +3109,7 @@ public final class LiveRoundAppModel: ObservableObject {
             package = sealedPackage
             liveRoundState = nil
             pendingEventCount = 0
+            quarantinedEventCount = 0
             pendingLiveHole = nil
             finishErrorMessage = nil
             syncStatus = "本场已保存 · 后台同步中"
@@ -3228,6 +3234,7 @@ public final class LiveRoundAppModel: ObservableObject {
             pendingWatchRoundStart = nil
         }
         pendingEventCount = 0
+        quarantinedEventCount = 0
         finishErrorMessage = nil
         syncStatus = "本场已保存"
         if notifyWatch {
@@ -3500,6 +3507,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     pendingWatchRoundStart = nil
                 }
                 pendingEventCount = 0
+                quarantinedEventCount = 0
                 finishErrorMessage = nil
                 syncStatus = "本场已放弃"
             }
@@ -4044,12 +4052,15 @@ public final class LiveRoundAppModel: ObservableObject {
             guard !Task.isCancelled, boundPlayerId == playerScope else { return }
             if try offlineStore.isRoundPendingFinish(package.roundId) { return }
             let events = try offlineStore.loadPendingEvents(roundId: package.roundId)
+            quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: package.roundId).count
             pendingEventCount = events.count
             if events.isEmpty {
                 syncStatus = uploadedMediaCount > 0 ? "已同步 \(uploadedMediaCount) 张照片/视频" : "已是最新"
                 localEventUploadStatus = uploadedMediaCount > 0
                     ? "已上传本机记录和 \(uploadedMediaCount) 个媒体文件"
-                    : "本机记录已上传"
+                    : (quarantinedEventCount > 0
+                        ? "\(quarantinedEventCount) 条异常记录已保留在本机隔离区，其余记录已上传"
+                        : "本机记录已上传")
             } else {
                 syncStatus = "同步中…"
                 let result = try await postPendingEventsAndRequireFullAcknowledgement(
@@ -4062,9 +4073,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
                 let mediaSuffix = uploadedMediaCount > 0 ? " · \(uploadedMediaCount) 张照片/视频" : ""
                 syncStatus = result.duplicate ? "已同步" : "已同步\(mediaSuffix)"
-                localEventUploadStatus = pendingEventCount == 0
-                    ? "本机记录已上传"
-                    : "仍有 \(pendingEventCount) 条记录待上传"
+                localEventUploadStatus = quarantinedEventCount > 0
+                    ? "其余记录已上传，\(quarantinedEventCount) 条异常记录已保留在本机隔离区"
+                    : (pendingEventCount == 0 ? "本机记录已上传" : "仍有 \(pendingEventCount) 条记录待上传")
             }
             // round-12 sync spine: ALWAYS pull events authored by OTHER clients (runs even with no
             // local pending events) so a round edited on the watch/web shows up here.
@@ -4089,19 +4100,19 @@ public final class LiveRoundAppModel: ObservableObject {
         roundId: String,
         syncClient: SyncClient
     ) async throws -> SyncResult {
-        let result = try await syncClient.postEventBatchWithRetry(
-            events,
-            roundId: roundId,
-            idempotencyKey: idempotencyKey(roundId: roundId, events: events)
-        )
-        guard !Task.isCancelled else { throw CancellationError() }
+        let scope = offlineStore.storageScope
         let expected = events.map(\.eventId)
-        let acknowledged = result.acceptedEventIds + result.duplicateEventIds
-        guard Set(expected).count == expected.count,
-              Set(acknowledged) == Set(expected),
-              acknowledged.count == expected.count else {
+        guard Set(expected).count == expected.count else {
             throw LiveRoundFinishError.incompleteAcknowledgement
         }
+        let quarantined = try offlineStore.loadQuarantinedEvents(roundId: roundId)
+        let blocked = Set(quarantined.map { $0.event.eventId })
+        let uploadable = events.filter { !blocked.contains($0.eventId) }
+        let result = try await uploadIsolatingInvalidEvents(
+            uploadable, roundId: roundId, syncClient: syncClient, scope: scope
+        )
+        guard !Task.isCancelled, offlineStore.storageScope == scope else { throw CancellationError() }
+        quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: roundId).count
         // `await` above releases the MainActor. A score recorded while this request is in flight is
         // appended after the uploaded snapshot; writing a positional sync marker behind that new
         // event would silently mark it as uploaded. Advance the watermark only while the exact tail
@@ -4116,6 +4127,48 @@ public final class LiveRoundAppModel: ObservableObject {
             result: result
         )
         return result
+    }
+
+    /// A 422 rejects a batch atomically. Split it until the invalid singleton is known; only that
+    /// event is quarantined. Every other subset still requires an exact server acknowledgement.
+    private func uploadIsolatingInvalidEvents(
+        _ events: [LiveRoundEvent], roundId: String, syncClient: SyncClient, scope: OfflineStorageScope
+    ) async throws -> SyncResult {
+        guard !Task.isCancelled, offlineStore.storageScope == scope else { throw CancellationError() }
+        guard !events.isEmpty else { return SyncResult(accepted: 0, duplicate: false) }
+        do {
+            let result = try await syncClient.postEventBatchWithRetry(
+                events, roundId: roundId, idempotencyKey: idempotencyKey(roundId: roundId, events: events)
+            )
+            guard !Task.isCancelled, offlineStore.storageScope == scope else { throw CancellationError() }
+            let expected = events.map(\.eventId)
+            let acknowledged = result.acceptedEventIds + result.duplicateEventIds
+            guard Set(acknowledged) == Set(expected), acknowledged.count == expected.count else {
+                throw LiveRoundFinishError.incompleteAcknowledgement
+            }
+            return result
+        } catch SyncClientError.http(status: 422, body: let body) {
+            guard !Task.isCancelled, offlineStore.storageScope == scope else { throw CancellationError() }
+            if events.count == 1 {
+                try offlineStore.quarantineEvent(events[0], status: 422, reason: body ?? "HTTP 422")
+                quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: roundId).count
+                AICaddieLog.storage.error("Invalid event quarantined; outbox continues (HTTP 422)")
+                return SyncResult(accepted: 0, duplicate: false)
+            }
+            let middle = events.count / 2
+            let left = try await uploadIsolatingInvalidEvents(
+                Array(events[..<middle]), roundId: roundId, syncClient: syncClient, scope: scope
+            )
+            let right = try await uploadIsolatingInvalidEvents(
+                Array(events[middle...]), roundId: roundId, syncClient: syncClient, scope: scope
+            )
+            return SyncResult(
+                accepted: left.accepted + right.accepted, duplicate: left.duplicate && right.duplicate,
+                acceptedEventIds: left.acceptedEventIds + right.acceptedEventIds,
+                duplicateEventIds: left.duplicateEventIds + right.duplicateEventIds,
+                serverSequence: max(left.serverSequence, right.serverSequence)
+            )
+        }
     }
 
     /// round-12 sync spine (gap f): pull events authored by OTHER clients via the replay endpoint and
@@ -4335,10 +4388,13 @@ public final class LiveRoundAppModel: ObservableObject {
             return nil
         }
         do {
-            return try await syncClient.fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)
+            return try await syncClient.fetchRoundPackage(roundId: roundId, capturedAt: capturedAt, foregroundStart: preparationToken != nil)
         } catch {
             AICaddieLog.network.error("Round package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {
+                if preparationToken != nil {
+                    roundStartFailure = (error as? URLError)?.code == .timedOut ? .timedOut : .unavailable
+                }
                 syncStatus = "离线中,使用已保存数据"
             }
             return nil
@@ -4374,10 +4430,13 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             // A newly generated round has no server events yet. Replay/ACK owns recovery later;
             // scanning the owner's historical event log here only delays the first-hole screen.
-            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)
+            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, foregroundStart: preparationToken != nil)
         } catch {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {
+                if preparationToken != nil {
+                    roundStartFailure = (error as? URLError)?.code == .timedOut ? .timedOut : .unavailable
+                }
                 syncStatus = "离线中,使用已保存数据"
             }
             return nil
@@ -5453,11 +5512,13 @@ public final class LiveRoundAppModel: ObservableObject {
         try offlineStore.saveActiveHole(roundId: nextPackage.roundId, hole: restored.activeHole)
         recordUITestLatency("activate.cursor-save.end globalId=\(nextPackage.course.globalId)")
         liveRoundState = restored
+        if isPreparingRound { roundStartFailure = nil }
         recordUITestLatency("activate.live-state-published globalId=\(nextPackage.course.globalId)")
         package = nextPackage
         recordUITestLatency("activate.package-published globalId=\(nextPackage.course.globalId)")
         recordUITestLatency("activate.pending-events.begin globalId=\(nextPackage.course.globalId)")
         pendingEventCount = try offlineStore.loadPendingEvents(roundId: nextPackage.roundId).count
+        quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: nextPackage.roundId).count
         recordUITestLatency("activate.pending-events.end globalId=\(nextPackage.course.globalId)")
         syncStatus = status
         if rememberAsRecent {
@@ -5534,6 +5595,7 @@ public final class LiveRoundAppModel: ObservableObject {
         package = nextPackage
         liveRoundState = nil
         pendingEventCount = 0
+        quarantinedEventCount = 0
         try? offlineStore.saveHomePackage(nextPackage)
         refreshDownloadedCourseOptions()
         syncStatus = status
@@ -5724,9 +5786,14 @@ public final class LiveRoundAppModel: ObservableObject {
         syncStatus = "手表记录已同步"
     }
 
-    private func idempotencyKey(roundId: String, events: [LiveRoundEvent]) -> String {
-        let eventKey = events.map(\.eventId).joined(separator: "-")
-        return "\(roundId)-\(eventKey)"
+    private func idempotencyKey(roundId: String, events: [LiveRoundEvent]) throws -> String {
+        // Bind retries to the immutable body, including client, timestamp and payload. Reusing
+        // just the event-id roster for a different body causes idempotency_key_body_mismatch.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let body = try encoder.encode(EventBatch(roundId: roundId, events: events))
+        let digest = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
+        return "ios-events-v2-\(digest)"
     }
 
     private func loadFixturePackage() throws -> LiveRoundPackage {
@@ -5750,4 +5817,41 @@ public final class LiveRoundAppModel: ObservableObject {
         try loadFixturePackage().validatedRoundIdentity()
     }
     #endif
+}
+
+/// Durable account-scoped diagnostics. Original events also remain in the append-only event log;
+/// a sync marker advances only once every event in the snapshot was ACKed or safely quarantined.
+public struct QuarantinedLiveEvent: Codable, Equatable {
+    public let event: LiveRoundEvent
+    public let status: Int
+    public let reason: String
+    public let quarantinedAt: String
+}
+
+extension OfflineStore {
+    public func loadQuarantinedEvents(roundId: String) throws -> [QuarantinedLiveEvent] {
+        let url = eventQuarantineURL(roundId: roundId)
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return try JSONDecoder().decode([QuarantinedLiveEvent].self, from: Data(contentsOf: url))
+    }
+
+    func quarantineEvent(_ event: LiveRoundEvent, status: Int, reason: String) throws {
+        var records = try loadQuarantinedEvents(roundId: event.roundId)
+        guard !records.contains(where: { $0.event == event }) else { return }
+        records.append(QuarantinedLiveEvent(
+            event: event, status: status, reason: reason,
+            quarantinedAt: ISO8601DateFormatter().string(from: Date())
+        ))
+        let url = eventQuarantineURL(roundId: event.roundId)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // A failed write throws and leaves the original tail pending. Never advance past an event
+        // until both the original and its diagnostic are durably retained.
+        try JSONEncoder().encode(records).write(to: url, options: [.atomic])
+    }
+
+    private func eventQuarantineURL(roundId: String) -> URL {
+        let key = SHA256.hash(data: Data(roundId.utf8)).map { String(format: "%02x", $0) }.joined()
+        return storageScope.accountDirectory.appendingPathComponent("event_quarantine", isDirectory: true)
+            .appendingPathComponent("\(key).json")
+    }
 }

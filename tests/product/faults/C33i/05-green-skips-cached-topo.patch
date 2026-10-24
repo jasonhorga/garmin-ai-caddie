@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
++++ b/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
+@@ -35,7 +35,7 @@
+         guard width > 1, height > 1, crop.width > 0, crop.height > 0 else {
+             return Selection(source: .schematic, image: nil)
+         }
+-        if let topo = TopoHoleImageStore.cachedImage(for: topoURL) {
++        if false, let topo = TopoHoleImageStore.cachedImage(for: topoURL) {
+             return Selection(source: .topo, image: cropped(topo, width: width, height: height, crop: crop))
+         }
+         if let raster = GarminRasterImageStore.cachedImage(for: garminURL),
