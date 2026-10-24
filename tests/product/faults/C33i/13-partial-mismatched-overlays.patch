@@ -1,11 +1,14 @@
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -2262,7 +2262,7 @@
-     /// retained CourseView overlay through geographic coordinates before layout.
-     private var liveMapProjection: CoursePrepHoleImageProjection? {
-         if let holePrep,
--           !LiveTopoAvailability.overlayCompatible(hole: hole, prep: holePrep) {
-+           false {
-             return nil
-         }
-         return LiveMapDisplaySelection.projection(
+@@ -67,11 +67,6 @@
+         hole: Hole,
+         prep: CoursePrepHole?
+     ) -> Bool {
+-        guard displayState == .precise,
+-              let prep,
+-              prep.geometryCoverage.caseInsensitiveCompare("ready") != .orderedSame else {
+-            return true
+-        }
+         return overlayCompatible(hole: hole, prep: prep)
+     }
+ }

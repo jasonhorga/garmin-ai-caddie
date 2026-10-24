@@ -1067,11 +1067,7 @@ final class DesignSnapshotTests: XCTestCase {
                 ("full-hole-map-target", .init(caddieRoutes: routes, targetPixel: CGPoint(x: 150, y: 210))),
                 ("full-hole-map-target-drag", .init(
                     caddieRoutes: routes,
-                    // A drag is a live target at its current finger position, not the
-                    // pre-drag marker reused by the adjacent state. Keeping the pixel
-                    // different makes this injected state a real visual state even when
-                    // CALayer snapshotting omits the transient loupe overlay.
-                    targetPixel: CGPoint(x: 180, y: 240),
+                    targetPixel: CGPoint(x: 150, y: 210),
                     targetDragFocus: CGPoint(x: 243.75, y: 510.75)
                 )),
             ]

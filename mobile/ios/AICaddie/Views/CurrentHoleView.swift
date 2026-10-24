@@ -58,6 +58,22 @@ enum LiveTopoAvailability {
               let prepRevision = prep.geometryRevision?.lowercased() else { return false }
         return packageRevision == prepRevision
     }
+
+    /// Lightweight prep must match the precise topo pixel frame only when that topo is the
+    /// displayed bitmap. Garmin's raster has its own projection and can still host a remapped
+    /// overlay (or a target-only frame) while prep is incomplete.
+    static func overlayAllowed(
+        displayState: LiveMapDisplayState,
+        hole: Hole,
+        prep: CoursePrepHole?
+    ) -> Bool {
+        guard displayState == .precise,
+              let prep,
+              prep.geometryCoverage.caseInsensitiveCompare("ready") != .orderedSame else {
+            return true
+        }
+        return overlayCompatible(hole: hole, prep: prep)
+    }
 }
 
 /// Shared horizontal-navigation decision for live and review hole maps. Vertical scrolls and short
@@ -2261,8 +2277,9 @@ public struct CurrentHoleView: View {
     /// The map frame used by every phone overlay and gesture. Garmin's projection remaps the
     /// retained CourseView overlay through geographic coordinates before layout.
     private var liveMapProjection: CoursePrepHoleImageProjection? {
-        if let holePrep,
-           !LiveTopoAvailability.overlayCompatible(hole: hole, prep: holePrep) {
+        guard LiveTopoAvailability.overlayAllowed(
+            displayState: liveMapDisplayState, hole: hole, prep: holePrep
+        ) else {
             return nil
         }
         return LiveMapDisplaySelection.projection(
@@ -2273,8 +2290,9 @@ public struct CurrentHoleView: View {
     }
 
     private var liveMapOverlay: CoursePrepOverlay? {
-        if let holePrep,
-           !LiveTopoAvailability.overlayCompatible(hole: hole, prep: holePrep) {
+        guard LiveTopoAvailability.overlayAllowed(
+            displayState: liveMapDisplayState, hole: hole, prep: holePrep
+        ) else {
             return nil
         }
         return LiveMapDisplaySelection.overlay(
@@ -2903,15 +2921,7 @@ public struct CurrentHoleView: View {
     }
 
     private func validMapPixel(_ pixel: CGPoint?) -> CGPoint? {
-        guard let pixel,
-              pixel.x.isFinite,
-              pixel.y.isFinite,
-              let overlay = liveMapOverlay,
-              pixel.x >= 0,
-              pixel.y >= 0,
-              pixel.x <= CGFloat(overlay.w),
-              pixel.y <= CGFloat(overlay.h) else { return nil }
-        return pixel
+        LiveMapDisplaySelection.validTargetPixel(pixel, in: liveMapOverlay)
     }
 
     private var displayedTargetYards: Int? {

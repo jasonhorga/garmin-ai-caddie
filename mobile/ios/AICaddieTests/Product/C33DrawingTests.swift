@@ -48,6 +48,76 @@ final class C33DrawingTests: XCTestCase {
         XCTAssertFalse(LiveTopoAvailability.overlayCompatible(hole: hole, prep: mismatched))
     }
 
+    func testGarminRasterKeepsOverlayAndTargetWhenPrepProjectionMissing() throws {
+        let package = try c33Package()
+        let hole = try XCTUnwrap(package.holes.first)
+        let originalPrep = try XCTUnwrap(package.coursePrep?.holes.first)
+        let originalProjection = try XCTUnwrap(originalPrep.holeImageProjection)
+        let refs = try XCTUnwrap(originalProjection.refs)
+
+        // A cold start can have the Garmin descriptor while lightweight prep has no precise
+        // CourseView pixel frame yet. Build that payload shape without reaching into view state.
+        var prepJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(originalPrep)) as? [String: Any]
+        )
+        prepJSON.removeValue(forKey: "holeImageProjection")
+        let prepWithoutProjection = try JSONDecoder().decode(
+            CoursePrepHole.self,
+            from: JSONSerialization.data(withJSONObject: prepJSON)
+        )
+        let garminProjection = CoursePrepHoleImageProjection(
+            available: true, widthPx: 1242, heightPx: 1920, refs: refs
+        )
+        let garmin = GarminRasterResponse(
+            available: true,
+            imageUrl: "https://c33.example.test/garmin.jpg",
+            projection: GarminRasterProjection(
+                widthPx: 1242, heightPx: 1920, refs: refs
+            )
+        )
+        let state = LiveMapDisplayState.resolveLive(.init(
+            coverage: LiveTopoAvailability.coverage(hole: hole, prep: prepWithoutProjection),
+            preciseTopoImageReady: false,
+            garminRaster: garmin,
+            garminImageFailed: false,
+            hasCachedPreciseTopo: false
+        ))
+        XCTAssertEqual(state, .garminRaster)
+        XCTAssertTrue(LiveTopoAvailability.overlayAllowed(
+            displayState: state, hole: hole, prep: prepWithoutProjection
+        ))
+        XCTAssertEqual(
+            LiveMapDisplaySelection.projection(
+                for: state, precise: prepWithoutProjection.holeImageProjection,
+                garmin: garminProjection
+            ),
+            garminProjection
+        )
+        let overlay = LiveMapDisplaySelection.overlay(
+            for: state,
+            precise: prepWithoutProjection.resolvedMapOverlay,
+            preciseProjection: prepWithoutProjection.holeImageProjection,
+            garminProjection: garminProjection
+        )
+        XCTAssertNotNil(overlay)
+        XCTAssertNotNil(LiveMapDisplaySelection.validTargetPixel(
+            CGPoint(x: 150, y: 210), in: overlay
+        ))
+
+        var mismatchedJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(originalPrep)) as? [String: Any]
+        )
+        mismatchedJSON["geometryCoverage"] = "partial"
+        mismatchedJSON["geometryRevision"] = "different-revision"
+        let mismatched = try JSONDecoder().decode(
+            CoursePrepHole.self,
+            from: JSONSerialization.data(withJSONObject: mismatchedJSON)
+        )
+        XCTAssertFalse(LiveTopoAvailability.overlayAllowed(
+            displayState: .precise, hole: hole, prep: mismatched
+        ))
+    }
+
     func testFourthGarminAttemptDisplaysImageAndBackoffStaysCapped() async throws {
         let url = URL(string: "https://c33.example.test/\(UUID().uuidString).jpg")!
         let image = UIGraphicsImageRenderer(size: CGSize(width: 20, height: 30)).image { _ in UIColor.green.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 20, height: 30)) }
