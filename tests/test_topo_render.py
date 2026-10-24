@@ -600,7 +600,7 @@ class TopoEndpointTests(unittest.TestCase):
             patch(
                 "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
                 return_value={"coverage": "ready"},
-            ),
+            ) as coverage,
         ):
             resp = self.client.get("/api/v2/courses/31795/holes/1/topo.png")
         self.assertEqual(resp.status_code, 200)
@@ -608,6 +608,13 @@ class TopoEndpointTests(unittest.TestCase):
         self.assertEqual(resp.headers["cache-control"], "public, no-cache")
         self.assertIn(topo_render.STYLE_VERSION, resp.headers.get("etag", ""))
         self.assertEqual(resp.content, canned)
+        coverage.assert_called_once_with(
+            31795,
+            1,
+            require_current_authority=True,
+            refresh_release=False,
+            require_hazards=False,
+        )
 
     def test_green_detail_endpoint_uses_v3_style_and_1280_default(self) -> None:
         canned = _PNG_MAGIC + b"green-detail"
@@ -620,7 +627,7 @@ class TopoEndpointTests(unittest.TestCase):
             patch(
                 "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
                 return_value={"coverage": "ready"},
-            ),
+            ) as coverage,
         ):
             response = self.client.get(
                 "/api/v2/courses/31795/holes/1/green.png"
@@ -631,6 +638,13 @@ class TopoEndpointTests(unittest.TestCase):
         self.assertEqual(response.headers["content-type"], "image/png")
         self.assertIn("-green-", response.headers["etag"])
         render.assert_called_once_with(31795, 1, (100.0, 200.0, 420.0, 420.0), size=1280)
+        coverage.assert_called_once_with(
+            31795,
+            1,
+            require_current_authority=True,
+            refresh_release=False,
+            require_hazards=False,
+        )
 
     def test_green_detail_endpoint_rejects_unknown_client_style(self) -> None:
         with patch.object(topo_render, "render_hole_green_detail_cached") as render:
@@ -756,14 +770,26 @@ class TopoPrewarmEndpointTests(unittest.TestCase):
     def test_prewarm_enqueues_and_renders_holes_with_geometry(self) -> None:
         # Two fake mesh files → the prewarm queues exactly those holes and the background task warms
         # each via render_hole_topo_cached (patched to a no-op so no real geometry/render is needed).
+        rendered = Event()
+        calls = []
+
+        def render_one(gid, hole):
+            calls.append((gid, hole))
+            if len(calls) == 2:
+                rendered.set()
+            return b"png"
+
         with TemporaryDirectory() as mesh_tmp, \
                 patch("ai_caddie.core.data.MESH_DIR", Path(mesh_tmp)), \
-                patch.object(topo_render, "render_hole_topo_cached", return_value=b"png") as render:
+                patch.object(topo_render, "cache_path", return_value=Path(mesh_tmp) / "uncached.png"), \
+                patch.object(topo_render, "render_hole_topo_cached", side_effect=render_one) as render:
             mesh_root = Path(mesh_tmp)
             (mesh_root / "gid31795_h01_meshes.json").write_text("{}")
             (mesh_root / "gid31795_h05_meshes.json").write_text("{}")
-            # TestClient runs BackgroundTasks synchronously before returning, so the warm calls land.
+            # The callback only enqueues now. Wait for the shared worker while its renderer stub
+            # is still installed; completion is no longer implied by the HTTP response.
             resp = self.client.post("/api/v2/courses/31795/topo/prewarm")
+            self.assertTrue(rendered.wait(timeout=5))
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["holes"], [1, 5])
@@ -781,14 +807,24 @@ class TopoPrewarmEndpointTests(unittest.TestCase):
 
     def test_prewarm_survives_a_render_fault_and_still_warms_the_rest(self) -> None:
         # A broken hole must not abort the whole prewarm: the first render raises, the second still runs.
+        rendered = Event()
+
+        def render_one(_gid, hole):
+            if hole == 1:
+                raise topo_render.TopoRenderError("boom")
+            rendered.set()
+            return b"png"
+
         with TemporaryDirectory() as mesh_tmp, \
                 patch("ai_caddie.core.data.MESH_DIR", Path(mesh_tmp)), \
+                patch.object(topo_render, "cache_path", return_value=Path(mesh_tmp) / "uncached.png"), \
                 patch.object(topo_render, "render_hole_topo_cached",
-                             side_effect=[topo_render.TopoRenderError("boom"), b"png"]) as render:
+                             side_effect=render_one) as render:
             mesh_root = Path(mesh_tmp)
             (mesh_root / "gid31795_h01_meshes.json").write_text("{}")
             (mesh_root / "gid31795_h02_meshes.json").write_text("{}")
             resp = self.client.post("/api/v2/courses/31795/topo/prewarm")
+            self.assertTrue(rendered.wait(timeout=5))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(render.call_count, 2)
 

@@ -68,8 +68,8 @@ def _display_path(path: Path) -> str:
         return path.name
 
 
-def _coverage(has_hazards: bool, has_meshes: bool) -> GeometryCoverage:
-    if has_hazards and has_meshes:
+def _coverage(has_hazards: bool, has_meshes: bool, *, require_hazards: bool) -> GeometryCoverage:
+    if has_meshes and (not require_hazards or has_hazards):
         return "ready"
     if has_hazards or has_meshes:
         return "partial"
@@ -82,6 +82,10 @@ def geometry_coverage_for_hole(
     *,
     require_current_authority: bool = False,
     refresh_release: bool = False,
+    # Most callers build factual route, hazard, distance, or caddie context.  They must not
+    # become ready merely because the faster mesh derivative arrived.  Topo/green are the two
+    # deliberate mesh-only consumers and pass ``require_hazards=False`` explicitly.
+    require_hazards: bool = True,
 ) -> dict[str, Any]:
     hazards = hazard_path(int(global_id), int(local_hole))
     meshes = mesh_path(int(global_id), int(local_hole))
@@ -93,7 +97,17 @@ def geometry_coverage_for_hole(
     if has_hazards:
         evidence.append({"label": "hazards", "ref": _display_path(hazards)})
     else:
-        missing_data.append({"label": "hazards", "reason": "prodgeometry hazard file missing"})
+        from ai_caddie.geometry.geometry_authority import load_derivatives_status
+
+        status = load_derivatives_status(meshes) if has_meshes else None
+        state = "failed" if (status or {}).get("status") == "failed" else "pending"
+        missing_data.append({
+            "label": "hazards",
+            "reason": f"prodgeometry hazard export {state}",
+            "state": state,
+            "failureCount": int((status or {}).get("failureCount") or 0),
+            "lastErrorType": (status or {}).get("lastErrorType"),
+        } if has_meshes else {"label": "hazards", "reason": "prodgeometry hazard file missing"})
 
     if has_meshes:
         evidence.append({"label": "meshes", "ref": _display_path(meshes)})
@@ -102,7 +116,7 @@ def geometry_coverage_for_hole(
 
     current_authority: bool | None = None
     authority_observation = "not_required"
-    if require_current_authority and has_hazards and has_meshes:
+    if require_current_authority and has_meshes:
         authority_observation = "unknown"
         try:
             from ai_caddie.courses.course_reference import courseview_release_info
@@ -151,12 +165,17 @@ def geometry_coverage_for_hole(
                 }
             )
 
-    coverage = _coverage(has_hazards, has_meshes)
-    if coverage == "ready" and current_authority is False:
-        coverage = "partial"
+    topo_coverage = _coverage(has_hazards, has_meshes, require_hazards=False)
+    full_coverage = _coverage(has_hazards, has_meshes, require_hazards=True)
+    if current_authority is False:
+        topo_coverage = "partial" if has_meshes or has_hazards else "missing"
+        full_coverage = topo_coverage
+    coverage = full_coverage if require_hazards else topo_coverage
 
     geometry_revision: str | None = None
-    if coverage == "ready":
+    # Keep the topo identity available to package/install consumers during supplementation.
+    # Full consumers still receive geometryRevision=None until their obstacle input is ready.
+    if topo_coverage == "ready":
         try:
             from ai_caddie.geometry.geometry_authority import authority_path, cache_token
 
@@ -178,7 +197,11 @@ def geometry_coverage_for_hole(
         "globalId": int(global_id),
         "localHole": int(local_hole),
         "coverage": coverage,
-        "geometryRevision": geometry_revision,
+        "topoCoverage": topo_coverage,
+        "fullCoverage": full_coverage,
+        "requiresHazards": bool(require_hazards),
+        "geometryRevision": geometry_revision if coverage == "ready" else None,
+        "topoRevision": geometry_revision,
         # A failed observation is not proof that installed bytes belong to an old Garmin release.
         # Durable installers use this tri-state signal to preserve an existing ready row on
         # transient IO/parser errors while still invalidating an explicitly stale binding.
@@ -452,7 +475,9 @@ def build_route_geometry_evidence(
     landing_radius_m: float = 18.0,
     _hazards_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    coverage = geometry_coverage_for_hole(int(global_id), int(local_hole))
+    coverage = geometry_coverage_for_hole(
+        int(global_id), int(local_hole), require_hazards=True
+    )
     if _hazards_override is None:
         hazards, _meshes = _load_hole_sources(global_id, local_hole)
     else:
@@ -976,7 +1001,7 @@ def build_hole_map_dto(
     provider: str = "esri_world_imagery",
 ) -> dict[str, Any]:
     provider_config = map_provider_config(provider)
-    coverage = geometry_coverage_for_hole(global_id, local_hole)
+    coverage = geometry_coverage_for_hole(global_id, local_hole, require_hazards=True)
     hazards, meshes = _load_hole_sources(global_id, local_hole)
     ref_lat = hazards.get("refLat") if hazards.get("refLat") is not None else meshes.get("refLat")
     ref_lon = hazards.get("refLon") if hazards.get("refLon") is not None else meshes.get("refLon")
@@ -1012,6 +1037,7 @@ def geometry_coverage_for_course(
     *,
     require_current_authority: bool = False,
     refresh_release: bool = False,
+    require_hazards: bool = True,
 ) -> dict[str, Any]:
     # Refresh the small release document once, before walking the requested holes. Subsequent
     # per-hole checks are cache-only, avoiding both repeated protobuf parsing and a network herd.
@@ -1028,6 +1054,7 @@ def geometry_coverage_for_course(
             int(hole),
             require_current_authority=require_current_authority,
             refresh_release=False,
+            require_hazards=require_hazards,
         )
         for hole in holes
     ]
@@ -1060,7 +1087,7 @@ def build_source_bound_hole_geometry_evidence(
     target: Any | None = None,
     landing_radius_m: float = 18.0,
 ) -> dict[str, Any]:
-    evidence = geometry_coverage_for_hole(global_id, local_hole)
+    evidence = geometry_coverage_for_hole(global_id, local_hole, require_hazards=True)
     if start is not None or target is not None:
         evidence["routeEvidence"] = build_route_geometry_evidence(
             global_id,

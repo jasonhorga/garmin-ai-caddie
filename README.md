@@ -76,7 +76,7 @@ uv run python -m ai_caddie.garmin.fetch --shots     # 加上每杆 GPS 点位（
 
 ### Cookie 过期后
 
-JWT_WEB cookie 有效期约 ~9 小时。过期后 fetch 会 401/403。重做 Step 1 即可，CSRF token 通常较长期有效但顺手一起更新最稳。
+JWT_WEB cookie 有效期约 ~9 小时。同步会自动续期（见下方"已知坑 3"）；自动续期失败、状态为 `reauth_required` 时再重做 Step 1，CSRF token 通常较长期有效但顺手一起更新最稳。
 
 ## AI Caddie v2 / private trial
 
@@ -96,7 +96,10 @@ ops/backup_data.sh
 
 ```bash
 cp .env.example .env
-docker compose up --build
+API_DEPS_HASH="$(python3 -c 'from ops.agenthub_deploy import api_dependency_hash; print(api_dependency_hash())')"
+docker build -f Dockerfile.deps --label "ai.caddie.dependencies-hash=$API_DEPS_HASH" \
+  -t "garmin-ai-caddie-deps:$API_DEPS_HASH" .
+DEPS_IMAGE="garmin-ai-caddie-deps:$API_DEPS_HASH" docker compose up --build
 ```
 
 更多说明：
@@ -287,7 +290,7 @@ open output/dashboard.html
 
 1. **Garth 有 deprecation warning**：底层装了 garth 但实际不用它登录，可以忽略 warning。后续可以彻底移除依赖。
 2. **数据有些字段在早期场次缺失**：2024 年之前手表没记 putts，所以早期 round 没有推杆数据。Fairway 命中数据更早就有。
-3. **Cookie 过期**：脚本不会自动续期，过期了脚本会 401 退出，重跑 Step 1 即可。
+3. **Cookie 过期**：同步会自动续期。`ai_caddie/pipeline.py` 的 `_ensure_auth` 先校验缓存的 cookie，无效时调 `garmin_auth.refresh_web_auth`：先试本机已登录浏览器的 cookie，不行再用 `garmin_playwright_login.py`（xvfb 下有头 Chromium + 持久 profile，账号取自 `.garmin_tokens/garmin_login.json`）重新登录拿新 cookie。都失败时本次同步不抓取，连接器状态写成 `reauth_required`；这时检查登录文件 / Playwright，或在桌面浏览器登录后手动重做 Step 1。
 4. **本地数据不进 GitHub**：`.garmin_tokens/`、`data/`、`downloads/`、`output/`、`logs/`、`clubs.json` 都由 `.gitignore` 排除。
 
 ## 下一步可选

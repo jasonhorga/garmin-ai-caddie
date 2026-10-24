@@ -1,0 +1,813 @@
+{
+  "scorecards": {
+    "101": {
+      "scorecardDetails": [
+        {
+          "scorecard": {
+            "id": 101,
+            "formattedStartTime": "2026-10-01T08:00:00",
+            "courseGlobalId": 900001,
+            "frontNineGlobalCourseId": 900001,
+            "playerProfileId": "fixture-player",
+            "inProgress": false,
+            "holesCompleted": 18,
+            "strokes": 72,
+            "holes": [
+              {
+                "number": 1,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 2,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 3,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 4,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 5,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 6,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 7,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 8,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 9,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 10,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 11,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 12,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 13,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 14,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 15,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 16,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 17,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 18,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              }
+            ]
+          },
+          "scorecardStats": {
+            "round": {
+              "putts": 36
+            }
+          }
+        }
+      ],
+      "courseSnapshots": [
+        {
+          "name": "Paper Links",
+          "holePars": "444444444444444444"
+        }
+      ]
+    },
+    "102": {
+      "scorecardDetails": [
+        {
+          "scorecard": {
+            "id": 102,
+            "formattedStartTime": "2026-10-02T08:00:00",
+            "courseGlobalId": 900001,
+            "frontNineGlobalCourseId": 900001,
+            "playerProfileId": "fixture-player",
+            "inProgress": false,
+            "holesCompleted": 18,
+            "strokes": 90,
+            "holes": [
+              {
+                "number": 1,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 2,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 3,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 4,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 5,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 6,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 7,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 8,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 9,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 10,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 11,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 12,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 13,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 14,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 15,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 16,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 17,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 18,
+                "par": 4,
+                "strokes": 5,
+                "putts": 2,
+                "penalties": 0
+              }
+            ]
+          },
+          "scorecardStats": {
+            "round": {
+              "putts": 36
+            }
+          }
+        }
+      ],
+      "courseSnapshots": [
+        {
+          "name": "Paper Links",
+          "holePars": "444444444444444444"
+        }
+      ]
+    },
+    "103": {
+      "scorecardDetails": [
+        {
+          "scorecard": {
+            "id": 103,
+            "formattedStartTime": "2026-10-03T08:00:00",
+            "courseGlobalId": 900001,
+            "frontNineGlobalCourseId": 900001,
+            "playerProfileId": "fixture-player",
+            "inProgress": true,
+            "holesCompleted": 18,
+            "strokes": 72,
+            "holes": [
+              {
+                "number": 1,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 2,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 3,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 4,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 5,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 6,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 7,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 8,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 9,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 10,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 11,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 12,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 13,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 14,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 15,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 16,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 17,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              },
+              {
+                "number": 18,
+                "par": 4,
+                "strokes": 4,
+                "putts": 2,
+                "penalties": 0
+              }
+            ]
+          },
+          "scorecardStats": {
+            "round": {
+              "putts": 36
+            }
+          }
+        }
+      ],
+      "courseSnapshots": [
+        {
+          "name": "Paper Links",
+          "holePars": "444444444444444444"
+        }
+      ]
+    }
+  },
+  "shots": {
+    "101": {
+      "clubDetails": [
+        {
+          "clubId": 1,
+          "name": "Driver",
+          "clubTypeId": 1
+        },
+        {
+          "clubId": 2,
+          "name": "7I",
+          "clubTypeId": 16
+        },
+        {
+          "clubId": 3,
+          "name": "PW",
+          "clubTypeId": 19
+        }
+      ],
+      "holeShots": [
+        {
+          "holeNumber": 1,
+          "shots": [
+            {
+              "id": 1,
+              "clubId": 1,
+              "shotOrder": 1,
+              "shotType": "TEE",
+              "meters": 200,
+              "startLoc": {
+                "lat": 0,
+                "lon": 0,
+                "lie": "TeeBox"
+              },
+              "endLoc": {
+                "lat": 10000,
+                "lon": 0,
+                "lie": "Fairway"
+              }
+            },
+            {
+              "id": 2,
+              "clubId": 2,
+              "shotOrder": 2,
+              "shotType": "APPROACH",
+              "meters": 100,
+              "startLoc": {
+                "lat": 10000,
+                "lon": 0,
+                "lie": "Fairway"
+              },
+              "endLoc": {
+                "lat": 20000,
+                "lon": 0,
+                "lie": "Rough"
+              }
+            },
+            {
+              "id": 3,
+              "clubId": 3,
+              "shotOrder": 3,
+              "shotType": "CHIP",
+              "meters": 20,
+              "startLoc": {
+                "lat": 20000,
+                "lon": 0,
+                "lie": "Rough"
+              },
+              "endLoc": {
+                "lat": 30000,
+                "lon": 0,
+                "lie": "Green"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "102": {
+      "clubDetails": [
+        {
+          "clubId": 1,
+          "name": "Driver",
+          "clubTypeId": 1
+        },
+        {
+          "clubId": 2,
+          "name": "7I",
+          "clubTypeId": 16
+        },
+        {
+          "clubId": 3,
+          "name": "PW",
+          "clubTypeId": 19
+        }
+      ],
+      "holeShots": [
+        {
+          "holeNumber": 1,
+          "shots": [
+            {
+              "id": 1,
+              "clubId": 1,
+              "shotOrder": 1,
+              "shotType": "TEE",
+              "meters": 200,
+              "startLoc": {
+                "lat": 0,
+                "lon": 0,
+                "lie": "TeeBox"
+              },
+              "endLoc": {
+                "lat": 10000,
+                "lon": 0,
+                "lie": "Fairway"
+              }
+            },
+            {
+              "id": 2,
+              "clubId": 2,
+              "shotOrder": 2,
+              "shotType": "APPROACH",
+              "meters": 100,
+              "startLoc": {
+                "lat": 10000,
+                "lon": 0,
+                "lie": "Fairway"
+              },
+              "endLoc": {
+                "lat": 20000,
+                "lon": 0,
+                "lie": "Rough"
+              }
+            },
+            {
+              "id": 3,
+              "clubId": 3,
+              "shotOrder": 3,
+              "shotType": "CHIP",
+              "meters": 20,
+              "startLoc": {
+                "lat": 20000,
+                "lon": 0,
+                "lie": "Rough"
+              },
+              "endLoc": {
+                "lat": 30000,
+                "lon": 0,
+                "lie": "Green"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "103": {
+      "clubDetails": [
+        {
+          "clubId": 1,
+          "name": "Driver",
+          "clubTypeId": 1
+        },
+        {
+          "clubId": 2,
+          "name": "7I",
+          "clubTypeId": 16
+        },
+        {
+          "clubId": 3,
+          "name": "PW",
+          "clubTypeId": 19
+        }
+      ],
+      "holeShots": [
+        {
+          "holeNumber": 1,
+          "shots": [
+            {
+              "id": 1,
+              "clubId": 1,
+              "shotOrder": 1,
+              "shotType": "TEE",
+              "meters": 200,
+              "startLoc": {
+                "lat": 0,
+                "lon": 0,
+                "lie": "TeeBox"
+              },
+              "endLoc": {
+                "lat": 10000,
+                "lon": 0,
+                "lie": "Fairway"
+              }
+            },
+            {
+              "id": 2,
+              "clubId": 2,
+              "shotOrder": 2,
+              "shotType": "APPROACH",
+              "meters": 100,
+              "startLoc": {
+                "lat": 10000,
+                "lon": 0,
+                "lie": "Fairway"
+              },
+              "endLoc": {
+                "lat": 20000,
+                "lon": 0,
+                "lie": "Rough"
+              }
+            },
+            {
+              "id": 3,
+              "clubId": 3,
+              "shotOrder": 3,
+              "shotType": "CHIP",
+              "meters": 20,
+              "startLoc": {
+                "lat": 20000,
+                "lon": 0,
+                "lie": "Rough"
+              },
+              "endLoc": {
+                "lat": 30000,
+                "lon": 0,
+                "lie": "Green"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "club/player": [
+    {
+      "id": 1,
+      "clubTypeId": 1,
+      "name": "Driver",
+      "adviceDistance": 200
+    }
+  ],
+  "club/types": [
+    {
+      "value": 1,
+      "name": "Driver",
+      "loftAngle": 10
+    }
+  ],
+  "mesh": {
+    "hole": {
+      "RefLat": 0,
+      "RefLon": 0,
+      "Doglegs": [
+        {
+          "Line": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              300
+            ]
+          ]
+        }
+      ]
+    },
+    "meshes": [
+      {
+        "name": "Fairway.drc",
+        "positions": [
+          [
+            -20,
+            0,
+            0
+          ],
+          [
+            20,
+            0,
+            0
+          ],
+          [
+            20,
+            0,
+            300
+          ],
+          [
+            -20,
+            0,
+            300
+          ]
+        ],
+        "faces": [
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            0,
+            2,
+            3
+          ]
+        ]
+      },
+      {
+        "name": "Green.drc",
+        "positions": [
+          [
+            -10,
+            0,
+            290
+          ],
+          [
+            10,
+            0,
+            290
+          ],
+          [
+            10,
+            0,
+            310
+          ],
+          [
+            -10,
+            0,
+            310
+          ]
+        ],
+        "faces": [
+          [
+            0,
+            1,
+            2
+          ],
+          [
+            0,
+            2,
+            3
+          ]
+        ]
+      }
+    ]
+  }
+}

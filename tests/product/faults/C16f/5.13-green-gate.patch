@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Services/WatchHoleEndDetector.swift b/mobile/ios/AICaddieWatch/Services/WatchHoleEndDetector.swift
+--- a/mobile/ios/AICaddieWatch/Services/WatchHoleEndDetector.swift
++++ b/mobile/ios/AICaddieWatch/Services/WatchHoleEndDetector.swift
+@@ -61,3 +61,3 @@
+         }
+-        guard reachedGreen, fromCenter - green.radiusM > Self.leaveGreenM else { return false }
++        guard fromCenter - green.radiusM > Self.leaveGreenM else { return false }
+         if let toNextTee, let atGreen = nextTeeAtGreenM, toNextTee > atGreen - Self.towardNextTeeM {

@@ -17,6 +17,7 @@ public struct WatchRoundHomeView: View {
     public let courseDataPending: Bool
     public let pendingUploads: Int
     public let canRecordShot: Bool
+    public let manualShotNeedsGPS: Bool
     public let onRecordShot: () -> Void
     public let onScoreHole: () -> Void
     public let onPreviousHole: () -> Void
@@ -38,6 +39,7 @@ public struct WatchRoundHomeView: View {
         pendingUploads: Int = 0,
         hasHoleMap: Bool = false,
         canRecordShot: Bool = false,
+        manualShotNeedsGPS: Bool = false,
         onHoleMap: @escaping () -> Void = {},
         onRecordShot: @escaping () -> Void = {},
         onScoreHole: @escaping () -> Void = {},
@@ -57,6 +59,7 @@ public struct WatchRoundHomeView: View {
         self.pendingUploads = pendingUploads
         self.hasHoleMap = hasHoleMap
         self.canRecordShot = canRecordShot
+        self.manualShotNeedsGPS = manualShotNeedsGPS
         self.onHoleMap = onHoleMap
         self.onRecordShot = onRecordShot
         self.onScoreHole = onScoreHole
@@ -81,29 +84,18 @@ public struct WatchRoundHomeView: View {
                         .minimumScaleFactor(0.62)
                         .layoutPriority(1)
                     if toPar != nil {
-                        Text(toParText)
-                            .font(.system(size: 16, weight: .black, design: .rounded))
-                            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+                        scoreLabel
                     }
                     Spacer(minLength: WatchRoundHomeLayout.systemTimeTrailingClearance)
                 }
                 Spacer(minLength: 2)
-                Text(distanceText ?? "—")
-                    .font(.system(size: distanceText == nil ? 46 : 45, weight: .black, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.52)
-                    .allowsTightening(false)
-                    .foregroundStyle(distanceText == nil ? Color.secondary : Color.white)
-                Text(courseDataPending ? "等待球场数据" : (distanceText == nil ? "距离不可用" : "到果岭中"))
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.secondary)
+                distanceValueLabel
+                distanceStatusLabel
                 Spacer(minLength: 2)
                 HStack {
                     compactControl(
                         systemName: "line.3.horizontal",
                         label: "高尔夫菜单",
-                        isEnabled: true,
                         primary: false,
                         action: onMenu
                     )
@@ -111,10 +103,14 @@ public struct WatchRoundHomeView: View {
                     compactControl(
                         systemName: "plus",
                         label: "手动记杆",
-                        isEnabled: canRecordShot,
+                        dimmed: !canRecordShot,
                         primary: true,
                         action: onRecordShot
                     )
+                    .overlay(alignment: .top) {
+                        if manualShotNeedsGPS { WatchManualShotGPSPrompt() }
+                    }
+                    .accessibilityIdentifier("watch-hole-record-shot")
                 }
             }
             .frame(width: safeRect.width, height: safeRect.height)
@@ -125,10 +121,51 @@ public struct WatchRoundHomeView: View {
         .accessibilityIdentifier("watch-score-only-root")
     }
 
+    // Keep the range's type size independent of a cold-GPS/loading status on the compact face.
+    var distanceValueText: String {
+        distanceText?.components(separatedBy: " · ").first ?? "—"
+    }
+
+    var distanceStatusText: String {
+        if courseDataPending { return "等待球场数据" }
+        let parts = distanceText?.components(separatedBy: " · ") ?? []
+        if parts.count > 1 { return parts.dropFirst().joined(separator: " · ") }
+        return distanceText == nil ? "距离不可用" : "到果岭中"
+    }
+
+    var distanceValueLabel: some View {
+        Text(distanceValueText)
+            .font(.system(size: distanceText == nil ? 46 : 45, weight: .black, design: .rounded))
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.52)
+            .allowsTightening(false)
+            .foregroundStyle(distanceText == nil ? Color.secondary : Color.white)
+    }
+
+    var distanceStatusLabel: some View {
+        Text(distanceStatusText)
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            // The 等待定位 capsule over ＋ already says it; keep the line's space so nothing moves.
+            .opacity(manualShotNeedsGPS ? 0 : 1)
+    }
+
+    var scoreLabel: some View {
+        Text(toParText)
+            .font(.system(size: 16, weight: .black, design: .rounded))
+            .foregroundStyle(AICaddieDesignTokens.scoreColor(toPar: toPar))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(2)
+    }
+
     private func compactControl(
         systemName: String,
         label: String,
-        isEnabled: Bool,
+        dimmed: Bool = false,
         primary: Bool,
         action: @escaping () -> Void
     ) -> some View {
@@ -145,8 +182,7 @@ public struct WatchRoundHomeView: View {
                 )
         }
         .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.45)
+        .opacity(dimmed ? 0.45 : 1)
         .accessibilityLabel(label)
     }
 

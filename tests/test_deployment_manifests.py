@@ -120,6 +120,10 @@ class DeploymentManifestTests(unittest.TestCase):
         for required in [
             "AI_CADDIE_API_PUBLISH_HOST 127.0.0.1",
             "openssl rand -hex 32",
+            "api_dependency_hash",
+            "Dockerfile.deps",
+            "ai.caddie.dependencies-hash",
+            "set_env DEPS_IMAGE \"garmin-ai-caddie-deps:$api_deps_hash\"",
             "docker compose",
             "compose up -d --build api",
             "curl -fsS http://127.0.0.1:9000/api/v2/health",
@@ -254,6 +258,8 @@ class DeploymentManifestTests(unittest.TestCase):
         self.assertIn("ai-caddie-private:/var/lib/ai-caddie", compose_text)
         self.assertIn('restart: "on-failure:3"', compose_text)
         self.assertIn('restart: "on-failure:5"', compose_text)
+        self.assertIn("pg_isready -h 127.0.0.1 -U aicaddie", compose_text)
+        self.assertNotIn('"pg_isready -U aicaddie', compose_text)
         self.assertIn("mem_limit:", compose_text)
         self.assertIn("max-size: \"10m\"", compose_text)
         self.assertIn("VITE_AI_CADDIE_API_BASE_URL", compose_text)
@@ -288,6 +294,7 @@ class DeploymentManifestTests(unittest.TestCase):
             "AICADDIE_API_PORT",
             "multiple release containers",
             "CONTAINER_SOURCE_REVISION",
+            "ai.caddie.api-dependencies-hash",
         ]:
             self.assertIn(required, text)
 

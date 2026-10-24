@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Models/LiveRoundScoreSummary.swift
++++ b/mobile/ios/AICaddie/Models/LiveRoundScoreSummary.swift
+@@ -25,7 +25,7 @@
+     let holes: [LiveHoleScore]
+
+     var strokes: Int { holes.reduce(0) { $0 + $1.score } }
+-    var par: Int { holes.reduce(0) { $0 + $1.par } }
++    var par: Int { 72 }
+     var toPar: Int? { holes.isEmpty ? nil : strokes - par }
+
+     /// Cumulative to-par after each recorded hole, in play order (the scorecard trend line).

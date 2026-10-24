@@ -1,0 +1,7 @@
+--- a/web_v2/src/components/ReviewWorkbench.tsx
++++ b/web_v2/src/components/ReviewWorkbench.tsx
+@@ -334,3 +334,3 @@
+     if (!isEditing) return
+-    updateDraft((draft) => ({ ...draft, shots: reconnectShots(draft.shots.filter((shot) => shot.id !== shotId)) }))
++    updateDraft((draft) => ({ ...draft, shots: reconnectShots(draft.shots) }))
+   }

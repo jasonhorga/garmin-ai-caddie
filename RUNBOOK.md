@@ -18,13 +18,14 @@
 
 ## 1. 测试
 
-**本地**（项目台或 Codex 在 `<checkout>` 里跑；用共享只读运行时，不建 `.venv`、不 `uv sync`）：
+**本地**（项目台、Codex、复审子代理在 `<checkout>` 里跑；用共享只读运行时，不建 `.venv`、不 `uv sync`）：
+只跑本卡相关的模块——卡的验收测试加改动直接影响的测试模块。**本地不跑全量 `discover`**：全量由 CI
+`backend` 在每次推送和合并后的 main 上跑（约 4 分钟），本地全量要 30 分钟以上、要排整机锁，Codex 沙盒里还常卡住。
 
 ```bash
 cd <checkout>
-AI_CADDIE_DATA_MODE=fixture <caddie-data>/venvs/garmin-ai-caddie-ci/bin/python -m unittest discover -s tests
-# 只跑本卡相关：
-AI_CADDIE_DATA_MODE=fixture <caddie-data>/venvs/garmin-ai-caddie-ci/bin/python -m unittest tests.acceptance.test_card_<N>_<name> -v
+AI_CADDIE_DATA_MODE=fixture <caddie-data>/venvs/garmin-ai-caddie-ci/bin/python -m unittest \
+  tests.acceptance.test_card_<N>_<name> <受影响的模块…> -v
 ```
 
 `uv.lock` 变了，共享运行时要按 HOMESERVER-POLICY 重建，不能临时装包。前端、Docker、
@@ -100,7 +101,11 @@ AICADDIE_DEPLOY_PUBLIC_HEALTH_URL=https://<api-host>/api/v2/health
 ```bash
 set -euo pipefail
 D=<caddie-data>
-test ! -e "$D/release-freeze" || { cat "$D/release-freeze"; exit 1; }   # §5
+if [ -e "$D/release-freeze" ]; then                                      # §5：冻结时只放行修复 PR
+  FIX=$(cut -f4 "$D/release-freeze")
+  PR=$(gh api "repos/jasonhorga/garmin-ai-caddie/commits/$SHA/pulls" --jq '.[0].number')
+  [ -n "$FIX" ] && [ "$FIX" = "$PR" ] || { cat "$D/release-freeze"; exit 1; }
+fi
 df -h "$D"                                                               # 留 ≥ 1 GiB
 exec 8>"$D/locks/deploy.lock"; flock -n 8                                # 同一时间只一个上线
 
@@ -116,12 +121,12 @@ ls -1t "$D"/release-snapshots/*caddie-*.dump | tail -n +4 | xargs -r rm --
 # (b) 导出这一提交的干净树（无 .git），在树根跑部署脚本
 T=<codex-runs>/caddie-deploy-${SHA:0:12}
 rm -rf -- "$T"; mkdir -m 700 "$T"
-gh api "repos/jasonhorga/garmin-ai-caddie/tarball/$SHA" | tar -xz --strip-components=1 -C "$T"
+(umask 022; gh api "repos/jasonhorga/garmin-ai-caddie/tarball/$SHA" | tar -xz --strip-components=1 -C "$T")
 mkdir -p "$D/deploy-logs"; L="$D/deploy-logs/$(date -u +%Y%m%dT%H%M%SZ)-${SHA:0:12}.log"
 cd "$T"
 set +e
 env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8 bash -c \
-  'set -a; . "$0"; set +a; exec timeout 2400 ./ops/agenthub_deploy.py deploy "$1"' \
+  'set -a; . "$0"; set +a; exec timeout 2280 ./ops/agenthub_deploy.py deploy "$1"' \
   "$D/secrets/deploy.env" "$SHA" > "$L" 2>&1
 RC=$?
 set -e
@@ -165,6 +170,20 @@ docker image inspect "aicaddie-sync:$SHA" --format '{{index .Config.Labels "ai.c
 
 ## 5. 失败、回滚、冻结
 
+合并后首次上线会连续构建 API 和 sync 两张依赖镜像，可能撞上 2280 秒
+时限；超时直接重跑 `deploy $SHA`（依赖镜像已经按哈希打标签，会复用），或首次上线前先单独构建：
+```bash
+cd "$T"  # the SHA's tarball tree from §3.1
+API_DEPS_HASH="$(python3 -c 'from ops.agenthub_deploy import api_dependency_hash; print(api_dependency_hash())')"
+SYNC_DEPS_HASH="$(python3 -c 'from ops.agenthub_deploy import sync_dependency_hash, api_dependency_hash; print(sync_dependency_hash(api_dependency_hash()))')"
+docker build -f Dockerfile.deps --label "ai.caddie.dependencies-hash=$API_DEPS_HASH" \
+  -t "garmin-ai-caddie-deps:$API_DEPS_HASH" .
+docker build -f Dockerfile.sync-deps --build-arg "API_IMAGE=garmin-ai-caddie-deps:$API_DEPS_HASH" \
+  --label "ai.caddie.dependencies-hash=$SYNC_DEPS_HASH" \
+  --label "ai.caddie.api-dependencies-hash=$API_DEPS_HASH" \
+  -t "aicaddie-sync-deps:$SYNC_DEPS_HASH" .
+```
+
 | 情况 | 线上状态 | 项目台做什么 |
 |---|---|---|
 | `exit=2` | 没动 | 配置/参数错（多半是 `<deploy-env>`）；修好重跑，不冻结 |
@@ -173,6 +192,7 @@ docker image inspect "aicaddie-sync:$SHA" --format '{{index .Config.Labels "ai.c
 | `exit=3` | 旧版本**没能确认恢复**，线上可能挂了 | 立刻回滚到上一个版本（下面命令）；仍不行跑 `./ops/agenthub_deploy.py up`；冻结；给 Jason 一句"线上挂了，正在恢复/已恢复" |
 | 超时被杀 | 不确定 | 先 `curl` 本地 health：新容器在跑就重跑 `deploy $SHA`（只做核对）；没容器在服务就 `rollback <上一个 sha>` |
 | `exit=0` 但 §4 有一项不对，或上线后发现回归 | 新版本在服务 | 回滚到上一个版本；冻结 |
+| 回滚 `exit=1`，目标旧容器自己坏了（例：没了网络挂接、起不来） | 当前版本仍在服务 | 不手工修容器（`docker network connect` 等不在项目台授权里）。脚本会在启动已有容器前自己接回配置的网络；仍不行就对目标 revision 跑 `deploy $SHA`（镜像在就不构建，会删掉同名停止的旧容器、按配置重建） |
 
 上一个版本的 sha（停掉的旧容器带 revision 标签）：
 
@@ -186,7 +206,7 @@ docker ps -a --filter name=aicaddie-release- \
 ```bash
 cd "$T"
 env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8 bash -c \
-  'set -a; . "$0"; set +a; exec timeout 2400 ./ops/agenthub_deploy.py rollback "$1"' \
+  'set -a; . "$0"; set +a; exec timeout 2280 ./ops/agenthub_deploy.py rollback "$1"' \
   <caddie-data>/secrets/deploy.env "$PREV"
 ```
 
@@ -200,7 +220,9 @@ env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8 bash -c \
 printf '%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$SHA" "<一句原因>" > <caddie-data>/release-freeze
 ```
 
-冻结期间不合并、不上线、不出包（修复本身那一张 PR 除外）。修复上线并按 §4 确认后，项目台
+冻结期间不合并、不上线、不出包（修复本身那一张 PR 除外）。修复 PR 上线：合并后按 §3.1 正常上线它的
+main 提交，只是开头的冻结检查改为"冻结原因写明的修复 PR 就是这一张"——项目台先把修复 PR 号写进
+`release-freeze` 第 4 列，再上线。修复上线并按 §4 确认后，项目台
 自己 `rm <caddie-data>/release-freeze`，在 `releases.tsv` 记一行 `unfreeze`。同一原因第二次冻结
 → 先查根因，再动手。
 
@@ -230,7 +252,8 @@ gh workflow run ios-testflight-testers.yml --repo jasonhorga/garmin-ai-caddie --
 
 - 任何外部 TestFlight 分发、App Store 提交。
 - 用快照恢复/覆盖生产数据库，或任何删除生产数据的操作。
-- 增删 Funnel/公网路由，改生产端口、卷、网络。
+- 增删 Funnel/公网路由，改生产端口、卷、网络的定义（部署脚本在启动已有容器前把它接回本来配置的网络不算"改网络"，
+  这是脚本内的恢复；项目台不手工敲 `docker network`/`docker update` 修容器——缺什么恢复能力就开卡加进脚本）。
 - 合并被自动模式分类器拦下时：请他回一句"合并 caddie#<PR>"，然后项目台自己合。
 
 不用问他：审查、合并、上线、确认、按 §5 回滚、冻结与解冻、重跑 CI、拉 CI 产物、内部 TestFlight 上传（§6，Jason 10-22 定）。
@@ -241,3 +264,13 @@ gh workflow run ios-testflight-testers.yml --repo jasonhorga/garmin-ai-caddie --
 不再有 AgentHub 的"卡住提醒"。项目台每次等东西（CI、Codex、上线脚本、TestFlight）都用
 后台任务或有上限的 until 循环，超时设该活正常耗时的约 2 倍（CI 10 分钟、native 45 分钟、
 上线 40 分钟、TestFlight 60 分钟）；超时 = 卡住，先查为什么，不直接重试。
+
+<!-- agenthub:collab -->
+## AgentHub 协作
+
+- 派活：`ah codex say caddie "<话>"`（或 `--file 卡.md`），打出 `TURN <id> 预计 HH:MM`。
+- 等：后台跑 `ah codex wait caddie`（最多 110 分钟）；退出 0 = 回话已打出；退出 3 = 还在跑，再起一次 wait；退出 1 = 异常，看输出和 `ah codex status caddie`。
+- 兜底：say 之后 `send_later` 2 小时，醒来先 `ah codex status caddie`（防 wait 被 /clear 或重启带走）。
+- 同一会话上一轮没完不能再 say；要并行用 `--lane <卡>`。
+- 推送之前必须 `ah scan <base>..<head>`；退出 1 不推。
+- Codex 回话控制在一页以内。

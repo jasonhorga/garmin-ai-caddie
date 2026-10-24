@@ -28,6 +28,7 @@ configured paths/URLs.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -39,6 +40,7 @@ import sys
 import tempfile
 import time
 import traceback
+from datetime import datetime, timezone
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GATE_SCRIPT = REPO_ROOT / "ops" / "complete_homeserver_api_deploy.sh"
@@ -47,12 +49,21 @@ SYNC_BUILD_SCRIPT = REPO_ROOT / "ops" / "build_sync_image.sh"
 SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 PREFIX_PATTERN = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*")
 REVISION_LABEL = "ai.caddie.source-revision"
+DEPENDENCY_HASH_LABEL = "ai.caddie.dependencies-hash"
+API_DEPENDENCY_HASH_LABEL = "ai.caddie.api-dependencies-hash"
+DEPENDENCY_START = "# BEGIN DEPENDENCY IMAGE"
+DEPENDENCY_END = "# END DEPENDENCY IMAGE"
+NODE_BASE_DIGEST = "sha256:91acba91b842bec0bf7ea6f5e09c644c7ccad72c4996ed9616d861d1c7cd60d4"
+UV_BASE_DIGEST = "sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58"
 API_REPOSITORY = "garmin-ai-caddie-api"
 SYNC_REPOSITORY = "aicaddie-sync"
+API_DEPS_REPOSITORY = "garmin-ai-caddie-deps"
+SYNC_DEPS_REPOSITORY = "aicaddie-sync-deps"
 PRIVATE_ROOT = "/var/lib/ai-caddie"
 CONTAINER_PORT = "9000"
 STOP_TIMEOUT_SECONDS = "30"
 SYNC_CHECK_MARKER = "sync contract ok (check-only)"
+DEFAULT_RELEASE_STATE_RELATIVE = Path(".local/state/aicaddie/current-release")
 # Stop timeout plus gate/sync check time, on top of the health waits.
 SWITCH_OVERHEAD_SECONDS = 90.0
 SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
@@ -69,7 +80,8 @@ CONTAINER_FORMAT = (
     '"labels":{{json .Config.Labels}},"running":{{json .State.Running}},'
     '"finishedAt":{{json .State.FinishedAt}},'
     '"ports":{{json .HostConfig.PortBindings}},'
-    '"network":{{json .HostConfig.NetworkMode}},"mounts":{{json .Mounts}},'
+    '"network":{{json .HostConfig.NetworkMode}},'
+    '"networks":{{json .NetworkSettings.Networks}},"mounts":{{json .Mounts}},'
     '"memory":{{json .HostConfig.Memory}},"nanoCpus":{{json .HostConfig.NanoCpus}}}'
 )
 DATABASE_FORMAT = '{"running":{{json .State.Running}},"health":{{json .State.Health}}}'
@@ -85,7 +97,10 @@ FIXED_ENV = {
 }
 
 # Caller variables that would bypass the revision binding of the helpers.
-UNSAFE_CHILD_ENV = ("API_IMAGE", "SYNC_IMAGE_TAG", "PUBLISH_LATEST", "AICADDIE_SYNC_IMAGE")
+UNSAFE_CHILD_ENV = (
+    "API_IMAGE", "SYNC_IMAGE_TAG", "PUBLISH_LATEST", "AICADDIE_SYNC_IMAGE",
+    "SYNC_DEPS_IMAGE",
+)
 
 
 class DeployError(Exception):
@@ -138,8 +153,11 @@ UP_REASONS = frozenset({
     "api_unhealthy",
     "lock_timeout",
     "unexpected",
+    "release_record_missing",
+    "release_record_invalid",
+    "release_record_unavailable",
 })
-UP_FIELDS = frozenset({"action", "result", "part", "container", "revision", "elapsed_s", "reason", "candidates"})
+UP_FIELDS = frozenset({"action", "result", "part", "container", "revision", "elapsed_s", "reason", "candidates", "selection"})
 
 
 def _up_value(key: str, value: object) -> str | None:
@@ -161,6 +179,8 @@ def _up_value(key: str, value: object) -> str | None:
         return value if re.fullmatch(r"\d+\.\d+", value) else "invalid"
     if key == "reason":
         return value if value in UP_REASONS else "invalid"
+    if key == "selection":
+        return value if value in {"record", "legacy"} else "invalid"
     if key == "candidates":
         return value if all(PREFIX_PATTERN.fullmatch(name) for name in value.split(",")) else "invalid"
     return "invalid"
@@ -194,6 +214,18 @@ class Config:
         self.sync_script = env.get("AICADDIE_SYNC_SCRIPT") or ""
         self.public_health_url = env.get("AICADDIE_DEPLOY_PUBLIC_HEALTH_URL") or ""
         self.bootstrap_env_file = env.get("AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE") or ""
+        release_state = env.get("AICADDIE_DEPLOY_RELEASE_STATE") or ""
+        if release_state:
+            self.release_state_path = Path(release_state)
+            if not self.release_state_path.is_absolute():
+                raise ConfigError("AICADDIE_DEPLOY_RELEASE_STATE must be an absolute path")
+        else:
+            home = Path(env["HOME"]) if env.get("HOME") else None
+            self.release_state_path = (
+                home / DEFAULT_RELEASE_STATE_RELATIVE
+                if home is not None and home.is_absolute()
+                else None
+            )
         self.keep_stopped = _int(env, "AICADDIE_DEPLOY_KEEP_STOPPED", 2, minimum=1)
         self.default_cpus = _float(env, "AICADDIE_DEPLOY_DEFAULT_CPUS", 2.0, positive=True)
         self.default_memory = _int(env, "AICADDIE_DEPLOY_DEFAULT_MEMORY_BYTES", 3 * 1024**3, minimum=1)
@@ -203,6 +235,8 @@ class Config:
         self.deadline_seconds = _float(env, "AICADDIE_DEPLOY_DEADLINE_SECONDS", 2280.0)
         self.poll = _float(env, "AICADDIE_DEPLOY_POLL_SECONDS", 2.0)
         self.started = time.monotonic()
+        self.release_selection = "legacy"
+        self.release_selection_reason = "release_record_unavailable" if self.release_state_path is None else None
 
     @property
     def local_health_url(self) -> str:
@@ -313,6 +347,11 @@ class Container:
         self.finished_key = _finished_key(data.get("finishedAt") or "")
         self.ports = data.get("ports") or {}
         self.network = data.get("network") or ""
+        # Older docker projections (and older test fixtures) do not carry
+        # NetworkSettings.Networks.  None means the projection predates the
+        # self-healing check; an explicit empty mapping means the attachment
+        # is missing and must be repaired before start.
+        self.networks = data.get("networks")
         self.mounts = data.get("mounts") or []
         self.memory = int(data.get("memory") or 0)
         self.nano_cpus = int(data.get("nanoCpus") or 0)
@@ -368,6 +407,86 @@ def image_info(reference: str) -> dict | None:
 def image_revision(reference: str) -> str:
     info = image_info(reference)
     return info["labels"].get(REVISION_LABEL, "") if info else ""
+
+
+def image_label(reference: str, label: str) -> str:
+    """Return one image label without exposing the rest of its metadata."""
+    info = image_info(reference)
+    return info["labels"].get(label, "") if info else ""
+
+
+def _dependency_section(path: Path) -> bytes:
+    """Read the marked dependency part of a Dockerfile.
+
+    Application COPY instructions deliberately live after the end marker. This
+    keeps a code-only change out of the dependency image hash while retaining
+    the base image and apt/uv/npm instructions as hash inputs.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        raise DeployError("a dependency Dockerfile cannot be read") from None
+    start = text.find(DEPENDENCY_START)
+    end = text.find(DEPENDENCY_END, start + len(DEPENDENCY_START)) if start >= 0 else -1
+    if start < 0 or end < 0:
+        raise DeployError("a dependency Dockerfile has no complete dependency section")
+    end += len(DEPENDENCY_END)
+    return text[start:end].encode("utf-8")
+
+
+def _hash_inputs(inputs: list[tuple[str, bytes]]) -> str:
+    digest = hashlib.sha256()
+    for name, data in inputs:
+        name_bytes = name.encode("utf-8")
+        digest.update(len(name_bytes).to_bytes(4, "big"))
+        digest.update(name_bytes)
+        digest.update(len(data).to_bytes(8, "big"))
+        digest.update(data)
+    return digest.hexdigest()
+
+
+def _read_dependency_file(name: str) -> tuple[str, bytes]:
+    path = REPO_ROOT / name
+    try:
+        return name, path.read_bytes()
+    except OSError:
+        raise DeployError("a dependency input file cannot be read") from None
+
+
+def api_dependency_hash() -> str:
+    """Hash only inputs that require rebuilding the API dependency image."""
+    inputs = [
+        ("node-base-digest", NODE_BASE_DIGEST.encode("ascii")),
+        ("uv-base-digest", UV_BASE_DIGEST.encode("ascii")),
+        _read_dependency_file("pyproject.toml"),
+        _read_dependency_file("uv.lock"),
+        _read_dependency_file("package.json"),
+        _read_dependency_file("package-lock.json"),
+        ("Dockerfile.deps:dependency-section",
+         _dependency_section(REPO_ROOT / "Dockerfile.deps")),
+    ]
+    return _hash_inputs(inputs)
+
+
+def sync_dependency_hash(api_hash: str | None = None) -> str:
+    """Hash the sync-only dependency stage plus the API dependency hash."""
+    api_hash = api_hash or api_dependency_hash()
+    inputs = [
+        ("api-dependency-hash", api_hash.encode("ascii")),
+        ("uv-base-digest", UV_BASE_DIGEST.encode("ascii")),
+        ("Dockerfile.sync-deps:dependency-section",
+         _dependency_section(REPO_ROOT / "Dockerfile.sync-deps")),
+    ]
+    return _hash_inputs(inputs)
+
+
+def dependency_hash(kind: str) -> str:
+    """Return the named dependency hash used by deploy and acceptance tests."""
+    if kind == "api":
+        return api_dependency_hash()
+    if kind == "sync":
+        return sync_dependency_hash()
+    raise ValueError("kind must be 'api' or 'sync'")
 
 
 def fetch_health(url: str) -> dict | None:
@@ -532,6 +651,7 @@ def restore_previous(cfg: Config, previous: Container | None) -> bool | None:
         log("no previous container to restore")
         return None
     try:
+        ensure_network(cfg, previous)
         docker("start", previous.name)
     except DeployError as exc:
         log(f"error: {exc}")
@@ -546,26 +666,80 @@ def restore_previous(cfg: Config, previous: Container | None) -> bool | None:
 # deploy
 
 
-def ensure_images(sha: str) -> None:
+def _ensure_dependency_image(repository: str, dependency_hash_value: str, *, dockerfile: str,
+                             build_args: list[str], label: str,
+                             extra_labels: dict[str, str] | None = None) -> str:
+    image = f"{repository}:{dependency_hash_value}"
+    expected_labels = {DEPENDENCY_HASH_LABEL: dependency_hash_value, **(extra_labels or {})}
+    if all(image_label(image, key) == value for key, value in expected_labels.items()):
+        log(f"dependency image {image} present; build skipped")
+        return image
+    log(f"building dependency image {image}")
+    args = ["docker", "build"]
+    for key, value in expected_labels.items():
+        args.extend(["--label", f"{key}={value}"])
+    args.extend(["-t", image])
+    for value in build_args:
+        args.extend(["--build-arg", value])
+    args.extend(["-f", dockerfile, "."])
+    run(args, label=label)
+    if image_label(image, DEPENDENCY_HASH_LABEL) != dependency_hash_value:
+        raise DeployError(f"{image} is not labelled with its dependency hash after the build")
+    return image
+
+
+def ensure_images(sha: str) -> dict[str, str]:
     api_image = f"{API_REPOSITORY}:{sha}"
-    if image_revision(api_image) == sha:
-        log(f"api image {api_image} present; build skipped")
-    else:
+    api_needs_build = image_revision(api_image) != sha
+    sync_image = f"{SYNC_REPOSITORY}:{sha}"
+    sync_needs_build = image_revision(sync_image) != sha
+
+    # A pre-existing application image is already usable even if it predates
+    # this optimisation. Build/publish a named dependency image whenever a
+    # new application image (API or sync) needs one.
+    api_hash = api_dependency_hash()
+    api_deps_image = ""
+    if sync_needs_build and not api_needs_build:
+        actual_api_hash = image_label(api_image, DEPENDENCY_HASH_LABEL)
+        if actual_api_hash != api_hash:
+            detail = actual_api_hash or "missing"
+            raise DeployError(
+                f"{api_image} has dependency hash {detail}; expected {api_hash} "
+                "before building sync dependencies"
+            )
+    if api_needs_build or sync_needs_build:
+        api_deps_image = _ensure_dependency_image(
+            API_DEPS_REPOSITORY, api_hash, dockerfile="Dockerfile.deps",
+            build_args=[], label="api dependency image build",
+        )
+
+    if api_needs_build:
         log(f"building api image {api_image}")
         run(["docker", "build", "--label", f"{REVISION_LABEL}={sha}", "-t", api_image,
+             "--build-arg", f"DEPS_IMAGE={api_deps_image}",
              "-f", "Dockerfile", "."], label="api image build")
         if image_revision(api_image) != sha:
             raise DeployError(f"{api_image} is not labelled with revision {sha} after the build")
-
-    sync_image = f"{SYNC_REPOSITORY}:{sha}"
-    if image_revision(sync_image) == sha:
-        log(f"sync image {sync_image} present; build skipped")
+        if image_label(api_image, DEPENDENCY_HASH_LABEL) != api_hash:
+            raise DeployError(f"{api_image} did not inherit dependency hash {api_hash} from {api_deps_image}")
     else:
+        log(f"api image {api_image} present; build skipped")
+
+    sync_hash = sync_dependency_hash(api_hash)
+    if sync_needs_build:
+        sync_deps_image = _ensure_dependency_image(
+            SYNC_DEPS_REPOSITORY, sync_hash, dockerfile="Dockerfile.sync-deps",
+            build_args=[f"API_IMAGE={api_deps_image}"], label="sync dependency image build",
+            extra_labels={API_DEPENDENCY_HASH_LABEL: api_hash},
+        )
         log(f"building sync image {sync_image}")
         run(["bash", str(SYNC_BUILD_SCRIPT)], label="sync image build",
-            env=child_env(API_IMAGE=api_image))
+            env=child_env(API_IMAGE=api_image, SYNC_DEPS_IMAGE=sync_deps_image))
         if image_revision(sync_image) != sha:
             raise DeployError(f"{sync_image} is not labelled with revision {sha} after the build")
+    else:
+        log(f"sync image {sync_image} present; build skipped")
+    return {"api": api_hash, "sync": sync_hash}
 
 
 def read_env_file(path: str) -> list[str]:
@@ -613,7 +787,7 @@ def run_api_container(cfg: Config, private: Path, name: str, sha: str,
     env_file = write_env_file(private, values)
     try:
         docker("run", "-d", "--init", "--pull", "never", "--name", name,
-               "--restart", "on-failure:3",
+               "--restart", "no",
                "--cpus", str(cpus), "--memory", str(memory),
                "--network", cfg.network,
                "--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",
@@ -678,12 +852,13 @@ def deploy(cfg: Config, sha: str) -> str:
     # Fail fast before the long image builds; everything is re-read under the lock.
     check_deploy_source(cfg, find_current(cfg, list_containers()))
     wait_database_healthy(cfg)
-    ensure_images(sha)
+    dependency_hashes = ensure_images(sha)
 
     with PrivateDir() as private, SyncLock(cfg):
         wait_database_healthy(cfg)
         containers = list_containers()
         current = find_current(cfg, containers)
+        normalize_restart_policy(cfg, containers)
         if current is not None and current.revision == sha:
             verify_live(cfg, sha, current, containers, private)
             deployed = current.name
@@ -691,10 +866,11 @@ def deploy(cfg: Config, sha: str) -> str:
             switch(cfg, sha, new_name, current, containers, private)
             deployed = new_name
         try:
-            cleanup(cfg)
+            cleanup(cfg, dependency_hashes)
         except Exception as exc:  # the new release is live; cleanup is best effort
             reason = str(exc) if isinstance(exc, DeployError) else type(exc).__name__
             log(f"warning: cleanup incomplete: {reason}")
+        write_release_state(cfg, sha)
     return deployed
 
 
@@ -718,7 +894,11 @@ def verify_live(cfg: Config, sha: str, current: Container, containers: list[Cont
         restored = restore_previous(cfg, previous)
         if not restored:
             docker("stop", "--time", STOP_TIMEOUT_SECONDS, previous.name, capture=True, check=False)
-            docker("start", current.name, capture=True, check=False)
+            try:
+                ensure_network(cfg, current)
+                docker("start", current.name, capture=True, check=False)
+            except BaseException as restore_exc:
+                log(f"error: failed to re-start {current.name} after restore failure: {type(restore_exc).__name__}")
         raise CutoverFailed(reason, restored) from None
     shield_signals()
 
@@ -770,38 +950,138 @@ def switch(cfg: Config, sha: str, new_name: str, current: Container | None,
     shield_signals()
 
 
-def cleanup(cfg: Config) -> None:
+def _dependency_image_refs() -> list[str]:
+    """List only the two named dependency repositories owned by this deploy."""
+    result = docker("image", "ls", "--format", "{{.Repository}}:{{.Tag}}|{{.CreatedAt}}",
+                    capture=True, quiet=True, check=False)
+    if result.returncode != 0:
+        log("cleanup: warning: dependency image listing failed; leaving dependency tags unchanged")
+        return []
+    entries: list[tuple[str, str]] = []
+    for line in result.stdout.splitlines():
+        ref, _, created = line.strip().partition("|")
+        if ref.startswith(f"{API_DEPS_REPOSITORY}:") or ref.startswith(f"{SYNC_DEPS_REPOSITORY}:"):
+            if ref.rsplit(":", 1)[-1] and ref.rsplit(":", 1)[-1] != "<none>":
+                entries.append((ref, created))
+    entries.sort(key=lambda item: item[1], reverse=True)
+    return [ref for ref, _created in entries]
+
+
+def cleanup_dependency_images(current_hashes: dict[str, str]) -> None:
+    """Keep the current hash and newest other hash in each dependency repo."""
+    refs = _dependency_image_refs()
+    if not refs:
+        return
+    current_by_repo = {
+        API_DEPS_REPOSITORY: current_hashes.get(API_DEPS_REPOSITORY) or current_hashes.get("api", ""),
+        SYNC_DEPS_REPOSITORY: current_hashes.get(SYNC_DEPS_REPOSITORY) or current_hashes.get("sync", ""),
+    }
+    keep: set[str] = set()
+    # Docker's image ls ordering is newest-first by default. Keep the explicit
+    # current hash even when it is older, then the newest other hash as the
+    # rollback dependency. Never inspect or remove another repository's tags.
+    for repository, current_hash in current_by_repo.items():
+        repo_refs = [ref for ref in refs if ref.startswith(repository + ":")]
+        current_ref = f"{repository}:{current_hash}" if current_hash else ""
+        if current_ref in repo_refs:
+            keep.add(current_ref)
+        for ref in repo_refs:
+            if ref not in keep:
+                keep.add(ref)
+                break
+    for ref in refs:
+        if ref in keep:
+            continue
+        removed = docker("rmi", ref, capture=True, check=False)
+        if removed.returncode == 0:
+            log(f"cleanup: removed dependency image {ref}")
+        else:
+            log(f"cleanup: warning: could not remove dependency image {ref}")
+
+
+def _application_image_refs() -> list[str]:
+    result = docker("image", "ls", "--format", "{{.Repository}}:{{.Tag}}",
+                    capture=True, quiet=True, check=False)
+    if result.returncode != 0:
+        log("cleanup: warning: application image listing failed; leaving orphan tags unchanged")
+        return []
+    refs = []
+    for line in result.stdout.splitlines():
+        ref = line.strip()
+        repository, _, tag = ref.rpartition(":")
+        if repository in {API_REPOSITORY, SYNC_REPOSITORY} and SHA_PATTERN.fullmatch(tag):
+            refs.append(ref)
+    return refs
+
+
+def cleanup_orphan_application_images(cfg: Config, containers: list[Container]) -> None:
+    """Remove unreferenced old API/sync tags while protecting rollback images."""
+    stopped = sorted((c for c in containers if c.name.startswith(cfg.prefix) and not c.running),
+                     key=lambda c: c.finished_key, reverse=True)
+    retained_revisions = {
+        c.revision for c in containers
+        if c.running and c.name.startswith(cfg.prefix)
+    }
+    retained_revisions.update(c.revision for c in stopped[:cfg.keep_stopped] if c.revision)
+    used_image_ids = {c.image_id for c in containers if c.image_id}
+    for ref in _application_image_refs():
+        repository, _, tag = ref.rpartition(":")
+        if repository not in {API_REPOSITORY, SYNC_REPOSITORY} or tag in retained_revisions:
+            continue
+        info = image_info(ref)
+        if not info or info["id"] in used_image_ids:
+            continue
+        repositories = {item.rsplit(":", 1)[0] for item in info["tags"]}
+        if not repositories <= {API_REPOSITORY, SYNC_REPOSITORY}:
+            continue
+        removed = docker("rmi", ref, capture=True, check=False)
+        if removed.returncode == 0:
+            log(f"cleanup: removed orphan image {ref}")
+        else:
+            log(f"cleanup: warning: could not remove orphan image {ref}")
+
+
+def cleanup(cfg: Config, dependency_hashes: dict[str, str]) -> None:
     containers = list_containers()
+    remaining = containers
     stopped = sorted((c for c in containers if c.name.startswith(cfg.prefix) and not c.running),
                      key=lambda c: c.finished_key, reverse=True)
     doomed = stopped[cfg.keep_stopped:]
     if not doomed:
         log(f"cleanup: nothing to remove ({len(stopped)} stopped release container(s) kept)")
-        return
-    for container in doomed:
-        docker("rm", "-v", container.name, capture=True)
-        log(f"cleanup: removed container {container.name}")
+    else:
+        for container in doomed:
+            docker("rm", "-v", container.name, capture=True)
+            log(f"cleanup: removed container {container.name}")
 
-    doomed_ids = {c.id for c in doomed}
-    remaining = [c for c in containers if c.id not in doomed_ids]
-    used_images = {c.image_id for c in remaining}
-    used_revisions = {c.revision for c in remaining if c.revision}
-    handled: set[str] = set()
-    for container in doomed:
-        candidates = [image_info(container.image_id)] if container.image_id else []
-        if SHA_PATTERN.fullmatch(container.revision) and container.revision not in used_revisions:
-            candidates.append(image_info(f"{SYNC_REPOSITORY}:{container.revision}"))
-        for info in candidates:
-            if not info or info["id"] in handled or info["id"] in used_images:
-                continue
-            handled.add(info["id"])
-            repositories = {tag.rsplit(":", 1)[0] for tag in info["tags"]}
-            if not info["tags"] or not repositories <= {API_REPOSITORY, SYNC_REPOSITORY}:
-                log(f"cleanup: kept image {info['id'][:19]} (untagged or not an api/sync image)")
-                continue
-            for tag in info["tags"]:
-                removed = docker("rmi", tag, capture=True, check=False)
-                log(f"cleanup: {'removed' if removed.returncode == 0 else 'could not remove'} image {tag}")
+        doomed_ids = {c.id for c in doomed}
+        remaining = [c for c in containers if c.id not in doomed_ids]
+        used_images = {c.image_id for c in remaining}
+        used_revisions = {c.revision for c in remaining if c.revision}
+        handled: set[str] = set()
+        for container in doomed:
+            candidates = [image_info(container.image_id)] if container.image_id else []
+            if SHA_PATTERN.fullmatch(container.revision) and container.revision not in used_revisions:
+                candidates.append(image_info(f"{SYNC_REPOSITORY}:{container.revision}"))
+            for info in candidates:
+                if not info or info["id"] in handled or info["id"] in used_images:
+                    continue
+                handled.add(info["id"])
+                repositories = {tag.rsplit(":", 1)[0] for tag in info["tags"]}
+                if not info["tags"] or not repositories <= {API_REPOSITORY, SYNC_REPOSITORY}:
+                    log(f"cleanup: kept image {info['id'][:19]} (untagged or not an api/sync image)")
+                    continue
+                for tag in info["tags"]:
+                    repository, _, tag_value = tag.rpartition(":")
+                    if repository not in {API_REPOSITORY, SYNC_REPOSITORY} or not SHA_PATTERN.fullmatch(tag_value):
+                        continue
+                    removed = docker("rmi", tag, capture=True, check=False)
+                    if removed.returncode == 0:
+                        log(f"cleanup: removed image {tag}")
+                    else:
+                        log(f"cleanup: warning: could not remove image {tag}")
+    cleanup_dependency_images(dependency_hashes)
+    cleanup_orphan_application_images(cfg, remaining)
 
 
 # ---------------------------------------------------------------------------
@@ -834,10 +1114,12 @@ def rollback(cfg: Config, sha: str) -> str:
     with SyncLock(cfg):
         wait_database_healthy(cfg)
         current, target = select_rollback(cfg, sha)
+        normalize_restart_policy(cfg, list_containers())
         if target is None:
             if not wait_health(cfg.local_health_url, sha, cfg.health_timeout, cfg.poll):
                 raise DeployError(f"{current.name} runs revision {sha} but its health check fails")
             log(f"{current.name} already runs revision {sha}")
+            write_release_state(cfg, sha)
             return current.name
 
         cfg.require_time_for_switch()
@@ -846,6 +1128,7 @@ def rollback(cfg: Config, sha: str) -> str:
                 log(f"stopping {current.name}")
                 docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name, capture=True)
             log(f"starting {target.name}")
+            ensure_network(cfg, target)
             docker("start", target.name, capture=True)
             if not wait_health(cfg.local_health_url, sha, cfg.health_timeout, cfg.poll):
                 raise DeployError(f"{target.name} did not report status=ok revision={sha}")
@@ -857,7 +1140,104 @@ def rollback(cfg: Config, sha: str) -> str:
             restored = restore_previous(cfg, current)
             raise CutoverFailed(reason, restored) from None
         shield_signals()
+        write_release_state(cfg, sha)
         return target.name
+
+
+def normalize_restart_policy(cfg: Config, containers: list[Container]) -> None:
+    """Make every release container independently safe across daemon restarts."""
+    for container in containers:
+        if container.name.startswith(cfg.prefix):
+            docker("update", "--restart=no", container.name, label="release restart policy")
+
+
+def ensure_network(cfg: Config, container: Container) -> None:
+    """Repair a missing runtime network attachment before starting a container."""
+    if container.networks is None:
+        # Projection compatibility for old callers/tests. Docker installations
+        # using CONTAINER_FORMAT always provide an explicit mapping.
+        attached = container.network == cfg.network
+    else:
+        attached = isinstance(container.networks, dict) and cfg.network in container.networks
+    if attached:
+        return
+    log(f"connecting {container.name} to configured network before start")
+    docker("network", "connect", cfg.network, container.name, label="network connect")
+
+
+def write_release_state(cfg: Config, revision: str) -> None:
+    """Atomically publish the revision selected by the last successful action."""
+    path = cfg.release_state_path
+    if path is None:
+        log("HOME is unavailable; release record not written")
+        return
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        payload = {
+            "revision": revision,
+            "recorded_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        temporary = None
+        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except OSError:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            log("WARNING: release record write failed and stale record could not be removed")
+        else:
+            log("WARNING: release record write failed; stale record removed")
+        log("release record could not be written; continuing without it")
+
+
+def read_release_state(cfg: Config) -> str | None:
+    if cfg.release_state_path is None:
+        log("HOME is unavailable; using legacy stopped-container selection")
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_unavailable"
+        return None
+    try:
+        data = json.loads(cfg.release_state_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_missing"
+        return None
+    except OSError:
+        log("release state is unreadable; falling back to stopped-container selection")
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_unavailable"
+        return None
+    except (ValueError, TypeError):
+        log("release state is invalid; falling back to stopped-container selection")
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_invalid"
+        return None
+    revision = data.get("revision") if isinstance(data, dict) else None
+    if not isinstance(revision, str) or not SHA_PATTERN.fullmatch(revision):
+        log("release state has no valid revision; falling back to stopped-container selection")
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_invalid"
+        return None
+    cfg.release_selection = "record"
+    cfg.release_selection_reason = None
+    return revision
 
 
 # ---------------------------------------------------------------------------
@@ -911,6 +1291,29 @@ def assert_up_release(cfg: Config, container: Container) -> None:
 
 
 def select_up_api(cfg: Config, containers: list[Container]) -> Container | None:
+    recorded = read_release_state(cfg)
+    if recorded is not None:
+        recorded_candidates = [
+            candidate for candidate in containers
+            if candidate.name.startswith(cfg.prefix)
+            and candidate.revision == recorded
+            and candidate.publishes(cfg.port)
+        ]
+        valid_recorded = []
+        for candidate in recorded_candidates:
+            try:
+                assert_up_release(cfg, candidate)
+            except DeployError:
+                continue
+            valid_recorded.append(candidate)
+        if valid_recorded:
+            running = [candidate for candidate in valid_recorded if candidate.running]
+            if running:
+                return running[0]
+            return max(valid_recorded, key=lambda candidate: candidate.finished_key)
+        cfg.release_selection = "legacy"
+        cfg.release_selection_reason = "release_record_missing"
+        log(f"recorded release {recorded} is missing or invalid; falling back to stopped-container selection")
     try:
         current = find_current(cfg, containers)
     except DeployError:
@@ -955,10 +1358,15 @@ def up(cfg: UpConfig) -> Container:
         wait_up_database(cfg)
         part, container = "api", "none"
         api = select_up_api(cfg, list_containers())
+        selection_fields = {"action": "up", "selection": cfg.release_selection}
+        if cfg.release_selection_reason:
+            selection_fields["reason"] = cfg.release_selection_reason
+        up_line(**selection_fields)
         if api is None:
             raise UpFailed("api", "none", "no valid release candidate",
                            reason="no_release_candidate")
         container = api.name
+        previous_api = None
         if not api.running:
             with SyncLock(cfg):
                 # A deploy can change the release set while recovery waits for this lock.
@@ -969,9 +1377,31 @@ def up(cfg: UpConfig) -> Container:
                                    reason="no_release_candidate")
                 container = api.name
                 if not api.running:
+                    try:
+                        current = find_current(cfg, list_containers())
+                    except DeployError:
+                        raise UpFailed("api", "none", "no valid release candidate",
+                                       reason="no_release_candidate") from None
+                    if current is not None and current.name != api.name:
+                        previous_api = current
+                        up_line(action="up", selection="record", container=current.name,
+                                revision=api.revision)
+                        log(f"stopping {current.name} for recorded release {api.revision}")
+                        docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name,
+                               label="API stop", capture=True, quiet=True)
                     log(f"starting {api.name}")
+                    ensure_network(cfg, api)
                     docker("start", api.name, label="API start", capture=True, quiet=True)
         if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
+            if previous_api is not None:
+                docker("stop", api.name, label="API stop after failed health", capture=True,
+                       quiet=True, check=False)
+                try:
+                    ensure_network(cfg, previous_api)
+                    docker("start", previous_api.name, label="API restore after failed health",
+                           capture=True, quiet=True, check=False)
+                except BaseException as restore_exc:
+                    log(f"error: failed to restore {previous_api.name}: {type(restore_exc).__name__}")
             raise UpFailed("api", api.name, "API health check failed", reason="api_unhealthy")
         return api
     except UpFailed:
@@ -1017,14 +1447,15 @@ def main(argv: list[str]) -> int:
         except UpFailed as exc:
             up_line(result="failed", action="up", part=exc.part, container=exc.container,
                     elapsed_s=f"{time.monotonic() - started:.1f}", reason=exc.reason,
-                    candidates=exc.candidates)
+                    candidates=exc.candidates, selection=cfg.release_selection)
             return EXIT_FAILED
         except BaseException:
             up_line(result="failed", action="up", part="api", container="none",
-                    elapsed_s=f"{time.monotonic() - started:.1f}", reason="unexpected")
+                    elapsed_s=f"{time.monotonic() - started:.1f}", reason="unexpected",
+                    selection=cfg.release_selection)
             return EXIT_FAILED
         up_line(result="ok", action="up", container=api.name, revision=api.revision,
-                elapsed_s=f"{time.monotonic() - started:.1f}")
+                elapsed_s=f"{time.monotonic() - started:.1f}", selection=cfg.release_selection)
         return EXIT_OK
     log(f"action={action} revision={sha}")
     try:

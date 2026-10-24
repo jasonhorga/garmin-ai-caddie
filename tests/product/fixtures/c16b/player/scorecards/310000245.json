@@ -1,0 +1,87 @@
+{
+ "source": "garmin",
+ "scorecardDetails": [
+  {
+   "scorecard": {
+    "id": 310000245,
+    "formattedStartTime": "2025-06-29T10:30:00",
+    "startTime": "2025-06-29T10:30:00",
+    "strokes": 45,
+    "holesCompleted": 9,
+    "courseGlobalId": 7103,
+    "frontNineGlobalCourseId": 7103,
+    "backNineGlobalCourseId": null,
+    "courseSnapshotId": null,
+    "teeBox": "Blue",
+    "teeBoxRating": null,
+    "teeBoxSlope": null,
+    "holes": [
+     {
+      "number": 1,
+      "strokes": 6,
+      "putts": 2,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 2,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 3,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 4,
+      "strokes": 4,
+      "putts": 2
+     },
+     {
+      "number": 5,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 6,
+      "strokes": 4,
+      "putts": 2,
+      "fairwayShotOutcome": "HIT"
+     },
+     {
+      "number": 7,
+      "strokes": 6,
+      "putts": 2,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 8,
+      "strokes": 5,
+      "putts": 2
+     },
+     {
+      "number": 9,
+      "strokes": 5,
+      "putts": 2,
+      "fairwayShotOutcome": "LEFT"
+     }
+    ]
+   },
+   "scorecardStats": {
+    "round": {}
+   }
+  }
+ ],
+ "courseSnapshots": [
+  {
+   "name": "Kestrel Hills ~ C",
+   "holePars": "544344534",
+   "roundPar": 36,
+   "lat": 31200000,
+   "lon": 121400000
+  }
+ ]
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import Future
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import time
@@ -378,16 +379,30 @@ class CourseInstallJournalTests(unittest.TestCase):
                         on_hole_complete(result)
                 return {"results": results}
 
+            events: list[str] = []
+
+            class RecordingTopoPool:
+                def submit_keyed(self, key, fn, *args, **kwargs):
+                    return self.submit(fn, *args, **kwargs)
+
+                def submit(self, fn, *args, **kwargs):
+                    del kwargs
+                    events.append("queue_topo")
+                    future = Future()
+                    future.set_result(fn(*args))
+                    return future
+
             with (
                 patch(
                     "ai_caddie.caddie.mobile_live._ensure_geometry_for_course",
                     side_effect=ensure,
                 ),
+                patch.object(server_main, "_TOPO_PIPELINE_POOL", RecordingTopoPool()),
                 patch.object(server_main, "_render_course_topo_one", return_value=True),
                 patch.object(
                     server_main,
                     "_probe_geometry_revision",
-                    side_effect=lambda _gid, hole: (f"revision-{hole}", "current"),
+                    side_effect=lambda _gid, hole, **_kwargs: (f"revision-{hole}", "current"),
                 ),
             ):
                 server_main.run_course_install_job(state["jobId"])
@@ -413,6 +428,8 @@ class CourseInstallJournalTests(unittest.TestCase):
             [row["topoRevision"] for row in final["holes"]],
             ["revision-1", "revision-2"],
         )
+        # Vector completion is covered by the real deferred-install acceptance chain.
+        self.assertEqual(events, ["queue_topo", "queue_topo"])
 
     def test_worker_waits_for_topo_journal_callback_before_terminal_phase(self) -> None:
         from server_v2 import course_install

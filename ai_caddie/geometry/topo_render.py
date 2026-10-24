@@ -867,7 +867,6 @@ def cache_identity(gid: int, hole: int) -> str:
         global_id=int(gid),
         local_hole=int(hole),
         mesh_file=mesh_file,
-        hazard_file=hazard_path(gid, hole),
         sidecar=authority_path(mesh_file),
     )
     return f"{STYLE_VERSION}-{token}"

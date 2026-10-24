@@ -11,13 +11,17 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie.core.data import ROOT, hazard_path, mesh_path, scorecard_files
-from ai_caddie.geometry.batch_prodgeometry_course import process_hole
+from ai_caddie.geometry.batch_prodgeometry_course import (
+    distances_path,
+    process_hole,
+    schedule_missing_derivatives,
+)
 from ai_caddie.geometry.geometry_authority import (
     authority_is_bound,
     authority_path,
     build_authority,
-    legacy_outputs_match,
     load_authority,
+    mesh_output_matches,
     same_geometry_content,
     same_release_binding,
     valid_geometry_zip_sha256,
@@ -66,7 +70,26 @@ def _display_path(path: Path) -> str:
 
 
 def geometry_present(global_id: int, local_hole: int) -> bool:
-    return hazard_path(global_id, local_hole).exists() and mesh_path(global_id, local_hole).exists()
+    # The decoded mesh is independently playable by topo/green.  Obstacle and distance exports
+    # are supplements and may still be running (or may have failed) without invalidating pixels.
+    return mesh_path(global_id, local_hole).exists()
+
+
+def _schedule_missing_derivatives(
+    global_id: int,
+    local_hole: int,
+    *,
+    mesh_file: Path,
+    hazard_file: Path,
+) -> bool:
+    """Repair a supplement worker after a failure or API process restart."""
+    return schedule_missing_derivatives(
+        int(global_id),
+        int(local_hole),
+        mesh_file=mesh_file,
+        distance_target=distances_path(int(global_id), int(local_hole)),
+        hazard_target=hazard_file,
+    )
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -239,6 +262,13 @@ def ensure_prodgeometry(
                 # trustworthy without a live update check; a legacy pair remains
                 # usable but visibly unbound until the provider is reachable.
                 if files_exist:
+                    if current_is_bound:
+                        _schedule_missing_derivatives(
+                            gid,
+                            hole_no,
+                            mesh_file=mesh_file,
+                            hazard_file=hazard_file,
+                        )
                     return cached_result(
                         release_source=None,
                         authority_state="bound-stale" if current_is_bound else "legacy-unbound",
@@ -278,6 +308,12 @@ def ensure_prodgeometry(
                 if reusable:
                     if current is None or not same_release_binding(current, expected):
                         write_authority(sidecar, expected)
+                    _schedule_missing_derivatives(
+                        gid,
+                        hole_no,
+                        mesh_file=mesh_file,
+                        hazard_file=hazard_file,
+                    )
                     return cached_result(release_source=release_source, authority_state="bound")
 
             profile = profile_id or _player_profile_id()
@@ -297,6 +333,8 @@ def ensure_prodgeometry(
                 snapshot=None,
                 skip_overlay=True,
                 force_download=force,
+                defer_derivatives=True,
+                derivative_release_identity=expected,
             )
             zip_sha256 = row.get("geometry_zip_sha256")
             row_ok = bool(row.get("ok")) and valid_geometry_zip_sha256(zip_sha256)
@@ -311,13 +349,20 @@ def ensure_prodgeometry(
                     release_source=release_source,
                     geometry_zip_sha256=zip_sha256,
                 )
-                row_ok = legacy_outputs_match(
-                    expected,
-                    mesh_file=mesh_file,
-                    hazard_file=hazard_file,
-                )
+                row_ok = mesh_output_matches(expected, mesh_file=mesh_file)
                 if row_ok:
-                    write_authority(sidecar, expected)
+                    installed = load_authority(sidecar)
+                    if (not installed or not same_release_binding(installed, expected)
+                            or installed.get("geometryZipSha256") != zip_sha256):
+                        write_authority(sidecar, expected)
+                    # Also supports legacy/test installers that did not bind before starting the
+                    # daemon. Avoid rewriting an identical sidecar after vectors fingerprint it.
+                    _schedule_missing_derivatives(
+                        gid,
+                        hole_no,
+                        mesh_file=mesh_file,
+                        hazard_file=hazard_file,
+                    )
                 else:
                     sidecar.unlink(missing_ok=True)
                     row["error"] = "decoded prodgeometry does not match the release asset authority"

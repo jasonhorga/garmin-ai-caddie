@@ -1,0 +1,109 @@
+{
+ "scorecardId": 310000002,
+ "holeShots": [
+  {
+   "holeNumber": 1,
+   "shots": [
+    {
+     "id": 31000000201,
+     "shotOrder": 1,
+     "clubId": 101,
+     "meters": 220,
+     "shotType": "TEE",
+     "autoShotType": "USED",
+     "startLoc": {
+      "lat": 372242429,
+      "lon": 1448358416,
+      "lie": "TeeBox"
+     },
+     "endLoc": {
+      "lat": 372266075,
+      "lon": 1448358416,
+      "lie": "Rough"
+     }
+    },
+    {
+     "id": 31000000202,
+     "shotOrder": 2,
+     "clubId": 107,
+     "meters": 158,
+     "shotType": "APPROACH",
+     "autoShotType": "USED",
+     "startLoc": {
+      "lat": 372266075,
+      "lon": 1448358416,
+      "lie": "Rough"
+     },
+     "endLoc": {
+      "lat": 372283058,
+      "lon": 1448358416,
+      "lie": "Fairway"
+     }
+    },
+    {
+     "id": 31000000203,
+     "shotOrder": 3,
+     "clubId": 110,
+     "meters": 112,
+     "shotType": "APPROACH",
+     "autoShotType": "USED",
+     "startLoc": {
+      "lat": 372283058,
+      "lon": 1448358416,
+      "lie": "Fairway"
+     },
+     "endLoc": {
+      "lat": 372295095,
+      "lon": 1448358416,
+      "lie": "Green"
+     }
+    }
+   ]
+  },
+  {
+   "holeNumber": 12,
+   "shots": [
+    {
+     "id": 31000000204,
+     "shotOrder": 1,
+     "clubId": 110,
+     "meters": 115,
+     "shotType": "TEE",
+     "autoShotType": "USED",
+     "startLoc": {
+      "lat": 372373665,
+      "lon": 1448358416,
+      "lie": "TeeBox"
+     },
+     "endLoc": {
+      "lat": 372386025,
+      "lon": 1448358416,
+      "lie": "Green"
+     }
+    }
+   ]
+  }
+ ],
+ "clubDetails": [
+  {
+   "clubId": 101,
+   "name": "Driver"
+  },
+  {
+   "clubId": 102,
+   "name": "driver"
+  },
+  {
+   "clubId": 103,
+   "name": "3W"
+  },
+  {
+   "clubId": 107,
+   "name": "7I"
+  },
+  {
+   "clubId": 110,
+   "name": "PW"
+  }
+ ]
+}

@@ -102,7 +102,6 @@ def _format_time(value: datetime) -> str:
     return value.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-@lru_cache(maxsize=128)
 def _load_mobile_hazards(global_id: int, local_hole: int) -> dict[str, Any]:
     """Load the small hazard/Tee authority needed by a mobile package.
 
@@ -111,12 +110,22 @@ def _load_mobile_hazards(global_id: int, local_hole: int) -> dict[str, Any]:
     them pushed one API worker above 700 MB. The release-bound hazard export already carries the
     selected Tee positions/distances and compact hazard identities needed here.
     """
-
     path = hazard_path(int(global_id), int(local_hole))
+    return _load_mobile_hazards_cached(path, _file_stat_signature(path))
+
+
+@lru_cache(maxsize=128)
+def _load_mobile_hazards_cached(path: Path, signature: tuple[int, int, int]) -> dict[str, Any]:
+    # A missing file and a later atomic supplement have different keys in every API process.
+    del signature
     if not path.exists():
         return {}
     value = read_json(path)
     return value if isinstance(value, dict) else {}
+
+
+_load_mobile_hazards.cache_clear = _load_mobile_hazards_cached.cache_clear
+_load_mobile_hazards.cache_info = _load_mobile_hazards_cached.cache_info
 
 
 def _event_cursor(
@@ -1050,7 +1059,7 @@ def _package_holes(
         # current cached release before advertising precise facts to a live client.
         geometry_evidence = _geometry_evidence_for_package_hole(round_row, number)
         coverage = str(geometry_evidence.get("coverage") or "missing")
-        geometry_revision = geometry_evidence.get("geometryRevision")
+        geometry_revision = geometry_evidence.get("topoRevision") or geometry_evidence.get("geometryRevision")
         # Per-hole source course id + local hole, so the live 2D map fetches the RIGHT course's
         # geometry per hole — incl. composite rounds where holes 10–18 live in a second loop's gid.
         holes.append({
@@ -3808,8 +3817,8 @@ def _geometry_only_course_template(
             "teeLongitude": tee_longitude,
             "geometryCoverage": state,
             "geometryRevision": (
-                str(coverage.get("geometryRevision"))
-                if coverage.get("geometryRevision")
+                str(coverage.get("topoRevision") or coverage.get("geometryRevision"))
+                if coverage.get("topoRevision") or coverage.get("geometryRevision")
                 else None
             ),
             "geometryAuthorityObservation": str(

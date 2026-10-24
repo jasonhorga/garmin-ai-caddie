@@ -1,0 +1,241 @@
+{
+  "package": {
+    "schema": "ai-caddie-live-round-package-v2",
+    "roundId": "native-home",
+    "dataMode": "local",
+    "sourceCoverage": {
+      "state": "ready",
+      "dataMode": "fixture",
+      "requestedRoundId": "native-home",
+      "roundFound": false,
+      "availableRoundCount": 0,
+      "holeCount": 9,
+      "clubProfileCount": 0
+    },
+    "missingData": [],
+    "playerProfile": {
+      "playerId": "synthetic",
+      "displayName": "Synthetic",
+      "handedness": "right"
+    },
+    "course": {
+      "globalId": 82001,
+      "name": "Example",
+      "teeBox": "blue"
+    },
+    "holes": [
+      {
+        "number": 1,
+        "par": 4,
+        "yards": 365,
+        "geometryCoverage": "ready",
+        "geometryRevision": "native-r1",
+        "sourceGlobalId": 82001,
+        "sourceLocalHole": 1,
+        "courseHoleNumber": 1,
+        "teeLatitude": 0,
+        "teeLongitude": 0
+      }
+    ],
+    "roundLoops": [
+      {
+        "globalId": 82001,
+        "half": "all",
+        "roundStartHole": 1,
+        "sourceStartHole": 1,
+        "holeCount": 9
+      }
+    ],
+    "loopKey": "82001:all",
+    "coursePrep": {
+      "schema": "ai-caddie-course-prep-v1",
+      "globalId": 82001,
+      "holes": [
+        {
+          "hole": 1,
+          "par": 4,
+          "par_source": "synthetic",
+          "blue_yards": 365,
+          "route_len_m": 333.5848,
+          "geometryCoverage": "ready",
+          "geometryRevision": "native-r1",
+          "route": [
+            [
+              0,
+              0
+            ],
+            [
+              0,
+              333.5848
+            ]
+          ],
+          "steps": [],
+          "cautions": [],
+          "hazards": {
+            "water_carry": [],
+            "bunkers": [],
+            "details": [
+              {
+                "kind": "water",
+                "frontM": 100,
+                "backM": 120,
+                "frontRouteM": 100,
+                "backRouteM": 120,
+                "frontPx": [
+                  100,
+                  250
+                ],
+                "backPx": [
+                  100,
+                  230
+                ],
+                "outlinePx": [
+                  [
+                    80,
+                    230
+                  ],
+                  [
+                    120,
+                    230
+                  ],
+                  [
+                    120,
+                    250
+                  ],
+                  [
+                    80,
+                    250
+                  ]
+                ]
+              }
+            ]
+          },
+          "map": {
+            "overlay": {
+              "w": 300,
+              "h": 400,
+              "ppm": 1,
+              "ln": 333.5848,
+              "route": [
+                [
+                  100,
+                  350,
+                  0
+                ],
+                [
+                  100,
+                  16.4152,
+                  333.5848
+                ]
+              ]
+            }
+          },
+          "greenDistances": {
+            "available": true,
+            "frontM": 222.3899,
+            "middleM": 333.5848,
+            "backM": 444.7797,
+            "frontLat": 0.002,
+            "frontLon": 0,
+            "middleLat": 0.003,
+            "middleLon": 0,
+            "backLat": 0.004,
+            "backLon": 0
+          },
+          "greenOutline": {
+            "pointsPx": [
+              [
+                90,
+                6
+              ],
+              [
+                110,
+                6
+              ],
+              [
+                110,
+                26
+              ],
+              [
+                90,
+                26
+              ]
+            ],
+            "available": true
+          },
+          "holeImageProjection": {
+            "available": true,
+            "widthPx": 300,
+            "heightPx": 400,
+            "refs": [
+              {
+                "lat": 0,
+                "lon": 0,
+                "px": 100,
+                "py": 350
+              },
+              {
+                "lat": 0,
+                "lon": 0.0010791859,
+                "px": 220,
+                "py": 350
+              },
+              {
+                "lat": 0.0010791859,
+                "lon": 0,
+                "px": 100,
+                "py": 230
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "geometryCoverage": {
+      "state": "ready",
+      "readyHoles": 9,
+      "totalHoles": 9
+    },
+    "readinessChecks": [],
+    "caddieContextSeeds": [],
+    "weatherSnapshot": {
+      "schema": "ai-caddie-weather-snapshot-v1",
+      "state": "missing",
+      "source": "missing",
+      "confidence": "low",
+      "missingData": []
+    },
+    "clubProfiles": [],
+    "caddieDecisionEndpoint": "/api/v2/caddie/decision",
+    "offlinePackageStatus": {
+      "state": "ready",
+      "preparedAt": "2026-10-01T00:00:00Z",
+      "expiresAt": "2099-01-01T00:00:00Z",
+      "cachePolicy": {
+        "staleAfterHours": 1000000,
+        "expiresAfterHours": 1000001
+      }
+    },
+    "eventCursor": {
+      "serverSequence": 0,
+      "pendingEventCount": 0
+    },
+    "recentHistory": {
+      "course": {
+        "courseKey": "example",
+        "roundCount": 0,
+        "recentScores": [],
+        "roundIds": []
+      },
+      "holes": []
+    },
+    "cachedCaddieRules": {
+      "decisionContract": "ai-caddie-decision-v2",
+      "offlineCapable": true,
+      "requiredInputs": [],
+      "degradeWhenMissing": []
+    },
+    "generatedAt": "2026-10-01T00:00:00Z"
+  },
+  "_input_note": "Synthetic one-hole template, copied into nine independent input holes by ProductFixtureServer; par 4 and 333.5848 m route, no golden output."
+}

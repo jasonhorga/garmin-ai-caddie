@@ -1,0 +1,448 @@
+[
+  {
+    "name": "club",
+    "event": {
+      "op": "editField",
+      "shotId": "s:101:2",
+      "field": "club",
+      "value": "6I"
+    },
+    "expected": [
+      {
+        "op": "club",
+        "shotId": "s:101:2",
+        "beforeIndex": 2,
+        "afterIndex": 2,
+        "before": "7I",
+        "after": "6I",
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "prior correction is the before value",
+    "prior": {
+      "op": "editField",
+      "shotId": "s:101:2",
+      "field": "club",
+      "value": "6I"
+    },
+    "event": {
+      "op": "editField",
+      "shotId": "s:101:2",
+      "field": "club",
+      "value": "5I"
+    },
+    "expected": [
+      {
+        "op": "club",
+        "shotId": "s:101:2",
+        "beforeIndex": 2,
+        "afterIndex": 2,
+        "before": "6I",
+        "after": "5I",
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "lie",
+    "event": {
+      "op": "editField",
+      "shotId": "s:101:2",
+      "field": "lie",
+      "value": "Bunker"
+    },
+    "expected": [
+      {
+        "op": "lie",
+        "shotId": "s:101:2",
+        "beforeIndex": 2,
+        "afterIndex": 2,
+        "before": "Fairway",
+        "after": "Bunker",
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "move only one landing",
+    "event": {
+      "op": "editField",
+      "shotId": "s:101:2",
+      "field": "position",
+      "value": [
+        280,
+        440
+      ]
+    },
+    "expected": [
+      {
+        "op": "move",
+        "shotId": "s:101:2",
+        "beforeIndex": 2,
+        "afterIndex": 2,
+        "before": {
+          "end": [
+            240,
+            380
+          ]
+        },
+        "after": {
+          "end": [
+            280,
+            440
+          ]
+        },
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "delete",
+    "event": {
+      "op": "deleteShot",
+      "shotId": "s:101:2"
+    },
+    "expected": [
+      {
+        "op": "delete",
+        "shotId": "s:101:2",
+        "beforeIndex": 2,
+        "afterIndex": null,
+        "before": {
+          "index": 2,
+          "club": "7I",
+          "lie": "Fairway",
+          "start": [
+            160,
+            680
+          ],
+          "end": [
+            240,
+            380
+          ]
+        },
+        "after": null,
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "reorder",
+    "event": {
+      "op": "reorderShot",
+      "order": [
+        "s:101:3",
+        "s:101:1",
+        "s:101:2"
+      ]
+    },
+    "expected": [
+      {
+        "op": "reorder",
+        "shotId": null,
+        "beforeIndex": null,
+        "afterIndex": null,
+        "before": [
+          "s:101:1",
+          "s:101:2",
+          "s:101:3"
+        ],
+        "after": [
+          "s:101:3",
+          "s:101:1",
+          "s:101:2"
+        ],
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "penalty",
+    "event": {
+      "op": "setHolePenalty",
+      "hole": 1,
+      "value": 2
+    },
+    "expected": [
+      {
+        "op": "penalty",
+        "shotId": null,
+        "beforeIndex": null,
+        "afterIndex": null,
+        "before": 0,
+        "after": 2,
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "putts",
+    "annotation": {
+      "kind": "putt_correction",
+      "value": 1
+    },
+    "expected": [
+      {
+        "op": "putts",
+        "shotId": null,
+        "beforeIndex": null,
+        "afterIndex": null,
+        "before": 2,
+        "after": 1,
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "total",
+    "annotation": {
+      "kind": "score_correction",
+      "value": 6
+    },
+    "expected": [
+      {
+        "op": "total",
+        "shotId": null,
+        "beforeIndex": null,
+        "afterIndex": null,
+        "before": 4,
+        "after": 6,
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "add",
+    "event": {
+      "op": "replaceHoleShots",
+      "hole": 1,
+      "manualPenalty": 0,
+      "shots": [
+        {
+          "id": "s:101:1",
+          "club": "Driver",
+          "lie": "TeeBox",
+          "start": [
+            80,
+            960
+          ],
+          "end": [
+            160,
+            680
+          ]
+        },
+        {
+          "id": "s:101:2",
+          "club": "7I",
+          "lie": "Fairway",
+          "start": [
+            160,
+            680
+          ],
+          "end": [
+            240,
+            380
+          ]
+        },
+        {
+          "id": "s:101:3",
+          "club": "PW",
+          "lie": "Rough",
+          "start": [
+            240,
+            380
+          ],
+          "end": [
+            320,
+            160
+          ]
+        },
+        {
+          "id": "draft-4",
+          "club": "SW",
+          "lie": "Bunker",
+          "start": [
+            320,
+            160
+          ],
+          "end": [
+            360,
+            120
+          ]
+        }
+      ]
+    },
+    "expected": [
+      {
+        "op": "add",
+        "shotId": "draft-4",
+        "beforeIndex": null,
+        "afterIndex": 4,
+        "before": null,
+        "after": {
+          "index": 4,
+          "club": "SW",
+          "lie": "Bunker",
+          "start": [
+            320,
+            160
+          ],
+          "end": [
+            360,
+            120
+          ]
+        },
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "incomparable coordinates",
+    "incomparable": true,
+    "event": {
+      "op": "replaceHoleShots",
+      "hole": 1,
+      "manualPenalty": 0,
+      "shots": [
+        {
+          "id": "s:101:1",
+          "club": "Driver",
+          "lie": "TeeBox",
+          "start": [
+            80,
+            960
+          ],
+          "end": [
+            160,
+            680
+          ]
+        },
+        {
+          "id": "s:101:2",
+          "club": "6I",
+          "lie": "Fairway",
+          "start": [
+            160,
+            680
+          ],
+          "end": [
+            400,
+            400
+          ]
+        },
+        {
+          "id": "s:101:3",
+          "club": "PW",
+          "lie": "Rough",
+          "start": [
+            240,
+            380
+          ],
+          "end": [
+            320,
+            160
+          ]
+        }
+      ]
+    },
+    "expected": [
+      {
+        "op": "club",
+        "shotId": "s:101:2",
+        "beforeIndex": 2,
+        "afterIndex": 2,
+        "before": "7I",
+        "after": "6I",
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "prior landing is the before value",
+    "prior": {
+      "op": "editField",
+      "shotId": "s:101:2",
+      "field": "position",
+      "value": [
+        280,
+        440
+      ]
+    },
+    "event": {
+      "op": "editField",
+      "shotId": "s:101:2",
+      "field": "position",
+      "value": [
+        300,
+        460
+      ]
+    },
+    "expected": [
+      {
+        "op": "move",
+        "shotId": "s:101:2",
+        "beforeIndex": 2,
+        "afterIndex": 2,
+        "before": {
+          "end": [
+            280,
+            440
+          ]
+        },
+        "after": {
+          "end": [
+            300,
+            460
+          ]
+        },
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "prior putt correction is the before value",
+    "priorAnnotation": {
+      "kind": "putt_correction",
+      "value": 1
+    },
+    "annotation": {
+      "kind": "putt_correction",
+      "value": 3
+    },
+    "expected": [
+      {
+        "op": "putts",
+        "shotId": null,
+        "beforeIndex": null,
+        "afterIndex": null,
+        "before": 1,
+        "after": 3,
+        "hole": 1
+      }
+    ]
+  },
+  {
+    "name": "prior total correction is the before value",
+    "priorAnnotation": {
+      "kind": "score_correction",
+      "value": 6
+    },
+    "annotation": {
+      "kind": "score_correction",
+      "value": 7
+    },
+    "expected": [
+      {
+        "op": "total",
+        "shotId": null,
+        "beforeIndex": null,
+        "afterIndex": null,
+        "before": 6,
+        "after": 7,
+        "hole": 1
+      }
+    ]
+  }
+]

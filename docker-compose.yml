@@ -1,6 +1,12 @@
 services:
   api:
-    build: .
+    build:
+      context: .
+      args:
+        # DEPS_IMAGE is written to .env by bootstrap_nas_vm_api.sh (set_env).
+        # An empty value is tolerated for compose down/logs; Dockerfile's
+        # required ARG rejects an actual build without it.
+        DEPS_IMAGE: ${DEPS_IMAGE:-}
     # A failed boot must stop after a small, observable number of attempts.
     # Infinite retries turn a dependency outage into a host-wide resource storm.
     restart: "on-failure:3"
@@ -74,7 +80,9 @@ services:
     volumes:
       - ai-caddie-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aicaddie"]
+      # Probe over TCP: during first-time init the image runs a socket-only
+      # temporary server, which a socket probe would report as ready.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U aicaddie -d aicaddie"]
       interval: 5s
       timeout: 3s
       retries: 20

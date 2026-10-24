@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieDomain/NineLoopPlan.swift b/mobile/ios/AICaddieDomain/NineLoopPlan.swift
+--- a/mobile/ios/AICaddieDomain/NineLoopPlan.swift
++++ b/mobile/ios/AICaddieDomain/NineLoopPlan.swift
+@@ -58,3 +58,3 @@
+     public func defaultSecond(after first: String) -> String? {
+-        if let pair = usualSecond(after: first) { return pair }
++        if let pair = usualSecond(after: first), false { return pair }
+         guard !loops.isEmpty else { return nil }

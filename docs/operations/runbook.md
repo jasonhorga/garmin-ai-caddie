@@ -34,7 +34,10 @@ Container stack:
 ```bash
 cp .env.example .env
 # edit .env with a private AI_CADDIE_ADMIN_TOKEN before exposing the API
-docker compose up --build
+API_DEPS_HASH="$(python3 -c 'from ops.agenthub_deploy import api_dependency_hash; print(api_dependency_hash())')"
+docker build -f Dockerfile.deps --label "ai.caddie.dependencies-hash=$API_DEPS_HASH" \
+  -t "garmin-ai-caddie-deps:$API_DEPS_HASH" .
+DEPS_IMAGE="garmin-ai-caddie-deps:$API_DEPS_HASH" docker compose up --build
 ```
 
 The container entrypoint honors `AI_CADDIE_PRIVATE_ROOT` and symlinks private
@@ -157,13 +160,14 @@ whose sync toolchain is still downloading. Use the already built, revision-label
 candidate API image explicitly:
 
 ```bash
-API_IMAGE=<the-built-candidate-api-image> bash ops/build_sync_image.sh
+SOURCE_REVISION=<candidate-full-SHA> \
+  API_IMAGE=<the-built-candidate-api-image> bash ops/build_sync_image.sh
 ```
 
 Verify that `aicaddie-sync:<candidate-full-SHA>` exists and has the same
 `ai.caddie.source-revision` label. Only then switch the healthy API container to
 the production port. Immediately run the mandatory post-switch deployment gate
-from this checkout; the matching image's cached build should finish quickly:
+from the deployed SHA's tarball tree; the matching image's cached build should finish quickly:
 
 ```bash
 AICADDIE_API_CONTAINER=<the-container-on-the-production-port> \
@@ -177,23 +181,37 @@ candidate when multiple `aicaddie-release-*` containers are running. If the
 API was already switched and only the image is missing, the lower-level helper
 can be run directly:
 
-The current homeserver also keeps a pinned operational copy at
-`/home/jason/garmin-ai-caddie-data/operations/deploy-tools/ops/`; its
-`SOURCE_REVISION` file records the reviewed source commit. Use the checkout
-version for normal development and refresh this host copy as part of the same
-reviewed deployment change.
+The pinned host copy contains only the operational shell wrappers and
+`Dockerfile.sync`; it is not a standalone build tree. For a manual build,
+export the exact reviewed SHA into a clean tarball tree first:
 
 ```bash
-bash ops/build_sync_image.sh
+SHA=<reviewed-full-SHA>; T="<codex-runs>/caddie-sync-$SHA"
+rm -rf -- "$T"; mkdir -m 700 "$T"
+(umask 022; gh api "repos/jasonhorga/garmin-ai-caddie/tarball/$SHA" | tar -xz --strip-components=1 -C "$T")
+cd "$T"
+SOURCE_REVISION="$SHA" API_IMAGE=<the-built-api-image> bash ops/build_sync_image.sh
 ```
 
 It resolves the active API image, requires its full
 `ai.caddie.source-revision` label, and creates
 `aicaddie-sync:<same-full-SHA>`, which is the only tag the cron job accepts.
-When building before the candidate is started, pass the labelled image
-explicitly with `API_IMAGE=...`. The helper does not silently fall back to a
-moving `:latest` tag; `PUBLISH_LATEST=1` is an explicit compatibility alias
-only and is not used by cron.
+The optional `SOURCE_REVISION` is checked against the API image (and git HEAD
+when supplied in a git checkout); it never substitutes for the checked-out
+revision. The sync application code itself is copied from `API_IMAGE`, so the
+source cannot drift from that revision. When `SYNC_DEPS_IMAGE` is omitted, the
+helper reads the API image's `ai.caddie.dependencies-hash` and finds a local
+`aicaddie-sync-deps:*` image carrying the same
+`ai.caddie.api-dependencies-hash` label. If no matching image exists, it prints
+the exact `Dockerfile.sync-deps` build command and exits; it never falls back to
+a registry or `:local` tag. When building before the candidate is started, pass
+the labelled image explicitly with `API_IMAGE=...`. The helper does not silently
+fall back to a moving `:latest` tag; `PUBLISH_LATEST=1` is an explicit
+compatibility alias only and is not used by cron.
+
+Fly.io deployment via `fly.toml` and `backend-fly-deploy.yml` is unsupported:
+that path invokes a standalone Docker build and cannot prebuild or label the
+two named dependency images, so use the agenthub deployment path above.
 
 ### Homeserver Sync Cron
 
@@ -247,9 +265,17 @@ ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
    prefix publishes the configured port, it mounts only the configured private
    volume read-write at `/var/lib/ai-caddie`, and it is on the configured
    network. A container outside the prefix on that port is also refused.
-2. Builds `garmin-ai-caddie-api:<sha>` (label
-   `ai.caddie.source-revision=<sha>`) and, through `ops/build_sync_image.sh`,
-   `aicaddie-sync:<sha>`. An existing image with the correct label is reused.
+2. Computes a content hash for each dependency set. The API dependency inputs
+   (`pyproject.toml`, `uv.lock`, the npm lockfiles and `Dockerfile.deps`) are
+   built as `garmin-ai-caddie-deps:<dependency-hash>`; the sync inputs in
+   `Dockerfile.sync-deps` are built as
+   `aicaddie-sync-deps:<dependency-hash>`. Existing dependency images with the
+   matching `ai.caddie.dependencies-hash` label are reused even after BuildKit
+   cache cleanup. The application images `garmin-ai-caddie-api:<sha>` and
+   `aicaddie-sync:<sha>` then use those named images as their bases. Cleanup is
+   passed the hashes used by the current build, retains each current hash plus
+   the newest other hash by image creation time, and removes older dependency
+   tags only from these two repositories.
 3. Takes the sync cron's flock, so no sync runs during the switch.
 4. If the current container already runs `<sha>`, it only re-checks health
    and step 7 (idempotent re-run). Otherwise it re-verifies both images and
@@ -260,8 +286,10 @@ ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
    a private tmpfs directory immediately before `docker run` and deleted right
    after it. The switch is refused if less time is left before
    `AICADDIE_DEPLOY_DEADLINE_SECONDS` than a switch plus a restore can take.
-5. `docker stop --time 30` the current container, then starts
-   `<prefix><sha8>` with `--init`, `--restart on-failure:3`, capped json-file
+5. Before each switch, all `aicaddie-release-*` containers (running or stopped)
+   are normalized with `docker update --restart=no`. The current container is
+   stopped with `docker stop --time 30`, then `<prefix><sha8>` starts with
+   `--init`, `--restart no`, capped json-file
    logs, `--pull never`, the revision label, the same network, CPU/memory limits (defaults
    when the old container had none), `127.0.0.1:<port>:9000` and the private
    volume. A stopped leftover with that name and revision is replaced.
@@ -283,18 +311,31 @@ ops/agenthub_deploy.py rollback <40-lowercase-hex-sha>
    problem. A failed sync check prints the check-only log lines (names,
    revisions and the reason only); it uses a private lock, log and alert-state
    file so it cannot disturb the real cron state.
-9. Still under the lock, keeps the newest `AICADDIE_DEPLOY_KEEP_STOPPED` stopped
+9. After health and every post-switch gate succeeds, the selected revision is
+   atomically recorded (0600, temporary file plus rename) at
+   `AICADDIE_DEPLOY_RELEASE_STATE`. Failed switches leave the previous record
+   unchanged. Still under the lock, keeps the newest `AICADDIE_DEPLOY_KEEP_STOPPED` stopped
    prefix containers, removes older ones with `docker rm -v`, and removes
    their `garmin-ai-caddie-api`/`aicaddie-sync` image tags only when no
    remaining container (of any name) uses the image or its revision and the
-   image carries no other repository's tag. A cleanup failure is reported
-   as a warning; the deploy still succeeds. Then the lock is released.
+   image carries no other repository's tag. It also keeps only the current and
+   immediately previous hash in `garmin-ai-caddie-deps:*` and
+   `aicaddie-sync-deps:*`; older tags in those two repositories are removed.
+   It also removes unreferenced `garmin-ai-caddie-api:*` and `aicaddie-sync:*`
+   orphan tags when their revision is neither current nor one of the stopped
+   rollback revisions retained above, and never removes an image shared with
+   another repository. Other repositories are never touched. A cleanup failure
+   is reported as a warning; the deploy still succeeds. Then the lock is
+   released.
 
 `rollback <sha>` picks the most recently stopped prefix container labelled
 `<sha>`, requires its layout and port to match and `aicaddie-sync:<sha>` to
-exist, takes the sync lock, stops the current container, starts the target
-and waits for health. On failure it stops the target and restarts the previous
-container. It never builds and never removes anything.
+exist, takes the sync lock, normalizes release restart policies, stops the
+current container, repairs the target's configured network attachment when
+needed, starts the target and waits for health. A successful rollback writes
+the same release record. On failure it stops the target and restarts the
+previous container (repairing its network first). It never builds and never
+removes anything.
 
 A run killed with `SIGKILL` mid-switch cannot restore anything. If the new
 container is running, re-running `deploy <sha>` verifies it (and restores the
@@ -322,6 +363,7 @@ paths and URLs; it prints container/image names and revisions only.
 | `AICADDIE_DEPLOY_DEFAULT_CPUS` | CPU limit when the current container has none | `2` |
 | `AICADDIE_DEPLOY_DEFAULT_MEMORY_BYTES` | Memory limit when the current container has none | `3221225472` (3 GiB) |
 | `AICADDIE_DEPLOY_BOOTSTRAP_ENV_FILE` | Absolute path of an env file used only when no current container exists | unset: refuse |
+| `AICADDIE_DEPLOY_RELEASE_STATE` | Optional override for the host file recording the revision selected by the last successful deploy/rollback; written atomically with mode 0600 | `$HOME/.local/state/aicaddie/current-release` |
 | `AICADDIE_DEPLOY_HEALTH_TIMEOUT_SECONDS` | Local health wait (new and restored container) | `180` |
 | `AICADDIE_DEPLOY_PUBLIC_HEALTH_TIMEOUT_SECONDS` | Public health wait | `60` |
 | `AICADDIE_DEPLOY_LOCK_TIMEOUT_SECONDS` | Wait for a running sync to release the lock | `600` |
@@ -373,8 +415,19 @@ loginctl enable-linger
 ```
 
 Reinstall the pinned copy whenever `ops/agenthub_deploy.py` changes. Enabling
-linger lets the user unit run at boot, and `agenthub_deploy.py up` waits for the
-Docker daemon, the database, and the sync lock before starting a stopped API.
+linger lets the user unit run at boot. Deploy and rollback use
+`$HOME/.local/state/aicaddie/current-release` by default, so the user unit
+needs no `EnvironmentFile`. Set `AICADDIE_DEPLOY_RELEASE_STATE` only when an
+alternate path is required (for example, an isolated test directory). When
+the release state file exists,
+`agenthub_deploy.py up` selects that revision, stops a different revision that
+started first, repairs a missing configured network attachment, and starts the
+recorded container. If the record is missing, unreadable, or its container is
+missing/invalid, it logs the fallback and uses the existing newest-stopped
+selection. Recovery waits for the Docker daemon, the database, and the sync lock
+before starting a stopped API. If `HOME` is unavailable or the default path
+cannot be written, deploy and rollback log the condition and continue; `up`
+uses the legacy selection.
 Read the boot recovery log with:
 
 ```bash

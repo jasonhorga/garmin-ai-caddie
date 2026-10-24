@@ -124,16 +124,54 @@ final class WatchLocationProviderTests: XCTestCase {
         ))
     }
 
+    // Card 455 G1: manual marks tolerate a brief stationary GPS gap without extending live range.
+    func testShotOriginAcceptsStationaryFixesTwentyAndThirtySecondsOld() {
+        XCTAssertEqual(WatchLocationProvider.maximumShotOriginAgeSeconds, 30)
+        for age in [TimeInterval(20), 30] {
+            XCTAssertTrue(WatchLocationProvider.isShotOriginFix(fix(age: age, speed: 0), now: now))
+            XCTAssertFalse(WatchLocationProvider.isLiveRangefinderFix(fix(age: age, speed: 0), now: now))
+        }
+    }
+
+    // Card 455 G2: retain the existing coordinate, accuracy and timestamp requirements.
+    func testShotOriginRejectsExpiredInaccurateFutureAndInvalidFixes() {
+        for invalid in [
+            fix(age: 31), fix(age: -1), fix(accuracy: 15.1), fix(accuracy: -1),
+            fix(accuracy: .nan), fix(latitude: 91), fix(longitude: 181),
+            WatchLocationFix(
+                coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116),
+                horizontalAccuracyM: 5, capturedAt: "not-a-date"
+            ),
+        ] {
+            XCTAssertFalse(WatchLocationProvider.isShotOriginFix(invalid, now: now))
+        }
+        XCTAssertTrue(WatchLocationProvider.isShotOriginFix(fix(accuracy: 15, age: 30), now: now))
+    }
+
+    // Card 455 G3/G4: the speed gate starts strictly after the 15 s live window.
+    func testShotOriginRejectsOldCartFixesButAcceptsLiveCartFixes() {
+        XCTAssertTrue(WatchLocationProvider.isShotOriginFix(fix(age: 20, speed: 2.5), now: now))
+        XCTAssertFalse(WatchLocationProvider.isShotOriginFix(fix(age: 20, speed: 2.51), now: now))
+        XCTAssertFalse(WatchLocationProvider.isShotOriginFix(fix(age: 30, speed: 6), now: now))
+        XCTAssertFalse(WatchLocationProvider.isShotOriginFix(fix(age: 16, speed: 6), now: now))
+        XCTAssertTrue(WatchLocationProvider.isShotOriginFix(fix(age: 15, speed: 6), now: now))
+        XCTAssertTrue(WatchLocationProvider.isShotOriginFix(fix(age: 0, speed: 6), now: now))
+        // As in #420, a Core Location fix with no speed measurement retains stationary fallback.
+        XCTAssertTrue(WatchLocationProvider.isShotOriginFix(fix(age: 20), now: now))
+    }
+
     private func fix(
         latitude: Double = 40,
         longitude: Double = 116,
         accuracy: Double = 5,
-        age: TimeInterval = 0
+        age: TimeInterval = 0,
+        speed: Double? = nil
     ) -> WatchLocationFix {
         WatchLocationFix(
             coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude),
             horizontalAccuracyM: accuracy,
-            capturedAt: ISO8601DateFormatter().string(from: now.addingTimeInterval(-age))
+            capturedAt: ISO8601DateFormatter().string(from: now.addingTimeInterval(-age)),
+            speedMps: speed
         )
     }
 

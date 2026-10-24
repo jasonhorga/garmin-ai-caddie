@@ -37,6 +37,10 @@ _KNOWN_PUBLIC = {
     # Focused View Green imagery is still pure course geometry; the crop is bounded and contains no
     # player/round data, so it shares the public policy of the whole-hole topo endpoint.
     ("GET", "/api/v2/courses/{global_id}/holes/{hole}/green.png"),
+    # Garmin's signed CourseView hole image and its affine projection contain only public course
+    # knowledge, so they follow the same public policy as topo/green imagery.
+    ("GET", "/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.jpg"),
+    ("GET", "/api/v2/courses/{global_id}/holes/{hole}/garmin-raster"),
     # The pre-round tee picker's list (colours + total yards + default) is pure course knowledge —
     # no player data, no source_ref — public exactly like /topo.png and /geometry/hole/{}/coverage.
     ("GET", "/api/v2/courses/{global_id}/tees"),

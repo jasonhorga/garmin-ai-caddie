@@ -1,0 +1,8 @@
+diff --git a/mobile/ios/AICaddieWatch/Models/WatchRoundState.swift b/mobile/ios/AICaddieWatch/Models/WatchRoundState.swift
+--- a/mobile/ios/AICaddieWatch/Models/WatchRoundState.swift
++++ b/mobile/ios/AICaddieWatch/Models/WatchRoundState.swift
+@@ -822,3 +822,3 @@
+         self.selectedClub = try container.decodeIfPresent(String.self, forKey: .selectedClub)
+-        self.availableClubs = try container.decodeIfPresent([WatchClubOption].self, forKey: .availableClubs) ?? []
++        self.availableClubs = try container.decode([WatchClubOption].self, forKey: .availableClubs)
+         self.shotType = try container.decodeIfPresent(String.self, forKey: .shotType)

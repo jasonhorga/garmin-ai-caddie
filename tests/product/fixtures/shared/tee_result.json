@@ -1,0 +1,644 @@
+{
+  "schemaVersion": 1,
+  "coordinateOrder": "latitude,longitude",
+  "cases": [
+    {
+      "id": "middle",
+      "par": 4,
+      "point": [
+        0.0015,
+        0
+      ],
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [
+        [
+          0,
+          0
+        ],
+        [
+          0.003,
+          0
+        ]
+      ],
+      "expected": "hit",
+      "handCalculation": "Inside northbound rectangle: longitude is between -0.0001 and +0.0001."
+    },
+    {
+      "id": "left",
+      "par": 4,
+      "point": [
+        0.0015,
+        -0.0002
+      ],
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [
+        [
+          0,
+          0
+        ],
+        [
+          0.003,
+          0
+        ]
+      ],
+      "expected": "left",
+      "handCalculation": "11.132m west of west edge; facing north, west is left."
+    },
+    {
+      "id": "right",
+      "par": 4,
+      "point": [
+        0.0015,
+        0.0002
+      ],
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [
+        [
+          0,
+          0
+        ],
+        [
+          0.003,
+          0
+        ]
+      ],
+      "expected": "right",
+      "handCalculation": "11.132m east of east edge; facing north, east is right."
+    },
+    {
+      "id": "edge_inside_tolerance",
+      "par": 4,
+      "point": [
+        0.0015,
+        0.00010359
+      ],
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [
+        [
+          0,
+          0
+        ],
+        [
+          0.003,
+          0
+        ]
+      ],
+      "expected": "hit",
+      "handCalculation": "0.00000359 deg x 111319.49 = 0.39964m beyond east edge, within 0.5m."
+    },
+    {
+      "id": "edge_outside_tolerance",
+      "par": 4,
+      "point": [
+        0.0015,
+        0.00010539
+      ],
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [
+        [
+          0,
+          0
+        ],
+        [
+          0.003,
+          0
+        ]
+      ],
+      "expected": "right",
+      "handCalculation": "0.00000539 deg x 111319.49 = 0.59999m beyond east edge, outside 0.5m."
+    },
+    {
+      "id": "between_components",
+      "par": 4,
+      "point": [
+        0.0015,
+        -5e-05
+      ],
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.001,
+                0.0001
+              ],
+              [
+                0.001,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          },
+          {
+            "outerLatLon": [
+              [
+                0.002,
+                -0.0001
+              ],
+              [
+                0.002,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [
+        [
+          0,
+          0
+        ],
+        [
+          0.003,
+          0
+        ]
+      ],
+      "expected": "left",
+      "handCalculation": "Northbound route; west point lies in 111.3m longitudinal gap between two fairway pieces, not in either polygon."
+    },
+    {
+      "id": "cutout",
+      "par": 4,
+      "point": [
+        0.0015,
+        5e-05
+      ],
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": [
+              [
+                [
+                  0.001,
+                  2e-05
+                ],
+                [
+                  0.001,
+                  8e-05
+                ],
+                [
+                  0.002,
+                  8e-05
+                ],
+                [
+                  0.002,
+                  2e-05
+                ]
+              ]
+            ]
+          }
+        ]
+      },
+      "route": [
+        [
+          0,
+          0
+        ],
+        [
+          0.003,
+          0
+        ]
+      ],
+      "expected": "right",
+      "handCalculation": "Inside east-side interior hole, 3.34m from nearest cutout edge; excluded from fairway and east of northbound route."
+    },
+    {
+      "id": "par3",
+      "par": 3,
+      "point": [
+        0.0015,
+        0
+      ],
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [
+        [
+          0,
+          0
+        ],
+        [
+          0.003,
+          0
+        ]
+      ],
+      "expected": null,
+      "handCalculation": "Par 3 has no fairway selection."
+    },
+    {
+      "id": "no_outline",
+      "par": 4,
+      "point": [
+        0.0015,
+        0
+      ],
+      "fairwayOutline": null,
+      "route": [
+        [
+          0,
+          0
+        ],
+        [
+          0.003,
+          0
+        ]
+      ],
+      "expected": null,
+      "handCalculation": "No fairway evidence."
+    },
+    {
+      "id": "unknown_outline",
+      "par": 4,
+      "point": [
+        0.0015,
+        0
+      ],
+      "fairwayOutline": {
+        "version": 99,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [
+        [
+          0,
+          0
+        ],
+        [
+          0.003,
+          0
+        ]
+      ],
+      "expected": null,
+      "handCalculation": "Version 99 has no supported geometry meaning."
+    },
+    {
+      "id": "no_position",
+      "par": 4,
+      "point": null,
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [
+        [
+          0,
+          0
+        ],
+        [
+          0.003,
+          0
+        ]
+      ],
+      "expected": null,
+      "handCalculation": "No second-shot or first-putt coordinate."
+    },
+    {
+      "id": "no_route_outside",
+      "par": 4,
+      "point": [
+        0.0015,
+        -0.0002
+      ],
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [],
+      "expected": null,
+      "handCalculation": "Outside known fairway but no direction of play; left/right is unknowable."
+    },
+    {
+      "id": "no_route_inside",
+      "par": 4,
+      "point": [
+        0.0015,
+        0
+      ],
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [],
+      "expected": "hit",
+      "handCalculation": "Containment in known fairway requires no route direction."
+    },
+    {
+      "id": "reverse_direction",
+      "par": 4,
+      "point": [
+        0.0015,
+        -0.0002
+      ],
+      "fairwayOutline": {
+        "version": 1,
+        "polygons": [
+          {
+            "outerLatLon": [
+              [
+                0,
+                -0.0001
+              ],
+              [
+                0,
+                0.0001
+              ],
+              [
+                0.003,
+                0.0001
+              ],
+              [
+                0.003,
+                -0.0001
+              ]
+            ],
+            "holesLatLon": []
+          }
+        ]
+      },
+      "route": [
+        [
+          0.003,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "expected": "right",
+      "handCalculation": "Facing south, west is right."
+    }
+  ]
+}

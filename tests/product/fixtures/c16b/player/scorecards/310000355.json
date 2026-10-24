@@ -1,0 +1,121 @@
+{
+ "source": "garmin",
+ "scorecardDetails": [
+  {
+   "scorecard": {
+    "id": 310000355,
+    "formattedStartTime": "2025-02-09T08:00:00",
+    "startTime": "2025-02-09T08:00:00",
+    "strokes": 95,
+    "holesCompleted": 18,
+    "courseGlobalId": 7201,
+    "frontNineGlobalCourseId": 7201,
+    "backNineGlobalCourseId": null,
+    "courseSnapshotId": null,
+    "teeBox": "Blue",
+    "teeBoxRating": null,
+    "teeBoxSlope": null,
+    "holes": [
+     {
+      "number": 1,
+      "strokes": 5,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 2,
+      "strokes": 3,
+      "fairwayShotOutcome": "HIT"
+     },
+     {
+      "number": 3,
+      "strokes": 5,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 4,
+      "strokes": 6
+     },
+     {
+      "number": 5,
+      "strokes": 5,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 6,
+      "strokes": 6,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 7,
+      "strokes": 6,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 8,
+      "strokes": 7
+     },
+     {
+      "number": 9,
+      "strokes": 6,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 10,
+      "strokes": 5,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 11,
+      "strokes": 5,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 12,
+      "strokes": 3
+     },
+     {
+      "number": 13,
+      "strokes": 7,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 14,
+      "strokes": 5,
+      "fairwayShotOutcome": "RIGHT"
+     },
+     {
+      "number": 15,
+      "strokes": 5,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 16,
+      "strokes": 4
+     },
+     {
+      "number": 17,
+      "strokes": 6,
+      "fairwayShotOutcome": "LEFT"
+     },
+     {
+      "number": 18,
+      "strokes": 6,
+      "fairwayShotOutcome": "RIGHT"
+     }
+    ]
+   },
+   "scorecardStats": {
+    "round": {}
+   }
+  }
+ ],
+ "courseSnapshots": [
+  {
+   "name": "Lark Valley",
+   "holePars": "454344534443544354",
+   "roundPar": 72,
+   "lat": 31300000,
+   "lon": 121500000
+  }
+ ]
+}

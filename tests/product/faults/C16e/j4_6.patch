@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Models/CoursePrepPresentation.swift
++++ b/mobile/ios/AICaddie/Models/CoursePrepPresentation.swift
+@@ -313,7 +313,7 @@
+
+     mutating func selectPlan(_ index: Int, planCount: Int) {
+         guard index >= 0, index < planCount else { return }
+-        selectedPlanIndex = index
++        selectedPlanIndex = 0
+     }
+
+     /// New facts for the course. The hole, viewport and plan are kept; the hole moves only when it

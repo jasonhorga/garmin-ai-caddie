@@ -1,0 +1,14 @@
+# Named sync dependency image. The API dependency image is passed by the
+# deploy executor so this layer remains independent of application source.
+
+# BEGIN DEPENDENCY IMAGE
+ARG API_IMAGE
+FROM ${API_IMAGE}
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends xvfb xauth \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN uv sync --frozen --group auth
+RUN uv run --frozen --group auth playwright install --with-deps chromium
+# END DEPENDENCY IMAGE
