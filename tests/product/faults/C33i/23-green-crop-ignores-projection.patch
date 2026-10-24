@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
++++ b/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
+@@ -25,7 +25,6 @@
+ 
+     static func crop(for hole: CoursePrepHole) -> GreenDetailCrop? {
+         guard let projection = hole.holeImageProjection,
+-              projection.isUsable,
+               let outline = hole.greenOutline,
+               outline.available,
+               let width = projection.widthPx,

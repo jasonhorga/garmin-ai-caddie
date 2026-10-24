@@ -23,6 +23,20 @@ enum GreenDetailImageResolver {
         }
     }
 
+    static func crop(for hole: CoursePrepHole) -> GreenDetailCrop? {
+        guard let projection = hole.holeImageProjection,
+              projection.isUsable,
+              let outline = hole.greenOutline,
+              outline.available,
+              let width = projection.widthPx,
+              let height = projection.heightPx else { return nil }
+        return GreenDetailCrop.around(
+            points: outline.pointsPx,
+            imageWidth: Double(width),
+            imageHeight: Double(height)
+        )
+    }
+
     static func resolve(
         hole: CoursePrepHole, detailImage: UIImage?, topoURL: URL?, garminURL: URL?,
         garminProjection: CoursePrepHoleImageProjection?
@@ -42,16 +56,15 @@ enum GreenDetailImageResolver {
         if let detailImage { return Selection(source: .detail, image: detailImage) }
         let width = Double(hole.holeImageProjection?.widthPx ?? hole.resolvedMapOverlay?.w ?? 678)
         let height = Double(hole.holeImageProjection?.heightPx ?? hole.resolvedMapOverlay?.h ?? 1060)
-        let crop = hole.greenOutline.flatMap {
-            GreenDetailCrop.around(points: $0.pointsPx, imageWidth: width, imageHeight: height)
-        } ?? GreenDetailCrop(x: 0, y: 0, width: width, height: height)
-        guard width > 1, height > 1, crop.width > 0, crop.height > 0 else {
+        let crop = Self.crop(for: hole)
+        guard width > 1, height > 1 else {
             return Selection(source: .schematic, image: nil)
         }
         if let topo = topoImage {
+            guard let crop else { return Selection(source: .topo, image: topo, registered: false) }
             return Selection(source: .topo, image: cropped(topo, width: width, height: height, crop: crop))
         }
-        if let raster = garminImage,
+        if let raster = garminImage, let crop,
            let source = garminProjection, source.isUsable,
            let destination = hole.holeImageProjection, destination.isUsable,
            let sourceWidth = source.widthPx, let sourceHeight = source.heightPx,
@@ -84,9 +97,13 @@ enum GreenDetailImageResolver {
         if let uri = hole.map?.image, let comma = uri.firstIndex(of: ","),
            let data = Data(base64Encoded: String(uri[uri.index(after: comma)...])),
            let embedded = UIImage(data: data) {
-            return Selection(source: .schematic, image: cropped(embedded, width: width, height: height, crop: crop))
+            if let crop {
+                return Selection(source: .schematic, image: cropped(embedded, width: width, height: height, crop: crop))
+            }
+            return Selection(source: .schematic, image: embedded, registered: false)
         }
         // Final fallback draws the factual green outline, rather than a bare ground + crosshair.
+        guard let crop else { return Selection(source: .schematic, image: nil, registered: false) }
         let image = renderer(crop).image { context in
             UIColor(red: 0.10, green: 0.18, blue: 0.12, alpha: 1).setFill()
             context.fill(CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
@@ -258,9 +275,16 @@ public struct LiveGreenDetailView: View {
 
     @ViewBuilder
     private func greenViewport(in size: CGSize) -> some View {
-        let baseRect = activeDetailCrop == nil
-            ? CGRect(origin: .zero, size: size)
-            : detailRect(in: size)
+        let baseRect: CGRect
+        if activeDetailCrop != nil {
+            baseRect = detailRect(in: size)
+        } else if let overlay = hole.resolvedMapOverlay, overlay.w > 1, overlay.h > 1 {
+            baseRect = LivePlayMapOverlayLayout.mapFrame(
+                overlayWidth: overlay.w, overlayHeight: overlay.h, in: size
+            )
+        } else {
+            baseRect = CGRect(origin: .zero, size: size)
+        }
         let displayedScale = min(max(scale * pinchScale, 1), 4)
         let rawDisplayedOffset = CGSize(
             width: offset.width + transientOffset.width,
@@ -500,18 +524,7 @@ public struct LiveGreenDetailView: View {
     }
 
     private func crop() -> GreenDetailCrop? {
-        guard let projection = hole.holeImageProjection,
-              let width = projection.widthPx,
-              let height = projection.heightPx,
-              let outline = hole.greenOutline,
-              outline.available,
-              width > 1,
-              height > 1 else { return nil }
-        return GreenDetailCrop.around(
-            points: outline.pointsPx,
-            imageWidth: Double(width),
-            imageHeight: Double(height)
-        )
+        GreenDetailImageResolver.crop(for: hole)
     }
 
     /// The affine crop is authoritative whenever the hole has a factual green outline. The remote
@@ -523,11 +536,7 @@ public struct LiveGreenDetailView: View {
     }
 
     private var detailFallbackSelection: GreenDetailImageResolver.Selection {
-        resolvedFallback ?? GreenDetailImageResolver.resolve(
-            hole: hole, detailImage: detailImageStore.image,
-            topoImage: fallbackTopoStore.image, garminImage: fallbackGarminStore.image,
-            garminProjection: garminProjection
-        )
+        resolvedFallback ?? .init(source: .schematic, image: nil, registered: false)
     }
 
     private var detailFallbackImage: UIImage? { detailFallbackSelection.image }

@@ -840,10 +840,12 @@ public final class OfflineStore {
         allowHoleCountDecrease: Bool = false
     ) throws -> LiveRoundPackage {
         try FileManager.default.createDirectory(at: packagesDirectoryURL, withIntermediateDirectories: true)
-        if package.offlinePackageStatus.mustNotCache {
-            // A singleflight timeout is a transient server projection. It may be returned to the
-            // live surface, but it must never replace a complete round or current pointer on disk.
-            return (try? loadRoundPackage(roundId: package.roundId)) ?? package
+        if package.offlinePackageStatus.mustNotCache,
+           let existing = try? loadRoundPackage(roundId: package.roundId),
+           !existing.offlinePackageStatus.mustNotCache {
+            // A degraded response may be rendered and retried, but it cannot replace an existing
+            // complete package or its current-round pointer.
+            return existing
         }
         let persistedPackage: LiveRoundPackage
         if !allowHoleCountDecrease,

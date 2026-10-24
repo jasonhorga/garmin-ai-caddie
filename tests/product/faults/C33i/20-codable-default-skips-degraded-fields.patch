@@ -1,0 +1,13 @@
+--- a/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
++++ b/mobile/ios/AICaddie/Models/LiveRoundPackage.swift
+@@ -1455,8 +1455,8 @@
+ 
+ public struct OfflinePackageStatus: Codable, Equatable {
+     public let state: String
+-    public let cacheable: Bool?
+-    public let degradationReason: String?
++    public let cacheable: Bool? = nil
++    public let degradationReason: String? = nil
+     public let preparedAt: String
+     public let expiresAt: String
+     public let cachePolicy: CachePolicy

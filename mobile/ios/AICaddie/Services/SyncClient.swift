@@ -491,7 +491,16 @@ public final class SyncClient {
     private let adminToken: String?
     private let clientId: String
     private let session: URLSession
-    private lazy var roundStartSession: URLSession = URLSession(configuration: session.configuration)
+    private let roundStartSessionLock = NSLock()
+    private var roundStartSessionStorage: URLSession?
+    private var roundStartSession: URLSession {
+        roundStartSessionLock.lock()
+        defer { roundStartSessionLock.unlock() }
+        if let roundStartSessionStorage { return roundStartSessionStorage }
+        let created = URLSession(configuration: session.configuration)
+        roundStartSessionStorage = created
+        return created
+    }
     private let roundStartTimeoutInterval: TimeInterval
     private let packageWorkLock = NSLock()
     private var packageWork: [UUID: (task: Task<Data, Error>, kind: PackageRequestKind)] = [:]
@@ -501,11 +510,19 @@ public final class SyncClient {
     private let retrySleep: (UInt64) async throws -> Void
     private let monotonicNow: () -> TimeInterval
 
+    deinit {
+        roundStartSessionLock.lock()
+        roundStartSessionStorage?.invalidateAndCancel()
+        roundStartSessionStorage = nil
+        roundStartSessionLock.unlock()
+    }
+
     public init(baseURL: URL, adminToken: String? = nil, clientId: String = "ios-phone", session: URLSession = .shared, roundStartTimeoutInterval: TimeInterval = 30) {
         self.baseURL = baseURL
         self.adminToken = adminToken
         self.clientId = clientId
         self.session = session
+        self.roundStartSessionStorage = nil
         self.roundStartTimeoutInterval = min(30, max(0.001, roundStartTimeoutInterval))
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
@@ -526,6 +543,7 @@ public final class SyncClient {
         self.adminToken = adminToken
         self.clientId = clientId
         self.session = session
+        self.roundStartSessionStorage = nil
         self.roundStartTimeoutInterval = min(30, max(0.001, roundStartTimeoutInterval))
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
@@ -538,7 +556,12 @@ public final class SyncClient {
     func beginRoundStart(_ owner: UUID) {
         let previous = packageWorkLock.withLock { () -> [Task<Data, Error>] in
             roundStartOwner = owner
-            return packageWork.values.compactMap { $0.kind == .background ? $0.task : nil }
+            return packageWork.values.compactMap {
+                switch $0.kind {
+                case .background, .foregroundStart: return $0.task
+                case .userDownload, .watchStart: return nil
+                }
+            }
         }
         previous.forEach { $0.cancel() }
     }

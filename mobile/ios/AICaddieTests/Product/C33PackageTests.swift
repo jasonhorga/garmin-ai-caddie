@@ -191,8 +191,45 @@ final class C33PackageTests: XCTestCase {
         let emptyDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let emptyStore = OfflineStore(directoryURL: emptyDirectory)
         defer { try? FileManager.default.removeItem(at: emptyDirectory) }
-        _ = try emptyStore.saveRoundPackage(degraded)
-        XCTAssertNil(try emptyStore.loadRoundPackage(roundId: degraded.roundId))
+        let persistedDegraded = try emptyStore.saveRoundPackage(degraded)
+        XCTAssertEqual(persistedDegraded, degraded)
+        XCTAssertEqual(try emptyStore.loadRoundPackage(roundId: degraded.roundId), degraded)
+        XCTAssertEqual(try emptyStore.loadCurrentRoundPackage(), degraded)
+    }
+
+    func testOfflinePackageStatusDecodesOptionalFieldsWhenPresentAndMissing() throws {
+        var json = try packageJSON()
+        json["offlinePackageStatus"] = [
+            "state": "degraded",
+            "cacheable": false,
+            "degradationReason": "singleflight_timeout",
+            "preparedAt": "2026-01-01T00:00:00Z",
+            "expiresAt": "2027-01-01T00:00:00Z",
+            "cachePolicy": ["staleAfterHours": 24, "expiresAfterHours": 720],
+        ]
+        let present = try decodePackage(json).offlinePackageStatus
+        XCTAssertEqual(present.cacheable, false)
+        XCTAssertEqual(present.degradationReason, "singleflight_timeout")
+        json["offlinePackageStatus"] = [
+            "state": "ready",
+            "preparedAt": "2026-01-01T00:00:00Z",
+            "expiresAt": "2027-01-01T00:00:00Z",
+            "cachePolicy": ["staleAfterHours": 24, "expiresAfterHours": 720],
+        ]
+        let absent = try decodePackage(json).offlinePackageStatus
+        XCTAssertNil(absent.cacheable)
+        XCTAssertNil(absent.degradationReason)
+    }
+
+    func testGeometryRetryBackoffUsesServerDeadlineAndCapsAtFiveMinutes() {
+        XCTAssertGreaterThanOrEqual(
+            PackageGeometryRetryPolicy.delaySeconds(
+                nowEpoch: 100, retryAfterEpoch: 200, attempt: 0
+            ), 100
+        )
+        XCTAssertEqual(
+            PackageGeometryRetryPolicy.backoffSeconds(attempt: 20), 300
+        )
     }
 }
 #endif

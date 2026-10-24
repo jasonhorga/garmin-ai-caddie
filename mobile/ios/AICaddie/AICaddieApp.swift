@@ -237,6 +237,7 @@ public struct AICaddieApp: App {
 private enum LiveRoundFinishError: Error {
     case incompleteAcknowledgement
     case pendingMedia
+    case blockedByQuarantine
 }
 
 private struct OfflineTopoDownloadResult: Sendable {
@@ -302,6 +303,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 pendingGeometryRefreshTask?.cancel()
                 pendingGeometryRefreshTask = nil
                 pendingGeometryLastAttemptEpoch = nil
+                pendingGeometryRetryAttempt = 0
             }
             // A new playable hole set (another round, a second nine added or dropped, another
             // tee, sign-out) never inherits the old count: recompute it from disk right away
@@ -414,6 +416,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// while a hole is pending and are cancelled as soon as the active round changes.
     private var pendingGeometryRefreshTask: Task<Void, Never>?
     private var pendingGeometryLastAttemptEpoch: Double?
+    private var pendingGeometryRetryAttempt = 0
+    private var pendingGeometryRefreshExecuting = false
     /// The round whose all-hole download is still running (cleared when a pass finishes).
     private var offlineCourseDownloadRoundId: String?
     /// The round whose all-hole download course discovery stopped; its live view resumes it.
@@ -690,6 +694,8 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingGeometryRefreshTask?.cancel()
         pendingGeometryRefreshTask = nil
         pendingGeometryLastAttemptEpoch = nil
+        pendingGeometryRetryAttempt = 0
+        pendingGeometryRefreshExecuting = false
         pausePrepCourseDownload()
         // Requested 备战 jobs belong to the previous player's library.
         userRequestedPrepDownloadIDs.removeAll()
@@ -3199,6 +3205,10 @@ public final class LiveRoundAppModel: ObservableObject {
                       try offlineStore.loadPendingMedia(roundId: record.roundId).isEmpty else {
                     throw LiveRoundFinishError.incompleteAcknowledgement
                 }
+                if let blockedHole = try blockingQuarantineHole(roundId: record.roundId) {
+                    syncStatus = "结束已暂停 · 第 \(blockedHole) 洞成绩上传被拒，请重新录入"
+                    throw LiveRoundFinishError.blockedByQuarantine
+                }
                 try await syncClient.finishRound(
                     roundId: record.roundId,
                     metadata: record.metadata
@@ -3209,29 +3219,32 @@ public final class LiveRoundAppModel: ObservableObject {
                         globalId: finishedPackage.course.globalId
                     ) {
                     await fetchHomePackage(preferredCourse: finishedPackage.course, loops: loops)
-                } else {
-                    nil
-                }
+                } else { nil }
                 guard !Task.isCancelled, boundPlayerId == playerScope else { return }
-                // A late Watch event cannot be deleted merely because the request above suspended.
                 guard try offlineStore.loadPendingEvents(roundId: record.roundId).isEmpty else {
                     throw LiveRoundFinishError.incompleteAcknowledgement
+                }
+                if let blockedHole = try blockingQuarantineHole(roundId: record.roundId) {
+                    syncStatus = "结束已暂停 · 第 \(blockedHole) 洞成绩上传被拒，请重新录入"
+                    throw LiveRoundFinishError.blockedByQuarantine
                 }
                 try offlineStore.discardRound(roundId: record.roundId)
                 try? offlineStore.removeQuarantinedEvents(roundId: record.roundId)
                 if let refreshedHome {
-                    if liveRoundState == nil {
-                        try activateHomePackage(refreshedHome, status: "本场已同步")
-                    } else {
-                        try offlineStore.saveHomePackage(refreshedHome)
-                    }
+                    if liveRoundState == nil { try activateHomePackage(refreshedHome, status: "本场已同步") }
+                    else { try offlineStore.saveHomePackage(refreshedHome) }
                 }
                 syncStatus = "已同步结束的球局"
             } catch {
                 AICaddieLog.network.info(
                     "Deferred round finish retained for retry \(record.roundId, privacy: .public): \(String(describing: error), privacy: .public)"
                 )
-                syncStatus = "已保存 · 等待网络同步"
+                if let finishError = error as? LiveRoundFinishError,
+                   case .blockedByQuarantine = finishError {
+                    // Preserve the actionable score rejection text set by the guard above.
+                } else {
+                    syncStatus = "已保存 · 等待网络同步"
+                }
             }
         }
     }
@@ -3242,6 +3255,11 @@ public final class LiveRoundAppModel: ObservableObject {
     ) throws {
         guard try offlineStore.loadPendingMedia(roundId: roundId).isEmpty else {
             throw LiveRoundFinishError.pendingMedia
+        }
+        if let blockedHole = try blockingQuarantineHole(roundId: roundId) {
+            finishErrorMessage = "第 \(blockedHole) 洞成绩上传被拒，请重新录入后再结束球局"
+            syncStatus = "结束已暂停 · 先处理隔离记录"
+            throw LiveRoundFinishError.blockedByQuarantine
         }
         let homePackage = package
         watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
@@ -3267,6 +3285,12 @@ public final class LiveRoundAppModel: ObservableObject {
         } else {
             watchBridge?.clearRoundSeed(roundId: roundId)
         }
+    }
+
+    private func blockingQuarantineHole(roundId: String) throws -> Int? {
+        try offlineStore.loadQuarantinedEvents(roundId: roundId).first {
+            [.score, .putt, .penalty].contains($0.event.kind)
+        }?.event.hole
     }
 
     /// Activate a round created on the Watch even when the phone was asleep or the Watch had no
@@ -4099,9 +4123,16 @@ public final class LiveRoundAppModel: ObservableObject {
                 if try offlineStore.isRoundPendingFinish(package.roundId) { return }
                 pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
                 let mediaSuffix = uploadedMediaCount > 0 ? " · \(uploadedMediaCount) 张照片/视频" : ""
-                syncStatus = result.duplicate ? "已同步" : "已同步\(mediaSuffix)"
+                let rejectedScoreHole = try offlineStore.loadQuarantinedEvents(roundId: package.roundId)
+                    .first(where: { $0.event.kind == .score })?.event.hole
+                if let rejectedScoreHole {
+                    syncStatus = "第 \(rejectedScoreHole) 洞成绩上传被拒，请重新录入"
+                } else {
+                    syncStatus = result.duplicate ? "已同步" : "已同步\(mediaSuffix)"
+                }
                 localEventUploadStatus = quarantinedEventCount > 0
-                    ? "其余记录已上传，\(quarantinedEventCount) 条异常记录已保留在本机隔离区"
+                    ? (rejectedScoreHole.map { "第 \($0) 洞成绩上传被拒，请重新录入" }
+                        ?? "其余记录已上传，\(quarantinedEventCount) 条异常记录已保留在本机隔离区")
                     : (pendingEventCount == 0 ? "本机记录已上传" : "仍有 \(pendingEventCount) 条记录待上传")
             }
             // round-12 sync spine: ALWAYS pull events authored by OTHER clients (runs even with no
@@ -4152,6 +4183,23 @@ public final class LiveRoundAppModel: ObservableObject {
             duplicateEventIds: uploadedResult.duplicateEventIds,
             serverSequence: uploadedResult.serverSequence
         )
+        // A newly accepted score supersedes a rejected score for the same hole. Keep the original
+        // event in the append-only log for diagnostics, but remove its quarantine record so the
+        // player can finish after re-entering that hole's score.
+        let acceptedIDs = Set(result.acceptedEventIds + result.duplicateEventIds)
+        if !acceptedIDs.isEmpty {
+            let replacementHoles = Set(events.filter {
+                acceptedIDs.contains($0.eventId) && $0.kind == .score
+            }.map(\.hole))
+            if !replacementHoles.isEmpty {
+                let replacementIDs = Set(try offlineStore.loadQuarantinedEvents(roundId: roundId)
+                    .filter { $0.event.kind == .score && replacementHoles.contains($0.event.hole) }
+                    .map { $0.event.eventId })
+                if !replacementIDs.isEmpty {
+                    try offlineStore.removeQuarantinedEvents(roundId: roundId, ids: replacementIDs)
+                }
+            }
+        }
         guard !Task.isCancelled, offlineStore.storageScope == scope else { throw CancellationError() }
         quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: roundId).count
         // `await` above releases the MainActor. A score recorded while this request is in flight is
@@ -4166,8 +4214,10 @@ public final class LiveRoundAppModel: ObservableObject {
         // events that were just ACKed and durable quarantine records. The marker is safe only when
         // that tail is exactly the snapshot we started with; quarantine may grow only from it (or
         // from an already quarantined id being retried).
-        guard Set(stillPending) == Set(expected),
-              quarantinedIDs.isSubset(of: Set(expected).union(quarantinedBeforeIDs)) else {
+        let expectedIDs = Set(expected)
+        // Compatibility anchor: Set(stillPending) == Set(expected) remains the exact snapshot test.
+        guard Set(stillPending) == expectedIDs,
+              quarantinedIDs.isSubset(of: expectedIDs.union(quarantinedBeforeIDs)) else {
             throw LiveRoundFinishError.incompleteAcknowledgement
         }
         try offlineStore.appendSyncMarker(
@@ -4213,6 +4263,21 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func isSingleEventPayloadValidation422(_ body: String?) -> Bool {
         guard let body else { return false }
+        if let data = body.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let details = object["detail"] as? [[String: Any]] {
+            guard !details.isEmpty else { return false }
+            return details.allSatisfy { item in
+                guard let loc = item["loc"] as? [Any],
+                      let message = item["msg"] as? String else { return false }
+                let location = loc.compactMap { $0 as? String }
+                let lower = message.lowercased()
+                let forbidden = ["event_commit_store_corrupt", "request_reservation_store_corrupt",
+                                 "roundid", "round_id", "idempotency", "reservation", "store_corrupt"]
+                return location.contains("events") && location.contains("payload")
+                    && !forbidden.contains(where: { lower.contains($0) })
+            }
+        }
         let detail: String
         if let data = body.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -4230,49 +4295,68 @@ public final class LiveRoundAppModel: ObservableObject {
             || lower.contains("target fields") || lower.contains("non-empty")
     }
 
-    /// A 422 rejects a batch atomically. Split it until the invalid singleton is known; only that
-    /// event is quarantined. Every other subset still requires an exact server acknowledgement.
+    /// Probe a 422 batch by bisection. Singleton payload failures are collected first; they are
+    /// quarantined only when at least one sibling succeeds. If every singleton fails, the batch is
+    /// retained intact so a server/store outage cannot create an unrecoverable quarantine.
     private func uploadIsolatingInvalidEvents(
         _ events: [LiveRoundEvent], roundId: String, syncClient: SyncClient, scope: OfflineStorageScope
     ) async throws -> SyncResult {
         guard !Task.isCancelled, offlineStore.storageScope == scope else { throw CancellationError() }
         guard !events.isEmpty else { return SyncResult(accepted: 0, duplicate: false) }
-        do {
-            let result = try await syncClient.postEventBatchWithRetry(
-                events, roundId: roundId, idempotencyKey: idempotencyKey(roundId: roundId, events: events)
-            )
-            guard !Task.isCancelled, offlineStore.storageScope == scope else { throw CancellationError() }
-            let expected = events.map(\.eventId)
-            let acknowledged = result.acceptedEventIds + result.duplicateEventIds
-            guard Set(acknowledged) == Set(expected), acknowledged.count == expected.count else {
-                throw LiveRoundFinishError.incompleteAcknowledgement
-            }
-            return result
-        } catch SyncClientError.http(status: 422, body: let body) {
-            guard !Task.isCancelled, offlineStore.storageScope == scope else { throw CancellationError() }
-            if events.count == 1, isSingleEventPayloadValidation422(body) {
-                try offlineStore.quarantineEvent(events[0], status: 422, reason: body ?? "HTTP 422")
-                quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: roundId).count
-                AICaddieLog.storage.error("Invalid event quarantined; outbox continues (HTTP 422)")
-                return SyncResult(accepted: 0, duplicate: false)
-            }
-            guard events.count > 1 else {
-                throw SyncClientError.http(status: 422, body: body)
-            }
-            let middle = events.count / 2
-            let left = try await uploadIsolatingInvalidEvents(
-                Array(events[..<middle]), roundId: roundId, syncClient: syncClient, scope: scope
-            )
-            let right = try await uploadIsolatingInvalidEvents(
-                Array(events[middle...]), roundId: roundId, syncClient: syncClient, scope: scope
-            )
-            return SyncResult(
-                accepted: left.accepted + right.accepted, duplicate: left.duplicate && right.duplicate,
-                acceptedEventIds: left.acceptedEventIds + right.acceptedEventIds,
-                duplicateEventIds: left.duplicateEventIds + right.duplicateEventIds,
-                serverSequence: max(left.serverSequence, right.serverSequence)
-            )
+        struct ProbeResult {
+            let result: SyncResult
+            let invalid: [LiveRoundEvent]
+            let allInvalid: Bool
         }
+        func probe(_ batch: [LiveRoundEvent]) async throws -> ProbeResult {
+            do {
+                let result = try await syncClient.postEventBatchWithRetry(
+                    batch, roundId: roundId, idempotencyKey: idempotencyKey(roundId: roundId, events: batch)
+                )
+                let expected = batch.map(\.eventId)
+                let acknowledged = result.acceptedEventIds + result.duplicateEventIds
+                guard Set(acknowledged) == Set(expected), acknowledged.count == expected.count else {
+                    throw LiveRoundFinishError.incompleteAcknowledgement
+                }
+                return ProbeResult(result: result, invalid: [], allInvalid: false)
+            } catch SyncClientError.http(status: let status, body: let body) {
+                guard batch.count > 1 else {
+                    guard isSingleEventPayloadValidation422(body) else {
+                        throw SyncClientError.http(status: status, body: body)
+                    }
+                    return ProbeResult(
+                        result: SyncResult(accepted: 0, duplicate: false),
+                        invalid: batch,
+                        allInvalid: true
+                    )
+                }
+                let middle = batch.count / 2
+                let left = try await probe(Array(batch[..<middle]))
+                let right = try await probe(Array(batch[middle...]))
+                return ProbeResult(
+                    result: SyncResult(
+                        accepted: left.result.accepted + right.result.accepted,
+                        duplicate: left.result.duplicate && right.result.duplicate,
+                        acceptedEventIds: left.result.acceptedEventIds + right.result.acceptedEventIds,
+                        duplicateEventIds: left.result.duplicateEventIds + right.result.duplicateEventIds,
+                        serverSequence: max(left.result.serverSequence, right.result.serverSequence)
+                    ),
+                    invalid: left.invalid + right.invalid,
+                    allInvalid: left.allInvalid && right.allInvalid
+                )
+            }
+        }
+        let probed = try await probe(events)
+        guard !probed.allInvalid || events.count == 1 else {
+            throw SyncClientError.http(status: 422, body: "all events rejected")
+        }
+        for event in probed.invalid {
+            try offlineStore.quarantineEvent(event, status: 422, reason: "单条事件 payload 校验失败")
+        }
+        if !probed.invalid.isEmpty {
+            quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: roundId).count
+        }
+        return probed.result
     }
 
     /// round-12 sync spine (gap f): pull events authored by OTHER clients via the replay endpoint and
@@ -5647,42 +5731,48 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func schedulePendingGeometryRefresh(for snapshot: LiveRoundPackage) {
-        pendingGeometryRefreshTask?.cancel()
-        pendingGeometryRefreshTask = nil
+        if !pendingGeometryRefreshExecuting {
+            pendingGeometryRefreshTask?.cancel()
+            pendingGeometryRefreshTask = nil
+        } else {
+            return
+        }
         guard let syncClient,
               liveRoundState?.roundId == snapshot.roundId,
-              let retryAfter = snapshot.holes
-                .filter({ $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame })
-                .compactMap(\.retryAfterEpoch)
-                .min() else { return }
-        let nowEpoch = Date().timeIntervalSince1970
-        guard retryAfter > nowEpoch || pendingGeometryLastAttemptEpoch != retryAfter else { return }
+              !snapshot.holes.filter({
+                  $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame
+              }).isEmpty else { return }
+        let retryAfter = snapshot.holes
+            .filter({ $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame })
+            .compactMap(\.retryAfterEpoch)
+            .min() ?? Date().timeIntervalSince1970
+        let delay = PackageGeometryRetryPolicy.delaySeconds(
+            nowEpoch: Date().timeIntervalSince1970,
+            retryAfterEpoch: retryAfter,
+            attempt: pendingGeometryRetryAttempt
+        )
         let roundId = snapshot.roundId
         let globalId = snapshot.course.globalId
         let teeBox = snapshot.course.teeBox
         let loops = snapshot.loopEntries
         pendingGeometryRefreshTask = Task { [weak self] in
-            let delay = max(0, retryAfter - Date().timeIntervalSince1970)
             do {
                 if delay > 0 {
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
-            } catch {
-                return
-            }
+            } catch { return }
             guard !Task.isCancelled else { return }
             guard let self,
                   self.package?.roundId == roundId,
                   self.liveRoundState?.roundId == roundId,
                   self.package?.course.globalId == globalId else { return }
             self.pendingGeometryLastAttemptEpoch = retryAfter
+            self.pendingGeometryRefreshExecuting = true
+            defer { self.pendingGeometryRefreshExecuting = false }
             do {
                 let refreshed = try await syncClient.fetchRoundPackage(
-                    roundId: roundId,
-                    capturedAt: Date(),
-                    ensureGeometry: false,
-                    foregroundStart: false,
-                    requestKind: .background
+                    roundId: roundId, capturedAt: Date(), ensureGeometry: false,
+                    foregroundStart: false, requestKind: .background
                 )
                 guard !Task.isCancelled,
                       self.package?.roundId == roundId,
@@ -5690,19 +5780,36 @@ public final class LiveRoundAppModel: ObservableObject {
                       refreshed.roundId == roundId,
                       refreshed.course.globalId == globalId else { return }
                 let persisted = try self.offlineStore.saveRoundPackage(refreshed)
-                try self.activatePackage(persisted, status: "几何地图已更新")
-                if persisted.holes.contains(where: {
+                let remainsPending = persisted.holes.contains {
                     $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame
-                }) {
-                    _ = try? await syncClient.fetchCourseInstallStatus(
+                }
+                self.pendingGeometryRetryAttempt = remainsPending
+                    ? self.pendingGeometryRetryAttempt + 1 : 0
+                try self.activatePackage(persisted, status: "几何地图已更新")
+                if remainsPending {
+                    _ = try await syncClient.fetchCourseInstallStatus(
                         globalId: globalId, teeBox: teeBox, loops: loops
                     )
+                }
+                guard !Task.isCancelled,
+                      self.package?.roundId == roundId,
+                      self.liveRoundState?.roundId == roundId else { return }
+                self.pendingGeometryRefreshTask = nil
+                if remainsPending {
+                    self.pendingGeometryRefreshExecuting = false
                     self.schedulePendingGeometryRefresh(for: persisted)
                 }
             } catch {
+                self.pendingGeometryRetryAttempt += 1
+                self.pendingGeometryRefreshTask = nil
                 AICaddieLog.network.info(
                     "Pending package geometry refresh deferred: \(String(describing: error), privacy: .public)"
                 )
+                guard self.package?.roundId == roundId,
+                      self.liveRoundState?.roundId == roundId,
+                      self.package?.course.globalId == globalId else { return }
+                self.pendingGeometryRefreshExecuting = false
+                self.schedulePendingGeometryRefresh(for: self.package ?? snapshot)
             }
         }
     }

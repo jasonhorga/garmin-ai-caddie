@@ -3146,7 +3146,10 @@ public struct CurrentHoleView: View {
             guard let plan = cursor.nextPlan(nowNanoseconds: DispatchTime.now().uptimeNanoseconds) else { return }
             do { try await Task.sleep(nanoseconds: plan.delayNanoseconds) } catch { return }
             guard !Task.isCancelled else { return }
-            if garminRaster?.hasDisplayableImage == true, garminVersionConflictURL == nil { return }
+            // A package raster is only a visual first frame. Keep retrying metadata until the
+            // image and its geographic projection are both usable, otherwise target placement and
+            // route overlays would remain disabled forever on a cold course.
+            if garminRaster?.isUsable == true, garminVersionConflictURL == nil { return }
             await loadGarminRaster()
         }
     }

@@ -1,0 +1,18 @@
+--- a/mobile/ios/AICaddie/Services/SyncClient.swift
++++ b/mobile/ios/AICaddie/Services/SyncClient.swift
+@@ -493,14 +493,7 @@
+     private let session: URLSession
+     private let roundStartSessionLock = NSLock()
+     private var roundStartSessionStorage: URLSession?
+-    private var roundStartSession: URLSession {
+-        roundStartSessionLock.lock()
+-        defer { roundStartSessionLock.unlock() }
+-        if let roundStartSessionStorage { return roundStartSessionStorage }
+-        let created = URLSession(configuration: session.configuration)
+-        roundStartSessionStorage = created
+-        return created
+-    }
++    private lazy var roundStartSession: URLSession = URLSession(configuration: session.configuration)
+     private let roundStartTimeoutInterval: TimeInterval
+     private let packageWorkLock = NSLock()
+     private var packageWork: [UUID: (task: Task<Data, Error>, kind: PackageRequestKind)] = [:]

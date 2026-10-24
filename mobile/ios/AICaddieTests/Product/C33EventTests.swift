@@ -16,6 +16,7 @@ final class C33EventTests: XCTestCase {
         let bridgeDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let bridge = WatchEventBridge(offlineStore: OfflineStore(directoryURL: bridgeDirectory))
         defer { try? FileManager.default.removeItem(at: bridgeDirectory) }
+        let builder = LiveRoundEventBuilder(roundId: "c33-round", idFactory: { "builder-event" })
         for route in aliases + aliases.map({ $0.uppercased().replacingOccurrences(of: " ", with: "_") }) {
             let event = try bridge.mapWatchInputEvent(WatchInputEvent(
                 eventId: UUID().uuidString, roundId: "c33-round", hole: 1, kind: .club,
@@ -24,6 +25,11 @@ final class C33EventTests: XCTestCase {
             if let value = event.payload["strategyMode"] {
                 guard case let .string(mode) = value else { return XCTFail("strategyMode must be string") }
                 XCTAssertTrue(allowed.contains(mode), "route=\(route), payload=\(mode)")
+            }
+            let built = builder.makeClubEvent(hole: 1, clubName: "7I", strategyMode: route)
+            if let value = built.payload["strategyMode"] {
+                guard case let .string(mode) = value else { return XCTFail("strategyMode must be string") }
+                XCTAssertTrue(allowed.contains(mode), "builder route=\(route), payload=\(mode)")
             }
         }
     }
@@ -106,7 +112,7 @@ final class C33EventTests: XCTestCase {
                 if !ids.contains("e3") { accepted.formUnion(ids) }
                 lock.unlock()
                 if ids.contains("e3") {
-                    proto.reply(422, Data(#"{"detail":"club payload field strategyMode must be one of attack, protect_score, stock"}"#.utf8)); return
+                    proto.reply(422, Data(#"{"detail":[{"type":"enum","loc":["body","events",0,"payload","strategyMode"],"msg":"Input should be one of attack, protect_score, stock"}]}"#.utf8)); return
                 }
                 proto.reply(200, try JSONEncoder().encode(SyncResult(accepted: ids.count, duplicate: false, acceptedEventIds: ids)))
             } catch { XCTFail("\(error)"); proto.reply(500) }
@@ -189,6 +195,53 @@ final class C33EventTests: XCTestCase {
         XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).count, 1)
         model.discardActiveRound()
         XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
+    }
+
+    func testReplacementScoreClearsQuarantineAndAllowsFinish() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c33-score-replacement.example.test")!, session: session)
+        let model = c33Model(store, client)
+        let package = try c33Package()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/package") {
+                proto.reply(200, try! JSONEncoder().encode(package)); return
+            }
+            if path.hasSuffix("/events") {
+                let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
+                if batch.events.contains(where: { $0.eventId == "bad-score" }) {
+                    proto.reply(422, Data(#"{"detail":[{"type":"enum","loc":["body","events",0,"payload","strokes"],"msg":"invalid score"}]}"#.utf8))
+                } else {
+                    proto.reply(200, try! JSONEncoder().encode(SyncResult(
+                        accepted: batch.events.count, duplicate: false,
+                        acceptedEventIds: batch.events.map(\.eventId)
+                    )))
+                }
+                return
+            }
+            if path.hasSuffix("/finish") { proto.reply(200); return }
+            proto.reply(404)
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        try store.appendEvent(LiveRoundEvent(eventId: "bad-score", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 1, kind: .score,
+            payload: ["strokes": .number(99)]))
+        await model.syncPendingEvents()
+        XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).count, 1)
+        XCTAssertFalse(await model.finishActiveRound())
+        try store.appendEvent(LiveRoundEvent(eventId: "replacement-score", roundId: package.roundId,
+            timestamp: "2026-01-01T00:01:00Z", hole: 1, kind: .score,
+            payload: ["strokes": .number(4)]))
+        await model.syncPendingEvents()
+        XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
+        XCTAssertTrue(await model.finishActiveRound())
     }
 }
 #endif

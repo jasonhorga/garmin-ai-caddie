@@ -1071,6 +1071,19 @@ public struct GarminRasterPackageDescriptor: Codable, Equatable {
 }
 
 public enum PackageGeometryRetryPolicy {
+    public static func backoffSeconds(attempt: Int) -> TimeInterval {
+        let bounded = max(0, min(attempt, 9))
+        return min(300, pow(2, Double(bounded)))
+    }
+
+    public static func delaySeconds(
+        nowEpoch: Double,
+        retryAfterEpoch: Double,
+        attempt: Int
+    ) -> TimeInterval {
+        max(0, max(retryAfterEpoch - nowEpoch, backoffSeconds(attempt: attempt)))
+    }
+
     public static func pendingHole(_ hole: Hole, nowEpoch: Double) -> Bool {
         hole.geometryState?.caseInsensitiveCompare("pending") == .orderedSame
             && (hole.retryAfterEpoch.map { nowEpoch >= $0 } ?? false)
@@ -1102,7 +1115,40 @@ public struct PackageReadinessCheck: Codable, Equatable, Identifiable {
     public let total: Int
     public let reason: String
     public let sourceRefs: [String]
-    public let teeBox: String? = nil
+    public let teeBox: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case label, state, ready, total, reason, sourceRefs, teeBox
+    }
+
+    public init(
+        label: String,
+        state: String,
+        ready: Int,
+        total: Int,
+        reason: String,
+        sourceRefs: [String],
+        teeBox: String? = nil
+    ) {
+        self.label = label
+        self.state = state
+        self.ready = ready
+        self.total = total
+        self.reason = reason
+        self.sourceRefs = sourceRefs
+        self.teeBox = teeBox
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        label = try container.decode(String.self, forKey: .label)
+        state = try container.decode(String.self, forKey: .state)
+        ready = try container.decode(Int.self, forKey: .ready)
+        total = try container.decode(Int.self, forKey: .total)
+        reason = try container.decode(String.self, forKey: .reason)
+        sourceRefs = try container.decode([String].self, forKey: .sourceRefs)
+        teeBox = try container.decodeIfPresent(String.self, forKey: .teeBox)
+    }
 }
 
 public struct CaddieContextSeed: Codable, Equatable, Identifiable {
@@ -1409,11 +1455,41 @@ public struct ClubProfile: Codable, Equatable, Identifiable {
 
 public struct OfflinePackageStatus: Codable, Equatable {
     public let state: String
-    public let cacheable: Bool? = nil
-    public let degradationReason: String? = nil
+    public let cacheable: Bool?
+    public let degradationReason: String?
     public let preparedAt: String
     public let expiresAt: String
     public let cachePolicy: CachePolicy
+
+    private enum CodingKeys: String, CodingKey {
+        case state, cacheable, degradationReason, preparedAt, expiresAt, cachePolicy
+    }
+
+    public init(
+        state: String,
+        cacheable: Bool? = nil,
+        degradationReason: String? = nil,
+        preparedAt: String,
+        expiresAt: String,
+        cachePolicy: CachePolicy
+    ) {
+        self.state = state
+        self.cacheable = cacheable
+        self.degradationReason = degradationReason
+        self.preparedAt = preparedAt
+        self.expiresAt = expiresAt
+        self.cachePolicy = cachePolicy
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        state = try container.decode(String.self, forKey: .state)
+        cacheable = try container.decodeIfPresent(Bool.self, forKey: .cacheable)
+        degradationReason = try container.decodeIfPresent(String.self, forKey: .degradationReason)
+        preparedAt = try container.decode(String.self, forKey: .preparedAt)
+        expiresAt = try container.decode(String.self, forKey: .expiresAt)
+        cachePolicy = try container.decode(CachePolicy.self, forKey: .cachePolicy)
+    }
 
     public var preparedAtDate: Date? {
         ISO8601DateFormatter().date(from: preparedAt)

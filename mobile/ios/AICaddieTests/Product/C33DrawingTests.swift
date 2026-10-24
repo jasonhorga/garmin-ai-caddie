@@ -153,6 +153,34 @@ final class C33DrawingTests: XCTestCase {
         XCTAssertEqual(cursor.nextPlan(nowNanoseconds: 0)?.delayNanoseconds, 60_000_000_000)
     }
 
+    func testGarminMetadataRetryRequiresUsableProjection() {
+        let imageOnly = GarminRasterResponse(available: true, imageUrl: "https://c33.example.test/map.jpg")
+        XCTAssertTrue(imageOnly.hasDisplayableImage)
+        XCTAssertFalse(imageOnly.isUsable)
+        let refs = [
+            CoursePrepProjectionRef(lat: 40, lon: 116, px: 0, py: 0),
+            CoursePrepProjectionRef(lat: 40, lon: 116.001, px: 100, py: 0),
+            CoursePrepProjectionRef(lat: 40.001, lon: 116, px: 0, py: 100),
+        ]
+        let projected = GarminRasterResponse(
+            available: true,
+            imageUrl: imageOnly.imageUrl,
+            projection: GarminRasterProjection(widthPx: 100, heightPx: 100, refs: refs)
+        )
+        XCTAssertTrue(projected.isUsable)
+    }
+
+    func testGreenCropRequiresProjectionAndAvailableOutline() throws {
+        let original = try XCTUnwrap(c33Package().coursePrep?.holes.first)
+        XCTAssertNotNil(GreenDetailImageResolver.crop(for: original))
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        json.removeValue(forKey: "holeImageProjection")
+        let withoutProjection = try JSONDecoder().decode(
+            CoursePrepHole.self, from: JSONSerialization.data(withJSONObject: json)
+        )
+        XCTAssertNil(GreenDetailImageResolver.crop(for: withoutProjection))
+    }
+
     func testChangingHoleCancelsGarminRetry() async {
         var attempts = 0
         let waiting = expectation(description: "retry waiting")
