@@ -4169,9 +4169,9 @@ public final class LiveRoundAppModel: ObservableObject {
     ) async throws -> Set<String> {
         guard offlineStore.storageScope == scope else { throw CancellationError() }
         let candidates = records.compactMap { record -> LiveRoundEvent? in
-            guard record.event.roundId == roundId,
-                  var payload = record.event.payload,
-                  case let .string(mode)? = payload["strategyMode"],
+            guard record.event.roundId == roundId else { return nil }
+            var payload = record.event.payload
+            guard case let .string(mode)? = payload["strategyMode"],
                   eventStrategyMode(forRouteId: mode) == nil else { return nil }
             payload.removeValue(forKey: "strategyMode")
             return LiveRoundEvent(

@@ -1499,7 +1499,7 @@ class MobileContractTests(unittest.TestCase):
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
 
         self.assertIn(
-            "public func fetchRoundPackage(roundId: String, capturedAt: Date = Date(), ensureGeometry: Bool = false) async throws -> LiveRoundPackage",
+            "public func fetchRoundPackage(roundId: String, capturedAt: Date = Date(), ensureGeometry: Bool = false, foregroundStart: Bool = false, requestKind: PackageRequestKind? = nil) async throws -> LiveRoundPackage",
             sync_client,
         )
         self.assertIn("URLComponents(", sync_client)
@@ -1517,9 +1517,12 @@ class MobileContractTests(unittest.TestCase):
             "return await fetchRemotePackage(roundId: preferredRoundId, capturedAt: capturedAt)",
             app_swift,
         )
-        self.assertIn("fetchRoundPackage(roundId: roundId, capturedAt: capturedAt)", app_swift)
         self.assertIn(
-            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false)",
+            "fetchRoundPackage(roundId: roundId, capturedAt: capturedAt, foregroundStart: preparationToken != nil)",
+            app_swift,
+        )
+        self.assertIn(
+            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, foregroundStart: preparationToken != nil)",
             app_swift,
         )
         self.assertIn(
@@ -2142,7 +2145,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('"duplicateEventIds": .array(result.duplicateEventIds.map { .string($0) })', offline_store)
         self.assertIn('"serverSequence": .number(Double(result.serverSequence))', offline_store)
         # Formatting is intentionally irrelevant: the exact-ACK guard must dominate the marker write.
-        ack_guard = app_swift.index("Set(acknowledged) == Set(expected)")
+        ack_guard = app_swift.index("Set(stillPending) == Set(expected)")
         marker_write = app_swift.index("try offlineStore.appendSyncMarker(", ack_guard)
         marker_result = app_swift.index("result: result", marker_write)
         self.assertLess(ack_guard, marker_write)
@@ -3807,7 +3810,7 @@ class MobileContractTests(unittest.TestCase):
 
         self.assertIn("caddieDecision", current_hole)
         self.assertIn('"shotType": .string(selectedShotType)', current_hole)
-        self.assertIn('"strategyMode": .string(selectedStrategyMode)', current_hole)
+        self.assertIn("eventStrategyMode(forRouteId: selectedStrategyMode)", current_hole)
         self.assertIn('"lie": .string(selectedLie)', current_hole)
         self.assertIn('"distanceToPinM": distanceToPinPayload()', current_hole)
         self.assertIn("LiveScoreSubmission.events(", current_hole)
