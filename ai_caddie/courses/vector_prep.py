@@ -21,6 +21,29 @@ _VERSION = "vector-prep-v1"
 _LOCKS = [threading.Lock() for _ in range(32)]
 
 
+_REQUESTED_TEES: dict[tuple[int, int], set[int]] = {}
+_REQUESTED_TEES_LOCK = threading.Lock()
+
+
+def request_vector_tee(global_id: int, local_hole: int, tee_set: int | None) -> None:
+    """Remember requested variants until the asynchronous supplements finish."""
+    if tee_set is None:
+        return
+    with _REQUESTED_TEES_LOCK:
+        key = (int(global_id), int(local_hole))
+        if key not in _REQUESTED_TEES and len(_REQUESTED_TEES) >= 2048:
+            _REQUESTED_TEES.pop(next(iter(_REQUESTED_TEES)))
+        _REQUESTED_TEES.setdefault(key, set()).add(int(tee_set))
+
+
+def warm_requested_vectors(global_id: int, local_hole: int) -> None:
+    cached_vector_hole(global_id, local_hole)
+    with _REQUESTED_TEES_LOCK:
+        tees = tuple(_REQUESTED_TEES.get((int(global_id), int(local_hole)), ()))
+    for tee_set in tees:
+        cached_vector_hole(global_id, local_hole, tee_set=tee_set)
+
+
 def cached_vector_hole(global_id: int, local_hole: int, *, tee_set: int | None = None,
                        coverage: dict | None = None, build_if_missing: bool = True) -> dict | None:
     """No history, weather or rendering. A cache hit is still checked against current authority.

@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 # read-only projection for the duration of a request, so followers can share the leader's result
 # without introducing a persistent/stale response cache. This protects the single API worker from
 # duplicate stats/strategy CPU while retaining the existing complete-package contract.
-PACKAGE_FOLLOWER_WAIT_SECONDS = 0.2
+PACKAGE_FOLLOWER_WAIT_SECONDS = 1.0
 _PACKAGE_SINGLEFLIGHT_LOCK = threading.Lock()
 _PACKAGE_SINGLEFLIGHT: dict[tuple[Any, ...], Future[Any]] = {}
 
@@ -109,7 +109,11 @@ def _package_singleflight(key: tuple[Any, ...], builder: Callable[[], Any], *,
             if fallback is None:
                 raise
             mark_request_stage("singleflight_pending")
-            return fallback()
+            value = fallback()
+            value.sourceCoverage = {**value.sourceCoverage, "state": "degraded"}
+            value.offlinePackageStatus = {**value.offlinePackageStatus, "state": "degraded",
+                                          "cacheable": False, "degradationReason": "singleflight_timeout"}
+            return value
 
     try:
         value = builder()

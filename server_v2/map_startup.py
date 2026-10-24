@@ -22,6 +22,10 @@ _REGION_PLAYER = "__nearby_public_assets__"
 _COURSE_DATA_LOOKUPS: dict[tuple[int, int], tuple[float, Future]] = {}
 
 
+# The application injects its admission policy after construction; standalone workers are idle.
+nearby_work_blocked = lambda: False
+
+
 def ensure_startup_course_data(global_id: int) -> dict | None:
     """Observe optional layout route authority once per release, including missing catalogues.
 
@@ -64,8 +68,6 @@ def enqueue_nearby(matches) -> int:
     One shared durable journal per physical course, independent of player/Tee/loop selections.
     Repeated phone/Watch discoveries do not multiply workers or queued downloads.
     """
-    from server_v2.main import nearby_work_blocked
-
     if nearby_work_blocked():
         return 0
     # Choose the physical nearest three before dedup/backoff: repeated discovery must not
@@ -133,10 +135,12 @@ def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 
         # The canonical package resolver also accepts proven durable round layouts. When the
         # provider has no release, leave that decision to it rather than rejecting valid history.
         metadata_ms = (time.perf_counter() - started) * 1000
+        from ai_caddie.caddie.analysis import tee_set_for_box
+        from ai_caddie.courses.vector_prep import request_vector_tee
+        tee_set = tee_set_for_box(gid, str(tee_box or "blue"), colour_fallback=False)
+        request_vector_tee(gid, hole, tee_set)
         result = ensure_prodgeometry(gid, hole)
         geometry_ms = (time.perf_counter() - started) * 1000 - metadata_ms
-        from ai_caddie.caddie.analysis import tee_set_for_box
-        tee_set = tee_set_for_box(gid, str(tee_box or "blue"), colour_fallback=False)
         vector = cached_vector_hole(gid, hole, tee_set=tee_set) if result.get("ok") else None
         total_ms = (time.perf_counter() - started) * 1000
         logger.info("map_startup gid=%s hole=%s metadata_ms=%.1f geometry_ms=%.1f vector_ms=%.1f total_ms=%.1f drawable=%s",

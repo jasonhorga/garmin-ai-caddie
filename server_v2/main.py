@@ -29,7 +29,7 @@ from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize
 from ai_caddie.connectors.snapshot import snapshot_to_payload, write_connector_status
 from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 from ai_caddie.core.data import ROOT
-from ai_caddie.core.priority_work import FOREGROUND, NEARBY, SELECTED_COURSE, PriorityExecutor
+from ai_caddie.core.priority_work import FOREGROUND, NEARBY, SELECTED_COURSE, PriorityExecutor, work_priority
 from ai_caddie.core.play_order import expand_display_holes, play_order
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
@@ -184,6 +184,15 @@ from .timing import RequestTiming, bind as bind_request_timing, mark as mark_req
 from .sync_jobs import CancelledSyncJob, GarminSyncJobStore, RetrySyncJob
 
 
+def configure_request_timing_logging() -> None:
+    """Service logging belongs to startup, never to importing a library hook."""
+    timing_log = logging.getLogger("server_v2.timing")
+    timing_log.setLevel(logging.INFO)
+    if not timing_log.handlers:
+        timing_log.handlers.extend(logging.getLogger("uvicorn.error").handlers or [logging.StreamHandler()])
+    timing_log.propagate = False
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """FastAPI lifespan: warm history caches at startup so the first user request is a hit.
@@ -196,6 +205,7 @@ async def _lifespan(_app: FastAPI):
     """
     # Fail fast (require-admin profile with no admin token) / warn loudly (open-dev owner-grant active)
     # before serving any request — the per-request path already fail-closes, this makes it audible at boot.
+    configure_request_timing_logging()
     assert_admin_security_config()
     warm_stats_cache_in_background()
     _garmin_sync_jobs.start(_run_garmin_sync_job)
@@ -223,7 +233,7 @@ async def request_timing_middleware(request: Request, call_next):
     """Expose safe request correlation and stage timing for startup diagnostics."""
     timing = RequestTiming(request_id_for(request.headers.get("X-AI-Caddie-Request-ID")))
     request.state.request_id = timing.request_id
-    with bind_request_timing(timing):
+    with bind_request_timing(timing), work_priority(FOREGROUND):
         try:
             response = await call_next(request)
         except Exception:
@@ -1242,6 +1252,11 @@ def _delayed_prep_warmer(player_id: str, delay_s: float) -> Callable[..., None]:
 
 
 def _prepare_recent_bg(player_id: str, prep_warm_delay_s: float = 0.0) -> None:
+    with work_priority(NEARBY):
+        _prepare_recent_work(player_id, prep_warm_delay_s)
+
+
+def _prepare_recent_work(player_id: str, prep_warm_delay_s: float = 0.0) -> None:
     """「打开即用」后台准备最近一盘:预热其球洞图 topo + 烤统计。best-effort,绝不抛
     (镜像 warm_stats_cache 的 swallow 语义,不弄崩触发它的响应/线程)。"""
     from ai_caddie.history.stats_cache import cached_load_history_data
@@ -1835,14 +1850,16 @@ def mobile_round_package(
     ensure_geometry: bool = False,
     player_id: str = Depends(current_player_id),
 ) -> LiveRoundPackageResponse:
-    _record_round_activity(player_id, round_id)
-    return build_mobile_round_package_response(
+    package = build_mobile_round_package_response(
         round_id,
         captured_at=captured_at,
         client_id=client_id,
         ensure_geometry=ensure_geometry,
         player_id=player_id,
     )
+    _record_round_activity(player_id, round_id,
+                           has_events=bool((getattr(package, "eventCursor", None) or {}).get("serverSequence")))
+    return package
 
 
 @app.get("/api/v2/mobile/courses/options", response_model=MobileCourseOptionsResponse)
@@ -2059,21 +2076,21 @@ def _current_geometry_revision(global_id: int, hole: int) -> str | None:
     return revision if observation != "stale" else None
 
 
-# A package with a caller round id or an accepted event keeps play foreground for six hours.
+# Real play remains active for thirty minutes after its last package/event activity.
 # Explicit finish releases it; a lost/offline client expires without a resident timer.
 _ACTIVE_ROUNDS: dict[tuple[str, str], float] = {}
 _ACTIVE_ROUNDS_LOCK = threading.Lock()
 
 
-def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False) -> None:
+def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False, has_events: bool = False) -> None:
     if not round_id:
         return
     with _ACTIVE_ROUNDS_LOCK:
         key = (str(player_id), str(round_id))
         if finished:
             _ACTIVE_ROUNDS.pop(key, None)
-        else:
-            _ACTIVE_ROUNDS[key] = time.monotonic() + 6 * 3600
+        elif has_events or key in _ACTIVE_ROUNDS or not str(round_id).startswith(("home-", "prep-library-")):
+            _ACTIVE_ROUNDS[key] = time.monotonic() + 30 * 60
 
 
 def nearby_work_blocked() -> bool:
@@ -2092,6 +2109,10 @@ def nearby_work_blocked() -> bool:
         if int(state.get("priority", SELECTED_COURSE)) < NEARBY:
             return True
     return False
+
+
+from server_v2 import map_startup as _map_startup
+_map_startup.nearby_work_blocked = lambda: nearby_work_blocked()
 
 
 def run_course_install_job(identifier: str) -> None:
@@ -2346,10 +2367,10 @@ def run_course_install_job(identifier: str) -> None:
             })
             # Warm/rebound holes may already have hazards and never run a supplement worker.
             # Queue the bitmap first; a cold hole returns None here and builds after supplements.
-            from ai_caddie.courses.vector_prep import cached_vector_hole
+            from ai_caddie.courses.vector_prep import warm_requested_vectors
 
             try:
-                cached_vector_hole(gid, hole)
+                warm_requested_vectors(gid, hole)
             except Exception:
                 logger.exception("course_install stage=vector gid=%s hole=%s", gid, hole)
 
@@ -2357,6 +2378,11 @@ def run_course_install_job(identifier: str) -> None:
         if course_install.cancellation_requested(identifier):
             return
         try:
+            from ai_caddie.caddie.analysis import tee_set_for_box
+            from ai_caddie.courses.vector_prep import request_vector_tee
+            selected_tee = tee_set_for_box(gid, str(state.get("teeBox") or "blue"), colour_fallback=False)
+            for hole in holes:
+                request_vector_tee(gid, hole, selected_tee)
             geometry_kwargs = {"holes": list(dict.fromkeys(holes)), "on_hole_complete": on_geometry_complete}
             if priority == NEARBY:
                 geometry_kwargs["priority"] = priority
@@ -2447,7 +2473,6 @@ def mobile_course_package(
     effective_priority_hole = 1 if priority_hole is None else priority_hole
     if not 1 <= effective_priority_hole <= len(round_loops) * 9:
         raise HTTPException(status_code=422, detail="priority_hole is outside the selected round")
-    _record_round_activity(player_id, round_id)
     try:
         package = build_mobile_course_package_response(
             global_id,
@@ -2465,6 +2490,8 @@ def mobile_course_package(
         )
     except RoundLoopError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _record_round_activity(player_id, round_id,
+                           has_events=bool((getattr(package, "eventCursor", None) or {}).get("serverSequence")))
     mark_request_stage("package_route")
     if not background_geometry or ensure_geometry:
         return package
@@ -2673,7 +2700,7 @@ def mobile_round_events(
     result = append_mobile_events_response(
         round_id, request, idempotency_key=idempotency_key, player_id=acting_player_id
     )
-    _record_round_activity(acting_player_id, round_id)
+    _record_round_activity(acting_player_id, round_id, has_events=bool(getattr(request, "events", [])))
     return result
 
 

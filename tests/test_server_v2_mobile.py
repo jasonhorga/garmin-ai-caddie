@@ -2388,7 +2388,7 @@ class ServerV2MobileTests(unittest.TestCase):
         fallback.assert_not_called()
 
     def test_lightweight_seed_rejects_degenerate_route_even_with_projection(self) -> None:
-        """A degenerate cached route stays pending until background vectors are ready."""
+        """A cold non-blue Tee can draw a valid blue cache despite degenerate catalogue data."""
         from ai_caddie.caddie import mobile_live
         from ai_caddie.courses import course_prep
 
@@ -2410,18 +2410,20 @@ class ServerV2MobileTests(unittest.TestCase):
             }},
         }
         package = {
-            "course": {"globalId": 31702},
+            "course": {"globalId": 31702, "teeBox": "white"},
             "clubProfiles": [],
             "holes": [{"number": 1, "sourceGlobalId": 31702, "sourceLocalHole": 1}],
         }
         with patch.object(course_prep, "effective_club_ladder", return_value=[]), \
                 patch.object(course_prep, "lightweight_prep_hole", return_value=degenerate), \
-                patch.object(course_prep, "precise_route_seed_hole", return_value=precise) as fallback:
+                patch("ai_caddie.core.data.mesh_path", return_value=Path(__file__)), \
+                patch("ai_caddie.caddie.analysis.tee_set_for_box", side_effect=lambda gid, tee, **kw: 4 if tee == "white" else 2), \
+                patch("ai_caddie.courses.vector_prep.cached_vector_hole", side_effect=lambda *a, **kw: precise if kw.get("tee_set") == 2 else None), \
+                patch.object(course_prep, "precise_route_seed_hole") as fallback:
             result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
 
         self.assertIsNotNone(result)
-        self.assertEqual(result["holes"][0]["route"], [])
-        self.assertEqual(result["holes"][0]["geometryState"], "pending")
+        self.assertEqual(result["holes"][0]["route"], precise["route"])
         fallback.assert_not_called()
 
     def test_mobile_course_package_caps_nine_hole_loop_to_nine_holes(self) -> None:

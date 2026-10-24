@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from server_v2.timing import mark as mark_request_stage
+from ai_caddie.core.request_timing import mark as mark_request_stage
 
 from concurrent.futures import FIRST_COMPLETED, wait
 from datetime import UTC, datetime, timedelta
@@ -1279,6 +1279,11 @@ def first_hole_lightweight_course_prep(
                         source_global_id, source_local_hole, tee_set=tee_sets[source_global_id],
                         build_if_missing=False,
                     )
+                    if not _has_drawable_route_seed(vector):
+                        blue_tee = tee_set_for_box(source_global_id, "blue", colour_fallback=False)
+                        if blue_tee != tee_sets[source_global_id]:
+                            vector = cached_vector_hole(source_global_id, source_local_hole,
+                                                        tee_set=blue_tee, build_if_missing=False)
                 except Exception:
                     pass
             try:
@@ -1300,10 +1305,7 @@ def first_hole_lightweight_course_prep(
                 "label": "course_prep",
                 "reason": f"route unavailable for hole {round_hole}",
             })
-            prep = {"globalId": source_global_id, "localHole": source_local_hole,
-                    "geometryState": "pending", "retryAfterEpoch": time.time() + 30,
-                    "garminRaster": _startup_hole_assets(source_global_id, source_local_hole, {})["garminRaster"],
-                    "route": [], "steps": [], "map": {"image": None}, "missingData": []}
+            continue
         seeded = dict(prep)
         seeded["hole"] = round_hole
         seeded_rows.append(seeded)

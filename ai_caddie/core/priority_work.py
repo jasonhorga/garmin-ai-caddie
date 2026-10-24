@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future
+from contextlib import contextmanager
 from contextvars import ContextVar
 import heapq
 import itertools
@@ -18,9 +19,18 @@ _CURRENT_PRIORITY: ContextVar[int | None] = ContextVar("work_priority", default=
 
 
 def current_priority() -> int:
-    """HTTP work defaults to foreground; child jobs inherit their executor's lane."""
+    """Unknown threads are background; request/worker entry points set their lane."""
     value = _CURRENT_PRIORITY.get()
-    return FOREGROUND if value is None else value
+    return NEARBY if value is None else value
+
+
+@contextmanager
+def work_priority(priority: int):
+    token = _CURRENT_PRIORITY.set(priority)
+    try:
+        yield
+    finally:
+        _CURRENT_PRIORITY.reset(token)
 
 
 class PrioritySlots:
@@ -35,13 +45,17 @@ class PrioritySlots:
         self._sequence = itertools.count()
 
     def __enter__(self):
-        # A direct HTTP render precedes queued pipeline work, including an install
-        # job that itself carries FOREGROUND for the current playing hole.
-        priority = -1 if _CURRENT_PRIORITY.get() is None else current_priority()
+        priority = current_priority()
         ticket = (priority, next(self._sequence))
         with self._condition:
             heapq.heappush(self._waiters, ticket)
-            self._condition.wait_for(lambda: self._available > 0 and self._waiters[0] == ticket)
+            try:
+                self._condition.wait_for(lambda: self._available > 0 and self._waiters[0] == ticket)
+            except BaseException:
+                self._waiters.remove(ticket)
+                heapq.heapify(self._waiters)
+                self._condition.notify_all()
+                raise
             heapq.heappop(self._waiters)
             self._available -= 1
             self._condition.notify_all()
