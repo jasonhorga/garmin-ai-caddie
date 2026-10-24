@@ -4118,7 +4118,11 @@ public final class LiveRoundAppModel: ObservableObject {
         // event would silently mark it as uploaded. Advance the watermark only while the exact tail
         // acknowledged by this response is still the complete pending tail.
         let stillPending = try offlineStore.loadPendingEvents(roundId: roundId).map(\.eventId)
-        guard stillPending == expected else {
+        let quarantinedIDs = Set(try offlineStore.loadQuarantinedEvents(roundId: roundId).map { $0.event.eventId })
+        // A quarantined singleton is intentionally still present in the append-only log, but it
+        // is resolved from the upload queue once its diagnostic record is durable.
+        guard Set(stillPending) == quarantinedIDs,
+              Set(expected).isSuperset(of: quarantinedIDs) else {
             throw LiveRoundFinishError.incompleteAcknowledgement
         }
         try offlineStore.appendSyncMarker(
