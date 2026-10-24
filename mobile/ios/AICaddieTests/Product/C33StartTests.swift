@@ -85,10 +85,21 @@ final class C33StartTests: XCTestCase {
         let client = SyncClient(baseURL: URL(string: "https://c33-kinds.example.test")!, session: session)
         let owner = UUID(); client.beginRoundStart(owner)
         let sent = expectation(description: "non-background requests sent")
+        let requestLock = NSLock()
         var count = 0
         C33URLProtocol.onStart = { proto in
+            let isExpectedPackage = proto.request.url?.path == "/api/v2/mobile/courses/32850/package"
+            let roundID = URLComponents(url: proto.request.url!, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "round_id" })?.value
+            guard isExpectedPackage, (roundID == "download" || roundID == "watch") else {
+                proto.reply(404)
+                return
+            }
+            requestLock.lock()
             count += 1
-            sent.fulfill()
+            let firstRequest = count == 1
+            requestLock.unlock()
+            if firstRequest { sent.fulfill() }
             proto.reply(503)
         }
         defer { client.endRoundStart(owner); client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.onStart = nil }
