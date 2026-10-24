@@ -22,6 +22,10 @@ _REGION_PLAYER = "__nearby_public_assets__"
 _COURSE_DATA_LOOKUPS: dict[tuple[int, int], tuple[float, Future]] = {}
 
 
+# The application injects its admission policy after construction; standalone workers are idle.
+nearby_work_blocked = lambda: False
+
+
 def ensure_startup_course_data(global_id: int) -> dict | None:
     """Observe optional layout route authority once per release, including missing catalogues.
 
@@ -59,20 +63,25 @@ def ensure_startup_course_data(global_id: int) -> dict | None:
 
 
 def enqueue_nearby(matches) -> int:
-    """Every provider row within the radius, without personal prep or a synchronous download.
+    """The nearest three provider courses, without personal prep or a synchronous download.
 
     One shared durable journal per physical course, independent of player/Tee/loop selections.
     Repeated phone/Watch discoveries do not multiply workers or queued downloads.
     """
+    if nearby_work_blocked():
+        return 0
+    # Choose the physical nearest three before dedup/backoff: repeated discovery must not
+    # gradually enqueue the fourth through thirtieth courses while the first three are busy.
+    def distance(match):
+        value = match.provider_distance_km if match.provider_distance_km is not None else match.distance_km
+        return float(value) if value is not None else float("inf")
+
+    eligible = {int(m.global_id): m for m in matches
+                if int(m.global_id) > 0 and 0 <= distance(m) <= RADIUS_KM and 1 <= int(m.holes or 0) <= 36}
     count = 0
-    for match in matches:
+    for match in sorted(eligible.values(), key=distance)[:3]:
         gid = int(match.global_id)
-        distance = match.provider_distance_km if match.provider_distance_km is not None else match.distance_km
-        if gid <= 0 or distance is None or not 0 <= float(distance) <= RADIUS_KM:
-            continue
-        holes = int(match.holes or 0)
-        if not 1 <= holes <= 36:
-            continue
+        holes = int(match.holes)
         with _LOCK:
             previous = _REGION_ENQUEUED.get(gid)
             if previous is not None and time.monotonic() - previous < 3600:
@@ -94,7 +103,7 @@ def enqueue_nearby(matches) -> int:
     return count
 
 
-def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 1, tee_box: str | None = None) -> dict:
+def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 1, tee_box: str | None = None, wait: bool = True) -> dict:
     """Obtain only the playing hole's geometry; queued rasters and other holes are independent.
 
     The shared two-worker geometry lane admits this task before queued region work. A slow provider
@@ -126,10 +135,12 @@ def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 
         # The canonical package resolver also accepts proven durable round layouts. When the
         # provider has no release, leave that decision to it rather than rejecting valid history.
         metadata_ms = (time.perf_counter() - started) * 1000
+        from ai_caddie.caddie.analysis import tee_set_for_box
+        from ai_caddie.courses.vector_prep import request_vector_tee
+        tee_set = tee_set_for_box(gid, str(tee_box or "blue"), colour_fallback=False)
+        request_vector_tee(gid, hole, tee_set)
         result = ensure_prodgeometry(gid, hole)
         geometry_ms = (time.perf_counter() - started) * 1000 - metadata_ms
-        from ai_caddie.caddie.analysis import tee_set_for_box
-        tee_set = tee_set_for_box(gid, str(tee_box or "blue"), colour_fallback=False)
         vector = cached_vector_hole(gid, hole, tee_set=tee_set) if result.get("ok") else None
         total_ms = (time.perf_counter() - started) * 1000
         logger.info("map_startup gid=%s hole=%s metadata_ms=%.1f geometry_ms=%.1f vector_ms=%.1f total_ms=%.1f drawable=%s",
@@ -155,6 +166,8 @@ def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 
             leader = False
     if leader:
         future.add_done_callback(remove)
+    if not wait:
+        return {"globalId": gid, "localHole": hole, "drawable": False, "pending": True}
     try:
         return future.result(timeout=STARTUP_WAIT_SECONDS)
     except TimeoutError:

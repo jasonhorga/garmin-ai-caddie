@@ -10,6 +10,8 @@ UI can show provenance and a course the user later plays auto-supersedes an esti
 """
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import os
 import hashlib
 import logging
@@ -384,10 +386,9 @@ def _release_lock(global_id: int, root: Path) -> threading.Lock:
 def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> dict | None:
     """Decoded CourseView release with hourly refresh and offline stale fallback."""
     gid = int(global_id)
-    with _release_lock(gid, root):
-        # Re-read inside the per-course lock: another package/topo request may just have refreshed
-        # the same release while this caller was waiting. This prevents 18 concurrent hole requests
-        # from issuing 18 Garmin fetches or sharing one temporary output path.
+    with (_release_lock(gid, root) if allow_fetch else nullcontext()):
+        # Fetchers re-read after acquiring the refresh lock. Cache-only readers rely on atomic
+        # release replacement and never queue behind a Garmin network call.
         path = _courseview_dir(root) / f"{gid}_releases.pb"
         cached_info: dict | None = None
         stale = True

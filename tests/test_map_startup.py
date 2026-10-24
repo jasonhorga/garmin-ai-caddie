@@ -34,6 +34,12 @@ class PriorityLaneTests(unittest.TestCase):
 
 
 class NearbyWarmTests(unittest.TestCase):
+    def setUp(self):
+        from server_v2 import main
+        # These cases exercise discovery in an idle service, independently of other test jobs.
+        self.enterContext(patch.object(main, "_ACTIVE_ROUNDS", {}))
+        self.enterContext(patch.object(main.course_install, "_ACTIVE", set()))
+
     def test_optional_catalogue_failure_is_shared_but_new_release_retries(self):
         from server_v2 import map_startup as ms
         from ai_caddie.courses import courseview_core as cv
@@ -52,14 +58,14 @@ class NearbyWarmTests(unittest.TestCase):
             self.assertEqual(ms.ensure_startup_course_data(123), cached.return_value)
             self.assertEqual(fetch.call_count, 2)
 
-    def test_all_nearby_provider_courses_are_queued_once_without_player_facts(self):
+    def test_nearest_three_provider_courses_are_queued_once_without_player_facts(self):
         from server_v2 import map_startup as ms
         matches = [CourseMatch(i, f"Golf {i}", 18, None, None, 1, distance_km=i) for i in range(1, 33)]
         matches += [matches[0]]
         with patch.dict(ms._REGION_ENQUEUED, {}, clear=True), patch.object(ms.course_install, "enqueue") as enqueue:
-            self.assertEqual(ms.enqueue_nearby(matches), 30)
+            self.assertEqual(ms.enqueue_nearby(matches), 3)
             self.assertEqual(ms.enqueue_nearby(matches), 0)
-        self.assertEqual(enqueue.call_count, 30)
+        self.assertEqual(enqueue.call_count, 3)
         for call in enqueue.call_args_list:
             self.assertEqual(call.kwargs["priority"], NEARBY)
             self.assertEqual(len(call.kwargs["refs"]), 18)
@@ -156,14 +162,15 @@ class ColdPriorityTests(unittest.TestCase):
               patch.object(ml, "_route_evidence_seed", side_effect=AssertionError("planner gate")),
               patch.object(ml.course_prep, "effective_club_ladder", side_effect=AssertionError("player ladder gate")),
               patch.object(ml.course_prep, "lightweight_prep_hole", side_effect=AssertionError("lightweight planner gate")),
-              patch.object(ml.course_prep, "precise_route_seed_hole", return_value=vector),
+              patch("ai_caddie.core.data.mesh_path", return_value=Path(__file__)),
+              patch("ai_caddie.courses.vector_prep.cached_vector_hole", return_value=vector),
               patch.object(ml.course_prep.hole_render, "render_hole", side_effect=AssertionError("raster gate")),
               patch("server_v2.map_startup.prepare_priority_hole", return_value={"drawable": True}) as first_map):
             package = mobile.build_mobile_course_package_response(
                 123, loops=[(123, "back"), (123, "front")], map_only=True,
                 prepare_map=True, priority_hole=10, include_event_cursor=False,
             )
-        first_map.assert_called_once_with([(123, "back"), (123, "front")], priority_hole=10, tee_box=None)
+        first_map.assert_called_once_with([(123, "back"), (123, "front")], priority_hole=10, tee_box=None, wait=False)
         self.assertEqual(len(package.holes), 18)
         self.assertEqual(package.holes[0]["sourceLocalHole"], 10)
         self.assertEqual(package.holes[9]["sourceLocalHole"], 1)
@@ -249,7 +256,7 @@ class ColdPriorityTests(unittest.TestCase):
 
     def test_nearby_chunk_leaves_one_geometry_worker_free_for_foreground(self):
         from server_v2 import course_install as ci, main
-        with TemporaryDirectory() as directory, patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}), patch.object(ci, "_launch"):
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}), patch.object(ci, "_launch"), patch.object(main, "_ACTIVE_ROUNDS", {}), patch.object(ci, "_ACTIVE", set()):
             job = ci.enqueue(global_id=123, tee_box="blue", loop_key="123:nearby-assets", player_id="public", refs=[{"globalId": 123, "localHole": h} for h in (1, 2)], requested={123: [1, 2]}, ready={}, priority=NEARBY)
             def ensure(gid, *, holes, on_hole_complete, priority):
                 self.assertEqual(holes, [1])

@@ -567,17 +567,21 @@ class Card453TopoDecoupleAcceptance(unittest.TestCase):
         starts: list[object] = []
         clock = [100.0]
 
-        class CapturedThread:
-            def __init__(self, target, args, **_kwargs):
-                self.target = target
-                self.args = args
-                starts.append(self)
-
-            def start(self):
-                return None
-
-            def is_alive(self):
-                return False
+        class CapturedExecutor:
+            def submit_keyed(self, key, target, *args, **kwargs):
+                from concurrent.futures import Future
+                future = Future()
+                def execute():
+                    future.set_running_or_notify_cancel()
+                    try:
+                        target(*args)
+                        future.set_result(None)
+                    except BaseException as exc:
+                        future.set_exception(exc)
+                        raise
+                from types import SimpleNamespace
+                starts.append(SimpleNamespace(target=execute, args=()))
+                return future
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -585,7 +589,7 @@ class Card453TopoDecoupleAcceptance(unittest.TestCase):
             distance = root / "distance.json"
             hazard = root / "hazard.json"
             mesh.write_text("mesh", encoding="utf-8")
-            with patch.object(batch.threading, "Thread", CapturedThread), patch.object(
+            with patch.object(batch, "_DERIVATIVE_POOL", CapturedExecutor()), patch.object(
                 batch.time, "monotonic", side_effect=lambda: clock[0]
             ), patch.object(batch.time, "time", side_effect=lambda: clock[0]), patch.object(
                 batch, "run", return_value=(False, "export failed")):
@@ -614,7 +618,7 @@ class Card453TopoDecoupleAcceptance(unittest.TestCase):
                 batch.schedule_missing_derivatives(1, 1, mesh_file=mesh,
                     distance_target=distance, hazard_target=hazard)
                 self.assertEqual(len(starts), 1)
-                clock[0] = 101.1
+                clock[0] = 130.1
                 batch.schedule_missing_derivatives(
                     1,
                     1,
@@ -627,7 +631,7 @@ class Card453TopoDecoupleAcceptance(unittest.TestCase):
                 from ai_caddie.geometry.geometry_authority import load_derivatives_status
                 status = load_derivatives_status(mesh)
                 self.assertEqual(status["failureCount"], 2)
-                self.assertAlmostEqual(status["retryAfterEpoch"] - clock[0], 2)
+                self.assertAlmostEqual(status["retryAfterEpoch"] - clock[0], 60)
                 identity = batch._derivative_snapshot(mesh)[0]
                 key = batch._derivative_key(1, 1, mesh, distance, hazard, identity)
                 for _ in range(25):

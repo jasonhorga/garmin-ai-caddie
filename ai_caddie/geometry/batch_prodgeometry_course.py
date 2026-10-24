@@ -14,6 +14,10 @@ output/prodgeometry*/. Secrets are not printed.
 
 from __future__ import annotations
 
+from concurrent.futures import Future
+from contextvars import ContextVar
+from ai_caddie.core.priority_work import FOREGROUND, NEARBY, PriorityExecutor, current_priority
+
 import argparse
 from datetime import UTC, datetime
 import hashlib
@@ -69,6 +73,42 @@ def _finish_stage(row: dict, stage: str, started: float, *, course_id: int) -> f
 GEOMETRY_SUBPROCESS_TIMEOUT_S = 180.0
 
 
+class _DerivativePreempted(BaseException):
+    """Yield the lane without treating interrupted work as an exporter failure."""
+
+
+_RUNNING_DERIVATIVE: ContextVar["_DerivativeJob | None"] = ContextVar("derivative_job", default=None)
+
+
+def _run_interruptible(cmd: list[str], timeout: float | None):
+    """Poll only derivative children so early regional work can release the single lane."""
+    job = _RUNNING_DERIVATIVE.get()
+    started = time.monotonic()
+    partial = None
+    proc = subprocess.Popen(cmd, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        while True:
+            if job is not None and job.cancel.is_set():
+                raise _DerivativePreempted()
+            remaining = None if timeout is None else timeout - (time.monotonic() - started)
+            if remaining is not None and remaining <= 0:
+                raise subprocess.TimeoutExpired(cmd, timeout, output=partial)
+            try:
+                output, _ = proc.communicate(timeout=min(.1, remaining) if remaining is not None else .1)
+                return subprocess.CompletedProcess(cmd, proc.returncode, stdout=output)
+            except subprocess.TimeoutExpired as exc:
+                partial = exc.output
+                continue
+    except BaseException:
+        proc.terminate()
+        try:
+            proc.communicate(timeout=1)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+        raise
+
+
 def run(
     cmd: list[str],
     *,
@@ -76,14 +116,14 @@ def run(
     timeout: float | None = GEOMETRY_SUBPROCESS_TIMEOUT_S,
 ) -> tuple[bool, str]:
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=ROOT,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=timeout,
-        )
+        command = ["nice", "-n", "10", *cmd] if current_priority() >= NEARBY else cmd
+        if _RUNNING_DERIVATIVE.get() is not None:
+            proc = _run_interruptible(command, timeout)
+        else:
+            proc = subprocess.run(
+                command, cwd=ROOT, text=True, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, timeout=timeout,
+            )
     except subprocess.TimeoutExpired as exc:
         partial = exc.output or ""
         if isinstance(partial, bytes):
@@ -179,7 +219,7 @@ def hazards_path(course_id: int, hole_number: int) -> Path:
 
 
 # Decoding is the first playable derivative.  On-demand installs hand the slower distance and
-# obstacle exports to a daemon lane after the mesh has been published, so a topo request can render
+# obstacle exports to a shared priority lane after mesh publication, so a topo request can render
 # while those supplements catch up.  The key prevents two overlapping requests for one hole from
 # writing the same derivative files concurrently.
 _DERIVATIVE_LOCK = threading.Lock()
@@ -187,13 +227,43 @@ _DERIVATIVE_LOCK = threading.Lock()
 # race where an old worker validates the old mesh and then replaces a hazard file immediately
 # after a newer release has installed its mesh.
 _DERIVATIVE_PUBLISH_LOCK = threading.Lock()
-_DERIVATIVE_JOBS: dict[tuple[int, int, str, str, str, str], threading.Thread] = {}
+
+
+class _DerivativeJob:
+    """A joinable job handle; execution belongs to the shared priority worker."""
+    def __init__(self, future: Future, priority: int):
+        self.future = future
+        self.priority = priority
+        self.cancel = threading.Event()
+        self.started: float | None = None
+        self.completed_exports = 0
+        self.queue_key = None
+
+    def done(self) -> bool:
+        return self.future.done()
+
+    def is_alive(self) -> bool:
+        return not self.done()
+
+    def join(self, timeout: float | None = None) -> None:
+        from concurrent.futures import wait
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            future = self.future
+            remaining = None if deadline is None else max(0, deadline - time.monotonic())
+            wait([future], timeout=remaining)
+            if self.future is future or (deadline is not None and time.monotonic() >= deadline):
+                return
+
+
+_DERIVATIVE_POOL = PriorityExecutor(1, name="geometry-derivatives")
+_DERIVATIVE_JOBS: dict[tuple[int, int, str, str, str, str], _DerivativeJob] = {}
 # A failed exporter must not be relaunched on every package request.  The identity is part of the
 # key, so a new mesh/release gets a clean retry budget immediately while a permanently broken
 # exporter backs off exponentially for the same bytes.  The timer is checked lazily by the next
 # ensure request; no extra process or resident retry thread is needed.
 _DERIVATIVE_FAILURES: dict[tuple[int, int, str, str, str, str], tuple[int, float]] = {}
-DERIVATIVE_BACKOFF_BASE_S = 1.0
+DERIVATIVE_BACKOFF_BASE_S = 30.0
 DERIVATIVE_BACKOFF_MAX_S = 300.0
 
 _DERIVATIVE_AUTHORITY_FIELDS = (
@@ -361,11 +431,13 @@ def _run_derivatives(
         identity,
     )
     success = False
+    preempted = False
     error_type = None
     try:
         distance_target.parent.mkdir(parents=True, exist_ok=True)
         hazard_target.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
+        logger.exception("geometry_derivatives directory_failed gid=%s hole=%s error=%s", course_id, hole_number, exc)
         _record_derivative_result(key, success=False, error_type=type(exc).__name__)
         return
     try:
@@ -376,6 +448,7 @@ def _run_derivatives(
                 previous = load_derivatives_status(mesh_file) or {}
                 write_derivatives_status(mesh_file, {
                     "status": "pending", "identity": identity,
+                    "retryAfterEpoch": time.time() + 30,
                     "failureCount": previous.get("failureCount", 0) if previous.get("identity") == identity else 0,
                     "lastErrorType": previous.get("lastErrorType") if previous.get("identity") == identity else None,
                     "updatedAt": datetime.now(UTC).isoformat(),
@@ -404,11 +477,18 @@ def _run_derivatives(
                 staged_hazards=staged_hazards,
             )
             try:
-                distance_ok, _ = run(distance_cmd)
+                distance_ok, output = run(distance_cmd)
             except Exception as exc:
                 distance_ok = False
                 error_type = type(exc).__name__
+                output = str(exc)
+            job = _RUNNING_DERIVATIVE.get()
+            if job is not None:
+                with _DERIVATIVE_LOCK:
+                    job.completed_exports = 1
             if not distance_ok:
+                logger.warning("geometry_derivatives failed gid=%s hole=%s stage=distances error_type=%s error=%s",
+                               course_id, hole_number, error_type or "ExportFailed", str(output).encode("utf-8")[:2048].decode("utf-8", "ignore"))
                 error_type = error_type or "ExportFailed"
             if distance_ok and staged_distances.is_file():
                 with _DERIVATIVE_PUBLISH_LOCK:
@@ -419,11 +499,14 @@ def _run_derivatives(
                     ):
                         os.replace(staged_distances, distance_target)
             try:
-                hazard_ok, _ = run(hazard_cmd)
+                hazard_ok, output = run(hazard_cmd)
             except Exception as exc:
                 hazard_ok = False
                 error_type = type(exc).__name__
+                output = str(exc)
             if not hazard_ok:
+                logger.warning("geometry_derivatives failed gid=%s hole=%s stage=hazards error_type=%s error=%s",
+                               course_id, hole_number, error_type or "ExportFailed", str(output).encode("utf-8")[:2048].decode("utf-8", "ignore"))
                 error_type = error_type or "ExportFailed"
             if hazard_ok and staged_hazards.is_file():
                 with _DERIVATIVE_PUBLISH_LOCK:
@@ -433,25 +516,53 @@ def _run_derivatives(
                         authority_descriptor=authority_descriptor,
                     ):
                         os.replace(staged_hazards, hazard_target)
+    except _DerivativePreempted:
+        preempted = True
+        raise
+    except Exception as exc:
+        error_type = type(exc).__name__
+        logger.exception("geometry_derivatives failed gid=%s hole=%s error=%s", course_id, hole_number, exc)
     finally:
-        with _DERIVATIVE_LOCK:
-            _DERIVATIVE_JOBS.pop(key, None)
-        # Obsolete jobs must never overwrite the newer release's status or prebuild its vectors.
-        with _DERIVATIVE_PUBLISH_LOCK:
-            current = _derivative_target_is_current(
-                mesh_file, mesh_digest=mesh_digest, authority_descriptor=authority_descriptor
-            )
-            if current:
-                success = distance_target.is_file() and hazard_target.is_file()
-                _record_derivative_result(key, success=success, error_type=error_type)
-        if success:
-            # Full factual vectors need BOTH supplements. Keep this off the mesh/topo hand-off.
-            from ai_caddie.courses.vector_prep import cached_vector_hole
+        if not preempted:
+            with _DERIVATIVE_LOCK:
+                _DERIVATIVE_JOBS.pop(key, None)
+            # Obsolete jobs must never overwrite the newer release's status or prebuild its vectors.
+            with _DERIVATIVE_PUBLISH_LOCK:
+                current = _derivative_target_is_current(
+                    mesh_file, mesh_digest=mesh_digest, authority_descriptor=authority_descriptor
+                )
+                if current:
+                    success = distance_target.is_file() and hazard_target.is_file()
+                    _record_derivative_result(key, success=success, error_type=error_type)
+            if success:
+                # Full factual vectors need BOTH supplements. Keep this off the mesh/topo hand-off.
+                from ai_caddie.courses.vector_prep import warm_requested_vectors
 
-            try:
-                cached_vector_hole(course_id, hole_number)
-            except Exception:
-                logger.exception("geometry_derivatives vector_failed gid=%s hole=%s", course_id, hole_number)
+                try:
+                    warm_requested_vectors(course_id, hole_number)
+                except Exception:
+                    logger.exception("geometry_derivatives vector_failed gid=%s hole=%s", course_id, hole_number)
+
+
+def _execute_derivatives(key, job, args) -> None:
+    with _DERIVATIVE_LOCK:
+        job.started = time.monotonic()
+        job.completed_exports = 0
+    token = _RUNNING_DERIVATIVE.set(job)
+    try:
+        _run_derivatives(*args)
+    except _DerivativePreempted:
+        # A new keyed generation avoids sharing the still-running old Future. Only this same
+        # worker executes either generation, so staging/publishing never overlaps.
+        with _DERIVATIVE_LOCK:
+            job.cancel.clear()
+            job.started = None
+            job.queue_key = (key, object())
+            job.future = _DERIVATIVE_POOL.submit_keyed(
+                job.queue_key, _execute_derivatives, key, job, args, priority=job.priority)
+        logger.info("geometry_derivatives yielded gid=%s hole=%s", args[0], args[1])
+    finally:
+        _RUNNING_DERIVATIVE.reset(token)
 
 
 def _start_derivative_job(
@@ -480,7 +591,9 @@ def _start_derivative_job(
     )
     with _DERIVATIVE_LOCK:
         previous = _DERIVATIVE_JOBS.get(key)
-        if previous is not None and previous.is_alive():
+        if previous is not None and not previous.done():
+            previous.priority = min(previous.priority, current_priority())
+            _DERIVATIVE_POOL.reprioritize(previous.queue_key, previous.priority)
             return False
         # A changed mesh/release identity starts with a fresh budget.  Drop only older identities
         # for this exact target tuple; unrelated holes and releases keep their own backoff.
@@ -496,26 +609,28 @@ def _start_derivative_job(
                 and status.get("status") == "failed"
                 and time.time() < float(status.get("retryAfterEpoch") or 0)):
             return False
-        worker = threading.Thread(
-            target=_run_derivatives,
-            args=(
-                int(course_id),
-                int(hole_number),
-                mesh_file,
-                distance_target,
-                hazard_target,
-                identity,
-                mesh_digest,
-                authority_descriptor,
-            ),
-            name=f"geometry-derivatives-{course_id}-{hole_number}",
-            daemon=True,
-        )
-        _DERIVATIVE_JOBS[key] = worker
         try:
-            worker.start()
+            # Submit under the reservation lock. The worker's completion path takes this same
+            # lock, so even an immediately completed export cannot leave a stale reservation.
+            lane = current_priority()
+            args = (int(course_id), int(hole_number), mesh_file, distance_target, hazard_target,
+                    identity, mesh_digest, authority_descriptor)
+            job = _DerivativeJob(Future(), lane)
+            job.queue_key = (key, object())
+            _DERIVATIVE_JOBS[key] = job
+            job.future = _DERIVATIVE_POOL.submit_keyed(
+                job.queue_key, _execute_derivatives, key, job, args, priority=lane)
+            if lane == FOREGROUND:
+                for running in _DERIVATIVE_JOBS.values():
+                    # Two exporter stages, each bounded to 180 s. Only the first, before
+                    # halfway through the total budget, may yield; later work completes.
+                    if (running is not job and not running.done() and running.priority >= NEARBY
+                            and running.started is not None and running.completed_exports == 0
+                            and time.monotonic() - running.started < GEOMETRY_SUBPROCESS_TIMEOUT_S):
+                        running.cancel.set()
         except Exception:
             _DERIVATIVE_JOBS.pop(key, None)
+            logger.exception("geometry_derivatives enqueue_failed gid=%s hole=%s", course_id, hole_number)
             return False
     return True
 

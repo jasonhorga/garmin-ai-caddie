@@ -4,7 +4,7 @@ from contextlib import contextmanager
 import copy
 from datetime import UTC, datetime
 import fcntl
-from concurrent.futures import Future
+from concurrent.futures import Future, TimeoutError
 import logging
 import hashlib
 from pathlib import Path
@@ -66,6 +66,7 @@ logger = logging.getLogger(__name__)
 # read-only projection for the duration of a request, so followers can share the leader's result
 # without introducing a persistent/stale response cache. This protects the single API worker from
 # duplicate stats/strategy CPU while retaining the existing complete-package contract.
+PACKAGE_FOLLOWER_WAIT_SECONDS = 1.0
 _PACKAGE_SINGLEFLIGHT_LOCK = threading.Lock()
 _PACKAGE_SINGLEFLIGHT: dict[tuple[Any, ...], Future[Any]] = {}
 
@@ -89,7 +90,8 @@ def _history_package_signature(data: object) -> tuple[Any, ...]:
     return (id(data), len(rounds), len(shots), stable_ids)
 
 
-def _package_singleflight(key: tuple[Any, ...], builder: Callable[[], Any]) -> Any:
+def _package_singleflight(key: tuple[Any, ...], builder: Callable[[], Any], *,
+                          fallback: Callable[[], Any] | None = None) -> Any:
     with _PACKAGE_SINGLEFLIGHT_LOCK:
         future = _PACKAGE_SINGLEFLIGHT.get(key)
         if future is None:
@@ -99,9 +101,19 @@ def _package_singleflight(key: tuple[Any, ...], builder: Callable[[], Any]) -> A
         else:
             leader = False
     if not leader:
-        # The leader owns exception publication too; every waiter receives the same failure and can
-        # use its existing offline/error fallback rather than starting another expensive build.
-        return future.result()
+        # Share the leader's result when it is available promptly. A slow leader continues
+        # independently while the follower reads a cached map/pending projection.
+        try:
+            return future.result(timeout=PACKAGE_FOLLOWER_WAIT_SECONDS)
+        except TimeoutError:
+            if fallback is None:
+                raise
+            mark_request_stage("singleflight_pending")
+            value = fallback()
+            value.sourceCoverage = {**value.sourceCoverage, "state": "degraded"}
+            value.offlinePackageStatus = {**value.offlinePackageStatus, "state": "degraded",
+                                          "cacheable": False, "degradationReason": "singleflight_timeout"}
+            return value
 
     try:
         value = builder()
@@ -357,7 +369,7 @@ def build_mobile_round_package_response(
         _history_package_signature(data),
     )
 
-    def build() -> LiveRoundPackageResponse:
+    def build(*, cache_only: bool = False) -> LiveRoundPackageResponse:
         # The round package is on the first-screen path. Use only already-cached
         # release bytes here; Tee/course-install workers own any zh_CHS refresh
         # so Garmin latency cannot hold the playable package hostage.
@@ -376,12 +388,13 @@ def build_mobile_round_package_response(
             captured_at=captured_at,
             weather_transport=OPEN_METEO_TRANSPORT,
             client_id=None,
-            ensure_geometry=ensure_geometry,
+            ensure_geometry=ensure_geometry and not cache_only,
             include_event_cursor=False,
             # The first-screen contract needs recent player carry evidence, not the complete
             # history/geometry quality report. The all-history projection is warmed by the
             # background stats path and remains available to history/review routes.
             stats_window="last20",
+            **({"map_only": True} if cache_only else {}),
         )
         # A past round names its loops only from durable facts (v2 contract); an unprovable
         # order is an explicit degraded package, never a guess from cache availability.
@@ -393,6 +406,7 @@ def build_mobile_round_package_response(
         package["coursePrep"] = first_hole_lightweight_course_prep(
             package,
             player_id=player_id,
+            **({"map_only": True} if cache_only else {}),
         )
         if package.get("coursePrep"):
             package["caddieContextSeeds"] = attach_canonical_prep_plan_to_caddie_seeds(
@@ -402,7 +416,7 @@ def build_mobile_round_package_response(
         mark_request_stage("caddie_seed")
         return LiveRoundPackageResponse(**package)
 
-    package = _package_singleflight(key, build)
+    package = _package_singleflight(key, build, fallback=lambda: build(cache_only=True))
     mark_request_stage("serialization")
     return _bind_package_event_cursor(
         package,
@@ -431,7 +445,7 @@ def build_mobile_course_package_response(
     if prepare_map:
         from server_v2.map_startup import prepare_priority_hole
 
-        prepare_priority_hole(loops, priority_hole=priority_hole, tee_box=tee_box)
+        prepare_priority_hole(loops, priority_hole=priority_hole, tee_box=tee_box, wait=False)
         mark_request_stage("priority_vector")
     if map_only:
         from ai_caddie.core.config import get_settings
@@ -455,7 +469,7 @@ def build_mobile_course_package_response(
         ("deferred",) if map_only else _history_package_signature(data),
     )
 
-    def build() -> LiveRoundPackageResponse:
+    def build(*, cache_only: bool = False) -> LiveRoundPackageResponse:
         # Refresh every selected physical loop before historical `ready` or cached precise files are
         # evaluated. This applies equally to played and never-played catalogue courses.
         _refresh_course_release_authority(
@@ -477,7 +491,7 @@ def build_mobile_course_package_response(
             captured_at=captured_at,
             weather_transport=OPEN_METEO_TRANSPORT,
             client_id=None,
-            ensure_geometry=ensure_geometry,
+            ensure_geometry=ensure_geometry and not cache_only,
             # The package contract is always a complete 18-hole fact set.  Expensive precise
             # geometry installation remains a separate durable job queued by the route below.
             include_course_prep=False,
@@ -489,7 +503,7 @@ def build_mobile_course_package_response(
             # sourceCoverage.playerStatsWindow.
             stats_window="last20",
             defer_non_priority_enrichment=True,
-            map_only=map_only,
+            map_only=map_only or cache_only,
         )
         mark_request_stage("facts_package")
         # Keep immediately drawable factual CourseView seeds for every playable hole while the
@@ -499,7 +513,7 @@ def build_mobile_course_package_response(
         package["coursePrep"] = first_hole_lightweight_course_prep(
             package,
             player_id=player_id,
-            **({"map_only": True} if map_only else {}),
+            **({"map_only": True} if map_only or cache_only else {}),
         )
         if package.get("coursePrep"):
             package["caddieContextSeeds"] = attach_canonical_prep_plan_to_caddie_seeds(
@@ -509,7 +523,7 @@ def build_mobile_course_package_response(
         mark_request_stage("caddie_seed")
         return LiveRoundPackageResponse(**package)
 
-    package = _package_singleflight(key, build)
+    package = _package_singleflight(key, build, fallback=lambda: build(cache_only=True))
     package = _rebind_course_package_round_identity(
         package,
         round_id,
@@ -539,6 +553,7 @@ def append_mobile_events_response(
     player_id: str = OWNER_ID,
 ) -> LiveRoundEventBatchResponse:
     if request.roundId != round_id:
+        logger.warning("mobile_events validation_failed status=422 path=body.roundId type=path_mismatch")
         raise HTTPException(status_code=422, detail="roundId does not match path")
     with _mobile_materialization_lock(player_id):
         try:
@@ -550,6 +565,7 @@ def append_mobile_events_response(
                 player_id=player_id,
             )
         except ValueError as exc:
+            logger.warning("mobile_events validation_failed status=422 path=body.events type=event_batch_invalid")
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         # If another device already finished this round, the append itself is the earliest reliable
         # moment to refresh history. This also covers an upgraded legacy Watch queue that relays
