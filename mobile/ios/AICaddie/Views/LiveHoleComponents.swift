@@ -1832,6 +1832,44 @@ enum LivePlayMapOverlayLayout {
     static let chromeGap: CGFloat = 8
 }
 
+/// Shared Garmin → precise transfer, including the same display-time offset clamp used by the
+/// hero. CurrentHoleView and native acceptance tests call this one path so viewport evidence covers
+/// the value actually rendered on screen.
+enum LiveMapViewportCarryOver {
+    static func transfer(
+        viewportSize: CGSize,
+        sourceFrame: CGRect,
+        destinationFrame: CGRect,
+        sourceOverlay: CoursePrepOverlay,
+        destinationOverlay: CoursePrepOverlay,
+        sourceProjection: CoursePrepHoleImageProjection,
+        destinationProjection: CoursePrepHoleImageProjection,
+        scale: CGFloat,
+        offset: CGSize
+    ) -> (scale: CGFloat, offset: CGSize)? {
+        guard let transfer = GarminRasterViewportTransfer.transfer(
+            viewportSize: viewportSize,
+            sourceFrame: sourceFrame,
+            destinationFrame: destinationFrame,
+            sourceOverlay: sourceOverlay,
+            destinationOverlay: destinationOverlay,
+            sourceProjection: sourceProjection,
+            destinationProjection: destinationProjection,
+            scale: scale,
+            offset: offset
+        ) else { return nil }
+        return (
+            transfer.scale,
+            LivePlayMapOverlayLayout.clampedOffset(
+                transfer.offset,
+                mapFrame: destinationFrame,
+                viewportSize: viewportSize,
+                scale: transfer.scale
+            )
+        )
+    }
+}
+
 /// One floating live-play control's frame in global coordinates. Every control keeps the route
 /// labels clear of it; only the fixed ones (`framesMap`) also frame the lightweight map, so a
 /// control that comes and goes (the obstacle bar, 回到) never moves the map under the player.
@@ -2213,7 +2251,11 @@ enum LiveMapDisplayState: Equatable {
     case factualPending
     /// Partial facts with nothing better coming (offline, timed out, or no service).
     case factual
+    /// Garmin's raster fallback is visible while the precise CourseView image is pending.
+    case garminRaster
     case precise
+    /// Numeric hole facts remain available when neither raster is usable.
+    case numericPlaceholder
 
     static func isPrecisePending(
         geometryCoverage: String?,
@@ -2231,6 +2273,31 @@ enum LiveMapDisplayState: Equatable {
             return pending ? .factualPending : .factual
         }
         return .precise
+    }
+
+    /// All inputs that can change the live fallback state. Keeping this pure makes the actual hole
+    /// screen and the acceptance tests exercise the same JPEG-failure and descriptor branches.
+    struct LiveInputs: Equatable {
+        let coverage: String?
+        let preciseTopoImageReady: Bool
+        let garminRaster: GarminRasterResponse?
+        let garminImageFailed: Bool
+        let hasCachedPreciseTopo: Bool
+
+        var preciseGeometryReady: Bool {
+            coverage?.caseInsensitiveCompare("ready") == .orderedSame || hasCachedPreciseTopo
+        }
+    }
+
+    /// Phone live-play display priority: precise CourseView raster > Garmin raster image > numeric
+    /// placeholder. A Garmin descriptor with `available=false` can still provide a visual image,
+    /// but its projection is intentionally absent and the caller draws no geo overlays.
+    static func resolveLive(_ inputs: LiveInputs) -> LiveMapDisplayState {
+        if inputs.preciseTopoImageReady && inputs.preciseGeometryReady { return .precise }
+        if !inputs.garminImageFailed, inputs.garminRaster?.hasDisplayableImage == true {
+            return .garminRaster
+        }
+        return .numericPlaceholder
     }
 
     /// 备战 applies the same contract to the installed course. Precise means precise facts AND the
@@ -2253,5 +2320,124 @@ enum LiveMapDisplayState: Equatable {
     }
 
     /// 洞条: a hole whose precise map is not ready is only faded; tapping it still opens it.
-    var fadesInHoleStrip: Bool { self != .precise }
+    var fadesInHoleStrip: Bool { self == .numericPlaceholder || self == .waiting || self == .factualPending || self == .factual }
+}
+
+/// Selects the pixel facts that belong to the bitmap currently shown by the live hole. Keeping
+/// this decision pure prevents a numeric/error state from accidentally reusing a topo overlay or
+/// projection, and lets native tests exercise the same branch as CurrentHoleView.
+enum LiveMapDisplaySelection {
+    /// Overlay dimensions used by map gestures, including a Garmin bitmap whose projection is
+    /// unavailable and therefore has no factual route to remap. Numeric placeholders have no map
+    /// plane and deliberately return nil.
+    static func gestureFrameOverlay(
+        for state: LiveMapDisplayState,
+        overlay: CoursePrepOverlay?,
+        garminProjection: CoursePrepHoleImageProjection?
+    ) -> CoursePrepOverlay? {
+        if let overlay, (state == .precise || state == .garminRaster) { return overlay }
+        guard state == .garminRaster else { return nil }
+        let width = (garminProjection?.widthPx ?? 0) > 0
+            ? (garminProjection?.widthPx ?? 1242)
+            : 1242
+        let height = (garminProjection?.heightPx ?? 0) > 0
+            ? (garminProjection?.heightPx ?? 1920)
+            : 1920
+        return CoursePrepOverlay(w: width, h: height, ppm: 1, ln: 0, route: [])
+    }
+
+    static func gestureScale(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {
+        guard state != .numericPlaceholder else { return 1 }
+        return min(max(proposed, 1), 4)
+    }
+
+    static func gestureOffset(for state: LiveMapDisplayState, proposed: CGSize) -> CGSize {
+        state == .numericPlaceholder ? .zero : proposed
+    }
+
+    static func projection(
+        for state: LiveMapDisplayState,
+        precise: CoursePrepHoleImageProjection?,
+        garmin: CoursePrepHoleImageProjection?
+    ) -> CoursePrepHoleImageProjection? {
+        switch state {
+        case .garminRaster:
+            return garmin
+        case .precise:
+            return precise
+        case .waiting, .factualPending, .factual, .numericPlaceholder:
+            return nil
+        }
+    }
+
+    static func overlay(
+        for state: LiveMapDisplayState,
+        precise: CoursePrepOverlay?,
+        preciseProjection: CoursePrepHoleImageProjection?,
+        garminProjection: CoursePrepHoleImageProjection?
+    ) -> CoursePrepOverlay? {
+        switch state {
+        case .precise:
+            return precise
+        case .garminRaster:
+            guard let precise,
+                  let garminProjection else { return nil }
+            return GarminRasterProjectionMath.remapOverlay(
+                precise,
+                from: preciseProjection,
+                to: garminProjection
+            )
+        case .waiting, .factualPending, .factual, .numericPlaceholder:
+            return nil
+        }
+    }
+}
+
+/// Compact live-hole fallback. It keeps the same numeric facts visible while both raster paths are
+/// unavailable; the copy describes the active download without exposing an implementation state.
+struct LiveMapNumericPlaceholder: View {
+    let holeNumber: Int
+    let par: Int?
+    let yards: Int?
+    let frontYards: Int?
+    let middleYards: Int?
+    let backYards: Int?
+
+    var body: some View {
+        ZStack {
+            LivePlayStyle.base
+            VStack(spacing: 12) {
+                HStack(spacing: 12) {
+                    metric("洞", value: "\(holeNumber)")
+                    metric("Par", value: par.map(String.init) ?? "—")
+                    metric("码数", value: yards.map(String.init) ?? "—")
+                }
+                HStack(spacing: 18) {
+                    metric("前", value: frontYards.map(String.init) ?? "—")
+                    metric("中", value: middleYards.map(String.init) ?? "—")
+                    metric("后", value: backYards.map(String.init) ?? "—")
+                }
+                Text("正在下载")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(LivePlayStyle.ink60)
+            }
+            .padding(20)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("第 \(holeNumber) 洞，正在下载")
+        .accessibilityIdentifier("live-map-numeric-placeholder")
+    }
+
+    private func metric(_ title: String, value: String) -> some View {
+        VStack(spacing: 3) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(LivePlayStyle.ink60)
+            Text(value)
+                .font(.system(size: 24, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(LivePlayStyle.ink)
+        }
+        .frame(minWidth: 54)
+    }
 }

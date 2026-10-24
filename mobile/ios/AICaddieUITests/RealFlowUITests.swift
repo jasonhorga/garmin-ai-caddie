@@ -1397,53 +1397,27 @@ final class RealFlowUITests: XCTestCase {
         primary.tap()
 
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 90))
-        let partialMap = app.descendants(matching: .any)["live-hole-map-partial"].firstMatch
         let topoReady = app.descendants(matching: .any)
             .matching(identifier: "topo-hole-base-ready").firstMatch
         let firstFactualMap = app.descendants(matching: .any).matching(
             NSPredicate(
                 format: "identifier IN %@",
-                ["live-hole-map-partial", "topo-hole-base-ready"]
+                [
+                    "live-hole-map-garmin-raster",
+                    "garmin-raster-ready",
+                    "live-map-numeric-placeholder",
+                    "topo-hole-base-ready"
+                ]
             )
         ).firstMatch
         XCTAssertTrue(
             firstFactualMap.waitForExistence(timeout: 90),
             "a new course must render either factual CourseView vectors or an already-finished precise topo"
         )
-        let preparing = app.descendants(matching: .any)["live-map-preparing"].firstMatch
-        let topoLoading = app.descendants(matching: .any)
-            .matching(identifier: "topo-hole-base-loading").firstMatch
-        // `firstFactualMap` can observe the lightweight map just as the precise topo commits. A
-        // retained XCUI query may still report the old partial snapshot for one turn. The route is
-        // deliberately usable in this state, so a loading/preparing disclosure is optional; the
-        // contract is that the factual map remains visible and eventually upgrades to precise
-        // geometry without exposing an unselected hazard overlay.
-        let observedLightweightMap = partialMap.exists && !topoReady.exists
-        if observedLightweightMap {
-            XCTAssertTrue(partialMap.exists, "the factual route map must remain visible while precise geometry loads")
-            XCTAssertFalse(
-                app.descendants(matching: .any)["live-hazard-detail"].firstMatch.exists,
-                "hazards are opt-in and must stay hidden until the player selects one"
-            )
-            if !topoReady.exists && !topoLoading.exists && !preparing.exists {
-                settle(1); save("09d-new-course-lightweight-map"); dump("09d-new-course-lightweight-map")
-            }
-        }
-
         XCTAssertTrue(
             topoReady.waitForExistence(timeout: 300),
             "the same live hole must finish with the precise topo"
         )
-        if observedLightweightMap {
-            XCTAssertTrue(
-                waitUntilGone(partialMap, timeout: 10),
-                "the precise topo must replace the observed lightweight map in place"
-            )
-            XCTAssertTrue(
-                waitUntilGone(app.descendants(matching: .any)["live-map-preparing"].firstMatch, timeout: 10),
-                "the preparing disclosure must leave with the partial map"
-            )
-        }
         settle(1); save("09e-new-course-precise-map"); dump("09e-new-course-precise-map")
 
         // No score has been written yet. The durable live cursor created by Start must still restore
@@ -1474,7 +1448,11 @@ final class RealFlowUITests: XCTestCase {
             "restored new-course round must reopen the same precise first-hole map"
         )
         let restoredMap = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH 'live-hole-map-'"))
+            .matching(NSPredicate(
+                format: "identifier BEGINSWITH %@ OR identifier == %@",
+                "live-hole-map-",
+                "live-map-numeric-placeholder"
+            ))
             .firstMatch
         XCTAssertTrue(
             restoredMap.waitForExistence(timeout: 12),

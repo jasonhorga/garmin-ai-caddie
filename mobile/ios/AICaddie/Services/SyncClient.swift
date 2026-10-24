@@ -458,6 +458,9 @@ public final class SyncClient {
     /// Renderer contract shared with the phone's on-disk topo cache and Watch transfer metadata.
     /// Bump this whenever existing rendered pixels must be invalidated on installed devices.
     public static let topoStyleVersion = "topo-v11"
+    /// Version of the Garmin fallback asset. It is part of the URL/cache key so a changed server
+    /// crop or projection never reuses an older 1242×1920 image.
+    public static let garminRasterStyleVersion = "garmin-raster-v1"
     /// Version only the focused View Green asset; changing it must not invalidate every course topo.
     public static let greenDetailStyleVersion = "green-v3"
     public static let greenDetailImageSize = 1280
@@ -465,6 +468,7 @@ public final class SyncClient {
     static let coursePackageTimeoutInterval: TimeInterval = 120
     static let coursePrepTimeoutInterval: TimeInterval = 90
     static let courseTopoTimeoutInterval: TimeInterval = 60
+    static let garminRasterTimeoutInterval: TimeInterval = 20
     static let courseCoverageTimeoutInterval: TimeInterval = 15
     static let courseInstallRevalidationTimeoutInterval: TimeInterval = 8
     static let courseInstallStatusTimeoutInterval: TimeInterval = 30
@@ -1202,6 +1206,27 @@ public final class SyncClient {
             throw URLError(.cannotDecodeContentData)
         }
         return data
+    }
+
+    /// Fetch the small Garmin raster descriptor before the precise CourseView geometry is ready.
+    /// A missing/failed descriptor is intentionally surfaced as an ordinary error so live play can
+    /// fall back to its numeric placeholder without affecting the factual course package.
+    public func fetchGarminRaster(
+        globalId: Int,
+        localHole: Int
+    ) async throws -> GarminRasterResponse {
+        let endpoint = endpointURL(
+            "/api/v2/courses/\(globalId)/holes/\(localHole)/garmin-raster"
+        )
+        var request = URLRequest(url: endpoint)
+        request.timeoutInterval = Self.garminRasterTimeoutInterval
+        applyAuth(to: &request)
+        let data = try await fetchRetriableGetData(
+            request,
+            maximumAttempts: Self.courseAssetMaximumAttempts
+        )
+        let descriptor = try JSONDecoder().decode(GarminRasterResponse.self, from: data)
+        return descriptor
     }
 
     public func fetchGreenDetailImage(

@@ -302,6 +302,8 @@ struct CoursePrepStrategyScreen: View {
     static func mapStateDescription(_ state: LiveMapDisplayState) -> String {
         switch state {
         case .precise: return "精确地图"
+        case .garminRaster: return "Garmin 球道图"
+        case .numericPlaceholder: return "数字地图占位"
         case .factualPending: return "路线 · 精确地图准备中"
         case .factual: return "路线"
         case .waiting: return "等待地图"
