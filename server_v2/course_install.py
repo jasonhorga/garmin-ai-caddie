@@ -36,6 +36,7 @@ _RESUME_BACKLOG: list[str] = []
 # perform one normal resume pass before applying the same bounded backoff again.
 _RETRY_TIMERS: dict[str, threading.Timer] = {}
 _RETRY_ATTEMPTS: dict[str, int] = {}
+_DERIVATIVE_LOG_SIGNATURES: dict[str, dict[str, tuple]] = {}
 # A persistent authority/provider outage should become an actionable failed row rather than
 # consuming a worker forever. An explicit enqueue/retry resets this counter below.
 _MAX_RETRY_ATTEMPTS = 8
@@ -502,15 +503,22 @@ def _schedule_retry(identifier: str) -> None:
                 delay = _DEFERRED_RETRY_SECONDS
             else:
                 delay = _derivative_delay(state)
+            logged = _DERIVATIVE_LOG_SIGNATURES.get(identifier, {})
+            current: dict[str, tuple] = {}
             for key, row in (state.get("holes") or {}).items():
                 if isinstance(row, dict) and _geometry_ready(row) and _derivatives_waiting(row):
-                    logger.info(
+                    failures = int(row.get("derivativesFailureCount") or 0)
+                    signature = (row.get("derivatives"), failures, row.get("derivativesRetryAfterEpoch"))
+                    current[key] = signature
+                    # INFO only when a hole's export state changes: a plan deferred while playing
+                    # nearby re-runs every minute with nothing new to say.
+                    logger.log(
+                        logging.DEBUG if logged.get(key) == signature else logging.INFO,
                         "course_install stage=derivatives job=%s hole=%s state=%s failures=%s "
                         "retry_after_epoch=%s next_attempt_in_s=%.0f",
-                        identifier, key, row.get("derivatives"),
-                        int(row.get("derivativesFailureCount") or 0),
-                        row.get("derivativesRetryAfterEpoch"), delay,
+                        identifier, key, signature[0], failures, signature[2], delay,
                     )
+            _DERIVATIVE_LOG_SIGNATURES[identifier] = current
             _arm_retry_timer(identifier, state, delay)
             return
         attempt = _RETRY_ATTEMPTS.get(identifier, 0)

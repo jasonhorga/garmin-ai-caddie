@@ -20,6 +20,7 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from urllib.error import HTTPError
 
 from ai_caddie.core.data import ROOT, atomic_write_json, read_json, safe_read_json, write_json
 from ai_caddie.courses.name_authority import contains_cjk, normalize_course_text
@@ -40,6 +41,9 @@ _RELEASE_LOCKS = tuple(threading.Lock() for _ in range(64))
 # retried the (30s-timeout) fetch serially under the per-course lock while Garmin was flaky.
 COURSEVIEW_RELEASE_RETRY_BACKOFF_S = 300.0
 _RELEASE_FETCH_FAILED_AT: dict[tuple[str, int], float] = {}
+# The last fetch of a never-cached release failed for a transient reason (network, 5xx, malformed
+# bytes). Garmin answering 404/410 is a fact — no such layout — and is not recorded here.
+_RELEASE_UNCACHED_FAILURES: dict[tuple[str, int], str] = {}
 
 PAR_SOURCES = ("played", "courseview", "estimate")
 
@@ -431,8 +435,13 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
                         int(COURSEVIEW_RELEASE_RETRY_BACKOFF_S),
                         type(exc).__name__,
                     )
+                elif isinstance(exc, HTTPError) and exc.code in (404, 410):
+                    _RELEASE_UNCACHED_FAILURES.pop(failure_key, None)
+                else:
+                    _RELEASE_UNCACHED_FAILURES[failure_key] = type(exc).__name__
                 return cached_info  # offline: the last complete release remains usable
             _RELEASE_FETCH_FAILED_AT.pop(failure_key, None)
+            _RELEASE_UNCACHED_FAILURES.pop(failure_key, None)
             _atomic_write_bytes(path, candidate)
             record_release_language(gid, candidate, root=root)
             info["_localized"] = True
@@ -454,6 +463,11 @@ def courseview_release_info(
     instead of each subsystem inventing its own catalogue state.
     """
     return _release_info(global_id, allow_fetch=allow_fetch, root=root)
+
+
+def courseview_release_fetch_failed(global_id: int, *, root: Path = ROOT) -> bool:
+    """Whether the last fetch of this uncached release hit a provider outage, not a 404."""
+    return (str(root.resolve()), int(global_id)) in _RELEASE_UNCACHED_FAILURES
 
 
 def _release_holes(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> list[dict] | None:

@@ -184,13 +184,28 @@ from .timing import RequestTiming, bind as bind_request_timing, mark as mark_req
 from .sync_jobs import CancelledSyncJob, GarminSyncJobStore, RetrySyncJob
 
 
+# Background course progress visible in production logs at INFO. Volume per course install: the
+# derivative logger writes at most seven `course_asset` stage lines per hole (download … install),
+# map_startup one line per started round, course_install failures plus one `stage=derivatives` line
+# per hole each time its export state changes, mobile one `course_package cold_release` line per
+# never-installed course start.
+SERVICE_INFO_LOGGERS = (
+    "server_v2.timing",
+    "server_v2.course_install",
+    "ai_caddie.geometry.batch_prodgeometry_course",  # geometry_derivatives / course_asset lines
+    "server_v2.map_startup",
+    "server_v2.mobile",
+)
+
+
 def configure_request_timing_logging() -> None:
     """Service logging belongs to startup, never to importing a library hook."""
-    timing_log = logging.getLogger("server_v2.timing")
-    timing_log.setLevel(logging.INFO)
-    if not timing_log.handlers:
-        timing_log.handlers.extend(logging.getLogger("uvicorn.error").handlers or [logging.StreamHandler()])
-    timing_log.propagate = False
+    for name in SERVICE_INFO_LOGGERS:
+        service_log = logging.getLogger(name)
+        service_log.setLevel(logging.INFO)
+        if not service_log.handlers:
+            service_log.handlers.extend(logging.getLogger("uvicorn.error").handlers or [logging.StreamHandler()])
+        service_log.propagate = False
 
 
 @contextlib.asynccontextmanager

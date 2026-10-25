@@ -24,6 +24,14 @@ class RoundLoopError(ValueError):
     """A ``loops=`` request, or a package, that does not name one unambiguous round order."""
 
 
+class RoundLoopFactsMissingError(RoundLoopError):
+    """The loops cannot be proven yet because a course's layout facts are not available.
+
+    Distinct from a request that contradicts a known shape (``:all`` on an 18-hole course): a
+    caller that can still obtain the course's Garmin release may retry instead of rejecting.
+    """
+
+
 @dataclass(frozen=True)
 class CourseShape:
     """Authoritative physical shape of one Garmin course: 9 (a loop) or 18 holes, and its venue."""
@@ -98,7 +106,7 @@ def resolve_round_loops(
     for gid, half in loops:
         shape = shape_of(int(gid))
         if shape is None:
-            raise RoundLoopError(f"course {gid} has no authoritative hole layout")
+            raise RoundLoopFactsMissingError(f"course {gid} has no authoritative hole layout")
         if half == "all" and shape.holes != ROUND_LOOP_HOLES:
             raise RoundLoopError(f"{gid}:all needs an authoritative 9-hole loop")
         if half in ("front", "back") and shape.holes != 2 * ROUND_LOOP_HOLES:
