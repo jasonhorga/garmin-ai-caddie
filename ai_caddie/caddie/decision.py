@@ -5209,6 +5209,12 @@ def _pin_distance(context: dict[str, Any]) -> float:
     return max(1.0, _float(context.get("distanceToPin_m"), 0.0))
 
 
+def _has_pin_distance(context: dict[str, Any]) -> bool:
+    """Approach/recovery carries are offsets from a measured distance; without one they are invented."""
+    distance_m = _float(context.get("distanceToPin_m"), math.nan)
+    return math.isfinite(distance_m) and distance_m > 0
+
+
 def _shot_option(
     context: dict[str, Any],
     *,
@@ -5345,6 +5351,8 @@ def _layup_leaves(context: dict[str, Any], distance_m: float) -> dict[str, float
 
 
 def _approach_options(context: dict[str, Any]) -> list[dict[str, Any]]:
+    if not _has_pin_distance(context):
+        return []
     distance_m = _pin_distance(context)
     hazards = context.get("hazards") or []
     hazard_penalty = 1 if hazards else 0
@@ -5417,6 +5425,8 @@ def _approach_options(context: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _recovery_options(context: dict[str, Any]) -> list[dict[str, Any]]:
+    if not _has_pin_distance(context):
+        return []
     distance_m = _pin_distance(context)
     blocked = bool(context.get("blockedView"))
     lie = str(context.get("lie") or "").lower()

@@ -65,7 +65,6 @@ class DegradeTests(HTTPFixture, unittest.TestCase):
                 distance_keys={"distanceToPin_m","frontM","middleM","backM","slopeAdjustmentM"}
                 self.assertEqual([(p,v) for p,k,v in walk(result) if k in distance_keys and v is not None],[])
 
-    @unittest.expectedFailure
     def test_j8_2_nontee_without_distance_does_not_invent_targets(self):
         violations=[]
         for shot in ("approach","recovery"):
