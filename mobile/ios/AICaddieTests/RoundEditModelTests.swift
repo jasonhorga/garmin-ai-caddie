@@ -567,6 +567,37 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertEqual(corrections[0]["op"] as? String, "replaceHoleShots")
     }
 
+    func testSaveOrdersPuttAndWholeHoleWritesAroundTheC20Invariant() async throws {
+        // Hand-written C20 examples: a five-stroke hole must stay >= putts + penalty + 1.
+        // Every expected order first lowers a field, then applies the whole-hole/total write, then
+        // raises a field. The request order is part of the contract, rather than inferred by the test.
+        let cases: [(String, Int, Int, Int, Int, [String])] = [
+            ("putts 3→2, penalty 0→2", 3, 0, 2, 2, ["putt", "whole-hole"]),
+            ("putts 2→3, penalty 2→0", 2, 2, 3, 0, ["whole-hole", "putt"]),
+            ("putts 3→2, penalty 2→0", 3, 2, 2, 0, ["putt", "whole-hole"]),
+            ("putts 2→3, penalty 0→2", 2, 0, 3, 2, ["whole-hole", "putt"]),
+        ]
+        for (label, oldPutts, oldPenalty, newPutts, newPenalty, expected) in cases {
+            var order: [String] = []
+            let model = makeModel(putts: oldPutts, manualPenalty: oldPenalty) { request in
+                guard request.httpMethod == "POST" else { return Self.response(request, status: 503) }
+                if request.url?.path == "/api/v2/annotations" {
+                    order.append("putt")
+                } else {
+                    order.append("whole-hole")
+                }
+                return Self.response(request, status: 201, body: #"{"stored":{}}"#)
+            }
+            model.enterEdit()
+            model.adjustPutts(by: newPutts - oldPutts)
+            model.setPenalty(newPenalty)
+
+            let saved = await model.save()
+            XCTAssertTrue(saved, label)
+            XCTAssertEqual(order, expected, label)
+        }
+    }
+
     private func makeModel(
         shots: [RoundShot]? = nil,
         includeMap: Bool = true,
@@ -574,6 +605,7 @@ final class RoundEditModelTests: XCTestCase {
         geometryRevision: String? = "geometry-r1",
         ppm: Double = 1,
         putts: Int? = nil,
+        manualPenalty: Int = 0,
         now: @escaping () -> Date = Date.init,
         handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
     ) -> RoundEditModel {
@@ -619,7 +651,8 @@ final class RoundEditModelTests: XCTestCase {
                 localHole: 4,
                 geometryRevision: geometryRevision,
                 map: includeMap ? courseMap : nil,
-                shots: shots ?? defaultShots
+                shots: shots ?? defaultShots,
+                manualPenalty: manualPenalty
             ),
             sync: SyncClient(
                 baseURL: URL(string: "https://example.test")!,

@@ -12,6 +12,7 @@ public struct WatchInputView: View {
     @State private var distanceYd: Int
     @State private var scoreDirty = false
     @State private var puttsDirty = false
+    @State private var penaltyDirty = false
     @State private var clubDirty = false
     @State private var distanceDirty = false
 
@@ -34,7 +35,7 @@ public struct WatchInputView: View {
             Stepper("推 \(putts)", value: $putts, in: 0...6)
             Button {
                 penaltyCount += 1
-                emit(kind: .penalty, value: "\(penaltyCount)")
+                penaltyDirty = true
             } label: {
                 Label("罚 \(penaltyCount)", systemImage: "plus.circle")
             }
@@ -49,18 +50,14 @@ public struct WatchInputView: View {
                     // 显示/输入是码,但事件/状态(distanceM)与 Garmin 一致仍是米 → 边界换算回米。
                     emit(kind: .distance, value: "\(Int(WatchUnits.metres(fromYards: distanceYd).rounded()))")
                 }
-                if scoreDirty {
-                    emit(kind: .score, value: "\(score)")
-                }
-                if puttsDirty {
-                    emit(kind: .putt, value: "\(putts)")
-                }
+                emitScoreFields()
                 if clubDirty && hasClubContext {
                     emit(kind: .club, value: selectedClub)
                 }
                 distanceDirty = false
                 scoreDirty = false
                 puttsDirty = false
+                penaltyDirty = false
                 clubDirty = false
             }
         }
@@ -85,6 +82,28 @@ public struct WatchInputView: View {
 
     private var hasClubContext: Bool {
         !selectedClub.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// C20 makes each event valid on its own. Lower putts/penalties first, set the total, then
+    /// raise putts/penalties; otherwise a valid final card can be rejected at an impossible midpoint.
+    private func emitScoreFields() {
+        let puttsWentDown = puttsDirty && putts < state.putts
+        let penaltyWentDown = penaltyDirty && penaltyCount < state.penaltyCount
+        if puttsWentDown {
+            emit(kind: .putt, value: "\(putts)")
+        }
+        if penaltyWentDown {
+            emit(kind: .penalty, value: "\(penaltyCount)")
+        }
+        if scoreDirty {
+            emit(kind: .score, value: "\(score)")
+        }
+        if puttsDirty && !puttsWentDown {
+            emit(kind: .putt, value: "\(putts)")
+        }
+        if penaltyDirty && !penaltyWentDown {
+            emit(kind: .penalty, value: "\(penaltyCount)")
+        }
     }
 
     private func emit(kind: WatchInputKind, value: String) {

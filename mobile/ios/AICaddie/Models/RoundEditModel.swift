@@ -326,11 +326,25 @@ public final class RoundEditModel: ObservableObject {
             )
         }
         do {
-            if let operation = pendingSaveOp {
-                try await sync.postRoundCorrection(roundRef: roundRef, operation)
-            }
-            if let correction = pendingPuttCorrection {
-                try await sync.postHolePuttCorrection(correction)
+            // C20 requires total >= putts + penalty + 1 after every write. The whole-hole
+            // correction carries the final penalty and shot snapshot; putt correction carries the
+            // final putt count. Lowering putts first makes room for a higher penalty, while raising
+            // putts last leaves the already-applied penalty/shot state valid at every step.
+            let puttsWentDown = (putts ?? 0) < (originalPutts ?? 0)
+            if puttsWentDown {
+                if let correction = pendingPuttCorrection {
+                    try await sync.postHolePuttCorrection(correction)
+                }
+                if let operation = pendingSaveOp {
+                    try await sync.postRoundCorrection(roundRef: roundRef, operation)
+                }
+            } else {
+                if let operation = pendingSaveOp {
+                    try await sync.postRoundCorrection(roundRef: roundRef, operation)
+                }
+                if let correction = pendingPuttCorrection {
+                    try await sync.postHolePuttCorrection(correction)
+                }
             }
             originalPutts = putts
             if !shotsChanged {
