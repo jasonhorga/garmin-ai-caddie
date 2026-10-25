@@ -531,6 +531,21 @@ def _hole_geometry_coverage(pairs: list[tuple[dict[str, Any], dict[str, Any]]], 
 
 
 HANDICAP_WINDOW_ROUNDS = 20
+HANDICAP_MIN_DIFFERENTIALS = 3
+# WHS Rule 5.2 table: (highest N in the band, lowest k differentials averaged, adjustment).
+HANDICAP_WHS_TABLE = (
+    (3, 1, -2.0),
+    (4, 1, -1.0),
+    (5, 1, 0.0),
+    (6, 2, -1.0),
+    (8, 2, 0.0),
+    (11, 3, 0.0),
+    (14, 4, 0.0),
+    (16, 5, 0.0),
+    (18, 6, 0.0),
+    (19, 7, 0.0),
+    (20, 8, 0.0),
+)
 
 
 def _handicap_differential(row: dict[str, Any]) -> float | None:
@@ -561,9 +576,11 @@ def _handicap_estimate(rounds: list[dict[str, Any]]) -> float | None:
     the most recent 20 of those differentials by date — like WHS, an unpriceable
     round never holds one of the 20 places. (That cut at 20 ACTUAL rounds belongs to
     the "近 20 场变化" split in ``_handicap_change_recent``, not to the estimate.)
-    Needs at least 5 differentials; average the LOWEST ``ceil(0.4 * N)`` of the N,
-    round to 1 decimal. No 0.96 factor: that is the pre-2020 USGA multiplier, not
-    part of WHS.
+    With N of those differentials, follow the WHS table (``HANDICAP_WHS_TABLE``):
+    N < 3 -> None; 3 -> lowest 1 - 2.0; 4 -> lowest 1 - 1.0; 5 -> lowest 1;
+    6 -> lowest 2 - 1.0; 7-8 -> 2; 9-11 -> 3; 12-14 -> 4; 15-16 -> 5; 17-18 -> 6;
+    19 -> 7; 20 -> 8. Average the lowest k, add the adjustment, round to 1 decimal.
+    No 0.96 factor: that is the pre-2020 USGA multiplier, not part of WHS.
     """
     priced = [
         (str(row.get("date") or ""), i, differential)
@@ -572,11 +589,11 @@ def _handicap_estimate(rounds: list[dict[str, Any]]) -> float | None:
     ]
     priced.sort(reverse=True)
     recent = [differential for _day, _i, differential in priced[:HANDICAP_WINDOW_ROUNDS]]
-    if len(recent) < 5:
+    if len(recent) < HANDICAP_MIN_DIFFERENTIALS:
         return None
-    take = math.ceil(0.4 * len(recent))
+    take, adjustment = next((k, adj) for max_n, k, adj in HANDICAP_WHS_TABLE if len(recent) <= max_n)
     lowest = sorted(recent)[:take]
-    return round(sum(lowest) / len(lowest), 1)
+    return round(sum(lowest) / len(lowest) + adjustment, 1)
 
 
 HANDICAP_CHANGE_ROUNDS = 20
@@ -586,7 +603,7 @@ def _handicap_change_recent(rounds: list[dict[str, Any]], count: int = HANDICAP_
     """B5 成绩 (README §9 "差点估算 … 近 20 场"): the estimate now minus the estimate as it stood
     before the newest ``count`` rounds. The cut is over the actual (merged) rounds by date — an
     unpriceable recent round still counts as one of the 20 — and the estimator then ignores
-    unusable rounds on each side. None when the earlier side lacks its 5 rounds. Negative =
+    unusable rounds on each side. None when the earlier side lacks its 3 rounds. Negative =
     improving.
     """
     by_date = sorted(range(len(rounds)), key=lambda i: (str(rounds[i].get("date") or ""), i), reverse=True)
@@ -602,7 +619,7 @@ def _handicap_trend(rounds: list[dict[str, Any]]) -> float | None:
     """Estimate now minus the estimate from rounds dated <= anchor - 90 days.
 
     The anchor is the newest round date in the data (never the wall clock, so the
-    value is deterministic and cacheable). None when either side lacks the 5
+    value is deterministic and cacheable). None when either side lacks the 3
     priced rounds an estimate needs (via ``_handicap_estimate``). Negative = improving.
     """
     anchor = max((day for row in rounds if (day := _round_window_date(row)) is not None), default=None)

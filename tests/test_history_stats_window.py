@@ -277,13 +277,15 @@ class HandicapEstimateTests(unittest.TestCase):
     Formula (manual §3 WHS; golden 2.1 "most recent 20 priceable records"): only
     rounds with an 18-hole score, rating (>= 50) and slope are priced, as
     ``(score-rating)*113/slope``; take the 20 most recent of those differentials by
-    date (an unpriceable round never holds a place). With N differentials,
-    ``N < 5`` -> None; else average the LOWEST ``ceil(0.4 * N)``, round to 1 decimal.
+    date (an unpriceable round never holds a place). With N differentials follow the
+    WHS table: ``N < 3`` -> None; 3 -> lowest 1 -2.0; 4 -> lowest 1 -1.0; 5 -> 1;
+    6 -> 2 -1.0; 7-8 -> 2; 9-11 -> 3; 12-14 -> 4; 15-16 -> 5; 17-18 -> 6; 19 -> 7;
+    20 -> 8; average the lowest k, add the adjustment, round to 1 decimal.
     No score-par fallback, no 0.96. (B5a's "unpriceable rounds count toward the 20"
     is the 近 20 场变化 cut, ``handicapChangeRecent20``, not this window.)
     """
 
-    def test_estimate_uses_best_40pct_of_last_20(self) -> None:
+    def test_estimate_uses_best_8_of_last_20(self) -> None:
         # The 2 oldest rounds have differential -10 (strokes 62 - rating 72):
         # they MUST fall outside the most-recent-20 window, otherwise they would
         # dominate the lowest-8 pick and drag the estimate way down.
@@ -305,7 +307,7 @@ class HandicapEstimateTests(unittest.TestCase):
         stats = build_history_stats(_history(rounds), data_mode="fixture")
 
         # 22 priced rounds -> most recent 20 = recent-1..20 (diffs 10..29), old-1/2
-        # outside; lowest ceil(0.4*20)=8 -> 10..17, sum 108 / 8 = 13.5
+        # outside; WHS N=20 -> lowest 8 -> 10..17, sum 108 / 8 = 13.5
         self.assertEqual(stats["summary"]["handicapEstimate"], 13.5)
 
     def test_estimate_window_is_twenty_priced_rounds_not_twenty_actual_rounds(self) -> None:
@@ -320,16 +322,16 @@ class HandicapEstimateTests(unittest.TestCase):
         stats = build_history_stats(_history(rounds), data_mode="fixture")
 
         # 29 priced -> the 20 most recent priced = r10..r13 + o14..o29 (z* fall outside);
-        # lowest ceil(0.4*20)=8 -> 10..17, sum 108 / 8 = 13.5.
-        # Window of 20 ACTUAL rounds instead: only r10..r13 priced -> N=4 -> None.
-        # No window at all: 29 diffs, lowest 12 = nine 0s + 10, 11, 12 -> 33/12 = 2.75.
+        # WHS N=20 -> lowest 8 -> 10..17, sum 108 / 8 = 13.5.
+        # Window of 20 ACTUAL rounds instead: only r10..r13 priced -> N=4 -> lowest 1 = 10, -1.0 -> 9.0.
+        # No window at all: 29 diffs, lowest 8 = eight of the nine 0s -> 0.0.
         self.assertEqual(stats["summary"]["handicapEstimate"], 13.5)
 
-    def test_estimate_null_under_5_rounds(self) -> None:
-        # 4 rated rounds + 2 rounds with no rating/slope (nor par) -> unpriceable,
-        # they do NOT count toward N -> N=4 -> None
-        rounds = [_rated_round(f"r{i}", f"2026-01-{i:02d}", 80 + i) for i in range(1, 5)]
-        unpriceable = [_unrated_round(f"u{i}", f"2026-01-{i:02d}", 90) for i in (5, 6)]
+    def test_estimate_null_under_3_rounds(self) -> None:
+        # 2 rated rounds + 2 rounds with no rating/slope (nor par) -> unpriceable,
+        # they do NOT count toward N -> N=2 -> None
+        rounds = [_rated_round(f"r{i}", f"2026-01-{i:02d}", 80 + i) for i in range(1, 3)]
+        unpriceable = [_unrated_round(f"u{i}", f"2026-01-{i:02d}", 90) for i in (3, 4)]
         for row in unpriceable:
             del row["par"]
         rounds += unpriceable
@@ -339,16 +341,21 @@ class HandicapEstimateTests(unittest.TestCase):
         self.assertIsNone(stats["summary"]["handicapEstimate"])
         self.assertIsNone(stats["summary"]["handicapTrend"])
 
-        # 5 rated rounds is the boundary: differentials [9..13], lowest
-        # ceil(0.4*5)=2 -> 9, 10 -> mean 9.5
+        # 3 rated rounds is the boundary: differentials [9, 10, 11], WHS N=3 -> lowest 1
+        # = 9, -2.0 -> 7.0
+        three = [_rated_round(f"t{i}", f"2026-02-{i:02d}", 80 + i) for i in range(1, 4)]
+        stats_three = build_history_stats(_history(three), data_mode="fixture")
+        self.assertEqual(stats_three["summary"]["handicapEstimate"], 7.0)
+
+        # 5 rated rounds: differentials [9..13], WHS N=5 -> lowest 1 = 9 -> 9.0
         five = [_rated_round(f"f{i}", f"2026-02-{i:02d}", 80 + i) for i in range(1, 6)]
         stats_five = build_history_stats(_history(five), data_mode="fixture")
-        self.assertEqual(stats_five["summary"]["handicapEstimate"], 9.5)
+        self.assertEqual(stats_five["summary"]["handicapEstimate"], 9.0)
 
     def test_trend_compares_90_day_anchor(self) -> None:
         # anchor = newest round date = 2026-06-01; baseline cutoff = anchor - 90d
-        # = 2026-03-03 (INCLUSIVE: the round dated exactly on the cutoff is what
-        # gives the baseline its 5th round).
+        # = 2026-03-03 (INCLUSIVE: the round dated exactly on the cutoff belongs to
+        # the baseline).
         anchor = date(2026, 6, 1)
         cutoff = anchor - timedelta(days=90)  # 2026-03-03
         older = [
@@ -368,18 +375,20 @@ class HandicapEstimateTests(unittest.TestCase):
 
         stats = build_history_stats(_history(older + recent), data_mode="fixture")
 
-        # estimate(all 10): lowest ceil(0.4*10)=4 of [10..14, 20..24] -> 10,11,12,13
-        #   -> mean 11.5
-        # estimate(baseline, date <= cutoff -> o1..o5): lowest ceil(0.4*5)=2 of
-        #   [20..24] -> 20,21 -> mean 20.5
-        # trend = 11.5 - 20.5 = -9.0 (negative = improving)
-        self.assertEqual(stats["summary"]["handicapEstimate"], 11.5)
+        # estimate(all 10): WHS N=10 -> lowest 3 of [10..14, 20..24] -> 10,11,12
+        #   -> mean 11.0
+        # estimate(baseline, date <= cutoff -> o1..o5): WHS N=5 -> lowest 1 of
+        #   [20..24] -> 20.0
+        # trend = 11.0 - 20.0 = -9.0 (negative = improving)
+        # (an exclusive cutoff would leave o1..o4: N=4 -> 20 - 1.0 = 19.0 -> trend -8.0)
+        self.assertEqual(stats["summary"]["handicapEstimate"], 11.0)
         self.assertEqual(stats["summary"]["handicapTrend"], -9.0)
 
-        # drop one baseline round -> the <=cutoff subset has 4 (<5) -> trend None,
-        # while the estimate itself stays available (lowest ceil(0.4*9)=4 unchanged)
-        stats_thin = build_history_stats(_history(older[1:] + recent), data_mode="fixture")
-        self.assertEqual(stats_thin["summary"]["handicapEstimate"], 11.5)
+        # drop three baseline rounds -> the <=cutoff subset is o4, o5 = 2 (<3) -> trend
+        # None, while the estimate itself stays available: N=7 [10..14, 23, 24] ->
+        # lowest 2 = 10, 11 -> 10.5
+        stats_thin = build_history_stats(_history(older[3:] + recent), data_mode="fixture")
+        self.assertEqual(stats_thin["summary"]["handicapEstimate"], 10.5)
         self.assertIsNone(stats_thin["summary"]["handicapTrend"])
 
     def test_recent_twenty_change_is_now_minus_the_estimate_twenty_rounds_ago(self) -> None:
@@ -390,9 +399,12 @@ class HandicapEstimateTests(unittest.TestCase):
         # now: the newest 20 -> diff 10 -> 10.0; 20 rounds ago: diff 20 -> 20.0.
         self.assertEqual(stats["summary"]["handicapEstimate"], 10.0)
         self.assertEqual(stats["summary"]["handicapChangeRecent20"], -10.0)
-        # Fewer than 5 rounds before the newest 20: no earlier estimate, no change.
-        thin = build_history_stats(_history(older[:4] + newer), data_mode="fixture")
+        # Fewer than 3 rounds before the newest 20: no earlier estimate, no change.
+        thin = build_history_stats(_history(older[:2] + newer), data_mode="fixture")
         self.assertIsNone(thin["summary"]["handicapChangeRecent20"])
+        # Exactly 3 before: earlier = WHS N=3 -> 20 - 2.0 = 18.0; change 10.0 - 18.0 = -8.0.
+        three = build_history_stats(_history(older[:3] + newer), data_mode="fixture")
+        self.assertEqual(three["summary"]["handicapChangeRecent20"], -8.0)
 
     def test_recent_twenty_change_cuts_at_twenty_actual_rounds_not_twenty_priceable_ones(self) -> None:
         # The newest 20 actual rounds include one that cannot be priced (no rating, slope or par).
@@ -430,8 +442,9 @@ class HandicapEstimateTests(unittest.TestCase):
 
     def test_estimate_ignores_unrated_rounds(self) -> None:
         # Three rated rounds (slope 226 halves score-70) and three unrated ones.
-        # Only the rated three are priced -> N=3 < 5 -> None. A score-par fallback
-        # would have made N=6 and produced a number.
+        # Only the rated three are priced -> WHS N=3 -> lowest 1 = 10.0, -2.0 -> 8.0.
+        # A score-par fallback would have made N=6 (adding 83-72=11, 13, 23): lowest 2
+        # = 10, 11 -> 10.5, -1.0 -> 9.5.
         rounds = [
             _rated_round("a", "2026-01-01", 90, rating=70.0, slope=226),  # diff 10.0
             _rated_round("b", "2026-01-02", 94, rating=70.0, slope=226),  # diff 12.0
@@ -443,7 +456,7 @@ class HandicapEstimateTests(unittest.TestCase):
 
         stats = build_history_stats(_history(rounds), data_mode="fixture")
 
-        self.assertIsNone(stats["summary"]["handicapEstimate"])
+        self.assertEqual(stats["summary"]["handicapEstimate"], 8.0)
 
     def test_nine_hole_rating_on_18_hole_round_is_unpriceable(self) -> None:
         # Real merged rounds (two 9-hole halves joined into one 18) often keep the
@@ -472,13 +485,13 @@ class HandicapEstimateTests(unittest.TestCase):
 
         # A genuine 18-hole rating (>= 50) keeps the rated path. Slope 145 shrinks
         # (score - rating) by 113/145: rated diffs [13.9, 15.5, 17.1, 18.6, 20.2]
-        # -> lowest 2 -> mean 14.7, where score-par (18, 20, ...) would give 19.0.
+        # -> WHS N=5 -> lowest 1 -> 13.9, where score-par (18, 20, ...) would give 18.0.
         genuine = [
             _rated_round(f"g{index + 1}", f"2026-05-{index + 1:02d}", value, rating=72.1, slope=145)
             for index, value in enumerate([90, 92, 94, 96, 98])
         ]
         stats_genuine = build_history_stats(_history(genuine), data_mode="fixture")
-        self.assertEqual(stats_genuine["summary"]["handicapEstimate"], 14.7)
+        self.assertEqual(stats_genuine["summary"]["handicapEstimate"], 13.9)
 
     def test_estimate_follows_the_whs_table_for_each_count(self) -> None:
         # WHS Rule 5.2 table (tests/product/fixtures/c16b/reference.py whs(), B5a MANUAL WHS):
