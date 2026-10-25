@@ -30,7 +30,7 @@ from ai_caddie.caddie.mobile_live import (
     round_events,
 )
 from ai_caddie.history.history import OWNER_ID, HistoryData
-from ai_caddie.rounds import round_ingest
+from ai_caddie.rounds import round_ingest, score_invariant
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.llm.weather_context import WeatherTransport, weather_snapshot_for_time
 
@@ -555,11 +555,20 @@ def append_mobile_events_response(
     if request.roundId != round_id:
         logger.warning("mobile_events validation_failed status=422 path=body.roundId type=path_mismatch")
         raise HTTPException(status_code=422, detail="roundId does not match path")
+    events = [event.model_dump(by_alias=True) for event in request.events]
     with _mobile_materialization_lock(player_id):
         try:
+            if any(event.get("kind") in score_invariant.SCORE_EVENT_KINDS for event in events):
+                # Spec 5.7: the stream as a finish would fold it (stored order, then this batch's new
+                # events) must stay possible on every hole, or nothing of the batch is stored.
+                stored = round_events(round_id, root=MOBILE_ROOT, player_id=player_id)
+                known = {event.get("eventId") for event in stored}
+                score_invariant.require_possible_event_scores(
+                    [*stored, *(event for event in events if event.get("eventId") not in known)]
+                )
             result = append_event_batch(
                 round_id,
-                [event.model_dump(by_alias=True) for event in request.events],
+                events,
                 idempotency_key=idempotency_key,
                 root=MOBILE_ROOT,
                 player_id=player_id,

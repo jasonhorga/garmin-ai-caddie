@@ -39,9 +39,8 @@ class PlayTests(HTTPFixture, unittest.TestCase):
         self.assertEqual(correction.json()["stored"]["value"],2)
         self.assertEqual(self.card(rid),raw)
 
-    @unittest.expectedFailure
     def test_j5_7_impossible_writes_are_atomic(self):
-        """KNOWN-RED: every entry must reject 3 < 2+1+1, preserving existing files."""
+        """Every entry must reject 3 < 2+1+1, preserving existing files."""
         rid = self.ingest(key="historical").json()["id"]
         violations = []
         for name in ["new", "legacy", "http", "live-events", "finish-replay", "annotation-putts", "annotation-total", "annotation-penalty", "correction-penalty", "correction-replay"]:

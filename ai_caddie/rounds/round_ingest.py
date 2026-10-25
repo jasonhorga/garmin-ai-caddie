@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from ai_caddie.history import history as _history
-from ai_caddie.rounds import score_source
+from ai_caddie.rounds import score_invariant, score_source
 from ai_caddie.core.data import deg_to_semicircle, read_json, wgs84_to_local
 
 OWNER_ID = "me"
@@ -348,6 +348,11 @@ def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
             if isinstance(note, str) and note:
                 acc.notes.append(note)
 
+    for number, acc in holes.items():
+        try:
+            score_invariant.require_possible_hole_score(acc.strokes, acc.putts, acc.penalties, hole=number)
+        except score_invariant.ScoreInvariantError as exc:
+            raise RoundIngestError(str(exc)) from exc
     return holes
 
 
