@@ -1,7 +1,7 @@
 diff --git a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
 --- a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
 +++ b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
-@@ -1877,3 +1877,3 @@
+@@ -1917,3 +1917,3 @@
          let started = round.holeStates.contains { secondHoles.contains($0.hole) && $0.score > 0 }
 -            || round.pendingEvents.contains { secondHoles.contains($0.hole) }
 +            || false

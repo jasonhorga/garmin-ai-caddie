@@ -1823,8 +1823,13 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     /// The shared plan for a one-half round at its turn: loops 前九 / 后九 (ids `G:front` /
-    /// `G:back`), the other half preselected.
-    public static func makeTurnPlan(loopKey: String, nineLoopSiblings: [NineLoop] = []) -> NineLoopPlan? {
+    /// `G:back`), the usual pairing (`usualPairs`, first loop id → second loop id) preselected,
+    /// else the other half.
+    public static func makeTurnPlan(
+        loopKey: String,
+        nineLoopSiblings: [NineLoop] = [],
+        usualPairs: [String: String] = [:]
+    ) -> NineLoopPlan? {
         if let ids = WatchCourseSelection.nineLoopIds(loopKey: loopKey), ids.count == 1 {
             // A nine-hole-loop venue (B4b-2 §7, the phone's `NineLoopTurn`): its loops in course
             // order, the played one always included so it can be played again.
@@ -1833,7 +1838,8 @@ public final class WatchRoundModel: ObservableObject {
             if !loops.contains(where: { $0.id == firstId }) {
                 loops.insert(NineLoop(id: firstId, name: "这 9 洞"), at: 0)
             }
-            guard var plan = NineLoopPlan(course: NineLoopCourse(id: firstId, loops: loops), first: firstId) else {
+            let course = NineLoopCourse(id: firstId, loops: loops, usualPairs: usualPairs)
+            guard var plan = NineLoopPlan(course: course, first: firstId) else {
                 return nil
             }
             plan.beginFirstLoop()
@@ -1846,7 +1852,7 @@ public final class WatchRoundModel: ObservableObject {
         let loops = WatchCourseSelection.halves.map {
             NineLoop(id: "\(loop.globalId):\($0)", name: WatchCourseSelection.halfName($0))
         }
-        let course = NineLoopCourse(id: String(loop.globalId), loops: loops)
+        let course = NineLoopCourse(id: String(loop.globalId), loops: loops, usualPairs: usualPairs)
         guard var plan = NineLoopPlan(course: course, first: "\(loop.globalId):\(loop.halves[0])") else {
             return nil
         }
@@ -1855,10 +1861,44 @@ public final class WatchRoundModel: ObservableObject {
         return plan
     }
 
+    /// The two loop ids of a two-nine loop key (`G:front+G:back`, `A:all+B:all`) as the turn plan
+    /// names them; nil for anything else.
+    static func turnPair(loopKey: String?) -> (first: String, second: String)? {
+        guard let loopKey else { return nil }
+        if let ids = WatchCourseSelection.nineLoopIds(loopKey: loopKey), ids.count == 2 {
+            return (first: "\(ids[0]):all", second: "\(ids[1]):all")
+        }
+        guard let loop = WatchCourseSelection.halfLoop(loopKey: loopKey), loop.halves.count == 2 else {
+            return nil
+        }
+        return (first: "\(loop.globalId):\(loop.halves[0])", second: "\(loop.globalId):\(loop.halves[1])")
+    }
+
+    /// The turn's usual pairings (product test spec 5.1: this Watch > history > next in order, the
+    /// phone's `NineLoopTurn.usualPairs`): the newest round this Watch still keeps that played a
+    /// second nine, overridden by the last second nine confirmed on this Watch. Neither → empty,
+    /// and the plan falls back to the next loop in course order.
+    private func turnUsualPairs() -> [String: String] {
+        var pairs: [String: String] = [:]
+        let retained = store.loadDeferredFinishes().sorted { $0.savedAt > $1.savedAt }
+        for deferred in retained {
+            guard let pair = Self.turnPair(loopKey: deferred.round.loopKey),
+                  pairs[pair.first] == nil,
+                  deferred.round.holeStates.contains(where: { $0.hole >= 10 && $0.score > 0 }) else { continue }
+            pairs[pair.first] = pair.second
+        }
+        for (first, second) in store.loadNineLoopPairings() {
+            pairs[first] = second
+        }
+        return pairs
+    }
+
     public func openTurn() {
         guard isAtTurn, let loopKey = round?.loopKey else { return }
         if turnPlan == nil || isChangingSecondNine {
-            turnPlan = Self.makeTurnPlan(loopKey: loopKey, nineLoopSiblings: siblingLoops(of: loopKey))
+            turnPlan = Self.makeTurnPlan(
+                loopKey: loopKey, nineLoopSiblings: siblingLoops(of: loopKey), usualPairs: turnUsualPairs()
+            )
         }
         guard turnPlan != nil else { return }
         isChangingSecondNine = false
@@ -1887,7 +1927,9 @@ public final class WatchRoundModel: ObservableObject {
         guard canChangeSecondNine, let loopKey = round?.loopKey else { return }
         let parts = loopKey.split(separator: "+").map(String.init)
         guard parts.count == 2,
-              var plan = Self.makeTurnPlan(loopKey: parts[0], nineLoopSiblings: siblingLoops(of: parts[0])) else {
+              var plan = Self.makeTurnPlan(
+                loopKey: parts[0], nineLoopSiblings: siblingLoops(of: parts[0]), usualPairs: turnUsualPairs()
+              ) else {
             return
         }
         plan.chooseSecond(.loop(parts[1]))
@@ -1963,6 +2005,8 @@ public final class WatchRoundModel: ObservableObject {
         switch result {
         case .ready(let loopKey, let states):
             if applySecondLoop(states, loopKey: loopKey, replacingSecondNine: changing) {
+                // The next round's turn on this Watch preselects this choice (spec 5.1).
+                try? store.rememberNineLoopPairing(first: plan.first, second: secondId)
                 plan.beginSecondLoop()
                 turnPlan = nil
                 isChangingSecondNine = false

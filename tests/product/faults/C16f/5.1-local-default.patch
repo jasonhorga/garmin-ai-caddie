@@ -1,7 +1,7 @@
 diff --git a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
 --- a/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
 +++ b/mobile/ios/AICaddieWatch/Models/WatchRoundModel.swift
-@@ -1901,3 +1901,3 @@
+@@ -1943,3 +1943,3 @@
          guard screen == .turn, !isLoadingSecondLoop else { return }
 -        turnPlan?.chooseSecond(choice)
 +        return
