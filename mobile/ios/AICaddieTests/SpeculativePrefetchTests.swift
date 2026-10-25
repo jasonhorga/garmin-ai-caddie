@@ -538,7 +538,7 @@ final class SpeculativePrefetchTests: XCTestCase {
         model.setNetworkStateForTesting(wifi)
 
         _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
-        for _ in 0..<2_000 where lookups.all.isEmpty { try await Task.sleep(nanoseconds: 1_000_000) }
+        for _ in 0..<10_000 where lookups.all.isEmpty { try await Task.sleep(nanoseconds: 1_000_000) }
         XCTAssertEqual(lookups.all, [61], "the first lookup is in flight")
         model.setNetworkStateForTesting(cellular)
         await model.waitForNewAreaPassForTesting()
@@ -570,7 +570,7 @@ final class SpeculativePrefetchTests: XCTestCase {
         model.setNetworkStateForTesting(wifi)
 
         _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
-        for _ in 0..<2_000 where lookups.all.isEmpty { try await Task.sleep(nanoseconds: 1_000_000) }
+        for _ in 0..<10_000 where lookups.all.isEmpty { try await Task.sleep(nanoseconds: 1_000_000) }
         XCTAssertEqual(lookups.all, [71], "A's first lookup is in flight")
 
         // The same rows, answered at home: not a new area.
@@ -599,7 +599,7 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertEqual(model.speculativeCourseRoomForTesting, 1, "the home course took one of the two")
 
         _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
-        for _ in 0..<2_000 where lookups.all.count < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
+        for _ in 0..<10_000 where lookups.all.count < 2 { try await Task.sleep(nanoseconds: 1_000_000) }
         XCTAssertEqual(lookups.all, [71, 72], "71's blue Tee is read; 72's lookup is in flight")
 
         // B is noted before A's pass can complete (this runs on the main actor first).

@@ -101,7 +101,8 @@ def enqueue_nearby(matches) -> int:
             logger.exception("nearby_prewarm enqueue_failed gid=%s", gid)
         else:
             count += 1
-    logger.info("nearby_prewarm queued=%s radius_km=%s", count, RADIUS_KM)
+    # Every course-options refresh lands here; only an actual enqueue is production progress.
+    logger.log(logging.INFO if count else logging.DEBUG, "nearby_prewarm queued=%s radius_km=%s", count, RADIUS_KM)
     return count
 
 

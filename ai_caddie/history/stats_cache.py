@@ -13,7 +13,8 @@ input ``build_history_stats`` reads is covered ->
   - data dirs (scorecards, shots, snapshots, manual rounds) and geometry for courses
     that actually occur in that player's history, and
   - the four single-file aux stores (annotations / weather / reports / decision audits),
-    resolved in the requesting player's evidence partition, exactly like the loaders.
+    resolved in the requesting player's evidence partition, exactly like the loaders, and
+  - the player's round correction store (``data/players/<id>/corrections``).
 
 If a future change makes ``build_history_stats`` read a NEW source, add it to
 ``_FINGERPRINT_DIRS`` / ``_aux_files`` or the cache could serve stale data for it.
@@ -47,6 +48,7 @@ from ai_caddie.history.history_stats import build_history_stats as _build_histor
 from ai_caddie.history.history_stats import windowed_history_data as _windowed_history_data
 from ai_caddie.reports.reports import report_store_file
 from ai_caddie.llm.weather_context import weather_snapshot_file
+from ai_caddie.rounds import round_corrections
 
 # Player-data directories whose file contents feed build_history_stats for the OWNER ("me"), who
 # keeps the flat data/ layout (zero migration). Geometry is fingerprinted separately and only for
@@ -84,8 +86,9 @@ _inflight: dict[tuple, threading.Event] = {}
 # The fingerprint covers source files only, not code: bump this when a stats formula changes so a
 # deploy does not keep serving projections built by the old code (v2: WHS handicap estimate;
 # v3: the estimate takes the lowest k of N per the WHS table, with its N=3/4/6 adjustments, from 3
-# differentials instead of the lowest ceil(40%) from 5).
-_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v3"
+# differentials instead of the lowest ceil(40%) from 5; v4: stats read the corrected history — round
+# correction events, putt-corrected default holes back in GIR, GIR from corrected putts).
+_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v4"
 _PERSISTENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
 # A stats projection can be tens of megabytes on a real history.  Never make the first package
 # caller serialize and write that projection synchronously: the request only needs the in-memory
@@ -401,6 +404,9 @@ def _fingerprint(data, roots: dict[str, Any], player_id: str = OWNER_ID) -> tupl
         tuple(_dir_sig(d) for d in _fingerprint_dirs(player_id)),
         tuple(_history_geometry_dir_sig(d, global_ids) for d in _GEOMETRY_DIRS),
         tuple(_file_sig(f) for f in _aux_files(player_id=player_id, **roots)),
+        # Round correction events (append-only JSONL per round) are applied by the stats build, so an
+        # appended event changes this signature and the next read rebuilds (spec 3.1).
+        _dir_sig(round_corrections.corrections_dir(player_id)),
     )
 
 

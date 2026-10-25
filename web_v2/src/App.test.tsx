@@ -1962,6 +1962,34 @@ describe('App navigation', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v2/history/drilldown/1%3A1')
   })
 
+  it('heads the review with the corrected round total when it opens from a list card', async () => {
+    // The archive card carries the source total 82; the round detail is the corrected round, 84 (+12).
+    const detail = roundDetailPayload('1')
+    const corrected = { ...detail, round: { ...detail.round, score: 84, toPar: 12 } }
+    const fetchMock = vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => {
+        if (path === '/api/v2/history/rounds?limit=120') return roundsPayload()
+        if (path === '/api/v2/history/rounds/1') return corrected
+        if (String(path).startsWith('/api/v2/history/stats')) return statsPayload()
+        if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+        if (path === '/api/v2/sync/status') return syncStatusPayload()
+        return overviewPayloadWithRoundRefs()
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    await userEvent.click(await screen.findByRole('button', { name: '全部球局' }))
+    expect(await screen.findByRole('heading', { name: '球局', level: 1 })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '打开球局 Black Knight B，2026-05-20，成绩 82' }))
+
+    expect(await screen.findByRole('heading', { name: '球局回顾' })).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('.review-total')?.textContent).toContain('84'))
+    expect(document.querySelector('.review-total')?.textContent).not.toContain('82')
+  })
+
   it('shows corrections history and adds a club correction from the response', async () => {
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }

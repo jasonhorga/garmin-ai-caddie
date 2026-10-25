@@ -140,7 +140,8 @@ final class C33DrawingTests: XCTestCase {
         let finished = expectation(description: "fourth attempt settled")
         let load = Task { await store.load(url); finished.fulfill() }
         defer { load.cancel() }
-        await fulfillment(of: [finished], timeout: 1)
+        // Clock and sleep are injected, so this waits only for the loop to settle, not for time.
+        await fulfillment(of: [finished], timeout: 10)
         // C33 explicitly requires surviving the initial three failures and immediately displaying #4.
         XCTAssertEqual(attempts, 4)
         XCTAssertEqual(delays, [5_000_000_000, 15_000_000_000, 30_000_000_000])
@@ -211,9 +212,11 @@ final class C33DrawingTests: XCTestCase {
     func testChangingHoleCancelsGarminRetry() async {
         var attempts = 0
         let waiting = expectation(description: "retry waiting")
+        // The retry sleep only ends by cancellation (an hour is "never" here). With a shorter sleep a
+        // hole change that failed to cancel would merely finish late, inside a stall-tolerant wait.
         let store = GarminRasterImageStore(
             nowNanoseconds: { 0 }, sleep: { _ in
-                waiting.fulfill(); try await Task.sleep(nanoseconds: 10_000_000_000)
+                waiting.fulfill(); try await Task.sleep(nanoseconds: 3_600_000_000_000)
             }, loader: { _ in attempts += 1; return nil }
         )
         let finished = expectation(description: "cancelled retry settled")
@@ -222,9 +225,9 @@ final class C33DrawingTests: XCTestCase {
             finished.fulfill()
         }
         defer { load.cancel() }
-        await fulfillment(of: [waiting], timeout: 1)
+        await fulfillment(of: [waiting], timeout: 10)
         load.cancel()
-        await fulfillment(of: [finished], timeout: 1)
+        await fulfillment(of: [finished], timeout: 10)
         XCTAssertEqual(attempts, 1)
         XCTAssertFalse(store.isRetrying)
     }

@@ -154,7 +154,7 @@ final class RoundReviewDiskCacheTests: XCTestCase {
     }
 
     private func waitForRequest(_ paths: Paths) async throws {
-        for _ in 0..<100 where paths.all.isEmpty { try await Task.sleep(nanoseconds: 20_000_000) }
+        for _ in 0..<500 where paths.all.isEmpty { try await Task.sleep(nanoseconds: 20_000_000) }
         XCTAssertFalse(paths.all.isEmpty)
     }
 

@@ -367,11 +367,22 @@ def build_round_hole_shot_map(
     *,
     include_image: bool = True,
 ) -> dict[str, Any]:
+    return _hole_shot_map(data, round_ref, hole, corrections, include_image=include_image)[0]
+
+
+def _hole_shot_map(
+    data: HistoryData, round_ref: str, hole: int,
+    corrections: list[dict[str, Any]] | None = None,
+    *,
+    include_image: bool = True,
+) -> tuple[dict[str, Any], Any, Any]:
+    """The shot map plus the (project, unproject) pair of the frame its pixels are in (None, None
+    when no frame was available)."""
     hole = _int(hole) or 0
     row = _match_round(data, round_ref)
     if row is None or hole < 1:
         return {"schema": SCHEMA, "found": False, "roundRef": str(round_ref), "hole": hole, "map": None, "shots": [],
-                "missingData": [{"label": "round", "reason": f"{round_ref} 第 {hole} 洞没找到"}]}
+                "missingData": [{"label": "round", "reason": f"{round_ref} 第 {hole} 洞没找到"}]}, None, None
 
     gid, local = _geometry_target(row, hole)
     par = _par_for(row, hole)
@@ -494,7 +505,7 @@ def build_round_hole_shot_map(
                 "shots": available,
                 "manualPenalty": manual_penalty,
                 "missingData": [{"label": "geometry", "reason": reason}],
-            }
+            }, None, None
         overlay, project, unproject = lightweight
         width, height = int(overlay["w"]), int(overlay["h"])
         image = None
@@ -566,7 +577,7 @@ def build_round_hole_shot_map(
                 "shots": plotted,
                 "manualPenalty": manual_penalty,
                 "missingData": missing_data,
-            }
+            }, project, unproject
 
     # addShot(点地图加杆):px 反投影成世界坐标,造一杆合成落点插进顺序;shotmap 按序画线自动连前后。
     # 空洞(shots 为空)也能加 → 永不变砖。
@@ -739,4 +750,190 @@ def build_round_hole_shot_map(
         "shots": plotted,
         "manualPenalty": manual_penalty,
         "missingData": missing_data,
+    }, project, unproject
+
+
+# ---------------------------------------------------------------------------
+# Corrected shots for every other reader (review, statistics, caddie bag)
+# ---------------------------------------------------------------------------
+# Context copied onto a shot the player added, so it groups with the round like a recorded one.
+_ADDED_SHOT_CONTEXT = ("scorecardId", "date", "course", "garminSnapshotName", "courseCanonical",
+                       "courseKey", "globalId", "localHole")
+
+
+def _haversine_m(start: dict[str, Any], end: dict[str, Any]) -> float:
+    lat1, lon1, lat2, lon2 = (math.radians(float(v)) for v in (start["lat"], start["lon"], end["lat"], end["lon"]))
+    a = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    return 2 * 6371008.8 * math.asin(min(1.0, math.sqrt(a)))
+
+
+def _has_coordinates(location: Any) -> bool:
+    return isinstance(location, dict) and location.get("lat") is not None and location.get("lon") is not None
+
+
+def _touches_hole(event: dict[str, Any], hole: int, shot_ids: set[str]) -> bool:
+    """Whether an event changes this hole's shot list (penalty-only edits are hole facts)."""
+    op = event.get("op")
+    if op == "setHolePenalty":
+        return False
+    event_hole = _int(event.get("hole"))
+    if event_hole is not None:
+        return event_hole == hole
+    if op == "reorderShot":
+        return any(str(value) in shot_ids for value in event.get("order") or [])
+    return str(event.get("shotId") or event.get("insertAfterShotId") or "") in shot_ids
+
+
+def _has_pixel_edits(events: list[dict[str, Any]], hole: int, shot_ids: set[str]) -> bool:
+    """Edits saved as map pixels; only the hole's map frame turns them into world coordinates."""
+    for event in events:
+        op = event.get("op")
+        if op == "replaceHoleShots" and _int(event.get("hole")) == hole:
+            return True
+        if op == "addShot" and _touches_hole(event, hole, shot_ids):
+            return True
+        if op == "editField" and event.get("field") == "position" and _touches_hole(event, hole, shot_ids):
+            return True
+    return False
+
+
+def _shots_from_view(
+    view: dict[str, Any],
+    source: list[dict[str, Any]],
+    row: dict[str, Any],
+    hole: int,
+    project: Any,
+    unproject: Any,
+) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
+    """Turn the shot map's rows back into source-form shots, paired with their source shot."""
+    by_id = {round_corrections.mint_shot_id(shot): shot for shot in source}
+    template = source[0] if source else {
+        "scorecardId": row.get("id"), "date": str(row.get("date") or "")[:10], "course": row.get("course"),
+        "courseCanonical": row.get("courseCanonical"), "courseKey": row.get("courseKey"),
     }
+    out: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
+    for item in view.get("shots") or []:
+        if item.get("synthetic"):
+            continue  # an inferred tee shot is drawn for orientation, never counted as a stroke
+        shot_id = str(item.get("id") or "")
+        original = by_id.get(shot_id)
+        if original is not None:
+            shot = dict(original)
+        else:
+            shot = {key: template.get(key) for key in _ADDED_SHOT_CONTEXT if key in template}
+            # The map id keeps an added shot's ref unique within its hole and stable across reads.
+            shot.update({"id": shot_id, "roundId": str(row.get("id")), "hole": hole, "type": "MANUAL",
+                         "manualAdded": True, "meters": None, "endLie": None, "_globalIndex": shot_id})
+        club = item.get("club")
+        if original is None or club != clean_club_name(original.get("clubName")):
+            shot["clubName"] = club
+            if "club" in shot:
+                shot["club"] = club
+        if item.get("clubSource") == "manual":
+            shot["clubSource"] = "manual"
+        start = dict(shot.get("start") or {})
+        if original is None or item.get("lie") != (original.get("start") or {}).get("lie"):
+            start["lie"] = item.get("lie")
+        end = dict(shot.get("end") or {})
+        drawn = (item.get("start"), item.get("end"))
+        unchanged = all(
+            pixel is None or (_has_coordinates(location) and project(location) == pixel)
+            for location, pixel in zip(((original or {}).get("start"), (original or {}).get("end")), drawn)
+        ) if project is not None else True
+        if not unchanged and unproject is not None:
+            try:
+                # A redrawn shot is measured as drawn: both ends from the same frame, so a landing
+                # dragged onto its start is exactly 0 m rather than a projection round-trip residue.
+                for location, pixel in ((start, drawn[0]), (end, drawn[1])):
+                    if pixel is not None:
+                        lat, lon = unproject(float(pixel[0]), float(pixel[1]))
+                        location.update({"lat": lat, "lon": lon, "posSource": "manual"})
+                shot["meters"] = (
+                    round(_haversine_m(start, end), 1) if _has_coordinates(start) and _has_coordinates(end) else None
+                )
+                shot.pop("distance", None)
+            except (TypeError, ValueError, OverflowError):
+                pass
+        shot["start"] = start
+        shot["end"] = end or None
+        out.append((shot, original))
+    return out
+
+
+def _finish_corrected_hole(
+    shots: list[tuple[dict[str, Any], dict[str, Any] | None]],
+    source: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Number the corrected list 1..n and keep each landing's lie equal to the next shot's start.
+
+    A landing and the following shot's origin are one point. When the player changes that start lie,
+    or the following shot is no longer the recorded one (add / delete / reorder), the landing lie is
+    the next shot's start lie; otherwise Garmin's recorded landing lie stays.
+    """
+    source_ids = [round_corrections.mint_shot_id(shot) for shot in source]
+    source_next = {sid: source_ids[i + 1] if i + 1 < len(source_ids) else None for i, sid in enumerate(source_ids)}
+    out: list[dict[str, Any]] = []
+    for index, (shot, original) in enumerate(shots):
+        shot = dict(shot)
+        shot.pop("_displayOrder", None)
+        shot["order"] = index + 1
+        if shot.get("clubSource") == "manual" or (
+            original is not None and shot.get("clubName") != original.get("clubName")
+        ):
+            shot["_clubCorrected"] = True
+        out.append(shot)
+    for index, shot in enumerate(out[:-1]):
+        following, following_original = out[index + 1], shots[index + 1][1]
+        lie = (following.get("start") or {}).get("lie")
+        original = shots[index][1]
+        relinked = original is None or following_original is None or source_next.get(
+            round_corrections.mint_shot_id(original)
+        ) != round_corrections.mint_shot_id(following_original)
+        lie_edited = following_original is None or lie != (following_original.get("start") or {}).get("lie")
+        if lie and (relinked or lie_edited):
+            shot["endLie"] = lie
+            shot.pop("surface", None)  # a stale landing-surface overlay would hide the corrected lie
+    return out
+
+
+def corrected_round_shots(
+    data: HistoryData,
+    row: dict[str, Any],
+    corrections: list[dict[str, Any]],
+) -> dict[int, tuple[list[int], list[dict[str, Any]]]]:
+    """Every hole of ``row`` whose shot list a correction changes, as
+    ``{display hole: (positions of its source shots in data.shots, corrected shots)}``.
+
+    The corrected shots are the shot map's list (the one the player edited) in source form: WGS84
+    ``start``/``end`` with lies, ``clubName``, ``meters`` and ``order``. Fact edits (club, lie,
+    delete, reorder, fact snapshots) need no geometry; pixel edits are read back through the same
+    frame the shot map draws them in, so review, statistics and the caddie see what the map shows.
+    """
+    if not corrections:
+        return {}
+    round_ids = _round_ids(row)
+    positions: dict[int, list[int]] = {}
+    for position, source in round_source_shots(data, row):
+        display_hole = _display_hole_for_shot(row, source)
+        if str(source.get("scorecardId") or source.get("roundId") or "") in round_ids and display_hole is not None:
+            positions.setdefault(display_hole, []).append(position)
+    holes = set(positions) | {
+        hole for hole in (_int(event.get("hole")) for event in corrections) if hole is not None and 1 <= hole <= 36
+    }
+    out: dict[int, tuple[list[int], list[dict[str, Any]]]] = {}
+    for hole in sorted(holes):
+        source = _source_shots_for_hole(data, row, hole, [])
+        shot_ids = {round_corrections.mint_shot_id(shot) for shot in source}
+        if not any(_touches_hole(event, hole, shot_ids) for event in corrections):
+            continue
+        if _has_pixel_edits(corrections, hole, shot_ids):
+            view, project, unproject = _hole_shot_map(data, str(row.get("id")), hole, corrections, include_image=False)
+            shots = _shots_from_view(view, source, row, hole, project, unproject)
+        else:
+            by_id = {round_corrections.mint_shot_id(shot): shot for shot in source}
+            shots = [
+                (shot, by_id.get(round_corrections.mint_shot_id(shot)))
+                for shot in _source_shots_for_hole(data, row, hole, corrections)
+            ]
+        out[hole] = (positions.get(hole, []), _finish_corrected_hole(shots, source))
+    return out

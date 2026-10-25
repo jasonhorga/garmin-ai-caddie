@@ -20,6 +20,8 @@ from ai_caddie.history.history import (
     history_course_venue_name,
     percentile,
 )
+from ai_caddie.history.corrected_history import corrected_history_data, corrected_rounds
+from ai_caddie.history.corrected_history import hole_sides as _hole_sides
 from ai_caddie.history.history_drilldown import build_drilldown_index
 from ai_caddie.rounds.score_source import is_unedited_default
 from ai_caddie.caddie.issue_taxonomy import issue_record
@@ -89,55 +91,26 @@ def _payload_value(record: dict[str, Any], *keys: str) -> Any:
     return None
 
 
-def _annotations_by_kind(annotations: list[dict[str, Any]] | None, kind: str) -> dict[str, dict[str, Any]]:
-    rows: dict[str, dict[str, Any]] = {}
-    for record in annotations or []:
-        if record.get("kind") == kind:
-            rows[str(record.get("targetId") or "")] = record
-    return rows
+def _putt_gir_skipped(hole: dict[str, Any]) -> bool:
+    """B0c: an unedited default hole leaves putting and GIR (numerators and denominators).
+
+    A putt correction on a default hole is a person's entry, so it brings the hole back to both
+    (spec 2.5). Skipped holes are never reported as missing putt data.
+    """
+    return is_unedited_default(hole) and not hole.get("_puttCorrected")
 
 
 def _stat_putts(hole: dict[str, Any]) -> Any:
     """Putts as a statistic: ``None`` for an unedited default hole (B0), whose value nobody entered."""
-    return None if is_unedited_default(hole) else hole.get("putts")
+    return None if _putt_gir_skipped(hole) else hole.get("putts")
 
 
 def _stat_gir(hole: dict[str, Any]) -> Any:
     """GIR as a statistic: ``None`` for an unedited default hole (B0); it would only echo the default."""
-    return None if is_unedited_default(hole) else hole.get("gir")
+    return None if _putt_gir_skipped(hole) else hole.get("gir")
 
 
-def _putt_eligible(hole: dict[str, Any], ref: str, putt_corrections: dict[str, Any]) -> bool:
-    """A hole belongs in putting statistics (numerator or denominator) unless it is an unedited default.
-
-    A putt correction on a default hole is a person's entry, so it makes the hole eligible again.
-    Ineligible holes are skipped, never reported as missing putt data.
-    """
-    return not is_unedited_default(hole) or ref in putt_corrections
-
-
-def _corrected_putt_value(
-    hole_ref: str,
-    original: Any,
-    corrections: dict[str, dict[str, Any]],
-) -> int | None:
-    value = original
-    if hole_ref in corrections:
-        value = _payload_value(corrections[hole_ref], "to", "putts", "correctedPutts")
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _corrected_score_value(
-    hole_ref: str,
-    original: Any,
-    corrections: dict[str, dict[str, Any]],
-) -> int | None:
-    value = original
-    if hole_ref in corrections:
-        value = _payload_value(corrections[hole_ref], "to", "score", "strokes", "correctedScore")
+def _int_or_none(value: Any) -> int | None:
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -145,40 +118,10 @@ def _corrected_score_value(
 
 
 def _effective_score_data(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> HistoryData:
-    score_corrections = _annotations_by_kind(annotations, "score_correction")
-    if not score_corrections:
+    """Score-correction totals only (the live-round overlay); statistics read the full corrected history."""
+    rounds = corrected_rounds(data.rounds, annotations, fields=("total",))
+    if rounds is data.rounds:
         return data
-
-    rounds: list[dict[str, Any]] = []
-    for row in data.rounds:
-        row_copy = dict(row)
-        holes: list[dict[str, Any]] = []
-        round_delta = 0
-        corrected_refs: list[str] = []
-        for hole in row.get("holes") or []:
-            hole_copy = dict(hole)
-            number = int(hole_copy.get("number") or 0)
-            ref = _hole_ref(row, number) if number else ""
-            if ref in score_corrections:
-                corrected = _corrected_score_value(ref, hole_copy.get("strokes"), score_corrections)
-                if corrected is not None:
-                    try:
-                        round_delta += corrected - int(hole_copy.get("strokes"))
-                    except (TypeError, ValueError):
-                        pass
-                    hole_copy["strokes"] = corrected
-                    hole_copy["_scoreCorrected"] = True
-                    corrected_refs.append(ref)
-            holes.append(hole_copy)
-        if corrected_refs:
-            row_copy["holes"] = holes
-            if row_copy.get("strokes") is not None:
-                try:
-                    row_copy["strokes"] = int(row_copy["strokes"]) + round_delta
-                except (TypeError, ValueError):
-                    pass
-            row_copy["_scoreCorrectedRefs"] = corrected_refs
-        rounds.append(row_copy)
     return HistoryData(raw_rounds=data.raw_rounds, rounds=rounds, shots=data.shots)
 
 
@@ -186,35 +129,23 @@ def _effective_score_data(data: HistoryData, annotations: list[dict[str, Any]] |
 # over ~21K shots (~30s wasted). Keyed by object identity (HistoryData isn't hashable); CLEARED at
 # the start of every build so stale cross-build ids never leak and concurrent builds at worst recompute
 # (correct, just slower) rather than serve another build's shots.
-_EFFECTIVE_SHOTS_CACHE: dict[tuple[int, int], list[dict[str, Any]]] = {}
+_EFFECTIVE_SHOTS_CACHE: dict[int, list[dict[str, Any]]] = {}
 
 
 def _clear_effective_shots_cache() -> None:
     _EFFECTIVE_SHOTS_CACHE.clear()
 
 
-def _effective_shots(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
-    cache_key = (id(data), id(annotations))
+def _effective_shots(data: HistoryData) -> list[dict[str, Any]]:
+    """Normalized shot rows with their refs. Corrections are already in ``data`` (corrected_history)."""
+    cache_key = id(data)
     cached = _EFFECTIVE_SHOTS_CACHE.get(cache_key)
     if cached is not None:
         return cached
-    club_corrections = _annotations_by_kind(annotations, "club_correction")
-    lie_corrections = _annotations_by_kind(annotations, "lie_correction")
     rows = []
     for index, shot in enumerate(data.shots):
         row = _normalized_shot(shot)
-        ref = _shot_ref(row, index)
-        row["_ref"] = ref
-        if ref in club_corrections:
-            club = _payload_value(club_corrections[ref], "to", "club", "correctedClub")
-            if club is not None:
-                row["club"] = str(club)
-                row["_clubCorrected"] = True
-        if ref in lie_corrections:
-            lie = _payload_value(lie_corrections[ref], "to", "surface", "lie", "correctedLie")
-            if lie is not None:
-                row["surface"] = str(lie)
-                row["_lieCorrected"] = True
+        row["_ref"] = _shot_ref(row, index)
         rows.append(row)
     _EFFECTIVE_SHOTS_CACHE[cache_key] = rows
     return rows
@@ -2067,7 +1998,7 @@ def _approach_miss_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     total_holes = 0
     for row in rows:
         for hole in row.get("holes") or []:
-            if is_unedited_default(hole):
+            if _putt_gir_skipped(hole):
                 continue  # B0: ineligible for GIR, not a missing record
             total_holes += 1
             number = int(hole.get("number") or 0)
@@ -2120,38 +2051,6 @@ def _approach_miss_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
         total=total_holes,
         confidence_count=recorded,
     )
-
-
-def _hole_sides(row: dict[str, Any]) -> list[tuple[dict[str, Any], int, int, str]]:
-    """``(hole, display number 1...18, physical hole, side)`` for every numbered hole in a round.
-
-    Merged same-day rounds hold the first scorecard as 1...9 and the second renumbered 10...18.
-    A first card Garmin numbered 10...18 is displayed 1...9 by the merge with its physical hole in
-    ``localHole``; rows built before that normalisation still repeat 10...18, so the second half
-    is taken as the trailing run 10, 11, ... to the end and the rest is the first half.
-    """
-    holes = [hole for hole in row.get("holes") or [] if isinstance(hole, dict) and int(hole.get("number") or 0)]
-    numbers = [int(hole.get("number") or 0) for hole in holes]
-    out: list[tuple[dict[str, Any], int, int, str]] = []
-    if row.get("merged"):
-        split = len(holes)
-        for index in range(len(holes)):
-            tail = numbers[index:]
-            if tail and tail == list(range(10, 10 + len(tail))):
-                split = index
-                break
-        for index, hole in enumerate(holes):
-            number = numbers[index]
-            if index < split:
-                physical = int(hole.get("localHole") or number)
-                out.append((hole, number if number <= 9 else number - 9, physical, "front"))
-            else:
-                out.append((hole, number, number - 9, "back"))
-    else:
-        for hole, number in zip(holes, numbers):
-            out.append((hole, number, number, "back" if number > 9 else "front"))
-    out.sort(key=lambda item: item[1])
-    return out
 
 
 def _loop_identity(row: dict[str, Any], side: str, physical: int) -> tuple[str, str]:
@@ -2207,11 +2106,11 @@ def _breakdown_fallback_par(row: dict[str, Any], display: int, physical: int, si
     return _par_from_string(front, physical) if len(front) >= 10 else _par_from_string(front, display)
 
 
-def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> dict[str, Any]:
+def _round_breakdowns(data: HistoryData) -> dict[str, Any]:
     """B0 statistics fields (IMPLEMENTATION_PLAN 新统计字段), all computed from normalized holes.
 
-    Putts / GIR go through the B0c eligibility helpers, so unedited default holes are skipped and
-    putt corrections apply. Penalties count only holes that actually carry a ``penalties`` field
+    Putts / GIR go through the B0c eligibility helpers, so unedited default holes are skipped unless
+    their putts were corrected (the corrected values are already in ``data``). Penalties count only holes that actually carry a ``penalties`` field
     and are not unedited defaults (absence is not zero). Loops are keyed by physical identity and
     labelled once per key; a loop hole's par is its most common source par (ties: the lower par);
     every list has a total sort order. Output therefore does not depend on history order.
@@ -2243,12 +2142,11 @@ def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> di
         sides = _hole_sides(row)
         back_count = sum(1 for item in sides if item[3] == "back")
         for hole, display, physical, side in sides:
-            ref = _hole_ref(row, display)
             par = _hole_to_par(hole, _breakdown_fallback_par(row, display, physical, side, back_count))
             strokes = hole.get("strokes")
             gir = _stat_gir(hole)
             seq["holes"].append(display)
-            seq["putts"].append(_corrected_putt_value(ref, _stat_putts(hole), putt_corrections))
+            seq["putts"].append(_int_or_none(_stat_putts(hole)))
             seq["gir"].append(None if gir is None else bool(gir))
             seq["fairway"].append(_fairway_direction(hole.get("fairway")))  # B0c: fairway not skipped
             penalties = hole.get("penalties")
@@ -2335,13 +2233,11 @@ def _round_breakdowns(data: HistoryData, putt_corrections: dict[str, Any]) -> di
     }
 
 
-def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _scoring(data: HistoryData) -> dict[str, Any]:
     bands: dict[str, list[str]] = {"70s": [], "80s": [], "90s": [], "100+": []}
     outcomes = Counter({"eagleOrBetter": 0, "birdie": 0, "par": 0, "bogey": 0, "doubleOrWorse": 0})
     outcome_refs: dict[str, list[str]] = defaultdict(list)
     spread_refs: dict[str, list[str]] = defaultdict(list)  # 7-bucket (splits double/+3/+4) for GolfLive chips
-    putt_corrections = _annotations_by_kind(annotations, "putt_correction")
-    score_corrections = _annotations_by_kind(annotations, "score_correction")
     putts: list[int] = []
     putt_refs: list[str] = []
     three_putt_refs: list[str] = []
@@ -2355,7 +2251,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
     # B0: unedited default holes are ineligible for putting/GIR, so they leave those denominators too.
     putt_eligible_holes = 0
     gir_eligible_holes = 0
-    effective_shots = _effective_shots(data, annotations)
+    effective_shots = _effective_shots(data)
     for row in data.rounds:
         if row.get("holesCompleted") == 18 and row.get("strokes") is not None:
             bands[_score_band(int(row["strokes"]))].append(_round_id(row))
@@ -2365,19 +2261,18 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
             par = _hole_to_par(hole, _par_from_string(hole_pars, number))
             score = hole.get("strokes")
             ref = _hole_ref(row, number) if number else ""
-            if _putt_eligible(hole, ref, putt_corrections):
+            if not _putt_gir_skipped(hole):
                 putt_eligible_holes += 1
-            if not is_unedited_default(hole):
                 gir_eligible_holes += 1
-            putt_count = _corrected_putt_value(ref, _stat_putts(hole), putt_corrections)
+            putt_count = _int_or_none(_stat_putts(hole))
             if putt_count is not None:
                 putts.append(putt_count)
                 putt_refs.append(ref)
                 if putt_count >= 3:
                     three_putt_refs.append(ref)
-                if ref in putt_corrections:
+                if hole.get("_puttCorrected"):
                     corrected_putt_refs.append(ref)
-            if ref in score_corrections:
+            if hole.get("_scoreCorrected"):
                 corrected_score_refs.append(ref)
             fairway = _fairway_direction(hole.get("fairway"))
             if fairway:
@@ -2457,7 +2352,7 @@ def _scoring(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
         )
         for key, label, class_name in _SPREAD_BUCKETS
     ]
-    breakdowns = _round_breakdowns(data, putt_corrections)
+    breakdowns = _round_breakdowns(data)
     return {
         **breakdowns,
         "scoreBands": [
@@ -2783,7 +2678,7 @@ def _courses(
         grouped[str(row.get("courseKey") or "unknown")].append(row)
     out = []
     total_rounds = len(data.rounds)
-    effective_shots = _effective_shots(data, annotations)
+    effective_shots = _effective_shots(data)
     # Bucket shots by round ONCE so each course's issue profile scans only its own shots — not all
     # ~21K shots re-scanned per course (×71 courses ≈ 1.5M iterations, the build's biggest hotspot).
     shots_by_round: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -3004,7 +2899,7 @@ def _records(data: HistoryData, annotations: list[dict[str, Any]] | None = None)
     courses = _course_distribution(data)
     shots = [
         shot
-        for shot in _effective_shots(data, annotations)
+        for shot in _effective_shots(data)
         if _shot_distance(shot) is not None and shot.get("_ref") is not None
     ]
     hole_outcomes = []
@@ -3452,7 +3347,7 @@ def _holes(
                 grouped[(course_key, number)].append((row, hole))
     shot_refs_by_hole: dict[str, list[str]] = defaultdict(list)
     hazard_shots_by_hole: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    for shot in _effective_shots(data, annotations):
+    for shot in _effective_shots(data):
         round_id = _shot_round_id(shot)
         hole_number = shot.get("hole")
         shot_ref = str(shot.get("_ref") or "")
@@ -3517,7 +3412,7 @@ def _holes(
 def _clubs(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     raw_names: dict[str, Counter] = defaultdict(Counter)  # canonical key -> original spellings
-    for shot in _effective_shots(data, annotations):
+    for shot in _effective_shots(data):
         key = _canonical_club(_shot_club(shot))
         if key is None:
             continue  # drop the Unknown/clubId=0 bucket — not a real club, not a distance model
@@ -3632,7 +3527,7 @@ def _issues(
             if not has_geometry_identity:
                 add_ref("missing_geometry", hole_ref)
 
-    effective_shots = _effective_shots(data, annotations)
+    effective_shots = _effective_shots(data)
     for shot in effective_shots:
         surface = str(_shot_surface(shot) or "").strip().lower()
         if surface in HAZARD_SURFACES:
@@ -3679,19 +3574,23 @@ def _issues(
             if lie in {"water", "bunker", "rough"}:
                 manual_refs[lie].append(target_id)
             continue
-        if kind == "penalty_correction":
-            reason = str(_payload_value(record, "reason", "issue", "tag") or "penalty").strip().lower()
-            if reason:
-                manual_refs[reason.replace(" ", "_")].append(target_id)
-            continue
-        if kind == "putt_correction":
-            putts = _payload_value(record, "to", "putts", "correctedPutts")
-            try:
-                if int(putts) >= 3:
-                    manual_refs["three_putt"].append(target_id)
-            except (TypeError, ValueError):
-                manual_refs["missing_putt_data"].append(target_id)
-            continue
+    # Penalty / putt corrections tag a hole by its corrected value, never by every record written:
+    # a penalty corrected back to 0 or putts corrected 3 -> 2 leave no manual issue behind.
+    for row in data.rounds:
+        for hole in row.get("holes") or []:
+            number = int(hole.get("number") or 0)
+            if not number:
+                continue
+            hole_ref = _hole_ref(row, number)
+            penalties = _int_or_none(hole.get("penalties"))
+            if hole.get("_penaltyCorrected") and penalties is not None and penalties > 0:
+                manual_refs[str(hole.get("_penaltyReason") or "penalty")].append(hole_ref)
+            if hole.get("_puttCorrected"):
+                putts = _int_or_none(hole.get("putts"))
+                if putts is None:
+                    manual_refs["missing_putt_data"].append(hole_ref)
+                elif putts >= 3:
+                    manual_refs["three_putt"].append(hole_ref)
     rows.extend(issue_record(issue, items, source="manual") for issue, items in sorted(manual_refs.items()))
     rows.extend(
         issue_record(issue, items, source="ai_suggested")
@@ -3851,8 +3750,7 @@ def _shot_row_quality(data: HistoryData) -> dict[str, Any]:
     )
 
 
-def _putt_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    putt_corrections = _annotations_by_kind(annotations, "putt_correction")
+def _putt_quality(data: HistoryData) -> dict[str, Any]:
     ready_refs: list[str] = []
     missing_refs: list[str] = []
     for row in data.rounds:
@@ -3863,9 +3761,9 @@ def _putt_quality(data: HistoryData, annotations: list[dict[str, Any]] | None = 
             if not number or hole.get("strokes") is None:
                 continue
             ref = _hole_ref(row, number)
-            if not _putt_eligible(hole, ref, putt_corrections):
+            if _putt_gir_skipped(hole):
                 continue  # B0: unedited default hole, skipped rather than missing
-            if _stat_putts(hole) is None and ref not in putt_corrections:
+            if _stat_putts(hole) is None:
                 missing_refs.append(ref)
             else:
                 ready_refs.append(ref)
@@ -3906,7 +3804,7 @@ def _club_sample_quality(data: HistoryData, annotations: list[dict[str, Any]] | 
     # Canonical club key (merge case variants, drop Unknown/clubId=0) so the dataQuality
     # club-sample ready/total matches the cleaned clubs list the user sees on the same screen.
     shots_by_club: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for shot in _effective_shots(data, annotations):
+    for shot in _effective_shots(data):
         club = _canonical_club(_shot_club(shot))
         if club is None:
             continue
@@ -3999,7 +3897,7 @@ def _data_quality(
             }
         ),
         _shot_row_quality(data),
-        _putt_quality(data, annotations),
+        _putt_quality(data),
         _rating_slope_quality(data),
         _club_sample_quality(data, annotations),
         _geometry_quality(hole_rows or []),
@@ -4171,28 +4069,29 @@ def build_history_stats(
     # retaining it wholesale in every windowed statistics build.
     report_records = list_report_stats_records(root=reports_root, player_id=player_id)
     decision_audits = list_decision_audits(root=decision_audit_root, player_id=player_id)
-    scored_data = _effective_score_data(data, annotations)
-    hole_rows = _holes(scored_data, annotations, report_records)
-    issue_rows = _issues(scored_data, annotations, report_records)
-    diagnosis = _diagnosis(scored_data, issue_rows)
-    diagnosis["decisionAuditTrends"] = _decision_audit_diagnosis(scored_data, decision_audits)
-    scoring = _scoring(scored_data, annotations)
+    # Spec 3.1: every section reads the one corrected history (events + annotations over the source).
+    data = corrected_history_data(data, player_id=player_id, annotations_root=annotations_root)
+    hole_rows = _holes(data, annotations, report_records)
+    issue_rows = _issues(data, annotations, report_records)
+    diagnosis = _diagnosis(data, issue_rows)
+    diagnosis["decisionAuditTrends"] = _decision_audit_diagnosis(data, decision_audits)
+    scoring = _scoring(data)
     clubs = _clubs(data, annotations)
     return {
         "schema": "ai-caddie-history-stats-v1",
         "dataMode": data_mode,
-        "summary": _summary(scored_data),
-        "time": _time_stats(scored_data),
-        "trend": _score_trend(scored_data),
+        "summary": _summary(data),
+        "time": _time_stats(data),
+        "trend": _score_trend(data),
         "scoring": scoring,
-        "courseDistribution": _course_distribution(scored_data),
-        "records": _records(scored_data, annotations),
-        "courses": _courses(scored_data, annotations, report_records),
+        "courseDistribution": _course_distribution(data),
+        "records": _records(data, annotations),
+        "courses": _courses(data, annotations, report_records),
         "holes": hole_rows,
         "clubs": clubs,
         "issues": issue_rows,
         "diagnosis": diagnosis,
-        "playerProfile": _player_profile(scored_data, scoring=scoring, clubs=clubs, diagnosis=diagnosis),
+        "playerProfile": _player_profile(data, scoring=scoring, clubs=clubs, diagnosis=diagnosis),
         "dataQuality": _data_quality(data, annotations, weather_snapshots, hole_rows, report_records, decision_audits),
         "drillDown": build_drilldown_index(data),
     }

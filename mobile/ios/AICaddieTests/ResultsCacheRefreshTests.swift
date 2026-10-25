@@ -80,7 +80,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
 
         model.refreshResultsCacheForTesting()
         await model.waitForResultsCacheRefreshForTesting()
-        await fulfillment(of: [announced], timeout: 2)
+        await fulfillment(of: [announced], timeout: 10)
 
         XCTAssertEqual(try store.loadMobileStats()?.summary?.recent20Average, 88.4)
         XCTAssertEqual(try store.loadHistoryRoundsArchive()?.groups.first?.rounds.first?.id, "r-new")
@@ -191,7 +191,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
         let model = model(freshStore())
 
         model.refreshResultsCacheForTesting()
-        for _ in 0..<100 where !paths.all.contains("/api/v2/history/rounds/\(roundRef)") {
+        for _ in 0..<500 where !paths.all.contains("/api/v2/history/rounds/\(roundRef)") {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         XCTAssertTrue(paths.all.contains("/api/v2/history/rounds/\(roundRef)"), "the prefetch asked for the scorecard")
@@ -248,8 +248,9 @@ final class ResultsCacheRefreshTests: XCTestCase {
         }
     }
 
+    /// Polls for up to ~10 s so a stalled simulator cannot exhaust it before the request arrives.
     private func waitForRequests(_ paths: Paths, count: Int) async throws {
-        for _ in 0..<100 where paths.all.count < count {
+        for _ in 0..<500 where paths.all.count < count {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         XCTAssertGreaterThanOrEqual(paths.all.count, count)

@@ -28,6 +28,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 from unittest import mock
+from urllib.error import HTTPError
 
 from fastapi.testclient import TestClient
 
@@ -90,6 +91,10 @@ def _missing_geometry(global_id: int, local_hole: int) -> dict[str, Any]:
     return {"coverage": "missing", "hasHazards": False, "hasMeshes": False, "evidence": [], "missingData": []}
 
 
+def _garmin_unknown_layout(global_id: int, *_args: object, **_kwargs: object) -> bytes:
+    raise HTTPError(f"https://garmin.invalid/course-layouts/{global_id}/releases/", 404, "Not Found", None, None)
+
+
 class AggregatorRouteMemberIsolationTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -116,6 +121,9 @@ class AggregatorRouteMemberIsolationTests(unittest.TestCase):
             mock.patch("ai_caddie.caddie.caddie_context.geometry_coverage_for_hole", side_effect=_missing_geometry),
             # the fixture courses have no CourseView release here; stand in for it (B4b-2)
             fixture_course_authority(),
+            # A cold course start asks Garmin for the release (C36). Answer at the transport
+            # boundary so the suite never downloads a real release into the shared data root.
+            mock.patch("ai_caddie.courses.course_reference.load_release_pb", side_effect=_garmin_unknown_layout),
         ]
         for patch_ctx in self._patches:
             patch_ctx.start()
