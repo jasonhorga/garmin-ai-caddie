@@ -12,142 +12,7 @@ func coursePrepParSourceLabel(_ source: String) -> String {
     }
 }
 
-/// 备战 (README §8, `pre-round.html` 第三台): the full-screen hole map with the caddie route and
-/// landings; the plan, this hole's club order and the 18-hole strip at the bottom; the Tee top right.
-///
-/// 选了就进: a selected course opens here at once, while its app-owned download keeps running in the
-/// library. This screen only reads the local course template the download writes hole by hole and
-/// shows every hole by the map degradation contract — precise topo when installed, else the factual
-/// route and the geometry it already has, else the one full-screen waiting page. A background map
-/// that replaces a hole in place keeps the player's hole, plan, zoom and pan.
-public struct CourseReviewView: View {
-    private let client: SyncClient
-    private let globalId: Int
-    private let holeCount: Int
-    private let teeBox: String
-    private let offlineStore: OfflineStore?
-    private let download: PrepCourseDownloadRecord?
-    private let courseTees: [String]
-    private let onLoadCourseTees: (Int) async -> [CourseTee]
-    private let onChangeTee: (String) -> Void
-    @State private var template: LiveRoundPackage?
-    @State private var loadedTeeBox: String?
-    @State private var rows: [PrepHoleRow] = []
-    @State private var session = PrepHoleMapSession()
-    @State private var fetchedTees: [CourseTee] = []
-
-    public init(
-        client: SyncClient,
-        globalId: Int,
-        holeCount: Int = 9,
-        teeBox: String? = nil,
-        offlineStore: OfflineStore? = nil,
-        download: PrepCourseDownloadRecord? = nil,
-        courseTees: [String] = [],
-        onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] },
-        onChangeTee: @escaping (String) -> Void = { _ in }
-    ) {
-        self.client = client
-        self.globalId = globalId
-        self.holeCount = max(1, min(holeCount, 36))
-        let trimmedTeeBox = (download?.teeBox ?? teeBox ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        self.teeBox = trimmedTeeBox.isEmpty ? "blue" : trimmedTeeBox
-        self.offlineStore = offlineStore
-        self.download = download
-        self.courseTees = courseTees
-        self.onLoadCourseTees = onLoadCourseTees
-        self.onChangeTee = onChangeTee
-    }
-
-    public var body: some View {
-        CoursePrepStrategyScreen(
-            rows: rows,
-            session: $session,
-            teeOptions: teeOptions,
-            selectedTee: teeBox,
-            onSelectTee: onChangeTee
-        )
-        // Every durable download change (a hole's facts, a topo file, ready, a re-queued stale
-        // revision, the Tee) re-reads the installed template. Reading is the only work here: this
-        // screen owns no network loader, so leaving it never interrupts the download.
-        .task(id: reloadKey) {
-            reload()
-        }
-        .task(id: globalId) {
-            await loadTees()
-        }
-    }
-
-    private var reloadKey: String {
-        [
-            String(globalId),
-            teeBox.lowercased(),
-            download?.id ?? "",
-            download?.phase.rawValue ?? "",
-            String(download?.updatedAt.timeIntervalSinceReferenceDate ?? 0),
-            String(download?.requiredGeometryRevisions?.count ?? 0),
-        ].joined(separator: "|")
-    }
-
-    /// Tees from the course's `/tees` authority, else the catalogue row's CourseView tees, and always
-    /// the Tee on screen.
-    private var teeOptions: [String] {
-        let fetched = fetchedTees.map(\.teeBox)
-        let source = fetched.isEmpty ? courseTees : fetched
-        var seen = Set<String>()
-        var result: [String] = []
-        for tee in source + [teeBox] {
-            let trimmed = tee.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty,
-                  trimmed.caseInsensitiveCompare("unknown") != .orderedSame,
-                  seen.insert(trimmed.lowercased()).inserted else { continue }
-            result.append(trimmed)
-        }
-        return result
-    }
-
-    private func loadTees() async {
-        let tees = await onLoadCourseTees(globalId)
-        if !tees.isEmpty {
-            fetchedTees = tees
-        }
-    }
-
-    private func reload() {
-        let loaded = try? offlineStore?.loadCourseTemplate(globalId: globalId, teeBox: teeBox)
-        if let loaded {
-            template = loaded
-            loadedTeeBox = teeBox.lowercased()
-        } else if loadedTeeBox != teeBox.lowercased() {
-            // A newly selected Tee has no template yet: its holes wait for their own facts rather
-            // than showing another Tee's yards. A transient read miss keeps the current template.
-            template = nil
-            loadedTeeBox = teeBox.lowercased()
-        }
-        let store = offlineStore
-        rows = PrepHoleRows.build(
-            template: template,
-            fallbackHoleCount: download?.totalHoles ?? holeCount,
-            downloadActive: download?.isActive ?? false,
-            requiredRevisions: download?.requiredGeometryRevisions,
-            topoURL: { hole, revision in
-                store?.loadCourseTopoImageURL(
-                    globalId: hole.sourceGlobalId,
-                    localHole: hole.sourceLocalHole,
-                    geometryRevision: revision
-                )
-            }
-        )
-        let current = session.holeNumber.flatMap { number in rows.first { $0.number == number } }
-        session.adopt(
-            holeNumbers: rows.map(\.number),
-            planCount: current?.plans.count ?? 0
-        )
-    }
-}
-
-/// The rendered 备战 screen for already-resolved rows. `CourseReviewView` owns loading and state;
+/// Rendering helpers for already-resolved prep rows; the app now uses the live hole screen.
 /// this view only draws, so design snapshots can render every degradation state directly.
 struct CoursePrepStrategyScreen: View {
     let rows: [PrepHoleRow]
@@ -207,7 +72,7 @@ struct CoursePrepStrategyScreen: View {
                 chromeRects = rects
             }
         }
-        .navigationTitle("赛前球场攻略")
+        .navigationTitle("备战洞屏")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(LivePlayStyle.base.opacity(0.72), for: .navigationBar)
         .toolbarBackground(chromeAudit ? .hidden : .visible, for: .navigationBar)

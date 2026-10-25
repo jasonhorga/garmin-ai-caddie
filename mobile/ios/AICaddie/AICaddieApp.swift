@@ -201,6 +201,24 @@ public struct AICaddieApp: App {
                         },
                         onLiveAppearanceChanged: { isLive in
                             usesDarkLiveChrome = isLive
+                        },
+                        prepPackage: model.prepPackage,
+                        prepTeeOptions: model.prepTeeOptions,
+                        isOpeningPrepCourse: model.isOpeningPrepCourse,
+                        onOpenPrepCourse: { course in
+                            model.openPrepCourse(course)
+                        },
+                        onClosePrep: {
+                            model.closePrepMode()
+                        },
+                        onChangePrepTee: { tee, hole in
+                            model.changePrepTee(tee, hole: hole)
+                        },
+                        onStartRoundFromFirstStroke: { hole in
+                            model.startRoundFromFirstStroke(startHole: hole)
+                        },
+                        onUndoRoundStart: {
+                            model.undoRoundStart()
                         }
                     )
                 }
@@ -367,6 +385,14 @@ public final class LiveRoundAppModel: ObservableObject {
     public func consumePendingLiveHole() {
         pendingLiveHole = nil
     }
+    /// 备战 on the hole screen (design 2026-10-23 §2): the course package the screen shows while no
+    /// round exists. Memory only — never a round package, cursor, event or upload. The first stroke
+    /// recorded inside a hole's area turns this same package (same round id) into the round.
+    @Published public private(set) var prepPackage: LiveRoundPackage?
+    /// The prep course's Tees (catalogue first, then its `/tees` authority) for the top bar.
+    @Published public private(set) var prepTeeOptions: [String] = []
+    @Published public private(set) var isOpeningPrepCourse = false
+    private var prepOpenGeneration: UInt64 = 0
     @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
     /// A Watch-created round can arrive before its richer course package. Keep that fact visible on
     /// the Hub instead of making the phone look idle while the bounded package retry is running.
@@ -731,6 +757,7 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingEventCount = 0
         quarantinedEventCount = 0
         pendingLiveHole = nil
+        closePrepMode()
         restoreCachedCourseOptions()
         recentCourseOption = try? offlineStore.loadRecentCourseSelection()
         courseOptionsRefreshSucceeded = false
@@ -3568,6 +3595,154 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
+    // MARK: - 一套洞屏：备战 → 第一杆开打 (design 2026-10-23 §2)
+
+    /// 首页「备战」: the chosen course opens on the hole screen without a round. Its package comes
+    /// from the installed template when there is one, else the stateless course-package request
+    /// (the server keeps no round until events arrive), and stays in memory only. False — nothing
+    /// opens — while a round is in progress.
+    @discardableResult
+    public func openPrepCourse(_ course: MobileCourseOption, hole: Int? = nil) -> Bool {
+        guard liveRoundState == nil else {
+            syncStatus = "正在打球，结束本场后再备战"
+            return false
+        }
+        let record = PrepCourseDownloadRecord(course: course)
+        let loops = record.loops
+        let roundId = StartRoundView.freshLiveRoundId(globalId: course.globalId)
+        prepOpenGeneration &+= 1
+        let generation = prepOpenGeneration
+        prepCourse = course
+        prepTeeOptions = Self.prepTeeOptions(course.tees ?? [], selected: record.teeBox)
+        isOpeningPrepCourse = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let preparedAt = Date()
+            var opened = self.installedRoundProjection(
+                loops,
+                roundId: roundId,
+                teeBox: record.teeBox,
+                preparedAt: preparedAt,
+                requireComplete: false
+            )
+            if opened == nil {
+                opened = await self.fetchRemoteCoursePackage(
+                    globalId: course.globalId,
+                    roundId: roundId,
+                    teeBox: record.teeBox,
+                    loops: loops,
+                    capturedAt: preparedAt
+                )
+            }
+            guard generation == self.prepOpenGeneration else { return }
+            self.isOpeningPrepCourse = false
+            guard self.liveRoundState == nil else { return }
+            guard let opened else {
+                self.syncStatus = "暂时打不开这个球场，稍后重试"
+                return
+            }
+            self.enterPrepMode(with: opened, hole: hole)
+            let tees = await self.loadCourseTees(globalId: course.globalId)
+            guard generation == self.prepOpenGeneration, !tees.isEmpty else { return }
+            self.prepTeeOptions = Self.prepTeeOptions(tees.map(\.teeBox), selected: record.teeBox)
+        }
+        return true
+    }
+
+    /// The course `openPrepCourse` last opened, for the top bar's Tee change.
+    private var prepCourse: MobileCourseOption?
+
+    /// Show `package` on the hole screen in 备战 and navigate to `hole` (else its first hole).
+    func enterPrepMode(with package: LiveRoundPackage, hole: Int? = nil) {
+        prepPackage = package
+        let target = hole.flatMap { number in
+            package.holes.contains(where: { $0.number == number }) ? number : nil
+        }
+        pendingLiveHole = target ?? package.holes.first?.number
+    }
+
+    /// Leaving the hole screen before the first stroke: nothing was recorded, so nothing is kept.
+    public func closePrepMode() {
+        guard prepPackage != nil || prepCourse != nil || isOpeningPrepCourse else { return }
+        prepOpenGeneration &+= 1
+        isOpeningPrepCourse = false
+        prepPackage = nil
+        prepCourse = nil
+        prepTeeOptions = []
+    }
+
+    /// 备战时换 T 台: the other Tee is its own library row, and the hole screen reopens on it at the
+    /// same hole. The chosen Tee is what a first stroke then starts with.
+    public func changePrepTee(_ tee: String, hole: Int?) {
+        let trimmed = tee.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard liveRoundState == nil, let course = prepCourse, !trimmed.isEmpty else { return }
+        let next = course.replacingTeeBox(trimmed)
+        guard PrepCourseDownloadRecord(course: next).id != PrepCourseDownloadRecord(course: course).id else {
+            return
+        }
+        downloadPrepCourse(next)
+        openPrepCourse(next, hole: hole)
+    }
+
+    private static func prepTeeOptions(_ tees: [String], selected: String) -> [String] {
+        var seen = Set<String>()
+        return (tees + [selected]).compactMap { tee in
+            let trimmed = tee.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  trimmed.caseInsensitiveCompare("unknown") != .orderedSame,
+                  seen.insert(trimmed.lowercased()).inserted else { return nil }
+            return trimmed
+        }
+    }
+
+    /// 第一杆开打: the hole screen's first stroke inside `startHole`'s area turns the 备战 package into
+    /// the round — same round id, so the screen stays — with the cursor and play order starting at
+    /// that hole. The round package, cursor and Watch seed are written exactly as for 开始一场; the
+    /// server learns of the round from its first uploaded event.
+    @discardableResult
+    public func startRoundFromFirstStroke(startHole: Int) -> Bool {
+        guard liveRoundState == nil,
+              let prep = prepPackage,
+              prep.holes.contains(where: { $0.number == startHole }) else { return false }
+        do {
+            let persisted = try offlineStore.saveRoundPackage(prep)
+            try offlineStore.saveRoundStart(roundId: persisted.roundId, startHole: startHole)
+            try activatePackage(persisted, status: "已开打", rememberAsRecent: true)
+#if canImport(UIKit)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+#endif
+            prepCourse = nil
+            prepTeeOptions = []
+            beginOfflineCourseDownload()
+            return true
+        } catch {
+            AICaddieLog.storage.error("First-stroke start failed: \(String(describing: error), privacy: .public)")
+            try? offlineStore.discardRound(roundId: prep.roundId)
+            liveRoundState = nil
+            syncStatus = "开打失败，请重试"
+            return false
+        }
+    }
+
+    /// 撤销开打: a round started by mistake goes through the existing 放弃本场 path (local package,
+    /// events and media removed; the Watch told it was abandoned) and the screen returns to 备战 on
+    /// the same hole under a new round id, so a later start never reuses the discarded identity.
+    public func undoRoundStart() {
+        guard let package,
+              let state = liveRoundState,
+              state.roundId == package.roundId,
+              state.startHole != nil else { return }
+        let hole = state.activeHole
+        discardActiveRound()
+        guard liveRoundState == nil else { return }
+        enterPrepMode(
+            with: package.rebasedForOfflineStart(
+                roundId: StartRoundView.freshLiveRoundId(globalId: package.course.globalId)
+            ),
+            hole: hole
+        )
+    }
+
     public func setActiveHole(_ hole: Int) {
         guard let package, package.holes.contains(where: { $0.number == hole }) else {
             return
@@ -3596,6 +3771,11 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     public func handleEvent(_ event: LiveRoundEvent) {
+        // 备战不记录: before the first stroke starts the round, the hole screen's events are dropped
+        // here — never in the log, never pending upload.
+        if let prepPackage, event.roundId == prepPackage.roundId, liveRoundState?.roundId != event.roundId {
+            return
+        }
         do {
             #if DEBUG
             UITestEventLatencyTrace.record("handle.start kind=\(event.kind.rawValue) hole=\(event.hole)")
@@ -5703,6 +5883,9 @@ public final class LiveRoundAppModel: ObservableObject {
         liveRoundState = restored
         if isPreparingRound { roundStartFailure = nil }
         recordUITestLatency("activate.live-state-published globalId=\(nextPackage.course.globalId)")
+        // A live round owns the hole screen: the first-stroke start hands over the same package, and
+        // any other start (开始一场, a Watch round) ends 备战.
+        prepPackage = nil
         package = nextPackage
         schedulePendingGeometryRefresh(for: nextPackage)
         recordUITestLatency("activate.package-published globalId=\(nextPackage.course.globalId)")
