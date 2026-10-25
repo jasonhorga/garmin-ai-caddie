@@ -316,6 +316,8 @@ def _derivative_delay(state: dict[str, Any]) -> float:
     if any(row.get("derivatives") == "queued" for row in rows):
         delay = 0.0
     else:
+        if any(row.get("derivativesLastErrorType") == "ScheduleUnavailable" for row in rows):
+            return _DERIVATIVE_POLL_SECONDS
         plans = []
         for row in rows:
             if row.get("derivatives") != "retrying":
@@ -385,6 +387,16 @@ def reconcile_derivatives(identifier: str, *, schedule: bool = True) -> None:
             result = derivative_state(gid, hole)
             if schedule and result.get("state") == "due":
                 result = schedule_derivatives(gid, hole)
+                # A failed snapshot/read can leave the lane in ``due`` without creating a
+                # worker.  Persist a bounded poll plan so the coordinator cannot spin at its
+                # one-second minimum while repeatedly attempting the same impossible submission.
+                if result.get("state") == "due":
+                    result = {
+                        **result,
+                        "state": "retrying",
+                        "retryAfterEpoch": time.time() + _DERIVATIVE_POLL_SECONDS,
+                        "lastErrorType": "ScheduleUnavailable",
+                    }
         except Exception:  # noqa: BLE001 - observation is best effort; keep the row as it is
             logger.exception("course_install stage=derivatives gid=%s hole=%s", gid, hole)
             continue
@@ -418,17 +430,24 @@ def derivatives_settled(global_id: int, local_hole: int) -> None:
             state = _read(identifier)
             if not state or state.get("phase") in {"failed", "cancelled"} or identifier in _ACTIVE:
                 continue
+            # A derivative callback must not consume the geometry/provider retry budget.  If
+            # another hole already owns a queued pass, leave its existing timer untouched.
+            if _has_queued_work(state):
+                if identifier not in _RETRY_TIMERS:
+                    _launch(identifier)
+                continue
+            timer = _RETRY_TIMERS.pop(identifier, None)
+            if timer is not None:
+                timer.cancel()
             if _all_assets_ready(state):
                 state["phase"] = "ready"
                 state["stage"] = "complete"
                 state["error"] = None
                 state["cancellable"] = False
+                state.pop("nextAttemptEpoch", None)
                 _write(state)
                 continue
             # Replace any poll timer with one due at the newly persisted plan.
-            timer = _RETRY_TIMERS.pop(identifier, None)
-            if timer is not None:
-                timer.cancel()
         _schedule_retry(identifier)
 
 
@@ -512,8 +531,11 @@ def _schedule_retry(identifier: str) -> None:
                     current[key] = signature
                     # INFO only when a hole's export state changes: a plan deferred while playing
                     # nearby re-runs every minute with nothing new to say.
+                    first_running_plan = signature[0] == "running" and failures == 0
                     logger.log(
-                        logging.DEBUG if logged.get(key) == signature else logging.INFO,
+                        logging.INFO if first_running_plan else (
+                            logging.DEBUG if logged.get(key) == signature else logging.INFO
+                        ),
                         "course_install stage=derivatives job=%s hole=%s state=%s failures=%s "
                         "retry_after_epoch=%s next_attempt_in_s=%.0f",
                         identifier, key, signature[0], failures, signature[2], delay,
@@ -557,7 +579,9 @@ def _arm_retry_timer(identifier: str, state: dict[str, Any], delay: float) -> No
     def relaunch() -> None:
         with _LOCK:
             _RETRY_TIMERS.pop(identifier, None)
-        _launch(identifier)
+            # Reacquire the active ownership before releasing the lock.  A package plan observed
+            # from another thread therefore sees either the timer or the newly submitted worker.
+            _launch(identifier)
 
     timer = threading.Timer(delay, relaunch)
     timer.daemon = True
@@ -1075,6 +1099,10 @@ def update(
                 return False
         if phase is not None:
             state["phase"] = phase
+            if phase == "ready":
+                # A later derivative plan is a new observable transition, even when its tuple
+                # happens to match the plan that preceded the completed generation.
+                _DERIVATIVE_LOG_SIGNATURES.pop(identifier, None)
         if stage is not None:
             state["stage"] = stage
         if clear_error:
@@ -1176,15 +1204,17 @@ def _run(identifier: str) -> None:
                     state["stage"] = "complete"
                     state["error"] = None
                     state["cancellable"] = False
+                    state.pop("nextAttemptEpoch", None)
                     _write(state)
-        if relaunch:
-            if made_progress and state and state.get("phase") == "queued" and _has_queued_work(state):
-                # A healthy small-window pass yields back to the priority queue immediately.
-                # Backoff is for provider failure, never an artificial delay between holes.
-                _launch(identifier)
-            else:
-                _schedule_retry(identifier)
-        elif not state or state.get("phase") != "cancelled":
+            if relaunch:
+                if made_progress and state and state.get("phase") == "queued" and _has_queued_work(state):
+                    # Keep ownership continuous while handing the next window to the worker.
+                    _launch(identifier)
+                else:
+                    # Arm the timer before releasing the journal lock so hole_plan never sees
+                    # an unowned interval between the worker and its retry hand-off.
+                    _schedule_retry(identifier)
+        if not relaunch and (not state or state.get("phase") != "cancelled"):
             with _LOCK:
                 _RETRY_ATTEMPTS.pop(identifier, None)
         # A terminal retry or a delayed retry must not strand other jobs recovered after restart.
@@ -1246,8 +1276,10 @@ def _launch_next_resumed_job() -> None:
             state = _read(identifier)
             if not state or state.get("phase") not in {"queued", "running"}:
                 continue
-        _launch(identifier)
-        return
+            # Submit while the lock is still held; otherwise popping the first backlog item
+            # briefly makes it invisible to hole_plan while the next item is still waiting.
+            _launch(identifier)
+            return
 
 
 def resume_pending_jobs() -> None:
@@ -1258,6 +1290,9 @@ def resume_pending_jobs() -> None:
     except OSError:
         return
     pending: list[tuple[int, float, str]] = []
+    # Publish the scan candidates before taking the journal lock; a package observer must never
+    # see the empty staging state as an unowned hand-off point while individual files are read.
+    _RESUME_BACKLOG = [path.stem for path in paths]
     terminal_cutoff = datetime.now(UTC) - timedelta(days=_retention_days())
     for path in paths:
         identifier = path.stem
@@ -1295,6 +1330,10 @@ def resume_pending_jobs() -> None:
             state["phase"] = "queued"
             state["stage"] = "queued"
             state["updatedAt"] = _now()
+            # Publish recovered ownership while the scan is still rewriting later journals.  This
+            # closes the package-plan gap between the first durable rewrite and final backlog sort.
+            if identifier not in _RESUME_BACKLOG:
+                _RESUME_BACKLOG.append(identifier)
             _write(state)
             pending.append((int(state.get("priority", SELECTED_COURSE)), updated_timestamp, identifier))
     with _LOCK:
@@ -1356,6 +1395,10 @@ def hole_plan(global_id: int, local_hole: int) -> dict[str, Any] | None:
                 continue
             row = (state.get("holes") or {}).get(key)
             if not isinstance(row, dict):
+                continue
+            # Nearby warming has its own priority provider.  A deferred nearby journal must not
+            # make a player's failed install look retryable after that player lost ownership.
+            if str(state.get("loopKey") or "").endswith(":nearby-assets"):
                 continue
             owed = row.get("geometry") in {"queued", "running"} or (
                 _geometry_ready(row) and row.get("topo") in {"queued", "running"}
