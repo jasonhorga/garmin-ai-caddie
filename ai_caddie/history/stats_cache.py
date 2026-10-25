@@ -82,8 +82,10 @@ _inflight: dict[tuple, threading.Event] = {}
 # and it never stores CourseView/map bytes. Set AI_CADDIE_STATS_CACHE_DIR to an explicit location in
 # a controlled deployment or test.
 # The fingerprint covers source files only, not code: bump this when a stats formula changes so a
-# deploy does not keep serving projections built by the old code (v2: WHS handicap estimate).
-_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v2"
+# deploy does not keep serving projections built by the old code (v2: WHS handicap estimate;
+# v3: the estimate takes the lowest k of N per the WHS table, with its N=3/4/6 adjustments, from 3
+# differentials instead of the lowest ceil(40%) from 5).
+_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v3"
 _PERSISTENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
 # A stats projection can be tens of megabytes on a real history.  Never make the first package
 # caller serialize and write that projection synchronously: the request only needs the in-memory
