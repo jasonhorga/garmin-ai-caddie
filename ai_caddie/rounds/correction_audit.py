@@ -537,7 +537,7 @@ def write_correction(
                         raise CorrectionConflict(f"clientMutationId {cmid!r} was already used for a different correction")
                     return prior  # idempotent: no second write, no second diff
         try:
-            _require_possible_correction(data, canonical_ref, existing, event, player_id=player_id)
+            _require_possible_correction(data, canonical_ref, existing, event, player_id=player_id, root=root)
         except score_invariant.ScoreInvariantError as exc:
             raise rc.CorrectionError(str(exc)) from exc
         stored = {key: value for key, value in event.items() if value is not None or key == "value"}
@@ -650,7 +650,7 @@ def _require_possible_annotation(
 
 def _require_possible_correction(
     data: HistoryData, round_ref: str, existing: list[dict[str, Any]], event: dict[str, Any], *,
-    player_id: str,
+    player_id: str, root: Path | str | None,
 ) -> None:
     hole = _int(event.get("hole"))
     op = event.get("op")
@@ -661,9 +661,11 @@ def _require_possible_correction(
         return
     from ai_caddie.reports.annotations import list_annotation_records
 
-    # Same annotation root as ``next_audit_seq`` below: production runs both stores from one root.
+    # Production runs both stores from one root (see ``player_dir``): the annotations a putt or total
+    # correction left live beside this correction store.
+    annotation_root = Path(root) if root is not None else _history.ROOT
     _require_possible_hole(
-        row, hole, list_annotation_records(player_id=player_id),
+        row, hole, list_annotation_records(root=annotation_root, player_id=player_id),
         [*existing, {**event, "auditSeq": _PENDING_AUDIT_SEQ}],
     )
 
