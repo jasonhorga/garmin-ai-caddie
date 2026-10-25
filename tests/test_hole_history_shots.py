@@ -94,7 +94,8 @@ class HoleHistoryShotsTest(PinnedToday):
                   s_['startLie'], s_['endLie'], s_['result']) for s_ in round_shots(payload, '201')],
                 [('s:201:1', '2026-10-01', 1, 1, True, 200.0, 'TeeBox', 'Fairway', 'fairway'),
                  ('s:201:2', '2026-10-01', 1, 2, False, 100.0, 'Fairway', 'Rough', 'rough'),
-                 ('s:201:3', '2026-10-01', 1, 3, False, 20.0, 'Rough', 'Green', 'green')],
+                 # Green is outside the four result categories consumed by the history overlay.
+                 ('s:201:3', '2026-10-01', 1, 3, False, 20.0, 'Rough', 'Green', 'unknown')],
             )
             driver, iron, wedge = round_shots(payload, '201')
             self.assertEqual(driver['start'], {'lat': 0.0, 'lon': 0.0})
