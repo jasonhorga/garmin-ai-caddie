@@ -2966,7 +2966,9 @@ class ServerV2MobileTests(unittest.TestCase):
         for response in (approach, recovery):
             self.assertEqual(response.status_code, 200)
             payload = response.json()
-            self.assertEqual([row["id"] for row in payload["options"]], ["safe", "stock", "attack"])
+            # No live distance means no numeric target to offer (spec 8.2): degrade to no options.
+            self.assertEqual(payload["options"], [])
+            self.assertIsNone(payload["selected"])
             missing_labels = {row["label"] for row in payload["missingData"]}
             self.assertIn("current_location", missing_labels)
             self.assertIn("distance_to_pin", missing_labels)

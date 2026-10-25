@@ -670,14 +670,15 @@ class CorrectionLogRouteTest(unittest.TestCase):
         with mock.patch("server_v2.annotations.load_history_data_for_mode", side_effect=RuntimeError(self.SECRET)):
             note = self.client.post("/api/v2/annotations", headers=self.a, json={
                 "targetType": "hole", "targetId": "42:4", "kind": "putt_correction", "payload": {"to": 1}})
-        self.assertEqual(note.status_code, 200)
+        # Unreadable history rejects a score annotation like /corrections: 503, nothing stored.
+        self.assertEqual(note.status_code, 503)
+        self.assertIn("history unavailable", note.text)
         self.assert_clean(note.text)
         with mock.patch.object(ca, "_effective_value", side_effect=RuntimeError(self.SECRET)):
             self.client.post("/api/v2/annotations", headers=self.a, json={
                 "targetType": "hole", "targetId": "42:4", "kind": "putt_correction", "payload": {"to": 2}})
 
         text = self.stored_text()
-        self.assertIn("history unavailable", text)
         self.assertIn("audit failed", text)
         self.assert_clean(text)
         self.assert_clean(self.client.get("/api/v2/history/rounds/42/correction-log", headers=self.a).text)
