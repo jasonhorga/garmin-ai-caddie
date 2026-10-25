@@ -673,9 +673,11 @@ class Card453TopoDecoupleAcceptance(unittest.TestCase):
                 for status in ("pending", "failed"):
                     write_derivatives_status(mesh, {"status": status, "failureCount": 2, "lastErrorType": "RuntimeError"})
                     result = course_install.enqueue(**kwargs)
-                    # C34: the missing obstacle export keeps the job open (no live plan exists),
-                    # but the installed mesh/topo are neither rebound nor re-rendered.
-                    self.assertEqual(result["phase"], "queued")
+                    # C34: the missing obstacle export keeps the job open internally (no live plan
+                    # exists), but the installed mesh/topo are neither rebound nor re-rendered and
+                    # clients see a usable course: public phase ready, stage derivatives.
+                    self.assertEqual((result["phase"], result["stage"]), ("ready", "derivatives"))
+                    self.assertEqual(course_install.state_for_worker(state["jobId"])["phase"], "queued")
                     self.assertEqual(result["holes"][0]["topoRevision"], row["geometryRevision"])
                     after = course_install.state_for_worker(state["jobId"])
                     self.assertEqual(after["generation"], before["generation"])

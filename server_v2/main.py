@@ -2547,11 +2547,23 @@ def mobile_course_package(
         priority_hole=priority_hole,
     )
     mark_request_stage("background_enqueue")
+    # The package was built before this request queued its job: undrawable holes were judged with
+    # no work in sight.  Re-judge them now that the job exists (new dicts: the built package may be
+    # shared through the package single-flight).
+    from ai_caddie.caddie.mobile_live import _undrawable_hole_state
+
+    holes = [
+        {**hole, **_undrawable_hole_state(hole.get("sourceGlobalId"), hole.get("sourceLocalHole"))}
+        if isinstance(hole, dict) and hole.get("geometryState") in {"pending", "unavailable"}
+        else hole
+        for hole in package.holes
+    ]
     # Pydantic response models are mutable in the current contract, but use model_copy when
     # available so this remains safe if the model becomes frozen later.
     if hasattr(package, "model_copy"):
-        return package.model_copy(update={"courseInstallJob": job})
+        return package.model_copy(update={"courseInstallJob": job, "holes": holes})
     package.courseInstallJob = job
+    package.holes = holes
     return package
 
 

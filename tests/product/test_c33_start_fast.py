@@ -131,7 +131,8 @@ class StartFastTests(unittest.TestCase):
             timer.start()
             self.addCleanup(timer.cancel)
             start = time.monotonic()
-            result = mobile.build_mobile_course_package_response(123, loops=[(123, "front"), (123, "back")], map_only=True, captured_at="2026-10-24T00:00:00Z", include_event_cursor=False)
+            # The route passes prepare_map=True with map_only (C34: pending needs that real work).
+            result = mobile.build_mobile_course_package_response(123, loops=[(123, "front"), (123, "back")], map_only=True, prepare_map=True, captured_at="2026-10-24T00:00:00Z", include_event_cursor=False)
             elapsed = time.monotonic() - start
             self.assertLess(elapsed, 1.8)  # Rework: 1 s follower window plus cached projection/CI margin.
             self.assertFalse(result.offlinePackageStatus["cacheable"])
@@ -396,8 +397,10 @@ class ReworkContractTests(unittest.TestCase):
               patch('ai_caddie.core.data.mesh_path', return_value=Path(__file__)),
               patch('ai_caddie.caddie.analysis.tee_set_for_box', return_value=2),
               patch('ai_caddie.courses.vector_prep.cached_vector_hole', side_effect=lambda gid, hole, **kw: ready if hole == 2 else None)):
+            # The route passes prepare_map=True with map_only (C34: pending needs that real work).
             result = mobile.build_mobile_course_package_response(
-                123, loops=[(123, 'front'), (123, 'back')], map_only=True, include_event_cursor=False)
+                123, loops=[(123, 'front'), (123, 'back')], map_only=True, prepare_map=True,
+                include_event_cursor=False)
         payload = result.model_dump(by_alias=True)
         schema = json.loads(Path('mobile/contracts/live_round_package.schema.json').read_text())
         errors = list(Draft202012Validator(schema).iter_errors(payload))

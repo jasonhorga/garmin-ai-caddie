@@ -984,9 +984,50 @@ def _ensure_geometry_for_course(
     return _geometry_ensure_summary(results, requested=True)
 
 
-# A hole that cannot be drawn yet is waiting on its geometry/topo install; the client asks again
-# after this cadence (or a later persisted retry time) while that install is in flight.
+# In-flight poll interval: while a hole's geometry/topo install is actually running (or submitted)
+# there is no due time to report, so the client asks again after this cadence.
 _GEOMETRY_INSTALL_POLL_SECONDS = 30.0
+# ``provider(global_id, local_hole) -> {"state": "in_flight"|"scheduled", "retryAfterEpoch"} | None``
+# registered by the server process (course-install journal, priority-hole prepare).  The domain
+# never imports the server; with no provider registered (library/offline use) the old
+# "assume an install is coming" behaviour is kept.
+_HOLE_PLAN_PROVIDERS: list[Callable[[int, int], dict[str, Any] | None]] = []
+
+
+def add_hole_plan_provider(provider: Callable[[int, int], dict[str, Any] | None]) -> None:
+    """Register a source of background geometry work for package hole states (idempotent)."""
+    if provider not in _HOLE_PLAN_PROVIDERS:
+        _HOLE_PLAN_PROVIDERS.append(provider)
+
+
+def _undrawable_hole_state(global_id: int | None, local_hole: int | None) -> dict[str, Any]:
+    """``pending`` only while real work exists for a hole that cannot be drawn yet.
+
+    In flight -> poll after the in-flight interval; waiting on a retry timer -> that timer's due
+    time; no work anywhere (for example a failed install) -> ``unavailable`` with no retry time,
+    so a client stops polling until something new (a package request that enqueues) happens.
+    """
+    now = time.time()
+    if not _HOLE_PLAN_PROVIDERS or not global_id or not local_hole:
+        return {"geometryState": "pending", "retryAfterEpoch": now + _GEOMETRY_INSTALL_POLL_SECONDS}
+    scheduled: list[float] = []
+    for provider in tuple(_HOLE_PLAN_PROVIDERS):
+        try:
+            plan = provider(int(global_id), int(local_hole))
+        except Exception:
+            logger.exception("package hole plan provider failed gid=%s hole=%s", global_id, local_hole)
+            continue
+        if not plan:
+            continue
+        if plan.get("state") == "in_flight":
+            return {"geometryState": "pending", "retryAfterEpoch": now + _GEOMETRY_INSTALL_POLL_SECONDS}
+        try:
+            scheduled.append(float(plan.get("retryAfterEpoch")))
+        except (TypeError, ValueError):
+            return {"geometryState": "pending", "retryAfterEpoch": now + _GEOMETRY_INSTALL_POLL_SECONDS}
+    if scheduled:
+        return {"geometryState": "pending", "retryAfterEpoch": min(scheduled)}
+    return {"geometryState": "unavailable", "retryAfterEpoch": None}
 # Map the derivative lane's observation onto the package's supplement state.
 _SUPPLEMENT_STATES = {"due": "queued", "running": "running", "retrying": "retrying"}
 
@@ -1039,9 +1080,7 @@ def _startup_hole_assets(global_id: int | None, local_hole: int | None, evidence
         if missing:
             assets["missingData"] = missing
     else:
-        retry = next((row.get("retryAfterEpoch") for row in evidence.get("missingData") or []
-                      if row.get("retryAfterEpoch")), None)
-        assets["retryAfterEpoch"] = max(time.time() + _GEOMETRY_INSTALL_POLL_SECONDS, float(retry or 0))
+        assets.update(_undrawable_hole_state(global_id, local_hole))
     return assets
 
 

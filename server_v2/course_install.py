@@ -49,6 +49,11 @@ _DERIVATIVE_WAITING = frozenset({"queued", "running", "retrying"})
 # Fallback re-check while an export is in flight; the lane's listener normally reports sooner.
 # Each export has two subprocess stages bounded by 180 s.
 _DERIVATIVE_POLL_SECONDS = 60.0
+_MIN_DERIVATIVE_DELAY_SECONDS = 1.0
+# A pass that yields for resources (nearby work during play) or for missing release metadata
+# re-checks after this interval, exactly as the queued-work branch does for ``deferred``.
+_DEFERRED_RETRY_SECONDS = 60.0
+_DEFERRED_STAGES = frozenset({"deferred", "metadata"})
 # hole key "gid:hole" -> job ids whose rows wait for that hole's exports (process-local; a restart
 # rebuilds it from the journal on the next pass).
 _DERIVATIVE_WAITERS: dict[str, set[str]] = {}
@@ -284,28 +289,45 @@ def _has_derivative_work(state: dict[str, Any]) -> bool:
     )
 
 
+def _only_derivatives_remain(state: dict[str, Any]) -> bool:
+    """A live job whose mesh/topo are all installed and only owes supplement exports."""
+    rows = [row for row in (state.get("holes") or {}).values() if isinstance(row, dict)]
+    return (
+        state.get("phase") in {"queued", "running"}
+        and not state.get("cancelRequested")
+        and bool(rows)
+        and all(_geometry_ready(row) and _topo_ready(row) for row in rows)
+        and _has_derivative_work(state)
+    )
+
+
 def _derivative_delay(state: dict[str, Any]) -> float:
-    """Seconds until the earliest derivative row is due (its persisted plan, never a guess)."""
+    """Seconds until the earliest derivative row is due (its persisted plan, never a guess).
+
+    Never below ``_MIN_DERIVATIVE_DELAY_SECONDS``: a pass that cannot act on a due row (for
+    example a deferred nearby pass) must not turn into a zero-delay timer loop.
+    """
     rows = [
         row for row in (state.get("holes") or {}).values()
         if isinstance(row, dict) and _geometry_ready(row) and _derivatives_waiting(row)
     ]
+    delay = _DERIVATIVE_POLL_SECONDS
     if any(row.get("derivatives") == "queued" for row in rows):
-        return 0.0
-    plans = []
-    for row in rows:
-        if row.get("derivatives") != "retrying":
-            continue
-        try:
-            plans.append(float(row.get("derivativesRetryAfterEpoch")))
-        except (TypeError, ValueError):
-            return 0.0
-    if plans:
-        delay = max(0.0, min(plans) - time.time())
-        return delay if not any(row.get("derivatives") == "running" for row in rows) else min(
-            delay, _DERIVATIVE_POLL_SECONDS
-        )
-    return _DERIVATIVE_POLL_SECONDS
+        delay = 0.0
+    else:
+        plans = []
+        for row in rows:
+            if row.get("derivatives") != "retrying":
+                continue
+            try:
+                plans.append(float(row.get("derivativesRetryAfterEpoch")))
+            except (TypeError, ValueError):
+                plans.append(0.0)
+        if plans:
+            delay = max(0.0, min(plans) - time.time())
+            if any(row.get("derivatives") == "running" for row in rows):
+                delay = min(delay, _DERIVATIVE_POLL_SECONDS)
+    return max(_MIN_DERIVATIVE_DELAY_SECONDS, delay)
 
 
 def _apply_derivative_state(row: dict[str, Any], observed: dict[str, Any]) -> None:
@@ -473,18 +495,23 @@ def _schedule_retry(identifier: str) -> None:
         if not _has_queued_work(state):
             # Only supplement exports remain.  Their backoff is owned and persisted by the
             # derivative lane (uncapped, at most six hours apart), so wake exactly at the next
-            # persisted due time and never spend the provider-outage budget below.
-            delay = _derivative_delay(state)
-
-            def relaunch_derivatives() -> None:
-                with _LOCK:
-                    _RETRY_TIMERS.pop(identifier, None)
-                _launch(identifier)
-
-            timer = threading.Timer(delay, relaunch_derivatives)
-            timer.daemon = True
-            _RETRY_TIMERS[identifier] = timer
-            timer.start()
+            # persisted due time and never spend the provider-outage budget below.  A pass that
+            # yielded without observing them (nearby work during play, missing metadata) keeps
+            # the normal deferral cadence instead of re-running an overdue plan immediately.
+            if state.get("stage") in _DEFERRED_STAGES:
+                delay = _DEFERRED_RETRY_SECONDS
+            else:
+                delay = _derivative_delay(state)
+            for key, row in (state.get("holes") or {}).items():
+                if isinstance(row, dict) and _geometry_ready(row) and _derivatives_waiting(row):
+                    logger.info(
+                        "course_install stage=derivatives job=%s hole=%s state=%s failures=%s "
+                        "retry_after_epoch=%s next_attempt_in_s=%.0f",
+                        identifier, key, row.get("derivatives"),
+                        int(row.get("derivativesFailureCount") or 0),
+                        row.get("derivativesRetryAfterEpoch"), delay,
+                    )
+            _arm_retry_timer(identifier, state, delay)
             return
         attempt = _RETRY_ATTEMPTS.get(identifier, 0)
         deferred = state.get("stage") == "deferred"
@@ -508,17 +535,28 @@ def _schedule_retry(identifier: str) -> None:
             return
         if not deferred:
             _RETRY_ATTEMPTS[identifier] = attempt + 1
-        delay = 60.0 if deferred else min(60.0, float(2 ** attempt))
+        delay = _DEFERRED_RETRY_SECONDS if deferred else min(60.0, float(2 ** attempt))
+        _arm_retry_timer(identifier, state, delay)
 
-        def relaunch() -> None:
-            with _LOCK:
-                _RETRY_TIMERS.pop(identifier, None)
-            _launch(identifier)
 
-        timer = threading.Timer(delay, relaunch)
-        timer.daemon = True
-        _RETRY_TIMERS[identifier] = timer
-        timer.start()
+def _arm_retry_timer(identifier: str, state: dict[str, Any], delay: float) -> None:
+    """Start the job's single retry timer and persist when it is due (caller holds ``_LOCK``).
+
+    ``nextAttemptEpoch`` lets a package read tell a client the real time the queued work will run
+    again instead of a synthetic poll interval.
+    """
+
+    def relaunch() -> None:
+        with _LOCK:
+            _RETRY_TIMERS.pop(identifier, None)
+        _launch(identifier)
+
+    timer = threading.Timer(delay, relaunch)
+    timer.daemon = True
+    _RETRY_TIMERS[identifier] = timer
+    state["nextAttemptEpoch"] = time.time() + float(delay)
+    _write(state)
+    timer.start()
 
 
 def enqueue(
@@ -830,14 +868,20 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
             "error": _public_error(row.get("error")),
         })
     rows.sort(key=lambda row: (row["displayHole"], row["globalId"], row["localHole"]))
+    phase, stage = state.get("phase"), state.get("stage")
+    if _only_derivatives_remain(state):
+        # Every hole's mesh and topo are installed: the course is usable and clients must stop
+        # waiting on it.  Internally the journal stays queued and keeps retrying the optional
+        # obstacle exports (the job is not complete); that is reported as this stage.
+        phase, stage = "ready", "derivatives"
     return {
         "schema": "ai-caddie-course-install-v1",
         "jobId": state.get("jobId"),
         "globalId": int(state.get("globalId") or 0),
         "teeBox": state.get("teeBox"),
         "loopKey": str(state.get("loopKey") or ""),
-        "phase": state.get("phase"),
-        "stage": state.get("stage"),
+        "phase": phase,
+        "stage": stage,
         "progress": max(0, min(100, int(state.get("progress") or 0))),
         "heartbeatAt": state.get("heartbeatAt"),
         "cancelRequested": bool(state.get("cancelRequested")),
@@ -845,7 +889,7 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
         "terminalReason": state.get("terminalReason"),
         "retryCount": max(0, int(state.get("retryCount") or 0)),
         "generation": max(1, int(state.get("generation") or 1)),
-        "cancellable": bool(state.get("cancellable")) and state.get("phase") not in _TERMINAL_PHASES,
+        "cancellable": bool(state.get("cancellable")) and phase not in _TERMINAL_PHASES,
         "totalHoles": int(state.get("totalHoles") or 0),
         "geometryReady": int(state.get("geometryReady") or 0),
         "topoReady": int(state.get("topoReady") or 0),
@@ -1284,11 +1328,51 @@ def bind_nearby_holes(identifier: str, published_holes: list[int]) -> None:
         _write(state)
 
 
+def hole_plan(global_id: int, local_hole: int) -> dict[str, Any] | None:
+    """Background geometry/topo work this process really owns for one physical hole.
+
+    Only live jobs are considered: running or submitted (``_ACTIVE``), recovered and waiting for
+    the worker (``_RESUME_BACKLOG``) or waiting on a retry timer (``_RETRY_TIMERS``).  A failed or
+    cancelled journal, or a queued journal nobody will run, is not a plan.  Returns
+    ``{"state": "in_flight"}``, ``{"state": "scheduled", "retryAfterEpoch": <timer due>}`` or
+    ``None``.
+    """
+    key = f"{int(global_id)}:{int(local_hole)}"
+    scheduled: list[float] = []
+    with _LOCK:
+        in_flight = set(_ACTIVE) | set(_RESUME_BACKLOG)
+        timed = set(_RETRY_TIMERS) - in_flight
+        for identifier in sorted(in_flight | timed):
+            state = _read(identifier)
+            if not state or state.get("phase") in {"failed", "cancelled"} or state.get("cancelRequested"):
+                continue
+            row = (state.get("holes") or {}).get(key)
+            if not isinstance(row, dict):
+                continue
+            owed = row.get("geometry") in {"queued", "running"} or (
+                _geometry_ready(row) and row.get("topo") in {"queued", "running"}
+            )
+            if not owed:
+                continue
+            if identifier in in_flight:
+                return {"state": "in_flight", "retryAfterEpoch": None}
+            try:
+                scheduled.append(float(state.get("nextAttemptEpoch")))
+            except (TypeError, ValueError):
+                return {"state": "in_flight", "retryAfterEpoch": None}
+    if scheduled:
+        return {"state": "scheduled", "retryAfterEpoch": min(scheduled)}
+    return None
+
+
 def _register_derivative_listener() -> None:
-    # The geometry library reports settled export attempts; it never imports this module.
+    # The geometry library reports settled export attempts and the package builder asks which
+    # holes have background work; neither imports this module.
+    from ai_caddie.caddie.mobile_live import add_hole_plan_provider
     from ai_caddie.geometry.batch_prodgeometry_course import add_derivative_listener
 
     add_derivative_listener(derivatives_settled)
+    add_hole_plan_provider(hole_plan)
 
 
 _register_derivative_listener()
