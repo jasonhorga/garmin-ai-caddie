@@ -24,7 +24,7 @@ from typing import Any
 from ai_caddie.core.data import OWNER_ID
 from ai_caddie.courses import course_prep
 from ai_caddie.geometry import hole_render
-from ai_caddie.geometry.geometry_evidence import SURFACE_KIND_ALIASES
+from ai_caddie.geometry.geometry_evidence import _normalize_surface_kind
 from ai_caddie.history.corrected_history import corrected_history_data, hole_sides
 from ai_caddie.history.history import HistoryData, round_source_shots
 from ai_caddie.history.history_stats import _fairway_direction, _shot_distance, _shot_surface
@@ -33,7 +33,7 @@ from ai_caddie.rounds.round_shot_map import _geometry_target, _haversine_m, _rou
 
 SCHEMA = "ai-caddie-hole-history-shots-v1"
 DEFAULT_DAYS = 730
-RESULTS = {"fairway", "rough", "bunker"}
+RESULTS = {"fairway", "rough", "bunker", "green", "water"}
 ROUND_COURSE_FIELDS = ("globalId", "courseId", "frontNineGlobalCourseId", "backNineGlobalCourseId")
 
 
@@ -81,8 +81,7 @@ def _location(value: Any) -> dict[str, float] | None:
 
 
 def _result(surface: Any) -> str:
-    text = str(surface or "").strip().lower().replace("-", "_").replace(" ", "_")
-    kind = SURFACE_KIND_ALIASES.get(text) or SURFACE_KIND_ALIASES.get("".join(c for c in text if c.isalnum()))
+    kind = _normalize_surface_kind(surface)
     return kind if kind in RESULTS else "unknown"
 
 
@@ -143,8 +142,8 @@ def build_hole_history_shots(
         # corrected-history layer can only replay that event when the row is present.
         displays_for_target = {
             display
-            for _hole, display, physical, _side in hole_sides(row)
-            if physical == target[1]
+            for _hole, display, _physical, _side in hole_sides(row)
+            if _geometry_target(row, display) == target
         }
         if not selected and not displays_for_target:
             continue

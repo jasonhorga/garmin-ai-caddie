@@ -579,7 +579,7 @@ class HoleHistoryShot(BaseModel):
     distanceM: float | None = None
     startLie: str | None = None
     endLie: str | None = None
-    result: Literal["fairway", "rough", "bunker", "unknown"]
+    result: Literal["fairway", "rough", "bunker", "green", "water", "unknown"]
     teeFairway: Literal["hit", "left", "right", "other"] | None = None  # Garmin's tee result; tee shots only
     shotType: str | None = None
 
