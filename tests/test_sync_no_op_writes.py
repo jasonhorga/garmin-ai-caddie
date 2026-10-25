@@ -65,8 +65,31 @@ class NoOpSyncWriteTests(unittest.TestCase):
         # Auth and course-par ingest are outside this card; the fetch/history/cache path is real.
         stack.enter_context(patch.object(pipeline, '_ensure_auth', lambda force: True))
         stack.enter_context(patch.object(fetch, 'make_session', lambda **kw: fetch.requests.Session()))
-        stack.enter_context(patch.object(pipeline.course_reference, 'build_played_store', lambda: {}))
-        stack.enter_context(patch.object(pipeline.course_reference, 'course_reference_coverage', lambda: {}))
+        # Keep the played-par source deterministic while exercising the real materializer and
+        # persistence path (the old test mocked build_played_store itself and missed this write).
+        played_record = pipeline.course_reference.CoursePar(
+            global_id=900001,
+            par=[4] * 9,
+            par_source='played',
+            confidence='high',
+            rounds=1,
+            provenance='garmin_scorecard',
+            course_name='Fixture Course',
+        )
+        stack.enter_context(patch.object(
+            pipeline.course_reference, 'played_par_by_nine',
+            lambda **kwargs: {900001: played_record},
+        ))
+        build_played_store = pipeline.course_reference.build_played_store
+        course_reference_coverage = pipeline.course_reference.course_reference_coverage
+        stack.enter_context(patch.object(
+            pipeline.course_reference, 'build_played_store',
+            lambda: build_played_store(root=s.root),
+        ))
+        stack.enter_context(patch.object(
+            pipeline.course_reference, 'course_reference_coverage',
+            lambda: course_reference_coverage(root=s.root),
+        ))
 
     def _cron_sync(self):
         return pipeline.sync(with_shots=True, geometry_limit=0)
@@ -91,10 +114,13 @@ class NoOpSyncWriteTests(unittest.TestCase):
                 card_file = s.root / 'data/scorecards/101.json'
                 summary_file = s.root / 'data/summary.json'
                 club_bag_file = s.root / 'data/club_bag.json'
+                course_file = s.root / 'data/courses/900001.json'
+                tracked_files = (shot_file, card_file, summary_file, club_bag_file)
+                if entry == 'cron pipeline':
+                    tracked_files += (course_file,)
                 warm = stats_cache.cached_load_history_data()
                 self.assertEqual(s.get('history/summary')['summary']['totalRounds'], 1)
-                before = tuple(_file_state(path) for path in
-                               (shot_file, card_file, summary_file, club_bag_file))
+                before = tuple(_file_state(path) for path in tracked_files)
                 prep_signature = prep_cache._fingerprint(31794, requested=[1])
                 loads_before, builds_before = load_spy.call_count, build_spy.call_count
                 signature = stats_cache.history_input_signature()
@@ -110,11 +136,12 @@ class NoOpSyncWriteTests(unittest.TestCase):
                 # The pin-only file is not final, so the second pull really asks Garmin again.
                 self.assertIn('shot/scorecard/101/hole', [path for path, _ in s.fake.calls])
 
-                self.assertEqual(tuple(_file_state(path) for path in
-                                      (shot_file, card_file, summary_file, club_bag_file)), before,
+                self.assertEqual(tuple(_file_state(path) for path in tracked_files), before,
                                  'identical sync payloads must not rewrite derived files (inode/mtime/bytes)')
                 if entry == 'cron pipeline':
-                    self.assertIn('unchanged', output.getvalue())
+                    output_text = output.getvalue()
+                    self.assertIn('[ok] unchanged 1 summaries', output_text)
+                    self.assertIn('[ok] unchanged 1 clubs', output_text)
                 self.assertEqual(stats_cache.history_input_signature(), signature)
                 self.assertEqual(prep_cache._fingerprint(31794, requested=[1]), prep_signature)
                 self.assertIs(stats_cache.cached_load_history_data(), warm, 'history load must stay cached')
