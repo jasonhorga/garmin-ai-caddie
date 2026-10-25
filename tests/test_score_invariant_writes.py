@@ -75,6 +75,33 @@ class ReconciliationApplyTests(HTTPFixture, unittest.TestCase):
         self.assertEqual(response.status_code, 422, response.text)
         self.assertEqual(self.disk(), before)
 
+    def test_two_fixes_of_one_field_keep_the_last_value(self):
+        # Card hole 1: 4 strokes, 2 putts, 0 penalties. The phone changed putts to 5, then to 1, and the
+        # total to 6. In request order putts 5 first is 4 < 5 + 0 + 1. Total 6 first (6 >= 3), then
+        # putts 5 (6 >= 6), then putts 1 (6 >= 2) stays possible and leaves the phone's last putts, 1.
+        rid = str(self.ingest(score_events(strokes=4, putts=2, penalties=0)).json()["id"])
+        mobile_live.append_event_batch(rid, live(rid,
+            event("putt", {"putts": 5}, id="rec-putt-5"),
+            event("putt", {"putts": 1}, id="rec-putt-1"),
+            event("score", {"strokes": 6}, id="rec-score-6")), idempotency_key="rec", root=self.root)
+        response = self.apply(rid, ["rec-putt-5:putt-correction", "rec-putt-1:putt-correction",
+                                    "rec-score-6:score-correction"])
+        self.assertEqual(response.status_code, 200, response.text)
+        stored = [(row["kind"], row["payload"]["to"]) for row in annotations.list_annotations(root=self.root)]
+        self.assertEqual(stored, [("score_correction", 6), ("putt_correction", 5), ("putt_correction", 1)])
+
+    def test_a_suggestion_the_annotation_store_refuses_fails_the_batch_before_any_write(self):
+        # Card hole 1: 6 strokes, 4 putts, 1 penalty. The phone says putts 2 (a valid fix) and penalties
+        # 0, which becomes penalty_correction strokes=0; the annotation store requires strokes >= 1.
+        rid = str(self.ingest(score_events(strokes=6, putts=4, penalties=1)).json()["id"])
+        mobile_live.append_event_batch(rid, live(rid,
+            event("putt", {"putts": 2}, id="rec-putt"),
+            event("penalty", {"penalties": 0}, id="rec-pen")), idempotency_key="rec", root=self.root)
+        before = self.disk()
+        response = self.apply(rid, ["rec-putt:putt-correction", "rec-pen:penalty-correction"])
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(self.disk(), before)
+
     def test_unreadable_history_inside_the_write_is_retryable_and_writes_nothing(self):
         rid = self.round_with_local(strokes=6, putts=2)  # only the putt fix (4 -> 2) is suggested
         data = self.data()

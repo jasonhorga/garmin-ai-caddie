@@ -698,9 +698,10 @@ def order_possible_annotations(
 
     Each hole score annotation is replayed on its hole's current effective state and every step must
     stay possible; otherwise ``ScoreInvariantError`` is raised before anything is written. The
-    requested order is kept when it passes. Otherwise putts/penalties that go down are written
-    first, then totals, then putts/penalties that go up: every step is then possible whenever the
-    current and final cards are. A state that cannot be derived raises ``IdentityUnavailable``.
+    requested order is kept when it passes. Otherwise each hole's fixes are interleaved field by
+    field (fixes of one field keep their requested order, so its last fix still wins) in the first
+    order found whose every step is possible; if none exists, nothing is written. A state that
+    cannot be derived raises ``IdentityUnavailable``.
     """
     from ai_caddie.reports.annotations import list_annotation_records
 
@@ -733,21 +734,51 @@ def order_possible_annotations(
             state[key][field] = value
             score_invariant.require_possible_hole_score(*state[key], hole=key[1])
 
-    def rank(index: int) -> int:
-        if changes[index] is None or changes[index][1] == _HOLE_STATE_INDEX["total"]:
-            return 1
-        key, field, value = changes[index]
-        before = current[key][field]
-        return 0 if value is not None and before is not None and value < before else 2
-
     requested = list(range(len(rows)))
     try:
         replay(requested)
         return list(rows)
     except score_invariant.ScoreInvariantError:
-        safe = sorted(requested, key=rank)
-        replay(safe)  # no possible order: raises and nothing is written
-        return [rows[index] for index in safe]
+        pass
+    # Hole by hole, search an interleaving of the per-field chains whose every step is possible. Each
+    # chain keeps its requested order, so the last fix of a field is still the one that stays. A
+    # state is fixed by how far each chain has got, so a dead state is never searched twice.
+    order = [index for index, change in enumerate(changes) if change is None]
+    chains: dict[tuple[str, int], dict[int, list[int]]] = {}
+    for index, change in enumerate(changes):
+        if change is not None:
+            chains.setdefault(change[0], {}).setdefault(change[1], []).append(index)
+    for key, by_field in chains.items():
+        fields = list(by_field.values())
+        dead: set[tuple[int, ...]] = set()
+
+        def search(pos: tuple[int, ...], state: list[Any]) -> list[int] | None:
+            if all(at == len(chain) for at, chain in zip(pos, fields)):
+                return []
+            if pos in dead:
+                return None
+            for n, chain in enumerate(fields):
+                if pos[n] == len(chain):
+                    continue
+                index = chain[pos[n]]
+                _key, field, value = changes[index]
+                step = list(state)
+                step[field] = value
+                try:
+                    score_invariant.require_possible_hole_score(*step, hole=key[1])
+                except score_invariant.ScoreInvariantError:
+                    continue
+                rest = search(pos[:n] + (pos[n] + 1,) + pos[n + 1:], step)
+                if rest is not None:
+                    return [index, *rest]
+            dead.add(pos)
+            return None
+
+        found = search(tuple(0 for _ in fields), list(current[key]))
+        if found is None:
+            replay(requested)  # no possible order: raises, and nothing is written
+        order.extend(found or [])
+    return [rows[index] for index in order]
 
 
 def build_annotation_audit(

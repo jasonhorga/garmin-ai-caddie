@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from ai_caddie.reports.annotations import add_annotation, list_annotations
+from ai_caddie.reports.annotations import add_annotation, list_annotations, validate_annotation
 from ai_caddie.caddie.decision import audit_decision, latest_decision_record, store_decision_audit
 from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.history.history import HistoryData, OWNER_ID
@@ -569,6 +569,9 @@ def apply_mobile_reconciliation_suggestions(
 
     from ai_caddie.rounds import correction_audit  # lazy, as in annotations: the audit reads history
 
+    # A suggestion the annotation store would refuse (ValueError) must fail the batch before any write.
+    for row in selected:
+        validate_annotation(str(row["targetType"]), str(row["kind"]), dict(row.get("payload") or {}))
     # Spec 5.7: the selected score fixes must leave every hole possible after each write, in an order
     # that exists, or nothing of the batch is written (ScoreInvariantError / IdentityUnavailable).
     for row in correction_audit.order_possible_annotations(

@@ -687,6 +687,9 @@ def apply_mobile_round_reconciliation_response(
         )
     except score_invariant.ScoreInvariantError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        # A selected suggestion the annotation store refuses; checked before any write.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except IdentityUnavailable as exc:
         # Nothing was written; the client retries the same selection later.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
