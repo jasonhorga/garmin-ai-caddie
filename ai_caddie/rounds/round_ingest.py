@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from ai_caddie.history import history as _history
-from ai_caddie.rounds import score_source
+from ai_caddie.rounds import score_invariant, score_source
 from ai_caddie.core.data import deg_to_semicircle, read_json, wgs84_to_local
 
 OWNER_ID = "me"
@@ -348,6 +348,11 @@ def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
             if isinstance(note, str) and note:
                 acc.notes.append(note)
 
+    for number, acc in holes.items():
+        try:
+            score_invariant.require_possible_hole_score(acc.strokes, acc.putts, acc.penalties, hole=number)
+        except score_invariant.ScoreInvariantError as exc:
+            raise RoundIngestError(str(exc)) from exc
     return holes
 
 
@@ -634,8 +639,10 @@ def _derive_gir_fairway(
         (0-indexed: par3->shots[0], par4->shots[1], par5->shots[2]); gir = (kind == "green").
       * that shot absent / surface unclassifiable  ->  gir None (not determinable; never guess).
 
-    Fairway-hit exists ONLY for par 4/5 (there is no fairway off a par-3 tee): classify the
-    tee shot's (``shots[0]``) end -> "hit" on the fairway else "miss"; unclassifiable -> None.
+    The tee result exists ONLY for par 4/5 (there is no fairway off a par-3 tee): the second
+    recorded position (the second shot, or the first putt when there was none) against the hole's
+    fairway outline and route -> "hit" / "left" / "right" (:func:`_tee_result`); no second
+    position or no outline -> None. A non-fairway finish is sided, never a blanket "miss".
     """
     gir: bool | None = None
     fairway: str | None = None
@@ -654,12 +661,25 @@ def _derive_gir_fairway(
         if kind is not None:
             gir = kind == "green"
 
-    if par >= 4 and shots:
-        kind = _classify_end_kind(global_id, local_hole, _shot_end_deg(shots, 0))
-        if kind is not None:
-            fairway = "hit" if kind == "fairway" else "miss"
+    if par >= 4 and len(shots) >= 2:
+        fairway = _tee_result(global_id, local_hole, par, (shots[1]["lat"], shots[1]["lon"]))
 
     return gir, fairway
+
+
+def _tee_result(global_id: int, local_hole: int, par: int, point: tuple[float, float]) -> str | None:
+    """The shared B0 tee-result classifier (``tee_result.classify_tee_result``, the algorithm the
+    phone and Watch run) on this hole's server-side fairway outline and route."""
+    try:
+        from ai_caddie.courses import course_prep
+        from ai_caddie.courses.tee_result import classify_tee_result
+
+        geometry = course_prep.tee_result_geometry(int(global_id), int(local_hole))
+        return classify_tee_result(
+            [point[0], point[1]], geometry.get("fairwayOutline"), geometry.get("routeLatLon"), par
+        )
+    except Exception:
+        return None  # geometry must never break ingest
 
 
 def _enrich_hole_gir_fairway(

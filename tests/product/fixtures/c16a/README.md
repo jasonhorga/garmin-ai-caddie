@@ -33,8 +33,11 @@ export. No input or assertion is copied from the old test suite.
 - Reassigning the sole 100m 7I shot to 6I leaves Driver 200m and PW 20m. Adding
   one shot makes four, deleting one leaves two. Changing hole 1 from two putts
   to one makes 35 round putts; changing four strokes to six makes 74 strokes;
-  changing zero penalties to two makes two round penalties. These are the
-  independent answers used for the projection KNOWN-RED tests.
+  changing zero penalties to one makes one round penalty. These are the
+  independent answers used for the projection KNOWN-RED tests. A penalty
+  correction only marks strokes as penalties and never changes the total, so
+  4 strokes / 2 putts allow at most 4 - 2 - 1 = 1 penalty (spec 5.7); the
+  `penalty` row in `audit-golden.json` is therefore before 0 / after 1.
 - Correcting shot 2's start lie to Bunker also identifies shot 1's landing
   (the same connected point) as bunker: the Driver has one bunker landing.
   Reordering the three IDs as 3/1/2 gives PW/Driver/7I, numbered 1/2/3.

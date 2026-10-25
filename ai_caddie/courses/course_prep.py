@@ -2432,6 +2432,52 @@ def lightweight_prep_hole(
     return value if isinstance(value, dict) else None
 
 
+def tee_result_geometry(global_id: int, local_hole: int) -> dict:
+    """``fairwayOutline`` and WGS84 ``routeLatLon`` for ``tee_result.classify_tee_result``.
+
+    The server-side inputs of a manual round's tee result (IMPLEMENTATION_PLAN B0), the same course
+    facts the phone classifies against: installed prodgeometry gives this hole's fairway outline and
+    its route; otherwise the factual CourseView prep row is used as it stands. That row has no
+    fairway mesh, so its outline is ``None`` and no tee result is guessed. Course facts only: no
+    player ladder, strategy or raster work.
+    """
+    try:
+        coverage = geometry_coverage_for_hole(int(global_id), int(local_hole), require_current_authority=True)
+    except Exception:
+        coverage = {}
+    if coverage.get("coverage") == "ready":
+        try:
+            md, by = hole_render.load_mesh(int(global_id), int(local_hole))
+            route, _route_len = derive_route(md)
+            hole_meta = md.get("hole") or {}
+            ref_lat, ref_lon = float(hole_meta["RefLat"]), float(hole_meta["RefLon"])
+            # The classifier reads only the LatLon rings; no display frame is built for pixel rings.
+            outline = _fairway_outline(by, route, md, lambda point: point)
+            if outline is not None:
+                outline = {**outline, "polygons": [
+                    {"outerLatLon": row["outerLatLon"], "holesLatLon": row["holesLatLon"]}
+                    for row in outline["polygons"]
+                ]}
+            route_latlon = [
+                [round(lat, 7), round(lon, 7)]
+                for lat, lon in (
+                    shot_projection.local_to_world(x, y, ref_lat=ref_lat, ref_lon=ref_lon) for x, y in route
+                )
+            ]
+            return {"fairwayOutline": outline, "routeLatLon": route_latlon}
+        except Exception:
+            pass
+    prep = lightweight_prep_hole(
+        int(global_id),
+        int(local_hole),
+        # Any ladder skips the player's history read; strategy rows are not used here.
+        ladder=sorted(DEFAULT_LADDER.items(), key=lambda kv: -kv[1]),
+    )
+    if not isinstance(prep, dict):
+        return {"fairwayOutline": None, "routeLatLon": []}
+    return {"fairwayOutline": prep.get("fairwayOutline"), "routeLatLon": prep.get("routeLatLon") or []}
+
+
 def precise_route_seed_hole(
     global_id: int,
     local_hole: int,

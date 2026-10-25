@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -38,6 +39,7 @@ from ai_caddie.core.data import clean_club_name
 from ai_caddie.history import history as _history
 from ai_caddie.history.history import HistoryData, round_source_shots
 from ai_caddie.rounds import round_corrections as rc
+from ai_caddie.rounds import score_invariant
 
 LOG_SCHEMA = "ai-caddie-correction-log-v1"
 RECORD_CORRECTION = rc.RECORD_CORRECTION
@@ -534,6 +536,10 @@ def write_correction(
                     if prior.get("requestDigest") not in (None, digest):
                         raise CorrectionConflict(f"clientMutationId {cmid!r} was already used for a different correction")
                     return prior  # idempotent: no second write, no second diff
+        try:
+            _require_possible_correction(data, canonical_ref, existing, event, player_id=player_id, root=root)
+        except score_invariant.ScoreInvariantError as exc:
+            raise rc.CorrectionError(str(exc)) from exc
         stored = {key: value for key, value in event.items() if value is not None or key == "value"}
         stored["recordType"] = RECORD_CORRECTION
         stored["eventId"] = uuid4().hex
@@ -607,6 +613,174 @@ def _round_correction_events(player_id: str, row: dict[str, Any], root: Path | s
     return rc.load_round_events(player_id, refs, root=root)
 
 
+# A write under check has no auditSeq yet; it orders after every stored record.
+_PENDING_AUDIT_SEQ = sys.maxsize
+PENALTY_CORRECTION_OPS = {"setHolePenalty", "replaceHoleShots", "replaceHoleFacts"}
+
+
+def _hole_target_ids(row: dict[str, Any], hole: int) -> set[str]:
+    return {f"{ref}:{hole}" for ref in [str(row.get("id")), *[str(item) for item in (row.get("ids") or [])]]}
+
+
+def _require_possible_hole(
+    row: dict[str, Any], hole: int,
+    load_annotations: Callable[[], list[dict[str, Any]]], load_corrections: Callable[[], list[dict[str, Any]]],
+) -> None:
+    """Spec 5.7 on the hole as it reads after the write: the effective values the audit logs.
+
+    A state that cannot be derived cannot be proven possible, so the write is refused with nothing
+    written (``IdentityUnavailable``, a retryable 503), as for unreadable history.
+    """
+    try:
+        annotations, corrections = load_annotations(), load_corrections()
+        total, putts, penalty = _effective_hole(row, hole, annotations, corrections)
+    except Exception as exc:
+        raise IdentityUnavailable(safe_reason("score state unavailable", exc)) from exc
+    score_invariant.require_possible_hole_score(total, putts, penalty, hole=hole)
+
+
+def _effective_hole(
+    row: dict[str, Any], hole: int, annotations: list[dict[str, Any]], corrections: list[dict[str, Any]],
+) -> tuple[Any, Any, Any]:
+    target_ids = _hole_target_ids(row, hole)
+    total, putts, penalty = (
+        _effective_value(op, row, hole, target_ids, annotations, corrections)
+        for op in ("total", "putts", "penalty")
+    )
+    return total, putts, penalty
+
+
+def _require_possible_annotation(
+    data: HistoryData, record: dict[str, Any], existing: list[dict[str, Any]], *,
+    player_id: str, root: Path | str | None,
+) -> None:
+    target = split_hole_target(record["targetId"])
+    row = _match_round(data, target[0]) if target else None
+    if row is None or target is None:
+        return  # no scorecard to compare against; the audit records the missing round as before
+    _require_possible_hole(
+        row, target[1], lambda: [*existing, {**record, "auditSeq": _PENDING_AUDIT_SEQ}],
+        lambda: _round_correction_events(player_id, row, root),
+    )
+
+
+def _require_possible_correction(
+    data: HistoryData, round_ref: str, existing: list[dict[str, Any]], event: dict[str, Any], *,
+    player_id: str, root: Path | str | None,
+) -> None:
+    hole = _int(event.get("hole"))
+    op = event.get("op")
+    if hole is None or op not in PENALTY_CORRECTION_OPS or (op != "setHolePenalty" and event.get("manualPenalty") is None):
+        return  # only penalty edits change a hole's score fields
+    row = _match_round(data, round_ref)
+    if row is None:
+        return
+    from ai_caddie.reports.annotations import list_annotation_records
+
+    # Production runs both stores from one root (see ``player_dir``): the annotations a putt or total
+    # correction left live beside this correction store.
+    annotation_root = Path(root) if root is not None else _history.ROOT
+    _require_possible_hole(
+        row, hole, lambda: list_annotation_records(root=annotation_root, player_id=player_id),
+        lambda: [*existing, {**event, "auditSeq": _PENDING_AUDIT_SEQ}],
+    )
+
+
+_HOLE_STATE_INDEX = {"total": 0, "putts": 1, "penalty": 2}
+
+
+def order_possible_annotations(
+    data: HistoryData, rows: list[dict[str, Any]], *, player_id: str,
+    annotation_root: Path | str | None, root: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    """Spec 5.7 for annotations written one after another (reconciliation apply); returns ``rows``
+    in the order to write them.
+
+    Each hole score annotation is replayed on its hole's current effective state and every step must
+    stay possible; otherwise ``ScoreInvariantError`` is raised before anything is written. The
+    requested order is kept when it passes. Otherwise each hole's fixes are interleaved field by
+    field (fixes of one field keep their requested order, so its last fix still wins) in the first
+    order found whose every step is possible; if none exists, nothing is written. A state that
+    cannot be derived raises ``IdentityUnavailable``.
+    """
+    from ai_caddie.reports.annotations import list_annotation_records
+
+    current: dict[tuple[str, int], list[Any]] = {}
+    changes: list[tuple[tuple[str, int], int, Any] | None] = []
+    try:
+        annotations = list_annotation_records(root=annotation_root, player_id=player_id)
+        for row in rows:
+            op = AUDITED_ANNOTATION_KINDS.get(str(row.get("kind")))
+            target = split_hole_target(str(row.get("targetId") or "")) if row.get("targetType") == "hole" else None
+            card = _match_round(data, target[0]) if op and target else None
+            if card is None or target is None or op is None:
+                changes.append(None)  # not a score fix on a known scorecard
+                continue
+            key = (str(card.get("id")), target[1])
+            if key not in current:
+                corrections = _round_correction_events(player_id, card, root)
+                current[key] = list(_effective_hole(card, target[1], annotations, corrections))
+            payload = row.get("payload") or {}
+            changes.append((key, _HOLE_STATE_INDEX[op], _int(payload.get("strokes" if op == "penalty" else "to"))))
+    except Exception as exc:
+        raise IdentityUnavailable(safe_reason("score state unavailable", exc)) from exc
+
+    def replay(order: list[int]) -> None:
+        state = {key: list(values) for key, values in current.items()}
+        for index in order:
+            if changes[index] is None:
+                continue
+            key, field, value = changes[index]
+            state[key][field] = value
+            score_invariant.require_possible_hole_score(*state[key], hole=key[1])
+
+    requested = list(range(len(rows)))
+    try:
+        replay(requested)
+        return list(rows)
+    except score_invariant.ScoreInvariantError:
+        pass
+    # Hole by hole, search an interleaving of the per-field chains whose every step is possible. Each
+    # chain keeps its requested order, so the last fix of a field is still the one that stays. A
+    # state is fixed by how far each chain has got, so a dead state is never searched twice.
+    order = [index for index, change in enumerate(changes) if change is None]
+    chains: dict[tuple[str, int], dict[int, list[int]]] = {}
+    for index, change in enumerate(changes):
+        if change is not None:
+            chains.setdefault(change[0], {}).setdefault(change[1], []).append(index)
+    for key, by_field in chains.items():
+        fields = list(by_field.values())
+        dead: set[tuple[int, ...]] = set()
+
+        def search(pos: tuple[int, ...], state: list[Any]) -> list[int] | None:
+            if all(at == len(chain) for at, chain in zip(pos, fields)):
+                return []
+            if pos in dead:
+                return None
+            for n, chain in enumerate(fields):
+                if pos[n] == len(chain):
+                    continue
+                index = chain[pos[n]]
+                _key, field, value = changes[index]
+                step = list(state)
+                step[field] = value
+                try:
+                    score_invariant.require_possible_hole_score(*step, hole=key[1])
+                except score_invariant.ScoreInvariantError:
+                    continue
+                rest = search(pos[:n] + (pos[n] + 1,) + pos[n + 1:], step)
+                if rest is not None:
+                    return [index, *rest]
+            dead.add(pos)
+            return None
+
+        found = search(tuple(0 for _ in fields), list(current[key]))
+        if found is None:
+            replay(requested)  # no possible order: raises, and nothing is written
+        order.extend(found or [])
+    return [rows[index] for index in order]
+
+
 def build_annotation_audit(
     data: HistoryData, record: dict[str, Any], existing: list[dict[str, Any]], *,
     player_id: str, root: Path | str | None = None,
@@ -664,6 +838,7 @@ def write_annotation(
                 # putt / penalty fix is rejected with nothing written; the client retries later.
                 raise IdentityUnavailable(safe_reason("history unavailable", exc)) from exc
             else:
+                _require_possible_annotation(data, record, existing, player_id=player_id, root=root)
                 record["audit"] = build_annotation_audit(data, record, existing, player_id=player_id, root=root)
                 record["audit"]["sourceRevision"] = source_revision
         record["auditSeq"] = next_audit_seq(player_id, root=lock_root, annotation_root=annotation_root)

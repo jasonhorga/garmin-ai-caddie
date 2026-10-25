@@ -61,7 +61,8 @@ class CorrectionProductTests(unittest.TestCase):
              ['PW','Driver','7I'], ['Rough','TeeBox','Fairway'], 3),
             ('putts', {'kind':'putt_correction','value':1}, ['Driver','7I','PW'], ['TeeBox','Fairway','Rough'], 3),
             ('total', {'kind':'score_correction','value':6}, ['Driver','7I','PW'], ['TeeBox','Fairway','Rough'], 3),
-            ('penalty', {'op':'setHolePenalty','hole':1,'value':2}, ['Driver','7I','PW'], ['TeeBox','Fairway','Rough'], 3),
+            # 4 strokes / 2 putts allow at most 4-2-1 = 1 penalty (spec 5.7); 2 was an impossible card.
+            ('penalty', {'op':'setHolePenalty','hole':1,'value':1}, ['Driver','7I','PW'], ['TeeBox','Fairway','Rough'], 3),
         ]
         for label, event, clubs, lies, count in rows:
             with self.subTest(row=label), Sandbox() as s:
@@ -89,7 +90,8 @@ class CorrectionProductTests(unittest.TestCase):
                             self.assertEqual(view['shots'][1]['end'], [280,440])
                             self.assertEqual(view['shots'][2]['start'], [280,440])
                         if label == 'penalty':
-                            self.assertEqual(view['manualPenalty'], 2)
+                            # The map shows the corrected value as written: 0 -> 1.
+                            self.assertEqual(view['manualPenalty'], 1)
                         if label == 'putts':
                             self.assertEqual(s.get('history/rounds/101')['scorecard'][0]['putts'], 1)
                             self.assertEqual(s.get('history/stats')['scoring']['putting']['totalPutts'], 35)
@@ -216,13 +218,14 @@ class CorrectionProductTests(unittest.TestCase):
                     def send(body):
                         barrier.wait(timeout=3)
                         return s.correct(body)
-                    other = {'op':'setHolePenalty','hole':1,'value':2,'clientMutationId':'edit-2'}
+                    # Largest possible penalty on 4 strokes / 2 putts: 4-2-1 = 1 (spec 5.7).
+                    other = {'op':'setHolePenalty','hole':1,'value':1,'clientMutationId':'edit-2'}
                     with ThreadPoolExecutor(max_workers=2) as pool:
                         futures = [pool.submit(send, body) for body in (event,other)]
                         responses = [f.result(timeout=5) for f in futures]
                     self.assertEqual([r.status_code for r in responses], [201,201])
                     self.assertEqual(shotmap(s)['shots'][1]['club'], '6I')
-                    self.assertEqual(shotmap(s)['manualPenalty'], 2)
+                    self.assertEqual(shotmap(s)['manualPenalty'], 1)  # the concurrent write's value
                     log = s.get('history/rounds/101/correction-log')['entries']
                     self.assertEqual(sorted(e['op'] for e in log), ['club','penalty'])
                     self.assertEqual(len({e['auditSeq'] for e in log}), 2)
@@ -256,9 +259,10 @@ class CorrectionProductTests(unittest.TestCase):
                     else:
                         path.write_bytes(path.read_bytes().rstrip(b'\n'))
                     self.assertEqual(shotmap(s)['shots'][1]['club'],'6I')
-                    response = s.correct({'op':'setHolePenalty','hole':1,'value':2,'clientMutationId':'after-crash'})
+                    # Largest possible penalty on 4 strokes / 2 putts: 4-2-1 = 1 (spec 5.7).
+                    response = s.correct({'op':'setHolePenalty','hole':1,'value':1,'clientMutationId':'after-crash'})
                     self.assertEqual(response.status_code,201,response.text)
-                    self.assertEqual(shotmap(s)['manualPenalty'],2)
+                    self.assertEqual(shotmap(s)['manualPenalty'],1)  # the value just written
                     log = s.get('history/rounds/101/correction-log')['entries']
                     self.assertEqual([e['op'] for e in log],['club','penalty'])
                     self.assertEqual(len(path.read_bytes().splitlines()),2)
@@ -366,10 +370,11 @@ class CorrectionProductTests(unittest.TestCase):
         with Sandbox() as s:
             s.seed()
             s.get('history/stats')
-            self.assertEqual(s.correct({'op':'setHolePenalty','hole':1,'value':2}).status_code,201)
-            # Seventeen zero-penalty holes plus this hole's two penalties = 2.
-            self.assertEqual(s.get('history/stats')['scoring']['penalties']['total'],2)
-            self.assertEqual(s.get('history/rounds/101')['scorecard'][0]['penalties'],2)
+            # 4 strokes / 2 putts allow at most 4-2-1 = 1 penalty (spec 5.7).
+            self.assertEqual(s.correct({'op':'setHolePenalty','hole':1,'value':1}).status_code,201)
+            # Seventeen zero-penalty holes plus this hole's one penalty = 1.
+            self.assertEqual(s.get('history/stats')['scoring']['penalties']['total'],1)
+            self.assertEqual(s.get('history/rounds/101')['scorecard'][0]['penalties'],1)
 
     def test_j3_4_unreadable_history_rejects_score_annotations(self):
         with Sandbox() as s:

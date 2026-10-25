@@ -30,7 +30,8 @@ from ai_caddie.caddie.mobile_live import (
     round_events,
 )
 from ai_caddie.history.history import OWNER_ID, HistoryData
-from ai_caddie.rounds import round_ingest
+from ai_caddie.rounds import round_ingest, score_invariant
+from ai_caddie.rounds.correction_audit import IdentityUnavailable
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.llm.weather_context import WeatherTransport, weather_snapshot_for_time
 
@@ -555,14 +556,18 @@ def append_mobile_events_response(
     if request.roundId != round_id:
         logger.warning("mobile_events validation_failed status=422 path=body.roundId type=path_mismatch")
         raise HTTPException(status_code=422, detail="roundId does not match path")
+    events = [event.model_dump(by_alias=True) for event in request.events]
     with _mobile_materialization_lock(player_id):
         try:
             result = append_event_batch(
                 round_id,
-                [event.model_dump(by_alias=True) for event in request.events],
+                events,
                 idempotency_key=idempotency_key,
                 root=MOBILE_ROOT,
                 player_id=player_id,
+                # Spec 5.7: every hole this append scores must stay possible, checked inside the
+                # store's lock on its own deduplicated rows; otherwise nothing of the batch is stored.
+                validate_append=score_invariant.require_possible_appended_scores,
             )
         except ValueError as exc:
             logger.warning("mobile_events validation_failed status=422 path=body.events type=event_batch_invalid")
@@ -669,8 +674,8 @@ def apply_mobile_round_reconciliation_response(
     request: MobileReconciliationApplyRequest,
 ) -> MobileReconciliationApplyResponse:
     data, _mode = load_history_data_for_mode()
-    return MobileReconciliationApplyResponse(
-        **apply_mobile_reconciliation_suggestions(
+    try:
+        applied = apply_mobile_reconciliation_suggestions(
             round_id,
             data,
             suggestion_ids=request.suggestionIds,
@@ -678,5 +683,14 @@ def apply_mobile_round_reconciliation_response(
             annotations_root=ANNOTATION_ROOT,
             decision_audit_root=DECISION_AUDIT_ROOT,
             decision_ledger_root=DECISION_LEDGER_ROOT,
+            data_loader=lambda: load_history_data_for_mode()[0],
         )
-    )
+    except score_invariant.ScoreInvariantError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        # A selected suggestion the annotation store refuses; checked before any write.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IdentityUnavailable as exc:
+        # Nothing was written; the client retries the same selection later.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return MobileReconciliationApplyResponse(**applied)

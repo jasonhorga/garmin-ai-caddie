@@ -1400,7 +1400,14 @@ class FileEventStore:
         events: list[dict[str, Any]],
         *,
         request_key: str,
+        validate_append: Callable[[list[dict[str, Any]], list[dict[str, Any]]], None] | None = None,
     ) -> AppendBatchResult:
+        """Append one request's events under the event lock.
+
+        ``validate_append`` (off by default) receives this round's stored events in server order and
+        the events this request would store, after the store's own (roundId, clientId, eventId)
+        dedupe; raising rejects the request before anything, its reservation included, is written.
+        """
         round_key = str(round_id)
         idempotency_key = str(request_key)
         with self._locked(self.event_lock):
@@ -1421,6 +1428,10 @@ class FileEventStore:
                         "events": [_normalized_event_for_hash(item.event) for item in prepared],
                     }
                 )
+                if validate_append is not None and self._is_pristine():
+                    # Nothing is stored yet: check before recovery seals the empty baseline, so a
+                    # refused first request leaves no store file behind.
+                    validate_append([], self._new_events_without_store(prepared))
                 self._recover_event_log_unlocked(handle=event_log_handle)
                 stored_log = self._stored_log(handle=event_log_handle)
                 stored_rows = list(stored_log.rows)
@@ -1434,15 +1445,6 @@ class FileEventStore:
                     stored_rows=stored_rows,
                     reservations=reservations,
                 )
-
-                reservation_key = self._reservation_key(round_key, idempotency_key)
-                if reservation_key not in reservations:
-                    reservations[reservation_key] = {
-                        "roundId": round_key,
-                        "idempotencyKey": idempotency_key,
-                        "requestHash": request_hash,
-                    }
-                    self._write_reservations(reservations)
 
                 positions: dict[tuple[str, str, str], tuple[str, int]] = {}
                 for stored in stored_rows:
@@ -1489,11 +1491,46 @@ class FileEventStore:
                             request_preexisting=request_preexisting,
                         )
                     )
+                if validate_append is not None and rows_to_append:
+                    round_rows = sorted(
+                        (stored.row for stored in stored_rows if str(stored.row.get("roundId") or "") == round_key),
+                        key=lambda row: row.get("serverSequence") if isinstance(row.get("serverSequence"), int) else 0,
+                    )
+                    validate_append(
+                        [row["event"] for row in round_rows if isinstance(row.get("event"), dict)],
+                        [row["event"] for row in rows_to_append],
+                    )
+
+                reservation_key = self._reservation_key(round_key, idempotency_key)
+                if reservation_key not in reservations:
+                    reservations[reservation_key] = {
+                        "roundId": round_key,
+                        "idempotencyKey": idempotency_key,
+                        "requestHash": request_hash,
+                    }
+                    self._write_reservations(reservations)
+
                 if event_log_handle is None:
                     self._append_rows(rows_to_append)
                 else:
                     self._append_rows(rows_to_append, handle=event_log_handle)
                 return AppendBatchResult(tuple(receipts), high_water)
+
+    def _is_pristine(self) -> bool:
+        return not (self.log.exists() or self.commit_marker.exists() or self.pending_commit.exists())
+
+    @staticmethod
+    def _new_events_without_store(prepared: list[_PreparedEvent]) -> list[dict[str, Any]]:
+        """The events an empty store would accept: identity duplicates within the request collapse."""
+        seen: set[tuple[str, str, str]] = set()
+        new_events: list[dict[str, Any]] = []
+        for item in prepared:
+            if item.identity[2]:
+                if item.identity in seen:
+                    continue
+                seen.add(item.identity)
+            new_events.append(item.event)
+        return new_events
 
     def _append_rows(
         self,

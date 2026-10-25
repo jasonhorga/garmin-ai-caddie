@@ -27,8 +27,9 @@ REPO = Path(__file__).resolve().parents[1]
 
 def _round(round_id: str = "42") -> dict:
     return {"id": round_id, "date": "2026-09-01", "course": "Test", "courseKey": "test", "holesCompleted": 18,
-            "strokes": 72, "holePars": "4" * 18, "courseId": 999999,
-            "holes": [{"number": n, "par": 4, "strokes": 4, "putts": 2, "penalties": 0} for n in range(1, 19)]}
+            "strokes": 162, "holePars": "4" * 18, "courseId": 999999,
+            # 9 strokes keep every corrected hole possible (spec 5.7): up to 3 putts + 4 penalties + 1.
+            "holes": [{"number": n, "par": 4, "strokes": 9, "putts": 2, "penalties": 0} for n in range(1, 19)]}
 
 
 def _shots(round_id: str = "42", clubs=("Driver", "7I", "PW")) -> list[dict]:
@@ -295,7 +296,7 @@ class AnnotationBeforeValueTest(_Store):
         second = self.add("putt_correction", {"to": 3})
         self.assertEqual(second["audit"]["entries"][0]["before"], 1)
         total = self.add("score_correction", {"to": 5})
-        self.assertEqual((total["audit"]["entries"][0]["op"], total["audit"]["entries"][0]["before"]), ("total", 4))
+        self.assertEqual((total["audit"]["entries"][0]["op"], total["audit"]["entries"][0]["before"]), ("total", 9))
 
     def test_penalty_before_includes_the_correction_store_by_audit_order(self) -> None:
         self.write({"op": "setHolePenalty", "hole": 4, "value": 2})
@@ -674,7 +675,14 @@ class CorrectionLogRouteTest(unittest.TestCase):
         self.assertEqual(note.status_code, 503)
         self.assertIn("history unavailable", note.text)
         self.assert_clean(note.text)
+        # A score state that cannot be derived is refused like unreadable history (spec 5.7).
         with mock.patch.object(ca, "_effective_value", side_effect=RuntimeError(self.SECRET)):
+            unknown = self.client.post("/api/v2/annotations", headers=self.a, json={
+                "targetType": "hole", "targetId": "42:4", "kind": "putt_correction", "payload": {"to": 2}})
+        self.assertEqual(unknown.status_code, 503)
+        self.assert_clean(unknown.text)
+        # A failure only the audit diff uses still stores the annotation with a pending audit.
+        with mock.patch.object(ca, "annotation_fingerprint", side_effect=RuntimeError(self.SECRET)):
             self.client.post("/api/v2/annotations", headers=self.a, json={
                 "targetType": "hole", "targetId": "42:4", "kind": "putt_correction", "payload": {"to": 2}})
 

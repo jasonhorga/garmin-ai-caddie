@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from ai_caddie.reports.annotations import add_annotation, list_annotations
+from ai_caddie.reports.annotations import add_annotation, list_annotations, validate_annotation
 from ai_caddie.caddie.decision import audit_decision, latest_decision_record, store_decision_audit
 from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.history.history import HistoryData, OWNER_ID
@@ -541,7 +541,10 @@ def apply_mobile_reconciliation_suggestions(
     decision_audit_root: Path | str | None = None,
     decision_ledger_root: Path | str | None = None,
     player_id: str = OWNER_ID,
+    data_loader: Callable[[], HistoryData] | None = None,
 ) -> dict[str, Any]:
+    """Write the selected suggestions as annotations. ``data_loader`` re-reads history inside each
+    score annotation's audit bracket (``correction_audit.load_coherent``)."""
     reconciliation = reconcile_mobile_round_events(round_id, data, root=root, player_id=player_id)
     suggestions = {str(row.get("id")): row for row in reconciliation.get("annotationSuggestions", [])}
     requested_ids = list(suggestion_ids or suggestions.keys())
@@ -551,6 +554,7 @@ def apply_mobile_reconciliation_suggestions(
     decision_audits: list[dict[str, Any]] = []
     skipped: list[str] = []
     missing: list[str] = []
+    selected: list[dict[str, Any]] = []
 
     for suggestion_id in requested_ids:
         row = suggestions.get(str(suggestion_id))
@@ -560,6 +564,19 @@ def apply_mobile_reconciliation_suggestions(
         if str(suggestion_id) in existing_ids:
             skipped.append(str(suggestion_id))
             continue
+        existing_ids.add(str(suggestion_id))
+        selected.append(row)
+
+    from ai_caddie.rounds import correction_audit  # lazy, as in annotations: the audit reads history
+
+    # A suggestion the annotation store would refuse (ValueError) must fail the batch before any write.
+    for row in selected:
+        validate_annotation(str(row["targetType"]), str(row["kind"]), dict(row.get("payload") or {}))
+    # Spec 5.7: the selected score fixes must leave every hole possible after each write, in an order
+    # that exists, or nothing of the batch is written (ScoreInvariantError / IdentityUnavailable).
+    for row in correction_audit.order_possible_annotations(
+        data, selected, player_id=player_id, annotation_root=annotations_root,
+    ):
         payload = dict(row.get("payload") or {})
         record = add_annotation(
             str(row["targetType"]),
@@ -568,9 +585,9 @@ def apply_mobile_reconciliation_suggestions(
             payload,
             root=annotations_root,
             player_id=player_id,
+            data_loader=data_loader,
         )
         annotations.append(record)
-        existing_ids.add(str(suggestion_id))
         audit_record = _store_caddie_feedback_audit(
             row,
             events_by_id=events_by_id,
