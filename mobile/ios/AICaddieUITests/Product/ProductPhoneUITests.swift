@@ -48,7 +48,10 @@ final class ProductPhoneUITests: XCTestCase {
 
     private func tap(_ id: String) {
         let target = element(id)
-        XCTAssertTrue(target.waitForExistence(timeout: 10), id)
+        // Lazy stacks (the results entries below the round list) build off-screen rows only after a
+        // scroll, so a missing control is scrolled for before it fails.
+        if !target.waitForExistence(timeout: 10) { reveal(target) }
+        XCTAssertTrue(target.exists, id)
         reveal(target)
         target.tap()
     }
