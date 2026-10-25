@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from concurrent.futures import Future
 from pathlib import Path
@@ -668,6 +669,55 @@ class CourseInstallJournalTests(unittest.TestCase):
                 pending = course_install._RETRY_TIMERS.pop(state["jobId"], None)
                 course_install._RETRY_ATTEMPTS.pop(state["jobId"], None)
             self.assertIsNotNone(pending)
+
+    def test_unchanged_export_retry_plan_logs_at_info_only_when_it_changes(self) -> None:
+        from server_v2 import course_install
+
+        with TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}
+        ), patch.object(course_install, "_launch"):
+            job = course_install.enqueue(
+                global_id=123,
+                tee_box="blue",
+                loop_key="123:all",
+                player_id="owner",
+                refs=[{"globalId": 123, "localHole": 1, "displayHole": 1}],
+                requested={123: [1]},
+                ready={},
+            )["jobId"]
+
+            def set_failures(count: int) -> None:
+                with course_install._LOCK:
+                    journal = course_install._read(job)
+                    for row in journal["holes"].values():
+                        row.update({
+                            "geometry": "ready", "geometryRevision": "r1", "topo": "ready",
+                            "derivatives": "retrying", "derivativesFailureCount": count,
+                            "derivativesRetryAfterEpoch": 4102444800,
+                        })
+                    course_install._write(journal)
+
+            def replan() -> list[int]:
+                with course_install._LOCK:
+                    course_install._RETRY_TIMERS.pop(job, None)
+                with patch.object(course_install.threading, "Timer", return_value=Mock()), self.assertLogs(
+                    course_install.logger, level="DEBUG"
+                ) as logs:
+                    course_install._schedule_retry(job)
+                return [r.levelno for r in logs.records if "stage=derivatives" in r.getMessage()]
+
+            try:
+                set_failures(1)
+                self.assertEqual(replan(), [logging.INFO])
+                # A re-plan with nothing new (deferred every minute while playing nearby) stays quiet.
+                self.assertEqual(replan(), [logging.DEBUG])
+                set_failures(2)
+                self.assertEqual(replan(), [logging.INFO])
+            finally:
+                with course_install._LOCK:
+                    course_install._RETRY_TIMERS.pop(job, None)
+                    course_install._RETRY_ATTEMPTS.pop(job, None)
+                    course_install._DERIVATIVE_LOG_SIGNATURES.pop(job, None)
 
     def test_persistently_retryable_job_reaches_terminal_failed_state(self) -> None:
         from server_v2 import course_install

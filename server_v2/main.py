@@ -186,8 +186,9 @@ from .sync_jobs import CancelledSyncJob, GarminSyncJobStore, RetrySyncJob
 
 # Background course progress visible in production logs at INFO. Volume per course install: the
 # derivative logger writes at most seven `course_asset` stage lines per hole (download … install),
-# map_startup one line per started round, course_install only failures today, mobile one
-# `course_package cold_release` line per never-installed course start.
+# map_startup one line per started round, course_install failures plus one `stage=derivatives` line
+# per hole each time its export state changes, mobile one `course_package cold_release` line per
+# never-installed course start.
 SERVICE_INFO_LOGGERS = (
     "server_v2.timing",
     "server_v2.course_install",
