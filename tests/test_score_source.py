@@ -11,6 +11,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from ai_caddie.history import history, history_stats, stats_cache
+from ai_caddie.history.corrected_history import corrected_rounds
 from ai_caddie.history.history import HistoryData
 from ai_caddie.rounds import round_ingest
 from ai_caddie.rounds.score_source import (
@@ -221,14 +222,16 @@ class DefaultHoleEligibilityTest(unittest.TestCase):
             self.assertNotIn("src-round:1", named)
 
     def test_putt_correction_makes_a_default_hole_count_again(self) -> None:
-        annotation = {"kind": "putt_correction", "targetId": "src-round:1", "payload": {"to": 1}}
-        data = self.data()
-        scoring = history_stats._scoring(data, [annotation])
+        annotation = {"kind": "putt_correction", "targetType": "hole", "targetId": "src-round:1", "payload": {"to": 1}}
+        source = self.data()
+        # Statistics read the corrected history (corrected_history) that applies the annotation.
+        data = HistoryData(raw_rounds=source.raw_rounds, rounds=corrected_rounds(source.rounds, [annotation]), shots=[])
+        scoring = history_stats._scoring(data)
         self.assertEqual(scoring["putting"]["holesWithPutts"], 3)
         self.assertEqual(scoring["putting"]["totalPutts"], 5)  # corrected 1 + 3 + 1
         self.assertEqual(scoring["putting"]["coverage"]["total"], 3)
         self.assertIn("src-round:1", scoring["putting"]["correctedRefs"])
-        quality = history_stats._putt_quality(data, [annotation])
+        quality = history_stats._putt_quality(data)
         self.assertEqual((quality["ready"], quality["total"], quality["refs"]), (3, 3, []))
 
 

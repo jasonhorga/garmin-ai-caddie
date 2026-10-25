@@ -198,6 +198,7 @@ export default function App() {
   const trendsSeq = useRef(0)
   const trendsWindowRef = useRef<StatsWindow>('last10')
   const reviewRoundSeq = useRef(0)
+  const statsRequestSeq = useRef(0)
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [reportIndexState, setReportIndexState] = useState<DeferredLoadState<ReviewReportIndexResponse>>({ status: 'idle' })
@@ -428,11 +429,14 @@ export default function App() {
   }
 
   async function loadStatsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+    const seq = ++statsRequestSeq.current
     setStatsState({ status: 'loading' })
     try {
       const data = await fetchHistoryStats(adminTokenOverride)
+      if (statsRequestSeq.current !== seq) return
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
+      if (statsRequestSeq.current !== seq) return
       setStatsState({ status: 'error', message: errorMessage(error) })
     }
   }
@@ -441,12 +445,22 @@ export default function App() {
     adminTokenOverride: string | undefined = currentAdminToken(),
     signal?: AbortSignal,
   ) {
+    // Saves and syncs refresh back to back; only the latest request may publish, so a slow
+    // response computed before a correction never overwrites the corrected statistics.
+    const seq = ++statsRequestSeq.current
+    // A cancelled refresh publishes nothing, so it must not keep the newest slot either: hand it back
+    // and let the request it superseded (a still-loading full load, say) publish its valid result.
+    const release = () => {
+      if (statsRequestSeq.current === seq) statsRequestSeq.current = seq - 1
+    }
     try {
       const data = await fetchHistoryStats(adminTokenOverride, 'all', signal)
-      if (signal?.aborted) return
+      if (signal?.aborted) return release()
+      if (statsRequestSeq.current !== seq) return
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
-      if (signal?.aborted || isAbortError(error)) return
+      if (signal?.aborted || isAbortError(error)) return release()
+      if (statsRequestSeq.current !== seq) return
       setStatsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
@@ -766,7 +780,13 @@ export default function App() {
         if (reviewRoundSeq.current !== seq) return
         setReviewRoundDetailState({ status: 'ready', data })
         const round = roundCardFromDetail(data)
-        if (!loaded) setReviewRoundState(round ? { status: 'ready', data: round } : { status: 'error', message: '这场球在历史数据里没有找到' })
+        if (loaded) {
+          // A list/overview card carries the source totals; the detail is the corrected round, so its
+          // totals and score strip win the header (same overlay as after a saved correction).
+          if (round) setReviewRoundState({ status: 'ready', data: withCorrectedTotals(loaded, round) })
+        } else {
+          setReviewRoundState(round ? { status: 'ready', data: round } : { status: 'error', message: '这场球在历史数据里没有找到' })
+        }
       })
       .catch((error: unknown) => {
         if (reviewRoundSeq.current !== seq) return
@@ -816,6 +836,7 @@ export default function App() {
       }
     })
     refreshLoadedHistorySurfaces()
+    refreshLoadedDiagnostics()
     return response
   }
 
@@ -828,6 +849,7 @@ export default function App() {
     const response = await postRoundCorrection(roundRef, correction, currentAdminToken())
     void refreshLoadedHistorySurfaces()
     refreshLoadedRoundDetails(roundRef)
+    refreshLoadedDiagnostics()
     return response
   }
 
@@ -840,11 +862,49 @@ export default function App() {
       showsRound(current) ? { status: 'ready', data } : current
     fetchHistoryRoundDetail(roundRef, currentAdminToken())
       .then((data) => {
-        if (reviewRoundSeq.current === seq) setReviewRoundDetailState(replace(data))
+        if (reviewRoundSeq.current === seq) {
+          setReviewRoundDetailState(replace(data))
+          // The review header totals come from the RoundCard snapshot taken when the review opened;
+          // the refreshed detail is the corrected round, so its totals and score strip replace it.
+          const corrected = roundCardFromDetail(data)
+          if (corrected) {
+            setReviewRoundState((current) => (
+              current.status === 'ready' && [roundRef, data.roundRef, data.requestedRef].includes(current.data.id)
+                ? { status: 'ready', data: withCorrectedTotals(current.data, corrected) }
+                : current
+            ))
+          }
+        }
         setRoundDetailState(replace(data))
       })
       .catch(() => {
         // Keep-ready: a failed refresh leaves the loaded scorecard in place.
+      })
+  }
+
+  // A drill-down (and its hole evidence) opened from the diagnostics reads the corrected history
+  // too; refresh it keep-ready after a save so it never keeps the pre-correction values.
+  function refreshLoadedDiagnostics() {
+    if (drilldownState.status !== 'ready') return
+    const sourceRef = drilldownState.data.ref
+    const adminToken = currentAdminToken()
+    fetchHistoryDrilldown(sourceRef, adminToken)
+      .then(async (data) => {
+        setDrilldownState((current) => (current.status === 'ready' && current.data.ref === sourceRef ? { status: 'ready', data } : current))
+        const hole = holeGeometryTargetFromDrilldown(sourceRef, data)
+        const target = hole ? { ...hole, sourceRef } : null
+        if (!target || !sameHoleGeometryTarget(activeHoleGeometryTarget.current, target)) return
+        const [evidence, map] = await Promise.all([
+          fetchHoleGeometryEvidence(target.globalId, target.localHole, target.sourceRef, {}, adminToken),
+          fetchHoleMap(target.globalId, target.localHole, 'esri_world_imagery', target.sourceRef, adminToken),
+        ])
+        if (!sameHoleGeometryTarget(activeHoleGeometryTarget.current, target)) return
+        setHoleEvidenceState((current) => (
+          current.status === 'ready' && current.sourceRef === sourceRef ? { status: 'ready', sourceRef, evidence, map } : current
+        ))
+      })
+      .catch(() => {
+        // Keep-ready: a failed refresh leaves the loaded drill-down and evidence in place.
       })
   }
 
@@ -2014,6 +2074,11 @@ export default function App() {
 
 function isUnauthorized(error: unknown): boolean {
   return error instanceof Error && /\b401\b/.test(error.message)
+}
+
+// The review header keeps the list card's identity fields and takes the corrected round's totals.
+function withCorrectedTotals(card: RoundCard, corrected: RoundCard): RoundCard {
+  return { ...card, score: corrected.score, par: corrected.par, toPar: corrected.toPar, scoreStrip: corrected.scoreStrip }
 }
 
 function sameHoleGeometryTarget(left: HoleGeometryTarget | null, right: HoleGeometryTarget): boolean {
