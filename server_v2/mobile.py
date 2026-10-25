@@ -675,6 +675,13 @@ def apply_mobile_round_reconciliation_response(
     *,
     player_id: str = OWNER_ID,
 ) -> MobileReconciliationApplyResponse:
+    # Concurrency: the batch is ordered, and already applied sourceSuggestionIds skipped, outside the
+    # player's audit lock; each annotation write then re-checks its hole under the lock. A concurrent
+    # edit of the same hole can therefore leave the first rows written and fail a later one (422, or
+    # 503 if the state cannot be read); every written row kept its hole possible. A retry with the same
+    # suggestionIds skips the written rows by sourceSuggestionId and orders the rest on the current
+    # card, so it ends with each fix written once, or the same 422 while the card still forbids it.
+    # Two applies of one suggestion racing each other may both write it (the same value, same card).
     data, _mode = load_history_data_for_mode(player_id=player_id)
     try:
         applied = apply_mobile_reconciliation_suggestions(
