@@ -557,18 +557,21 @@ def _handicap_differential(row: dict[str, Any]) -> float | None:
 def _handicap_estimate(rounds: list[dict[str, Any]]) -> float | None:
     """WHS-style handicap estimate; the UI labels it 估算 (never an official index).
 
-    Take the most recent 20 actual rounds by date. A round that cannot be priced
-    (``_handicap_differential`` is None) still holds its place among the 20 but adds
-    no differential (B5a: 估算忽略不可用记录). Needs at least 5 differentials; average
-    the LOWEST ``ceil(0.4 * N)`` of the N, round to 1 decimal. No 0.96 factor: that
-    is the pre-2020 USGA multiplier, not part of WHS.
+    Keep only the rounds that can be priced (``_handicap_differential``), then take
+    the most recent 20 of those differentials by date — like WHS, an unpriceable
+    round never holds one of the 20 places. (That cut at 20 ACTUAL rounds belongs to
+    the "近 20 场变化" split in ``_handicap_change_recent``, not to the estimate.)
+    Needs at least 5 differentials; average the LOWEST ``ceil(0.4 * N)`` of the N,
+    round to 1 decimal. No 0.96 factor: that is the pre-2020 USGA multiplier, not
+    part of WHS.
     """
-    by_date = sorted(range(len(rounds)), key=lambda i: (str(rounds[i].get("date") or ""), i), reverse=True)
-    recent = [
-        differential
-        for i in by_date[:HANDICAP_WINDOW_ROUNDS]
-        if (differential := _handicap_differential(rounds[i])) is not None
+    priced = [
+        (str(row.get("date") or ""), i, differential)
+        for i, row in enumerate(rounds)
+        if (differential := _handicap_differential(row)) is not None
     ]
+    priced.sort(reverse=True)
+    recent = [differential for _day, _i, differential in priced[:HANDICAP_WINDOW_ROUNDS]]
     if len(recent) < 5:
         return None
     take = math.ceil(0.4 * len(recent))

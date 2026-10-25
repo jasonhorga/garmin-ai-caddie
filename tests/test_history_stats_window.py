@@ -274,11 +274,13 @@ class WindowedHistoryDataTests(unittest.TestCase):
 class HandicapEstimateTests(unittest.TestCase):
     """summary.handicapEstimate / summary.handicapTrend (UI: 差点(估算)).
 
-    Formula (manual §3 WHS; B5a): take the 20 most recent actual rounds by date;
-    only rounds with an 18-hole score, rating (>= 50) and slope are priced, as
-    ``(score-rating)*113/slope`` — an unpriceable round keeps its place among the 20
-    but adds no differential. With N differentials, ``N < 5`` -> None; else average
-    the LOWEST ``ceil(0.4 * N)``, round to 1 decimal. No score-par fallback, no 0.96.
+    Formula (manual §3 WHS; golden 2.1 "most recent 20 priceable records"): only
+    rounds with an 18-hole score, rating (>= 50) and slope are priced, as
+    ``(score-rating)*113/slope``; take the 20 most recent of those differentials by
+    date (an unpriceable round never holds a place). With N differentials,
+    ``N < 5`` -> None; else average the LOWEST ``ceil(0.4 * N)``, round to 1 decimal.
+    No score-par fallback, no 0.96. (B5a's "unpriceable rounds count toward the 20"
+    is the 近 20 场变化 cut, ``handicapChangeRecent20``, not this window.)
     """
 
     def test_estimate_uses_best_40pct_of_last_20(self) -> None:
@@ -296,14 +298,31 @@ class HandicapEstimateTests(unittest.TestCase):
             _rated_round(f"recent-{index + 1}", f"2025-02-{index + 1:02d}", 72 + diff)
             for index, diff in enumerate(diffs)
         )
-        # The newest round has no rating/slope -> unpriceable; it still takes one
-        # of the 20 places and pushes out the oldest rated round (diff 29).
+        # The newest round has no rating/slope -> unpriceable: it adds no
+        # differential and takes none of the 20 places.
         rounds.append(_unrated_round("unrated-newest", "2025-03-01", 90))
 
         stats = build_history_stats(_history(rounds), data_mode="fixture")
 
-        # newest 20 rounds = unrated-newest + 19 rated (diffs 10..28) -> N=19;
-        # lowest ceil(0.4*19)=8 -> 10..17, mean 13.5
+        # 22 priced rounds -> most recent 20 = recent-1..20 (diffs 10..29), old-1/2
+        # outside; lowest ceil(0.4*20)=8 -> 10..17, sum 108 / 8 = 13.5
+        self.assertEqual(stats["summary"]["handicapEstimate"], 13.5)
+
+    def test_estimate_window_is_twenty_priced_rounds_not_twenty_actual_rounds(self) -> None:
+        # Newest 20 actual rounds: 16 unrated + 4 rated (diffs 10, 11, 12, 13). Before them,
+        # 25 rated rounds: the 16 newer ones at diffs 14..29, the 9 oldest at diff 0.
+        oldest = [_rated_round(f"z{i}", f"2025-01-{i:02d}", 72) for i in range(1, 10)]  # diff 0
+        older = [_rated_round(f"o{d}", f"2025-02-{d - 13:02d}", 72 + d) for d in range(14, 30)]
+        recent_rated = [_rated_round(f"r{d}", f"2025-03-{d - 9:02d}", 72 + d) for d in (10, 11, 12, 13)]
+        recent_unrated = [_unrated_round(f"u{i}", f"2025-03-{i + 4:02d}", 80) for i in range(1, 17)]
+        rounds = oldest + older + recent_rated + recent_unrated
+
+        stats = build_history_stats(_history(rounds), data_mode="fixture")
+
+        # 29 priced -> the 20 most recent priced = r10..r13 + o14..o29 (z* fall outside);
+        # lowest ceil(0.4*20)=8 -> 10..17, sum 108 / 8 = 13.5.
+        # Window of 20 ACTUAL rounds instead: only r10..r13 priced -> N=4 -> None.
+        # No window at all: 29 diffs, lowest 12 = nine 0s + 10, 11, 12 -> 33/12 = 2.75.
         self.assertEqual(stats["summary"]["handicapEstimate"], 13.5)
 
     def test_estimate_null_under_5_rounds(self) -> None:
@@ -379,21 +398,22 @@ class HandicapEstimateTests(unittest.TestCase):
         # The newest 20 actual rounds include one that cannot be priced (no rating, slope or par).
         # The cut is still the 20 newest rounds: the earlier side is o1..o20, never reaching back
         # an extra round because one recent round had no differential.
-        older = [_rated_round(f"o{i}", f"2025-01-{i:02d}", 92 + (i % 3)) for i in range(1, 21)]  # diff 20..22
+        older = [_rated_round(f"o{i}", f"2025-01-{i:02d}", 92 + 2 * (i % 3)) for i in range(1, 21)]  # diff 20/22/24
         oldest_low = [_rated_round("low", "2024-12-01", 72)]  # diff 0, only reachable if the cut slips
         newer = [_rated_round(f"n{i}", f"2025-03-{i:02d}", 82) for i in range(1, 20)]  # diff 10
         unpriceable = _unrated_round("u", "2025-03-25", 95)
         del unpriceable["par"]
         rounds = oldest_low + older + newer + [unpriceable]
         stats = build_history_stats(_history(rounds), data_mode="fixture")
-        # now: newest 20 rounds = n1..n19 + u (unpriceable) -> 19 at diff 10 -> 10.0.
-        # 20 rounds ago (all but n1..n19 and u): o1..o20 + low -> the 20 most recent are o1..o20
-        # (six at diff 20, seven at 21, seven at 22; lowest 8 = six 20s + two 21s -> 162/8 = 20.25,
-        # exactly representable, round() half-to-even -> 20.2); low is the 21st and unused. Cutting
-        # at 20 PRICEABLE rounds instead would drop o20 too and reach low (diff 0), giving a far
-        # lower earlier estimate.
+        # now: the 20 most recent priced rounds = n1..n19 (diff 10) + o20 (diff 24); lowest 8 are
+        # diff 10 -> 10.0.
+        # 20 rounds ago (all but n1..n19 and u): o1..o20 + low -> the 20 most recent priced are
+        # o1..o20 (i%3==0 -> six at 20, i%3==1 -> seven at 22, i%3==2 -> seven at 24); lowest 8 =
+        # six 20s + two 22s -> 164/8 = 20.5; low is the 21st and unused. Change 10.0 - 20.5 = -10.5.
+        # Cutting at 20 PRICEABLE rounds instead would drop o20 too and reach low (diff 0): lowest
+        # 8 = 0 + six 20s + one 22 -> 142/8 ~ 17.8, a far lower earlier estimate.
         self.assertEqual(stats["summary"]["handicapEstimate"], 10.0)
-        self.assertEqual(stats["summary"]["handicapChangeRecent20"], -10.2)
+        self.assertEqual(stats["summary"]["handicapChangeRecent20"], -10.5)
 
     def test_estimate_is_none_when_no_round_is_rated(self) -> None:
         # No round carries rating/slope: strokes + par alone cannot be priced on
@@ -461,18 +481,18 @@ class HandicapEstimateTests(unittest.TestCase):
         self.assertEqual(stats_genuine["summary"]["handicapEstimate"], 14.7)
 
     def test_by_month_average_differential_stays_rated_only(self) -> None:
-        # The KPI tolerates the score-par approximation; the byMonth chart line
-        # does not (mixing scales would mislead). One rated + one unrated round
-        # in the SAME month -> averageDifferential reflects ONLY the rated one.
+        # Like the KPI, the byMonth chart line prices only rated rounds (a score-par
+        # value is a different scale). One rated + one unrated round in the SAME
+        # month -> averageDifferential reflects ONLY the rated one.
         rounds = [
             _rated_round("rated", "2026-05-03", 82),  # diff 10.0
-            _unrated_round("unrated", "2026-05-21", 100),  # fallback would be 28.0
+            _unrated_round("unrated", "2026-05-21", 100),  # score-par would be 28.0
         ]
 
         stats = build_history_stats(_history(rounds), data_mode="fixture")
 
         by_month = {row["key"]: row for row in stats["time"]["byMonth"]}
-        # mean of [10.0] -> 10.0; a leaked fallback would give mean(10, 28) = 19.0
+        # mean of [10.0] -> 10.0; a leaked score-par value would give mean(10, 28) = 19.0
         self.assertEqual(by_month["2026-05"]["averageDifferential"], 10.0)
 
 
