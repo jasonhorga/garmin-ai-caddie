@@ -2420,6 +2420,11 @@ def run_course_install_job(identifier: str) -> None:
             pass
         topo_completion_events[future].wait()
 
+    if course_install.cancellation_requested(identifier):
+        return
+    # Installed meshes still owe their optional distance/obstacle exports. Hand due exports to the
+    # derivative lane and record in-flight/retrying ones, so the job is complete only after them.
+    course_install.reconcile_derivatives(identifier)
     final = course_install.state_for_worker(identifier) or {}
     if course_install.cancellation_requested(identifier):
         return
@@ -2438,6 +2443,9 @@ def run_course_install_job(identifier: str) -> None:
             "asset unavailable",
         )
         course_install.update(identifier, phase="failed", stage="error", error=failed)
+    elif course_install._has_derivative_work(final):
+        # Mesh and topo are installed; only supplement exports remain (running or retrying).
+        course_install.update(identifier, phase="queued", stage="derivatives", clear_error=True)
     else:
         # New refs can be merged while this worker is finishing. Leave the durable row queued so
         # the hand-off in ``course_install._run`` starts another pass instead of stranding it.
@@ -2516,6 +2524,8 @@ def mobile_course_package(
             "displayHole": display_hole,
             "geometryRevision": hole.get("geometryRevision"),
             "geometryAuthorityObservation": hole.get("geometryAuthorityObservation"),
+            # A drawable hole that still lacks obstacles asks the journal for its exports.
+            "missingData": hole.get("missingData") or [],
         })
         target = (
             ready
@@ -2537,11 +2547,23 @@ def mobile_course_package(
         priority_hole=priority_hole,
     )
     mark_request_stage("background_enqueue")
+    # The package was built before this request queued its job: undrawable holes were judged with
+    # no work in sight.  Re-judge them now that the job exists (new dicts: the built package may be
+    # shared through the package single-flight).
+    from ai_caddie.caddie.mobile_live import _undrawable_hole_state
+
+    holes = [
+        {**hole, **_undrawable_hole_state(hole.get("sourceGlobalId"), hole.get("sourceLocalHole"))}
+        if isinstance(hole, dict) and hole.get("geometryState") in {"pending", "unavailable"}
+        else hole
+        for hole in package.holes
+    ]
     # Pydantic response models are mutable in the current contract, but use model_copy when
     # available so this remains safe if the model becomes frozen later.
     if hasattr(package, "model_copy"):
-        return package.model_copy(update={"courseInstallJob": job})
+        return package.model_copy(update={"courseInstallJob": job, "holes": holes})
     package.courseInstallJob = job
+    package.holes = holes
     return package
 
 

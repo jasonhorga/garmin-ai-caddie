@@ -20,6 +20,7 @@ import logging
 import os
 from pathlib import Path
 import threading
+import time
 from typing import Any
 
 from ai_caddie.core.data import ROOT
@@ -40,6 +41,25 @@ _RETRY_ATTEMPTS: dict[str, int] = {}
 _MAX_RETRY_ATTEMPTS = 8
 _HEARTBEAT_INTERVAL_SECONDS = 5.0
 _TERMINAL_PHASES = frozenset({"ready", "failed", "cancelled"})
+# A hole's optional distance/obstacle exports run in the derivative lane after its mesh and topo
+# are installed.  Until they are installed the job is not complete: ``derivatives`` on the row is
+# ``queued`` (to be scheduled), ``running`` (in the lane) or ``retrying`` (failed, due at
+# ``derivativesRetryAfterEpoch``).  A missing field is a settled/legacy row.
+_DERIVATIVE_WAITING = frozenset({"queued", "running", "retrying"})
+# Fallback re-check while an export is in flight; the lane's listener normally reports sooner.
+# Each export has two subprocess stages bounded by 180 s.
+_DERIVATIVE_POLL_SECONDS = 60.0
+_MIN_DERIVATIVE_DELAY_SECONDS = 1.0
+# A pass that yields for resources (nearby work during play) or for missing release metadata
+# re-checks after this interval, exactly as the queued-work branch does for ``deferred``.
+_DEFERRED_RETRY_SECONDS = 60.0
+_DEFERRED_STAGES = frozenset({"deferred", "metadata"})
+# hole key "gid:hole" -> job ids whose rows wait for that hole's exports (process-local; a restart
+# rebuilds it from the journal on the next pass).
+_DERIVATIVE_WAITERS: dict[str, set[str]] = {}
+_DERIVATIVE_FIELDS = (
+    "derivatives", "derivativesRetryAfterEpoch", "derivativesFailureCount", "derivativesLastErrorType",
+)
 # One job coordinator at a time keeps a four-core shared homeserver from multiplying the existing
 # two-hole geometry pool and one-hole topo pipeline across simultaneous course selections.
 _WORKER = PriorityExecutor(max_workers=1, name="course-install-job")
@@ -249,12 +269,166 @@ def _recount(state: dict[str, Any]) -> None:
     state["progress"] = max(0, min(100, max(int(state.get("progress") or 0), computed)))
 
 
+def _derivatives_waiting(row: dict[str, Any]) -> bool:
+    return str(row.get("derivatives") or "") in _DERIVATIVE_WAITING
+
+
 def _all_assets_ready(state: dict[str, Any]) -> bool:
     rows = [row for row in (state.get("holes") or {}).values() if isinstance(row, dict)]
     return bool(rows) and all(
-        _geometry_ready(row) and _topo_ready(row)
+        _geometry_ready(row) and _topo_ready(row) and not _derivatives_waiting(row)
         for row in rows
     )
+
+
+def _has_derivative_work(state: dict[str, Any]) -> bool:
+    return any(
+        _geometry_ready(row) and _derivatives_waiting(row)
+        for row in (state.get("holes") or {}).values()
+        if isinstance(row, dict)
+    )
+
+
+def _only_derivatives_remain(state: dict[str, Any]) -> bool:
+    """A live job whose mesh/topo are all installed and only owes supplement exports."""
+    rows = [row for row in (state.get("holes") or {}).values() if isinstance(row, dict)]
+    return (
+        state.get("phase") in {"queued", "running"}
+        and not state.get("cancelRequested")
+        and bool(rows)
+        and all(_geometry_ready(row) and _topo_ready(row) for row in rows)
+        and _has_derivative_work(state)
+    )
+
+
+def _derivative_delay(state: dict[str, Any]) -> float:
+    """Seconds until the earliest derivative row is due (its persisted plan, never a guess).
+
+    Never below ``_MIN_DERIVATIVE_DELAY_SECONDS``: a pass that cannot act on a due row (for
+    example a deferred nearby pass) must not turn into a zero-delay timer loop.
+    """
+    rows = [
+        row for row in (state.get("holes") or {}).values()
+        if isinstance(row, dict) and _geometry_ready(row) and _derivatives_waiting(row)
+    ]
+    delay = _DERIVATIVE_POLL_SECONDS
+    if any(row.get("derivatives") == "queued" for row in rows):
+        delay = 0.0
+    else:
+        plans = []
+        for row in rows:
+            if row.get("derivatives") != "retrying":
+                continue
+            try:
+                plans.append(float(row.get("derivativesRetryAfterEpoch")))
+            except (TypeError, ValueError):
+                plans.append(0.0)
+        if plans:
+            delay = max(0.0, min(plans) - time.time())
+            if any(row.get("derivatives") == "running" for row in rows):
+                delay = min(delay, _DERIVATIVE_POLL_SECONDS)
+    return max(_MIN_DERIVATIVE_DELAY_SECONDS, delay)
+
+
+def _apply_derivative_state(row: dict[str, Any], observed: dict[str, Any]) -> None:
+    """Copy the derivative lane's durable observation onto a journal row."""
+    state = str(observed.get("state") or "none")
+    if state in {"ready", "none"}:
+        # ``none``: the mesh itself is gone; the geometry flow owns that row again.
+        for field in _DERIVATIVE_FIELDS:
+            row.pop(field, None)
+        if state == "ready":
+            row["derivatives"] = "ready"
+        return
+    row["derivatives"] = {"due": "queued"}.get(state, state)
+    row["derivativesRetryAfterEpoch"] = observed.get("retryAfterEpoch") if state == "retrying" else None
+    row["derivativesFailureCount"] = int(observed.get("failureCount") or 0)
+    row["derivativesLastErrorType"] = observed.get("lastErrorType")
+
+
+def _register_derivative_waiter(identifier: str, key: str, waiting: bool) -> None:
+    with _LOCK:
+        if waiting:
+            _DERIVATIVE_WAITERS.setdefault(key, set()).add(identifier)
+        else:
+            waiters = _DERIVATIVE_WAITERS.get(key)
+            if waiters is not None:
+                waiters.discard(identifier)
+                if not waiters:
+                    _DERIVATIVE_WAITERS.pop(key, None)
+
+
+def reconcile_derivatives(identifier: str, *, schedule: bool = True) -> None:
+    """Bring every installed row's supplement state into the journal.
+
+    A row whose mesh is installed but whose exports are missing is waiting: due work is handed to
+    the derivative lane (``schedule``), a failed attempt keeps its persisted due time and an
+    in-flight attempt is observed.  Rows with no mesh on disk carry no derivative state.
+    """
+    from ai_caddie.geometry.geometry_sync import derivative_state, schedule_derivatives
+
+    state = state_for_worker(identifier)
+    if not state:
+        return
+    keys = [
+        key for key, row in (state.get("holes") or {}).items()
+        if isinstance(row, dict) and _geometry_ready(row)
+    ]
+    observed: dict[str, dict[str, Any]] = {}
+    for key in keys:
+        row = state["holes"][key]
+        gid, hole = int(row.get("globalId") or 0), int(row.get("localHole") or 0)
+        # Register before observing: an export settling in between must still find this job.
+        _register_derivative_waiter(identifier, key, True)
+        try:
+            result = derivative_state(gid, hole)
+            if schedule and result.get("state") == "due":
+                result = schedule_derivatives(gid, hole)
+        except Exception:  # noqa: BLE001 - observation is best effort; keep the row as it is
+            logger.exception("course_install stage=derivatives gid=%s hole=%s", gid, hole)
+            continue
+        observed[key] = result
+    with _LOCK:
+        current = _read(identifier)
+        if not current:
+            return
+        for key, result in observed.items():
+            row = (current.get("holes") or {}).get(key)
+            if isinstance(row, dict):
+                _apply_derivative_state(row, result)
+        _recount(current)
+        _write(current)
+        settled = [
+            key for key in observed
+            if not _derivatives_waiting((current.get("holes") or {}).get(key) or {})
+        ]
+    for key in settled:
+        _register_derivative_waiter(identifier, key, False)
+
+
+def derivatives_settled(global_id: int, local_hole: int) -> None:
+    """Derivative-lane listener: an export attempt for this hole recorded its result."""
+    key = f"{int(global_id)}:{int(local_hole)}"
+    with _LOCK:
+        identifiers = sorted(_DERIVATIVE_WAITERS.get(key, ()))
+    for identifier in identifiers:
+        reconcile_derivatives(identifier, schedule=False)
+        with _LOCK:
+            state = _read(identifier)
+            if not state or state.get("phase") in {"failed", "cancelled"} or identifier in _ACTIVE:
+                continue
+            if _all_assets_ready(state):
+                state["phase"] = "ready"
+                state["stage"] = "complete"
+                state["error"] = None
+                state["cancellable"] = False
+                _write(state)
+                continue
+            # Replace any poll timer with one due at the newly persisted plan.
+            timer = _RETRY_TIMERS.pop(identifier, None)
+            if timer is not None:
+                timer.cancel()
+        _schedule_retry(identifier)
 
 
 def _has_queued_work(state: dict[str, Any]) -> bool:
@@ -312,11 +486,32 @@ def _schedule_retry(identifier: str) -> None:
             not state
             or state.get("phase") in _TERMINAL_PHASES
             or state.get("cancelRequested")
-            or not _has_queued_work(state)
+            or not (_has_queued_work(state) or _has_derivative_work(state))
             or identifier in _ACTIVE
         ):
             return
         if identifier in _RETRY_TIMERS:
+            return
+        if not _has_queued_work(state):
+            # Only supplement exports remain.  Their backoff is owned and persisted by the
+            # derivative lane (uncapped, at most six hours apart), so wake exactly at the next
+            # persisted due time and never spend the provider-outage budget below.  A pass that
+            # yielded without observing them (nearby work during play, missing metadata) keeps
+            # the normal deferral cadence instead of re-running an overdue plan immediately.
+            if state.get("stage") in _DEFERRED_STAGES:
+                delay = _DEFERRED_RETRY_SECONDS
+            else:
+                delay = _derivative_delay(state)
+            for key, row in (state.get("holes") or {}).items():
+                if isinstance(row, dict) and _geometry_ready(row) and _derivatives_waiting(row):
+                    logger.info(
+                        "course_install stage=derivatives job=%s hole=%s state=%s failures=%s "
+                        "retry_after_epoch=%s next_attempt_in_s=%.0f",
+                        identifier, key, row.get("derivatives"),
+                        int(row.get("derivativesFailureCount") or 0),
+                        row.get("derivativesRetryAfterEpoch"), delay,
+                    )
+            _arm_retry_timer(identifier, state, delay)
             return
         attempt = _RETRY_ATTEMPTS.get(identifier, 0)
         deferred = state.get("stage") == "deferred"
@@ -340,17 +535,28 @@ def _schedule_retry(identifier: str) -> None:
             return
         if not deferred:
             _RETRY_ATTEMPTS[identifier] = attempt + 1
-        delay = 60.0 if deferred else min(60.0, float(2 ** attempt))
+        delay = _DEFERRED_RETRY_SECONDS if deferred else min(60.0, float(2 ** attempt))
+        _arm_retry_timer(identifier, state, delay)
 
-        def relaunch() -> None:
-            with _LOCK:
-                _RETRY_TIMERS.pop(identifier, None)
-            _launch(identifier)
 
-        timer = threading.Timer(delay, relaunch)
-        timer.daemon = True
-        _RETRY_TIMERS[identifier] = timer
-        timer.start()
+def _arm_retry_timer(identifier: str, state: dict[str, Any], delay: float) -> None:
+    """Start the job's single retry timer and persist when it is due (caller holds ``_LOCK``).
+
+    ``nextAttemptEpoch`` lets a package read tell a client the real time the queued work will run
+    again instead of a synthetic poll interval.
+    """
+
+    def relaunch() -> None:
+        with _LOCK:
+            _RETRY_TIMERS.pop(identifier, None)
+        _launch(identifier)
+
+    timer = threading.Timer(delay, relaunch)
+    timer.daemon = True
+    _RETRY_TIMERS[identifier] = timer
+    state["nextAttemptEpoch"] = time.time() + float(delay)
+    _write(state)
+    timer.start()
 
 
 def enqueue(
@@ -377,6 +583,16 @@ def enqueue(
     # package clients use the existing ``priority_hole`` request field. A missing signal means
     # “keep the journal's current hole” on repeated enqueue, with hole 1 only for a new journal.
     requested_start_hole = priority_hole if priority_hole is not None else current_hole
+    # A package row that is drawable but still names missing obstacles asks for its exports. This
+    # is how a journal completed before supplements were tracked heals on the next package read.
+    lacking_derivatives = {
+        f"{int(raw.get('globalId') or 0)}:{int(raw.get('localHole') or raw.get('hole') or 0)}"
+        for raw in refs
+        if isinstance(raw, dict) and any(
+            isinstance(item, dict) and item.get("label") == "hazards"
+            for item in raw.get("missingData") or []
+        )
+    }
     # Keep the launch decision outside the journal lock.  A repeated enqueue may find a
     # completely-installed record (in which case no worker is needed), while a queued or
     # newly-unblocked record must be handed to the single coordinator after its durable write.
@@ -513,7 +729,7 @@ def enqueue(
 
                 if row_work_changed:
                     work_changed = True
-                updated_rows[key] = {
+                updated = {
                     **row,
                     **old,
                     "displayHole": row["displayHole"],
@@ -537,6 +753,18 @@ def enqueue(
                     ),
                     "error": None if row_work_changed else old.get("error"),
                 }
+                if needs_rebind:
+                    # A new mesh gets a fresh supplement observation on the next pass.
+                    for field in _DERIVATIVE_FIELDS:
+                        updated.pop(field, None)
+                elif (
+                    is_incoming
+                    and key in lacking_derivatives
+                    and geometry == "ready"
+                    and not _derivatives_waiting(updated)
+                ):
+                    updated["derivatives"] = "queued"
+                updated_rows[key] = updated
             state["holes"] = updated_rows
             merged_requested: dict[int, set[int]] = {
                 int(k): {int(h) for h in v}
@@ -556,7 +784,19 @@ def enqueue(
                 state["workRevision"] = next_revision
                 # A new enqueue is an explicit retry after a prior terminal or stale attempt.
                 _RETRY_ATTEMPTS.pop(identifier, None)
-            if state.get("phase") in {"ready", "failed", "cancelled"} and not _all_assets_ready(state):
+            supplements_only = state.get("phase") == "ready" and all(
+                _geometry_ready(row) and _topo_ready(row)
+                for row in state["holes"].values()
+                if isinstance(row, dict)
+            )
+            if supplements_only and not _all_assets_ready(state):
+                # Installed mesh/topo stay valid: only the obstacle exports are owned again, so
+                # this is the same generation and its progress is kept.
+                state["phase"] = "queued"
+                state["stage"] = "derivatives"
+                state["error"] = None
+                state["cancellable"] = True
+            elif state.get("phase") in {"ready", "failed", "cancelled"} and not _all_assets_ready(state):
                 state["phase"] = "queued"
                 state["stage"] = "queued"
                 state["error"] = None
@@ -628,14 +868,20 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
             "error": _public_error(row.get("error")),
         })
     rows.sort(key=lambda row: (row["displayHole"], row["globalId"], row["localHole"]))
+    phase, stage = state.get("phase"), state.get("stage")
+    if _only_derivatives_remain(state):
+        # Every hole's mesh and topo are installed: the course is usable and clients must stop
+        # waiting on it.  Internally the journal stays queued and keeps retrying the optional
+        # obstacle exports (the job is not complete); that is reported as this stage.
+        phase, stage = "ready", "derivatives"
     return {
         "schema": "ai-caddie-course-install-v1",
         "jobId": state.get("jobId"),
         "globalId": int(state.get("globalId") or 0),
         "teeBox": state.get("teeBox"),
         "loopKey": str(state.get("loopKey") or ""),
-        "phase": state.get("phase"),
-        "stage": state.get("stage"),
+        "phase": phase,
+        "stage": stage,
         "progress": max(0, min(100, int(state.get("progress") or 0))),
         "heartbeatAt": state.get("heartbeatAt"),
         "cancelRequested": bool(state.get("cancelRequested")),
@@ -643,7 +889,7 @@ def public_state(state: dict[str, Any]) -> dict[str, Any]:
         "terminalReason": state.get("terminalReason"),
         "retryCount": max(0, int(state.get("retryCount") or 0)),
         "generation": max(1, int(state.get("generation") or 1)),
-        "cancellable": bool(state.get("cancellable")) and state.get("phase") not in _TERMINAL_PHASES,
+        "cancellable": bool(state.get("cancellable")) and phase not in _TERMINAL_PHASES,
         "totalHoles": int(state.get("totalHoles") or 0),
         "geometryReady": int(state.get("geometryReady") or 0),
         "topoReady": int(state.get("topoReady") or 0),
@@ -909,9 +1155,22 @@ def _run(identifier: str) -> None:
                 # ``enqueue`` can append/rebind a hole while the worker is in its final topo wait. It
                 # sees the active worker and therefore cannot launch a second one; hand the queued row
                 # off after releasing the active slot so it is never stranded.
-                relaunch = bool(state and _has_queued_work(state))
+                relaunch = bool(state and (_has_queued_work(state) or _has_derivative_work(state)))
+                if (
+                    state
+                    and not relaunch
+                    and state.get("phase") in {"queued", "running"}
+                    and _all_assets_ready(state)
+                ):
+                    # The last export settled while this worker still held the active slot; its
+                    # listener left the phase decision to us.
+                    state["phase"] = "ready"
+                    state["stage"] = "complete"
+                    state["error"] = None
+                    state["cancellable"] = False
+                    _write(state)
         if relaunch:
-            if made_progress and state and state.get("phase") == "queued":
+            if made_progress and state and state.get("phase") == "queued" and _has_queued_work(state):
                 # A healthy small-window pass yields back to the priority queue immediately.
                 # Backoff is for provider failure, never an artificial delay between holes.
                 _launch(identifier)
@@ -945,6 +1204,26 @@ def _state_timestamp(state: dict[str, Any], path: Path) -> float:
         return path.stat().st_mtime
     except OSError:
         return 0.0
+
+
+def _requeue_missing_derivatives(state: dict[str, Any]) -> bool:
+    """Mark installed rows whose exports are missing on disk; True when any row changed."""
+    try:
+        from ai_caddie.geometry.geometry_sync import derivative_state
+    except Exception:  # noqa: BLE001 - a scan must never prevent resuming other journals
+        return False
+    changed = False
+    for row in (state.get("holes") or {}).values():
+        if not isinstance(row, dict) or not _geometry_ready(row) or _derivatives_waiting(row):
+            continue
+        try:
+            observed = derivative_state(int(row.get("globalId") or 0), int(row.get("localHole") or 0))
+        except Exception:  # noqa: BLE001
+            continue
+        if observed.get("state") in {"due", "retrying", "running"}:
+            row["derivatives"] = "queued"
+            changed = True
+    return changed
 
 
 def _launch_next_resumed_job() -> None:
@@ -986,6 +1265,11 @@ def resume_pending_jobs() -> None:
                 except OSError:
                     pass
                 continue
+            if phase == "ready" and _requeue_missing_derivatives(state):
+                # A journal completed while a hole's exports were still missing (and, before
+                # supplements were tracked, with nobody left to retry them): own them again.
+                phase = "queued"
+                state["cancellable"] = True
             if phase not in {"queued", "running"}:
                 continue
             rows = state.get("holes") if isinstance(state.get("holes"), dict) else {}
@@ -996,6 +1280,10 @@ def resume_pending_jobs() -> None:
                     row["geometry"] = "queued"
                 if row.get("topo") == "running":
                     row["topo"] = "queued"
+                if row.get("derivatives") == "running":
+                    # The in-memory export lane died with the process; the persisted plan in the
+                    # derivative status (if any) is re-read on the next pass.
+                    row["derivatives"] = "queued"
             state["phase"] = "queued"
             state["stage"] = "queued"
             state["updatedAt"] = _now()
@@ -1038,3 +1326,53 @@ def bind_nearby_holes(identifier: str, published_holes: list[int]) -> None:
         state["requested"] = {str(gid): numbers}
         _recount(state)
         _write(state)
+
+
+def hole_plan(global_id: int, local_hole: int) -> dict[str, Any] | None:
+    """Background geometry/topo work this process really owns for one physical hole.
+
+    Only live jobs are considered: running or submitted (``_ACTIVE``), recovered and waiting for
+    the worker (``_RESUME_BACKLOG``) or waiting on a retry timer (``_RETRY_TIMERS``).  A failed or
+    cancelled journal, or a queued journal nobody will run, is not a plan.  Returns
+    ``{"state": "in_flight"}``, ``{"state": "scheduled", "retryAfterEpoch": <timer due>}`` or
+    ``None``.
+    """
+    key = f"{int(global_id)}:{int(local_hole)}"
+    scheduled: list[float] = []
+    with _LOCK:
+        in_flight = set(_ACTIVE) | set(_RESUME_BACKLOG)
+        timed = set(_RETRY_TIMERS) - in_flight
+        for identifier in sorted(in_flight | timed):
+            state = _read(identifier)
+            if not state or state.get("phase") in {"failed", "cancelled"} or state.get("cancelRequested"):
+                continue
+            row = (state.get("holes") or {}).get(key)
+            if not isinstance(row, dict):
+                continue
+            owed = row.get("geometry") in {"queued", "running"} or (
+                _geometry_ready(row) and row.get("topo") in {"queued", "running"}
+            )
+            if not owed:
+                continue
+            if identifier in in_flight:
+                return {"state": "in_flight", "retryAfterEpoch": None}
+            try:
+                scheduled.append(float(state.get("nextAttemptEpoch")))
+            except (TypeError, ValueError):
+                return {"state": "in_flight", "retryAfterEpoch": None}
+    if scheduled:
+        return {"state": "scheduled", "retryAfterEpoch": min(scheduled)}
+    return None
+
+
+def _register_derivative_listener() -> None:
+    # The geometry library reports settled export attempts and the package builder asks which
+    # holes have background work; neither imports this module.
+    from ai_caddie.caddie.mobile_live import add_hole_plan_provider
+    from ai_caddie.geometry.batch_prodgeometry_course import add_derivative_listener
+
+    add_derivative_listener(derivatives_settled)
+    add_hole_plan_provider(hole_plan)
+
+
+_register_derivative_listener()

@@ -298,7 +298,10 @@
         "additionalProperties": false,
         "required": ["number", "par", "geometryCoverage", "sourceGlobalId", "sourceLocalHole", "courseHoleNumber"],
         "properties": {
-          "geometryState": {"type": "string", "enum": ["ready", "pending"]},
+          "geometryState": {
+            "type": "string", "enum": ["ready", "pending", "unavailable"],
+            "description": "ready: drawable; pending: not drawable yet, background geometry work is in flight or scheduled (retryAfterEpoch); unavailable: not drawable and no work exists (retryAfterEpoch null)."
+          },
           "retryAfterEpoch": {"type": ["number", "null"]},
           "garminRaster": {
             "type": "object", "additionalProperties": false,
@@ -307,6 +310,22 @@
           },
           "topoAvailable": {"type": "boolean"},
           "topoRevision": {"type": ["string", "null"]},
+          "missingData": {
+            "type": "array",
+            "description": "Optional supplements a drawable (geometryState=ready) hole still lacks, with the server's real retry plan.",
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["label", "reason", "state"],
+              "properties": {
+                "label": {"type": "string", "enum": ["hazards"]},
+                "reason": {"type": "string"},
+                "state": {"type": "string", "enum": ["queued", "running", "retrying"]},
+                "retryAfterEpoch": {"type": ["number", "null"]},
+                "failureCount": {"type": "integer", "minimum": 0},
+                "lastErrorType": {"type": ["string", "null"]}
+              }
+            }
+          },
           "number": {
             "type": "integer"
           },

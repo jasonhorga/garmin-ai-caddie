@@ -20,6 +20,8 @@ _STARTING: dict[tuple, Future] = {}
 _REGION_ENQUEUED: dict[int, float] = {}
 _REGION_PLAYER = "__nearby_public_assets__"
 _COURSE_DATA_LOOKUPS: dict[tuple[int, int], tuple[float, Future]] = {}
+# The physical (gid, local hole) each in-flight priority-hole prepare is fetching.
+_STARTING_HOLES: dict[tuple, tuple[int, int]] = {}
 
 
 # The application injects its admission policy after construction; standalone workers are idle.
@@ -103,6 +105,26 @@ def enqueue_nearby(matches) -> int:
     return count
 
 
+def priority_hole_plan(global_id: int, local_hole: int) -> dict | None:
+    """Package hook: the playing hole's geometry fetch is in flight in this process."""
+    target = (int(global_id), int(local_hole))
+    with _LOCK:
+        for key, hole in _STARTING_HOLES.items():
+            future = _STARTING.get(key)
+            if hole == target and future is not None and not future.done():
+                return {"state": "in_flight", "retryAfterEpoch": None}
+    return None
+
+
+def _register_hole_plan_provider() -> None:
+    from ai_caddie.caddie.mobile_live import add_hole_plan_provider
+
+    add_hole_plan_provider(priority_hole_plan)
+
+
+_register_hole_plan_provider()
+
+
 def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 1, tee_box: str | None = None, wait: bool = True) -> dict:
     """Obtain only the playing hole's geometry; queued rasters and other holes are independent.
 
@@ -156,10 +178,12 @@ def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 
         if future is None:
             future = _GEOMETRY_INSTALL_POOL.submit(prepare, priority=FOREGROUND)
             _STARTING[key] = future
+            _STARTING_HOLES[key] = (int(gid), int(hole))
             def remove(completed: Future) -> None:
                 with _LOCK:
                     if _STARTING.get(key) is completed:
                         _STARTING.pop(key, None)
+                        _STARTING_HOLES.pop(key, None)
             # Add the callback after releasing the lock: a warm future may already be finished.
             leader = True
         else:

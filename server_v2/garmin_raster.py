@@ -68,9 +68,12 @@ def _projection_result(global_id: int, hole: int, version: str) -> dict[str, Any
 
 
 def _authority_ready(global_id: int, hole: int) -> bool:
+    # Registration aligns the raster to the release-bound mesh; obstacles are an optional
+    # supplement and must not hide a registrable raster while their export is retried.
     try:
         evidence = geometry_coverage_for_hole(
-            int(global_id), int(hole), require_current_authority=True, refresh_release=True
+            int(global_id), int(hole), require_current_authority=True, refresh_release=True,
+            require_hazards=False,
         )
     except Exception:
         return False

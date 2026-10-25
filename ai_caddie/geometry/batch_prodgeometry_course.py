@@ -260,11 +260,15 @@ _DERIVATIVE_POOL = PriorityExecutor(1, name="geometry-derivatives")
 _DERIVATIVE_JOBS: dict[tuple[int, int, str, str, str, str], _DerivativeJob] = {}
 # A failed exporter must not be relaunched on every package request.  The identity is part of the
 # key, so a new mesh/release gets a clean retry budget immediately while a permanently broken
-# exporter backs off exponentially for the same bytes.  The timer is checked lazily by the next
-# ensure request; no extra process or resident retry thread is needed.
+# exporter backs off exponentially for the same bytes.  There is no attempt cap: the durable
+# status sidecar records every failure and its next due time, and the course-install journal that
+# needs the hole re-arms itself for that time (see ``derivative_state`` and the listeners below).
 _DERIVATIVE_FAILURES: dict[tuple[int, int, str, str, str, str], tuple[int, float]] = {}
 DERIVATIVE_BACKOFF_BASE_S = 30.0
-DERIVATIVE_BACKOFF_MAX_S = 300.0
+DERIVATIVE_BACKOFF_MAX_S = 6 * 3600.0
+# Called as ``listener(course_id, hole_number)`` after a current export attempt has recorded its
+# result.  The server registers the install journal here; the geometry library never imports it.
+_DERIVATIVE_LISTENERS: list[Any] = []
 
 _DERIVATIVE_AUTHORITY_FIELDS = (
     "releaseVersion",
@@ -329,6 +333,57 @@ def _record_derivative_result(
         "retryAfterEpoch": None if success else time.time() + delay,
         "updatedAt": datetime.now(UTC).isoformat(),
     })
+
+
+def add_derivative_listener(listener: Any) -> None:
+    """Register a callback for settled export attempts (idempotent)."""
+    if listener not in _DERIVATIVE_LISTENERS:
+        _DERIVATIVE_LISTENERS.append(listener)
+
+
+def _notify_derivative_listeners(course_id: int, hole_number: int) -> None:
+    for listener in tuple(_DERIVATIVE_LISTENERS):
+        try:
+            listener(int(course_id), int(hole_number))
+        except Exception:
+            logger.exception("geometry_derivatives listener_failed gid=%s hole=%s", course_id, hole_number)
+
+
+def derivative_state(
+    course_id: int,
+    hole_number: int,
+    *,
+    mesh_file: Path,
+    distance_target: Path,
+    hazard_target: Path,
+) -> dict[str, Any]:
+    """Describe the supplement work for one installed mesh without starting any.
+
+    ``state`` is ``none`` (no mesh), ``ready`` (both exports installed), ``running`` (queued or
+    executing in this process), ``retrying`` (a failed attempt with a future due time) or ``due``
+    (nothing in flight and no future plan: the caller should schedule it now).
+    """
+    if not mesh_file.is_file():
+        return {"state": "none", "retryAfterEpoch": None, "failureCount": 0, "lastErrorType": None}
+    if distance_target.is_file() and hazard_target.is_file():
+        return {"state": "ready", "retryAfterEpoch": None, "failureCount": 0, "lastErrorType": None}
+    target = (int(course_id), int(hole_number), str(mesh_file), str(distance_target), str(hazard_target))
+    with _DERIVATIVE_LOCK:
+        running = any(key[:5] == target and not job.done() for key, job in _DERIVATIVE_JOBS.items())
+    status = load_derivatives_status(mesh_file) or {}
+    row = {
+        "failureCount": int(status.get("failureCount") or 0),
+        "lastErrorType": status.get("lastErrorType"),
+    }
+    if running:
+        return {"state": "running", "retryAfterEpoch": None, **row}
+    try:
+        retry_at = float(status.get("retryAfterEpoch"))
+    except (TypeError, ValueError):
+        retry_at = None
+    if status.get("status") == "failed" and retry_at is not None and retry_at > time.time():
+        return {"state": "retrying", "retryAfterEpoch": retry_at, **row}
+    return {"state": "due", "retryAfterEpoch": None, **row}
 
 
 def _derivative_snapshot(
@@ -439,6 +494,11 @@ def _run_derivatives(
     except OSError as exc:
         logger.exception("geometry_derivatives directory_failed gid=%s hole=%s error=%s", course_id, hole_number, exc)
         _record_derivative_result(key, success=False, error_type=type(exc).__name__)
+        # Release the reservation first, exactly as the normal exit below does, so listeners do
+        # not observe this finished attempt as still running.
+        with _DERIVATIVE_LOCK:
+            _DERIVATIVE_JOBS.pop(key, None)
+        _notify_derivative_listeners(course_id, hole_number)
         return
     try:
         with _DERIVATIVE_PUBLISH_LOCK:
@@ -534,6 +594,9 @@ def _run_derivatives(
                 if current:
                     success = distance_target.is_file() and hazard_target.is_file()
                     _record_derivative_result(key, success=success, error_type=error_type)
+            if current:
+                # Outside both locks: a listener reads this status and writes its own journal.
+                _notify_derivative_listeners(course_id, hole_number)
             if success:
                 # Full factual vectors need BOTH supplements. Keep this off the mesh/topo hand-off.
                 from ai_caddie.courses.vector_prep import warm_requested_vectors
