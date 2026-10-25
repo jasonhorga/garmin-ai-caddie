@@ -163,7 +163,7 @@
     "event": {
       "op": "setHolePenalty",
       "hole": 1,
-      "value": 2
+      "value": 1
     },
     "expected": [
       {
@@ -172,7 +172,7 @@
         "beforeIndex": null,
         "afterIndex": null,
         "before": 0,
-        "after": 2,
+        "after": 1,
         "hole": 1
       }
     ]
