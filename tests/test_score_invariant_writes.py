@@ -9,7 +9,7 @@ from unittest.mock import patch
 from ai_caddie.caddie import mobile_live
 from ai_caddie.reports import annotations
 from ai_caddie.rounds import correction_audit
-from server_v2 import main
+from server_v2 import main, mobile
 from tests.product._support_c16c import HTTPFixture, event, score_events
 
 
@@ -43,6 +43,54 @@ class LiveEventAdmissionTests(HTTPFixture, unittest.TestCase):
         response = self.post("r2", hole2, "hole-2")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["accepted"], 1)
+
+
+class ReconciliationApplyTests(HTTPFixture, unittest.TestCase):
+    def round_with_local(self, strokes, putts):
+        # Manual round hole 1: 6 strokes, 4 putts, 0 penalties (6 >= 4 + 0 + 1). The live log then
+        # records `strokes`/`putts` for the same hole, which reconciliation suggests as corrections.
+        rid = str(self.ingest(score_events(strokes=6, putts=4, penalties=0)).json()["id"])
+        mobile_live.append_event_batch(rid, live(rid,
+            event("score", {"strokes": strokes}, id="rec-score"),
+            event("putt", {"putts": putts}, id="rec-putt")), idempotency_key="rec", root=self.root)
+        return rid
+
+    def apply(self, rid, ids):
+        return self.client.post(f"/api/v2/mobile/rounds/{rid}/reconciliation/apply", json={"suggestionIds": ids})
+
+    def test_combined_fix_is_written_in_an_order_that_stays_possible(self):
+        # Total 6 -> 4 first would leave 4 < 4 + 0 + 1; putts 4 -> 2 first leaves 6 >= 3, then 4 >= 3.
+        rid = self.round_with_local(strokes=4, putts=2)
+        response = self.apply(rid, ["rec-score:score-correction", "rec-putt:putt-correction"])
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["appliedCount"], 2)
+        stored = [(row["kind"], row["payload"]["to"]) for row in annotations.list_annotations(root=self.root)]
+        self.assertEqual(stored, [("putt_correction", 2), ("score_correction", 4)])
+
+    def test_impossible_final_card_writes_nothing(self):
+        # Final hole 1: 3 strokes, 3 putts, 0 penalties: 3 < 3 + 0 + 1, in any order.
+        rid = self.round_with_local(strokes=3, putts=3)
+        before = self.disk()
+        response = self.apply(rid, ["rec-score:score-correction", "rec-putt:putt-correction"])
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(self.disk(), before)
+
+    def test_unreadable_history_inside_the_write_is_retryable_and_writes_nothing(self):
+        rid = self.round_with_local(strokes=6, putts=2)  # only the putt fix (4 -> 2) is suggested
+        data = self.data()
+        calls = []
+
+        def history(*_args, **_kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                return data, "fixture"  # the route's own read; the audit's re-read then fails
+            raise OSError("synthetic history unavailable")
+
+        before = self.disk()
+        with patch.object(mobile, "load_history_data_for_mode", side_effect=history):
+            response = self.apply(rid, ["rec-putt:putt-correction"])
+        self.assertEqual(response.status_code, 503, response.text)
+        self.assertEqual(self.disk(), before)
 
 
 class UnderivableScoreStateTests(HTTPFixture, unittest.TestCase):

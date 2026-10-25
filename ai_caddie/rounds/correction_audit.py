@@ -686,6 +686,70 @@ def _require_possible_correction(
     )
 
 
+_HOLE_STATE_INDEX = {"total": 0, "putts": 1, "penalty": 2}
+
+
+def order_possible_annotations(
+    data: HistoryData, rows: list[dict[str, Any]], *, player_id: str,
+    annotation_root: Path | str | None, root: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    """Spec 5.7 for annotations written one after another (reconciliation apply); returns ``rows``
+    in the order to write them.
+
+    Each hole score annotation is replayed on its hole's current effective state and every step must
+    stay possible; otherwise ``ScoreInvariantError`` is raised before anything is written. The
+    requested order is kept when it passes. Otherwise putts/penalties that go down are written
+    first, then totals, then putts/penalties that go up: every step is then possible whenever the
+    current and final cards are. A state that cannot be derived raises ``IdentityUnavailable``.
+    """
+    from ai_caddie.reports.annotations import list_annotation_records
+
+    current: dict[tuple[str, int], list[Any]] = {}
+    changes: list[tuple[tuple[str, int], int, Any] | None] = []
+    try:
+        annotations = list_annotation_records(root=annotation_root, player_id=player_id)
+        for row in rows:
+            op = AUDITED_ANNOTATION_KINDS.get(str(row.get("kind")))
+            target = split_hole_target(str(row.get("targetId") or "")) if row.get("targetType") == "hole" else None
+            card = _match_round(data, target[0]) if op and target else None
+            if card is None or target is None or op is None:
+                changes.append(None)  # not a score fix on a known scorecard
+                continue
+            key = (str(card.get("id")), target[1])
+            if key not in current:
+                corrections = _round_correction_events(player_id, card, root)
+                current[key] = list(_effective_hole(card, target[1], annotations, corrections))
+            payload = row.get("payload") or {}
+            changes.append((key, _HOLE_STATE_INDEX[op], _int(payload.get("strokes" if op == "penalty" else "to"))))
+    except Exception as exc:
+        raise IdentityUnavailable(safe_reason("score state unavailable", exc)) from exc
+
+    def replay(order: list[int]) -> None:
+        state = {key: list(values) for key, values in current.items()}
+        for index in order:
+            if changes[index] is None:
+                continue
+            key, field, value = changes[index]
+            state[key][field] = value
+            score_invariant.require_possible_hole_score(*state[key], hole=key[1])
+
+    def rank(index: int) -> int:
+        if changes[index] is None or changes[index][1] == _HOLE_STATE_INDEX["total"]:
+            return 1
+        key, field, value = changes[index]
+        before = current[key][field]
+        return 0 if value is not None and before is not None and value < before else 2
+
+    requested = list(range(len(rows)))
+    try:
+        replay(requested)
+        return list(rows)
+    except score_invariant.ScoreInvariantError:
+        safe = sorted(requested, key=rank)
+        replay(safe)  # no possible order: raises and nothing is written
+        return [rows[index] for index in safe]
+
+
 def build_annotation_audit(
     data: HistoryData, record: dict[str, Any], existing: list[dict[str, Any]], *,
     player_id: str, root: Path | str | None = None,

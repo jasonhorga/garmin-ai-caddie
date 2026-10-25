@@ -31,6 +31,7 @@ from ai_caddie.caddie.mobile_live import (
 )
 from ai_caddie.history.history import OWNER_ID, HistoryData
 from ai_caddie.rounds import round_ingest, score_invariant
+from ai_caddie.rounds.correction_audit import IdentityUnavailable
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.llm.weather_context import WeatherTransport, weather_snapshot_for_time
 
@@ -673,8 +674,8 @@ def apply_mobile_round_reconciliation_response(
     request: MobileReconciliationApplyRequest,
 ) -> MobileReconciliationApplyResponse:
     data, _mode = load_history_data_for_mode()
-    return MobileReconciliationApplyResponse(
-        **apply_mobile_reconciliation_suggestions(
+    try:
+        applied = apply_mobile_reconciliation_suggestions(
             round_id,
             data,
             suggestion_ids=request.suggestionIds,
@@ -682,5 +683,11 @@ def apply_mobile_round_reconciliation_response(
             annotations_root=ANNOTATION_ROOT,
             decision_audit_root=DECISION_AUDIT_ROOT,
             decision_ledger_root=DECISION_LEDGER_ROOT,
+            data_loader=lambda: load_history_data_for_mode()[0],
         )
-    )
+    except score_invariant.ScoreInvariantError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except IdentityUnavailable as exc:
+        # Nothing was written; the client retries the same selection later.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return MobileReconciliationApplyResponse(**applied)
