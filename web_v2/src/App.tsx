@@ -198,6 +198,7 @@ export default function App() {
   const trendsSeq = useRef(0)
   const trendsWindowRef = useRef<StatsWindow>('last10')
   const reviewRoundSeq = useRef(0)
+  const statsRequestSeq = useRef(0)
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [reportIndexState, setReportIndexState] = useState<DeferredLoadState<ReviewReportIndexResponse>>({ status: 'idle' })
@@ -428,11 +429,14 @@ export default function App() {
   }
 
   async function loadStatsState(adminTokenOverride: string | undefined = currentAdminToken()) {
+    const seq = ++statsRequestSeq.current
     setStatsState({ status: 'loading' })
     try {
       const data = await fetchHistoryStats(adminTokenOverride)
+      if (statsRequestSeq.current !== seq) return
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
+      if (statsRequestSeq.current !== seq) return
       setStatsState({ status: 'error', message: errorMessage(error) })
     }
   }
@@ -441,12 +445,15 @@ export default function App() {
     adminTokenOverride: string | undefined = currentAdminToken(),
     signal?: AbortSignal,
   ) {
+    // Saves and syncs refresh back to back; only the latest request may publish, so a slow
+    // response computed before a correction never overwrites the corrected statistics.
+    const seq = ++statsRequestSeq.current
     try {
       const data = await fetchHistoryStats(adminTokenOverride, 'all', signal)
-      if (signal?.aborted) return
+      if (signal?.aborted || statsRequestSeq.current !== seq) return
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
-      if (signal?.aborted || isAbortError(error)) return
+      if (signal?.aborted || isAbortError(error) || statsRequestSeq.current !== seq) return
       setStatsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
@@ -816,6 +823,7 @@ export default function App() {
       }
     })
     refreshLoadedHistorySurfaces()
+    refreshLoadedDiagnostics()
     return response
   }
 
@@ -828,6 +836,7 @@ export default function App() {
     const response = await postRoundCorrection(roundRef, correction, currentAdminToken())
     void refreshLoadedHistorySurfaces()
     refreshLoadedRoundDetails(roundRef)
+    refreshLoadedDiagnostics()
     return response
   }
 
@@ -840,11 +849,49 @@ export default function App() {
       showsRound(current) ? { status: 'ready', data } : current
     fetchHistoryRoundDetail(roundRef, currentAdminToken())
       .then((data) => {
-        if (reviewRoundSeq.current === seq) setReviewRoundDetailState(replace(data))
+        if (reviewRoundSeq.current === seq) {
+          setReviewRoundDetailState(replace(data))
+          // The review header totals come from the RoundCard snapshot taken when the review opened;
+          // the refreshed detail is the corrected round, so its totals and score strip replace it.
+          const corrected = roundCardFromDetail(data)
+          if (corrected) {
+            setReviewRoundState((current) => (
+              current.status === 'ready' && [roundRef, data.roundRef, data.requestedRef].includes(current.data.id)
+                ? { status: 'ready', data: { ...current.data, score: corrected.score, par: corrected.par, toPar: corrected.toPar, scoreStrip: corrected.scoreStrip } }
+                : current
+            ))
+          }
+        }
         setRoundDetailState(replace(data))
       })
       .catch(() => {
         // Keep-ready: a failed refresh leaves the loaded scorecard in place.
+      })
+  }
+
+  // A drill-down (and its hole evidence) opened from the diagnostics reads the corrected history
+  // too; refresh it keep-ready after a save so it never keeps the pre-correction values.
+  function refreshLoadedDiagnostics() {
+    if (drilldownState.status !== 'ready') return
+    const sourceRef = drilldownState.data.ref
+    const adminToken = currentAdminToken()
+    fetchHistoryDrilldown(sourceRef, adminToken)
+      .then(async (data) => {
+        setDrilldownState((current) => (current.status === 'ready' && current.data.ref === sourceRef ? { status: 'ready', data } : current))
+        const hole = holeGeometryTargetFromDrilldown(sourceRef, data)
+        const target = hole ? { ...hole, sourceRef } : null
+        if (!target || !sameHoleGeometryTarget(activeHoleGeometryTarget.current, target)) return
+        const [evidence, map] = await Promise.all([
+          fetchHoleGeometryEvidence(target.globalId, target.localHole, target.sourceRef, {}, adminToken),
+          fetchHoleMap(target.globalId, target.localHole, 'esri_world_imagery', target.sourceRef, adminToken),
+        ])
+        if (!sameHoleGeometryTarget(activeHoleGeometryTarget.current, target)) return
+        setHoleEvidenceState((current) => (
+          current.status === 'ready' && current.sourceRef === sourceRef ? { status: 'ready', sourceRef, evidence, map } : current
+        ))
+      })
+      .catch(() => {
+        // Keep-ready: a failed refresh leaves the loaded drill-down and evidence in place.
       })
   }
 
