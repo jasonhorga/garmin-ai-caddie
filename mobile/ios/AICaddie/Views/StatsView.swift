@@ -324,6 +324,7 @@ struct CourseStatsDetailView: View {
                     ForEach(holes.count..<3, id: \.self) { _ in Color.clear.frame(maxWidth: .infinity) }
                 }
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("course-hard-holes")
         }
     }
@@ -395,6 +396,7 @@ struct CourseStatsDetailView: View {
                 }
                 .hubCard(padding: 12)
             }
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("course-combos")
         }
     }
