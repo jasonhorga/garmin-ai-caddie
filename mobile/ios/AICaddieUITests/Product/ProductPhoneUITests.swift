@@ -6,6 +6,7 @@ import XCTest
 final class ProductPhoneUITests: XCTestCase {
     private var server: ProductFixtureServer!
     private var app: XCUIApplication!
+    private var launchedWithFix = false
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -34,6 +35,7 @@ final class ProductPhoneUITests: XCTestCase {
             app.launchEnvironment["UITEST_GPS_LAT"] = latitude
             app.launchEnvironment["UITEST_GPS_LON"] = "0"
         } else { app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "denied" }
+        launchedWithFix = latitude != nil
         app.launch()
         XCTAssertTrue(element("home-tile-scores").waitForExistence(timeout: 15), "synthetic home bootstrapped")
     }
@@ -54,6 +56,14 @@ final class ProductPhoneUITests: XCTestCase {
         XCTAssertTrue(target.exists, id)
         reveal(target)
         target.tap()
+    }
+
+    /// Strict known-red block. With continueAfterFailure = false an expected failure would end the
+    /// test and silently skip its remaining rows, so failures inside the block continue.
+    private func knownRed(_ reason: String, _ block: () -> Void) {
+        continueAfterFailure = true
+        defer { continueAfterFailure = false }
+        XCTExpectFailure(reason, failingBlock: block)
     }
 
     private func scores() { tap("home-tile-scores"); XCTAssertTrue(element("results-handicap").waitForExistence(timeout: 10)) }
@@ -102,7 +112,7 @@ final class ProductPhoneUITests: XCTestCase {
         let identifiedRange = element("time-range")
         let legacyRange = app.segmentedControls.containing(.button, identifier: "近10场").firstMatch
         let range = identifiedRange.exists ? identifiedRange : legacyRange
-        XCTExpectFailure("C16e J2.2: time page has no independent range control") {
+        knownRed("C16e J2.2: time page has no independent range control") {
             XCTAssertTrue(range.exists, "range must be selectable independently of grain")
         }
         guard range.exists else { return }
@@ -185,7 +195,7 @@ final class ProductPhoneUITests: XCTestCase {
                 let firstIndex = element("live-scorecard-hole-index-1")
                 let tenthIndex = element("live-scorecard-hole-index-10")
                 XCTAssertTrue(firstIndex.exists && tenthIndex.exists, name + " both loop cards exist")
-                XCTExpectFailure("C16e J2.8: review loses the physical back/front identity") {
+                knownRed("C16e J2.8: review loses the physical back/front identity") {
                     XCTAssertEqual(Int(firstIndex.label), 10, name + " first physical hole")
                     XCTAssertEqual(Int(tenthIndex.label), 1, name + " second loop physical hole")
                 }
@@ -271,7 +281,23 @@ final class ProductPhoneUITests: XCTestCase {
 
     private func startRound() {
         tap("home-new-round")
-        tap("start-round-venue-82001")
+        if launchedWithFix {
+            tap("start-round-venue-82001") // provider-nearby row
+        } else {
+            // Without a location 开始一场 lists no course; the product path is name search.
+            tap("start-round-search-all-courses")
+            let keyword = app.textFields["course-catalog-keyword-field"]
+            XCTAssertTrue(keyword.waitForExistence(timeout: 10))
+            keyword.tap()
+            keyword.typeText("Example")
+            let submit = element("course-catalog-search-action")
+            let submittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: submit)
+            XCTAssertEqual(XCTWaiter.wait(for: [submittable], timeout: 5), .completed)
+            submit.tap()
+            let keyboardGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
+            XCTAssertEqual(XCTWaiter.wait(for: [keyboardGone], timeout: 8), .completed)
+            tap("course-catalog-result-82001")
+        }
         let start = element("start-round-primary-action")
         reveal(start)
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: start)
@@ -281,12 +307,19 @@ final class ProductPhoneUITests: XCTestCase {
     }
 
     func test_j4_5_phone_three_map_states_have_visible_content() {
-        for (name, expected) in [("ready", "live-hole-map-ready"), ("partial", "live-hole-map-partial"), ("missing", "live-map-preparing-surface")] {
+        // The precise tier is the phone's precise topo surface; route-only and waiting have none yet.
+        for (name, expected) in [("ready", "live-hole-map-precise"), ("partial", "live-hole-map-partial"), ("missing", "live-map-preparing-surface")] {
             var state = ProductFixtureServer.State(); state.coverage = name
             server.configure(state); launch(); startRound()
             let map = element(expected)
-            XCTAssertTrue(map.waitForExistence(timeout: 15), name)
-            insideWindow(map, name)
+            if name == "ready" {
+                XCTAssertTrue(map.waitForExistence(timeout: 15), name)
+            } else {
+                knownRed("C16e J4.5: phone live map has no route-only or waiting tier") {
+                    XCTAssertTrue(map.waitForExistence(timeout: 15), name)
+                }
+            }
+            if map.exists { insideWindow(map, name) }
             app.terminate()
         }
     }
@@ -319,7 +352,8 @@ final class ProductPhoneUITests: XCTestCase {
         }
         XCTAssertTrue(element("live-finish-to-par").waitForExistence(timeout: 10))
         // There is no identifier on the par line yet: its prefix locates it, numbers carry the assertion.
-        let par = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Par ")).firstMatch
+        // "/" (recorded/total holes) keeps the hole screen's "Par 4 · 365 码" behind the sheet out.
+        let par = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Par ", "/")).firstMatch
         insideWindow(par, "nine recorded holes")
         XCTAssertEqual(integers(in: par.label), [36, 9, 9], "recorded par, played holes, course holes")
         insideWindow(element("live-finish-save"), "save summary")
@@ -327,8 +361,7 @@ final class ProductPhoneUITests: XCTestCase {
 
     func test_j5_2_home_active_card_replaces_new_round_and_can_resume() {
         launch(); startRound()
-        tap("live-back-home")
-        tap("live-scorecard-leave-home")
+        tap("live-back-home") // 返回 goes straight home and keeps the round (CurrentHoleView).
         insideWindow(element("home-in-progress-round"), "active round hero")
         XCTAssertFalse(element("home-new-round").exists)
         XCTAssertTrue(element("home-end-round").isEnabled)
