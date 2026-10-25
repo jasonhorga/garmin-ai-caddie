@@ -142,7 +142,6 @@ class J9WebApiTests(unittest.TestCase):
                         self.assertEqual(response.status_code, 422)
                         self.assertEqual((cookie.read_bytes(), csrf.read_bytes()), before)
 
-    @unittest.expectedFailure
     def test_j9_3_session_material_failure_rolls_back_replacement_files(self) -> None:
         """A failure after validation must leave the previously working session untouched."""
         token_dir = self.root / ".garmin_tokens"
