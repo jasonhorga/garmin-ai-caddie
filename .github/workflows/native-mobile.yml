@@ -499,6 +499,13 @@ jobs:
                 -only-testing:AICaddieUITests/ReviewEditUITests/testCaptureReviewEditFlow
               )
               ;;
+            *)
+              # ProductPhoneUITests brings its own fixture server on port 9000 and runs in the
+              # native-product-ui job; here it would collide with the Python fixture.
+              ONLY_TESTING=(
+                -skip-testing:AICaddieUITests/ProductPhoneUITests
+              )
+              ;;
           esac
           .github/scripts/retry-transient-command.sh \
             "$RUNNER_TEMP/real-xcuitest" \
