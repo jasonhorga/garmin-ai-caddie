@@ -29,7 +29,7 @@ from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize
 from ai_caddie.connectors.snapshot import snapshot_to_payload, write_connector_status
 from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 from ai_caddie.core.data import ROOT
-from ai_caddie.core.priority_work import FOREGROUND, NEARBY, SELECTED_COURSE, PriorityExecutor
+from ai_caddie.core.priority_work import FOREGROUND, NEARBY, SELECTED_COURSE, PriorityExecutor, work_priority
 from ai_caddie.core.play_order import expand_display_holes, play_order
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
@@ -184,6 +184,15 @@ from .timing import RequestTiming, bind as bind_request_timing, mark as mark_req
 from .sync_jobs import CancelledSyncJob, GarminSyncJobStore, RetrySyncJob
 
 
+def configure_request_timing_logging() -> None:
+    """Service logging belongs to startup, never to importing a library hook."""
+    timing_log = logging.getLogger("server_v2.timing")
+    timing_log.setLevel(logging.INFO)
+    if not timing_log.handlers:
+        timing_log.handlers.extend(logging.getLogger("uvicorn.error").handlers or [logging.StreamHandler()])
+    timing_log.propagate = False
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """FastAPI lifespan: warm history caches at startup so the first user request is a hit.
@@ -196,6 +205,7 @@ async def _lifespan(_app: FastAPI):
     """
     # Fail fast (require-admin profile with no admin token) / warn loudly (open-dev owner-grant active)
     # before serving any request — the per-request path already fail-closes, this makes it audible at boot.
+    configure_request_timing_logging()
     assert_admin_security_config()
     warm_stats_cache_in_background()
     _garmin_sync_jobs.start(_run_garmin_sync_job)
@@ -223,7 +233,7 @@ async def request_timing_middleware(request: Request, call_next):
     """Expose safe request correlation and stage timing for startup diagnostics."""
     timing = RequestTiming(request_id_for(request.headers.get("X-AI-Caddie-Request-ID")))
     request.state.request_id = timing.request_id
-    with bind_request_timing(timing):
+    with bind_request_timing(timing), work_priority(FOREGROUND):
         try:
             response = await call_next(request)
         except Exception:
@@ -338,7 +348,15 @@ def _safe_validation_errors(exc: RequestValidationError) -> list[dict[str, objec
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
-    return JSONResponse({"detail": _safe_validation_errors(exc)}, status_code=422)
+    detail = _safe_validation_errors(exc)
+    if _request.method == "POST" and re.fullmatch(r"/api/v2/mobile/rounds/[^/]+/events", _request.url.path):
+        # Validation messages/input may contain the complete event or a sensitive field value.
+        # Only schema locations and machine-readable error types belong in production logs.
+        logger.warning("mobile_events validation_failed status=422 detail=%s", [
+            {"path": ".".join(str(part) for part in row["loc"]), "type": row["type"]}
+            for row in detail
+        ])
+    return JSONResponse({"detail": detail}, status_code=422)
 
 
 def _security_profile_requires_admin() -> bool:
@@ -1234,6 +1252,11 @@ def _delayed_prep_warmer(player_id: str, delay_s: float) -> Callable[..., None]:
 
 
 def _prepare_recent_bg(player_id: str, prep_warm_delay_s: float = 0.0) -> None:
+    with work_priority(NEARBY):
+        _prepare_recent_work(player_id, prep_warm_delay_s)
+
+
+def _prepare_recent_work(player_id: str, prep_warm_delay_s: float = 0.0) -> None:
     """「打开即用」后台准备最近一盘:预热其球洞图 topo + 烤统计。best-effort,绝不抛
     (镜像 warm_stats_cache 的 swallow 语义,不弄崩触发它的响应/线程)。"""
     from ai_caddie.history.stats_cache import cached_load_history_data
@@ -1827,13 +1850,16 @@ def mobile_round_package(
     ensure_geometry: bool = False,
     player_id: str = Depends(current_player_id),
 ) -> LiveRoundPackageResponse:
-    return build_mobile_round_package_response(
+    package = build_mobile_round_package_response(
         round_id,
         captured_at=captured_at,
         client_id=client_id,
         ensure_geometry=ensure_geometry,
         player_id=player_id,
     )
+    _record_round_activity(player_id, round_id,
+                           has_events=bool((getattr(package, "eventCursor", None) or {}).get("serverSequence")))
+    return package
 
 
 @app.get("/api/v2/mobile/courses/options", response_model=MobileCourseOptionsResponse)
@@ -1854,6 +1880,9 @@ def mobile_course_options(
 
 def _discover_nearby_maps(latitude: float, longitude: float) -> None:
     from server_v2.map_startup import enqueue_nearby
+
+    if nearby_work_blocked():
+        return
 
     try:
         result = course_search.courseview_nearby(latitude=latitude, longitude=longitude, radius_km=30)
@@ -2047,6 +2076,45 @@ def _current_geometry_revision(global_id: int, hole: int) -> str | None:
     return revision if observation != "stale" else None
 
 
+# Real play remains active for thirty minutes after its last package/event activity.
+# Explicit finish releases it; a lost/offline client expires without a resident timer.
+_ACTIVE_ROUNDS: dict[tuple[str, str], float] = {}
+_ACTIVE_ROUNDS_LOCK = threading.Lock()
+
+
+def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False, has_events: bool = False) -> None:
+    if not round_id:
+        return
+    with _ACTIVE_ROUNDS_LOCK:
+        key = (str(player_id), str(round_id))
+        if finished:
+            _ACTIVE_ROUNDS.pop(key, None)
+        elif has_events or key in _ACTIVE_ROUNDS or not str(round_id).startswith(("home-", "prep-library-")):
+            _ACTIVE_ROUNDS[key] = time.monotonic() + 30 * 60
+
+
+def nearby_work_blocked() -> bool:
+    """Gate both discovery admission and each durable nearby worker pass."""
+    now = time.monotonic()
+    with _ACTIVE_ROUNDS_LOCK:
+        for key, deadline in list(_ACTIVE_ROUNDS.items()):
+            if deadline <= now:
+                _ACTIVE_ROUNDS.pop(key, None)
+        if _ACTIVE_ROUNDS:
+            return True
+    with course_install._LOCK:
+        active = list(course_install._ACTIVE)
+    for identifier in active:
+        state = course_install.state_for_worker(identifier) or {}
+        if int(state.get("priority", SELECTED_COURSE)) < NEARBY:
+            return True
+    return False
+
+
+from server_v2 import map_startup as _map_startup
+_map_startup.nearby_work_blocked = lambda: nearby_work_blocked()
+
+
 def run_course_install_job(identifier: str) -> None:
     """Run one durable course-install journal to completion.
 
@@ -2059,6 +2127,9 @@ def run_course_install_job(identifier: str) -> None:
     if state is None:
         return
     if str(state.get("loopKey") or "").endswith(":nearby-assets"):
+        if nearby_work_blocked():
+            course_install.update(identifier, phase="queued", stage="deferred", clear_error=True)
+            return
         from ai_caddie.courses.course_reference import courseview_release_info
         from server_v2.map_startup import ensure_startup_course_data
 
@@ -2296,10 +2367,10 @@ def run_course_install_job(identifier: str) -> None:
             })
             # Warm/rebound holes may already have hazards and never run a supplement worker.
             # Queue the bitmap first; a cold hole returns None here and builds after supplements.
-            from ai_caddie.courses.vector_prep import cached_vector_hole
+            from ai_caddie.courses.vector_prep import warm_requested_vectors
 
             try:
-                cached_vector_hole(gid, hole)
+                warm_requested_vectors(gid, hole)
             except Exception:
                 logger.exception("course_install stage=vector gid=%s hole=%s", gid, hole)
 
@@ -2307,6 +2378,11 @@ def run_course_install_job(identifier: str) -> None:
         if course_install.cancellation_requested(identifier):
             return
         try:
+            from ai_caddie.caddie.analysis import tee_set_for_box
+            from ai_caddie.courses.vector_prep import request_vector_tee
+            selected_tee = tee_set_for_box(gid, str(state.get("teeBox") or "blue"), colour_fallback=False)
+            for hole in holes:
+                request_vector_tee(gid, hole, selected_tee)
             geometry_kwargs = {"holes": list(dict.fromkeys(holes)), "on_hole_complete": on_geometry_complete}
             if priority == NEARBY:
                 geometry_kwargs["priority"] = priority
@@ -2414,6 +2490,8 @@ def mobile_course_package(
         )
     except RoundLoopError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _record_round_activity(player_id, round_id,
+                           has_events=bool((getattr(package, "eventCursor", None) or {}).get("serverSequence")))
     mark_request_stage("package_route")
     if not background_geometry or ensure_geometry:
         return package
@@ -2619,9 +2697,11 @@ def mobile_round_events(
 ) -> LiveRoundEventBatchResponse:
     # Auth = the global middleware (admin OR a valid per-player token for this player-scoped route).
     # Events write to the ACTING player's OWN partition (mobile_event_log(player_id)) — owner unchanged.
-    return append_mobile_events_response(
+    result = append_mobile_events_response(
         round_id, request, idempotency_key=idempotency_key, player_id=acting_player_id
     )
+    _record_round_activity(acting_player_id, round_id, has_events=bool(getattr(request, "events", [])))
+    return result
 
 
 @app.post(
@@ -2634,7 +2714,9 @@ def mobile_round_finish(
     request: MobileRoundFinishRequest,
     acting_player_id: str = Depends(current_player_id),
 ) -> RoundIngestResponse:
-    return finish_mobile_round_response(round_id, request, player_id=acting_player_id)
+    result = finish_mobile_round_response(round_id, request, player_id=acting_player_id)
+    _record_round_activity(acting_player_id, round_id, finished=True)
+    return result
 
 
 @app.post("/api/v2/mobile/pin-sheet")

@@ -2300,7 +2300,7 @@ class ServerV2MobileTests(unittest.TestCase):
         )
         ladder.assert_called_once_with("member-a")
 
-    def test_lightweight_seed_uses_precise_route_when_courseview_catalogue_is_missing(self) -> None:
+    def test_lightweight_seed_reuses_cached_precise_route_when_courseview_catalogue_is_missing(self) -> None:
         """A precise-only release must still publish a drawable route for every display hole."""
         from ai_caddie.caddie import mobile_live
         from ai_caddie.courses import course_prep
@@ -2333,7 +2333,8 @@ class ServerV2MobileTests(unittest.TestCase):
         }
         with patch.object(course_prep, "effective_club_ladder", return_value=[]), \
                 patch.object(course_prep, "lightweight_prep_hole", return_value=None), \
-                patch.object(course_prep, "precise_route_seed_hole", side_effect=precise) as fallback:
+                patch("ai_caddie.core.data.mesh_path", return_value=Path(__file__)), \
+                patch("ai_caddie.courses.vector_prep.cached_vector_hole", side_effect=precise) as fallback:
             result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
 
         self.assertIsNotNone(result)
@@ -2344,6 +2345,8 @@ class ServerV2MobileTests(unittest.TestCase):
             [(call.args[0], call.args[1]) for call in fallback.call_args_list],
             [(31702, 1), (31702, 2)],
         )
+
+        self.assertTrue(all(call.kwargs["build_if_missing"] is False for call in fallback.call_args_list))
 
     def test_lightweight_seed_accepts_pixel_overlay_without_gps_projection(self) -> None:
         """A route-only mesh seed must not be discarded just because GPS refs are unavailable."""
@@ -2385,7 +2388,7 @@ class ServerV2MobileTests(unittest.TestCase):
         fallback.assert_not_called()
 
     def test_lightweight_seed_rejects_degenerate_route_even_with_projection(self) -> None:
-        """A one-point/zero-length route must fall through to the precise mesh extractor."""
+        """A cold non-blue Tee can draw a valid blue cache despite degenerate catalogue data."""
         from ai_caddie.caddie import mobile_live
         from ai_caddie.courses import course_prep
 
@@ -2407,18 +2410,21 @@ class ServerV2MobileTests(unittest.TestCase):
             }},
         }
         package = {
-            "course": {"globalId": 31702},
+            "course": {"globalId": 31702, "teeBox": "white"},
             "clubProfiles": [],
             "holes": [{"number": 1, "sourceGlobalId": 31702, "sourceLocalHole": 1}],
         }
         with patch.object(course_prep, "effective_club_ladder", return_value=[]), \
                 patch.object(course_prep, "lightweight_prep_hole", return_value=degenerate), \
-                patch.object(course_prep, "precise_route_seed_hole", return_value=precise) as fallback:
+                patch("ai_caddie.core.data.mesh_path", return_value=Path(__file__)), \
+                patch("ai_caddie.caddie.analysis.tee_set_for_box", side_effect=lambda gid, tee, **kw: 4 if tee == "white" else 2), \
+                patch("ai_caddie.courses.vector_prep.cached_vector_hole", side_effect=lambda *a, **kw: precise if kw.get("tee_set") == 2 else None), \
+                patch.object(course_prep, "precise_route_seed_hole") as fallback:
             result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
 
         self.assertIsNotNone(result)
         self.assertEqual(result["holes"][0]["route"], precise["route"])
-        fallback.assert_called_once_with(31702, 1, coverage=None)
+        fallback.assert_not_called()
 
     def test_mobile_course_package_caps_nine_hole_loop_to_nine_holes(self) -> None:
         # A 9-hole CourseView loop (黑骑士 C / gid 31796) whose played rounds were 18-hole combos
@@ -4233,3 +4239,19 @@ class ServerV2MobileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class C33StartFastRouteTests(unittest.TestCase):
+    def test_route_returns_pending_raster_package_with_busy_geometry(self):
+        from tests.product.test_c33_start_fast import cold_package, StartFastTests
+        from server_v2 import main
+        import time
+        with cold_package(), patch.object(main.course_install, "enqueue", return_value={"phase": "queued"}):
+            start = time.monotonic()
+            result = main.mobile_course_package(
+                123, BackgroundTasks(), loops="123:front,123:back", background_geometry=True,
+                include_event_cursor=False, player_id="owner")
+            elapsed = time.monotonic() - start
+        # C33 card 1 sets a 1 s API budget with 10 s geometry/lock blockers.
+        self.assertLess(elapsed, 1.0)
+        StartFastTests.assert_pending(self, result)

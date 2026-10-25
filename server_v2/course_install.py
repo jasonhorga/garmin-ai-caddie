@@ -319,7 +319,8 @@ def _schedule_retry(identifier: str) -> None:
         if identifier in _RETRY_TIMERS:
             return
         attempt = _RETRY_ATTEMPTS.get(identifier, 0)
-        if attempt >= _MAX_RETRY_ATTEMPTS:
+        deferred = state.get("stage") == "deferred"
+        if not deferred and attempt >= _MAX_RETRY_ATTEMPTS:
             for row in (state.get("holes") or {}).values():
                 if not isinstance(row, dict):
                     continue
@@ -337,8 +338,9 @@ def _schedule_retry(identifier: str) -> None:
             _write(state)
             _RETRY_ATTEMPTS.pop(identifier, None)
             return
-        _RETRY_ATTEMPTS[identifier] = attempt + 1
-        delay = min(60.0, float(2 ** attempt))
+        if not deferred:
+            _RETRY_ATTEMPTS[identifier] = attempt + 1
+        delay = 60.0 if deferred else min(60.0, float(2 ** attempt))
 
         def relaunch() -> None:
             with _LOCK:

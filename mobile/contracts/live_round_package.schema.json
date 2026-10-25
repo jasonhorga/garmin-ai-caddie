@@ -68,6 +68,7 @@
         "clubProfileCount"
       ],
       "properties": {
+        "playerEnrichment": {"type": "string", "enum": ["deferred"]},
         "state": {
           "type": "string",
           "enum": ["ready", "degraded"]
@@ -278,6 +279,15 @@
         "additionalProperties": false,
         "required": ["number", "par", "geometryCoverage", "sourceGlobalId", "sourceLocalHole", "courseHoleNumber"],
         "properties": {
+          "geometryState": {"type": "string", "enum": ["ready", "pending"]},
+          "retryAfterEpoch": {"type": ["number", "null"]},
+          "garminRaster": {
+            "type": "object", "additionalProperties": false,
+            "required": ["imageUrl", "metadataUrl"],
+            "properties": {"imageUrl": {"type": "string"}, "metadataUrl": {"type": "string"}}
+          },
+          "topoAvailable": {"type": "boolean"},
+          "topoRevision": {"type": ["string", "null"]},
           "number": {
             "type": "integer"
           },
@@ -297,7 +307,7 @@
           },
           "geometryAuthorityObservation": {
             "type": "string",
-            "enum": ["current", "stale", "unknown"]
+            "enum": ["current", "stale", "unknown", "not_required"]
           },
           "sourceGlobalId": {
             "type": "integer",
@@ -323,6 +333,10 @@
           }
         }
       }
+    },
+    "courseInstallJob": {
+      "type": ["object", "null"],
+      "description": "Public background course-install status; null when no job was requested."
     },
     "coursePrep": {
       "type": ["object", "null"],
@@ -356,7 +370,7 @@
               },
               "geometryAuthorityObservation": {
                 "type": "string",
-                "enum": ["current", "stale", "unknown"]
+                "enum": ["current", "stale", "unknown", "not_required"]
               },
               "candidateRoutes": {
                 "type": "array",
@@ -740,6 +754,8 @@
       "additionalProperties": false,
       "required": ["state", "preparedAt", "expiresAt", "cachePolicy"],
       "properties": {
+        "cacheable": {"type": "boolean", "description": "False means this transient projection must not be cached as complete."},
+        "degradationReason": {"type": "string", "enum": ["singleflight_timeout"]},
         "state": {
           "type": "string",
           "enum": ["ready", "degraded", "expired"]

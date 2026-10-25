@@ -169,6 +169,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -239,11 +240,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -390,6 +393,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -460,11 +464,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -596,6 +602,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -666,11 +673,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -802,6 +811,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -872,11 +882,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -1008,6 +1020,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -1078,11 +1091,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -1214,6 +1229,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -1284,11 +1300,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -1420,6 +1438,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -1490,11 +1509,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -1626,6 +1647,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -1696,11 +1718,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -1832,6 +1856,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -1902,11 +1927,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -2079,7 +2106,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-09-29T21:40:25Z",
+  "generatedAt": "2026-10-24T09:13:25Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -2088,119 +2115,191 @@
   "holes": [
    {
     "courseHoleNumber": 10,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/10/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/10/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 1,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 10,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 11,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/11/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/11/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 2,
     "par": 5,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 11,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 12,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/12/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/12/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 3,
     "par": 3,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 12,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 13,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/13/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/13/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 4,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 13,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 14,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/14/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/14/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 5,
     "par": 3,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 14,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 15,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/15/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/15/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 6,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 15,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 16,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/16/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/16/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 7,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 16,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 17,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/17/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/17/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 8,
     "par": 5,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 17,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 18,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/18/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/18/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 9,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 18,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    }
   ],
@@ -2244,8 +2343,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-09-30T21:40:25Z",
-   "preparedAt": "2026-09-29T21:40:25Z",
+   "expiresAt": "2026-10-25T09:13:25Z",
+   "preparedAt": "2026-10-24T09:13:25Z",
    "state": "degraded"
   },
   "playerProfile": {
@@ -2420,6 +2519,7 @@
   },
   "weatherSnapshot": {
    "capturedAt": null,
+   "condition": null,
    "confidence": "low",
    "coverage": {
     "pct": 0.0,
@@ -2490,11 +2590,13 @@
     }
    ],
    "precipitationMm": null,
+   "precipitationProbabilityPct": null,
    "roundId": "live-course-55555",
    "schema": "ai-caddie-weather-snapshot-v1",
    "source": "missing",
    "state": "missing",
    "temperatureC": null,
+   "weatherCode": null,
    "windDirectionDeg": null,
    "windSpeedMps": null
   }
@@ -2669,6 +2771,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -2739,11 +2842,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -2890,6 +2995,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -2960,11 +3066,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -3096,6 +3204,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -3166,11 +3275,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -3302,6 +3413,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -3372,11 +3484,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -3508,6 +3622,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -3578,11 +3693,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -3714,6 +3831,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -3784,11 +3902,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -3920,6 +4040,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -3990,11 +4111,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -4126,6 +4249,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -4196,11 +4320,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -4332,6 +4458,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -4402,11 +4529,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -4579,7 +4708,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-09-29T21:40:25Z",
+  "generatedAt": "2026-10-24T09:13:25Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -4588,119 +4717,191 @@
   "holes": [
    {
     "courseHoleNumber": 1,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/1/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/1/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 1,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 1,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 2,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/2/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/2/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 2,
     "par": 5,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 2,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 3,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/3/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/3/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 3,
     "par": 3,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 3,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 4,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/4/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/4/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 4,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 4,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 5,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/5/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/5/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 5,
     "par": 3,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 5,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 6,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/6/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/6/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 6,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 6,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 7,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/7/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/7/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 7,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 7,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 8,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/8/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/8/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 8,
     "par": 5,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 8,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 9,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/9/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/9/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 9,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 9,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    }
   ],
@@ -4744,8 +4945,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-09-30T21:40:25Z",
-   "preparedAt": "2026-09-29T21:40:25Z",
+   "expiresAt": "2026-10-25T09:13:25Z",
+   "preparedAt": "2026-10-24T09:13:25Z",
    "state": "degraded"
   },
   "playerProfile": {
@@ -4920,6 +5121,7 @@
   },
   "weatherSnapshot": {
    "capturedAt": null,
+   "condition": null,
    "confidence": "low",
    "coverage": {
     "pct": 0.0,
@@ -4990,11 +5192,13 @@
     }
    ],
    "precipitationMm": null,
+   "precipitationProbabilityPct": null,
    "roundId": "live-course-55555",
    "schema": "ai-caddie-weather-snapshot-v1",
    "source": "missing",
    "state": "missing",
    "temperatureC": null,
+   "weatherCode": null,
    "windDirectionDeg": null,
    "windSpeedMps": null
   }
@@ -5909,6 +6113,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -6024,11 +6229,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -6175,6 +6382,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -6290,11 +6498,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -6426,6 +6636,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -6541,11 +6752,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -6677,6 +6890,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -6792,11 +7006,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -6928,6 +7144,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -7043,11 +7260,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -7179,6 +7398,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -7294,11 +7514,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -7430,6 +7652,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -7545,11 +7768,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -7681,6 +7906,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -7796,11 +8022,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -7932,6 +8160,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -8047,11 +8276,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -8280,6 +8511,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -8395,11 +8627,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -8546,6 +8780,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -8661,11 +8896,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -8797,6 +9034,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -8912,11 +9150,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -9048,6 +9288,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -9163,11 +9404,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -9299,6 +9542,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -9414,11 +9658,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -9550,6 +9796,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -9665,11 +9912,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -9801,6 +10050,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -9916,11 +10166,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -10052,6 +10304,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -10167,11 +10420,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -10303,6 +10558,7 @@
      "teeBox": "blue",
      "weatherSnapshot": {
       "capturedAt": null,
+      "condition": null,
       "confidence": "low",
       "coverage": {
        "pct": 0.0,
@@ -10418,11 +10674,13 @@
        }
       ],
       "precipitationMm": null,
+      "precipitationProbabilityPct": null,
       "roundId": "b4b2-oracle",
       "schema": "ai-caddie-weather-snapshot-v1",
       "source": "missing",
       "state": "missing",
       "temperatureC": null,
+      "weatherCode": null,
       "windDirectionDeg": null,
       "windSpeedMps": null
      },
@@ -10653,7 +10911,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-09-29T21:40:25Z",
+  "generatedAt": "2026-10-24T09:13:25Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -10662,236 +10920,380 @@
   "holes": [
    {
     "courseHoleNumber": 1,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/1/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/1/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 1,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 1,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 2,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/2/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/2/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 2,
     "par": 5,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 2,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 3,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/3/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/3/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 3,
     "par": 3,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 3,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 4,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/4/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/4/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 4,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 4,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 5,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/5/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/5/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 5,
     "par": 3,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 5,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 6,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/6/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/6/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 6,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 6,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 7,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/7/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/7/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 7,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 7,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 8,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/8/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/8/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 8,
     "par": 5,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 8,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 9,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/9/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/9/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 9,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 9,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 10,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/10/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/10/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 10,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 10,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 11,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/11/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/11/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 11,
     "par": 5,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 11,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 12,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/12/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/12/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 12,
     "par": 3,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 12,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 13,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/13/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/13/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 13,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 13,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 14,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/14/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/14/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 14,
     "par": 3,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 14,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 15,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/15/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/15/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 15,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 15,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 16,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/16/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/16/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 16,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 16,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 17,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/17/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/17/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 17,
     "par": 5,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 17,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    },
    {
     "courseHoleNumber": 18,
+    "garminRaster": {
+     "imageUrl": "/api/v2/courses/55555/holes/18/garmin-raster.jpg",
+     "metadataUrl": "/api/v2/courses/55555/holes/18/garmin-raster"
+    },
     "geometryAuthorityObservation": "unknown",
     "geometryCoverage": "missing",
     "geometryRevision": null,
+    "geometryState": "pending",
     "number": 18,
     "par": 4,
+    "retryAfterEpoch": 1780000030.0,
     "sourceGlobalId": 55555,
     "sourceLocalHole": 18,
     "teeLatitude": null,
     "teeLongitude": null,
+    "topoAvailable": false,
+    "topoRevision": null,
     "yards": null
    }
   ],
@@ -10944,8 +11346,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-09-30T21:40:25Z",
-   "preparedAt": "2026-09-29T21:40:25Z",
+   "expiresAt": "2026-10-25T09:13:25Z",
+   "preparedAt": "2026-10-24T09:13:25Z",
    "state": "degraded"
   },
   "playerProfile": {
@@ -11190,6 +11592,7 @@
   },
   "weatherSnapshot": {
    "capturedAt": null,
+   "condition": null,
    "confidence": "low",
    "coverage": {
     "pct": 0.0,
@@ -11305,11 +11708,13 @@
     }
    ],
    "precipitationMm": null,
+   "precipitationProbabilityPct": null,
    "roundId": "live-course-55555",
    "schema": "ai-caddie-weather-snapshot-v1",
    "source": "missing",
    "state": "missing",
    "temperatureC": null,
+   "weatherCode": null,
    "windDirectionDeg": null,
    "windSpeedMps": null
   }
