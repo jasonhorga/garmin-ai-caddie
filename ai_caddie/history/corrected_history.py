@@ -25,7 +25,7 @@ from ai_caddie.core.data import OWNER_ID
 from ai_caddie.history.history import HistoryData, round_source_shots
 from ai_caddie.reports.annotations import list_annotation_records
 from ai_caddie.rounds import round_corrections
-from ai_caddie.rounds.correction_audit import _effective_hole
+from ai_caddie.rounds.correction_audit import _effective_hole, _order_key, is_penalty_correction
 
 SHOT_ANNOTATION_KINDS = {"club_correction": "club", "lie_correction": "surface"}
 HOLE_ANNOTATION_FIELDS = {"score_correction": "total", "putt_correction": "putts", "penalty_correction": "penalty"}
@@ -124,6 +124,25 @@ def _hole_par(row: dict[str, Any], hole: dict[str, Any], number: int) -> int | N
     return _int(pars[number - 1]) if 1 <= number <= len(pars) else None
 
 
+def _latest_penalty_reason(records: list[dict[str, Any]], events: list[dict[str, Any]], hole: int) -> str:
+    """The issue reason of the record that set the hole's penalty (same order as the effective value);
+    a round correction event or an annotation without a reason is a plain ``penalty``."""
+    candidates = [
+        (_order_key(record, 1, position), record)
+        for position, record in enumerate(records)
+        if record.get("kind") == "penalty_correction"
+    ] + [
+        (_order_key(event, 0, position), event)
+        for position, event in enumerate(events)
+        if _int(event.get("hole")) == hole and is_penalty_correction(events, position)
+    ]
+    if not candidates:
+        return "penalty"
+    latest = max(candidates, key=lambda item: item[0])[1]
+    reason = _payload_value(latest, "reason", "issue", "tag") if latest.get("kind") == "penalty_correction" else None
+    return str(reason or "penalty").strip().lower().replace(" ", "_") or "penalty"
+
+
 def corrected_rounds(
     rounds: list[dict[str, Any]],
     annotations: list[dict[str, Any]] | None,
@@ -162,8 +181,8 @@ def corrected_rounds(
                 continue
             records = [r for ref in refs for r in hole_annotations.get(f"{ref}:{number}", [])]
             kinds = {HOLE_ANNOTATION_FIELDS[str(r.get("kind"))] for r in records}
-            if any(_int(e.get("hole")) == number and (e.get("op") == "setHolePenalty" or e.get("manualPenalty") is not None)
-                   for e in penalty_events):
+            if any(_int(e.get("hole")) == number and is_penalty_correction(penalty_events, position)
+                   for position, e in enumerate(penalty_events)):
                 kinds.add("penalty")
             if not kinds:
                 holes.append(hole)
@@ -184,6 +203,7 @@ def corrected_rounds(
             if "penalty" in kinds and penalty is not None:
                 corrected["penalties"] = penalty
                 corrected["_penaltyCorrected"] = True
+                corrected["_penaltyReason"] = _latest_penalty_reason(records, penalty_events, number)
             if kinds & {"total", "putts"}:
                 corrected["gir"] = _gir(corrected, _hole_par(row, corrected, number))
             holes.append(corrected)

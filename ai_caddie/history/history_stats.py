@@ -3574,19 +3574,23 @@ def _issues(
             if lie in {"water", "bunker", "rough"}:
                 manual_refs[lie].append(target_id)
             continue
-        if kind == "penalty_correction":
-            reason = str(_payload_value(record, "reason", "issue", "tag") or "penalty").strip().lower()
-            if reason:
-                manual_refs[reason.replace(" ", "_")].append(target_id)
-            continue
-        if kind == "putt_correction":
-            putts = _payload_value(record, "to", "putts", "correctedPutts")
-            try:
-                if int(putts) >= 3:
-                    manual_refs["three_putt"].append(target_id)
-            except (TypeError, ValueError):
-                manual_refs["missing_putt_data"].append(target_id)
-            continue
+    # Penalty / putt corrections tag a hole by its corrected value, never by every record written:
+    # a penalty corrected back to 0 or putts corrected 3 -> 2 leave no manual issue behind.
+    for row in data.rounds:
+        for hole in row.get("holes") or []:
+            number = int(hole.get("number") or 0)
+            if not number:
+                continue
+            hole_ref = _hole_ref(row, number)
+            penalties = _int_or_none(hole.get("penalties"))
+            if hole.get("_penaltyCorrected") and penalties is not None and penalties > 0:
+                manual_refs[str(hole.get("_penaltyReason") or "penalty")].append(hole_ref)
+            if hole.get("_puttCorrected"):
+                putts = _int_or_none(hole.get("putts"))
+                if putts is None:
+                    manual_refs["missing_putt_data"].append(hole_ref)
+                elif putts >= 3:
+                    manual_refs["three_putt"].append(hole_ref)
     rows.extend(issue_record(issue, items, source="manual") for issue, items in sorted(manual_refs.items()))
     rows.extend(
         issue_record(issue, items, source="ai_suggested")

@@ -591,13 +591,29 @@ def _effective_value(
             candidates.append((_order_key(record, 1, position), _int(payload.get("strokes" if op == "penalty" else "to"))))
     if op == "penalty":
         for position, event in enumerate(corrections):
-            if _int(event.get("hole")) != hole:
+            if _int(event.get("hole")) != hole or not is_penalty_correction(corrections, position):
                 continue
-            if event.get("op") == "setHolePenalty":
-                candidates.append((_order_key(event, 0, position), _int(event.get("value"))))
-            elif event.get("op") in {"replaceHoleShots", "replaceHoleFacts"}:
-                candidates.append((_order_key(event, 0, position), _int(event.get("manualPenalty"))))
+            value = event.get("value") if event.get("op") == "setHolePenalty" else event.get("manualPenalty")
+            candidates.append((_order_key(event, 0, position), _int(value)))
     return max(candidates, key=lambda item: item[0])[1]
+
+
+def is_penalty_correction(corrections: list[dict[str, Any]], position: int) -> bool:
+    """Whether ``corrections[position]`` (replay order) sets its hole's penalty.
+
+    ``setHolePenalty`` always does. A whole-hole snapshot echoes the editor's penalty stepper, which
+    shows ``hole_penalty`` of the earlier events (no Garmin or annotation penalty); it is a penalty
+    correction only when the player changed that value. Echoing it back — a reorder or club edit —
+    must not replace a Garmin penalty or an earlier penalty correction, and logs no penalty entry.
+    """
+    event = corrections[position]
+    op = event.get("op")
+    if op == "setHolePenalty":
+        return True
+    if op not in {"replaceHoleShots", "replaceHoleFacts"} or event.get("manualPenalty") is None:
+        return False
+    hole = _int(event.get("hole"))
+    return hole is not None and _int(event.get("manualPenalty")) != rc.hole_penalty(corrections[:position], hole)
 
 
 def annotation_fingerprint(row: dict[str, Any], hole: int, annotations: list[dict[str, Any]], corrections: list[dict[str, Any]]) -> str:
