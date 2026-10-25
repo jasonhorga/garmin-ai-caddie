@@ -160,7 +160,14 @@ final class C33PackageTests: XCTestCase {
                 loops: [.init(globalId: 32850, half: "all")]
             )
         }
-        await fulfillment(of: [retryRequest], timeout: 2)
+        // The product sleeps its real first backoff (not injectable), so the wait is stall-tolerant and
+        // the promptness the old 2 s wait implied is held on the policy instead: a past deadline
+        // retries in under 2 s.
+        let nowEpoch = Date().timeIntervalSince1970
+        XCTAssertLessThan(
+            PackageGeometryRetryPolicy.delaySeconds(nowEpoch: nowEpoch, retryAfterEpoch: nowEpoch - 1, attempt: 0), 2
+        )
+        await fulfillment(of: [retryRequest], timeout: 10)
         await start.value
         lock.lock(); let observed = packageRefreshes; lock.unlock()
         XCTAssertEqual(observed, 1)
@@ -204,7 +211,12 @@ final class C33PackageTests: XCTestCase {
                 roundId: "c33-geometry-backoff", teeBox: "blue", loops: [.init(globalId: 32850, half: "all")]
             )
         }
-        await fulfillment(of: [secondAttempt], timeout: 6)
+        // Two real backoffs (not injectable) precede the second attempt, so the wait is stall-tolerant;
+        // the bound the old 6 s wait implied is held on the policy: both backoffs total under 6 s.
+        XCTAssertLessThan(
+            PackageGeometryRetryPolicy.backoffSeconds(attempt: 0) + PackageGeometryRetryPolicy.backoffSeconds(attempt: 1), 6
+        )
+        await fulfillment(of: [secondAttempt], timeout: 20)
         await start.value
         lock.lock(); let observed = attempts; lock.unlock()
         XCTAssertEqual(observed, 2)
