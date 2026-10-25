@@ -4,8 +4,12 @@ Every impossible case is a hand calculation on the stated card; each rejection m
 persisted file unchanged.
 """
 import unittest
+from unittest.mock import patch
 
 from ai_caddie.caddie import mobile_live
+from ai_caddie.reports import annotations
+from ai_caddie.rounds import correction_audit
+from server_v2 import main
 from tests.product._support_c16c import HTTPFixture, event, score_events
 
 
@@ -39,6 +43,32 @@ class LiveEventAdmissionTests(HTTPFixture, unittest.TestCase):
         response = self.post("r2", hole2, "hole-2")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["accepted"], 1)
+
+
+class UnderivableScoreStateTests(HTTPFixture, unittest.TestCase):
+    def test_annotation_with_unreadable_corrections_is_refused(self):
+        # Hole 1: 5 strokes, 2 putts, 1 penalty; 5 putts would be 5 < 5 + 1 + 1. The correction store
+        # cannot be read, so the effective card is unknown: nothing may be written.
+        rid = self.ingest().json()["id"]
+        before = self.disk()
+        with patch.object(correction_audit, "_round_correction_events", side_effect=OSError("unreadable")):
+            response = self.client.post("/api/v2/annotations", json={"targetType": "hole",
+                "targetId": f"{rid}:1", "kind": "putt_correction", "payload": {"to": 5}})
+        self.assertEqual(response.status_code, 503, response.text)
+        self.assertEqual(self.disk(), before)
+
+    def test_penalty_correction_with_unreadable_annotations_is_refused(self):
+        # Hole 1: 5 strokes, 2 putts; 4 penalties would be 5 < 2 + 4 + 1. The annotation store cannot be
+        # read, so the effective card is unknown: nothing may be written.
+        rid = self.ingest().json()["id"]
+        data = self.data()
+        before = self.disk()
+        with patch.object(main, "load_history_data_for_mode", return_value=(data, "fixture")), \
+                patch.object(annotations, "list_annotation_records", side_effect=OSError("unreadable")):
+            response = self.client.post(f"/api/v2/history/rounds/{rid}/corrections",
+                                        json={"op": "setHolePenalty", "hole": 1, "value": 4})
+        self.assertEqual(response.status_code, 503, response.text)
+        self.assertEqual(self.disk(), before)
 
 
 if __name__ == "__main__":

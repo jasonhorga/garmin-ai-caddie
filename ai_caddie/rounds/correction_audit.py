@@ -628,19 +628,26 @@ def _require_possible_hole(
 ) -> None:
     """Spec 5.7 on the hole as it reads after the write: the effective values the audit logs.
 
-    A state that cannot be derived is not checked here: the write keeps its pending audit, as a
-    failed diff always has. Only a derivable impossible scorecard is refused.
+    A state that cannot be derived cannot be proven possible, so the write is refused with nothing
+    written (``IdentityUnavailable``, a retryable 503), as for unreadable history.
     """
     try:
         annotations, corrections = load_annotations(), load_corrections()
-        target_ids = _hole_target_ids(row, hole)
-        total, putts, penalty = (
-            _effective_value(op, row, hole, target_ids, annotations, corrections)
-            for op in ("total", "putts", "penalty")
-        )
-    except Exception:
-        return
+        total, putts, penalty = _effective_hole(row, hole, annotations, corrections)
+    except Exception as exc:
+        raise IdentityUnavailable(safe_reason("score state unavailable", exc)) from exc
     score_invariant.require_possible_hole_score(total, putts, penalty, hole=hole)
+
+
+def _effective_hole(
+    row: dict[str, Any], hole: int, annotations: list[dict[str, Any]], corrections: list[dict[str, Any]],
+) -> tuple[Any, Any, Any]:
+    target_ids = _hole_target_ids(row, hole)
+    total, putts, penalty = (
+        _effective_value(op, row, hole, target_ids, annotations, corrections)
+        for op in ("total", "putts", "penalty")
+    )
+    return total, putts, penalty
 
 
 def _require_possible_annotation(

@@ -675,7 +675,14 @@ class CorrectionLogRouteTest(unittest.TestCase):
         self.assertEqual(note.status_code, 503)
         self.assertIn("history unavailable", note.text)
         self.assert_clean(note.text)
+        # A score state that cannot be derived is refused like unreadable history (spec 5.7).
         with mock.patch.object(ca, "_effective_value", side_effect=RuntimeError(self.SECRET)):
+            unknown = self.client.post("/api/v2/annotations", headers=self.a, json={
+                "targetType": "hole", "targetId": "42:4", "kind": "putt_correction", "payload": {"to": 2}})
+        self.assertEqual(unknown.status_code, 503)
+        self.assert_clean(unknown.text)
+        # A failure only the audit diff uses still stores the annotation with a pending audit.
+        with mock.patch.object(ca, "annotation_fingerprint", side_effect=RuntimeError(self.SECRET)):
             self.client.post("/api/v2/annotations", headers=self.a, json={
                 "targetType": "hole", "targetId": "42:4", "kind": "putt_correction", "payload": {"to": 2}})
 
