@@ -296,6 +296,43 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
         XCTAssertEqual((tee.x + green.x) / 2, phone.width / 2, accuracy: 1)
     }
 
+    /// C17: Garmin's 1242 x 1920 raster shown before any CourseView route can be drawn on it (its
+    /// descriptor arrived before prep, or the prep has no projection to remap through) is the
+    /// empty-route Garmin overlay. Its opening frame keeps the tee, the player and the green
+    /// between the same top and bottom insets as the routed lightweight map.
+    func testGarminFrameWithoutARouteKeepsTeeAndPlayerBetweenTheChrome() throws {
+        let overlay = CoursePrepOverlay(w: 1242, h: 1920, ppm: 1, ln: 0, route: [])
+        let frame = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
+            overlay: overlay,
+            viewport: phone,
+            chrome: liveChrome
+        ))
+        XCTAssertEqual(frame.width / frame.height, 1242.0 / 1920.0, accuracy: 0.001)
+        // Visible band from `liveChrome`: top = max(80, 207 (洞位图 maxY) + 8) = 215; bottom inset
+        // = 852 - 735 (记分 / 记一杆 minY) + 8 = 125, so y in [215, 852 - 125 = 727].
+        // Garmin pixels from the snapshot refs ((40,116)->(80,140), lon+0.001->(80,1740),
+        // lat+0.001->(700,140)): tee (621,1760), green (621,293), and a GPS fix 30 px behind the
+        // tee at (640,1790).
+        // Whole raster between the chrome: scale = min(393/1242, 512/1920) = 0.26667, frame
+        // (30.9, 215, 331.2 x 512): tee y = 215 + 1760 * 0.26667 = 684.3, player 692.3, green 293.1.
+        // main aspect-fills the viewport instead (scale 852/1920 = 0.44375, minY 0): tee y = 781.0
+        // and player y = 794.3 sit under 记分 / 记一杆, green y = 130.0 under the header.
+        let points: [(String, [Double])] = [
+            ("tee", [621, 1760]),
+            ("player", [640, 1790]),
+            ("green", [621, 293]),
+        ]
+        for (name, pixel) in points {
+            let point = try XCTUnwrap(LivePlayMapOverlayLayout.project(
+                overlayPoint: pixel, overlayWidth: 1242, overlayHeight: 1920, into: phone, fittedFrame: frame
+            ))
+            XCTAssertGreaterThanOrEqual(point.y, 215, "\(name) \(point) is under the top chrome")
+            XCTAssertLessThanOrEqual(point.y, 727, "\(name) \(point) is under 记分 / 记一杆")
+            XCTAssertGreaterThanOrEqual(point.x, 0, "\(name) \(point) is off screen")
+            XCTAssertLessThanOrEqual(point.x, phone.width, "\(name) \(point) is off screen")
+        }
+    }
+
     func testLightweightRouteLabelsAreAllShownAndClearOfTheLiveChrome() throws {
         let map = try edgeHuggingLightweightMap()
         let overlay = try XCTUnwrap(map.hole.resolvedMapOverlay)
