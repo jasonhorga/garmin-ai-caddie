@@ -41,9 +41,12 @@ def _created_at() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def validate_annotation(target_type: str, kind: str, payload: dict[str, Any]) -> None:
+def validate_annotation(target_type: str, target_id: str, kind: str, payload: dict[str, Any]) -> None:
+    # Every refusal of add_annotation lives here, so a batch can check all its rows before any write.
     if target_type not in VALID_TARGET_TYPES:
         raise ValueError(f"unsupported annotation targetType: {target_type}")
+    if not str(target_id).strip():
+        raise ValueError("annotation targetId is required")
     if kind not in VALID_KINDS:
         raise ValueError(f"unsupported annotation kind: {kind}")
     if not isinstance(payload, dict):
@@ -142,9 +145,7 @@ def add_annotation(
     """The only writer of the annotation store. It takes the player's audit lock (``correction_audit``),
     dedupes on ``client_mutation_id`` and, for putt / score / penalty corrections on a hole, stores the
     normalized before/after audit in the same line."""
-    validate_annotation(target_type, kind, payload)
-    if not str(target_id).strip():
-        raise ValueError("annotation targetId is required")
+    validate_annotation(target_type, target_id, kind, payload)
     safe_payload = _redact_payload(payload)
     record = {
         "id": uuid4().hex,

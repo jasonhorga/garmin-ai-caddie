@@ -571,7 +571,7 @@ def apply_mobile_reconciliation_suggestions(
 
     # A suggestion the annotation store would refuse (ValueError) must fail the batch before any write.
     for row in selected:
-        validate_annotation(str(row["targetType"]), str(row["kind"]), dict(row.get("payload") or {}))
+        validate_annotation(str(row["targetType"]), str(row["targetId"]), str(row["kind"]), dict(row.get("payload") or {}))
     # Spec 5.7: the selected score fixes must leave every hole possible after each write, in an order
     # that exists, or nothing of the batch is written (ScoreInvariantError / IdentityUnavailable).
     for row in correction_audit.order_possible_annotations(
