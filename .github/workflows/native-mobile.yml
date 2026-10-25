@@ -499,6 +499,13 @@ jobs:
                 -only-testing:AICaddieUITests/ReviewEditUITests/testCaptureReviewEditFlow
               )
               ;;
+            *)
+              # ProductPhoneUITests brings its own fixture server on port 9000 and runs in the
+              # native-product-ui job; here it would collide with the Python fixture.
+              ONLY_TESTING=(
+                -skip-testing:AICaddieUITests/ProductPhoneUITests
+              )
+              ;;
           esac
           .github/scripts/retry-transient-command.sh \
             "$RUNNER_TEMP/real-xcuitest" \
@@ -789,3 +796,128 @@ jobs:
         with:
           name: ${{ inputs.fixture_mode && 'native-build-evidence-ci-fixture' || 'native-build-evidence' }}
           path: mobile/ios/native_build_evidence.json
+
+  # C16e ProductPhoneUITests on its own runner. ProductFixtureServer binds the only fixture origin the
+  # DEBUG app accepts (loopback port 9000, BackendConfigurationStore.normalizedAPIBaseURL), which
+  # the job above gives to the Python fixture in fixture_mode. No Python fixture and no secrets here:
+  # the tests launch the app with synthetic credentials against the in-process server.
+  native-product-ui:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.capture_scope != 'edit' }}
+    runs-on: macos-15
+    # "Test iOS app target" (build + unit tests) took 12 min on run 40187234659. This scheme also
+    # builds the UI-test bundle and then runs 13 serial tests with about 20 app launches, so about
+    # 25 min is expected; 45 stops a hung simulator at roughly twice that.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate native project
+        run: xcodegen generate --spec mobile/ios/project.yml --project-root .
+      - name: Show simulator inventory
+        run: xcrun simctl list devices available
+      - name: Check Product UI fixture port is free
+        run: |
+          if lsof -nP -iTCP:9000 -sTCP:LISTEN; then
+            echo "::error::port 9000 is already listening; ProductFixtureServer needs it"
+            exit 1
+          fi
+      - name: Resolve and boot iOS UI-test simulator
+        run: |
+          set -eu
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone 16 \(" | grep -oE "[0-9A-Fa-f-]{36}" | head -1)
+          test -n "$UDID"
+          echo "iOS sim UDID: $UDID"
+          echo "PRODUCT_UI_UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+      - name: Test Product UI tests
+        id: product_ui_tests
+        timeout-minutes: 35
+        run: |
+          mkdir -p product-ui-results
+          # Serial on the booted simulator: the class shares one app and one backend (Product/README.md).
+          # No transient-retry wrapper: the backend is local and synthetic, so a retry would only hide flakes.
+          set +e
+          set -o pipefail
+          xcodebuild test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieUITests \
+            -destination "platform=iOS Simulator,id=$PRODUCT_UI_UDID" \
+            -parallel-testing-enabled NO \
+            -resultBundlePath product-ui-results/ProductPhoneUITests.xcresult \
+            -only-testing:AICaddieUITests/ProductPhoneUITests \
+            2>&1 | tee product-ui-results/xcodebuild.log
+          TEST_STATUS=$?
+          set -e
+          if [ "$TEST_STATUS" -ne 0 ] && [ -d product-ui-results/ProductPhoneUITests.xcresult ]; then
+            xcrun xcresulttool get test-results summary --path product-ui-results/ProductPhoneUITests.xcresult --compact 2>/dev/null \
+              | python3 -c 'import json, sys
+          for f in json.load(sys.stdin).get("testFailures", []):
+              name = f.get("testIdentifierString") or f.get("testName") or "UI test"
+              text = " ".join(str(f.get("failureText", "")).split())[:900]
+              print(f"::error title=UI test failure::{name} :: {text}")' || true
+          fi
+          exit "$TEST_STATUS"
+      - name: Verify every Product UI test ran
+        if: ${{ always() && steps.product_ui_tests.outcome != 'skipped' }}
+        run: |
+          set -euo pipefail
+          # A mistyped -only-testing filter makes xcodebuild run zero tests and still succeed.
+          EXPECTED=$(grep -cE '^[[:space:]]*func test_' mobile/ios/AICaddieUITests/Product/ProductPhoneUITests.swift)
+          RESULT=product-ui-results/ProductPhoneUITests.xcresult
+          test -d "$RESULT"
+          xcrun xcresulttool get test-results tests --path "$RESULT" --compact > product-ui-results/tests.json
+          xcrun xcresulttool get test-results summary --path "$RESULT" --compact > product-ui-results/summary.json
+          python3 - "$EXPECTED" <<'PY'
+          import json
+          import sys
+
+          expected = int(sys.argv[1])
+          with open("product-ui-results/tests.json", encoding="utf-8") as handle:
+              tree = json.load(handle)
+          with open("product-ui-results/summary.json", encoding="utf-8") as handle:
+              summary = json.load(handle)
+
+          def cases(nodes):
+              for node in nodes:
+                  if node.get("nodeType") == "Test Case":
+                      yield node
+                  yield from cases(node.get("children", []))
+
+          ran = [node for node in cases(tree.get("testNodes", []))
+                 if "ProductPhoneUITests" in str(node.get("nodeIdentifier", ""))]
+          for node in ran:
+              print(f"{node.get('nodeIdentifier')}: {node.get('result')}")
+          print(
+              f"ProductPhoneUITests ran {len(ran)}/{expected}: "
+              f"passed={summary.get('passedTests')} expectedFailures={summary.get('expectedFailures')} "
+              f"failed={summary.get('failedTests')} skipped={summary.get('skippedTests')}"
+          )
+          if expected == 0 or len(ran) != expected or summary.get("skippedTests"):
+              raise SystemExit("ProductPhoneUITests did not run every test method")
+          PY
+      - name: Collect Product UI failure screenshots
+        if: ${{ failure() }}
+        run: |
+          mkdir -p product-ui-screenshots
+          if [ -d product-ui-results/ProductPhoneUITests.xcresult ]; then
+            xcrun xcresulttool export attachments \
+              --path product-ui-results/ProductPhoneUITests.xcresult \
+              --output-path product-ui-screenshots || true
+          fi
+          ls -la product-ui-screenshots || true
+      - name: Upload Product UI xcresult
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-ui-xcresult
+          path: product-ui-results/
+          if-no-files-found: warn
+      - name: Upload Product UI screenshots
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-ui-screenshots
+          path: product-ui-screenshots/
+          if-no-files-found: warn

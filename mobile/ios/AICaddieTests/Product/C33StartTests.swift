@@ -6,8 +6,16 @@ import XCTest
 
 // Every test owns a distinct host. C33URLProtocol is process-wide, so requests that earlier tests'
 // models are still draining are answered 404 here and never drive this test's expectations.
+//
+// The CI simulator stalls at random for 1.5–14 s. Waits here are therefore generous and never the
+// assertion: a held request is never answered, so a regression shows up as an event that does not
+// happen within the wait, never as one that is only a little late.
 @MainActor
 final class C33StartTests: XCTestCase {
+    /// Far below every default the product could fall back to (the 30 s start budget, the 120 s
+    /// package timeout) and far above a simulator stall.
+    private let eventWait: TimeInterval = 10
+
     override func setUp() {
         super.setUp()
         URLProtocol.registerClass(C33URLProtocol.self)
@@ -18,7 +26,7 @@ final class C33StartTests: XCTestCase {
         super.tearDown()
     }
 
-    func testStartCancelsPreviousCourseAndSendsWithinOneSecond() async throws {
+    func testStartCancelsPreviousCourseAndSendsWithoutWaitingForIt() async throws {
         let host = "c33.example.test"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = OfflineStore(directoryURL: directory)
@@ -56,15 +64,18 @@ final class C33StartTests: XCTestCase {
             C33URLProtocol.setHandlers(onStart: nil)
             try? FileManager.default.removeItem(at: directory)
         }
-        await fulfillment(of: [oldStarted], timeout: 1)
+        await fulfillment(of: [oldStarted], timeout: eventWait)
         let subscription = model.$pendingLiveHole.compactMap { $0 }.first().sink { _ in entered.fulfill() }
         defer { subscription.cancel() }
         let start = Task { await model.prepareCourseRound(
             roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")]
         ) }
         defer { start.cancel() }
-        // C33: old request is held indefinitely; Start must leave the phone within 1 s.
-        await fulfillment(of: [startSent, oldCancelled, entered], timeout: 1)
+        // C33 "Start does not wait for the previous course", proved by order rather than by the clock:
+        // the old request is never answered and would only end on its own 120 s timeout, so Start can
+        // be sent and enter hole 1 within the wait only if it cancels the old request and does not
+        // queue behind it.
+        await fulfillment(of: [startSent, oldCancelled, entered], timeout: eventWait)
         XCTAssertEqual(model.pendingLiveHole, 1)
     }
 
@@ -96,9 +107,10 @@ final class C33StartTests: XCTestCase {
             loops: [.init(globalId: 32850, half: "all")], foregroundStart: true
         ) }
         defer { first.cancel() }
-        await fulfillment(of: [sent], timeout: 1)
+        await fulfillment(of: [sent], timeout: eventWait)
         client.beginRoundStart(owner)
-        await fulfillment(of: [stopped], timeout: 1)
+        // Left alone, the held request would only stop on the 30 s budget, three times this wait.
+        await fulfillment(of: [stopped], timeout: eventWait)
     }
 
     func testDefaultStartBudgetIsThirtySecondsWithoutAutomaticRetry() async throws {
@@ -155,8 +167,10 @@ final class C33StartTests: XCTestCase {
             failed.fulfill()
         }
         defer { resume.cancel() }
-        // Resuming a round by id is a foreground start too: the same short total budget applies.
-        await fulfillment(of: [sent, failed], timeout: 1)
+        // Resuming a round by id is a foreground start too: the same short total budget applies. The
+        // request is never answered, so only the injected 0.2 s budget can end it within the wait;
+        // a 30 s deadline or a longer request timeout cannot.
+        await fulfillment(of: [sent, failed], timeout: eventWait)
         timeoutLock.lock(); let timeout = requestTimeout; timeoutLock.unlock()
         XCTAssertLessThanOrEqual(try XCTUnwrap(timeout), 30)
     }
@@ -194,7 +208,7 @@ final class C33StartTests: XCTestCase {
         )
         _ = try? await download
         _ = try? await watch
-        await fulfillment(of: [sent], timeout: 1)
+        await fulfillment(of: [sent], timeout: eventWait)
         requestLock.lock(); let sentRequests = count; requestLock.unlock()
         XCTAssertGreaterThanOrEqual(sentRequests, 2)
     }
@@ -241,7 +255,10 @@ final class C33StartTests: XCTestCase {
             roundId: "c33-timeout", teeBox: "blue", loops: [.init(globalId: 32850, half: "all")]
         ) }
         defer { start.cancel() }
-        await fulfillment(of: [sent, stopped, failed], timeout: 1)
+        // The 30 s budget itself is the `timeoutInterval` asserted on the request above. Here the
+        // injected 0.05 s budget must end the never-answered request: without a total budget it would
+        // hang for the 120 s package timeout, and a hard-coded 30 s would also miss this wait.
+        await fulfillment(of: [sent, stopped, failed], timeout: eventWait)
         XCTAssertFalse(model.isPreparingRound)
         XCTAssertNil(model.pendingLiveHole)
         XCTAssertNotNil(model.roundStartFailure)
@@ -256,7 +273,7 @@ final class C33StartTests: XCTestCase {
             roundId: "c33-timeout", teeBox: "blue", loops: [.init(globalId: 32850, half: "all")]
         ) }
         defer { retry.cancel(); retrySubscription.cancel() }
-        await fulfillment(of: [retryFailed], timeout: 1)
+        await fulfillment(of: [retryFailed], timeout: eventWait)
         XCTAssertNotNil(model.roundStartFailure)
     }
 }

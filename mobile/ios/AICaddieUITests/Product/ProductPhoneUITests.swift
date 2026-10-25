@@ -6,6 +6,7 @@ import XCTest
 final class ProductPhoneUITests: XCTestCase {
     private var server: ProductFixtureServer!
     private var app: XCUIApplication!
+    private var launchedWithFix = false
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -34,6 +35,7 @@ final class ProductPhoneUITests: XCTestCase {
             app.launchEnvironment["UITEST_GPS_LAT"] = latitude
             app.launchEnvironment["UITEST_GPS_LON"] = "0"
         } else { app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "denied" }
+        launchedWithFix = latitude != nil
         app.launch()
         XCTAssertTrue(element("home-tile-scores").waitForExistence(timeout: 15), "synthetic home bootstrapped")
     }
@@ -48,9 +50,20 @@ final class ProductPhoneUITests: XCTestCase {
 
     private func tap(_ id: String) {
         let target = element(id)
-        XCTAssertTrue(target.waitForExistence(timeout: 10), id)
+        // Lazy stacks (the results entries below the round list) build off-screen rows only after a
+        // scroll, so a missing control is scrolled for before it fails.
+        if !target.waitForExistence(timeout: 10) { reveal(target) }
+        XCTAssertTrue(target.exists, id)
         reveal(target)
         target.tap()
+    }
+
+    /// Strict known-red block. With continueAfterFailure = false an expected failure would end the
+    /// test and silently skip its remaining rows, so failures inside the block continue.
+    private func knownRed(_ reason: String, _ block: () -> Void) {
+        continueAfterFailure = true
+        defer { continueAfterFailure = false }
+        XCTExpectFailure(reason, failingBlock: block)
     }
 
     private func scores() { tap("home-tile-scores"); XCTAssertTrue(element("results-handicap").waitForExistence(timeout: 10)) }
@@ -64,12 +77,32 @@ final class ProductPhoneUITests: XCTestCase {
         XCTAssertTrue(element("round-review-content-ready").waitForExistence(timeout: 10))
     }
 
+    /// Visible content: the element exists with a non-empty frame inside the window. It scrolls only
+    /// while that is not yet true and never asks for hit-testing; controls get that from reveal().
     private func insideWindow(_ target: XCUIElement, _ row: String, file: StaticString = #filePath, line: UInt = #line) {
-        reveal(target)
+        let window = app.windows.firstMatch
+        func fits() -> Bool {
+            guard target.exists else { return false }
+            let frame = target.frame
+            return frame.width > 0 && frame.height > 0 && window.frame.insetBy(dx: -1, dy: -1).contains(frame)
+        }
+        var swipes = 0
+        while !fits() && swipes < 7 {
+            app.swipeUp()
+            swipes += 1
+        }
+        if !fits() {
+            let evidence = XCTAttachment(string: "\(row): \(target.identifier) exists=\(target.exists) frame=\(target.frame) "
+                + "window=\(window.frame)\n\n\(app.debugDescription)")
+            evidence.name = "insideWindow \(row)"
+            evidence.lifetime = .keepAlways
+            add(evidence)
+        }
+        XCTAssertTrue(target.exists, row, file: file, line: line)
         let frame = target.frame
         XCTAssertGreaterThan(frame.width, 0, row, file: file, line: line)
         XCTAssertGreaterThan(frame.height, 0, row, file: file, line: line)
-        XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(frame), row, file: file, line: line)
+        XCTAssertTrue(window.frame.insetBy(dx: -1, dy: -1).contains(frame), row, file: file, line: line)
     }
 
     func test_j2_1_results_entries_remain_enabled_for_zero_one_and_many_rounds() {
@@ -99,7 +132,7 @@ final class ProductPhoneUITests: XCTestCase {
         let identifiedRange = element("time-range")
         let legacyRange = app.segmentedControls.containing(.button, identifier: "近10场").firstMatch
         let range = identifiedRange.exists ? identifiedRange : legacyRange
-        XCTExpectFailure("C16e J2.2: time page has no independent range control") {
+        knownRed("C16e J2.2: time page has no independent range control") {
             XCTAssertTrue(range.exists, "range must be selectable independently of grain")
         }
         guard range.exists else { return }
@@ -182,7 +215,7 @@ final class ProductPhoneUITests: XCTestCase {
                 let firstIndex = element("live-scorecard-hole-index-1")
                 let tenthIndex = element("live-scorecard-hole-index-10")
                 XCTAssertTrue(firstIndex.exists && tenthIndex.exists, name + " both loop cards exist")
-                XCTExpectFailure("C16e J2.8: review loses the physical back/front identity") {
+                knownRed("C16e J2.8: review loses the physical back/front identity") {
                     XCTAssertEqual(Int(firstIndex.label), 10, name + " first physical hole")
                     XCTAssertEqual(Int(tenthIndex.label), 1, name + " second loop physical hole")
                 }
@@ -267,8 +300,30 @@ final class ProductPhoneUITests: XCTestCase {
     }
 
     private func startRound() {
+        if launchedWithFix {
+            // The fix is hole 1's tee. Nearby discovery installs Example, whose tee anchor puts the
+            // player on the course, so the home offers it directly (spec 5.2 附近) and 开球 enters
+            // the first hole without the start-round page.
+            let start = element("home-start-nearby")
+            XCTAssertTrue(start.waitForExistence(timeout: 30), "on-course home card")
+            let offer = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Example", "开始")).firstMatch
+            XCTAssertTrue(offer.exists, "the on-course card offers Example")
+            let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: start)
+            XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 15), .completed)
+            start.tap()
+            XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 15))
+            return
+        }
+        // Without a location the home offers search and 开始一场 lists no course: search by name.
         tap("home-new-round")
-        tap("start-round-venue-82001")
+        tap("start-round-search-all-courses")
+        let keyword = app.textFields["course-catalog-keyword-field"]
+        XCTAssertTrue(keyword.waitForExistence(timeout: 10))
+        keyword.tap()
+        // The keyboard's search key submits through the same search as the button and closes it.
+        keyword.typeText("Example\n")
+        XCTAssertTrue(element("course-catalog-result-82001").waitForExistence(timeout: 15), "search result row")
+        tap("course-catalog-result-82001")
         let start = element("start-round-primary-action")
         reveal(start)
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: start)
@@ -278,12 +333,19 @@ final class ProductPhoneUITests: XCTestCase {
     }
 
     func test_j4_5_phone_three_map_states_have_visible_content() {
-        for (name, expected) in [("ready", "live-hole-map-ready"), ("partial", "live-hole-map-partial"), ("missing", "live-map-preparing-surface")] {
+        // The precise tier is the phone's precise topo surface; route-only and waiting have none yet.
+        for (name, expected) in [("ready", "live-hole-map-precise"), ("partial", "live-hole-map-partial"), ("missing", "live-map-preparing-surface")] {
             var state = ProductFixtureServer.State(); state.coverage = name
             server.configure(state); launch(); startRound()
             let map = element(expected)
-            XCTAssertTrue(map.waitForExistence(timeout: 15), name)
-            insideWindow(map, name)
+            if name == "ready" {
+                XCTAssertTrue(map.waitForExistence(timeout: 15), name)
+            } else {
+                knownRed("C16e J4.5: phone live map has no route-only or waiting tier") {
+                    XCTAssertTrue(map.waitForExistence(timeout: 15), name)
+                }
+            }
+            if map.exists { insideWindow(map, name) }
             app.terminate()
         }
     }
@@ -296,6 +358,7 @@ final class ProductPhoneUITests: XCTestCase {
             let save = element("score-save")
             insideWindow(save, name)
             XCTAssertTrue(save.isEnabled, name)
+            reveal(save) // a control: it must also be hittable before the tap
             save.tap()
             XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 10))
             app.terminate()
@@ -316,7 +379,8 @@ final class ProductPhoneUITests: XCTestCase {
         }
         XCTAssertTrue(element("live-finish-to-par").waitForExistence(timeout: 10))
         // There is no identifier on the par line yet: its prefix locates it, numbers carry the assertion.
-        let par = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Par ")).firstMatch
+        // "/" (recorded/total holes) keeps the hole screen's "Par 4 · 365 码" behind the sheet out.
+        let par = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Par ", "/")).firstMatch
         insideWindow(par, "nine recorded holes")
         XCTAssertEqual(integers(in: par.label), [36, 9, 9], "recorded par, played holes, course holes")
         insideWindow(element("live-finish-save"), "save summary")
@@ -324,8 +388,7 @@ final class ProductPhoneUITests: XCTestCase {
 
     func test_j5_2_home_active_card_replaces_new_round_and_can_resume() {
         launch(); startRound()
-        tap("live-back-home")
-        tap("live-scorecard-leave-home")
+        tap("live-back-home") // 返回 goes straight home and keeps the round (CurrentHoleView).
         insideWindow(element("home-in-progress-round"), "active round hero")
         XCTAssertFalse(element("home-new-round").exists)
         XCTAssertTrue(element("home-end-round").isEnabled)

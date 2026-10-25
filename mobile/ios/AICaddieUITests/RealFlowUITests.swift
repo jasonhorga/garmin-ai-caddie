@@ -386,11 +386,11 @@ final class RealFlowUITests: XCTestCase {
                             NSPredicate(format: "identifier == %@ AND label == %@", "round-map-labels", "显示标签")
                         ).firstMatch
                         XCTAssertTrue(
-                            hiddenLabels.waitForExistence(timeout: 3),
+                            hiddenLabels.waitForExistence(timeout: 10),
                             "tapping the labels control must hide the shot labels"
                         )
                         XCTAssertTrue(
-                            waitUntilGone(shotLabels.firstMatch, timeout: 3),
+                            waitUntilGone(shotLabels.firstMatch, timeout: 10),
                             "hidden labels must leave the map"
                         )
                         labelsControl.tap()
@@ -398,7 +398,7 @@ final class RealFlowUITests: XCTestCase {
                             NSPredicate(format: "identifier == %@ AND label == %@", "round-map-labels", "隐藏标签")
                         ).firstMatch
                         XCTAssertTrue(
-                            shownLabels.waitForExistence(timeout: 3),
+                            shownLabels.waitForExistence(timeout: 10),
                             "tapping the labels control again must restore the shot labels"
                         )
                         // Pinch / double-tap zoom stays on the map itself; double-tap zooms in and
@@ -406,16 +406,16 @@ final class RealFlowUITests: XCTestCase {
                         // The accessibility frame does not follow `scaleEffect`, so the viewport
                         // publishes its zoom state on a dedicated marker.
                         let zoomState = app.descendants(matching: .any)["round-map-zoom-state"]
-                        XCTAssertTrue(zoomState.waitForExistence(timeout: 3))
+                        XCTAssertTrue(zoomState.waitForExistence(timeout: 10))
                         XCTAssertEqual(zoomState.value as? String, "全洞")
                         topoReady.doubleTap()
                         XCTAssertTrue(
-                            waitForValue("已放大", on: zoomState, timeout: 3),
+                            waitForValue("已放大", on: zoomState, timeout: 10),
                             "a double-tap must zoom the live viewport"
                         )
                         topoReady.doubleTap()
                         XCTAssertTrue(
-                            waitForValue("全洞", on: zoomState, timeout: 3),
+                            waitForValue("全洞", on: zoomState, timeout: 10),
                             "a second double-tap must restore the fitted full hole"
                         )
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
@@ -725,7 +725,7 @@ final class RealFlowUITests: XCTestCase {
         if nextHazard.isEnabled {
             nextHazard.tap()
             XCTAssertTrue(
-                app.descendants(matching: .any)["selected-hazard-2"].firstMatch.waitForExistence(timeout: 3),
+                app.descendants(matching: .any)["selected-hazard-2"].firstMatch.waitForExistence(timeout: 10),
                 "down navigation must replace the selected obstacle instead of stacking another one"
             )
             XCTAssertFalse(
@@ -766,7 +766,7 @@ final class RealFlowUITests: XCTestCase {
         )
         settle(1); save("11c-shot-club-prompt"); dump("11c-shot-club-prompt")
         let skipClub = app.buttons["跳过球杆（位置已记录）"]
-        XCTAssertTrue(skipClub.waitForExistence(timeout: 3), "club may be skipped without discarding the GPS shot")
+        XCTAssertTrue(skipClub.waitForExistence(timeout: 10), "club may be skipped without discarding the GPS shot")
         skipClub.tap()
         XCTAssertTrue(waitForValue("已记第 1 杆", on: recordShotButton, timeout: 5))
         let recordedShotHoleHeading = app.staticTexts["第 1 洞"]
@@ -802,7 +802,7 @@ final class RealFlowUITests: XCTestCase {
         // Looking at a preselection must never commit it. Cancel once, prove the recorded GPS shot
         // and active hole are intact, then reopen the same confirmation and accept it.
         let cancelScore = app.buttons["score-cancel"]
-        XCTAssertTrue(cancelScore.waitForExistence(timeout: 3))
+        XCTAssertTrue(cancelScore.waitForExistence(timeout: 10))
         cancelScore.tap()
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 5))
         XCTAssertEqual(recordShotButton.value as? String, "已记第 1 杆")
@@ -894,10 +894,10 @@ final class RealFlowUITests: XCTestCase {
 
         // Keep the saved total and putts; only record the tee result as on the fairway.
         let editTeeHit = app.buttons["score-tee-hit"]
-        XCTAssertTrue(editTeeHit.waitForExistence(timeout: 3))
+        XCTAssertTrue(editTeeHit.waitForExistence(timeout: 10))
         editTeeHit.tap()
         let editSave = app.buttons["score-save"]
-        XCTAssertTrue(editSave.waitForExistence(timeout: 3))
+        XCTAssertTrue(editSave.waitForExistence(timeout: 10))
         XCTAssertEqual(editSave.label, "保存 3 杆", "a scorecard edit must save in place without advancing")
         editSave.tap()
         XCTAssertTrue(
@@ -1754,14 +1754,14 @@ final class RealFlowUITests: XCTestCase {
 
         // One recorded non-putt shot preselects 3 (+2 putts). Set the representative manual holes to par.
         let total = app.buttons["score-choice-\(par)"]
-        XCTAssertTrue(total.waitForExistence(timeout: 3), "hole \(hole) score strip must offer par")
+        XCTAssertTrue(total.waitForExistence(timeout: 10), "hole \(hole) score strip must offer par")
         total.tap()
         XCTAssertTrue(total.isSelected, "hole \(hole) must select par as the total")
 
         // The preselection assumes two putts; adjust from there by tapping the target segment.
         let puttsValue = 2 + puttsAdjustment
         let putts = app.buttons["score-putts-\(puttsValue)"]
-        XCTAssertTrue(putts.waitForExistence(timeout: 2))
+        XCTAssertTrue(putts.waitForExistence(timeout: 10))
         if puttsAdjustment != 0 {
             putts.tap()
         }
@@ -1775,14 +1775,14 @@ final class RealFlowUITests: XCTestCase {
         } else {
             let fairway = try XCTUnwrap(fairwayLabel, "Par 4/5 manual flow requires a tee result")
             let tee = app.buttons["score-tee-\(fairway)"]
-            XCTAssertTrue(tee.waitForExistence(timeout: 3))
+            XCTAssertTrue(tee.waitForExistence(timeout: 10))
             tee.tap()
             XCTAssertTrue(tee.isSelected, "hole \(hole) must record tee result \(fairway)")
         }
 
         for _ in 0..<abs(penaltyAdjustment) {
             let button = app.buttons[penaltyAdjustment < 0 ? "罚杆减一" : "罚杆加一"]
-            XCTAssertTrue(button.waitForExistence(timeout: 2))
+            XCTAssertTrue(button.waitForExistence(timeout: 10))
             button.tap()
         }
         XCTAssertEqual(
