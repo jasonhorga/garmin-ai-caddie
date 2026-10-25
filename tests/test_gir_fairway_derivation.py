@@ -27,6 +27,7 @@ from pathlib import Path
 from unittest import mock
 
 from ai_caddie.core import data as core_data
+from ai_caddie.courses import course_prep
 from ai_caddie.core.data import deg_to_semicircle, local_to_wgs84, read_json
 from ai_caddie.geometry.geometry_evidence import classify_shot_surface
 from ai_caddie.history import history, stats_cache
@@ -74,10 +75,23 @@ def _write_geometry(geo_dir: Path, *, gid: int = GID, hole: int = 1) -> None:
     (geo_dir / f"gid{gid}_h{hole:02d}_meshes.json").write_text(json.dumps(mesh))
 
 
+def _tee_geometry() -> dict:
+    """Hole 1's tee-result inputs in WGS84: the fairway square as its outline and the northbound
+    tee-to-green route."""
+    return {
+        "fairwayOutline": {"version": 1, "polygons": [
+            {"outerLatLon": [list(_deg(point)) for point in _square(FAIRWAY_C)], "holesLatLon": []},
+        ]},
+        "routeLatLon": [list(_deg(TEE_C)), list(_deg(GREEN_C))],
+    }
+
+
 @contextlib.contextmanager
-def _patch_geometry(geo_dir: Path):
+def _patch_geometry(geo_dir: Path, *, fairway_outline: bool = True):
     # hazard_path/mesh_path read these module globals at call time -> patching reroutes classify.
-    with mock.patch.object(core_data, "HAZARD_DIR", geo_dir), mock.patch.object(core_data, "MESH_DIR", geo_dir):
+    tee_geometry = _tee_geometry() if fairway_outline else {"fairwayOutline": None, "routeLatLon": []}
+    with mock.patch.object(core_data, "HAZARD_DIR", geo_dir), mock.patch.object(core_data, "MESH_DIR", geo_dir), \
+            mock.patch.object(course_prep, "tee_result_geometry", return_value=tee_geometry):
         yield
 
 
@@ -148,18 +162,22 @@ class GirFairwayDerivationTests(unittest.TestCase):
         self.assertIs(gir, True)
 
     # ----- fairway-hit -----
-    def test_fairway_hit_miss_and_par3_none(self) -> None:
-        """(d) Tee in fairway -> 'hit'; tee off fairway -> 'miss'; par 3 -> None."""
-        hit = [_shot(TEE_C), _shot(FAIRWAY_C, target_local=GREEN_C)]   # shots[0].end = fairway
-        miss = [_shot(TEE_C), _shot(ROUGH_C, target_local=GREEN_C)]    # shots[0].end = rough
-        par3 = [_shot(TEE_C, target_local=FAIRWAY_C)]
+    def test_fairway_hit_side_and_par3_none(self) -> None:
+        """(d) Second position in the fairway -> 'hit'; in the rough 40 m east of the northbound
+        route -> 'right' (never a blanket miss); par 3 or no second position -> None."""
+        hit = [_shot(TEE_C), _shot(FAIRWAY_C, target_local=GREEN_C)]   # shots[1] = fairway
+        right = [_shot(TEE_C), _shot(ROUGH_C, target_local=GREEN_C)]   # shots[1] = east rough
+        par3 = [_shot(TEE_C), _shot(FAIRWAY_C)]
+        lone_tee = [_shot(TEE_C, target_local=FAIRWAY_C)]               # an aim is not a position
         with _patch_geometry(self.geo_dir):
             _, fw_hit = round_ingest._derive_gir_fairway(GID, 1, 4, hit, total_strokes=4)
-            _, fw_miss = round_ingest._derive_gir_fairway(GID, 1, 4, miss, total_strokes=5)
+            _, fw_right = round_ingest._derive_gir_fairway(GID, 1, 4, right, total_strokes=5)
             _, fw_par3 = round_ingest._derive_gir_fairway(GID, 1, 3, par3, total_strokes=3)
+            _, fw_lone = round_ingest._derive_gir_fairway(GID, 1, 4, lone_tee, total_strokes=5)
         self.assertEqual(fw_hit, "hit")
-        self.assertEqual(fw_miss, "miss")
+        self.assertEqual(fw_right, "right")
         self.assertIsNone(fw_par3)
+        self.assertIsNone(fw_lone)
 
     # ----- graceful degradation -----
     def test_no_geometry_yields_none(self) -> None:
@@ -167,7 +185,7 @@ class GirFairwayDerivationTests(unittest.TestCase):
         empty = Path(self._tmp.name) / "empty"
         empty.mkdir()
         shots = [_shot(TEE_C), _shot(FAIRWAY_C, target_local=GREEN_C)]
-        with _patch_geometry(empty):
+        with _patch_geometry(empty, fairway_outline=False):
             gir, fairway = round_ingest._derive_gir_fairway(GID, 1, 4, shots, total_strokes=5)
         self.assertIsNone(gir)
         self.assertIsNone(fairway)
@@ -189,7 +207,7 @@ class GirFairwayDerivationTests(unittest.TestCase):
                 hole, global_id=GID, local_hole=1, par=4, shots=shots, total_strokes=4
             )
         self.assertIs(hole["gir"], True)            # preserved, not clobbered to False
-        self.assertEqual(hole.get("fairway"), "miss")  # absent -> filled (shots[0].end = rough)
+        self.assertEqual(hole.get("fairway"), "right")  # absent -> filled (shots[1] = east rough)
 
 
 class GirFairwayIngestIntegrationTests(unittest.TestCase):
@@ -246,7 +264,7 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
         empty = self.root / "empty"
         empty.mkdir()
         meta = {"courseGlobalId": GID, "courseName": "Test", "holePars": "4"}
-        with _patch_geometry(empty):
+        with _patch_geometry(empty, fairway_outline=False):
             summary = round_ingest.ingest_round("p_friend", self._par4_events(), meta, idempotency_key="g2", root=self.root)
         sc_path = self.root / "data" / "players" / "p_friend" / "scorecards" / f"{summary['id']}.json"
         hole = read_json(sc_path)["scorecardDetails"][0]["scorecard"]["holes"][0]

@@ -130,6 +130,29 @@ class FairwayOutlineTest(unittest.TestCase):
         self.assertIn("fairwayOutline", row)
         self.assertIsNone(row["fairwayOutline"])
 
+    def test_server_tee_result_geometry_from_installed_prodgeometry(self) -> None:
+        # Manual-round ingest classifies against these facts; same mesh/route as the outline test.
+        md = self.hole(RefLat=REF_LAT, RefLon=REF_LON)
+        by = {"Fairway.drc": grid_mesh(-15, 15, 150, 300)}
+        with patch.object(cp, "geometry_coverage_for_hole", return_value={"coverage": "ready"}), \
+                patch.object(cp.hole_render, "load_mesh", return_value=(md, by)):
+            geometry = cp.tee_result_geometry(99999, 1)
+
+        def at(x, y):
+            return list(cp.shot_projection.local_to_world(x, y, ref_lat=REF_LAT, ref_lon=REF_LON))
+
+        outline, route = geometry["fairwayOutline"], geometry["routeLatLon"]
+        self.assertEqual(route[0], [REF_LAT, REF_LON])  # the tee at local (0, 0)
+        self.assertEqual(classify_tee_result(at(8, 240), outline, route, 4), "hit")
+        self.assertEqual(classify_tee_result(at(-40, 240), outline, route, 4), "left")  # west of a northbound route
+        self.assertEqual(classify_tee_result(at(40, 240), outline, route, 4), "right")
+
+    def test_server_tee_result_geometry_without_prodgeometry_has_no_outline(self) -> None:
+        with patch.object(cp, "geometry_coverage_for_hole", return_value={"coverage": "missing"}), \
+                patch.object(cp, "lightweight_prep_hole", return_value={"route": [[0, 0, 0], [0, 400, 400]]}):
+            geometry = cp.tee_result_geometry(99999, 1)
+        self.assertIsNone(geometry["fairwayOutline"])
+
 
 if __name__ == "__main__":
     unittest.main()

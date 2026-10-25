@@ -79,7 +79,6 @@ class PlayTests(HTTPFixture, unittest.TestCase):
                 self.assertEqual(classify_tee_result(row["point"], row["fairwayOutline"], row["route"], row["par"]),
                                  row["expected"], row["handCalculation"])
 
-    @unittest.expectedFailure
     def test_j5_8_manual_round_uses_second_position(self):
         """No fairway value is supplied: the server must derive the hand-written side."""
         failures = []
