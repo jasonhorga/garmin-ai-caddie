@@ -776,8 +776,11 @@ def order_possible_annotations(
 
         found = search(tuple(0 for _ in fields), list(current[key]))
         if found is None:
-            replay(requested)  # no possible order: raises, and nothing is written
-        order.extend(found or [])
+            # No possible order: replay this hole's own requested order so the error names it (another
+            # hole may fail in request order yet have an order). Nothing is written.
+            replay([index for index in requested if changes[index] is not None and changes[index][0] == key])
+            raise score_invariant.ScoreInvariantError(f"hole {key[1]}: no order of the fixes stays possible")
+        order.extend(found)
     return [rows[index] for index in order]
 
 
