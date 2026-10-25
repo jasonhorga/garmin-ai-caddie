@@ -2,9 +2,9 @@
 
 A hole's total counts every putt and every penalty stroke plus at least one stroke that is neither,
 so ``strokes >= putts + penalties + 1``. Each write entrance (manual ingest, live event admission,
-finish/replay, putt/score/penalty annotations and penalty corrections) computes the hole state it
-would persist and calls :func:`require_possible_hole_score` before touching disk; a violation rejects
-the whole write.
+finish/replay, putt/score/penalty annotations, reconciliation apply and penalty corrections) computes
+the hole state it would persist and calls :func:`require_possible_hole_score` before touching disk; a
+violation rejects the whole write.
 """
 
 from __future__ import annotations
@@ -48,20 +48,34 @@ def _whole(value: Any) -> int | None:
     return None
 
 
-def require_possible_event_scores(events: Iterable[dict[str, Any]]) -> None:
-    """Fold live score/putt/penalty events per hole (last value wins, the order a finish
-    materializes them in) and check every hole. Values a finish would reject as malformed are
-    skipped here; this check only concerns the invariant."""
-    holes: dict[int, dict[str, int]] = {}
-    for event in events:
-        if not isinstance(event, dict) or event.get("kind") not in SCORE_EVENT_KINDS:
-            continue
-        hole = _whole(event.get("hole"))
-        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
-        field = {"score": "strokes", "putt": "putts", "penalty": "penalties"}[event["kind"]]
-        value = _whole(payload.get(field))
-        if hole is None or value is None:
-            continue
-        holes.setdefault(hole, {})[field] = value
+def _scored_hole(event: Any) -> tuple[int, str, int] | None:
+    """``(hole, field, value)`` of a live score/putt/penalty event, or None. Values a finish would
+    reject as malformed are skipped here; this check only concerns the invariant."""
+    if not isinstance(event, dict) or event.get("kind") not in SCORE_EVENT_KINDS:
+        return None
+    hole = _whole(event.get("hole"))
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    field = {"score": "strokes", "putt": "putts", "penalty": "penalties"}[event["kind"]]
+    value = _whole(payload.get(field))
+    return None if hole is None or value is None else (hole, field, value)
+
+
+def require_possible_appended_scores(
+    stored_events: Iterable[dict[str, Any]], new_events: Iterable[dict[str, Any]],
+) -> None:
+    """Admission check for one append to a live round's event stream.
+
+    ``stored_events`` are the round's stored events in server order and ``new_events`` the events
+    this append would store, already deduplicated by the store's own event identity. They are folded
+    per hole the way a finish materializes them (last value wins). Only the holes the new events
+    score are checked: a hole already stored impossible (an old client's round in progress) stays as
+    stored and never blocks the rest of the round.
+    """
+    new_scored = [scored for scored in map(_scored_hole, new_events) if scored is not None]
+    touched = {hole for hole, _field, _value in new_scored}
+    holes: dict[int, dict[str, int]] = {hole: {} for hole in touched}
+    for scored in [*map(_scored_hole, stored_events), *new_scored]:
+        if scored is not None and scored[0] in touched:
+            holes[scored[0]][scored[1]] = scored[2]
     for hole, state in holes.items():
         require_possible_hole_score(state.get("strokes"), state.get("putts"), state.get("penalties"), hole=hole)

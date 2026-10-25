@@ -558,20 +558,15 @@ def append_mobile_events_response(
     events = [event.model_dump(by_alias=True) for event in request.events]
     with _mobile_materialization_lock(player_id):
         try:
-            if any(event.get("kind") in score_invariant.SCORE_EVENT_KINDS for event in events):
-                # Spec 5.7: the stream as a finish would fold it (stored order, then this batch's new
-                # events) must stay possible on every hole, or nothing of the batch is stored.
-                stored = round_events(round_id, root=MOBILE_ROOT, player_id=player_id)
-                known = {event.get("eventId") for event in stored}
-                score_invariant.require_possible_event_scores(
-                    [*stored, *(event for event in events if event.get("eventId") not in known)]
-                )
             result = append_event_batch(
                 round_id,
                 events,
                 idempotency_key=idempotency_key,
                 root=MOBILE_ROOT,
                 player_id=player_id,
+                # Spec 5.7: every hole this append scores must stay possible, checked inside the
+                # store's lock on its own deduplicated rows; otherwise nothing of the batch is stored.
+                validate_append=score_invariant.require_possible_appended_scores,
             )
         except ValueError as exc:
             logger.warning("mobile_events validation_failed status=422 path=body.events type=event_batch_invalid")

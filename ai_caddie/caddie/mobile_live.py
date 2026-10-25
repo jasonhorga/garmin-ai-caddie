@@ -4972,10 +4972,13 @@ def append_event_batch(
     idempotency_key: str,
     root: Path | str | None = None,
     player_id: str = OWNER_ID,
+    validate_append: Callable[[list[dict[str, Any]], list[dict[str, Any]]], None] | None = None,
 ) -> dict[str, Any]:
     path = mobile_event_log(root, player_id=player_id)
     store = open_mobile_event_store(path.parent)
-    append_result = store.append_batch(str(round_id), events, request_key=idempotency_key)
+    # The hook is opt-in; without one the store keeps its established call shape.
+    hook = {} if validate_append is None else {"validate_append": validate_append}
+    append_result = store.append_batch(str(round_id), events, request_key=idempotency_key, **hook)
     receipts = append_result.receipts
     accepted_event_ids = [receipt.event_id for receipt in receipts if receipt.status == "accepted" and receipt.event_id]
     duplicate_event_ids = [
