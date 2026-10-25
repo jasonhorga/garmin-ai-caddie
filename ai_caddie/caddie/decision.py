@@ -1088,7 +1088,10 @@ def _sequence_step(row: dict[str, Any], remaining_before_m: float, role: str) ->
         "sourceRefs": source_refs,
         "coverage": _sample_coverage(sample_size, source_refs),
         "confidence": _sample_confidence(sample_size),
-        "performanceModel": _club_performance_metrics(row),
+        # The success rate only ranks clubs internally; a response never shows a success percentage.
+        "performanceModel": {
+            key: value for key, value in _club_performance_metrics(row).items() if key != "scoringSuccessRatePct"
+        },
     }
 
 

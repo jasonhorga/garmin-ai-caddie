@@ -79,7 +79,6 @@ class DegradeTests(HTTPFixture, unittest.TestCase):
                     violations.append((shot,selected.get("carry_m"),selected.get("clubRecommendation")))
         self.assertEqual(violations,[],"No factual distance/bag means no numeric target recommendation")
 
-    @unittest.expectedFailure
     def test_j8_2_caddie_recursively_omits_success_percentages(self):
         violations=[]
         for row in vectors("caddie_golden.json")["cases"]:
