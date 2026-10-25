@@ -1267,6 +1267,16 @@ class CourseInstallHandOffTests(unittest.TestCase):
             {"geometryState": "unavailable", "retryAfterEpoch": None},
         )
 
+    def test_active_nearby_job_still_plans_a_hole(self) -> None:
+        player = self.journal([1])
+        self.ci.update(player, phase="failed", stage="error", global_id=self.GID, local_hole=1,
+                       geometry="failed", error="geometry download failed")
+        nearby = self.journal([1], loop_key=f"{self.GID}:nearby-assets", player="__nearby_public_assets__")
+        self.ci.update(nearby, phase="running", stage="geometry", clear_error=True)
+        with self.ci._LOCK:
+            self.ci._ACTIVE.add(nearby)
+        self.assertEqual(self.ci.hole_plan(self.GID, 1)["state"], "in_flight")
+
     # ------------------------------------------------------------------ ② hand-off windows
     def test_worker_exit_hands_a_retryable_job_to_its_timer_without_a_gap(self) -> None:
         from server_v2 import main as server_main
@@ -1417,13 +1427,72 @@ class CourseInstallHandOffTests(unittest.TestCase):
 
         self.installed(job, 1, derivatives="running", derivativesFailureCount=0)
         self.assertEqual(replan(), [logging.INFO])
+        self.assertEqual(replan(), [logging.DEBUG])
         self.ci.update(job, phase="ready", stage="complete", clear_error=True)  # the export landed
         # Later in the same process the job owns that hole's exports again (a Garmin re-bind or
         # the package's lacking-hazards self-heal) and its first plan is again ("running", 0, None).
         self.ci.update(job, phase="queued", stage="derivatives", clear_error=True)
         self.installed(job, 1, derivatives="running", derivativesFailureCount=0)
-        # main: [DEBUG] — the signature left over from before the job completed hides the line.
+        # main: terminal cleanup makes this a new plan, so it is INFO again.
         self.assertEqual(replan(), [logging.INFO])
+
+    def test_terminal_write_clears_plan_signature_and_wake_epoch(self) -> None:
+        job = self.journal([1])
+        self.installed(job, 1, derivatives="running", derivativesFailureCount=0)
+        self.ci._schedule_retry(job)
+        with self.ci._LOCK:
+            state = self.ci._read(job)
+            self.ci._DERIVATIVE_LOG_SIGNATURES[job] = {f"{self.GID}:1": ("running", 0, None)}
+            state["phase"] = "ready"
+            self.ci._write(state)
+        stored = self.ci.state_for_worker(job)
+        self.assertNotIn(job, self.ci._DERIVATIVE_LOG_SIGNATURES)
+        self.assertIsNone(stored.get("nextAttemptEpoch"))
+
+    def test_update_ready_uses_terminal_write_cleanup(self) -> None:
+        job = self.journal([1])
+        self.installed(job, 1, derivatives="running", derivativesFailureCount=0)
+        self.ci._schedule_retry(job)
+        with self.ci._LOCK:
+            self.ci._DERIVATIVE_LOG_SIGNATURES[job] = {f"{self.GID}:1": ("running", 0, None)}
+        self.ci.update(job, phase="ready", stage="complete", clear_error=True)
+        state = self.ci.state_for_worker(job)
+        self.assertNotIn(job, self.ci._DERIVATIVE_LOG_SIGNATURES)
+        self.assertIsNone(state.get("nextAttemptEpoch"))
+
+    def test_derivative_delay_uses_the_earliest_retry_plan(self) -> None:
+        state = {"holes": {
+            "950050:1": {"geometry": "ready", "geometryRevision": "r1", "topo": "ready",
+                         "topoRevision": "r1", "derivatives": "retrying",
+                         "derivativesRetryAfterEpoch": time.time() + 300,
+                         "derivativesLastErrorType": "ScheduleUnavailable"},
+            "950050:2": {"geometry": "ready", "geometryRevision": "r1", "topo": "ready",
+                         "topoRevision": "r1", "derivatives": "retrying",
+                         "derivativesRetryAfterEpoch": time.time() + 30,
+                         "derivativesLastErrorType": "RuntimeError"},
+        }}
+        self.assertLess(self.ci._derivative_delay(state), 60.0)
+
+    def test_resume_scan_does_not_reset_an_active_job(self) -> None:
+        job = self.journal([1])
+        self.ci.update(job, phase="running", stage="geometry", global_id=self.GID, local_hole=1,
+                       geometry="running")
+        with self.ci._LOCK:
+            self.ci._ACTIVE.add(job)
+        self.ci.resume_pending_jobs()
+        state = self.ci.state_for_worker(job)
+        self.assertEqual((state["phase"], state["stage"], state["holes"][f"{self.GID}:1"]["geometry"]),
+                         ("running", "geometry", "running"))
+
+    def test_stale_retry_callback_cannot_remove_a_replacement_timer(self) -> None:
+        job = self.journal([1])
+        self.ci._schedule_retry(job)
+        old = self.live_timers()[0]
+        self.ci._RETRY_TIMERS.pop(job, None)
+        self.ci._schedule_retry(job)
+        replacement = self.live_timers()[0]
+        old.callback()
+        self.assertIs(self.ci._RETRY_TIMERS[job], replacement)
 
 
 class ServiceLogVisibilityTests(unittest.TestCase):
