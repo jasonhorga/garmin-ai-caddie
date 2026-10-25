@@ -38,6 +38,11 @@ from server_v2 import main as server_main
 
 GID = 32865
 HOLE = 9
+REAL_LAUNCH = course_install._launch
+# Rework 1: a pass that yields (nearby work during play) re-checks after the deferral interval.
+DEFERRED_RETRY_S = 60
+# Rework 3: while an install is really in flight the client polls after this interval.
+IN_FLIGHT_POLL_S = 30
 # Card 2: 30 s base, doubled per failure, never more than six hours (6 * 3600 s).
 FIRST_BACKOFF_S = 30
 SIX_HOURS_S = 6 * 3600
@@ -235,7 +240,8 @@ class C34PendingSettlesAcceptance(unittest.TestCase):
             hole = self.package_hole()
             journal = course_install.state_for_worker(job)
             retry = hole.get("retryAfterEpoch")
-            # main: ('pending', 30, 'ready') — pending forever at now+30 behind a "complete" job.
+            # main: ('pending', 60, 'ready') — pending forever (max(now+30, the expired-or-next
+            # export time) = now+60 here) behind a "complete" job.
             self.assertEqual(
                 (hole["geometryState"], None if retry is None else round(retry - self.clock.now), journal["phase"]),
                 ("ready", None, "queued"),
@@ -355,6 +361,86 @@ class C34PendingSettlesAcceptance(unittest.TestCase):
             self.assertNotEqual(course_install.state_for_worker(job)["phase"], "ready")
             server_main.run_course_install_job(job)
             self.assertEqual(len(self.pool.queued), 1)
+
+    # ------------------------------------------------------------------ rework 1
+    def test_deferred_nearby_pass_with_overdue_exports_waits_sixty_seconds(self) -> None:
+        with self.course():
+            job = self.fail_twice()
+            nearby = course_install.enqueue(
+                global_id=GID, tee_box="blue", loop_key=f"{GID}:nearby-assets",
+                player_id="__nearby_public_assets__",
+                refs=[{"globalId": GID, "localHole": HOLE, "displayHole": HOLE}],
+                requested={GID: [HOLE]}, ready={},
+            )["jobId"]
+            # The nearby journal owns the same installed hole with the same retrying export.
+            state = course_install.state_for_worker(nearby)
+            state["holes"] = course_install.state_for_worker(job)["holes"]
+            state.update({"phase": "queued", "stage": "queued"})
+            course_install._write(state)
+            self.clock.advance(3600)  # the persisted export plan is long overdue
+            FakeTimer.created = []
+            with patch.object(server_main, "nearby_work_blocked", return_value=True):
+                course_install._run(nearby)
+            live = [timer for timer in FakeTimer.created if not timer.cancelled]
+            self.assertEqual(course_install.state_for_worker(nearby)["stage"], "deferred")
+            self.assertTrue(live)
+            # main/old: Timer(0) -> deferred again -> a zero-delay loop for the whole round.
+            self.assertEqual(live[-1].delay, DEFERRED_RETRY_S)
+
+    # ------------------------------------------------------------------ rework 2
+    def test_install_status_is_ready_while_only_exports_retry(self) -> None:
+        with self.course():
+            job = self.fail_twice()
+            public = course_install.status(
+                global_id=GID, tee_box="blue", loop_key=server_main.round_loop_key(self.loops),
+                player_id="owner",
+            )
+            # Clients see a usable course (no 15 s re-download loop) and why it is not complete.
+            self.assertEqual((public["phase"], public["stage"]), ("ready", "derivatives"))
+            self.assertFalse(public["cancellable"])
+            internal = course_install.state_for_worker(job)
+            # Internally the job still owns and retries the export (card item 4).
+            self.assertEqual(internal["phase"], "queued")
+            self.assertEqual(internal["holes"][f"{GID}:{HOLE}"]["derivatives"], "retrying")
+            self.assertTrue([timer for timer in FakeTimer.created if not timer.cancelled])
+
+    # ------------------------------------------------------------------ rework 3
+    def test_failed_install_hole_is_unavailable_not_pending(self) -> None:
+        with self.course():
+            job = self.enqueue()
+            with patch.object(batch, "fetch_bytes", side_effect=OSError("fixture provider down")):
+                server_main.run_course_install_job(job)
+            self.assertEqual(course_install.state_for_worker(job)["phase"], "failed")
+            self.assertFalse(self.mesh.is_file())
+            hole = self.package_hole()  # what /rounds/{id}/package serves (no enqueue)
+            # Nothing will install this hole: not pending at now+30, so the client stops polling.
+            self.assertEqual((hole["geometryState"], hole["retryAfterEpoch"]), ("unavailable", None))
+
+    def test_cold_first_package_request_reports_its_new_install_as_pending(self) -> None:
+        with self.course():
+            hole = self.package_hole()
+            self.assertEqual(hole["geometryState"], "unavailable")  # built before any job exists
+            package = SimpleNamespace(holes=[{**hole, "number": HOLE}],
+                                      course={"globalId": GID, "teeBox": "blue"}, eventCursor={})
+            with (patch.object(server_main, "build_mobile_course_package_response", return_value=package),
+                  patch.object(course_install, "_launch", REAL_LAUNCH),
+                  patch.object(course_install, "_WORKER", SimpleNamespace(submit=lambda *a, **k: None))):
+                response = server_main.mobile_course_package(
+                    GID, server_main.BackgroundTasks(), loops=f"{GID}:front",
+                    background_geometry=True, player_id="owner")
+            served = response.holes[0]
+            # The request just queued the install: pending, polling at the in-flight interval.
+            self.assertEqual(served["geometryState"], "pending")
+            self.assertEqual(served["retryAfterEpoch"], self.clock.now + IN_FLIGHT_POLL_S)
+
+    def test_scheduled_install_retry_reports_its_timer_due_time(self) -> None:
+        with self.course():
+            job = self.enqueue()
+            course_install._schedule_retry(job)  # a queued hole waiting on the job's backoff timer
+            due = course_install.state_for_worker(job)["nextAttemptEpoch"]
+            self.assertEqual(due, self.clock.now + FakeTimer.created[-1].delay)
+            hole = self.package_hole()
+            self.assertEqual((hole["geometryState"], hole["retryAfterEpoch"]), ("pending", due))
 
     def test_garmin_raster_metadata_does_not_wait_for_obstacles(self) -> None:
         from PIL import Image
