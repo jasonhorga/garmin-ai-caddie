@@ -700,9 +700,11 @@ class CourseInstallJournalTests(unittest.TestCase):
             def replan() -> list[int]:
                 with course_install._LOCK:
                     course_install._RETRY_TIMERS.pop(job, None)
-                with patch.object(course_install.threading, "Timer", return_value=Mock()), self.assertLogs(
-                    course_install.logger, level="DEBUG"
-                ) as logs:
+                # An earlier Alembic test (fileConfig, disable_existing_loggers=True) leaves this
+                # logger disabled in the full suite, which would swallow assertLogs.
+                with patch.object(course_install.threading, "Timer", return_value=Mock()), patch.object(
+                    course_install.logger, "disabled", False
+                ), self.assertLogs(course_install.logger, level="DEBUG") as logs:
                     course_install._schedule_retry(job)
                 return [r.levelno for r in logs.records if "stage=derivatives" in r.getMessage()]
 
