@@ -565,6 +565,48 @@ class RoundCorrectionResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class HoleHistoryShot(BaseModel):
+    """One past shot on the hole, as corrected. WGS84 degrees; the phone does the circle selection."""
+
+    id: str
+    roundRef: str
+    date: str
+    roundHole: int  # the hole number in that round (a 27-hole nine may have been its front or back)
+    order: int
+    isTee: bool  # the first recorded stroke of the hole
+    start: dict[str, float] | None = None
+    end: dict[str, float] | None = None
+    distanceM: float | None = None
+    startLie: str | None = None
+    endLie: str | None = None
+    result: Literal["fairway", "rough", "bunker", "green", "water", "unknown"]
+    teeFairway: Literal["hit", "left", "right", "other"] | None = None  # Garmin's tee result; tee shots only
+    shotType: str | None = None
+
+
+class HoleGreenCentre(BaseModel):
+    available: bool
+    lat: float | None = None
+    lon: float | None = None
+    source: Literal["prodgeometry", "courseData"] | None = None
+
+
+class HoleHistoryShotsResponse(BaseModel):
+    """Every own shot on one physical hole (globalId + CourseView localHole) in the last ``days``."""
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    schema_: Literal["ai-caddie-hole-history-shots-v1"] = Field(alias="schema")
+    globalId: int
+    localHole: int
+    days: int
+    since: str
+    roundCount: int
+    shots: list[HoleHistoryShot]
+    green: HoleGreenCentre
+    missingData: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class CorrectionLogResponse(BaseModel):
     """B0d-2 structured correction log for one round (own player only), ordered by auditSeq."""
 

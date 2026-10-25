@@ -54,6 +54,7 @@ PLAYER_SCOPED_ROUTES = frozenset(
         ("GET", "/api/v2/history/rounds/{round_ref}"),
         ("GET", "/api/v2/history/rounds/{round_ref}/holes/{hole}/shotmap"),
         ("GET", "/api/v2/history/rounds/{round_ref}/correction-log"),
+        ("GET", "/api/v2/history/courses/{global_id}/holes/{local_hole}/shots"),
         ("GET", "/api/v2/history/stats"), ("GET", "/api/v2/history/summary"),
         ("GET", "/api/v2/history/stats/mobile"), ("GET", "/api/v2/history/clubs/bag"),
         ("GET", "/api/v2/history/drilldown/{source_ref}"),
