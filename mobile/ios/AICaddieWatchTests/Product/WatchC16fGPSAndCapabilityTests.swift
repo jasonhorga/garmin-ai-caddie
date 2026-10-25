@@ -40,9 +40,7 @@ final class WatchC16fGPSAndCapabilityTests: XCTestCase {
     func test_5_13_watch_accurate_position_spike_does_not_finish_hole() {
         // A stationary player's isolated 45 m jump returns to the green on the next fix.
         // Reported accuracy is 4 m throughout: this is positional drift, not coarse accuracy.
-        XCTExpectFailure("5.13: a single accurate-looking position spike is treated as a green exit") {
-            XCTAssertNil(ended([(0, 0, 4), (45, 0, 4), (0, 0, 4), (5, 0, 4)]))
-        }
+        XCTAssertNil(ended([(0, 0, 4), (45, 0, 4), (0, 0, 4), (5, 0, 4)]))
     }
 
     func test_5_14_watch_capability_gate_fails_closed_and_keeps_round_decision() {
