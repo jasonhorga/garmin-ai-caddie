@@ -278,10 +278,11 @@ public struct LiveGreenDetailView: View {
         let baseRect: CGRect
         if activeDetailCrop != nil {
             baseRect = detailRect(in: size)
-        } else if let overlay = hole.resolvedMapOverlay, overlay.w > 1, overlay.h > 1 {
-            baseRect = LivePlayMapOverlayLayout.mapFrame(
-                overlayWidth: overlay.w, overlayHeight: overlay.h, in: size
-            )
+        } else if let overlay = hole.resolvedMapOverlay, overlay.w > 1, overlay.h > 1,
+                  let frame = LivePlayMapOverlayLayout.mapFrame(
+                      overlayWidth: overlay.w, overlayHeight: overlay.h, in: size
+                  ) {
+            baseRect = frame
         } else {
             baseRect = CGRect(origin: .zero, size: size)
         }
