@@ -892,7 +892,7 @@ final class RealFlowUITests: XCTestCase {
         )
         settle(1); save("11c-shot-club-prompt"); dump("11c-shot-club-prompt")
         let skipClub = app.buttons["跳过球杆（位置已记录）"]
-        XCTAssertTrue(skipClub.waitForExistence(timeout: 10),"club may be skipped without discarding the GPS shot")
+        XCTAssertTrue(skipClub.waitForExistence(timeout: 10), "club may be skipped without discarding the GPS shot")
         skipClub.tap()
         XCTAssertTrue(waitForValue("已记第 1 杆", on: recordShotButton, timeout: 5))
         let recordedShotHoleHeading = app.staticTexts["第 1 洞"]
@@ -1880,7 +1880,7 @@ final class RealFlowUITests: XCTestCase {
 
         // One recorded non-putt shot preselects 3 (+2 putts). Set the representative manual holes to par.
         let total = app.buttons["score-choice-\(par)"]
-        XCTAssertTrue(total.waitForExistence(timeout: 10),"hole \(hole) score strip must offer par")
+        XCTAssertTrue(total.waitForExistence(timeout: 10), "hole \(hole) score strip must offer par")
         total.tap()
         XCTAssertTrue(total.isSelected, "hole \(hole) must select par as the total")
 

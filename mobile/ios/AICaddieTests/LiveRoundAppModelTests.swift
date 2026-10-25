@@ -50,7 +50,8 @@ private final class LoopbackHTTPServer: @unchecked Sendable {
             self?.accept(connection)
         }
         listener.start(queue: queue)
-        guard startupSemaphore.wait(timeout: .now() + 5) == .success else {
+        // Only waits for the listener to come up; a simulator stall must not fail the test (C52).
+        guard startupSemaphore.wait(timeout: .now() + 30) == .success else {
             listener.cancel()
             throw LiveRoundAppModelTestFailure.loopbackServerTimeout
         }
