@@ -77,12 +77,32 @@ final class ProductPhoneUITests: XCTestCase {
         XCTAssertTrue(element("round-review-content-ready").waitForExistence(timeout: 10))
     }
 
+    /// Visible content: the element exists with a non-empty frame inside the window. It scrolls only
+    /// while that is not yet true and never asks for hit-testing; controls get that from reveal().
     private func insideWindow(_ target: XCUIElement, _ row: String, file: StaticString = #filePath, line: UInt = #line) {
-        reveal(target)
+        let window = app.windows.firstMatch
+        func fits() -> Bool {
+            guard target.exists else { return false }
+            let frame = target.frame
+            return frame.width > 0 && frame.height > 0 && window.frame.insetBy(dx: -1, dy: -1).contains(frame)
+        }
+        var swipes = 0
+        while !fits() && swipes < 7 {
+            app.swipeUp()
+            swipes += 1
+        }
+        if !fits() {
+            let evidence = XCTAttachment(string: "\(row): \(target.identifier) exists=\(target.exists) frame=\(target.frame) "
+                + "window=\(window.frame)\n\n\(app.debugDescription)")
+            evidence.name = "insideWindow \(row)"
+            evidence.lifetime = .keepAlways
+            add(evidence)
+        }
+        XCTAssertTrue(target.exists, row, file: file, line: line)
         let frame = target.frame
         XCTAssertGreaterThan(frame.width, 0, row, file: file, line: line)
         XCTAssertGreaterThan(frame.height, 0, row, file: file, line: line)
-        XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1).contains(frame), row, file: file, line: line)
+        XCTAssertTrue(window.frame.insetBy(dx: -1, dy: -1).contains(frame), row, file: file, line: line)
     }
 
     func test_j2_1_results_entries_remain_enabled_for_zero_one_and_many_rounds() {
@@ -338,6 +358,7 @@ final class ProductPhoneUITests: XCTestCase {
             let save = element("score-save")
             insideWindow(save, name)
             XCTAssertTrue(save.isEnabled, name)
+            reveal(save) // a control: it must also be hittable before the tap
             save.tap()
             XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 10))
             app.terminate()
