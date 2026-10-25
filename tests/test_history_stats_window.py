@@ -480,6 +480,57 @@ class HandicapEstimateTests(unittest.TestCase):
         stats_genuine = build_history_stats(_history(genuine), data_mode="fixture")
         self.assertEqual(stats_genuine["summary"]["handicapEstimate"], 14.7)
 
+    def test_estimate_follows_the_whs_table_for_each_count(self) -> None:
+        # WHS Rule 5.2 table (tests/product/fixtures/c16b/reference.py whs(), B5a MANUAL WHS):
+        # N<3 -> None; 3 -> lowest 1 -2.0; 4 -> lowest 1 -1.0; 5 -> lowest 1; 6 -> lowest 2 -1.0;
+        # 7-8 -> 2; 9-11 -> 3; 12-14 -> 4; 15-16 -> 5; 17-18 -> 6; 19 -> 7; 20 -> 8; 1 decimal.
+        # Differentials are written in date order (oldest first); rating 72 / slope 113 makes
+        # each round's differential exactly strokes - 72. "was" is the old lowest-ceil(0.4N) rule.
+        table = [
+            # N=2: fewer than 3 -> None
+            ([15, 8], None),
+            # N=3: lowest 1 = 8, -2.0 -> 6.0 (was None: N<5)
+            ([15, 8, 22], 6.0),
+            # N=4: lowest 1 = 8, -1.0 -> 7.0 (was None)
+            ([15, 8, 22, 11], 7.0),
+            # N=5: lowest 1 = 8 -> 8.0 (was lowest 2: (8+11)/2 = 9.5)
+            ([15, 8, 22, 11, 30], 8.0),
+            # N=6: lowest 2 = 8, 9 -> 8.5, -1.0 -> 7.5 (was lowest 3: 28/3 = 9.3)
+            ([15, 8, 22, 11, 30, 9], 7.5),
+            # N=7: lowest 2 = 8, 9 -> 8.5 (was lowest 3: 28/3 = 9.3)
+            ([15, 8, 22, 11, 30, 9, 18], 8.5),
+            # N=8: lowest 2 = 8, 9 -> 8.5 (was lowest 4: 8+9+11+13 = 41/4 = 10.25)
+            ([15, 8, 22, 11, 30, 9, 18, 13], 8.5),
+            # N=9: lowest 3 = 8, 9, 11 -> 28/3 = 9.33 -> 9.3 (was lowest 4: 41/4 = 10.25)
+            ([15, 8, 22, 11, 30, 9, 18, 13, 25], 9.3),
+            # N=11: lowest 3 = 8, 9, 10 -> 27/3 = 9.0 (was lowest 5: 8+9+10+11+13 = 51/5 = 10.2)
+            ([15, 8, 22, 11, 30, 9, 18, 13, 25, 10, 20], 9.0),
+            # N=12: lowest 4 = 8, 9, 10, 11 -> 38/4 = 9.5 (was lowest 5: 51/5 = 10.2)
+            ([15, 8, 22, 11, 30, 9, 18, 13, 25, 10, 20, 14], 9.5),
+            # N=14: lowest 4 = 8, 9, 10, 11 -> 38/4 = 9.5 (was lowest 6: 8..13 = 63/6 = 10.5)
+            ([15, 8, 22, 11, 30, 9, 18, 13, 25, 10, 20, 14, 28, 12], 9.5),
+            # N=15: lowest 5 = 8..12 -> 50/5 = 10.0 (was lowest 6: 63/6 = 10.5)
+            ([15, 8, 22, 11, 30, 9, 18, 13, 25, 10, 20, 14, 28, 12, 17], 10.0),
+            # N=16: lowest 5 = 8..12 -> 50/5 = 10.0 (was lowest 7: 8..14 = 77/7 = 11.0)
+            ([15, 8, 22, 11, 30, 9, 18, 13, 25, 10, 20, 14, 28, 12, 17, 26], 10.0),
+            # N=17: lowest 6 = 8..13 -> 63/6 = 10.5 (was lowest 7: 77/7 = 11.0)
+            ([15, 8, 22, 11, 30, 9, 18, 13, 25, 10, 20, 14, 28, 12, 17, 26, 16], 10.5),
+            # N=18: lowest 6 = 8..13 -> 63/6 = 10.5 (was lowest 8: 8..15 = 92/8 = 11.5)
+            ([15, 8, 22, 11, 30, 9, 18, 13, 25, 10, 20, 14, 28, 12, 17, 26, 16, 24], 10.5),
+            # N=19: lowest 7 = 8..14 -> 77/7 = 11.0 (was lowest 8: 92/8 = 11.5)
+            ([15, 8, 22, 11, 30, 9, 18, 13, 25, 10, 20, 14, 28, 12, 17, 26, 16, 24, 19], 11.0),
+            # N=20: lowest 8 = 8..15 -> 92/8 = 11.5 (same as the old rule at N=20)
+            ([15, 8, 22, 11, 30, 9, 18, 13, 25, 10, 20, 14, 28, 12, 17, 26, 16, 24, 19, 21], 11.5),
+        ]
+        for diffs, expected in table:
+            with self.subTest(n=len(diffs)):
+                rounds = [
+                    _rated_round(f"w{index + 1}", f"2026-01-{index + 1:02d}", 72 + diff)
+                    for index, diff in enumerate(diffs)
+                ]
+                stats = build_history_stats(_history(rounds), data_mode="fixture")
+                self.assertEqual(stats["summary"]["handicapEstimate"], expected)
+
     def test_by_month_average_differential_stays_rated_only(self) -> None:
         # Like the KPI, the byMonth chart line prices only rated rounds (a score-par
         # value is a different scale). One rated + one unrated round in the SAME
