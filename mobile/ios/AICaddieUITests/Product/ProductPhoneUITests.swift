@@ -280,24 +280,30 @@ final class ProductPhoneUITests: XCTestCase {
     }
 
     private func startRound() {
-        tap("home-new-round")
         if launchedWithFix {
-            tap("start-round-venue-82001") // provider-nearby row
-        } else {
-            // Without a location 开始一场 lists no course; the product path is name search.
-            tap("start-round-search-all-courses")
-            let keyword = app.textFields["course-catalog-keyword-field"]
-            XCTAssertTrue(keyword.waitForExistence(timeout: 10))
-            keyword.tap()
-            keyword.typeText("Example")
-            let submit = element("course-catalog-search-action")
-            let submittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: submit)
-            XCTAssertEqual(XCTWaiter.wait(for: [submittable], timeout: 5), .completed)
-            submit.tap()
-            let keyboardGone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
-            XCTAssertEqual(XCTWaiter.wait(for: [keyboardGone], timeout: 8), .completed)
-            tap("course-catalog-result-82001")
+            // The fix is hole 1's tee. Nearby discovery installs Example, whose tee anchor puts the
+            // player on the course, so the home offers it directly (spec 5.2 附近) and 开球 enters
+            // the first hole without the start-round page.
+            let start = element("home-start-nearby")
+            XCTAssertTrue(start.waitForExistence(timeout: 30), "on-course home card")
+            let offer = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Example", "开始")).firstMatch
+            XCTAssertTrue(offer.exists, "the on-course card offers Example")
+            let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: start)
+            XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 15), .completed)
+            start.tap()
+            XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 15))
+            return
         }
+        // Without a location the home offers search and 开始一场 lists no course: search by name.
+        tap("home-new-round")
+        tap("start-round-search-all-courses")
+        let keyword = app.textFields["course-catalog-keyword-field"]
+        XCTAssertTrue(keyword.waitForExistence(timeout: 10))
+        keyword.tap()
+        // The keyboard's search key submits through the same search as the button and closes it.
+        keyword.typeText("Example\n")
+        XCTAssertTrue(element("course-catalog-result-82001").waitForExistence(timeout: 15), "search result row")
+        tap("course-catalog-result-82001")
         let start = element("start-round-primary-action")
         reveal(start)
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: start)
