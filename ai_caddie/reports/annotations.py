@@ -64,7 +64,8 @@ def validate_annotation(target_type: str, target_id: str, kind: str, payload: di
     if kind == "score_correction":
         _require_int_field(kind, payload, "to", minimum=1)
     if kind == "penalty_correction":
-        _require_int_field(kind, payload, "strokes", minimum=1)
+        # ``strokes`` sets the hole's penalty count (the latest of it and setHolePenalty wins), so 0 clears it.
+        _require_int_field(kind, payload, "strokes", minimum=0)
 
 
 def _has_note_text(payload: dict[str, Any]) -> bool:

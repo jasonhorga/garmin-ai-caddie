@@ -90,7 +90,7 @@ class ServerV2AnnotationTests(unittest.TestCase):
                     for kind, payload in [
                         ("score_correction", {}),
                         ("putt_correction", {"to": -1}),
-                        ("penalty_correction", {"strokes": 0}),
+                        ("penalty_correction", {"strokes": -1}),
                         ("strategy_note", {"preferredOptionId": "hero"}),
                     ]
                 ]

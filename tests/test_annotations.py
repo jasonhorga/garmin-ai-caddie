@@ -81,7 +81,7 @@ class AnnotationStoreTests(unittest.TestCase):
                 ("hole", "round-1:7", "hole_note", {}),
                 ("shot", "round-1:7:2", "club_correction", {"from": "8I"}),
                 ("shot", "round-1:7:2", "lie_correction", {"from": "rough"}),
-                ("hole", "round-1:7", "penalty_correction", {"strokes": 0}),
+                ("hole", "round-1:7", "penalty_correction", {"strokes": -1}),
                 ("hole", "round-1:7", "putt_correction", {"to": -1}),
                 ("hole", "round-1:7", "score_correction", {"to": 0}),
                 ("hole", "round-1:7", "strategy_note", {}),
