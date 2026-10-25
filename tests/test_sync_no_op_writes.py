@@ -1,4 +1,4 @@
-"""A re-sync that brings nothing new must leave shot files and the history cache untouched.
+"""A re-sync that brings nothing new must leave derived files and caches untouched.
 
 Garmin can answer a finished round's shot request with pin rows but no shot rows. Such a file is
 not final (``fetch._shot_cache_is_final``), so every hourly sync fetches it again. Rewriting the
@@ -62,7 +62,7 @@ class NoOpSyncWriteTests(unittest.TestCase):
             stack.enter_context(patch.object(prep_cache, name, value))
         observe = pipeline._summary_observation
         stack.enter_context(patch.object(pipeline, '_summary_observation', lambda: observe(root=s.root)))
-        # Auth and course-par ingest are outside this card; the fetch/history/cache path is real.
+        # Auth and geometry are outside this card; fetch, course-par and cache paths are real.
         stack.enter_context(patch.object(pipeline, '_ensure_auth', lambda force: True))
         stack.enter_context(patch.object(fetch, 'make_session', lambda **kw: fetch.requests.Session()))
         # Keep the played-par source deterministic while exercising the real materializer and
@@ -94,7 +94,7 @@ class NoOpSyncWriteTests(unittest.TestCase):
     def _cron_sync(self):
         return pipeline.sync(with_shots=True, geometry_limit=0)
 
-    def test_second_identical_sync_keeps_shot_file_and_history_cache(self):
+    def test_second_identical_sync_keeps_derived_files_and_caches(self):
         # Rows: entry point, and what Garmin returns for round 101's shots on the second pull.
         for entry, second in (('cron pipeline', 'same'), ('cron pipeline', 'same, keys reordered'),
                               ('API sync job', 'same')):
@@ -121,7 +121,7 @@ class NoOpSyncWriteTests(unittest.TestCase):
                 warm = stats_cache.cached_load_history_data()
                 self.assertEqual(s.get('history/summary')['summary']['totalRounds'], 1)
                 before = tuple(_file_state(path) for path in tracked_files)
-                prep_signature = prep_cache._fingerprint(31794, requested=[1])
+                prep_signature = prep_cache._fingerprint(900001, requested=[1])
                 loads_before, builds_before = load_spy.call_count, build_spy.call_count
                 signature = stats_cache.history_input_signature()
 
@@ -143,7 +143,7 @@ class NoOpSyncWriteTests(unittest.TestCase):
                     self.assertIn('[ok] unchanged 1 summaries', output_text)
                     self.assertIn('[ok] unchanged 1 clubs', output_text)
                 self.assertEqual(stats_cache.history_input_signature(), signature)
-                self.assertEqual(prep_cache._fingerprint(31794, requested=[1]), prep_signature)
+                self.assertEqual(prep_cache._fingerprint(900001, requested=[1]), prep_signature)
                 self.assertIs(stats_cache.cached_load_history_data(), warm, 'history load must stay cached')
                 self.assertEqual(s.get('history/summary')['summary']['totalRounds'], 1)
                 self.assertEqual(load_spy.call_count, loads_before, 'history files must not be re-read')
@@ -164,14 +164,14 @@ class NoOpSyncWriteTests(unittest.TestCase):
             self.assertEqual(s.get('history/summary')['summary']['shotCount'], 0)
             before = tuple(_file_state(path) for path in
                            (shot_file, summary_file, club_bag_file))
-            prep_before = prep_cache._fingerprint(31794, requested=[1])
+            prep_before = prep_cache._fingerprint(900001, requested=[1])
 
             s.fake.input['shots']['101'] = full
             self._cron_sync()
             self.assertNotEqual(_file_state(shot_file)[3], before[0][3])
             self.assertEqual(_file_state(summary_file), before[1])
             self.assertEqual(_file_state(club_bag_file), before[2])
-            self.assertNotEqual(prep_cache._fingerprint(31794, requested=[1]), prep_before)
+            self.assertNotEqual(prep_cache._fingerprint(900001, requested=[1]), prep_before)
             self.assertEqual(s.get('history/summary')['summary']['shotCount'], 3)
 
     def test_changed_summary_or_club_bag_is_written_and_invalidates_prep(self):
@@ -182,7 +182,7 @@ class NoOpSyncWriteTests(unittest.TestCase):
             summary_file = s.root / 'data/summary.json'
             club_bag_file = s.root / 'data/club_bag.json'
             before = (_file_state(summary_file), _file_state(club_bag_file))
-            prep_before = prep_cache._fingerprint(31794, requested=[1])
+            prep_before = prep_cache._fingerprint(900001, requested=[1])
 
             # A newly listed round changes the summary; Garmin also changes a club fact.
             s.fake.ids = [101, 102]
@@ -191,7 +191,7 @@ class NoOpSyncWriteTests(unittest.TestCase):
 
             self.assertNotEqual(_file_state(summary_file)[3], before[0][3])
             self.assertNotEqual(_file_state(club_bag_file)[3], before[1][3])
-            self.assertNotEqual(prep_cache._fingerprint(31794, requested=[1]), prep_before)
+            self.assertNotEqual(prep_cache._fingerprint(900001, requested=[1]), prep_before)
 
 
 if __name__ == '__main__':
