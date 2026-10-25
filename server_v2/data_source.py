@@ -16,6 +16,11 @@ def load_history_data_for_mode(
 ) -> tuple[HistoryData, ResolvedDataMode]:
     selected = mode or get_settings().data_mode
     if selected == "fixture":
+        # The fixture is the owner's demo history.  A member bearer must never receive it as a
+        # fallback; their fixture-mode history is the same empty per-player partition as local
+        # mode.  This keeps every player-scoped history route safe in CI and in demo deployments.
+        if player_id != OWNER_ID:
+            return HistoryData(raw_rounds=[], rounds=[], shots=[]), "local"
         return fixture_history_data(), "fixture"
 
     local_data = cached_load_history_data(player_id)
