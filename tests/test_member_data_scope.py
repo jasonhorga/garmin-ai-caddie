@@ -96,6 +96,16 @@ class BuildClubProfilesPlayerScopeTests(unittest.TestCase):
         self.assertEqual(set(prof), {"Driver"})
         self.assertEqual((prof["Driver"]["sampleSize"], prof["Driver"]["median"]), (5, 220.0))
 
+    def test_history_projection_can_supply_corrected_shots(self):
+        class History:
+            shots = [
+                {"club": "6I", "distance": 100.0, "shotType": "APPROACH"},
+                {"club": "6I", "distance": 110.0, "shotType": "APPROACH"},
+            ]
+
+        profiles = data.build_club_profiles(history_data=History())
+        self.assertEqual((profiles["6I"]["sampleSize"], profiles["6I"]["median"]), (2, 100.0))
+
 
 class ShotsForHoleSourcesIsolationTests(unittest.TestCase):
     """shots_for_hole(..., sources=...) projects ONLY the given player trees."""

@@ -934,7 +934,15 @@ def build_hole_analysis(
             load_geometry.cache_clear()
 
     geometry = load_geometry(int(hole["globalId"]), int(hole["localHole"]))
-    club_profiles = build_club_profiles()
+    try:
+        from ai_caddie.history.corrected_history import corrected_history_data
+        from ai_caddie.history import history
+        from ai_caddie.history.history import load_history_data
+
+        profile_history = corrected_history_data(load_history_data(), annotations_root=history.ROOT)
+    except Exception:
+        profile_history = None
+    club_profiles = build_club_profiles(history_data=profile_history)
     shots = enrich_shots(hole, geometry)
     candidates = candidate_routes(hole, shots, geometry, club_profiles)
     quality = data_quality(hole, shots, geometry, club_profiles)

@@ -6,7 +6,7 @@ the annotation store). This module is the one place that lays both over a loaded
 and the round review, the statistics (and through them the caddie's bag model) read its result:
 
 * hole facts — the effective total / putts / penalties are exactly the values the correction log
-  audits (``correction_audit._effective_hole``: the latest record across both stores wins). A putt
+  audits (``correction_audit.effective_hole``: the latest record across both stores wins). A putt
   or total correction recomputes GIR (README §4: the first putt is stroke ``strokes - putts + 1``,
   GIR when that is at most par - 1), and a putt correction marks the hole ``_puttCorrected`` so an
   otherwise unedited default hole re-enters putting and GIR (spec 2.5, B0c);
@@ -25,7 +25,7 @@ from ai_caddie.core.data import OWNER_ID
 from ai_caddie.history.history import HistoryData, round_source_shots
 from ai_caddie.reports.annotations import list_annotation_records
 from ai_caddie.rounds import round_corrections
-from ai_caddie.rounds.correction_audit import _effective_hole, _order_key, is_penalty_correction
+from ai_caddie.rounds.correction_audit import effective_hole, _effective_value, is_penalty_correction
 
 SHOT_ANNOTATION_KINDS = {"club_correction": "club", "lie_correction": "surface"}
 HOLE_ANNOTATION_FIELDS = {"score_correction": "total", "putt_correction": "putts", "penalty_correction": "penalty"}
@@ -124,22 +124,9 @@ def _hole_par(row: dict[str, Any], hole: dict[str, Any], number: int) -> int | N
     return _int(pars[number - 1]) if 1 <= number <= len(pars) else None
 
 
-def _latest_penalty_reason(records: list[dict[str, Any]], events: list[dict[str, Any]], hole: int) -> str:
-    """The issue reason of the record that set the hole's penalty (same order as the effective value);
-    a round correction event or an annotation without a reason is a plain ``penalty``."""
-    candidates = [
-        (_order_key(record, 1, position), record)
-        for position, record in enumerate(records)
-        if record.get("kind") == "penalty_correction"
-    ] + [
-        (_order_key(event, 0, position), event)
-        for position, event in enumerate(events)
-        if _int(event.get("hole")) == hole and is_penalty_correction(events, position)
-    ]
-    if not candidates:
-        return "penalty"
-    latest = max(candidates, key=lambda item: item[0])[1]
-    reason = _payload_value(latest, "reason", "issue", "tag") if latest.get("kind") == "penalty_correction" else None
+def _penalty_reason(winner: dict[str, Any] | None) -> str:
+    """The reason attached to the record that won the effective penalty value."""
+    reason = _payload_value(winner, "reason", "issue", "tag") if winner and winner.get("kind") == "penalty_correction" else None
     return str(reason or "penalty").strip().lower().replace(" ", "_") or "penalty"
 
 
@@ -188,7 +175,7 @@ def corrected_rounds(
                 holes.append(hole)
                 continue
             # The audited effective value: the same rule the correction log and spec 5.7 check use.
-            total, putts, penalty = _effective_hole(row, number, records, penalty_events)
+            total, putts, penalty = effective_hole(row, number, records, penalty_events)
             corrected = dict(hole)
             if "total" in kinds and total is not None:
                 original = _int(hole.get("strokes"))
@@ -203,7 +190,11 @@ def corrected_rounds(
             if "penalty" in kinds and penalty is not None:
                 corrected["penalties"] = penalty
                 corrected["_penaltyCorrected"] = True
-                corrected["_penaltyReason"] = _latest_penalty_reason(records, penalty_events, number)
+                target_ids = {f"{ref}:{number}" for ref in refs}
+                _penalty, winner = _effective_value(
+                    "penalty", row, number, target_ids, records, penalty_events,
+                )
+                corrected["_penaltyReason"] = _penalty_reason(winner)
             if kinds & {"total", "putts"}:
                 corrected["gir"] = _gir(corrected, _hole_par(row, corrected, number))
             holes.append(corrected)

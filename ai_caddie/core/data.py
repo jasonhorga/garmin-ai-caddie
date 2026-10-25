@@ -751,8 +751,15 @@ def _club_profile_inputs_fingerprint(dirs: list[Path], apply_overrides: bool) ->
 
 
 def build_club_profiles(
-    min_distance_m: float = 5.0, *, shot_dirs: list[Path] | None = None, apply_overrides: bool = True
+    min_distance_m: float = 5.0, *, shot_dirs: list[Path] | None = None, apply_overrides: bool = True,
+    history_data: Any | None = None,
 ) -> dict[str, dict[str, Any]]:
+    # Readers that already loaded the shared corrected history can provide it here.  This keeps
+    # measured ladders and analysis aligned with club/lies/add/delete corrections without teaching
+    # each caller how to replay the append-only stores.  The file-backed path below remains the
+    # import/source path for Garmin ingestion and callers that deliberately inspect raw files.
+    if history_data is not None:
+        return _build_club_profiles_from_history(min_distance_m, history_data)
     dirs = [SHOT_DIR] if shot_dirs is None else list(shot_dirs)
     # A test double for an input reader would not show in the file fingerprint: compute directly.
     if (
@@ -773,6 +780,44 @@ def build_club_profiles(
         _CLUB_PROFILE_CACHE[key] = (fingerprint, copy.deepcopy(profiles))
         while len(_CLUB_PROFILE_CACHE) > _CLUB_PROFILE_CACHE_MAX:
             _CLUB_PROFILE_CACHE.pop(next(iter(_CLUB_PROFILE_CACHE)))
+    return profiles
+
+
+def _build_club_profiles_from_history(min_distance_m: float, history_data: Any) -> dict[str, dict[str, Any]]:
+    distances: dict[str, list[float]] = {}
+    spellings: dict[str, dict[str, int]] = {}
+    for shot in getattr(history_data, "shots", []) or []:
+        if not isinstance(shot, dict) or str(shot.get("shotType") or "").upper() == "PUTT":
+            continue
+        try:
+            meters = float(shot.get("distance") if shot.get("distance") is not None else shot.get("meters"))
+        except (TypeError, ValueError):
+            continue
+        if meters < min_distance_m:
+            continue
+        name = str(shot.get("club") or shot.get("clubName") or "").strip()
+        if not name:
+            continue
+        key = canonical_club_key(name) or name
+        distances.setdefault(key, []).append(meters)
+        counts = spellings.setdefault(key, {})
+        counts[name] = counts.get(name, 0) + 1
+    profiles: dict[str, dict[str, Any]] = {}
+    for key, values in distances.items():
+        name = min(spellings[key].items(), key=lambda kv: (-kv[1], kv[0]))[0]
+        values.sort()
+        n = len(values)
+        if not n:
+            continue
+        pct = lambda p: round(values[max(0, min(n - 1, round((n - 1) * p)))], 1)
+        profiles[name] = {
+            "clubName": name,
+            "sampleSize": n,
+            "p10": pct(0.10),
+            "median": pct(0.50),
+            "p90": pct(0.90),
+            "confidence": "high" if n >= 30 else "medium" if n >= 10 else "low",
+        }
     return profiles
 
 

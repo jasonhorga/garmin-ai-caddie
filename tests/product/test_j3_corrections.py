@@ -7,8 +7,10 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie.history import history
+from ai_caddie.history import stats_cache
 from ai_caddie.rounds import correction_audit as audit, round_corrections as corrections
 from server_v2 import main
+from server_v2 import reports as reports_routes
 from tests.product.fixtures.c16a.support import Sandbox, fixture, write
 
 BASE = [
@@ -374,8 +376,14 @@ class CorrectionProductTests(unittest.TestCase):
             self.assertEqual(annotation(s, 'score_correction', 6).status_code, 200)
             self.assertEqual(s.get('history/overview')['recentRounds'][0]['score'], 74)
             self.assertEqual(s.get('history/rounds')['groups'][0]['rounds'][0]['score'], 74)
-            facts = {row['label']: row for row in s.get('reports/round/101')['factsUsed']}
-            self.assertEqual(facts['round_scorecard']['value']['strokes'], 6)
+            with (
+                patch.object(reports_routes, 'load_history_data_for_mode',
+                             lambda *, player_id='me': (stats_cache.cached_load_history_data(player_id), 'local')),
+                patch.object(reports_routes, 'REPORT_ROOT', s.root),
+                patch.object(reports_routes, 'MEDIA_ROOT', s.root),
+            ):
+                facts = {row['label']: row for row in s.get('reports/round/101')['factsUsed']}
+            self.assertEqual(facts['round_scorecard']['value']['score'], 74)
 
     def test_c53_set_hole_penalty_audit_uses_effective_garmin_penalty(self):
         with Sandbox() as s:
@@ -391,6 +399,7 @@ class CorrectionProductTests(unittest.TestCase):
             self.assertEqual(response.status_code, 201, response.text)
             entries = [entry for entry in response.json()['stored']['audit']['entries'] if entry['op'] == 'penalty']
             self.assertEqual([(entry['before'], entry['after']) for entry in entries], [(1, 0)])
+
 
     def test_j3_4_unreadable_history_rejects_score_annotations(self):
         with Sandbox() as s:

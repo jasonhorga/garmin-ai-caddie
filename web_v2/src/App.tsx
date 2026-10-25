@@ -199,6 +199,7 @@ export default function App() {
   const trendsWindowRef = useRef<StatsWindow>('last10')
   const reviewRoundSeq = useRef(0)
   const statsRequestSeq = useRef(0)
+  const publishedStatsSeq = useRef(0)
   const [annotationsState, setAnnotationsState] = useState<DeferredLoadState<AnnotationListResponse>>({ status: 'idle' })
   const [reportState, setReportState] = useState<DeferredLoadState<ReviewReportResponse>>({ status: 'idle' })
   const [reportIndexState, setReportIndexState] = useState<DeferredLoadState<ReviewReportIndexResponse>>({ status: 'idle' })
@@ -433,10 +434,12 @@ export default function App() {
     setStatsState({ status: 'loading' })
     try {
       const data = await fetchHistoryStats(adminTokenOverride)
-      if (statsRequestSeq.current !== seq) return
+      if (statsRequestSeq.current !== seq || seq <= publishedStatsSeq.current) return
+      publishedStatsSeq.current = seq
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
-      if (statsRequestSeq.current !== seq) return
+      if (statsRequestSeq.current !== seq || seq <= publishedStatsSeq.current) return
+      publishedStatsSeq.current = seq
       setStatsState({ status: 'error', message: errorMessage(error) })
     }
   }
@@ -446,21 +449,19 @@ export default function App() {
     signal?: AbortSignal,
   ) {
     // Saves and syncs refresh back to back; only the latest request may publish, so a slow
-    // response computed before a correction never overwrites the corrected statistics.
+    // response computed before a correction never overwrites the corrected statistics. Published
+    // sequence numbers are never reused: an aborted request simply publishes nothing.
     const seq = ++statsRequestSeq.current
-    // A cancelled refresh publishes nothing, so it must not keep the newest slot either: hand it back
-    // and let the request it superseded (a still-loading full load, say) publish its valid result.
-    const release = () => {
-      if (statsRequestSeq.current === seq) statsRequestSeq.current = seq - 1
-    }
     try {
       const data = await fetchHistoryStats(adminTokenOverride, 'all', signal)
-      if (signal?.aborted) return release()
-      if (statsRequestSeq.current !== seq) return
+      if (signal?.aborted) return
+      if (statsRequestSeq.current !== seq || seq <= publishedStatsSeq.current) return
+      publishedStatsSeq.current = seq
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
-      if (signal?.aborted || isAbortError(error)) return release()
-      if (statsRequestSeq.current !== seq) return
+      if (signal?.aborted || isAbortError(error)) return
+      if (statsRequestSeq.current !== seq || seq <= publishedStatsSeq.current) return
+      publishedStatsSeq.current = seq
       setStatsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }

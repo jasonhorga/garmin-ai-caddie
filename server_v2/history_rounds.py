@@ -11,6 +11,7 @@ from ai_caddie.history.history import (
     average,
     history_course_venue_name,
 )
+from ai_caddie.history.corrected_history import corrected_history_data
 from ai_caddie.reports.reports import iter_report_records
 from .data_source import load_history_data_for_mode
 from .history_overview import round_card_for_row
@@ -18,6 +19,7 @@ from .models import CourseFilterOption, EmptyState, HistoryRoundsResponse, Month
 
 
 REPORTS_ROOT = Path(".")
+ANNOTATION_ROOT = Path(".")
 
 
 def _month_key(date_value: str | None) -> str:
@@ -182,6 +184,7 @@ def load_history_rounds_response(
     player_id: str = OWNER_ID,
 ) -> HistoryRoundsResponse:
     data, _mode = load_history_data_for_mode(player_id=player_id)
+    data = corrected_history_data(data, player_id=player_id, annotations_root=ANNOTATION_ROOT)
     # Only pay the report-store read when the caller actually filters on it.
     report_round_ids = _round_ids_with_reports(player_id=player_id) if has_report is not None else None
     return build_history_rounds_response(

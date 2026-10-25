@@ -2261,6 +2261,38 @@ describe('App navigation', () => {
     await waitFor(() => expect(fetchMock.mock.calls.filter(([path]) => path === '/api/v2/history/stats/mobile?window=last10')).toHaveLength(2))
   })
 
+  it('does not publish an aborted full stats refresh and retries with a newer sequence', async () => {
+    let statsCalls = 0
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/v2/readiness') return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }
+      if (path === '/api/v2/history/stats') {
+        statsCalls += 1
+        if (statsCalls === 1) throw new DOMException('aborted', 'AbortError')
+        return { ok: true, json: async () => statsPayload() }
+      }
+      return {
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
+          if (String(path).startsWith('/api/v2/history/stats/mobile')) return statsPayload()
+          if (path === '/api/v2/mobile/courses/options') return mobileCourseOptionsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusPayload()
+          return overviewPayload()
+        },
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: '成绩' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '表现分析' }))
+    await waitFor(() => expect(statsCalls).toBe(1))
+    expect(await screen.findByRole('heading', { name: '历史数据加载失败' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '重试' }))
+    await waitFor(() => expect(statsCalls).toBe(2))
+    expect(await screen.findByRole('heading', { name: '表现分析' })).toBeInTheDocument()
+  })
+
   // The 报告 console was removed from the consumer history nav (de-engineer pass); the workspace is
   // no longer reachable via the UI, so this owner-tooling flow is skipped.
   it.skip('opens the reports workspace and loads a trend report', async () => {

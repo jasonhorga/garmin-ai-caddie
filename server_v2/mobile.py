@@ -32,6 +32,7 @@ from ai_caddie.caddie.mobile_live import (
 )
 from ai_caddie.caddie.round_loops import RoundLoopFactsMissingError
 from ai_caddie.history.history import OWNER_ID, HistoryData
+from ai_caddie.history.corrected_history import corrected_history_data
 from ai_caddie.rounds import round_ingest, score_invariant
 from ai_caddie.rounds.correction_audit import IdentityUnavailable
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
@@ -506,6 +507,7 @@ def build_mobile_round_package_response(
     player_id: str = OWNER_ID,
 ) -> LiveRoundPackageResponse:
     data, mode = load_history_data_for_mode(player_id=player_id)
+    data = corrected_history_data(data, player_id=player_id, annotations_root=ANNOTATION_ROOT)
     mark_request_stage("history_load")
     key = (
         "round",
