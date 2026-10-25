@@ -150,10 +150,13 @@ class FairwayOutlineTest(unittest.TestCase):
     def test_server_tee_result_geometry_without_prodgeometry_has_no_outline(self) -> None:
         # CourseView courseData has no fairway polygon, so the lightweight prep is not even built.
         with patch.object(cp, "geometry_coverage_for_hole", return_value={"coverage": "missing"}), \
-                patch.object(cp, "lightweight_prep_hole", side_effect=AssertionError("no fairway there")), \
-                patch.object(cp.hole_render, "load_mesh", side_effect=AssertionError("no ready mesh")):
+                patch.object(cp, "lightweight_prep_hole") as lightweight, \
+                patch.object(cp.hole_render, "load_mesh") as load_mesh:
             geometry = cp.tee_result_geometry(99999, 1)
         self.assertEqual(geometry, {"fairwayOutline": None, "routeLatLon": []})
+        # Asserted afterwards: inside tee_result_geometry an exception would be swallowed.
+        lightweight.assert_not_called()
+        load_mesh.assert_not_called()
 
 
 if __name__ == "__main__":
