@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import secrets
 from typing import Any
 
 from ai_caddie.core.data import ROOT
@@ -43,6 +45,32 @@ def _session_source(value: str | None) -> str:
     return source
 
 
+def _replace_private_file(path: Path, content: bytes) -> None:
+    """Install ``content`` at ``path`` via a sibling temp file created 0600, fsynced, then ``os.replace``d."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _restore_session_files(previous: dict[Path, bytes | None]) -> None:
+    # Best effort per file: one failed restore must not leave the other file replaced.
+    for path, content in previous.items():
+        try:
+            if content is None:
+                path.unlink(missing_ok=True)
+            else:
+                _replace_private_file(path, content)
+        except Exception:
+            continue
+
+
 def save_garmin_cn_web_session(
     *,
     web_session_header: str,
@@ -72,10 +100,8 @@ def save_garmin_cn_web_session(
     previous = {path: path.read_bytes() if path.exists() else None for path in (web_session_path, anti_forgery_path)}
     detail = "Garmin CN web session saved for local sync. Run sync to refresh local data."
     try:
-        web_session_path.write_text(web_session + "\n", encoding="utf-8")
-        anti_forgery_path.write_text(anti_forgery + "\n", encoding="utf-8")
-        web_session_path.chmod(0o600)
-        anti_forgery_path.chmod(0o600)
+        _replace_private_file(web_session_path, (web_session + "\n").encode("utf-8"))
+        _replace_private_file(anti_forgery_path, (anti_forgery + "\n").encode("utf-8"))
 
         write_connector_status(
             root=base,
@@ -88,11 +114,7 @@ def save_garmin_cn_web_session(
             data_dir=Path(data_dir) if data_dir is not None else None,
         )
     except Exception:
-        for path, content in previous.items():
-            if content is None:
-                path.unlink(missing_ok=True)
-            else:
-                path.write_bytes(content)
+        _restore_session_files(previous)
         raise
     return {
         "schema": "ai-caddie-garmin-session-import-v1",

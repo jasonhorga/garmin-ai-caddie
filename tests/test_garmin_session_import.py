@@ -1,15 +1,37 @@
 from __future__ import annotations
 
+import errno
 import json
+import os
 import stat
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest import mock
 
+from ai_caddie.connectors import session_material
 from ai_caddie.connectors.session_material import save_garmin_cn_web_session
 
 
 SECRET_VALUES = ("JWT_WEB=abc123", "csrf-secret-value", ".garmin_tokens")
+
+
+def _existing_session(root: Path) -> tuple[Path, Path, Path]:
+    token_dir = root / ".garmin_tokens"
+    token_dir.mkdir(mode=0o700)
+    cookie = token_dir / "web_cookie.txt"
+    csrf = token_dir / "csrf.txt"
+    cookie.write_text("JWT_WEB=existing-cookie\n", encoding="utf-8")
+    csrf.write_text("existing-csrf\n", encoding="utf-8")
+    return token_dir, cookie, csrf
+
+
+def _save_replacement(root: Path) -> dict:
+    return save_garmin_cn_web_session(
+        web_session_header="Cookie: JWT_WEB=replacement",
+        anti_forgery_value="connect-csrf-token: replacement-csrf",
+        root=root,
+    )
 
 
 class GarminSessionImportTests(unittest.TestCase):
@@ -91,6 +113,96 @@ class GarminSessionImportTests(unittest.TestCase):
                 )
 
             self.assertFalse((root / ".garmin_tokens").exists())
+
+    def test_failed_second_file_write_keeps_previous_session_without_temp_files(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            token_dir, cookie, csrf = _existing_session(root)
+            before = (cookie.read_bytes(), csrf.read_bytes())
+            real_replace = os.replace
+            failed: list[Path] = []
+
+            def replace(src, dst):
+                # The CSRF file is written second; its first install fails like a full disk would.
+                if Path(dst) == csrf and not failed:
+                    failed.append(Path(dst))
+                    raise OSError(errno.ENOSPC, "No space left on device")
+                return real_replace(src, dst)
+
+            with mock.patch("os.replace", side_effect=replace):
+                with self.assertRaises(OSError):
+                    _save_replacement(root)
+
+            self.assertEqual(failed, [csrf])
+            self.assertEqual((cookie.read_bytes(), csrf.read_bytes()), before)
+            self.assertEqual(sorted(path.name for path in token_dir.iterdir()), ["csrf.txt", "web_cookie.txt"])
+
+    def test_rollback_failure_on_one_file_still_restores_the_other_and_raises_original(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            token_dir, cookie, csrf = _existing_session(root)
+            csrf_before = csrf.read_bytes()
+
+            def status_failure(**_kwargs):
+                # Make the cookie path unrestorable (a directory), then fail the status write.
+                cookie.unlink()
+                cookie.mkdir()
+                raise RuntimeError("status store unavailable")
+
+            with mock.patch.object(session_material, "write_connector_status", side_effect=status_failure):
+                with self.assertRaises(Exception) as caught:
+                    _save_replacement(root)
+
+            self.assertIs(type(caught.exception), RuntimeError)
+            self.assertEqual(str(caught.exception), "status store unavailable")
+            self.assertTrue(cookie.is_dir())
+            self.assertEqual(csrf.read_bytes(), csrf_before)
+            self.assertEqual(sorted(path.name for path in token_dir.iterdir()), ["csrf.txt", "web_cookie.txt"])
+
+    def test_status_failure_removes_files_that_did_not_exist_before(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(
+                session_material,
+                "write_connector_status",
+                side_effect=RuntimeError("status store unavailable"),
+            ):
+                with self.assertRaises(RuntimeError):
+                    _save_replacement(root)
+
+            self.assertEqual(list((root / ".garmin_tokens").iterdir()), [])
+
+    def test_session_files_are_created_private_and_installed_by_replace(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            token_dir, cookie, csrf = _existing_session(root)
+            cookie.chmod(0o644)
+            csrf.chmod(0o644)
+            real_open = os.open
+            real_replace = os.replace
+            created_modes: list[int] = []
+            installed: dict[str, int] = {}
+
+            def open_(path, flags, mode=0o777, *args, **kwargs):
+                if Path(path).parent == token_dir and flags & os.O_CREAT:
+                    created_modes.append(mode)
+                return real_open(path, flags, mode, *args, **kwargs)
+
+            def replace(src, dst):
+                if Path(dst).parent == token_dir:
+                    installed[Path(dst).name] = stat.S_IMODE(os.stat(src).st_mode)
+                return real_replace(src, dst)
+
+            with mock.patch("os.open", side_effect=open_), mock.patch("os.replace", side_effect=replace):
+                _save_replacement(root)
+
+            self.assertEqual(created_modes, [0o600, 0o600])
+            self.assertEqual(installed, {"web_cookie.txt": 0o600, "csrf.txt": 0o600})
+            self.assertEqual(stat.S_IMODE(cookie.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(csrf.stat().st_mode), 0o600)
+            self.assertEqual(cookie.read_text(encoding="utf-8"), "JWT_WEB=replacement\n")
+            self.assertEqual(csrf.read_text(encoding="utf-8"), "replacement-csrf\n")
+            self.assertEqual(sorted(path.name for path in token_dir.iterdir()), ["csrf.txt", "web_cookie.txt"])
 
 
 if __name__ == "__main__":
