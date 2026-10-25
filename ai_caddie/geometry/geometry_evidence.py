@@ -230,10 +230,15 @@ def _load_json_if_ready(path: Path) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _load_hole_sources(global_id: int, local_hole: int) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Load geometry and bind any legacy hazard target to the selected layout."""
+def _load_hole_sources(
+    global_id: int, local_hole: int, meshes: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Load geometry and bind any legacy hazard target to the selected layout.
+
+    ``meshes`` is this hole's mesh JSON when the caller already decoded it (read once per ingest)."""
     hazards = _load_json_if_ready(hazard_path(int(global_id), int(local_hole))) or {}
-    meshes = _load_json_if_ready(mesh_path(int(global_id), int(local_hole))) or {}
+    if meshes is None:
+        meshes = _load_json_if_ready(mesh_path(int(global_id), int(local_hole))) or {}
     rebound = bind_selected_green_target(hazards, meshes)
     return (rebound or {}, meshes)
 
@@ -428,8 +433,10 @@ def _polygon_ring(points: Any, ref_lat: float | None, ref_lon: float | None) -> 
     return ring
 
 
-def classify_shot_surface(global_id: int, local_hole: int, shot: dict[str, Any]) -> dict[str, Any]:
-    hazards, meshes = _load_hole_sources(global_id, local_hole)
+def classify_shot_surface(
+    global_id: int, local_hole: int, shot: dict[str, Any], *, meshes: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    hazards, meshes = _load_hole_sources(global_id, local_hole, meshes)
     ref_lat = hazards.get("refLat")
     ref_lon = hazards.get("refLon")
     ref_lat_float = float(ref_lat) if ref_lat is not None else None

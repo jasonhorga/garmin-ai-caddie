@@ -426,6 +426,7 @@ def _build_scorecard(
     total_putts = sum(entered) if entered else None
 
     sc_holes: list[dict[str, Any]] = []
+    geometry = _IngestGeometry(meta.get("teeBox") or meta.get("tee"))
     for number in sorted(holes):
         acc = holes[number]
         if acc.strokes is None:
@@ -451,6 +452,7 @@ def _build_scorecard(
             par=_par_for_hole(hole_pars, number),
             shots=acc.shots,
             total_strokes=acc.strokes,
+            geometry=geometry,
         )
         sc_holes.append(hole_dict)
     # Only explicit score events complete holes. A finishing client can report a stale count in
@@ -558,6 +560,45 @@ def _shot_type(club: dict[str, Any], idx_in_hole: int) -> str:
 # fairway stats (not a score proxy). Everything degrades to None when a global id, a shot
 # position, or the geometry files are missing -- the history pipeline already handles None.
 # ---------------------------------------------------------------------------
+class _IngestGeometry:
+    """The course geometry one ingest reads. Each hole's mesh JSON is decoded at most once and
+    shared by the GIR surface and the tee result; the round's Tee resolves once per course."""
+
+    def __init__(self, tee_box: Any) -> None:
+        self._tee_box = str(tee_box or "blue")
+        self._meshes: dict[tuple[int, int], dict[str, Any] | None] = {}
+        self._tee_sets: dict[int, int | None] = {}
+
+    def meshes(self, global_id: int, local_hole: int) -> dict[str, Any] | None:
+        key = (int(global_id), int(local_hole))
+        if key not in self._meshes:
+            try:
+                from ai_caddie.core.data import mesh_path
+
+                path = mesh_path(*key)
+                value = read_json(path) if path.exists() else None
+            except Exception:
+                value = None  # an unreadable mesh is missing geometry, never an ingest failure
+            self._meshes[key] = value if isinstance(value, dict) else None
+        return self._meshes[key]
+
+    def tee_set(self, global_id: int) -> int | None:
+        """The round's Tee as the phone's course package resolves it (``mobile_live`` and
+        ``vector_prep``): the release Tee named by ``teeBox``, else the course's Blue."""
+        gid = int(global_id)
+        if gid not in self._tee_sets:
+            try:
+                from ai_caddie.caddie.analysis import tee_set_for_box
+
+                tee_set = tee_set_for_box(gid, self._tee_box, colour_fallback=False)
+                if tee_set is None:
+                    tee_set = tee_set_for_box(gid, "blue", colour_fallback=False)
+            except Exception:
+                tee_set = None
+            self._tee_sets[gid] = tee_set
+        return self._tee_sets[gid]
+
+
 def _shot_end_deg(shots: list[dict[str, Any]], idx: int) -> tuple[float, float] | None:
     """End position ``(lat, lon)`` in DEGREES of the shot at ``idx``: the start of the next
     shot on the hole, or -- for the last recorded shot -- its target/aim. Shared with
@@ -593,7 +634,10 @@ def _hole_geometry_ref(
 
 
 def _classify_end_kind(
-    global_id: int | None, local_hole: int, end_deg: tuple[float, float] | None
+    global_id: int | None,
+    local_hole: int,
+    end_deg: tuple[float, float] | None,
+    geometry: _IngestGeometry,
 ) -> str | None:
     """Surface kind ("green"/"fairway"/"rough"/...) under a shot's DEGREE end position, or
     None when it can't be determined (no gid, no position, geometry missing, or unknown).
@@ -612,6 +656,7 @@ def _classify_end_kind(
             int(global_id),
             int(local_hole),
             {"end": {"lat": float(end_deg[0]), "lon": float(end_deg[1])}},
+            meshes=geometry.meshes(global_id, local_hole) or {},
         )
         kind = (result.get("surface") or {}).get("kind")
     except Exception:
@@ -627,6 +672,8 @@ def _derive_gir_fairway(
     par: int | None,
     shots: list[dict[str, Any]],
     total_strokes: int | None,
+    *,
+    geometry: _IngestGeometry | None = None,
 ) -> tuple[bool | None, str | None]:
     """REAL green-in-regulation and fairway-hit for one hole. Returns ``(gir, fairway)``.
 
@@ -648,6 +695,7 @@ def _derive_gir_fairway(
     fairway: str | None = None
     if global_id is None or par is None or par < 3:
         return gir, fairway
+    geometry = geometry or _IngestGeometry(None)
 
     reg_strokes = par - 2  # full strokes to reach the green "in regulation"
 
@@ -657,26 +705,33 @@ def _derive_gir_fairway(
     else:
         reg_idx = par - 3  # 0-indexed regulation-stroke shot (par3->0, par4->1, par5->2)
         end = _shot_end_deg(shots, reg_idx) if 0 <= reg_idx < len(shots) else None
-        kind = _classify_end_kind(global_id, local_hole, end)
+        kind = _classify_end_kind(global_id, local_hole, end, geometry)
         if kind is not None:
             gir = kind == "green"
 
     if par >= 4 and len(shots) >= 2:
-        fairway = _tee_result(global_id, local_hole, par, (shots[1]["lat"], shots[1]["lon"]))
+        fairway = _tee_result(global_id, local_hole, par, (shots[1]["lat"], shots[1]["lon"]), geometry)
 
     return gir, fairway
 
 
-def _tee_result(global_id: int, local_hole: int, par: int, point: tuple[float, float]) -> str | None:
+def _tee_result(
+    global_id: int, local_hole: int, par: int, point: tuple[float, float], geometry: _IngestGeometry
+) -> str | None:
     """The shared B0 tee-result classifier (``tee_result.classify_tee_result``, the algorithm the
-    phone and Watch run) on this hole's server-side fairway outline and route."""
+    phone and Watch run) on this hole's server-side fairway outline and the round Tee's route."""
     try:
         from ai_caddie.courses import course_prep
         from ai_caddie.courses.tee_result import classify_tee_result
 
-        geometry = course_prep.tee_result_geometry(int(global_id), int(local_hole))
+        facts = course_prep.tee_result_geometry(
+            int(global_id),
+            int(local_hole),
+            tee_set=geometry.tee_set(global_id),
+            meshes=geometry.meshes(global_id, local_hole),
+        )
         return classify_tee_result(
-            [point[0], point[1]], geometry.get("fairwayOutline"), geometry.get("routeLatLon"), par
+            [point[0], point[1]], facts.get("fairwayOutline"), facts.get("routeLatLon"), par
         )
     except Exception:
         return None  # geometry must never break ingest
@@ -690,11 +745,12 @@ def _enrich_hole_gir_fairway(
     par: int | None,
     shots: list[dict[str, Any]],
     total_strokes: int | None,
+    geometry: _IngestGeometry | None = None,
 ) -> dict[str, Any]:
     """Write derived gir/fairway into ``hole`` ONLY when absent and determinable. A value
     already present (a Garmin-authoritative one) is NEVER overwritten; an undeterminable
     (None) value is omitted -- not written -- so ``hole.get(...)`` stays None for the pipeline."""
-    gir, fairway = _derive_gir_fairway(global_id, local_hole, par, shots, total_strokes)
+    gir, fairway = _derive_gir_fairway(global_id, local_hole, par, shots, total_strokes, geometry=geometry)
     if gir is not None and hole.get("gir") is None:
         hole["gir"] = gir
     if fairway is not None and hole.get("fairway") is None:
