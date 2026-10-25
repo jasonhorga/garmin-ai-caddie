@@ -34,6 +34,8 @@ public final class RoundEditModel: ObservableObject {
 
     private let sync: SyncClient
     private let roundRef: String
+    /// The scorecard total is read-only in this editor, but it bounds the editable putts/penalty.
+    private let recordedScore: Int?
     /// The canonical round id for hole-level putt corrections (the stats read `{canonical}:{hole}`);
     /// the requested ref when the detail has not told us the canonical one.
     private let puttTargetRoundRef: String
@@ -50,8 +52,9 @@ public final class RoundEditModel: ObservableObject {
     private let now: () -> Date
 
     public init(map: RoundHoleShotMap, sync: SyncClient, roundRef: String, globalId: Int? = nil, backGlobalId: Int? = nil, nine: String? = nil, teeBox: String? = nil,
-                putts: Int? = nil, puttTargetRoundRef: String? = nil, now: @escaping () -> Date = Date.init) {
+                score: Int? = nil, putts: Int? = nil, puttTargetRoundRef: String? = nil, now: @escaping () -> Date = Date.init) {
         self.map = map
+        self.recordedScore = score
         self.putts = putts
         self.originalPutts = putts
         self.now = now
@@ -298,6 +301,10 @@ public final class RoundEditModel: ObservableObject {
             resetDraftState()
             return true
         }
+        guard finalScoreIsPossible else {
+            saveError = "总杆不得低于推杆+罚杆+1，草稿仍在；请调整后重试"
+            return false
+        }
 
         isSaving = true
         saveError = nil
@@ -376,6 +383,11 @@ public final class RoundEditModel: ObservableObject {
         map = fresh
         originalMap = fresh
         routeOrigin = Self.resolvedRouteOrigin(in: fresh)
+    }
+
+    private var finalScoreIsPossible: Bool {
+        guard let recordedScore else { return true }
+        return recordedScore >= (putts ?? 0) + map.manualPenalty + 1
     }
 
     // MARK: - Helpers

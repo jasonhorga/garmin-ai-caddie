@@ -2052,6 +2052,20 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.activeHole, 2)
     }
 
+    func testManualScoreSaveOrdersEachEventAroundTheC20Invariant() throws {
+        // Hand-written C20 sequence: 7/4/1 → 5/2/2 must be putt, total, penalty.
+        let model = seededModel(holes: [hole(1, score: 7, putts: 4, penalty: 1), hole(2)])
+        model.startEditingHole(1)
+        model.adjustDraftPutts(-2)
+        model.adjustDraftScore(-2)
+        model.adjustDraftPenalty(1)
+        model.saveManualScore()
+
+        let events = try XCTUnwrap(model.round?.pendingEvents.filter { $0.hole == 1 })
+        XCTAssertEqual(events.map(\.kind), [.putt, .score, .penalty])
+        XCTAssertEqual(events.map(\.value), ["2", "5", "2"])
+    }
+
     /// Owner request 2026-10-12: an A / B / C venue started as one nine gets the turn too (S70 ends
     /// the round there), and a wrong second loop can be changed until it is played.
     func testANineHoleLoopVenueTurnsToAnotherLoopAndTheChoiceCanChange() async {
@@ -2550,6 +2564,9 @@ final class WatchRoundModelTests: XCTestCase {
             let model = seededModel(holes: [hole(1, score: 12, putts: 6, penalty: 5), hole(2)])
             model.startEditingHole(1)
             XCTAssertEqual([model.draftScore, model.draftPutts, model.draftPenalty], [12, 6, 5], label)
+            model.adjustDraftPutts(1)
+            model.adjustDraftPenalty(1)
+            XCTAssertEqual([model.draftScore, model.draftPutts, model.draftPenalty], [12, 6, 5], label + " stays capped")
             edit(model)
             XCTAssertEqual([model.draftScore, model.draftPutts, model.draftPenalty], expected, label)
             model.saveManualScore()
