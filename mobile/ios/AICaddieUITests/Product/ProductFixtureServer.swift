@@ -132,8 +132,11 @@ final class ProductFixtureServer: @unchecked Sendable {
         let query = Dictionary((components?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
         if path == "/api/v2/health" { return (200, ["status": "ok", "dataMode": "fixture"]) }
         if path == "/api/v2/mobile/courses/options" {
+            // geometryCoverage and sourceRefs are required by MobileCourseOption; without them the
+            // catalogue fails to decode and the DEBUG app activates its bundled fixture round instead.
             return (200, ["schema": "ai-caddie-course-options-v1", "dataMode": "fixture", "total": 1,
-                "courses": [["globalId": 82001, "name": "Example", "holes": 9, "roundCount": 3, "teeBox": "blue"]],
+                "courses": [["globalId": 82001, "name": "Example", "holes": 9, "roundCount": 3, "teeBox": "blue",
+                    "geometryCoverage": state.coverage, "sourceRefs": ["fixture-course:82001"]]],
                 "generatedAt": "2026-10-23T00:00:00Z"])
         }
         if path.hasSuffix("/package") {
