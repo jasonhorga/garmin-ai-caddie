@@ -124,6 +124,7 @@ import type {
   ReadinessResponse,
   ReviewReportIndexResponse,
   ReviewReportResponse,
+  RoundCorrectionRequest,
   GarminSessionImportRequest,
   MobileReconciliationApplyResponse,
   MobileReconciliationResponse,
@@ -816,6 +817,35 @@ export default function App() {
     })
     refreshLoadedHistorySurfaces()
     return response
+  }
+
+  // A saved 复盘 correction changes every read that projects the corrected round: the hole's
+  // shot map (ReviewWorkbench evicts its own caches), the round-detail scorecard, and the loaded
+  // history surfaces (overview, summary, rounds, full and compact stats, trends baseline,
+  // readiness, report index). Refresh them keep-ready, as after an annotation or a sync, so a
+  // revisit never shows the pre-correction numbers.
+  async function handleSaveRoundCorrection(roundRef: string, correction: RoundCorrectionRequest): Promise<unknown> {
+    const response = await postRoundCorrection(roundRef, correction, currentAdminToken())
+    void refreshLoadedHistorySurfaces()
+    refreshLoadedRoundDetails(roundRef)
+    return response
+  }
+
+  function refreshLoadedRoundDetails(roundRef: string) {
+    const showsRound = (state: HistoryRoundDetailPanelState) =>
+      state.status === 'ready' && (state.data.roundRef === roundRef || state.data.requestedRef === roundRef)
+    if (!showsRound(reviewRoundDetailState) && !showsRound(roundDetailState)) return
+    const seq = reviewRoundSeq.current
+    const replace = (data: HistoryRoundDetailResponse) => (current: HistoryRoundDetailPanelState): HistoryRoundDetailPanelState =>
+      showsRound(current) ? { status: 'ready', data } : current
+    fetchHistoryRoundDetail(roundRef, currentAdminToken())
+      .then((data) => {
+        if (reviewRoundSeq.current === seq) setReviewRoundDetailState(replace(data))
+        setRoundDetailState(replace(data))
+      })
+      .catch(() => {
+        // Keep-ready: a failed refresh leaves the loaded scorecard in place.
+      })
   }
 
   function handleCreateAnnotationForSource(target: CorrectionTarget) {
@@ -1589,7 +1619,7 @@ export default function App() {
             rounds={[round]}
             playerNamespace={overviewState.status === 'ready' ? overviewState.data.currentPlayer?.id ?? null : session?.playerId ?? null}
             fetchShotMap={(roundRef, hole) => fetchRoundHoleShotMap(roundRef, hole, currentAdminToken())}
-            saveCorrection={(roundRef, correction) => postRoundCorrection(roundRef, correction, currentAdminToken())}
+            saveCorrection={handleSaveRoundCorrection}
           />
           <HistoryRoundDetailPanel
             state={reviewRoundDetailState}

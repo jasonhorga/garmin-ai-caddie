@@ -147,9 +147,6 @@ for (const row of [
       if (row.name === 'cached-statistics') {
         await page.getByRole('button', { name: '成绩', exact: true }).click()
         await openClubs(page)
-        // Reproduced cache gap; see known-red/C16g.md.
-        // Earlier edit/projection failures must remain unexpected failures.
-        test.fail(true, 'C16g/9.2: saving a correction does not invalidate loaded performance statistics')
         await expect(page.locator('.club-performance article').filter({ hasText: '7I' }).locator('em')).toHaveText('2')
         return
       }

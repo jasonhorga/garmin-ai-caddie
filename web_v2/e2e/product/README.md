@@ -96,7 +96,8 @@ text. Chinese labels locate controls; explanatory prose is not a golden.
 
 ## Known red and verification limits
 
-See `tests/product/known-red/C16g.md` for two reproduced gaps.
+See `tests/product/known-red/C16g.md` for the reproduced gaps (9.2
+cached-statistics is fixed; 9.5 share-entry remains open).
 Expected-failure annotations occur immediately
 before the specific failing assertion, after review/edit setup succeeds. A
 fixed assertion produces an unexpected pass so the annotation must be removed.
