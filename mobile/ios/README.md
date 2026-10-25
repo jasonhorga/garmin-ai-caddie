@@ -40,3 +40,5 @@ TestFlight/Release builds never embed the owner admin token. They authenticate
 through Sign in with Apple and forward that scoped session to the Watch. The
 runtime Backend screen remains a DEBUG/CI aid for simulator verification; its
 admin-token fallback is not part of the Release credential path.
+
+<!-- diag C52: CI trigger only, not for merge -->
