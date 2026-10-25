@@ -2838,7 +2838,7 @@ class MobileContractTests(unittest.TestCase):
         # One rule for phone and Watch: the draft delegates to the shared domain type.
         shared = _read_required_source(self, IOS_DIR.parent / "AICaddieDomain" / "HoleScoreValues.swift")
         self.assertEqual(shared.count("score = max(score, minimumScore)"), 2)
-        self.assertIn("var values = HoleScoreValues(\n            score: score, putts: putts, penalty: penalty,", model)
+        self.assertIn("var values = HoleScoreValues(score: score, putts: putts, penalty: penalty)", model)
         # No source hints and no multi-step flow.
         for removed in ["手动确认", "接受推荐", "手表测到", "GPS 建议", "默认标准杆", "下一步"]:
             self.assertNotIn(removed, sheet)

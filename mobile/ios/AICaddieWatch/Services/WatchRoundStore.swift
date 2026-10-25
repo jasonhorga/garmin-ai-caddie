@@ -161,7 +161,6 @@ public final class WatchRoundStore {
     private let fileURL: URL
     private let deferredFinishesURL: URL
     private let closuresURL: URL
-    private let nineLoopPairingsURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
@@ -173,7 +172,6 @@ public final class WatchRoundStore {
         self.fileURL = directory.appendingPathComponent("round.json")
         self.deferredFinishesURL = directory.appendingPathComponent("deferred-finishes.json")
         self.closuresURL = directory.appendingPathComponent("round-closures.json")
-        self.nineLoopPairingsURL = directory.appendingPathComponent("nine-loop-pairings.json")
     }
 
     // MARK: persistence
@@ -266,20 +264,6 @@ public final class WatchRoundStore {
         var deferred = loadDeferredFinishes()
         deferred.removeAll { $0.round.roundId == roundId }
         try writeDeferredFinishes(deferred)
-    }
-
-    /// The last second nine confirmed on this Watch after each first nine, keyed by loop id
-    /// (`"{globalId}:{half}"`, the phone's `nine_loop_pairings_v2.json` rule), so the next turn
-    /// preselects it. A file of its own: finishing or clearing a round must not forget it.
-    public func rememberNineLoopPairing(first: String, second: String) throws {
-        var pairings = loadNineLoopPairings()
-        pairings[first] = second
-        try write(pairings, to: nineLoopPairingsURL)
-    }
-
-    public func loadNineLoopPairings() -> [String: String] {
-        guard let data = try? Data(contentsOf: nineLoopPairingsURL) else { return [:] }
-        return (try? decoder.decode([String: String].self, from: data)) ?? [:]
     }
 
     public func closure(roundId: String) -> WatchRoundClosure? {

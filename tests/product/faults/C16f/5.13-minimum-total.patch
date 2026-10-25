@@ -1,7 +1,7 @@
 diff --git a/mobile/ios/AICaddieDomain/HoleScoreValues.swift b/mobile/ios/AICaddieDomain/HoleScoreValues.swift
 --- a/mobile/ios/AICaddieDomain/HoleScoreValues.swift
 +++ b/mobile/ios/AICaddieDomain/HoleScoreValues.swift
-@@ -35,5 +35,5 @@
+@@ -23,5 +23,5 @@
 
      /// The smallest total these putts and penalty allow.
 -    public var minimumScore: Int { putts + penalty + 1 }

@@ -1,8 +1,7 @@
 import Foundation
 
 /// B6 洞结束触发 (README §3, IMPLEMENTATION_PLAN B6): a hole is over once the player has been on its
-/// green and then walked more than 25 m off the green toward the next tee, off the green on the fix
-/// before as well, so one position spike is not an exit (spec 5.13). (The other trigger, the
+/// green and then walked more than 25 m off the green toward the next tee. (The other trigger, the
 /// next hole's first shot, is the model's next-tee shot path.) Pure and fed one GPS fix at a time, so
 /// it is tested against recorded tracks; coarse fixes are ignored rather than guessed through.
 public struct WatchHoleEndDetector: Equatable {
@@ -43,8 +42,6 @@ public struct WatchHoleEndDetector: Equatable {
     public private(set) var ended = false
     /// Distance to the next tee at the last fix on the green.
     private var nextTeeAtGreenM: Double?
-    /// The fix before this one already had the player off the green.
-    private var previousFixOffGreen = false
 
     public init(green: Green, nextTee: Point?) {
         self.green = green
@@ -53,30 +50,16 @@ public struct WatchHoleEndDetector: Equatable {
 
     /// Feed one fix; true exactly once, on the fix that ends the hole.
     public mutating func observe(latitude: Double, longitude: Double, horizontalAccuracyM: Double) -> Bool {
-        guard !ended, horizontalAccuracyM.isFinite, horizontalAccuracyM >= 0 else { return false }
+        guard !ended, horizontalAccuracyM.isFinite, horizontalAccuracyM >= 0,
+              horizontalAccuracyM <= Self.maximumAccuracyM else { return false }
         let fromCenter = WatchGeoMath.metres(latitude, longitude, green.latitude, green.longitude)
-        guard horizontalAccuracyM <= Self.maximumAccuracyM else {
-            // A coarse fix never puts the player on the green nor ends the hole, but one whose whole
-            // error circle lies off the green still shows the player has left it.
-            if fromCenter - horizontalAccuracyM > green.radiusM { previousFixOffGreen = true }
-            return false
-        }
         let toNextTee = nextTee.map { WatchGeoMath.metres(latitude, longitude, $0.latitude, $0.longitude) }
         if fromCenter <= green.radiusM + min(horizontalAccuracyM, 10) {
             reachedGreen = true
             nextTeeAtGreenM = toNextTee
-            previousFixOffGreen = false
             return false
         }
-        // Spec 5.13: one position spike must not end the hole, even when it reports good accuracy
-        // (multipath drift reads 4 m yet jumps tens of metres and back). The Watch takes about one
-        // fix a second (`kCLDistanceFilterNone`), and a walking player (~1.5 m/s) needs 10–17 s to
-        // cross the 15–25 m between the on-green band (radius + up to 10 m) and the exit line, so a
-        // real exit always shows off-green fixes first; a jump straight from the green past that
-        // line is ignored.
-        let leftBefore = previousFixOffGreen
-        previousFixOffGreen = true
-        guard reachedGreen, leftBefore, fromCenter - green.radiusM > Self.leaveGreenM else { return false }
+        guard reachedGreen, fromCenter - green.radiusM > Self.leaveGreenM else { return false }
         if let toNextTee, let atGreen = nextTeeAtGreenM, toNextTee > atGreen - Self.towardNextTeeM {
             return false
         }
