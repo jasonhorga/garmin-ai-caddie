@@ -636,7 +636,8 @@ class Card453TopoDecoupleAcceptance(unittest.TestCase):
                 key = batch._derivative_key(1, 1, mesh, distance, hazard, identity)
                 for _ in range(25):
                     batch._record_derivative_result(key, success=False)
-                self.assertEqual(load_derivatives_status(mesh)["retryAfterEpoch"] - clock[0], 300)
+                # C34: no attempt cap; the backoff ceiling is 6 h = 6 * 3600 s.
+                self.assertEqual(load_derivatives_status(mesh)["retryAfterEpoch"] - clock[0], 21600)
 
     def test_pending_package_mesh_revision_does_not_rebind_ready_install(self):
         from ai_caddie.caddie import mobile_live
@@ -651,6 +652,9 @@ class Card453TopoDecoupleAcceptance(unittest.TestCase):
                 hole=release["holes"][0], release_source="cache", geometry_zip_sha256="a" * 64))
             with (patch.object(geometry_evidence, "mesh_path", return_value=mesh),
                   patch.object(geometry_evidence, "hazard_path", return_value=hazard),
+                  patch.object(geometry_sync, "mesh_path", return_value=mesh),
+                  patch.object(geometry_sync, "hazard_path", return_value=hazard),
+                  patch.object(geometry_sync, "distances_path", return_value=root / "distances.json"),
                   patch("ai_caddie.courses.course_reference.courseview_release_info", return_value=release),
                   patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": str(root / "jobs")}),
                   patch.object(course_install, "_launch") as launch):
@@ -669,12 +673,15 @@ class Card453TopoDecoupleAcceptance(unittest.TestCase):
                 for status in ("pending", "failed"):
                     write_derivatives_status(mesh, {"status": status, "failureCount": 2, "lastErrorType": "RuntimeError"})
                     result = course_install.enqueue(**kwargs)
-                    self.assertEqual(result["phase"], "ready")
+                    # C34: the missing obstacle export keeps the job open (no live plan exists),
+                    # but the installed mesh/topo are neither rebound nor re-rendered.
+                    self.assertEqual(result["phase"], "queued")
                     self.assertEqual(result["holes"][0]["topoRevision"], row["geometryRevision"])
                     after = course_install.state_for_worker(state["jobId"])
                     self.assertEqual(after["generation"], before["generation"])
                     self.assertEqual(after["workRevision"], before["workRevision"])
-                launch.assert_not_called()
+                    self.assertEqual(after["holes"]["1:1"]["derivatives"], "queued")
+                launch.assert_called_with(state["jobId"])
 
     def test_startup_reports_pending_while_obstacles_are_missing(self):
         from server_v2 import map_startup

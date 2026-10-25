@@ -12,6 +12,7 @@ from typing import Any
 
 from ai_caddie.core.data import ROOT, hazard_path, mesh_path, scorecard_files
 from ai_caddie.geometry.batch_prodgeometry_course import (
+    derivative_state as _derivative_state,
     distances_path,
     process_hole,
     schedule_missing_derivatives,
@@ -90,6 +91,32 @@ def _schedule_missing_derivatives(
         distance_target=distances_path(int(global_id), int(local_hole)),
         hazard_target=hazard_file,
     )
+
+
+def derivative_state(global_id: int, local_hole: int) -> dict[str, Any]:
+    """Supplement (distance/obstacle) state of one installed hole; never starts work."""
+    gid, hole_no = int(global_id), int(local_hole)
+    return _derivative_state(
+        gid,
+        hole_no,
+        mesh_file=mesh_path(gid, hole_no),
+        distance_target=distances_path(gid, hole_no),
+        hazard_target=hazard_path(gid, hole_no),
+    )
+
+
+def schedule_derivatives(global_id: int, local_hole: int) -> dict[str, Any]:
+    """Start a due supplement export for an installed mesh and return the resulting state.
+
+    The backoff in the derivative lane is still authoritative: a hole whose last failure is not yet
+    due stays ``retrying`` and nothing is submitted.
+    """
+    gid, hole_no = int(global_id), int(local_hole)
+    if derivative_state(gid, hole_no).get("state") == "due":
+        _schedule_missing_derivatives(
+            gid, hole_no, mesh_file=mesh_path(gid, hole_no), hazard_file=hazard_path(gid, hole_no)
+        )
+    return derivative_state(gid, hole_no)
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:

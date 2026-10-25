@@ -2420,6 +2420,11 @@ def run_course_install_job(identifier: str) -> None:
             pass
         topo_completion_events[future].wait()
 
+    if course_install.cancellation_requested(identifier):
+        return
+    # Installed meshes still owe their optional distance/obstacle exports. Hand due exports to the
+    # derivative lane and record in-flight/retrying ones, so the job is complete only after them.
+    course_install.reconcile_derivatives(identifier)
     final = course_install.state_for_worker(identifier) or {}
     if course_install.cancellation_requested(identifier):
         return
@@ -2438,6 +2443,9 @@ def run_course_install_job(identifier: str) -> None:
             "asset unavailable",
         )
         course_install.update(identifier, phase="failed", stage="error", error=failed)
+    elif course_install._has_derivative_work(final):
+        # Mesh and topo are installed; only supplement exports remain (running or retrying).
+        course_install.update(identifier, phase="queued", stage="derivatives", clear_error=True)
     else:
         # New refs can be merged while this worker is finishing. Leave the durable row queued so
         # the hand-off in ``course_install._run`` starts another pass instead of stranding it.
@@ -2516,6 +2524,8 @@ def mobile_course_package(
             "displayHole": display_hole,
             "geometryRevision": hole.get("geometryRevision"),
             "geometryAuthorityObservation": hole.get("geometryAuthorityObservation"),
+            # A drawable hole that still lacks obstacles asks the journal for its exports.
+            "missingData": hole.get("missingData") or [],
         })
         target = (
             ready
