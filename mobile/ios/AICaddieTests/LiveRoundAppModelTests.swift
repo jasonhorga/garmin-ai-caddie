@@ -201,6 +201,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var requestedPaths = Set<String>()
+        // The post-sync refresh fires the options and bag fetches as detached tasks that the sync
+        // result and the refresh notification do not wait for, so the test waits for each request.
+        let optionsRequested = expectation(description: "course options requested after sync")
+        let bagRequested = expectation(description: "club bag requested after sync")
+        let optionsOnce = C33FirstMatch(), bagOnce = C33FirstMatch()
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
             requestLock.withLock {
@@ -213,10 +218,12 @@ final class LiveRoundAppModelTests: XCTestCase {
                     #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"ready","jobId":"garmin-sync-model","statusUrl":"/api/v2/sync/garmin/jobs/garmin-sync-model","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:01Z","startedAt":"2026-08-20T12:30:00Z","completedAt":"2026-08-20T12:30:01Z","detail":"done","reauthRequired":false,"errorCode":null,"snapshot":null,"safeMeta":{}}"#.utf8
                 )
             case ("GET", "/api/v2/mobile/courses/options"):
+                if optionsOnce.claim() { optionsRequested.fulfill() }
                 payload = Data(
                     #"{"schema":"ai-caddie-mobile-course-options-v1","dataMode":"production","total":0,"courses":[],"generatedAt":"2026-08-20T12:31:00Z"}"#.utf8
                 )
             case ("GET", "/api/v2/history/clubs/bag"):
+                if bagOnce.claim() { bagRequested.fulfill() }
                 payload = Data(#"{"found":false,"clubs":[]}"#.utf8)
             case ("GET", "/api/v2/sync/status"):
                 payload = Data(
@@ -256,7 +263,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(observer) }
 
         let succeeded = await model.syncGarminData()
-        await fulfillment(of: [refreshed], timeout: 10)
+        await fulfillment(of: [refreshed, optionsRequested, bagRequested], timeout: 10)
 
         XCTAssertTrue(succeeded)
         XCTAssertEqual(model.localEventUploadStatus, "没有待上传的本机记录")
