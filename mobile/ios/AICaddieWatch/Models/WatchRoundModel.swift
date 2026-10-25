@@ -1240,13 +1240,15 @@ public final class WatchRoundModel: ObservableObject {
     ) {
         let unscored = hole.score == 0
         let shotCount = recordedShotCount(for: hole.hole)
-        // Opened already inside the shared rule (total ≥ putts + penalty + 1, putts ≤ 5, penalty ≤ 4).
-        let values = HoleScoreValues(
+        // Opened already inside the shared rule (total ≥ putts + penalty + 1, putts ≤ 5, penalty ≤ 4,
+        // or more when the hole already records more).
+        let values = draftScoreValues(
             score: unscored
                 ? (shotCount > 0 ? shotCount + 2 : (hole.geometryCoverage == "pending" ? 1 : hole.par))
                 : hole.score,
             putts: unscored ? 2 : hole.putts,
-            penalty: hole.penaltyCount
+            penalty: hole.penaltyCount,
+            hole: hole
         )
         draftScore = values.score
         draftPutts = values.putts
@@ -1623,12 +1625,27 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     private func applyDraftValues(_ change: (inout HoleScoreValues) -> Bool) {
-        var values = HoleScoreValues(score: draftScore, putts: draftPutts, penalty: draftPenalty)
+        var values = draftScoreValues(
+            score: draftScore, putts: draftPutts, penalty: draftPenalty, hole: scoringHoleState
+        )
         guard change(&values) else { return }
         draftScore = values.score
         draftPutts = values.putts
         draftPenalty = values.penalty
         persistInteractionState()
+    }
+
+    /// The Watch range (putts 0–5, penalty 0–4), widened to what the hole already records and the
+    /// draft already holds: a hole the phone scored with 6+ putts or 5+ penalties reopens with those
+    /// values and saves them unchanged unless the player lowers them, never cut to the Watch range.
+    private func draftScoreValues(score: Int, putts: Int, penalty: Int, hole: WatchRoundState?) -> HoleScoreValues {
+        HoleScoreValues(
+            score: score,
+            putts: putts,
+            penalty: penalty,
+            puttLimit: max(HoleScoreValues.maximumPutts, hole?.putts ?? 0, putts),
+            penaltyLimit: max(HoleScoreValues.maximumPenalty, hole?.penaltyCount ?? 0, penalty)
+        )
     }
 
     /// 开球三格; tapping the selected cell clears it.

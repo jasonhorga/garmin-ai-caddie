@@ -2528,6 +2528,40 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.screen, .finishing)
     }
 
+    func testReopeningAPhoneScoredHoleBeyondTheWatchRangeKeepsItsPuttsAndPenalties() throws {
+        // C41: the phone recorded 6 putts and 5 penalties (beyond the Watch's 5 / 4); total 12 =
+        // 6 + 5 + 1. Reopening the hole and changing only 开球 or the total must keep 6 / 5.
+        let rows: [(String, (WatchRoundModel) -> Void, [Int])] = [
+            ("fairway only", { $0.setDraftFairway(.left) }, [12, 6, 5]),
+            ("total only", { $0.adjustDraftScore(1) }, [13, 6, 5]),
+            // Lowering still works, and the recorded 6 / 5 stay reachable, but nothing above them.
+            ("lower then back", { model in
+                model.adjustDraftPutts(-1)
+                model.adjustDraftPenalty(-1)
+                model.adjustDraftPutts(1)
+                model.adjustDraftPenalty(1)
+            }, [12, 6, 5]),
+            ("lower", { model in
+                model.adjustDraftPutts(-4)
+                model.adjustDraftPenalty(-5)
+            }, [12, 2, 0]),
+        ]
+        for (label, edit, expected) in rows {
+            let model = seededModel(holes: [hole(1, score: 12, putts: 6, penalty: 5), hole(2)])
+            model.startEditingHole(1)
+            XCTAssertEqual([model.draftScore, model.draftPutts, model.draftPenalty], [12, 6, 5], label)
+            edit(model)
+            XCTAssertEqual([model.draftScore, model.draftPutts, model.draftPenalty], expected, label)
+            model.saveManualScore()
+            let saved = try XCTUnwrap(model.round?.holeStates.first { $0.hole == 1 }, label)
+            XCTAssertEqual([saved.score, saved.putts, saved.penaltyCount], expected, label)
+            // Unchanged fields send nothing to the phone.
+            let sent = model.round?.pendingEvents.map(\.kind) ?? []
+            XCTAssertEqual(sent.contains(.putt), expected[1] != 6, label)
+            XCTAssertEqual(sent.contains(.penalty), expected[2] != 5, label)
+        }
+    }
+
     func testFinishSummaryRequiresExplicitConfirmationBeforeUpload() {
         let model = seededModel(holes: [hole(1, score: 4)])
 
