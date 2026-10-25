@@ -108,6 +108,25 @@
         "courseFound": {
           "type": "boolean"
         },
+        "mapSource": {
+          "type": "string",
+          "enum": ["courseData"],
+          "description": "Present when an unplayed course is built from the cached CourseView lightweight map."
+        },
+        "mapBuildId": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "CourseView release BuildId of that lightweight map."
+        },
+        "mapVariant": {
+          "type": "string",
+          "enum": ["medium", "medium-plus"]
+        },
+        "preciseGeometryState": {
+          "type": "string",
+          "enum": ["ready", "partial", "missing"],
+          "description": "Mirrors geometryCoverage.state for the lightweight-map package."
+        },
         "geometryEnsure": {
           "type": "object",
           "additionalProperties": false,
@@ -741,6 +760,12 @@
           },
           "p90_m": {
             "type": "number"
+          },
+          "sampleRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
