@@ -250,6 +250,21 @@ def clean_club_name(name: str | None) -> str | None:
     return text
 
 
+# Garmin shots with no club (clubId=0) surface as "Unknown" — thousands of them — and case
+# variants ("PW" vs "Pw") would otherwise split one club into two rows. canonical_club_key folds
+# case/whitespace for grouping and returns None for the Unknown/empty bucket so phantom clubs
+# never appear as a real club row in the distance model. Shared by the history club list and the
+# measured club profiles behind the caddie ladder, so both merge spellings the same way.
+_UNKNOWN_CLUB_TOKENS = {"", "unknown", "0", "none", "null", "n/a"}
+
+
+def canonical_club_key(name: Any) -> str | None:
+    text = " ".join(str(name or "").split())
+    if text.lower() in _UNKNOWN_CLUB_TOKENS:
+        return None
+    return text.upper()
+
+
 def club_name_from_details(club_id: int | None, shot_data: dict[str, Any], *, apply_overrides: bool = True) -> str:
     if not club_id:
         return "Unknown"
@@ -768,7 +783,11 @@ def _build_club_profiles_uncached(
     # dir(s) so their measured distances come only from their own logged rounds — never another
     # player's. Garmin + manual shots share the holeShots[].shots[].meters/clubId shape, so this
     # works for a no-Garmin member straight from their manual logs.
+    # Spellings that differ only in case/whitespace ("Driver" / "driver" on two Garmin clubIds) are
+    # one club: pool their shots under canonical_club_key, the same merge the history club list
+    # does, and label the profile with the most-used spelling. The Unknown bucket keeps its raw name.
     distances: dict[str, list[float]] = {}
+    spellings: dict[str, dict[str, int]] = {}
     for shot_dir in dirs:
         for shot_file in shot_dir.glob("*.json"):
             try:
@@ -788,10 +807,14 @@ def _build_club_profiles_uncached(
                     if shot.get("shotType") == "PUTT":
                         continue
                     name = club_name_from_details(shot.get("clubId"), data, apply_overrides=apply_overrides)
-                    distances.setdefault(name, []).append(meters)
+                    key = canonical_club_key(name) or name
+                    distances.setdefault(key, []).append(meters)
+                    counts = spellings.setdefault(key, {})
+                    counts[name] = counts.get(name, 0) + 1
 
     profiles: dict[str, dict[str, Any]] = {}
-    for name, values in distances.items():
+    for key, values in distances.items():
+        name = min(spellings[key].items(), key=lambda kv: (-kv[1], kv[0]))[0]
         values.sort()
         n = len(values)
         if not n:

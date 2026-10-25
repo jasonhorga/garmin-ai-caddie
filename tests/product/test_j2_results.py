@@ -198,11 +198,9 @@ class J2ResultsTests(unittest.TestCase):
         with self.subTest("全部 N 场"):
             self.assertEqual(archive()["total"], V("2.4", "total"))
 
-    @unittest.expectedFailure
     def test_j2_1_handicap_estimate_is_whs(self) -> None:
-        """KNOWN-RED (known-red/C16b.md #1): manual §3 says WHS; B5a says unpriceable rounds count toward
-        the 20 but the estimate ignores unusable records. Product prices unrated rounds as score-par and
-        multiplies by 0.96, so the home page's largest number is 9.0 / -4.4 instead of 10.0 / -4.0."""
+        """Was KNOWN-RED (known-red/C16b.md #1): manual §3 says WHS; B5a says unpriceable rounds count toward
+        the 20 but the estimate ignores unusable records (no score-par stand-in, no 0.96)."""
         summary = mobile("all")["summary"]
         self.assertEqual((summary["handicapEstimate"], summary["handicapChangeRecent20"]),
                          (V("2.1", "handicapEstimate"), V("2.1", "handicapChangeRecent20")))
@@ -495,10 +493,9 @@ class J2ResultsTests(unittest.TestCase):
             self.assertEqual(ladder["iron7"], want["iron7"])   # manual 150 beats measured 148
             self.assertEqual(ladder["pw"], want["pw"])         # no typed distance -> own measured median
 
-    @unittest.expectedFailure
     def test_j2_7_measured_ladder_merges_case(self) -> None:
-        """KNOWN-RED #4. Spec 2.7 球包距离阶梯 合并大小写: Driver(6 shots) + driver(5 shots) are one club of 11
-        (median 220). The caddie ladder's measured median keeps only the larger spelling."""
+        """Was KNOWN-RED #4. Spec 2.7 球包距离阶梯 合并大小写: Driver(6 shots) + driver(5 shots) are one club of
+        11 (median 220) in the caddie ladder's measured median too, not only the larger spelling."""
         bag_path = f"/api/v2/players/{ENV.pid}/clubs/bag"
         ENV.put(bag_path, {"clubs": [{"token": "driver"}, {"token": "iron7", "distanceM": 150}, {"token": "pw"}]})
         self.addCleanup(lambda: ENV.put(bag_path, {"clubs": []}))
