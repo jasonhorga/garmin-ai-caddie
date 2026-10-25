@@ -1312,7 +1312,8 @@ public struct CurrentHoleView: View {
             proposed,
             mapFrame: frame,
             viewportSize: viewport,
-            scale: heroDisplayedMapScale
+            scale: heroDisplayedMapScale,
+            keepsRestReachable: liveMapFittedFrame(in: viewport) != nil
         )
     }
 
@@ -1800,7 +1801,8 @@ public struct CurrentHoleView: View {
             proposed,
             mapFrame: frame,
             viewportSize: viewport,
-            scale: scale
+            scale: scale,
+            keepsRestReachable: liveMapFittedFrame(in: viewport) != nil
         )
     }
 

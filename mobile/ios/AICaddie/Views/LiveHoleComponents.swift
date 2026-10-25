@@ -1719,11 +1719,16 @@ enum LivePlayMapOverlayLayout {
     /// move while the actual course stayed out of reach, which made the upper fairway impossible to
     /// inspect after a pinch. When a transformed axis is smaller than the viewport there is no valid
     /// pan on that axis, so it remains centered at zero.
+    ///
+    /// `keepsRestReachable` is for a deliberately placed frame (the lightweight map's centred plan
+    /// framing) that may overhang one screen edge without covering the other: its rest position
+    /// (zero offset) stays allowed, so the clamp never drags the framed hole sideways at rest.
     static func clampedOffset(
         _ proposed: CGSize,
         mapFrame: CGRect,
         viewportSize: CGSize,
-        scale: CGFloat
+        scale: CGFloat,
+        keepsRestReachable: Bool = false
     ) -> CGSize {
         guard proposed.width.isFinite,
               proposed.height.isFinite,
@@ -1750,7 +1755,8 @@ enum LivePlayMapOverlayLayout {
             let span = maximum - minimum
             guard span > viewport else { return (0, 0) }
             // After translation, the transformed bounds must cover [0, viewport].
-            return (viewport - maximum, -minimum)
+            guard keepsRestReachable else { return (viewport - maximum, -minimum) }
+            return (min(viewport - maximum, 0), max(-minimum, 0))
         }
 
         let xBounds = bounds(minimum: transformedMinX, maximum: transformedMaxX, viewport: viewportSize.width)

@@ -336,6 +336,42 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
         XCTAssertEqual(unmeasured.width, measured.width, accuracy: 0.5)
     }
 
+    /// C17 rework (live-garmin-raster-position): a lightweight frame centred on a hole near one edge
+    /// of Garmin's raster overhangs the other screen edge without covering this one. The hero's pan
+    /// clamp used to drag it back to cover the screen at rest, pushing the route to the edge and
+    /// leaving the clipped bitmap's far side black.
+    func testOffCentreGarminFrameStaysWhereItWasFramedAtRest() throws {
+        // A par 3 down the left edge of Garmin's frame: tee (80,1200), green (80,700).
+        let overlay = CoursePrepOverlay(w: 1242, h: 1920, ppm: 1, ln: 150,
+                                        route: [[80, 1200, 0], [80, 700, 150]])
+        let frame = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
+            overlay: overlay,
+            viewport: phone,
+            chrome: liveChrome
+        ))
+        // Band [215, 724]; the hole fits at the cover scale max(393/1242, 852/1920) = 0.44375, so
+        // the frame is 551.1 x 852 with the route centred: x0 = 196.5 - 80 * 0.44375 = 161.0.
+        XCTAssertEqual(frame.minX, 161.0, accuracy: 0.5)
+        XCTAssertEqual(frame.width, 551.1, accuracy: 0.5)
+        // The plain clamp (precise map, 备战) still demands cover: 0 -> -161.0, the route at x 35.5.
+        XCTAssertEqual(
+            LivePlayMapOverlayLayout.clampedOffset(.zero, mapFrame: frame, viewportSize: phone, scale: 1).width,
+            -161.0,
+            accuracy: 0.5
+        )
+        func clamped(_ proposed: CGSize, scale: CGFloat) -> CGSize {
+            LivePlayMapOverlayLayout.clampedOffset(
+                proposed, mapFrame: frame, viewportSize: phone, scale: scale, keepsRestReachable: true
+            )
+        }
+        // The framed map rests where it was framed, also when zoomed in place.
+        XCTAssertEqual(clamped(.zero, scale: 1), .zero)
+        XCTAssertEqual(clamped(.zero, scale: 2), .zero)
+        // Panning is still bounded: at rest x may go from 393 - 712.1 = -319.1 up to 0.
+        XCTAssertEqual(clamped(CGSize(width: 500, height: 0), scale: 1).width, 0, accuracy: 0.5)
+        XCTAssertEqual(clamped(CGSize(width: -1000, height: 0), scale: 1).width, -319.1, accuracy: 0.5)
+    }
+
     /// C17: Garmin's 1242 x 1920 raster shown before any CourseView route can be drawn on it (its
     /// descriptor arrived before prep, or the prep has no projection to remap through) is the
     /// empty-route Garmin overlay. Its opening frame keeps the tee, the player and the green
