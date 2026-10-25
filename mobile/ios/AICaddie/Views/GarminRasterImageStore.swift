@@ -245,6 +245,11 @@ final class GarminRasterImageStore: ObservableObject {
         imageCache.setObject(image, forKey: url as NSURL, cost: cost(of: image))
     }
 
+    /// Lets tests release large preloaded bitmaps so they cannot evict a later test's image.
+    static func evict(_ url: URL) {
+        imageCache.removeObject(forKey: url as NSURL)
+    }
+
     static func prefetch(_ url: URL?) {
         guard let url, imageCache.object(forKey: url as NSURL) == nil else { return }
         Task { _ = await image(for: url) }

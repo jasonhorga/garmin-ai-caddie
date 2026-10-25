@@ -69,6 +69,11 @@ final class TopoHoleImageStore: ObservableObject {
         imageCache.setObject(image, forKey: url as NSURL, cost: cost)
     }
 
+    /// Lets tests release large preloaded bitmaps so they cannot evict a later test's image.
+    static func evict(_ url: URL) {
+        imageCache.removeObject(forKey: url as NSURL)
+    }
+
     /// Warm a topo without creating a view. The round pager calls this while fetching all 18 shot
     /// maps, so page changes normally hit decoded memory instead of showing another network wait.
     static func prefetch(_ url: URL?) {

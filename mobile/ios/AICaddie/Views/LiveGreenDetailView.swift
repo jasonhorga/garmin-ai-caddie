@@ -23,13 +23,16 @@ enum GreenDetailImageResolver {
         }
     }
 
+    /// The crop is pure pixel math over the full-hole bitmap, so it needs the bitmap size and the
+    /// green outline but not geo anchors: a searched course can be drawable before it is registered.
     static func crop(for hole: CoursePrepHole) -> GreenDetailCrop? {
         guard let projection = hole.holeImageProjection,
-              projection.isUsable,
+              projection.available,
               let outline = hole.greenOutline,
               outline.available,
               let width = projection.widthPx,
-              let height = projection.heightPx else { return nil }
+              let height = projection.heightPx,
+              width > 1, height > 1 else { return nil }
         return GreenDetailCrop.around(
             points: outline.pointsPx,
             imageWidth: Double(width),

@@ -186,6 +186,16 @@ final class C33DrawingTests: XCTestCase {
             CoursePrepHole.self, from: JSONSerialization.data(withJSONObject: json)
         )
         XCTAssertNil(GreenDetailImageResolver.crop(for: withoutProjection))
+        // A searched course has the bitmap size before geo anchors; the pixel crop still applies.
+        var anchorlessJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        var anchorlessProjection = try XCTUnwrap(anchorlessJSON["holeImageProjection"] as? [String: Any])
+        anchorlessProjection.removeValue(forKey: "refs")
+        anchorlessJSON["holeImageProjection"] = anchorlessProjection
+        let anchorless = try JSONDecoder().decode(
+            CoursePrepHole.self, from: JSONSerialization.data(withJSONObject: anchorlessJSON)
+        )
+        XCTAssertFalse(try XCTUnwrap(anchorless.holeImageProjection).isUsable)
+        XCTAssertNotNil(GreenDetailImageResolver.crop(for: anchorless))
         var unavailableJSON = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any]
         )
@@ -226,6 +236,7 @@ final class C33DrawingTests: XCTestCase {
         let image = UIGraphicsImageRenderer(size: CGSize(width: 678, height: 1060)).image { _ in UIColor.green.setFill(); UIRectFill(CGRect(x: 0, y: 0, width: 678, height: 1060)) }
         TopoHoleImageStore.preload(image, for: topoURL)
         GarminRasterImageStore.preload(image, for: rasterURL)
+        defer { TopoHoleImageStore.evict(topoURL); GarminRasterImageStore.evict(rasterURL) }
         // A corrupt local green.png exercises the real decode-failure path without any network.
         let failedGreenURL = FileManager.default.temporaryDirectory.appendingPathComponent("c33-\(UUID().uuidString)-green.png")
         try Data("invalid png".utf8).write(to: failedGreenURL)
@@ -249,6 +260,7 @@ final class C33DrawingTests: XCTestCase {
         let rasterURL = URL(string: "https://c33.example.test/\(UUID().uuidString)/raster.jpg")!
         let image = UIGraphicsImageRenderer(size: CGSize(width: 678, height: 1060)).image { _ in }
         GarminRasterImageStore.preload(image, for: rasterURL)
+        defer { GarminRasterImageStore.evict(rasterURL) }
         // C33 fallback order: failed green + absent topo + cached Garmin must still draw a green.
         let selection = GreenDetailImageResolver.resolve(
             hole: hole, detailImage: nil, topoURL: nil, garminURL: rasterURL,
