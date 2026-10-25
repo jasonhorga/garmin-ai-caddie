@@ -315,19 +315,25 @@ def _refresh_course_release_authority(
     global_ids: list[int],
     *,
     allow_fetch: bool = True,
-) -> None:
-    """Refresh each physical loop's small Garmin release before package coverage is evaluated."""
+) -> list[int]:
+    """Refresh each physical loop's small Garmin release before package coverage is evaluated.
+
+    Returns the ids that have no release afterwards (for a cache-only read: not cached).
+    """
     from ai_caddie.courses.course_reference import courseview_release_info
 
+    missing: list[int] = []
     for selected_global_id in dict.fromkeys(int(value) for value in global_ids if int(value) > 0):
         try:
             # Geometry files and release documents live under the canonical repository data root;
             # MOBILE_ROOT only scopes player/event fixtures and may be redirected independently.
-            courseview_release_info(selected_global_id, allow_fetch=allow_fetch)
+            if not courseview_release_info(selected_global_id, allow_fetch=allow_fetch):
+                missing.append(selected_global_id)
         except Exception:
             # Offline/provider failure keeps the last complete release and precise map usable. A
             # later package request retries without making course start depend on Garmin uptime.
-            pass
+            missing.append(selected_global_id)
+    return missing
 
 
 def _fetch_cold_course_release(global_id: int) -> bool:
@@ -398,13 +404,22 @@ def _ensure_cold_course_releases(global_ids: list[int]) -> list[int]:
                             del _COLD_RELEASE_FETCHES[gid]
                     future.set_result(failed)
 
-            threading.Thread(target=run, name=f"cold-release-{gid}", daemon=True).start()
+            try:
+                threading.Thread(target=run, name=f"cold-release-{gid}", daemon=True).start()
+            except Exception as exc:
+                # Without this the future never completes and every later start of the course
+                # would wait on it; a failed start is an outage of this attempt, retryable.
+                with _COLD_RELEASE_LOCK:
+                    if _COLD_RELEASE_FETCHES.get(gid) is future:
+                        del _COLD_RELEASE_FETCHES[gid]
+                future.set_exception(exc)
+                logger.warning("course_package cold_release_thread_failed gid=%s", gid, exc_info=True)
         futures[gid] = future
     wait_futures(list(futures.values()), timeout=COLD_RELEASE_FETCH_TIMEOUT_SECONDS)
     retryable = [
         gid
         for gid in _uncached_release_ids(missing)
-        if not futures[gid].done() or futures[gid].result()
+        if not futures[gid].done() or futures[gid].exception() is not None or futures[gid].result()
     ]
     if retryable:
         logger.warning("course_package release_pending gids=%s budget_s=%s",
@@ -413,7 +428,6 @@ def _ensure_cold_course_releases(global_ids: list[int]) -> list[int]:
 
 
 def _build_course_package_with_cold_releases(
-    global_ids: list[int],
     build: Callable[[], LiveRoundPackageResponse],
 ) -> LiveRoundPackageResponse:
     """Build from cached facts; a never-installed loop gets its release once, then a rebuild.
@@ -422,12 +436,14 @@ def _build_course_package_with_cold_releases(
     background, a course seen for the first time has no release to prove its loops and the build
     reports missing facts. Only that case waits for the release: a cached or history-proven course
     keeps its cache-only start with no added provider request, and a request that contradicts a
-    known shape (``:all`` on an 18-hole course) is never a reason to call Garmin.
+    known shape (``:all`` on an 18-hole course) is never a reason to call Garmin. The uncached
+    ids come from inside the single-flight build, so concurrent phone/Watch starts still share one
+    build and observe one snapshot.
     """
-    cold = _uncached_release_ids(global_ids)
     try:
         return build()
-    except RoundLoopFactsMissingError:
+    except RoundLoopFactsMissingError as exc:
+        cold = list(getattr(exc, "uncached_release_ids", ()))
         if not cold:
             raise
     pending = _ensure_cold_course_releases(cold)
@@ -438,8 +454,9 @@ def _build_course_package_with_cold_releases(
         if not pending:
             raise
         # The loops are unproven only because Garmin has not delivered a release yet. Its fetch
-        # keeps running, so this is a retryable start rather than an invalid request; iOS treats
-        # 503 as transient (SyncClient.transientCourseReleaseHTTPStatuses).
+        # keeps running, so this is a retryable start rather than an invalid request. The iPhone
+        # start shows "暂时无法开始,稍后重试" for any HTTP error (no automatic start retry);
+        # the Watch retries its package request on its own.
         raise HTTPException(
             status_code=503,
             detail=f"course_release_pending: Garmin release for {pending} is still loading; retry",
@@ -601,40 +618,47 @@ def build_mobile_course_package_response(
 
     def build(*, cache_only: bool = False) -> LiveRoundPackageResponse:
         # Refresh every selected physical loop before historical `ready` or cached precise files are
-        # evaluated. This applies equally to played and never-played catalogue courses.
-        _refresh_course_release_authority(
+        # evaluated. This applies equally to played and never-played catalogue courses. The
+        # uncached ids are observed here, before the template reads the cache: a release that lands
+        # mid-build still counts as cold for this attempt.
+        uncached = _refresh_course_release_authority(
             list(dict.fromkeys(int(gid) for gid, _ in loops)),
             allow_fetch=False,
         )
         mark_request_stage("release_lookup")
-        package = build_live_round_package_for_loops(
-            loops,
-            # The shared projection deliberately has no caller-specific round identity. It is
-            # rebound after the single-flight result is obtained below.
-            round_id=None,
-            tee_box=tee_box,
-            data=data,
-            data_mode=mode,
-            player_id=player_id,
-            root=MOBILE_ROOT,
-            annotations_root=ANNOTATION_ROOT,
-            captured_at=captured_at,
-            weather_transport=OPEN_METEO_TRANSPORT,
-            client_id=None,
-            ensure_geometry=ensure_geometry and not cache_only,
-            # The package contract is always a complete 18-hole fact set.  Expensive precise
-            # geometry installation remains a separate durable job queued by the route below.
-            include_course_prep=False,
-            include_event_cursor=False,
-            ensure_lightweight=True,
-            allow_lightweight_fetch=False,
-            # Bound startup CPU to the recent history window. This keeps a cold round from waiting
-            # on the full historical per-hole geometry audit; the package records the scope under
-            # sourceCoverage.playerStatsWindow.
-            stats_window="last20",
-            defer_non_priority_enrichment=True,
-            map_only=map_only or cache_only,
-        )
+        try:
+            package = build_live_round_package_for_loops(
+                loops,
+                # The shared projection deliberately has no caller-specific round identity. It is
+                # rebound after the single-flight result is obtained below.
+                round_id=None,
+                tee_box=tee_box,
+                data=data,
+                data_mode=mode,
+                player_id=player_id,
+                root=MOBILE_ROOT,
+                annotations_root=ANNOTATION_ROOT,
+                captured_at=captured_at,
+                weather_transport=OPEN_METEO_TRANSPORT,
+                client_id=None,
+                ensure_geometry=ensure_geometry and not cache_only,
+                # The package contract is always a complete 18-hole fact set.  Expensive precise
+                # geometry installation remains a separate durable job queued by the route below.
+                include_course_prep=False,
+                include_event_cursor=False,
+                ensure_lightweight=True,
+                allow_lightweight_fetch=False,
+                # Bound startup CPU to the recent history window. This keeps a cold round from
+                # waiting on the full historical per-hole geometry audit; the package records the
+                # scope under sourceCoverage.playerStatsWindow.
+                stats_window="last20",
+                defer_non_priority_enrichment=True,
+                map_only=map_only or cache_only,
+            )
+        except RoundLoopFactsMissingError as exc:
+            # Single-flight followers receive this same exception object, snapshot included.
+            exc.uncached_release_ids = tuple(uncached)
+            raise
         mark_request_stage("facts_package")
         # Keep immediately drawable factual CourseView seeds for every playable hole while the
         # durable install job prepares precise assets. This is an enrichment detail, never a
@@ -654,7 +678,6 @@ def build_mobile_course_package_response(
         return LiveRoundPackageResponse(**package)
 
     package = _build_course_package_with_cold_releases(
-        [gid for gid, _half in loops],
         lambda: _package_singleflight(key, build, fallback=lambda: build(cache_only=True)),
     )
     package = _rebind_course_package_round_identity(

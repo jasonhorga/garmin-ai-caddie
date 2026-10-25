@@ -29,6 +29,18 @@ def _release_bytes(gid: int) -> bytes:
     return (FIXTURES / f"courseview_release_{gid}.pb").read_bytes()
 
 
+def _cache_release(courseview: Path, gid: int) -> None:
+    """A fresh, zh_CHS-marked cached release: the state of an already installed course."""
+    pb = _release_bytes(gid)
+    (courseview / f"{gid}_releases.pb").write_bytes(pb)
+    (courseview / f"{gid}_releases.meta.json").write_text(json.dumps({
+        "schema": "garmin-courseview-release-cache-v1",
+        "globalId": gid,
+        "languageCode": "zh_CHS",
+        "sha256": hashlib.sha256(pb).hexdigest(),
+    }))
+
+
 @contextmanager
 def fake_garmin(release_provider):
     from ai_caddie.caddie import mobile_live as ml
@@ -98,14 +110,7 @@ class ColdReleaseStartTests(unittest.TestCase):
     def test_cached_release_makes_no_provider_request(self):
         with fake_garmin(lambda *a, **kw: self.fail("provider called")) as garmin:
             for gid in (31870, 31871):
-                pb = _release_bytes(gid)
-                (garmin.courseview / f"{gid}_releases.pb").write_bytes(pb)
-                (garmin.courseview / f"{gid}_releases.meta.json").write_text(json.dumps({
-                    "schema": "garmin-courseview-release-cache-v1",
-                    "globalId": gid,
-                    "languageCode": "zh_CHS",
-                    "sha256": hashlib.sha256(pb).hexdigest(),
-                }))
+                _cache_release(garmin.courseview, gid)
             package = start_round()
         self.assert_complete_round(package)
         garmin.release.assert_not_called()  # Card: an installed course adds no network request.
@@ -140,7 +145,7 @@ class ColdReleaseStartTests(unittest.TestCase):
                 start_round()
             elapsed = time.monotonic() - started
             unblock.set()
-        # Card 2: not a 422 loop-shape error; 503 is in iOS transientCourseReleaseHTTPStatuses.
+        # Card 2: not a 422 loop-shape error but a retryable 503 (Retry-After for the Watch retry).
         self.assertEqual(raised.exception.status_code, 503)
         self.assertIn("Retry-After", raised.exception.headers or {})
         self.assertLess(elapsed, 3.0)  # 0.5 s fetch deadline plus the cached build, never the 10 s stall.
@@ -175,6 +180,66 @@ class ColdReleaseStartTests(unittest.TestCase):
                                            include_event_cursor=False, player_id=mobile.OWNER_ID)
         self.assertEqual(raised.exception.status_code, 422)
 
+    def test_cached_loop_shape_error_is_422_without_garmin(self):
+        with fake_garmin(lambda *a, **kw: self.fail("provider called")) as garmin:
+            from server_v2 import main, mobile
+            _cache_release(garmin.courseview, 31870)
+            with self.assertRaises(HTTPException) as raised:
+                # The cached release already proves 31870 is a 9-hole loop: reject at once.
+                main.mobile_course_package(31870, BackgroundTasks(), round_id="c36-cached-shape",
+                                           loops="31870:front", background_geometry=True,
+                                           include_event_cursor=False, player_id=mobile.OWNER_ID)
+        self.assertEqual(raised.exception.status_code, 422)
+        garmin.release.assert_not_called()
+        garmin.course_data.assert_not_called()
+
+    def test_release_landing_mid_build_starts_eighteen_holes(self):
+        """Production shape (线上 31732): an 18-hole course started as front,back while the
+        background bootstrap's release lands after the template was read and before the loops
+        are resolved. Fixture 31795 is the 18-hole fixture course (tests/round_loop_authority)."""
+        from ai_caddie.caddie import mobile_live as ml
+        from ai_caddie.courses import course_reference as cr
+        from server_v2 import main, mobile
+
+        gid = 31795
+        landed = threading.Event()
+        provider_fetches = []
+        release = {"name": "Fixture Eighteen", "holes": [{"par": 4}] * 18}
+
+        def release_info(global_id, *, allow_fetch=True, **kwargs):
+            if allow_fetch and not landed.is_set():
+                provider_fetches.append(int(global_id))
+            return release if int(global_id) == gid and landed.is_set() else None
+
+        def course_par(global_id, *, allow_fetch=True, **kwargs):
+            return [4] * 18 if int(global_id) == gid and landed.is_set() else None
+
+        template = ml._geometry_only_course_template
+        templates = []
+
+        def template_then_land(*args, **kwargs):
+            result = template(*args, **kwargs)
+            templates.append(len((result or {}).get("holes") or []))
+            landed.set()  # The background vector bootstrap writes the release right now.
+            return result
+
+        no_geometry = {"coverage": "missing", "geometryRevision": None, "authorityObservation": "unknown"}
+        with (fake_garmin(lambda *a, **kw: self.fail("provider called")) as garmin,
+              patch.object(cr, "courseview_release_info", side_effect=release_info),
+              patch.object(cr, "courseview_par", side_effect=course_par),
+              patch.object(ml, "geometry_coverage_for_hole", return_value=no_geometry),
+              patch.object(ml, "_geometry_only_course_template", side_effect=template_then_land)):
+            package = main.mobile_course_package(
+                gid, BackgroundTasks(), round_id="c36-mid-build", tee_box="blue",
+                loops=f"{gid}:front,{gid}:back", background_geometry=True,
+                include_event_cursor=False, player_id=mobile.OWNER_ID)
+        self.assertEqual([h["number"] for h in package.holes], list(range(1, 19)))
+        self.assertEqual([h["sourceLocalHole"] for h in package.holes], list(range(1, 19)))
+        # First template read before the release (no holes), the rebuild after it (18 holes).
+        self.assertEqual(templates, [0, 18])
+        self.assertEqual(provider_fetches, [])  # The landed release needs no Garmin request.
+        garmin.release.assert_not_called()
+
 
 class BackgroundProgressLoggingTests(unittest.TestCase):
     def test_startup_enables_background_progress_info(self):
@@ -182,7 +247,7 @@ class BackgroundProgressLoggingTests(unittest.TestCase):
         from server_v2 import main
 
         names = ("server_v2.course_install", "ai_caddie.geometry.batch_prodgeometry_course",
-                 "server_v2.map_startup")
+                 "server_v2.map_startup", "server_v2.mobile")
         loggers = [logging.getLogger(name) for name in names]
         saved = [(lg.level, lg.propagate, list(lg.handlers)) for lg in loggers]
         root_level = logging.getLogger().level
@@ -198,8 +263,8 @@ class BackgroundProgressLoggingTests(unittest.TestCase):
             lg.setLevel(logging.NOTSET)
         logging.getLogger().setLevel(logging.WARNING)  # uvicorn leaves the root at WARNING.
         main.configure_request_timing_logging()
-        # Card 3: production sees course install, derivative and map-startup progress at INFO.
-        self.assertEqual([lg.isEnabledFor(logging.INFO) for lg in loggers], [True, True, True])
+        # Card 3: production sees course install, derivative, map-startup and cold-release progress.
+        self.assertEqual([lg.isEnabledFor(logging.INFO) for lg in loggers], [True, True, True, True])
 
 
 if __name__ == "__main__":
