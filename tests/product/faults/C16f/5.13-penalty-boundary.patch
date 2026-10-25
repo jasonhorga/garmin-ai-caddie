@@ -1,10 +1,9 @@
 diff --git a/mobile/ios/AICaddieDomain/HoleScoreValues.swift b/mobile/ios/AICaddieDomain/HoleScoreValues.swift
 --- a/mobile/ios/AICaddieDomain/HoleScoreValues.swift
 +++ b/mobile/ios/AICaddieDomain/HoleScoreValues.swift
-@@ -9,5 +9,5 @@
- public struct HoleScoreValues: Codable, Equatable, Sendable {
-     public static let maximumPutts = 9
--    public static let maximumPenalty = 9
+@@ -12,4 +12,4 @@
+     public static let maximumPutts = 5
+-    public static let maximumPenalty = 4
 +    public static let maximumPenalty = 3
 
      public private(set) var score: Int

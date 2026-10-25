@@ -1,8 +1,8 @@
 diff --git a/mobile/ios/AICaddieDomain/HoleScoreValues.swift b/mobile/ios/AICaddieDomain/HoleScoreValues.swift
 --- a/mobile/ios/AICaddieDomain/HoleScoreValues.swift
 +++ b/mobile/ios/AICaddieDomain/HoleScoreValues.swift
-@@ -9,3 +9,3 @@
- public struct HoleScoreValues: Codable, Equatable, Sendable {
--    public static let maximumPutts = 9
+@@ -11,3 +11,3 @@
+     /// The Watch wheels: putts 0–5, penalty 0–4 (product test spec 5.13).
+-    public static let maximumPutts = 5
 +    public static let maximumPutts = 4
-     public static let maximumPenalty = 9
+     public static let maximumPenalty = 4

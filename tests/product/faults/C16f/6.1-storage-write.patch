@@ -1,7 +1,7 @@
 diff --git a/mobile/ios/AICaddieWatch/Services/WatchRoundStore.swift b/mobile/ios/AICaddieWatch/Services/WatchRoundStore.swift
 --- a/mobile/ios/AICaddieWatch/Services/WatchRoundStore.swift
 +++ b/mobile/ios/AICaddieWatch/Services/WatchRoundStore.swift
-@@ -195,3 +195,3 @@
+@@ -197,3 +197,3 @@
          try round.validateIdentity()
 -        try encoder.encode(round).write(to: fileURL, options: [.atomic])
 +        return

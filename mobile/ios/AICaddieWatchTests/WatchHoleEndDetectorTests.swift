@@ -61,8 +61,9 @@ final class WatchHoleEndDetectorTests: XCTestCase {
     }
 
     func testTheLastHoleEndsOnLeavingTheGreen() {
-        let track: [(Double, Double, Double)] = [(0, 0, 4), (-45, 0, 5)]
-        XCTAssertEqual(run(track, nextTee: nil), 1, "no next tee: leaving the green is enough")
+        // West 25 is off the green but short of the exit line; a real exit is walked, not one fix.
+        let track: [(Double, Double, Double)] = [(0, 0, 4), (-25, 0, 5), (-45, 0, 5)]
+        XCTAssertEqual(run(track, nextTee: nil), 2, "no next tee: leaving the green is enough")
     }
 
     func testTheGreenRadiusComesFromItsDepthWithAFloor() {

@@ -1708,6 +1708,7 @@ final class WatchRoundModelTests: XCTestCase {
         // Hole 1's green at (40.0, 116.0); hole 2's tee ~120 m east of it.
         let east120 = 116.0 + 120 / (111_195.0 * cos(40.0 * .pi / 180))
         let east45 = 116.0 + 45 / (111_195.0 * cos(40.0 * .pi / 180))
+        let east25 = 116.0 + 25 / (111_195.0 * cos(40.0 * .pi / 180))
         let first = WatchRoundState(
             roundId: "r1", hole: 1, par: 4, distanceM: nil,
             teeLatitude: 39.997, teeLongitude: 116.0, selectedClub: nil,
@@ -1719,6 +1720,9 @@ final class WatchRoundModelTests: XCTestCase {
                        "approaching the green")
         XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4), "on the green")
         XCTAssertEqual(model.screen, .home)
+        // 25 m east: off the 10 m green, 15 m past its edge, not yet past the 25 m exit line.
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: east25, horizontalAccuracyM: 5),
+                       "walking off the green")
         XCTAssertTrue(model.observeLocation(latitude: 40.0, longitude: east45, horizontalAccuracyM: 5))
         XCTAssertEqual(model.screen, .scoring)
         XCTAssertEqual(model.scoringHole, 1)
@@ -1730,6 +1734,7 @@ final class WatchRoundModelTests: XCTestCase {
         let east120 = 116.0 + 120 / (111_195.0 * cos(40.0 * .pi / 180))
         let east45 = 116.0 + 45 / (111_195.0 * cos(40.0 * .pi / 180))
         let east60 = 116.0 + 60 / (111_195.0 * cos(40.0 * .pi / 180))
+        let east25 = 116.0 + 25 / (111_195.0 * cos(40.0 * .pi / 180))
         let first = WatchRoundState(
             roundId: "r1", hole: 1, par: 4, distanceM: nil,
             teeLatitude: 39.997, teeLongitude: 116.0, selectedClub: nil,
@@ -1739,6 +1744,9 @@ final class WatchRoundModelTests: XCTestCase {
         let model = seededModel(holes: [first, hole(2, teeLatitude: 40.0, teeLongitude: east120)])
         XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: 116.0, horizontalAccuracyM: 4), "on the green")
         model.openMenu()
+        // Walking off: 25 m east is off the 10 m green but not yet past the 25 m exit line.
+        XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: east25, horizontalAccuracyM: 5))
+        XCTAssertNil(model.pendingHoleEnd)
         // The detector fires exactly once, while the menu is up: nothing opens over the menu…
         XCTAssertFalse(model.observeLocation(latitude: 40.0, longitude: east45, horizontalAccuracyM: 5))
         XCTAssertEqual(model.screen, .menu)
@@ -2013,6 +2021,7 @@ final class WatchRoundModelTests: XCTestCase {
     }
 
     /// The phone's rule (`HoleScoreValues`, README §3), not wheels: no wrapping, no cap on the total.
+    /// Only the ranges are the Watch's own: putts 0–5, penalty 0–4 (product test spec 5.13).
     func testScoreFollowsTheSameRuleAsThePhone() {
         let model = seededModel(holes: [hole(1, par: 4), hole(2)])
         model.startScoringActiveHole()
@@ -2029,8 +2038,8 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.draftScore, 17, "no cap at 15 (#417 W03)")
         model.setDraftScore(8)
         model.setDraftPutts(12)
-        XCTAssertEqual(model.draftPutts, 9, "same maximum as the phone")
-        XCTAssertEqual(model.draftScore, 11)
+        XCTAssertEqual(model.draftPutts, 5, "the Watch wheel stops at 5 (spec 5.13)")
+        XCTAssertEqual(model.draftScore, 8, "5 putts + 1 penalty + 1 = 7 fits inside the chosen 8")
         model.setDraftScore(4)
         XCTAssertEqual(model.draftPutts, 2, "a lower total gives way: putts first")
         XCTAssertEqual(model.draftPenalty, 1)
