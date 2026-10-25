@@ -1798,6 +1798,11 @@ enum LivePlayMapOverlayLayout {
     /// Chrome in the upper part of the hero (title, round buttons, 洞位图, green ladder) sets the top
     /// inset; chrome in the lower part (记分, 记一杆, the obstacle bar) sets the bottom inset; the side
     /// controls only constrain labels. Before the chrome is measured the header inset is used.
+    ///
+    /// Garmin's raster with no route on it yet (its descriptor arrived before CourseView prep, or
+    /// the prep has no projection to remap through) frames the whole raster between the same insets:
+    /// Garmin draws the hole inside its own frame, so the tee, the player and the green stay clear
+    /// of the chrome. An aspect fill of the viewport would put the tee under 记分 / 记一杆.
     static func lightweightFittedFrame(
         overlay: CoursePrepOverlay,
         viewport: CGSize,
@@ -1814,6 +1819,22 @@ enum LivePlayMapOverlayLayout {
         let top = max(liveMapTopInset, (upper.map(\.maxY).max() ?? 0) + chromeGap)
         let bottom = lower.map(\.minY).min().map { max(viewport.height - $0 + chromeGap, 0) } ?? 0
         guard top + bottom < viewport.height else { return nil }
+        let hasRoute = overlay.route.contains { $0.count >= 2 && $0[0].isFinite && $0[1].isFinite }
+        guard hasRoute else {
+            return PrepMapLayout.restFrame(
+                overlayWidth: overlay.w,
+                overlayHeight: overlay.h,
+                route: [],
+                anchors: [
+                    PrepMapLayout.Anchor(point: .zero, clearance: .zero),
+                    PrepMapLayout.Anchor(point: CGPoint(x: overlay.w, y: overlay.h), clearance: .zero),
+                ],
+                viewport: viewport,
+                topInset: top,
+                bottomInset: bottom,
+                prefersCover: false
+            )
+        }
         return PrepMapLayout.routeRestFrame(
             overlay: overlay,
             labelText: representativeRouteLabel,
