@@ -609,10 +609,7 @@ public final class SyncClient {
                 try self.validate(response: response, data: data)
                 return data
             }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(self.roundStartTimeoutInterval * 1_000_000_000))
-                throw URLError(.timedOut)
-            }
+            // MUTANT: no total start budget; the request runs on the ordinary package timeout.
             defer { group.cancelAll() }
             guard let data = try await group.next() else { throw CancellationError() }
             return data
@@ -640,7 +637,7 @@ public final class SyncClient {
         }
         applyAuth(to: &request)
         if foregroundStart {
-            request.timeoutInterval = roundStartTimeoutInterval
+            request.timeoutInterval = Self.coursePackageTimeoutInterval
             request.networkServiceType = .responsiveData
         }
         let kind = requestKind ?? (foregroundStart ? .foregroundStart : .background)
@@ -670,9 +667,7 @@ public final class SyncClient {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url)
-        request.timeoutInterval = foregroundStart
-            ? roundStartTimeoutInterval
-            : (ensureGeometry ? 900 : Self.coursePackageTimeoutInterval)
+        request.timeoutInterval = ensureGeometry ? 900 : Self.coursePackageTimeoutInterval
         if foregroundStart { request.networkServiceType = .responsiveData }
         applyAuth(to: &request)
         let kind = requestKind ?? (foregroundStart ? .foregroundStart : .background)
