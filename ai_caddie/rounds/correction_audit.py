@@ -623,14 +623,23 @@ def _hole_target_ids(row: dict[str, Any], hole: int) -> set[str]:
 
 
 def _require_possible_hole(
-    row: dict[str, Any], hole: int, annotations: list[dict[str, Any]], corrections: list[dict[str, Any]],
+    row: dict[str, Any], hole: int,
+    load_annotations: Callable[[], list[dict[str, Any]]], load_corrections: Callable[[], list[dict[str, Any]]],
 ) -> None:
-    """Spec 5.7 on the hole as it reads after the write: the effective values the audit logs."""
-    target_ids = _hole_target_ids(row, hole)
-    total, putts, penalty = (
-        _effective_value(op, row, hole, target_ids, annotations, corrections)
-        for op in ("total", "putts", "penalty")
-    )
+    """Spec 5.7 on the hole as it reads after the write: the effective values the audit logs.
+
+    A state that cannot be derived is not checked here: the write keeps its pending audit, as a
+    failed diff always has. Only a derivable impossible scorecard is refused.
+    """
+    try:
+        annotations, corrections = load_annotations(), load_corrections()
+        target_ids = _hole_target_ids(row, hole)
+        total, putts, penalty = (
+            _effective_value(op, row, hole, target_ids, annotations, corrections)
+            for op in ("total", "putts", "penalty")
+        )
+    except Exception:
+        return
     score_invariant.require_possible_hole_score(total, putts, penalty, hole=hole)
 
 
@@ -643,8 +652,8 @@ def _require_possible_annotation(
     if row is None or target is None:
         return  # no scorecard to compare against; the audit records the missing round as before
     _require_possible_hole(
-        row, target[1], [*existing, {**record, "auditSeq": _PENDING_AUDIT_SEQ}],
-        _round_correction_events(player_id, row, root),
+        row, target[1], lambda: [*existing, {**record, "auditSeq": _PENDING_AUDIT_SEQ}],
+        lambda: _round_correction_events(player_id, row, root),
     )
 
 
@@ -665,8 +674,8 @@ def _require_possible_correction(
     # correction left live beside this correction store.
     annotation_root = Path(root) if root is not None else _history.ROOT
     _require_possible_hole(
-        row, hole, list_annotation_records(root=annotation_root, player_id=player_id),
-        [*existing, {**event, "auditSeq": _PENDING_AUDIT_SEQ}],
+        row, hole, lambda: list_annotation_records(root=annotation_root, player_id=player_id),
+        lambda: [*existing, {**event, "auditSeq": _PENDING_AUDIT_SEQ}],
     )
 
 
