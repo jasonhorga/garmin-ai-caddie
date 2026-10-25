@@ -198,11 +198,9 @@ class J2ResultsTests(unittest.TestCase):
         with self.subTest("全部 N 场"):
             self.assertEqual(archive()["total"], V("2.4", "total"))
 
-    @unittest.expectedFailure
     def test_j2_1_handicap_estimate_is_whs(self) -> None:
-        """KNOWN-RED (known-red/C16b.md #1): manual §3 says WHS; B5a says unpriceable rounds count toward
-        the 20 but the estimate ignores unusable records. Product prices unrated rounds as score-par and
-        multiplies by 0.96, so the home page's largest number is 9.0 / -4.4 instead of 10.0 / -4.0."""
+        """Was KNOWN-RED (known-red/C16b.md #1): manual §3 says WHS; B5a says unpriceable rounds count toward
+        the 20 but the estimate ignores unusable records (no score-par stand-in, no 0.96)."""
         summary = mobile("all")["summary"]
         self.assertEqual((summary["handicapEstimate"], summary["handicapChangeRecent20"]),
                          (V("2.1", "handicapEstimate"), V("2.1", "handicapChangeRecent20")))
