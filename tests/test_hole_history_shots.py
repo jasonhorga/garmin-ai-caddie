@@ -16,10 +16,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import date
+import json
 import math
 import unittest
 from unittest.mock import patch
 
+from ai_caddie.core import data as disk
 from ai_caddie.history import hole_history_shots
 from ai_caddie.rounds import players
 from tests.product.fixtures.c16a.support import Sandbox, write
@@ -94,8 +96,7 @@ class HoleHistoryShotsTest(PinnedToday):
                   s_['startLie'], s_['endLie'], s_['result']) for s_ in round_shots(payload, '201')],
                 [('s:201:1', '2026-10-01', 1, 1, True, 200.0, 'TeeBox', 'Fairway', 'fairway'),
                  ('s:201:2', '2026-10-01', 1, 2, False, 100.0, 'Fairway', 'Rough', 'rough'),
-                 # Green is outside the four result categories consumed by the history overlay.
-                 ('s:201:3', '2026-10-01', 1, 3, False, 20.0, 'Rough', 'Green', 'unknown')],
+                 ('s:201:3', '2026-10-01', 1, 3, False, 20.0, 'Rough', 'Green', 'green')],
             )
             driver, iron, wedge = round_shots(payload, '201')
             self.assertEqual(driver['start'], {'lat': 0.0, 'lon': 0.0})
@@ -117,6 +118,14 @@ class HoleHistoryShotsTest(PinnedToday):
             results = [t['result'] for t in tees]
             self.assertEqual({kind: results.count(kind) for kind in set(results)},
                              {'fairway': 1, 'rough': 2, 'bunker': 1})
+
+    def test_green_and_water_are_surface_results(self) -> None:
+        with Sandbox() as s:
+            seed_rounds(s)
+            seed_round(s, 206, '2026-07-01', 'Water', 'MISS')
+            payload = s.get(URL)
+            self.assertEqual(round_shots(payload, '201')[2]['result'], 'green')
+            self.assertEqual(round_shots(payload, '206')[0]['result'], 'water')
 
     def test_rounds_outside_the_window_are_left_out(self) -> None:
         with Sandbox() as s:
@@ -205,6 +214,44 @@ class CorrectedHoleHistoryShotsTest(PinnedToday):
                                         'value': 'Bunker'}).status_code, 201)
             driver = round_shots(s.get(URL), '101')[0]
             self.assertEqual((driver['isTee'], driver['result']), (True, 'bunker'))
+
+
+class MergedNineGlobalIdTest(PinnedToday):
+    """A merged 18-hole round can use a different CourseView globalId for each nine."""
+
+    def seed_split_round(self, s: Sandbox) -> None:
+        for sid, gid in ((301, 900001), (302, 900002)):
+            card = deepcopy(s.fake.input['scorecards']['101'])
+            scorecard = card['scorecardDetails'][0]['scorecard']
+            scorecard['id'] = sid
+            scorecard['formattedStartTime'] = '2026-06-01T08:00:00'
+            scorecard['holesCompleted'] = 9
+            scorecard['holes'] = scorecard['holes'][:9]
+            scorecard['courseGlobalId'] = gid
+            scorecard['frontNineGlobalCourseId'] = gid
+            write(s.root / 'data' / 'scorecards' / f'{sid}.json', card)
+        s.fake.install_geometry(900001, 1)
+        # The fixture downloader intentionally only knows the A loop. Reuse its deterministic
+        # mesh/hazard bytes under B's physical globalId; the test is about identity routing.
+        write(disk.mesh_path(900002, 1), json.loads(disk.mesh_path(900001, 1).read_text()))
+        write(disk.hazard_path(900002, 1), json.loads(disk.hazard_path(900001, 1).read_text()))
+
+    def test_added_shots_stay_on_their_nine_global_id(self) -> None:
+        with Sandbox() as s:
+            self.seed_split_round(s)
+            merged = 'merged_301_302'
+            self.assertEqual(
+                s.correct({'op': 'addShot', 'hole': 1, 'px': [280, 440], 'club': 'SW', 'lie': 'Bunker'}, ref=merged).status_code,
+                201,
+            )
+            self.assertEqual(
+                s.correct({'op': 'addShot', 'hole': 10, 'px': [280, 440], 'club': 'SW', 'lie': 'Bunker'}, ref=merged).status_code,
+                201,
+            )
+            front = s.get('history/courses/900001/holes/1/shots')
+            back = s.get('history/courses/900002/holes/1/shots')
+            self.assertEqual([shot['roundHole'] for shot in front['shots']], [1])
+            self.assertEqual([shot['roundHole'] for shot in back['shots']], [10])
 
 
 class HoleHistoryShotsScopeTest(PinnedToday):
