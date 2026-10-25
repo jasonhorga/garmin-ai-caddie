@@ -448,12 +448,19 @@ export default function App() {
     // Saves and syncs refresh back to back; only the latest request may publish, so a slow
     // response computed before a correction never overwrites the corrected statistics.
     const seq = ++statsRequestSeq.current
+    // A cancelled refresh publishes nothing, so it must not keep the newest slot either: hand it back
+    // and let the request it superseded (a still-loading full load, say) publish its valid result.
+    const release = () => {
+      if (statsRequestSeq.current === seq) statsRequestSeq.current = seq - 1
+    }
     try {
       const data = await fetchHistoryStats(adminTokenOverride, 'all', signal)
-      if (signal?.aborted || statsRequestSeq.current !== seq) return
+      if (signal?.aborted) return release()
+      if (statsRequestSeq.current !== seq) return
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
-      if (signal?.aborted || isAbortError(error) || statsRequestSeq.current !== seq) return
+      if (signal?.aborted || isAbortError(error)) return release()
+      if (statsRequestSeq.current !== seq) return
       setStatsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
   }
@@ -773,7 +780,13 @@ export default function App() {
         if (reviewRoundSeq.current !== seq) return
         setReviewRoundDetailState({ status: 'ready', data })
         const round = roundCardFromDetail(data)
-        if (!loaded) setReviewRoundState(round ? { status: 'ready', data: round } : { status: 'error', message: '这场球在历史数据里没有找到' })
+        if (loaded) {
+          // A list/overview card carries the source totals; the detail is the corrected round, so its
+          // totals and score strip win the header (same overlay as after a saved correction).
+          if (round) setReviewRoundState({ status: 'ready', data: withCorrectedTotals(loaded, round) })
+        } else {
+          setReviewRoundState(round ? { status: 'ready', data: round } : { status: 'error', message: '这场球在历史数据里没有找到' })
+        }
       })
       .catch((error: unknown) => {
         if (reviewRoundSeq.current !== seq) return
@@ -857,7 +870,7 @@ export default function App() {
           if (corrected) {
             setReviewRoundState((current) => (
               current.status === 'ready' && [roundRef, data.roundRef, data.requestedRef].includes(current.data.id)
-                ? { status: 'ready', data: { ...current.data, score: corrected.score, par: corrected.par, toPar: corrected.toPar, scoreStrip: corrected.scoreStrip } }
+                ? { status: 'ready', data: withCorrectedTotals(current.data, corrected) }
                 : current
             ))
           }
@@ -2061,6 +2074,11 @@ export default function App() {
 
 function isUnauthorized(error: unknown): boolean {
   return error instanceof Error && /\b401\b/.test(error.message)
+}
+
+// The review header keeps the list card's identity fields and takes the corrected round's totals.
+function withCorrectedTotals(card: RoundCard, corrected: RoundCard): RoundCard {
+  return { ...card, score: corrected.score, par: corrected.par, toPar: corrected.toPar, scoreStrip: corrected.scoreStrip }
 }
 
 function sameHoleGeometryTarget(left: HoleGeometryTarget | null, right: HoleGeometryTarget): boolean {
