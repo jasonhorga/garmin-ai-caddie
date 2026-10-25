@@ -558,8 +558,8 @@ public final class SyncClient {
             roundStartOwner = owner
             return packageWork.values.compactMap {
                 switch $0.kind {
-                case .background, .foregroundStart: return $0.task
-                case .userDownload, .watchStart: return nil
+                case .foregroundStart: return $0.task
+                case .background, .userDownload, .watchStart: return nil
                 }
             }
         }
@@ -579,6 +579,13 @@ public final class SyncClient {
     #endif
 
     private func coursePackageData(_ request: URLRequest, foregroundStart: Bool, requestKind: PackageRequestKind = .background, maximumAttempts: Int = SyncClient.courseAssetMaximumAttempts) async throws -> Data {
+        if foregroundStart {
+            // MUTANT: Start waits for the previous course's package request to finish first.
+            let previous = packageWorkLock.withLock {
+                packageWork.values.filter { $0.kind == .background }.map { $0.task }
+            }
+            for task in previous { _ = try? await task.value }
+        }
         let id = UUID()
         let producer = try packageWorkLock.withLock { () throws -> Task<Data, Error> in
             guard requestKind != .background || roundStartOwner == nil else { throw CancellationError() }
