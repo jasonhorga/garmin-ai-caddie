@@ -5,6 +5,7 @@ import os
 from concurrent.futures import Future
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import threading
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -1118,6 +1119,441 @@ class CourseInstallJournalTests(unittest.TestCase):
         self.assertNotIn("secret", repr(public))
         self.assertEqual(public["error"], "course install failed")
         self.assertEqual(public["holes"][0]["error"], "course install failed")
+
+
+class _FakeTimer:
+    """``threading.Timer`` that never fires by itself; a test calls ``callback`` explicitly."""
+
+    created: list["_FakeTimer"] = []
+
+    def __init__(self, delay, callback) -> None:
+        self.delay = float(delay)
+        self.callback = callback
+        self.cancelled = False
+        _FakeTimer.created.append(self)
+
+    def start(self) -> None:
+        return None
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+
+class _ProbingLock:
+    """Stand-in for ``course_install._LOCK`` that runs ``probe`` every time the lock becomes free.
+
+    Each free point is a moment another thread (a package request asking ``hole_plan``) could take
+    the lock, so the probe sees exactly what such a request would see there — deterministically,
+    without sleeps or a second thread.  Single-threaded use only.
+    """
+
+    def __init__(self, probe) -> None:
+        self._lock = threading.RLock()
+        self._depth = 0
+        self._probe = probe
+        self._probing = False
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        acquired = self._lock.acquire(blocking, timeout)
+        if acquired:
+            self._depth += 1
+        return acquired
+
+    def release(self) -> None:
+        self._depth -= 1
+        free = self._depth == 0
+        self._lock.release()
+        if free and not self._probing:
+            self._probing = True
+            try:
+                self._probe()
+            finally:
+                self._probing = False
+
+    def __enter__(self) -> bool:
+        return self.acquire()
+
+    def __exit__(self, *_exc) -> None:
+        self.release()
+
+
+class CourseInstallHandOffTests(unittest.TestCase):
+    """C50/C56: what a package request sees while a job is handed between owners."""
+
+    GID = 950050
+    # course_install._DEFERRED_RETRY_SECONDS / _DERIVATIVE_POLL_SECONDS: a deferred nearby pass and an
+    # in-flight export are both re-checked once a minute (C34 rework 1).
+    DEFERRED_RETRY_S = 60.0
+    EXPORT_RECHECK_S = 60.0
+
+    def setUp(self) -> None:
+        from contextlib import ExitStack
+        from server_v2 import course_install
+
+        self.ci = course_install
+        _FakeTimer.created = []
+        self.submitted: list[str] = []
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        directory = stack.enter_context(TemporaryDirectory())
+        self.directory = Path(directory)
+        stack.enter_context(patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}))
+        stack.enter_context(patch.object(course_install.threading, "Timer", _FakeTimer))
+        stack.enter_context(patch.object(
+            course_install, "_WORKER",
+            SimpleNamespace(submit=lambda _fn, identifier, **_kw: self.submitted.append(identifier)),
+        ))
+        stack.enter_context(patch.object(course_install, "_ACTIVE", set()))
+        stack.enter_context(patch.object(course_install, "_RESUME_BACKLOG", []))
+        for registry in (
+            course_install._RETRY_TIMERS, course_install._RETRY_ATTEMPTS,
+            course_install._DERIVATIVE_WAITERS, course_install._DERIVATIVE_LOG_SIGNATURES,
+        ):
+            stack.enter_context(patch.dict(registry, {}, clear=True))
+
+    # ------------------------------------------------------------------ helpers
+    def journal(self, holes: list[int], *, loop_key: str | None = None, player: str = "owner") -> str:
+        with patch.object(self.ci, "_launch"):
+            return self.ci.enqueue(
+                global_id=self.GID, tee_box="blue", loop_key=loop_key or f"{self.GID}:all",
+                player_id=player,
+                refs=[{"globalId": self.GID, "localHole": h, "displayHole": h} for h in holes],
+                requested={self.GID: holes}, ready={},
+            )["jobId"]
+
+    def set_row(self, job: str, hole: int, **fields) -> None:
+        with self.ci._LOCK:
+            state = self.ci._read(job)
+            state["holes"][f"{self.GID}:{hole}"].update(fields)
+            self.ci._write(state)
+
+    def installed(self, job: str, hole: int, **derivatives) -> None:
+        self.set_row(job, hole, geometry="ready", geometryRevision="r1", topo="ready",
+                     topoRevision="r1", **derivatives)
+
+    def probe_holes(self, *holes: int) -> list:
+        """Install the probing lock; returns the list each free-lock observation is appended to."""
+        seen: list = []
+
+        def probe() -> None:
+            seen.append(tuple(self.ci.hole_plan(self.GID, hole) for hole in holes))
+
+        patcher = patch.object(self.ci, "_LOCK", _ProbingLock(probe))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return seen
+
+    def live_timers(self) -> list[_FakeTimer]:
+        return [timer for timer in self.ci._RETRY_TIMERS.values()]
+
+    # ------------------------------------------------------------------ ① deferred nearby
+    def test_deferred_nearby_job_is_not_a_plan_for_a_hole_the_player_install_lost(self) -> None:
+        from ai_caddie.caddie import mobile_live
+
+        player = self.journal([1])
+        self.ci.update(player, phase="failed", stage="error", global_id=self.GID, local_hole=1,
+                       geometry="failed", error="geometry download failed")
+        nearby = self.journal([1], loop_key=f"{self.GID}:nearby-assets", player="__nearby_public_assets__")
+        # What run_course_install_job writes for a nearby pass while the player is on a round, then
+        # the job's hand-off: re-check in a minute, for the whole round.
+        self.ci.update(nearby, phase="queued", stage="deferred", clear_error=True)
+        self.ci._schedule_retry(nearby)
+        self.assertEqual(_FakeTimer.created[-1].delay, self.DEFERRED_RETRY_S)
+
+        # main: {"state": "scheduled", now+60} every minute all round -> the hole stays pending.
+        self.assertIsNone(self.ci.hole_plan(self.GID, 1))
+        self.assertEqual(
+            mobile_live._undrawable_hole_state(self.GID, 1),
+            {"geometryState": "unavailable", "retryAfterEpoch": None},
+        )
+
+    def test_active_nearby_job_still_plans_a_hole(self) -> None:
+        player = self.journal([1])
+        self.ci.update(player, phase="failed", stage="error", global_id=self.GID, local_hole=1,
+                       geometry="failed", error="geometry download failed")
+        nearby = self.journal([1], loop_key=f"{self.GID}:nearby-assets", player="__nearby_public_assets__")
+        self.ci.update(nearby, phase="running", stage="geometry", clear_error=True)
+        with self.ci._LOCK:
+            self.ci._ACTIVE.add(nearby)
+        self.assertEqual(self.ci.hole_plan(self.GID, 1)["state"], "in_flight")
+
+    # ------------------------------------------------------------------ ② hand-off windows
+    def test_worker_exit_hands_a_retryable_job_to_its_timer_without_a_gap(self) -> None:
+        from server_v2 import main as server_main
+
+        job = self.journal([1])
+        self.ci._launch(job)  # submitted: the worker owns it
+        self.assertEqual(self.submitted, [job])
+
+        def provider_unknown(identifier: str) -> None:
+            # Garmin authority unknown: the hole stays queued for the next (backed-off) pass.
+            self.ci.update(identifier, phase="queued", stage="queued", clear_error=True)
+
+        seen = self.probe_holes(1)
+        with patch.object(server_main, "run_course_install_job", provider_unknown):
+            self.ci._run(job)
+        self.assertTrue(seen)
+        # main: one free point between leaving _ACTIVE and arming the retry timer -> (None,).
+        self.assertNotIn((None,), seen)
+        self.assertEqual(self.ci.hole_plan(self.GID, 1)["state"], "scheduled")
+
+    def test_retry_timer_firing_relaunches_without_a_gap(self) -> None:
+        job = self.journal([1])
+        self.ci._schedule_retry(job)
+        timer = _FakeTimer.created[-1]
+        seen = self.probe_holes(1)
+        timer.callback()
+        self.assertTrue(seen)
+        # main: the callback removed its timer, released the lock, then launched -> (None,).
+        self.assertNotIn((None,), seen)
+        self.assertEqual(self.submitted, [job])
+        self.assertEqual(self.ci.hole_plan(self.GID, 1)["state"], "in_flight")
+
+    def _mixed_job(self) -> str:
+        """Hole 1 installed and exporting; hole 2 still queued behind the provider backoff timer."""
+        job = self.journal([1, 2])
+        self.installed(job, 1, derivatives="running", derivativesFailureCount=0)
+        self.ci._schedule_retry(job)  # a backoff pass for hole 2 (first attempt of the budget)
+        self.assertEqual(len(self.live_timers()), 1)
+        self.ci._DERIVATIVE_WAITERS[f"{self.GID}:1"] = {job}
+        return job
+
+    @staticmethod
+    def _export_failed_once() -> dict:
+        return {"state": "retrying", "retryAfterEpoch": time.time() + 30,
+                "failureCount": 1, "lastErrorType": "RuntimeError"}
+
+    def test_settled_export_keeps_the_job_scheduled_throughout(self) -> None:
+        job = self._mixed_job()
+        seen = self.probe_holes(2)
+        with patch("ai_caddie.geometry.geometry_sync.derivative_state", return_value=self._export_failed_once()):
+            self.ci.derivatives_settled(self.GID, 1)
+        self.assertTrue(seen)
+        # main: the listener popped the backoff timer and re-armed it after a free point -> (None,).
+        self.assertNotIn((None,), seen)
+        self.assertEqual(self.ci.hole_plan(self.GID, 2)["state"], "scheduled")
+        self.assertEqual(self.ci.state_for_worker(job)["phase"], "queued")
+
+    def test_resume_scan_reports_recovered_jobs_while_it_runs(self) -> None:
+        first, second = self.journal([1]), self.journal([2], loop_key=f"{self.GID}:back")
+        for job, hole in ((first, 1), (second, 2)):
+            # A crash mid-install: the previous process's journal says running; nothing in memory.
+            self.ci.update(job, phase="running", stage="geometry", global_id=self.GID, local_hole=hole,
+                           geometry="running")
+        seen = self.probe_holes(1, 2)
+        self.ci.resume_pending_jobs()
+        self.assertTrue(seen)
+        # main: the backlog is published only after every journal is rewritten -> (None, None).
+        for observation in seen:
+            self.assertNotIn(None, observation)
+        self.assertEqual(len(self.submitted), 1)  # one recovered job at a time
+
+    # ------------------------------------------------------------------ ④ retry budget
+    def test_settled_exports_do_not_spend_the_provider_retry_budget(self) -> None:
+        job = self._mixed_job()
+        backoff = self.live_timers()[0]
+        with patch("ai_caddie.geometry.geometry_sync.derivative_state", return_value=self._export_failed_once()):
+            for _ in range(self.ci._MAX_RETRY_ATTEMPTS):
+                self.ci.derivatives_settled(self.GID, 1)
+        state = self.ci.state_for_worker(job)
+        # main: each settled export re-armed the backoff and took one attempt: the 8th one fails the
+        # job ("asset unavailable") though the provider was asked only once.
+        self.assertEqual((state["phase"], state["error"]), ("queued", None))
+        self.assertEqual(state["holes"][f"{self.GID}:2"]["geometry"], "queued")
+        self.assertEqual(self.live_timers(), [backoff])
+        self.assertFalse(backoff.cancelled)
+
+    # ------------------------------------------------------------------ ③ unsubmittable export
+    def test_export_that_cannot_be_submitted_does_not_spin_every_second(self) -> None:
+        from ai_caddie.geometry import batch_prodgeometry_course as batch
+        from ai_caddie.geometry import geometry_sync
+
+        mesh = self.directory / "mesh" / f"gid{self.GID}_h01_meshes.json"
+        mesh.parent.mkdir(parents=True)
+        mesh.write_text("{}", encoding="utf-8")
+        job = self.journal([1])
+        # Installed mesh/topo whose exports are owed (the package said hazards are missing).
+        self.installed(job, 1, derivatives="queued")
+        with (
+            patch.object(geometry_sync, "mesh_path", lambda *_: mesh),
+            patch.object(geometry_sync, "distances_path", lambda *_: mesh.with_name("distances.json")),
+            patch.object(geometry_sync, "hazard_path", lambda *_: mesh.with_name("hazards.json")),
+            patch.dict(batch._DERIVATIVE_JOBS, {}, clear=True),
+            patch.dict(batch._DERIVATIVE_FAILURES, {}, clear=True),
+            # batch_prodgeometry_course._start_derivative_job: the snapshot raises OSError, nothing
+            # is submitted and the export stays due.
+            patch.object(batch, "_derivative_snapshot", side_effect=OSError("fixture unreadable mesh")),
+        ):
+            for _pass in range(2):
+                # One non-deferred worker pass (run_course_install_job hands due exports to the lane)
+                # followed by its hand-off (_run -> _schedule_retry).
+                self.ci.reconcile_derivatives(job)
+                self.ci._schedule_retry(job)
+                timer = self.ci._RETRY_TIMERS.pop(job)
+                # The synthetic retry epoch is sampled immediately before arming the timer.
+                self.assertAlmostEqual(timer.delay, self.EXPORT_RECHECK_S, places=1)
+
+    # ------------------------------------------------------------------ ⑥ ready journal
+    def test_export_completing_the_job_drops_its_pending_wake_up(self) -> None:
+        job = self.journal([1])
+        self.installed(job, 1, derivatives="running", derivativesFailureCount=0)
+        self.ci._schedule_retry(job)  # the in-flight export re-check
+        poll = self.live_timers()[0]
+        self.assertIsNotNone(self.ci.state_for_worker(job).get("nextAttemptEpoch"))
+        self.ci._DERIVATIVE_WAITERS[f"{self.GID}:1"] = {job}
+        with patch("ai_caddie.geometry.geometry_sync.derivative_state",
+                   return_value={"state": "ready", "retryAfterEpoch": None, "failureCount": 0,
+                                 "lastErrorType": None}):
+            self.ci.derivatives_settled(self.GID, 1)
+        state = self.ci.state_for_worker(job)
+        self.assertEqual((state["phase"], state["stage"]), ("ready", "complete"))
+        # main: the 60 s timer stays armed and the ready journal still names a next attempt.
+        self.assertTrue(poll.cancelled)
+        self.assertEqual(self.live_timers(), [])
+        self.assertIsNone(state.get("nextAttemptEpoch"))
+
+    # ------------------------------------------------------------------ C56 log signatures
+    def test_export_wait_after_a_completed_job_logs_its_first_plan_at_info(self) -> None:
+        job = self.journal([1])
+
+        def replan() -> list[int]:
+            self.ci._RETRY_TIMERS.pop(job, None)
+            # The full suite's Alembic fileConfig disables this logger; production does not.
+            with patch.object(self.ci.logger, "disabled", False), self.assertLogs(
+                self.ci.logger, level="DEBUG"
+            ) as logs:
+                self.ci._schedule_retry(job)
+            return [r.levelno for r in logs.records if "stage=derivatives" in r.getMessage()]
+
+        self.installed(job, 1, derivatives="running", derivativesFailureCount=0)
+        self.assertEqual(replan(), [logging.INFO])
+        self.assertEqual(replan(), [logging.DEBUG])
+        self.ci.update(job, phase="ready", stage="complete", clear_error=True)  # the export landed
+        # Later in the same process the job owns that hole's exports again (a Garmin re-bind or
+        # the package's lacking-hazards self-heal) and its first plan is again ("running", 0, None).
+        self.ci.update(job, phase="queued", stage="derivatives", clear_error=True)
+        self.installed(job, 1, derivatives="running", derivativesFailureCount=0)
+        # main: terminal cleanup makes this a new plan, so it is INFO again.
+        self.assertEqual(replan(), [logging.INFO])
+
+    def test_terminal_write_clears_plan_signature_and_wake_epoch(self) -> None:
+        job = self.journal([1])
+        self.installed(job, 1, derivatives="running", derivativesFailureCount=0)
+        self.ci._schedule_retry(job)
+        with self.ci._LOCK:
+            state = self.ci._read(job)
+            self.ci._DERIVATIVE_LOG_SIGNATURES[job] = {f"{self.GID}:1": ("running", 0, None)}
+            state["phase"] = "ready"
+            self.ci._write(state)
+        stored = self.ci.state_for_worker(job)
+        self.assertNotIn(job, self.ci._DERIVATIVE_LOG_SIGNATURES)
+        self.assertIsNone(stored.get("nextAttemptEpoch"))
+
+    def test_update_ready_uses_terminal_write_cleanup(self) -> None:
+        job = self.journal([1])
+        self.installed(job, 1, derivatives="running", derivativesFailureCount=0)
+        self.ci._schedule_retry(job)
+        with self.ci._LOCK:
+            self.ci._DERIVATIVE_LOG_SIGNATURES[job] = {f"{self.GID}:1": ("running", 0, None)}
+        self.ci.update(job, phase="ready", stage="complete", clear_error=True)
+        state = self.ci.state_for_worker(job)
+        self.assertNotIn(job, self.ci._DERIVATIVE_LOG_SIGNATURES)
+        self.assertIsNone(state.get("nextAttemptEpoch"))
+
+    def test_derivative_delay_uses_the_earliest_retry_plan(self) -> None:
+        state = {"holes": {
+            "950050:1": {"geometry": "ready", "geometryRevision": "r1", "topo": "ready",
+                         "topoRevision": "r1", "derivatives": "retrying",
+                         "derivativesRetryAfterEpoch": time.time() + 300,
+                         "derivativesLastErrorType": "ScheduleUnavailable"},
+            "950050:2": {"geometry": "ready", "geometryRevision": "r1", "topo": "ready",
+                         "topoRevision": "r1", "derivatives": "retrying",
+                         "derivativesRetryAfterEpoch": time.time() + 30,
+                         "derivativesLastErrorType": "RuntimeError"},
+        }}
+        self.assertLess(self.ci._derivative_delay(state), 60.0)
+
+    def test_resume_scan_does_not_reset_an_active_job(self) -> None:
+        job = self.journal([1])
+        self.ci.update(job, phase="running", stage="geometry", global_id=self.GID, local_hole=1,
+                       geometry="running")
+        with self.ci._LOCK:
+            self.ci._ACTIVE.add(job)
+        self.ci.resume_pending_jobs()
+        state = self.ci.state_for_worker(job)
+        self.assertEqual((state["phase"], state["stage"], state["holes"][f"{self.GID}:1"]["geometry"]),
+                         ("running", "geometry", "running"))
+
+    def test_stale_retry_callback_cannot_remove_a_replacement_timer(self) -> None:
+        job = self.journal([1])
+        self.ci._schedule_retry(job)
+        old = self.live_timers()[0]
+        self.ci._RETRY_TIMERS.pop(job, None)
+        self.ci._schedule_retry(job)
+        replacement = self.live_timers()[0]
+        old.callback()
+        self.assertIs(self.ci._RETRY_TIMERS[job], replacement)
+
+
+class ServiceLogVisibilityTests(unittest.TestCase):
+    """⑦: course_install / geometry_derivatives progress reaches uvicorn's log output."""
+
+    def test_install_progress_lines_reach_the_uvicorn_handler(self) -> None:
+        import io
+        from ai_caddie.geometry import batch_prodgeometry_course as batch
+        from server_v2 import course_install, main as server_main
+
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        uvicorn_error = logging.getLogger("uvicorn.error")
+        loggers = [logging.getLogger(name) for name in server_main.SERVICE_INFO_LOGGERS]
+        saved = [(lg.level, lg.propagate, list(lg.handlers), lg.disabled) for lg in loggers]
+        saved_uvicorn = list(uvicorn_error.handlers)
+
+        def restore() -> None:
+            for lg, (level, propagate, handlers, disabled) in zip(loggers, saved):
+                lg.setLevel(level)
+                lg.propagate = propagate
+                lg.handlers[:] = handlers
+                lg.disabled = disabled
+            uvicorn_error.handlers[:] = saved_uvicorn
+
+        self.addCleanup(restore)
+        # The production process: uvicorn's dictConfig gives uvicorn.error its stderr handler and
+        # leaves the root at WARNING; the lifespan then configures the service loggers.
+        uvicorn_error.handlers[:] = [handler]
+        for lg in loggers:
+            lg.setLevel(logging.NOTSET)
+            lg.handlers[:] = []
+            lg.propagate = True
+            lg.disabled = False  # Alembic runs in its own process in production (start_api.sh).
+        with patch.object(logging.getLogger(), "level", logging.WARNING):
+            server_main.configure_request_timing_logging()
+            with TemporaryDirectory() as directory, patch.dict(
+                os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}
+            ), patch.object(course_install, "_launch"), patch.object(
+                course_install.threading, "Timer", _FakeTimer
+            ), patch.dict(course_install._DERIVATIVE_LOG_SIGNATURES, {}, clear=True):
+                job = course_install.enqueue(
+                    global_id=950051, tee_box="blue", loop_key="950051:all", player_id="owner",
+                    refs=[{"globalId": 950051, "localHole": 1, "displayHole": 1}],
+                    requested={950051: [1]}, ready={},
+                )["jobId"]
+                with course_install._LOCK:
+                    state = course_install._read(job)
+                    state["holes"]["950051:1"].update(
+                        geometry="ready", geometryRevision="r1", topo="ready", topoRevision="r1",
+                        derivatives="retrying", derivativesFailureCount=1,
+                        derivativesRetryAfterEpoch=4102444800,
+                    )
+                    course_install._write(state)
+                course_install._schedule_retry(job)
+                course_install._RETRY_TIMERS.pop(job, None)
+            batch._finish_stage({"hole": 1, "steps": {"download": {}}}, "download", time.perf_counter(),
+                                course_id=950051)
+        output = stream.getvalue()
+        self.assertIn(f"course_install stage=derivatives job={job} hole=950051:1 state=retrying", output)
+        self.assertIn("course_asset gid=950051 hole=1 stage=download", output)
 
 
 if __name__ == "__main__":
