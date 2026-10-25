@@ -3169,7 +3169,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn(".position(x: rest.midX, y: rest.midY)", course_review)
         self.assertNotIn(".padding(.top, topInset)\n                    .padding(.bottom, bottomInset)", course_review)
         self.assertIn("fittedFrame: CGRect? = nil", _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift"))
-        self.assertNotIn("bottomInset", live_components)
+        # Live insets also only feed the rest frame; they never pad (shrink) the live map.
+        self.assertNotIn(".padding(.bottom, bottomInset)", live_components)
+        self.assertNotIn(".padding(.bottom, bottom)", live_components)
         # Route labels keep wholly clear of the prep chrome (header, badge, panel, reset control):
         # one layout source (`PrepChromeLayout`) and hard exclusions in the shared label layout.
         live_chrome_source = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
