@@ -366,6 +366,32 @@ class CorrectionProductTests(unittest.TestCase):
             self.assertEqual(s.get('history/stats')['scoring']['penalties']['total'],1)
             self.assertEqual(s.get('history/rounds/101')['scorecard'][0]['penalties'],1)
 
+    def test_c53_overview_round_list_and_report_consume_corrected_total(self):
+        with Sandbox() as s:
+            s.seed()
+            # The fixture has hole 1 at four strokes.  The authored score correction makes it six;
+            # every reader must show the resulting round total of 74 immediately.
+            self.assertEqual(annotation(s, 'score_correction', 6).status_code, 200)
+            self.assertEqual(s.get('history/overview')['recentRounds'][0]['score'], 74)
+            self.assertEqual(s.get('history/rounds')['groups'][0]['rounds'][0]['score'], 74)
+            facts = {row['label']: row for row in s.get('reports/round/101')['factsUsed']}
+            self.assertEqual(facts['round_scorecard']['value']['strokes'], 6)
+
+    def test_c53_set_hole_penalty_audit_uses_effective_garmin_penalty(self):
+        with Sandbox() as s:
+            s.seed()
+            # The Garmin fixture has one penalty after the source card is loaded.  Setting the
+            # effective value to zero must describe the visible 1 -> 0 transition in the audit.
+            raw = s.fake.input['scorecards']['101']
+            raw['scorecardDetails'][0]['scorecard']['holes'][0]['penalties'] = 1
+            from tests.product.fixtures.c16a.support import write
+            write(s.root / 'data/scorecards/101.json', raw)
+            response = s.correct({'op': 'setHolePenalty', 'hole': 1, 'value': 0,
+                                  'clientMutationId': 'garmin-penalty-clear'})
+            self.assertEqual(response.status_code, 201, response.text)
+            entries = [entry for entry in response.json()['stored']['audit']['entries'] if entry['op'] == 'penalty']
+            self.assertEqual([(entry['before'], entry['after']) for entry in entries], [(1, 0)])
+
     def test_j3_4_unreadable_history_rejects_score_annotations(self):
         with Sandbox() as s:
             s.seed()

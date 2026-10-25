@@ -77,7 +77,7 @@ class WholeHoleSnapshotPenaltyTest(unittest.TestCase):
                 self.assertIn('club', ops)
                 self.assertNotIn('penalty', ops)
                 # Spec 5.7 still sees the penalty: 3 putts would need 4 >= 3 + 1 + 1, impossible.
-                self.assertGreaterEqual(annotate(s, 'putt_correction', {'to': 3}, 'putts-3').status_code, 400)
+                self.assertEqual(annotate(s, 'putt_correction', {'to': 3}, 'putts-3').status_code, 422)
                 self.assertEqual(s.get('history/rounds/101')['scorecard'][0]['putts'], 2)
 
     def test_an_echoed_stepper_keeps_an_earlier_penalty_correction(self) -> None:
