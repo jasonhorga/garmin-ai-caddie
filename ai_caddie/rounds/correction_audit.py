@@ -660,8 +660,9 @@ def write_annotation(
             try:
                 data, source_revision = load_coherent(player_id, data_loader or _default_loader(player_id))
             except Exception as exc:
-                record["audit"] = {"status": "pending", "reason": safe_reason("history unavailable", exc),
-                                   "sourceFingerprint": None, "entries": []}
+                # Same as write_correction: without history the before value is unknown, so a score /
+                # putt / penalty fix is rejected with nothing written; the client retries later.
+                raise IdentityUnavailable(safe_reason("history unavailable", exc)) from exc
             else:
                 record["audit"] = build_annotation_audit(data, record, existing, player_id=player_id, root=root)
                 record["audit"]["sourceRevision"] = source_revision
