@@ -672,8 +672,10 @@ def reconcile_mobile_round_response(round_id: str, player_id: str = OWNER_ID) ->
 def apply_mobile_round_reconciliation_response(
     round_id: str,
     request: MobileReconciliationApplyRequest,
+    *,
+    player_id: str = OWNER_ID,
 ) -> MobileReconciliationApplyResponse:
-    data, _mode = load_history_data_for_mode()
+    data, _mode = load_history_data_for_mode(player_id=player_id)
     try:
         applied = apply_mobile_reconciliation_suggestions(
             round_id,
@@ -683,7 +685,8 @@ def apply_mobile_round_reconciliation_response(
             annotations_root=ANNOTATION_ROOT,
             decision_audit_root=DECISION_AUDIT_ROOT,
             decision_ledger_root=DECISION_LEDGER_ROOT,
-            data_loader=lambda: load_history_data_for_mode()[0],
+            player_id=player_id,
+            data_loader=lambda: load_history_data_for_mode(player_id=player_id)[0],
         )
     except score_invariant.ScoreInvariantError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
