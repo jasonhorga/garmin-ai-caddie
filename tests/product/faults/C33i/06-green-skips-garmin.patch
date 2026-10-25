@@ -1,15 +1,15 @@
 --- a/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
 +++ b/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
-@@ -51,7 +51,7 @@
-         if let topo = topoImage {
+@@ -64,7 +64,7 @@
+             guard let crop else { return Selection(source: .topo, image: topo, registered: false) }
              return Selection(source: .topo, image: cropped(topo, width: width, height: height, crop: crop))
          }
--        if let raster = garminImage,
-+        if let raster = Optional<UIImage>.none,
+-        if let raster = garminImage, let crop,
++        if let raster = Optional<UIImage>.none, let crop,
             let source = garminProjection, source.isUsable,
             let destination = hole.holeImageProjection, destination.isUsable,
             let sourceWidth = source.widthPx, let sourceHeight = source.heightPx,
-@@ -76,7 +76,7 @@
+@@ -89,7 +89,7 @@
              }
              return Selection(source: .garmin, image: image)
          }

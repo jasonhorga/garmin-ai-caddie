@@ -1,11 +1,10 @@
---- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-+++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -3149,7 +3149,7 @@
-             // A package raster is only a visual first frame. Keep retrying metadata until the
-             // image and its geographic projection are both usable, otherwise target placement and
-             // route overlays would remain disabled forever on a cold course.
--            if garminRaster?.isUsable == true, garminVersionConflictURL == nil { return }
-+            if garminRaster?.hasDisplayableImage == true, garminVersionConflictURL == nil { return }
-             await loadGarminRaster()
-         }
+--- a/mobile/ios/AICaddie/Models/GarminRaster.swift
++++ b/mobile/ios/AICaddie/Models/GarminRaster.swift
+@@ -45,6 +45,6 @@
+     static func descriptorRecoveryIsSettled(
+         _ raster: GarminRasterResponse?, versionConflictURL: URL?
+     ) -> Bool {
+-        raster?.isUsable == true && versionConflictURL == nil
++        raster?.hasDisplayableImage == true && versionConflictURL == nil
      }
+ }

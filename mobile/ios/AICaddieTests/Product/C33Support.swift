@@ -41,6 +41,28 @@ final class C33URLProtocol: URLProtocol {
     }
 }
 
+/// Earlier tests' models may still be draining requests through the process-wide URL protocol, and
+/// a test's own model can follow up on the same URL. An expectation tied to one request claims its
+/// first match only, so a late stray callback can never crash the run by over-fulfilling it.
+final class C33FirstMatch {
+    private let lock = NSLock()
+    private var matched = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !matched else { return false }
+        matched = true
+        return true
+    }
+}
+
+func c33Query(_ request: URLRequest, _ name: String) -> String? {
+    guard let url = request.url else { return nil }
+    return URLComponents(url: url, resolvingAgainstBaseURL: false)?
+        .queryItems?.first(where: { $0.name == name })?.value
+}
+
 func c33Package() throws -> LiveRoundPackage {
     let url = try XCTUnwrap(Bundle(for: C33StartTests.self).url(
         forResource: "c33-32850-hole1", withExtension: "json"

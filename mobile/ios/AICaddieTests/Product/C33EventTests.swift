@@ -13,6 +13,11 @@ final class C33EventTests: XCTestCase {
             "standard", "standard line", "neutral", "recommended", "recommended line", "aggressive line",
             "attack", "attack line", "aggressive", "go for it", "go for it line", "unknown-route",
             "driver-3w", "route:7I", "", "   ", "未知方案"]
+        // An unknown route is not a stock shot: the optional field is omitted, never coerced.
+        let unknownRoutes = ["unknown-route", "driver-3w", "route:7I", "", "   ", "未知方案"]
+        let unknownInputs = Set(unknownRoutes + unknownRoutes.map {
+            $0.uppercased().replacingOccurrences(of: " ", with: "_")
+        })
         let bridgeDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let bridge = WatchEventBridge(offlineStore: OfflineStore(directoryURL: bridgeDirectory))
         defer { try? FileManager.default.removeItem(at: bridgeDirectory) }
@@ -30,6 +35,10 @@ final class C33EventTests: XCTestCase {
             if let value = built.payload["strategyMode"] {
                 guard case let .string(mode) = value else { return XCTFail("strategyMode must be string") }
                 XCTAssertTrue(allowed.contains(mode), "builder route=\(route), payload=\(mode)")
+            }
+            if unknownInputs.contains(route) {
+                XCTAssertNil(event.payload["strategyMode"], "unknown route=\(route)")
+                XCTAssertNil(built.payload["strategyMode"], "builder unknown route=\(route)")
             }
         }
     }
@@ -146,30 +155,40 @@ final class C33EventTests: XCTestCase {
     }
 
     func testStoreOrIdempotency422KeepsWholeBatchRetryable() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let store = OfflineStore(directoryURL: directory)
-        let session = C33URLProtocol.session()
-        let client = SyncClient(baseURL: URL(string: "https://c33-store-error.example.test")!, session: session)
-        let model = c33Model(store, client)
         let package = try c33Package()
-        C33URLProtocol.onStart = { proto in
-            if proto.request.url!.path.hasSuffix("/package") {
-                proto.reply(200, try! JSONEncoder().encode(package)); return
+        let packageData = try JSONEncoder().encode(package)
+        // Neither a store/idempotency failure nor a pydantic error outside the event payload is a
+        // payload reject. FastAPI echoes the failing event as `input`, so the raw text of the list
+        // still says "payload"; only the structured `loc` tells the two apart.
+        let bodies = [
+            #"{"detail":"idempotency_key_body_mismatch"}"#,
+            #"{"detail":[{"type":"missing","loc":["body","events",0,"timestamp"],"msg":"Field required","input":{"eventId":"bad-store","hole":1,"kind":"club","payload":{"clubName":"7I","strategyMode":"stock"}}}]}"#,
+        ]
+        for body in bodies {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            let store = OfflineStore(directoryURL: directory)
+            let session = C33URLProtocol.session()
+            let client = SyncClient(baseURL: URL(string: "https://c33-store-error.example.test")!, session: session)
+            let model = c33Model(store, client)
+            C33URLProtocol.setHandlers(onStart: { proto in
+                if proto.request.url!.path.hasSuffix("/package") {
+                    proto.reply(200, packageData); return
+                }
+                proto.reply(422, Data(body.utf8))
+            })
+            defer {
+                client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
+                try? FileManager.default.removeItem(at: directory)
             }
-            proto.reply(422, Data(#"{"detail":"idempotency_key_body_mismatch"}"#.utf8))
+            await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+            try store.appendEvent(LiveRoundEvent(eventId: "bad-store", roundId: package.roundId,
+                timestamp: "2026-01-01T00:00:00Z", hole: 1, kind: .club,
+                payload: ["clubName": .string("7I"), "strategyMode": .string("stock")]))
+            await model.syncPendingEvents()
+            XCTAssertEqual(try store.loadPendingEvents(roundId: package.roundId).map(\.eventId), ["bad-store"], body)
+            XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty, body)
+            XCTAssertEqual(try store.loadEvents().filter { $0.kind == .syncMarker }.count, 0, body)
         }
-        defer {
-            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.onStart = nil
-            try? FileManager.default.removeItem(at: directory)
-        }
-        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
-        try store.appendEvent(LiveRoundEvent(eventId: "bad-store", roundId: package.roundId,
-            timestamp: "2026-01-01T00:00:00Z", hole: 1, kind: .club,
-            payload: ["clubName": .string("7I"), "strategyMode": .string("stock")]))
-        await model.syncPendingEvents()
-        XCTAssertEqual(try store.loadPendingEvents(roundId: package.roundId).map(\.eventId), ["bad-store"])
-        XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
-        XCTAssertEqual(try store.loadEvents().filter { $0.kind == .syncMarker }.count, 0)
     }
 
     func testDiscardActiveRoundRemovesItsQuarantineDiagnostics() async throws {
@@ -249,6 +268,70 @@ final class C33EventTests: XCTestCase {
         XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
         let finished = await model.finishActiveRound()
         XCTAssertTrue(finished)
+    }
+
+    func testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let host = "c33-deferred-finish.example.test"
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session)
+        let model = c33Model(store, client)
+        let package = try c33Package()
+        let packageData = try JSONEncoder().encode(package)
+        let finishLock = NSLock()
+        var finishRequests = 0
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/package") { proto.reply(200, packageData); return }
+            if path.hasSuffix("/events") {
+                let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
+                if batch.events.contains(where: { $0.eventId == "bad-score" }) {
+                    proto.reply(422, Data(#"{"detail":[{"type":"enum","loc":["body","events",0,"payload","strokes"],"msg":"invalid score"}]}"#.utf8))
+                } else {
+                    proto.reply(200, try! JSONEncoder().encode(SyncResult(
+                        accepted: batch.events.count, duplicate: false,
+                        acceptedEventIds: batch.events.map(\.eventId)
+                    )))
+                }
+                return
+            }
+            if path.hasSuffix("/finish") {
+                finishLock.lock(); finishRequests += 1; finishLock.unlock()
+                proto.reply(200); return
+            }
+            proto.reply(404)
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        // Save & End while the score is still queued: sealing succeeds, and the upload, its 422
+        // and the server finish all happen later in the deferred finish pass.
+        try store.appendEvent(LiveRoundEvent(eventId: "bad-score", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 1, kind: .score,
+            payload: ["strokes": .number(99)]))
+        let sealed = await model.finishActiveRound()
+        XCTAssertTrue(sealed)
+        await model.waitForDeferredRoundFinishesForTesting()
+        XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).map { $0.event.eventId }, ["bad-score"])
+        finishLock.lock(); let blockedFinishes = finishRequests; finishLock.unlock()
+        // The server round must stay open until the rejected hole is re-entered.
+        XCTAssertEqual(blockedFinishes, 0)
+        XCTAssertEqual(try store.loadPendingRoundFinishes().map(\.roundId), [package.roundId])
+
+        try store.appendEvent(LiveRoundEvent(eventId: "replacement-score", roundId: package.roundId,
+            timestamp: "2026-01-01T00:01:00Z", hole: 1, kind: .score,
+            payload: ["strokes": .number(4)]))
+        await model.syncPendingEvents()
+        await model.waitForDeferredRoundFinishesForTesting()
+        finishLock.lock(); let finishes = finishRequests; finishLock.unlock()
+        XCTAssertEqual(finishes, 1)
+        XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
+        XCTAssertTrue(try store.loadPendingRoundFinishes().isEmpty)
     }
 }
 #endif

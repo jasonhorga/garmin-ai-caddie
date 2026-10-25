@@ -168,6 +168,13 @@ final class C33DrawingTests: XCTestCase {
             projection: GarminRasterProjection(widthPx: 100, heightPx: 100, refs: refs)
         )
         XCTAssertTrue(projected.isUsable)
+        // The live hole's recovery loop keeps fetching metadata past a visual-only first frame.
+        XCTAssertFalse(GarminRasterResponse.descriptorRecoveryIsSettled(nil, versionConflictURL: nil))
+        XCTAssertFalse(GarminRasterResponse.descriptorRecoveryIsSettled(imageOnly, versionConflictURL: nil))
+        XCTAssertTrue(GarminRasterResponse.descriptorRecoveryIsSettled(projected, versionConflictURL: nil))
+        XCTAssertFalse(GarminRasterResponse.descriptorRecoveryIsSettled(
+            projected, versionConflictURL: URL(string: "https://c33.example.test/map.jpg")
+        ))
     }
 
     func testGreenCropRequiresProjectionAndAvailableOutline() throws {

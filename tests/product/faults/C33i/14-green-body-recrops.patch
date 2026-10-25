@@ -1,11 +1,15 @@
 --- a/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
 +++ b/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
-@@ -523,7 +523,7 @@
+@@ -540,7 +540,11 @@
      }
- 
+
      private var detailFallbackSelection: GreenDetailImageResolver.Selection {
--        resolvedFallback ?? GreenDetailImageResolver.resolve(
+-        resolvedFallback ?? .init(source: .schematic, image: nil, registered: false)
 +        GreenDetailImageResolver.resolve(
-             hole: hole, detailImage: detailImageStore.image,
-             topoImage: fallbackTopoStore.image, garminImage: fallbackGarminStore.image,
-             garminProjection: garminProjection
++            hole: hole, detailImage: detailImageStore.image,
++            topoImage: fallbackTopoStore.image, garminImage: fallbackGarminStore.image,
++            garminProjection: garminProjection
++        )
+     }
+
+     private var detailFallbackImage: UIImage? { detailFallbackSelection.image }
