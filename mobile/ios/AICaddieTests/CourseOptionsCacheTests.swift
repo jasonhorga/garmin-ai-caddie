@@ -58,8 +58,9 @@ final class CourseOptionsCacheTests: XCTestCase {
         FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 
+    /// Polls for up to ~10 s so a stalled simulator cannot exhaust it before the request arrives.
     private func waitForRequests(_ paths: Paths, count: Int) async throws {
-        for _ in 0..<100 where paths.all.count < count {
+        for _ in 0..<500 where paths.all.count < count {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         XCTAssertGreaterThanOrEqual(paths.all.count, count)
@@ -79,7 +80,7 @@ final class CourseOptionsCacheTests: XCTestCase {
     }
 
     private func waitUntilHeld(_ held: Held) async throws {
-        for _ in 0..<200 where !held.isWaiting { try await Task.sleep(nanoseconds: 5_000_000) }
+        for _ in 0..<2_000 where !held.isWaiting { try await Task.sleep(nanoseconds: 5_000_000) }
         XCTAssertTrue(held.isWaiting)
     }
 

@@ -50,7 +50,8 @@ private final class LoopbackHTTPServer: @unchecked Sendable {
             self?.accept(connection)
         }
         listener.start(queue: queue)
-        guard startupSemaphore.wait(timeout: .now() + 5) == .success else {
+        // Only waits for the listener to come up; a simulator stall must not fail the test (C52).
+        guard startupSemaphore.wait(timeout: .now() + 30) == .success else {
             listener.cancel()
             throw LiveRoundAppModelTestFailure.loopbackServerTimeout
         }
@@ -200,6 +201,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         let requestLock = NSLock()
         var requestedPaths = Set<String>()
+        // The post-sync refresh fires the options and bag fetches as detached tasks that the sync
+        // result and the refresh notification do not wait for, so the test waits for each request.
+        let optionsRequested = expectation(description: "course options requested after sync")
+        let bagRequested = expectation(description: "club bag requested after sync")
+        let optionsOnce = C33FirstMatch(), bagOnce = C33FirstMatch()
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
             requestLock.withLock {
@@ -212,10 +218,12 @@ final class LiveRoundAppModelTests: XCTestCase {
                     #"{"schema":"ai-caddie-sync-run-v2","connector":"garmin_cn_web_session","state":"ready","jobId":"garmin-sync-model","statusUrl":"/api/v2/sync/garmin/jobs/garmin-sync-model","createdAt":"2026-08-20T12:30:00Z","updatedAt":"2026-08-20T12:30:01Z","startedAt":"2026-08-20T12:30:00Z","completedAt":"2026-08-20T12:30:01Z","detail":"done","reauthRequired":false,"errorCode":null,"snapshot":null,"safeMeta":{}}"#.utf8
                 )
             case ("GET", "/api/v2/mobile/courses/options"):
+                if optionsOnce.claim() { optionsRequested.fulfill() }
                 payload = Data(
                     #"{"schema":"ai-caddie-mobile-course-options-v1","dataMode":"production","total":0,"courses":[],"generatedAt":"2026-08-20T12:31:00Z"}"#.utf8
                 )
             case ("GET", "/api/v2/history/clubs/bag"):
+                if bagOnce.claim() { bagRequested.fulfill() }
                 payload = Data(#"{"found":false,"clubs":[]}"#.utf8)
             case ("GET", "/api/v2/sync/status"):
                 payload = Data(
@@ -255,7 +263,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(observer) }
 
         let succeeded = await model.syncGarminData()
-        await fulfillment(of: [refreshed], timeout: 1)
+        await fulfillment(of: [refreshed, optionsRequested, bagRequested], timeout: 10)
 
         XCTAssertTrue(succeeded)
         XCTAssertEqual(model.localEventUploadStatus, "没有待上传的本机记录")
@@ -3182,12 +3190,15 @@ final class LiveRoundAppModelTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
+        let slowRequested = expectation(description: "slow preparation reached the server")
+        let slowRequestedOnce = C33FirstMatch()
         CapturingURLProtocol.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
             if url.path.contains("/api/v2/mobile/courses/") {
                 let roundId = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                     .first { $0.name == "round_id" }?.value
                 if roundId == slow.roundId {
+                    if slowRequestedOnce.claim() { slowRequested.fulfill() }
                     Thread.sleep(forTimeInterval: 0.25)
                 }
                 return (
@@ -3228,7 +3239,8 @@ final class LiveRoundAppModelTests: XCTestCase {
                 loops: [RoundLoopEntry(globalId: source.course.globalId, half: "all")]
             )
         }
-        try await Task.sleep(nanoseconds: 20_000_000)
+        // The fast start begins only once the slow one is on the wire, not after a guessed delay.
+        await fulfillment(of: [slowRequested], timeout: 10)
         await model.prepareCourseRound(
             roundId: fast.roundId,
             teeBox: source.course.teeBox,
@@ -3450,7 +3462,7 @@ final class LiveRoundAppModelTests: XCTestCase {
 
         await model.bootstrap()
         let syncTask = Task { await model.syncPendingEvents() }
-        await fulfillment(of: [requestStarted], timeout: 3)
+        await fulfillment(of: [requestStarted], timeout: 10)
 
         let laterEvent = LiveRoundEvent(
             eventId: "score-recorded-during-upload",
@@ -3587,7 +3599,7 @@ final class LiveRoundAppModelTests: XCTestCase {
 
         await model.bootstrap()
         let finishTask = Task { await model.finishActiveRound() }
-        await fulfillment(of: [homeRefreshStarted], timeout: 3)
+        await fulfillment(of: [homeRefreshStarted], timeout: 10)
 
         let laterEvent = LiveRoundEvent(
             eventId: "watch-score-after-finish-ack",
@@ -3861,7 +3873,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         await model.waitForWatchRoundClosureReconciliationForTesting()
         await fulfillment(
             of: [phoneEventUpload, watchEventReplay, replayedEventUpload],
-            timeout: 3
+            timeout: 10
         )
 
         XCTAssertNil(model.liveRoundState)
@@ -3941,7 +3953,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             watchReply.fulfill()
         }
 
-        await fulfillment(of: [serverRequest, watchReply], timeout: 3)
+        await fulfillment(of: [serverRequest, watchReply], timeout: 10)
         XCTAssertEqual(replyPayload?["acceptedEventIds"] as? [String], [event.eventId])
         XCTAssertTrue(try store.loadPendingEvents(roundId: event.roundId).isEmpty)
         XCTAssertEqual(model.pendingEventCount, 0)
@@ -4057,7 +4069,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             watchReply.fulfill()
         }
 
-        await fulfillment(of: [serverRequest, watchReply], timeout: 3)
+        await fulfillment(of: [serverRequest, watchReply], timeout: 10)
         XCTAssertEqual(replyPayload?["accepted"] as? Bool, false)
         XCTAssertEqual(replyPayload?["eventId"] as? String, event.eventId)
         XCTAssertNil(replyPayload?["acceptedEventIds"])
