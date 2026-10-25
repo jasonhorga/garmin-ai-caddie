@@ -39,11 +39,13 @@ struct LivePlayGlassCircle<Label: View>: View {
 
 /// A caption under a map control ("障碍", "记分", …); legible on any fairway colour.
 struct LivePlayControlCaption: View {
+    static let fontSize: CGFloat = 11
+
     let text: String
 
     var body: some View {
         Text(text)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: Self.fontSize, weight: .semibold))
             .foregroundStyle(.white)
             .shadow(color: LivePlayChromeStyle.captionShadow, radius: 2, y: 1)
     }
@@ -406,12 +408,15 @@ struct LivePlayHazardBar: View {
 
 /// Bottom-left: finish this hole (once per hole, away from 记一杆 to avoid mis-taps).
 struct LivePlayScoreButton: View {
+    static let diameter: CGFloat = 60
+    static let captionSpacing: CGFloat = 4
+
     let action: () -> Void
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: Self.captionSpacing) {
             Button(action: action) {
-                LivePlayGlassCircle(diameter: 60) {
+                LivePlayGlassCircle(diameter: Self.diameter) {
                     Image(systemName: "flag")
                         .font(.system(size: 22, weight: .medium))
                 }
@@ -427,6 +432,8 @@ struct LivePlayScoreButton: View {
 
 /// Bottom-right: the only solid white control — the most frequent action.
 struct LivePlayRecordShotButton: View {
+    static let diameter: CGFloat = 76
+
     let enabled: Bool
     let recordedShotCount: Int
     let action: () -> Void
@@ -438,7 +445,7 @@ struct LivePlayRecordShotButton: View {
                 Text("记一杆").font(.system(size: 12, weight: .bold))
             }
             .foregroundStyle(Color(red: 0.04, green: 0.06, blue: 0.05))
-            .frame(width: 76, height: 76)
+            .frame(width: Self.diameter, height: Self.diameter)
             .background(Color(red: 0.96, green: 0.96, blue: 0.95), in: Circle())
             .shadow(color: .black.opacity(0.45), radius: 9, y: 6)
         }
@@ -449,6 +456,24 @@ struct LivePlayRecordShotButton: View {
         .accessibilityValue(recordedShotCount > 0 ? "已记第 \(recordedShotCount) 杆" : (enabled ? "" : "等待 GPS"))
         .accessibilityHint(enabled ? "在当前位置记录一杆" : "等待 GPS 定位")
         .accessibilityIdentifier("live-record-shot")
+    }
+}
+
+/// The fixed bottom row (记分 · 记一杆) as `CurrentHoleView.liveMapChrome` lays it out.
+enum LivePlayBottomRow {
+    /// The row's padding above the safe area.
+    static let bottomPadding: CGFloat = 8
+    /// The home-indicator safe area of a Face ID iPhone. A phone without one only gives the map
+    /// a little less room before the row is measured; it never puts the tee under the row.
+    static let homeIndicatorInset: CGFloat = 34
+
+    /// The taller of 记分 (its circle, spacing and caption line) and 记一杆.
+    static var height: CGFloat {
+        let caption = ceil(UIFont.systemFont(ofSize: LivePlayControlCaption.fontSize, weight: .semibold).lineHeight)
+        return max(
+            LivePlayScoreButton.diameter + LivePlayScoreButton.captionSpacing + caption,
+            LivePlayRecordShotButton.diameter
+        )
     }
 }
 

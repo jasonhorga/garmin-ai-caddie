@@ -3169,7 +3169,15 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn(".position(x: rest.midX, y: rest.midY)", course_review)
         self.assertNotIn(".padding(.top, topInset)\n                    .padding(.bottom, bottomInset)", course_review)
         self.assertIn("fittedFrame: CGRect? = nil", _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift"))
-        self.assertNotIn("bottomInset", live_components)
+        # Live insets only feed the rest frame (restFrame(bottomInset:)): B4c reverted the
+        # bottomInset parameter on the shared live layout/renderer, and the bitmap is never padded.
+        self.assertNotIn("bottomInset: CGFloat", live_components)
+        self.assertNotIn(".padding(.bottom, bottomInset)", live_components)
+        self.assertNotIn(".padding(.bottom, bottom)", live_components)
+        self.assertNotIn(
+            ".padding(.bottom, LivePlayMapOverlayLayout.liveMapBottomInset)",
+            _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift"),
+        )
         # Route labels keep wholly clear of the prep chrome (header, badge, panel, reset control):
         # one layout source (`PrepChromeLayout`) and hard exclusions in the shared label layout.
         live_chrome_source = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")

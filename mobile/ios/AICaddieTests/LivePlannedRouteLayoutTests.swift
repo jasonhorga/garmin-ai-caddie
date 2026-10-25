@@ -296,6 +296,120 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
         XCTAssertEqual((tee.x + green.x) / 2, phone.width / 2, accuracy: 1)
     }
 
+    /// C17 rework: the Garmin opening frame while the bottom row (记分 / 记一杆) has not been
+    /// measured yet. The native snapshots full-hole-map-partial-pending(-default) and
+    /// live-garmin-raster-position were framed with a bottom inset of exactly 0 (the end of the route
+    /// sat at 844 - 38 pt, 38 being the route label clearance), so the tee was under 记分 / 记一杆.
+    /// The unmeasured row must be kept clear like the header (`liveMapTopInset`), and measuring it
+    /// must not move the map.
+    func testGarminFrameKeepsTheBottomRowClearBeforeItIsMeasured() throws {
+        // The partial snapshot's route remapped into Garmin's frame (precise refs (40,116)->(15.46,26.25),
+        // lon+0.001->(15.46,326.25), lat+0.001->(135.27,26.25); Garmin refs as above):
+        // (120,330)->(621,1760) tee, (118,180)->(611,960), (120,55)->(621,293) green.
+        let overlay = CoursePrepOverlay(w: 1242, h: 1920, ppm: 1, ln: 375,
+                                        route: [[621, 1760, 0], [611, 960, 150], [621, 293, 375]])
+        // Title, round buttons, 洞位图 and the ladder are measured; 记分 / 记一杆 are not yet.
+        let upperOnly = Array(liveChrome.prefix(4))
+        let unmeasured = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
+            overlay: overlay,
+            viewport: phone,
+            chrome: upperOnly
+        ))
+        let measured = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
+            overlay: overlay,
+            viewport: phone,
+            chrome: liveChrome
+        ))
+        // 记分 / 记一杆 start at 735, so the tee (the player at the start of the hole) must be at or
+        // above 735 - 8 = 727. main: no lower chrome -> bottom inset 0 -> tee at 852 - 38 = 814.
+        // Fixed: bottom inset = max(the unmeasured row, measured 852 - 735 + 8 = 125) =
+        // 78 (记分 60 + 4 + 14 caption line, taller than 记一杆 76) + 8 row padding + 34 home
+        // indicator + 8 gap = 128, so the band is [215, 724] and the tee sits at 724 - 38 = 686.
+        let tee = try XCTUnwrap(LivePlayMapOverlayLayout.project(
+            overlayPoint: [621, 1760], overlayWidth: 1242, overlayHeight: 1920, into: phone, fittedFrame: unmeasured
+        ))
+        XCTAssertLessThanOrEqual(tee.y, 727, "tee \(tee) is under 记分 / 记一杆 before they are measured")
+        XCTAssertGreaterThanOrEqual(tee.y, 215)
+        // Measuring the row afterwards does not move the map (main: 0 -> 125, a jump of ~120 pt).
+        XCTAssertEqual(unmeasured.minX, measured.minX, accuracy: 0.5)
+        XCTAssertEqual(unmeasured.minY, measured.minY, accuracy: 0.5)
+        XCTAssertEqual(unmeasured.width, measured.width, accuracy: 0.5)
+    }
+
+    /// C17 rework (live-garmin-raster-position): a lightweight frame centred on a hole near one edge
+    /// of Garmin's raster overhangs the other screen edge without covering this one. The hero's pan
+    /// clamp used to drag it back to cover the screen at rest, pushing the route to the edge and
+    /// leaving the clipped bitmap's far side black.
+    func testOffCentreGarminFrameStaysWhereItWasFramedAtRest() throws {
+        // A par 3 down the left edge of Garmin's frame: tee (80,1200), green (80,700).
+        let overlay = CoursePrepOverlay(w: 1242, h: 1920, ppm: 1, ln: 150,
+                                        route: [[80, 1200, 0], [80, 700, 150]])
+        let frame = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
+            overlay: overlay,
+            viewport: phone,
+            chrome: liveChrome
+        ))
+        // Band [215, 724]; the hole fits at the cover scale max(393/1242, 852/1920) = 0.44375, so
+        // the frame is 551.1 x 852 with the route centred: x0 = 196.5 - 80 * 0.44375 = 161.0.
+        XCTAssertEqual(frame.minX, 161.0, accuracy: 0.5)
+        XCTAssertEqual(frame.width, 551.1, accuracy: 0.5)
+        // The plain clamp (precise map, 备战) still demands cover: 0 -> -161.0, the route at x 35.5.
+        XCTAssertEqual(
+            LivePlayMapOverlayLayout.clampedOffset(.zero, mapFrame: frame, viewportSize: phone, scale: 1).width,
+            -161.0,
+            accuracy: 0.5
+        )
+        func clamped(_ proposed: CGSize, scale: CGFloat) -> CGSize {
+            LivePlayMapOverlayLayout.clampedOffset(
+                proposed, mapFrame: frame, viewportSize: phone, scale: scale, keepsRestReachable: true
+            )
+        }
+        // The framed map rests where it was framed, also when zoomed in place.
+        XCTAssertEqual(clamped(.zero, scale: 1), .zero)
+        XCTAssertEqual(clamped(.zero, scale: 2), .zero)
+        // Panning is still bounded: at rest x may go from 393 - 712.1 = -319.1 up to 0.
+        XCTAssertEqual(clamped(CGSize(width: 500, height: 0), scale: 1).width, 0, accuracy: 0.5)
+        XCTAssertEqual(clamped(CGSize(width: -1000, height: 0), scale: 1).width, -319.1, accuracy: 0.5)
+    }
+
+    /// C17: Garmin's 1242 x 1920 raster shown before any CourseView route can be drawn on it (its
+    /// descriptor arrived before prep, or the prep has no projection to remap through) is the
+    /// empty-route Garmin overlay. Its opening frame keeps the tee, the player and the green
+    /// between the same top and bottom insets as the routed lightweight map.
+    func testGarminFrameWithoutARouteKeepsTeeAndPlayerBetweenTheChrome() throws {
+        let overlay = CoursePrepOverlay(w: 1242, h: 1920, ppm: 1, ln: 0, route: [])
+        let frame = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
+            overlay: overlay,
+            viewport: phone,
+            chrome: liveChrome
+        ))
+        XCTAssertEqual(frame.width / frame.height, 1242.0 / 1920.0, accuracy: 0.001)
+        // Visible band from `liveChrome`: top = max(80, 207 (洞位图 maxY) + 8) = 215; bottom inset
+        // = 852 - 735 (记分 / 记一杆 minY) + 8 = 125 measured, 128 with the unmeasured-row floor
+        // (`liveMapBottomInset`), so y in [215, 724]; 727 is the edge of the measured row + gap.
+        // Garmin pixels from the snapshot refs ((40,116)->(80,140), lon+0.001->(80,1740),
+        // lat+0.001->(700,140)): tee (621,1760), green (621,293), and a GPS fix 30 px behind the
+        // tee at (640,1790).
+        // Whole raster between the chrome: scale = min(393/1242, 509/1920) = 0.26510, frame
+        // (31.9, 215, 329.3 x 509): tee y = 215 + 1760 * 0.26510 = 681.6, player 689.5, green 292.7.
+        // main aspect-fills the viewport instead (scale 852/1920 = 0.44375, minY 0): tee y = 781.0
+        // and player y = 794.3 sit under 记分 / 记一杆, green y = 130.0 under the header.
+        let points: [(String, [Double])] = [
+            ("tee", [621, 1760]),
+            ("player", [640, 1790]),
+            ("green", [621, 293]),
+        ]
+        for (name, pixel) in points {
+            let point = try XCTUnwrap(LivePlayMapOverlayLayout.project(
+                overlayPoint: pixel, overlayWidth: 1242, overlayHeight: 1920, into: phone, fittedFrame: frame
+            ))
+            XCTAssertGreaterThanOrEqual(point.y, 215, "\(name) \(point) is under the top chrome")
+            XCTAssertLessThanOrEqual(point.y, 727, "\(name) \(point) is under 记分 / 记一杆")
+            XCTAssertGreaterThanOrEqual(point.x, 0, "\(name) \(point) is off screen")
+            XCTAssertLessThanOrEqual(point.x, phone.width, "\(name) \(point) is off screen")
+        }
+    }
+
     func testLightweightRouteLabelsAreAllShownAndClearOfTheLiveChrome() throws {
         let map = try edgeHuggingLightweightMap()
         let overlay = try XCTUnwrap(map.hole.resolvedMapOverlay)
