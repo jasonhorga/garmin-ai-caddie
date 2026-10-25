@@ -579,7 +579,7 @@ def _handicap_estimate(rounds: list[dict[str, Any]]) -> float | None:
     With N of those differentials, follow the WHS table (``HANDICAP_WHS_TABLE``):
     N < 3 -> None; 3 -> lowest 1 - 2.0; 4 -> lowest 1 - 1.0; 5 -> lowest 1;
     6 -> lowest 2 - 1.0; 7-8 -> 2; 9-11 -> 3; 12-14 -> 4; 15-16 -> 5; 17-18 -> 6;
-    19 -> 7; 20 -> 8. Average the lowest k, add the adjustment, round to 1 decimal.
+    19 -> 7; 20 -> 8. Average the lowest k, add the adjustment, round to 1 decimal half up.
     No 0.96 factor: that is the pre-2020 USGA multiplier, not part of WHS.
     """
     priced = [
@@ -593,7 +593,9 @@ def _handicap_estimate(rounds: list[dict[str, Any]]) -> float | None:
         return None
     take, adjustment = next((k, adj) for max_n, k, adj in HANDICAP_WHS_TABLE if len(recent) <= max_n)
     lowest = sorted(recent)[:take]
-    return round(sum(lowest) / len(lowest) + adjustment, 1)
+    # WHS rounds to the nearest tenth, half up (as the C16b reference r1 does); Python's round()
+    # would take an exact .x5 average such as 10.25 to the even 10.2.
+    return float(f"{sum(lowest) / len(lowest) + adjustment + 1e-9:.1f}")
 
 
 HANDICAP_CHANGE_ROUNDS = 20

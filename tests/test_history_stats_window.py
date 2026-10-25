@@ -544,6 +544,19 @@ class HandicapEstimateTests(unittest.TestCase):
                 stats = build_history_stats(_history(rounds), data_mode="fixture")
                 self.assertEqual(stats["summary"]["handicapEstimate"], expected)
 
+    def test_estimate_rounds_an_exact_half_tenth_up(self) -> None:
+        # N=7 -> lowest 2, no adjustment. Ratings 71.8 / 71.7 give differentials 10.2 / 10.3;
+        # the other five are 20..24. (10.2 + 10.3) / 2 = 10.25 exactly: WHS (and the C16b
+        # reference r1) round half up -> 10.3; Python's round() would give the even 10.2.
+        rounds = [
+            _rated_round("h1", "2026-02-01", 82, rating=71.8),
+            _rated_round("h2", "2026-02-02", 82, rating=71.7),
+        ] + [_rated_round(f"h{3 + i}", f"2026-02-{3 + i:02d}", 92 + i) for i in range(5)]
+
+        stats = build_history_stats(_history(rounds), data_mode="fixture")
+
+        self.assertEqual(stats["summary"]["handicapEstimate"], 10.3)
+
     def test_by_month_average_differential_stays_rated_only(self) -> None:
         # Like the KPI, the byMonth chart line prices only rated rounds (a score-par
         # value is a different scale). One rated + one unrated round in the SAME
