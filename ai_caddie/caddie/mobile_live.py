@@ -984,18 +984,65 @@ def _ensure_geometry_for_course(
     return _geometry_ensure_summary(results, requested=True)
 
 
+# A hole that cannot be drawn yet is waiting on its geometry/topo install; the client asks again
+# after this cadence (or a later persisted retry time) while that install is in flight.
+_GEOMETRY_INSTALL_POLL_SECONDS = 30.0
+# Map the derivative lane's observation onto the package's supplement state.
+_SUPPLEMENT_STATES = {"due": "queued", "running": "running", "retrying": "retrying"}
+
+
+def _missing_supplements(global_id: int | None, local_hole: int | None, evidence: dict) -> list[dict]:
+    """Obstacles a drawable hole still lacks, with the derivative lane's real retry plan."""
+    if evidence.get("coverage") == "ready" or evidence.get("hasHazards", False):
+        return []
+    rows = [row for row in evidence.get("missingData") or [] if row.get("label") == "hazards"]
+    if not rows and "hasHazards" not in evidence:
+        return []
+    observed: dict[str, Any] = {}
+    if global_id and local_hole:
+        try:
+            from ai_caddie.geometry.geometry_sync import derivative_state
+
+            observed = derivative_state(int(global_id), int(local_hole))
+        except Exception:
+            observed = {}
+    state = _SUPPLEMENT_STATES.get(str(observed.get("state") or ""), "queued")
+    return [{
+        "label": "hazards",
+        "reason": str((rows[0] if rows else {}).get("reason") or "prodgeometry hazard export pending"),
+        "state": state,
+        "retryAfterEpoch": observed.get("retryAfterEpoch") if state == "retrying" else None,
+        "failureCount": int(observed.get("failureCount") or 0),
+        "lastErrorType": observed.get("lastErrorType"),
+    }]
+
+
 def _startup_hole_assets(global_id: int | None, local_hole: int | None, evidence: dict) -> dict:
-    """Describe fetchable maps without fetching, rendering or parsing a mesh."""
+    """Describe fetchable maps without fetching, rendering or parsing a mesh.
+
+    ``pending`` means "nothing to draw yet, geometry/topo work is in flight".  A hole whose mesh
+    topo is installed is ``ready`` even while its optional obstacle export is still being
+    supplemented; ``missingData`` then names what is missing and the export's real retry plan.
+    """
     base = f"/api/v2/courses/{int(global_id or 0)}/holes/{int(local_hole or 0)}"
-    ready = evidence.get("coverage") == "ready"
     topo = evidence.get("topoCoverage", evidence.get("coverage")) == "ready"
     revision = evidence.get("topoRevision") or evidence.get("geometryRevision")
-    retry = next((row.get("retryAfterEpoch") for row in evidence.get("missingData") or []
-                  if row.get("retryAfterEpoch")), None)
-    return {"geometryState": "ready" if ready else "pending",
-            "retryAfterEpoch": None if ready else max(time.time() + 30, float(retry or 0)),
-            "garminRaster": {"imageUrl": base + "/garmin-raster.jpg", "metadataUrl": base + "/garmin-raster"},
-            "topoAvailable": bool(topo and revision), "topoRevision": revision if topo else None}
+    drawable = evidence.get("coverage") == "ready" or bool(topo and revision)
+    assets: dict[str, Any] = {
+        "geometryState": "ready" if drawable else "pending",
+        "retryAfterEpoch": None,
+        "garminRaster": {"imageUrl": base + "/garmin-raster.jpg", "metadataUrl": base + "/garmin-raster"},
+        "topoAvailable": bool(topo and revision), "topoRevision": revision if topo else None,
+    }
+    if drawable:
+        missing = _missing_supplements(global_id, local_hole, evidence)
+        if missing:
+            assets["missingData"] = missing
+    else:
+        retry = next((row.get("retryAfterEpoch") for row in evidence.get("missingData") or []
+                      if row.get("retryAfterEpoch")), None)
+        assets["retryAfterEpoch"] = max(time.time() + _GEOMETRY_INSTALL_POLL_SECONDS, float(retry or 0))
+    return assets
 
 
 def _package_holes(
