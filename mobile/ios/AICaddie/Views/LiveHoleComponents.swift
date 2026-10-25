@@ -1614,14 +1614,6 @@ enum LivePlayMapOverlayLayout {
     /// preserving pixel alignment with the factual route.
     static let liveMapTopInset: CGFloat = 80
 
-    /// Its counterpart at the bottom: the fixed 记分 / 记一杆 row (`LivePlayBottomRow`) on its
-    /// padding above the home indicator, plus `chromeGap`. The lightweight frame keeps at least this
-    /// room before (and after) the row is measured, so the tee never opens under the row and
-    /// measuring it does not move the map.
-    static var liveMapBottomInset: CGFloat {
-        LivePlayBottomRow.height + LivePlayBottomRow.bottomPadding + LivePlayBottomRow.homeIndicatorInset + chromeGap
-    }
-
     /// The hero map's tap rectangle is positioned below the fixed header. SwiftUI reports gesture
     /// locations in that rectangle's local coordinate space, while projected markers and green
     /// outlines use the complete hero space.
@@ -1719,16 +1711,11 @@ enum LivePlayMapOverlayLayout {
     /// move while the actual course stayed out of reach, which made the upper fairway impossible to
     /// inspect after a pinch. When a transformed axis is smaller than the viewport there is no valid
     /// pan on that axis, so it remains centered at zero.
-    ///
-    /// `keepsRestReachable` is for a deliberately placed frame (the lightweight map's centred plan
-    /// framing) that may overhang one screen edge without covering the other: its rest position
-    /// (zero offset) stays allowed, so the clamp never drags the framed hole sideways at rest.
     static func clampedOffset(
         _ proposed: CGSize,
         mapFrame: CGRect,
         viewportSize: CGSize,
-        scale: CGFloat,
-        keepsRestReachable: Bool = false
+        scale: CGFloat
     ) -> CGSize {
         guard proposed.width.isFinite,
               proposed.height.isFinite,
@@ -1755,8 +1742,7 @@ enum LivePlayMapOverlayLayout {
             let span = maximum - minimum
             guard span > viewport else { return (0, 0) }
             // After translation, the transformed bounds must cover [0, viewport].
-            guard keepsRestReachable else { return (viewport - maximum, -minimum) }
-            return (min(viewport - maximum, 0), max(-minimum, 0))
+            return (viewport - maximum, -minimum)
         }
 
         let xBounds = bounds(minimum: transformedMinX, maximum: transformedMaxX, viewport: viewportSize.width)
@@ -1811,13 +1797,7 @@ enum LivePlayMapOverlayLayout {
     ///
     /// Chrome in the upper part of the hero (title, round buttons, 洞位图, green ladder) sets the top
     /// inset; chrome in the lower part (记分, 记一杆, the obstacle bar) sets the bottom inset; the side
-    /// controls only constrain labels. The insets never go below `liveMapTopInset` and
-    /// `liveMapBottomInset`, which also stand in before the chrome is measured.
-    ///
-    /// Garmin's raster with no route on it yet (its descriptor arrived before CourseView prep, or
-    /// the prep has no projection to remap through) frames the whole raster between the same insets:
-    /// Garmin draws the hole inside its own frame, so the tee, the player and the green stay clear
-    /// of the chrome. An aspect fill of the viewport would put the tee under 记分 / 记一杆.
+    /// controls only constrain labels. Before the chrome is measured the header inset is used.
     static func lightweightFittedFrame(
         overlay: CoursePrepOverlay,
         viewport: CGSize,
@@ -1832,24 +1812,8 @@ enum LivePlayMapOverlayLayout {
         let upper = rects.filter { $0.maxY <= viewport.height * 0.45 }
         let lower = rects.filter { $0.minY >= viewport.height * 0.55 }
         let top = max(liveMapTopInset, (upper.map(\.maxY).max() ?? 0) + chromeGap)
-        let bottom = max(liveMapBottomInset, lower.map(\.minY).min().map { viewport.height - $0 + chromeGap } ?? 0)
+        let bottom = lower.map(\.minY).min().map { max(viewport.height - $0 + chromeGap, 0) } ?? 0
         guard top + bottom < viewport.height else { return nil }
-        let hasRoute = overlay.route.contains { $0.count >= 2 && $0[0].isFinite && $0[1].isFinite }
-        guard hasRoute else {
-            return PrepMapLayout.restFrame(
-                overlayWidth: overlay.w,
-                overlayHeight: overlay.h,
-                route: [],
-                anchors: [
-                    PrepMapLayout.Anchor(point: .zero, clearance: .zero),
-                    PrepMapLayout.Anchor(point: CGPoint(x: overlay.w, y: overlay.h), clearance: .zero),
-                ],
-                viewport: viewport,
-                topInset: top,
-                bottomInset: bottom,
-                prefersCover: false
-            )
-        }
         return PrepMapLayout.routeRestFrame(
             overlay: overlay,
             labelText: representativeRouteLabel,

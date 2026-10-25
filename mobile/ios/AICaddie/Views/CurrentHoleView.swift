@@ -835,7 +835,7 @@ public struct CurrentHoleView: View {
                     .reportsLiveChrome()
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, LivePlayBottomRow.bottomPadding)
+                .padding(.bottom, 8)
             }
         }
         .overlay(alignment: .topLeading) { liveCaddieRouteSummary }
@@ -1312,8 +1312,7 @@ public struct CurrentHoleView: View {
             proposed,
             mapFrame: frame,
             viewportSize: viewport,
-            scale: heroDisplayedMapScale,
-            keepsRestReachable: liveMapFittedFrame(in: viewport) != nil
+            scale: heroDisplayedMapScale
         )
     }
 
@@ -1801,8 +1800,7 @@ public struct CurrentHoleView: View {
             proposed,
             mapFrame: frame,
             viewportSize: viewport,
-            scale: scale,
-            keepsRestReachable: liveMapFittedFrame(in: viewport) != nil
+            scale: scale
         )
     }
 
