@@ -1390,8 +1390,8 @@ class CourseInstallHandOffTests(unittest.TestCase):
                 self.ci.reconcile_derivatives(job)
                 self.ci._schedule_retry(job)
                 timer = self.ci._RETRY_TIMERS.pop(job)
-                # main: Timer(1.0) on every pass -> a worker pass and a journal write each second.
-                self.assertEqual(timer.delay, self.EXPORT_RECHECK_S)
+                # The synthetic retry epoch is sampled immediately before arming the timer.
+                self.assertAlmostEqual(timer.delay, self.EXPORT_RECHECK_S, places=1)
 
     # ------------------------------------------------------------------ ⑥ ready journal
     def test_export_completing_the_job_drops_its_pending_wake_up(self) -> None:

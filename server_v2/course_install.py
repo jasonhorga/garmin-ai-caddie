@@ -107,6 +107,12 @@ def _write(state: dict[str, Any]) -> None:
     now = _now()
     state["heartbeatAt"] = now
     state["updatedAt"] = now
+    if state.get("phase") in _TERMINAL_PHASES:
+        # Every terminal transition goes through this durable write path.  Clear process-local
+        # observability state and any stale wake-up epoch regardless of which caller reached it.
+        identifier = str(state["jobId"])
+        _DERIVATIVE_LOG_SIGNATURES.pop(identifier, None)
+        state.pop("nextAttemptEpoch", None)
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(
         json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
@@ -316,8 +322,6 @@ def _derivative_delay(state: dict[str, Any]) -> float:
     if any(row.get("derivatives") == "queued" for row in rows):
         delay = 0.0
     else:
-        if any(row.get("derivativesLastErrorType") == "ScheduleUnavailable" for row in rows):
-            return _DERIVATIVE_POLL_SECONDS
         plans = []
         for row in rows:
             if row.get("derivatives") != "retrying":
@@ -531,11 +535,8 @@ def _schedule_retry(identifier: str) -> None:
                     current[key] = signature
                     # INFO only when a hole's export state changes: a plan deferred while playing
                     # nearby re-runs every minute with nothing new to say.
-                    first_running_plan = signature[0] == "running" and failures == 0
                     logger.log(
-                        logging.INFO if first_running_plan else (
-                            logging.DEBUG if logged.get(key) == signature else logging.INFO
-                        ),
+                        logging.DEBUG if logged.get(key) == signature else logging.INFO,
                         "course_install stage=derivatives job=%s hole=%s state=%s failures=%s "
                         "retry_after_epoch=%s next_attempt_in_s=%.0f",
                         identifier, key, signature[0], failures, signature[2], delay,
@@ -576,8 +577,12 @@ def _arm_retry_timer(identifier: str, state: dict[str, Any], delay: float) -> No
     again instead of a synthetic poll interval.
     """
 
+    timer: threading.Timer | None = None
+
     def relaunch() -> None:
         with _LOCK:
+            if _RETRY_TIMERS.get(identifier) is not timer:
+                return
             _RETRY_TIMERS.pop(identifier, None)
             # Reacquire the active ownership before releasing the lock.  A package plan observed
             # from another thread therefore sees either the timer or the newly submitted worker.
@@ -1300,6 +1305,8 @@ def resume_pending_jobs() -> None:
             state = _read(identifier)
             if not state:
                 continue
+            if identifier in _ACTIVE:
+                continue
             phase = str(state.get("phase") or "")
             updated_timestamp = _state_timestamp(state, path)
             if phase in {"ready", "failed"} and updated_timestamp < terminal_cutoff.timestamp():
@@ -1398,7 +1405,10 @@ def hole_plan(global_id: int, local_hole: int) -> dict[str, Any] | None:
                 continue
             # Nearby warming has its own priority provider.  A deferred nearby journal must not
             # make a player's failed install look retryable after that player lost ownership.
-            if str(state.get("loopKey") or "").endswith(":nearby-assets"):
+            if (
+                str(state.get("loopKey") or "").endswith(":nearby-assets")
+                and state.get("stage") in _DEFERRED_STAGES
+            ):
                 continue
             owed = row.get("geometry") in {"queued", "running"} or (
                 _geometry_ready(row) and row.get("topo") in {"queued", "running"}
