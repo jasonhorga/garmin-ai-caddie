@@ -149,6 +149,68 @@ class TeeResultIngestTest(unittest.TestCase):
         self.assertEqual(fairways, ["left", "left"])
         self.assertEqual(reads, [f"gid{GID}_h01_meshes.json"])
 
+    def retained(self, events: list[dict], key: str, **meta) -> tuple[list[str | None], list, list[int], list[str]]:
+        """Ingest ``events`` and observe the ingest's mesh store: the (gid, hole) keys it still
+        holds after each scored hole, its size after every insert, and every mesh file read."""
+        after_hole: list[tuple[int, set]] = []
+        sizes: list[int] = []
+        reads: list[str] = []
+
+        class Recording(dict):
+            def __setitem__(self, k, v):
+                super().__setitem__(k, v)
+                sizes.append(len(self))
+
+        init = round_ingest._IngestGeometry.__init__
+        enrich = round_ingest._enrich_hole_gir_fairway
+        read_text = Path.read_text
+
+        def recording_init(geometry, *args, **kwargs):
+            init(geometry, *args, **kwargs)
+            geometry._meshes = Recording()
+
+        def observed_enrich(hole, **kwargs):
+            result = enrich(hole, **kwargs)
+            after_hole.append((hole["number"], set(kwargs["geometry"]._meshes)))
+            return result
+
+        def counting(path: Path, *args, **kwargs):
+            if path.name.endswith("_meshes.json"):
+                reads.append(path.name)
+            return read_text(path, *args, **kwargs)
+
+        with patch.object(round_ingest._IngestGeometry, "__init__", recording_init), \
+                patch.object(round_ingest, "_enrich_hole_gir_fairway", observed_enrich), \
+                patch.object(Path, "read_text", counting):
+            fairways = self.fairways(events, key, **meta)
+        return fairways, after_hole, sizes, reads
+
+    def test_a_plus_a_round_keeps_only_meshes_still_to_be_used(self) -> None:
+        # Local holes 1..9 are played as holes 1..9 and again as 10..18. After hole n <= 9 the
+        # meshes of locals 1..n are still needed (for holes 10..9+n); after hole 9+k locals 1..k
+        # are done for good, leaving k+1..9. After hole 18 nothing is left.
+        for local in range(1, 10):
+            self.install(STRAIGHT, local)
+        events = [event for number in range(1, 19) for event in _hole_events(number, WEST)]
+        fairways, after_hole, _sizes, reads = self.retained(
+            events, "a-plus-a-18", holePars="4" * 18, frontNineGlobalCourseId=GID, backNineGlobalCourseId=GID)
+        self.assertEqual(fairways, ["left"] * 18)
+        expected = [(n, {(GID, k) for k in range(1, n + 1)}) for n in range(1, 10)]
+        expected += [(9 + k, {(GID, j) for j in range(k + 1, 10)}) for k in range(1, 10)]
+        self.assertEqual(after_hole, expected)
+        self.assertEqual(sorted(reads), [f"gid{GID}_h{local:02d}_meshes.json" for local in range(1, 10)])
+
+    def test_ordinary_round_holds_at_most_one_mesh(self) -> None:
+        # Eighteen distinct holes of one gid: each mesh serves its own hole only (GIR + tee result).
+        for local in range(1, 19):
+            self.install(STRAIGHT, local)
+        events = [event for number in range(1, 19) for event in _hole_events(number, WEST)]
+        fairways, after_hole, sizes, reads = self.retained(events, "eighteen", holePars="4" * 18)
+        self.assertEqual(fairways, ["left"] * 18)
+        self.assertEqual(max(sizes), 1)
+        self.assertEqual(after_hole, [(n, set()) for n in range(1, 19)])
+        self.assertEqual(sorted(reads), [f"gid{GID}_h{local:02d}_meshes.json" for local in range(1, 19)])
+
 
 if __name__ == "__main__":
     unittest.main()
