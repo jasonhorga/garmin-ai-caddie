@@ -1152,6 +1152,31 @@ class DecisionLayerTests(unittest.TestCase):
                 self.assertEqual(plan["sequences"], [])
                 self.assertIn("feasibility", {row["label"] for row in plan["missingData"]})
 
+    def test_non_positive_pin_distance_is_reported_missing(self) -> None:
+        # Approach/recovery give no options without a positive distanceToPin_m (af3fed9c);
+        # missingData must name distance_to_pin for the same inputs, not only for None.
+        for shot_type, recommend, fixture in (
+            ("approach", recommend_approach, approach_fixture),
+            ("recovery", recommend_recovery, recovery_fixture),
+        ):
+            for distance_m in (0, -5, "unknown"):
+                with self.subTest(shot_type=shot_type, distance_m=distance_m):
+                    context = fixture()
+                    context["distanceToPin_m"] = distance_m
+
+                    plan = recommend(context)
+
+                    self.assertEqual(plan["options"], [])
+                    self.assertIn("distance_to_pin", {row["label"] for row in plan["missingData"]})
+            with self.subTest(shot_type=shot_type, distance_m="fixture positive"):
+                context = fixture()
+                self.assertGreater(context["distanceToPin_m"], 0)
+
+                plan = recommend(context)
+
+                self.assertTrue(plan["options"])
+                self.assertNotIn("distance_to_pin", {row["label"] for row in plan["missingData"]})
+
     def test_missing_selected_option_cannot_retain_an_unrelated_sequence(self) -> None:
         from ai_caddie.caddie.decision import _align_selected_sequence
 
