@@ -1240,7 +1240,7 @@ public final class WatchRoundModel: ObservableObject {
     ) {
         let unscored = hole.score == 0
         let shotCount = recordedShotCount(for: hole.hole)
-        // Opened already inside the shared rule (total ≥ putts + penalty + 1, putts/penalty ≤ 9).
+        // Opened already inside the shared rule (total ≥ putts + penalty + 1, putts ≤ 5, penalty ≤ 4).
         let values = HoleScoreValues(
             score: unscored
                 ? (shotCount > 0 ? shotCount + 2 : (hole.geometryCoverage == "pending" ? 1 : hole.par))

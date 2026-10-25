@@ -2013,6 +2013,7 @@ final class WatchRoundModelTests: XCTestCase {
     }
 
     /// The phone's rule (`HoleScoreValues`, README §3), not wheels: no wrapping, no cap on the total.
+    /// Only the ranges are the Watch's own: putts 0–5, penalty 0–4 (product test spec 5.13).
     func testScoreFollowsTheSameRuleAsThePhone() {
         let model = seededModel(holes: [hole(1, par: 4), hole(2)])
         model.startScoringActiveHole()
@@ -2029,8 +2030,8 @@ final class WatchRoundModelTests: XCTestCase {
         XCTAssertEqual(model.draftScore, 17, "no cap at 15 (#417 W03)")
         model.setDraftScore(8)
         model.setDraftPutts(12)
-        XCTAssertEqual(model.draftPutts, 9, "same maximum as the phone")
-        XCTAssertEqual(model.draftScore, 11)
+        XCTAssertEqual(model.draftPutts, 5, "the Watch wheel stops at 5 (spec 5.13)")
+        XCTAssertEqual(model.draftScore, 8, "5 putts + 1 penalty + 1 = 7 fits inside the chosen 8")
         model.setDraftScore(4)
         XCTAssertEqual(model.draftPutts, 2, "a lower total gives way: putts first")
         XCTAssertEqual(model.draftPenalty, 1)

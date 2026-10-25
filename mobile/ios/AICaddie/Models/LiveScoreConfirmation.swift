@@ -51,8 +51,9 @@ public struct LiveScoreDraft: Codable, Equatable, Identifiable {
     /// adjusted with its own −/+; stats read the actual number.
     public static let puttSegments = [0, 1, 2, 3, 4]
     public static let fourPlusSegment = 4
-    public static let maximumPutts = HoleScoreValues.maximumPutts
-    public static let maximumPenalty = HoleScoreValues.maximumPenalty
+    /// The phone's own ranges (the `4+` stepper's 4…9); the Watch wheels stop lower (spec 5.13).
+    public static let maximumPutts = 9
+    public static let maximumPenalty = 9
 
     /// The putt segment shown selected: the count itself, or `4+` for four or more.
     public var puttSegment: Int { min(putts, Self.fourPlusSegment) }
@@ -157,7 +158,10 @@ public struct LiveScoreDraft: Codable, Equatable, Identifiable {
 
     /// One shared rule for phone and Watch (`HoleScoreValues`).
     private mutating func apply(_ change: (inout HoleScoreValues) -> Bool) {
-        var values = HoleScoreValues(score: score, putts: putts, penalty: penalty)
+        var values = HoleScoreValues(
+            score: score, putts: putts, penalty: penalty,
+            puttLimit: Self.maximumPutts, penaltyLimit: Self.maximumPenalty
+        )
         guard change(&values) else { return }
         score = values.score
         putts = values.putts
