@@ -20,6 +20,7 @@ from ai_caddie.geometry.measure_prodgeometry_distances import (
 from ai_caddie.core.data import (
     available_prep_holes,
     build_club_profiles,
+    canonical_club_key,
     clean_club_name,
     hazard_path,
     load_shot_file,
@@ -721,6 +722,20 @@ def strategy_distances(analysis: dict[str, Any], *, max_labels: int = 9) -> dict
     }
 
 
+def _club_profile(club_profiles: dict[str, dict[str, Any]], club_name: str | None) -> dict[str, Any] | None:
+    """The measured profile for a shot's club. build_club_profiles pools case/whitespace variants
+    under canonical_club_key and labels the profile with the most-used spelling, so "driver" must
+    still find the "Driver" profile."""
+    if not club_name:
+        return None
+    if club_name in club_profiles:
+        return club_profiles[club_name]
+    key = canonical_club_key(club_name)
+    if key is None:
+        return None
+    return next((profile for name, profile in club_profiles.items() if canonical_club_key(name) == key), None)
+
+
 def candidate_routes(hole: dict[str, Any], shots: list[dict[str, Any]], geometry: dict[str, Any], club_profiles: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     hazards = geometry.get("hazards") or {}
     target = hazards.get("target", {}).get("position")
@@ -744,7 +759,7 @@ def candidate_routes(hole: dict[str, Any], shots: list[dict[str, Any]], geometry
     unit = ((target_point[0] - start[0]) / total, (target_point[1] - start[1]) / total)
 
     actual_club = (first or {}).get("clubName") if first else None
-    actual_profile = club_profiles.get(actual_club or "")
+    actual_profile = _club_profile(club_profiles, actual_club)
     stock_distance = actual_profile["median"] if actual_profile else min(210.0, total * 0.75)
 
     candidates = [
@@ -793,7 +808,7 @@ def data_quality(hole: dict[str, Any], shots: list[dict[str, Any]], geometry: di
     for shot in shots:
         if not shot.get("start") or not shot.get("end"):
             issues.append(f"shot {shot.get('shotOrder')} missing start/end location")
-        profile = club_profiles.get(shot.get("clubName") or "")
+        profile = _club_profile(club_profiles, shot.get("clubName"))
         if not profile or profile["sampleSize"] < 10:
             issues.append(f"club sample low for {shot.get('clubName') or 'Unknown'}")
     confidence = "high"
@@ -931,8 +946,9 @@ def build_hole_analysis(
         pin["local"] = _round_point(local)
         pin["feature"] = classify_point((local[0], local[1]), geometry) if geometry["components"] else None
     relevant_profiles = {
-        name: club_profiles[name]
-        for name in sorted({s.get("clubName") for s in shots if s.get("clubName")} & set(club_profiles))
+        name: profile
+        for name in sorted({s.get("clubName") for s in shots if s.get("clubName")})
+        if (profile := _club_profile(club_profiles, name)) is not None
     }
     analysis = {
         "schema": "ai-caddie-hole-analysis-v1",
