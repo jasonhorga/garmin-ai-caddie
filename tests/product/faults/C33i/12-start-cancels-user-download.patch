@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Services/SyncClient.swift
++++ b/mobile/ios/AICaddie/Services/SyncClient.swift
+@@ -558,7 +558,7 @@
+     private func coursePackageData(_ request: URLRequest, foregroundStart: Bool, requestKind: PackageRequestKind = .background, maximumAttempts: Int = SyncClient.courseAssetMaximumAttempts) async throws -> Data {
+         let id = UUID()
+         let producer = try packageWorkLock.withLock { () throws -> Task<Data, Error> in
+-            guard requestKind != .background || roundStartOwner == nil else { throw CancellationError() }
++            guard foregroundStart || roundStartOwner == nil else { throw CancellationError() }
+             let task = Task<Data, Error> {
+                 try Task.checkCancellation()
+                 if foregroundStart {

@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -33,6 +33,7 @@
+ 
+     static func url(hole: Hole, prep: CoursePrepHole?, localURL: URL?, baseURL: URL?) -> URL? {
+         if let localURL { return localURL }
++        guard prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else { return nil }
+         guard let baseURL,
+               let url = SyncClient.topoImageURL(
+                   baseURL: baseURL, globalId: hole.sourceGlobalId, localHole: hole.sourceLocalHole,

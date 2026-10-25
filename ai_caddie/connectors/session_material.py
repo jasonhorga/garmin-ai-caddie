@@ -68,22 +68,32 @@ def save_garmin_cn_web_session(
     token_dir.chmod(0o700)
     web_session_path = token_dir / WEB_SESSION_FILE
     anti_forgery_path = token_dir / ANTI_FORGERY_FILE
-    web_session_path.write_text(web_session + "\n", encoding="utf-8")
-    anti_forgery_path.write_text(anti_forgery + "\n", encoding="utf-8")
-    web_session_path.chmod(0o600)
-    anti_forgery_path.chmod(0o600)
-
+    # A failure after validation must leave the previously working session byte-for-byte.
+    previous = {path: path.read_bytes() if path.exists() else None for path in (web_session_path, anti_forgery_path)}
     detail = "Garmin CN web session saved for local sync. Run sync to refresh local data."
-    write_connector_status(
-        root=base,
-        state="no_data",
-        detail=detail,
-        snapshot_id=None,
-        # `no_data` is also the terminal state for a successful empty sync. Keep the import-only
-        # state distinguishable so clients do not mark a freshly captured cookie as verified.
-        error_code="session_stored",
-        data_dir=Path(data_dir) if data_dir is not None else None,
-    )
+    try:
+        web_session_path.write_text(web_session + "\n", encoding="utf-8")
+        anti_forgery_path.write_text(anti_forgery + "\n", encoding="utf-8")
+        web_session_path.chmod(0o600)
+        anti_forgery_path.chmod(0o600)
+
+        write_connector_status(
+            root=base,
+            state="no_data",
+            detail=detail,
+            snapshot_id=None,
+            # `no_data` is also the terminal state for a successful empty sync. Keep the import-only
+            # state distinguishable so clients do not mark a freshly captured cookie as verified.
+            error_code="session_stored",
+            data_dir=Path(data_dir) if data_dir is not None else None,
+        )
+    except Exception:
+        for path, content in previous.items():
+            if content is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_bytes(content)
+        raise
     return {
         "schema": "ai-caddie-garmin-session-import-v1",
         "connector": "garmin_cn_web_session",

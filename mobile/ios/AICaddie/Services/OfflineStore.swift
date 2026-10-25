@@ -840,6 +840,13 @@ public final class OfflineStore {
         allowHoleCountDecrease: Bool = false
     ) throws -> LiveRoundPackage {
         try FileManager.default.createDirectory(at: packagesDirectoryURL, withIntermediateDirectories: true)
+        if package.offlinePackageStatus.mustNotCache,
+           let existing = try? loadRoundPackage(roundId: package.roundId),
+           !existing.offlinePackageStatus.mustNotCache {
+            // A degraded response may be rendered and retried, but it cannot replace an existing
+            // complete package or its current-round pointer.
+            return existing
+        }
         let persistedPackage: LiveRoundPackage
         if !allowHoleCountDecrease,
            let existing = try? loadRoundPackage(roundId: package.roundId),
@@ -940,6 +947,7 @@ public final class OfflineStore {
     /// SEPARATE file so it never becomes the "current round" pointer — only a started round
     /// (saveRoundPackage) is the active round that resumes on relaunch.
     public func saveHomePackage(_ package: LiveRoundPackage) throws {
+        guard !package.offlinePackageStatus.mustNotCache else { return }
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         try package.validatedRoundIdentity()
         let encoded = try encoder.encode(package)
@@ -1149,6 +1157,7 @@ public final class OfflineStore {
     ) throws {
         guard source.course.globalId > 0,
               source.dataMode != "fixture",
+              !source.offlinePackageStatus.mustNotCache,
               !source.holes.isEmpty,
               var package = source.wholeCourseTemplate() else { return }
         try package.validatedRoundIdentity()

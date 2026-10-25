@@ -297,12 +297,24 @@ public final class WatchBackendClient {
     private func clubPayload(for event: WatchInputEvent, clubName: String) -> [String: Any] {
         var payload: [String: Any] = ["clubName": clubName]
         if let shotType = event.shotType { payload["shotType"] = shotType }
-        if let strategyMode = event.strategyMode { payload["strategyMode"] = strategyMode }
+        if let strategyMode = eventStrategyModeForEvent(event.strategyMode) {
+            payload["strategyMode"] = strategyMode
+        }
         if let lie = event.lie { payload["lie"] = lie }
         if let distanceToPinM = event.distanceToPinM { payload["distanceToPinM"] = distanceToPinM }
         if let offlineOptionId = event.offlineOptionId { payload["offlineOptionId"] = offlineOptionId }
         if let decisionId = event.decisionId { payload["decisionId"] = decisionId }
         return payload
+    }
+
+    private func eventStrategyModeForEvent(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "protect_score", "protect-score", "protect", "safe": return "protect_score"
+        case "stock", "standard", "normal": return "stock"
+        case "attack", "aggressive": return "attack"
+        default: return nil
+        }
     }
 
     private func normalizedFairway(_ value: String?) -> String? {

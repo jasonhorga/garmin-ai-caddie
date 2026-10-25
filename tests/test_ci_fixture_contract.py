@@ -661,8 +661,9 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertEqual(package["sourceCoverage"]["holeCount"], 18)
         self.assertEqual(package["geometryCoverage"], {"state": "ready", "readyHoles": 18, "totalHoles": 18})
         self.assertEqual({seed["hole"] for seed in package["caddieContextSeeds"]}, set(range(1, 19)))
+        # Approach targets are offsets from a live distance (spec 8.2); the iOS request always carries one.
         for hole in range(1, 19):
-            decision = __import__("server_v2.ci_fixture", fromlist=["caddie_decision"]).caddie_decision({"shotType": "approach", "context": {"roundId": "home-3881", "globalId": 3881, "hole": hole, "localHole": hole, "sourceRef": f"home-3881:{hole}"}})
+            decision = __import__("server_v2.ci_fixture", fromlist=["caddie_decision"]).caddie_decision({"shotType": "approach", "context": {"roundId": "home-3881", "globalId": 3881, "hole": hole, "localHole": hole, "sourceRef": f"home-3881:{hole}", "distanceToPin_m": 140.0}})
             self.assertEqual(decision["context"]["globalId"], 3881)
             self.assertEqual(decision["sourceRef"], f"home-3881:{hole}")
             self.assertEqual(decision["selected"]["sourceRef"], f"home-3881:{hole}")
@@ -673,7 +674,7 @@ class CIFixtureContractTests(unittest.TestCase):
         second_loop = [row for row in reordered["holes"] if row["number"] >= 10]
         self.assertEqual({row["sourceGlobalId"] for row in second_loop}, {31795})
         self.assertEqual([row["sourceLocalHole"] for row in second_loop], list(range(1, 10)))
-        back_decision = __import__("server_v2.ci_fixture", fromlist=["caddie_decision"]).caddie_decision({"shotType": "approach", "context": {"roundId": "home-31795", "globalId": 31795, "hole": 10, "localHole": 1, "sourceRef": "home-31795:10"}})
+        back_decision = __import__("server_v2.ci_fixture", fromlist=["caddie_decision"]).caddie_decision({"shotType": "approach", "context": {"roundId": "home-31795", "globalId": 31795, "hole": 10, "localHole": 1, "sourceRef": "home-31795:10", "distanceToPin_m": 140.0}})
         self.assertEqual(back_decision["context"]["globalId"], 31795)
         self.assertEqual(back_decision["selected"]["courseGlobalId"], 31795)
         self.assertEqual(back_decision["selected"]["localHole"], 1)
@@ -805,7 +806,8 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertTrue(all(len(sequence["clubs"]) >= 2 for sequence in sequences))
         self.assertTrue(all(sequence["sourceRefs"] for sequence in sequences))
         self.assertEqual(tee_response["selectedSequence"]["sourceRef"], "home-31795:10")
-        response = caddie_decision({"shotType": "approach", "context": context})
+        # The seed has no live distance; the iOS request adds one before asking for an approach.
+        response = caddie_decision({"shotType": "approach", "context": {**context, "distanceToPin_m": 140.0}})
         self.assertEqual(response["selected"]["courseGlobalId"], 31795)
         self.assertEqual(response["selected"]["localHole"], 1)
         self.assertEqual(response["selected"]["displayHole"], 10)

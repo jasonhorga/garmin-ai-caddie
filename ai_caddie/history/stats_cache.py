@@ -81,7 +81,9 @@ _inflight: dict[tuple, threading.Event] = {}
 # The cache is deliberately disabled when no private root is configured (normal unit/fixture runs),
 # and it never stores CourseView/map bytes. Set AI_CADDIE_STATS_CACHE_DIR to an explicit location in
 # a controlled deployment or test.
-_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v1"
+# The fingerprint covers source files only, not code: bump this when a stats formula changes so a
+# deploy does not keep serving projections built by the old code (v2: WHS handicap estimate).
+_PERSISTENT_CACHE_SCHEMA = "ai-caddie-history-stats-cache-v2"
 _PERSISTENT_CACHE_MAX_BYTES = 64 * 1024 * 1024
 # A stats projection can be tens of megabytes on a real history.  Never make the first package
 # caller serialize and write that projection synchronously: the request only needs the in-memory

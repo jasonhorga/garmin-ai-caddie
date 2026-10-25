@@ -9,6 +9,8 @@ import math
 
 from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
+# Case/whitespace-folded club key, None for the Unknown/clubId=0 bucket; shared with the caddie ladder.
+from ai_caddie.core.data import canonical_club_key as _canonical_club
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_course, geometry_coverage_for_hole
 from ai_caddie.history.history import (
     HistoryData,
@@ -62,20 +64,6 @@ def _shot_surface(shot: dict[str, Any]) -> Any:
 
 def _shot_club(shot: dict[str, Any]) -> str:
     return str(shot.get("club") or shot.get("clubName") or "Unknown")
-
-
-# Garmin shots with no club (clubId=0) surface as "Unknown" — thousands of them — and case
-# variants ("PW" vs "Pw") would otherwise split one club into two rows. _canonical_club folds
-# case/whitespace for grouping and returns None for the Unknown/empty bucket so phantom clubs
-# never appear as a real club row in the distance model.
-_UNKNOWN_CLUB_TOKENS = {"", "unknown", "0", "none", "null", "n/a"}
-
-
-def _canonical_club(name: Any) -> str | None:
-    text = " ".join(str(name or "").split())
-    if text.lower() in _UNKNOWN_CLUB_TOKENS:
-        return None
-    return text.upper()
 
 
 def _normalized_shot(shot: dict[str, Any]) -> dict[str, Any]:
@@ -542,57 +530,53 @@ def _hole_geometry_coverage(pairs: list[tuple[dict[str, Any], dict[str, Any]]], 
         return "missing"
 
 
-def _round_differential_or_par(row: dict[str, Any]) -> float | None:
-    """``_round_differential`` when rating/slope allow it; else ``score18 - par``.
+HANDICAP_WINDOW_ROUNDS = 20
 
-    Real Garmin rounds often lack course rating/slope; without a fallback the
-    差点(估算) KPI would be permanently None on such data. The label is 估算 (an
-    estimate), so score-over-par is an acceptable stand-in for the HANDICAP fields
-    only — byMonth ``averageDifferential`` (the chart line) stays rated-only
-    because mixing the two scales in one curve would mislead.
 
-    A rated differential is trusted only when the rating is plausible for the 18
-    holes ``_score18`` guarantees (>= 50). Merged 18-hole rounds often keep the
-    front NINE's tee rating (e.g. 35.2): pricing 18 holes of strokes against a
-    9-hole rating yields ~94 where the honest score-par value is ~43, silently
-    poisoning 差点(估算) whenever such a round enters the last-20 window — so a
-    sub-50 rating is treated as unrated and falls through to score-par. Nine-hole
-    rounds are unaffected: without an 18-hole score they never had a differential
-    of either kind.
+def _handicap_differential(row: dict[str, Any]) -> float | None:
+    """WHS score differential for the handicap KPI; None when the round cannot be priced.
+
+    Only rounds with an 18-hole score, course rating and slope are priced (product
+    manual §3 "WHS handicap"). There is no score-par stand-in: score over par is a
+    different scale from ``(score - rating) * 113 / slope`` and mixing the two in one
+    "lowest N" pick skews the estimate (review F-10).
+
+    A rating is trusted only when it is plausible for the 18 holes ``_score18``
+    guarantees (>= 50). Merged 18-hole rounds often keep the front NINE's tee
+    rating (e.g. 35.2): pricing 18 holes of strokes against a 9-hole rating yields
+    ~94, silently poisoning 差点(估算) whenever such a round enters the last-20
+    window — so a sub-50 rating makes the round unpriceable.
     """
     differential = _round_differential(row)
-    if differential is not None:
-        rating = _float_field(row, "rating")
-        if rating is not None and rating >= 50:
-            return differential
-    score = _score18(row)
-    par = _float_field(row, "par")
-    if score is None or par is None or par <= 0:
+    rating = _float_field(row, "rating")
+    if differential is None or rating is None or rating < 50:
         return None
-    return round(float(score) - par, 1)
+    return differential
 
 
 def _handicap_estimate(rounds: list[dict[str, Any]]) -> float | None:
     """WHS-style handicap estimate; the UI labels it 估算 (never an official index).
 
-    Over rounds that HAVE a differential (``_round_differential_or_par``: rated
-    when possible, score-par for unrated rounds, rounds with neither are skipped),
-    sorted by date desc, take the most recent ``min(20, N)``; needs at least 5;
-    average the LOWEST ``ceil(0.4 * min(20, N))`` differentials, multiply by 0.96
-    (the WHS bonus factor), round to 1 decimal.
+    Keep only the rounds that can be priced (``_handicap_differential``), then take
+    the most recent 20 of those differentials by date — like WHS, an unpriceable
+    round never holds one of the 20 places. (That cut at 20 ACTUAL rounds belongs to
+    the "近 20 场变化" split in ``_handicap_change_recent``, not to the estimate.)
+    Needs at least 5 differentials; average the LOWEST ``ceil(0.4 * N)`` of the N,
+    round to 1 decimal. No 0.96 factor: that is the pre-2020 USGA multiplier, not
+    part of WHS.
     """
-    rated = [
-        (str(row.get("date") or ""), differential)
-        for row in rounds
-        if (differential := _round_differential_or_par(row)) is not None
+    priced = [
+        (str(row.get("date") or ""), i, differential)
+        for i, row in enumerate(rounds)
+        if (differential := _handicap_differential(row)) is not None
     ]
-    if len(rated) < 5:
+    priced.sort(reverse=True)
+    recent = [differential for _day, _i, differential in priced[:HANDICAP_WINDOW_ROUNDS]]
+    if len(recent) < 5:
         return None
-    rated.sort(key=lambda item: item[0], reverse=True)
-    recent = [differential for _day, differential in rated[:20]]
     take = math.ceil(0.4 * len(recent))
     lowest = sorted(recent)[:take]
-    return round(sum(lowest) / len(lowest) * 0.96, 1)
+    return round(sum(lowest) / len(lowest), 1)
 
 
 HANDICAP_CHANGE_ROUNDS = 20
@@ -619,8 +603,7 @@ def _handicap_trend(rounds: list[dict[str, Any]]) -> float | None:
 
     The anchor is the newest round date in the data (never the wall clock, so the
     value is deterministic and cacheable). None when either side lacks the 5
-    differential-bearing rounds an estimate needs (rated or score-par fallback,
-    via ``_handicap_estimate``). Negative = improving.
+    priced rounds an estimate needs (via ``_handicap_estimate``). Negative = improving.
     """
     anchor = max((day for row in rounds if (day := _round_window_date(row)) is not None), default=None)
     if anchor is None:

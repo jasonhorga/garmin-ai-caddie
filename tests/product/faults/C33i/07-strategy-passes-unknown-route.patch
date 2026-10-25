@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/CaddiePlanView.swift
++++ b/mobile/ios/AICaddie/Views/CaddiePlanView.swift
+@@ -103,6 +103,6 @@
+     case "protect_score", "stock", "attack":
+         return caddieStrategyMode(forRouteId: value)
+     default:
+-        return nil
++        return "stock"
+     }
+ }

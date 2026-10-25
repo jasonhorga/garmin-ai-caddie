@@ -1062,8 +1062,9 @@ def _member_measured_by_token(player_id: str) -> dict[str, int]:
 
     Reads the member's player-scoped shot dir(s) (``history._player_shot_sources``) — never the
     owner's or another member's — and maps each measured profile's club name to a catalog token
-    the same way ``restrict_to_bag`` canonicalises names. On a token collision the larger sample
-    wins. Empty when the member has logged nothing yet. Imports are local to mirror the existing
+    the same way ``restrict_to_bag`` canonicalises names. Case variants ("Driver" / "driver") are
+    already one pooled profile (``build_club_profiles``); on a remaining token collision between
+    different aliases the larger sample wins. Empty when the member has logged nothing yet. Imports are local to mirror the existing
     lazy ``restrict_to_bag`` import and stay clear of any module-load import cycle.
     """
     from ai_caddie.history.history import _player_shot_sources

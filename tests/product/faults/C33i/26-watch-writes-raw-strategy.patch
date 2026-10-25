@@ -1,0 +1,13 @@
+--- a/mobile/ios/AICaddieWatch/Services/WatchBackendClient.swift
++++ b/mobile/ios/AICaddieWatch/Services/WatchBackendClient.swift
+@@ -297,9 +297,7 @@
+     private func clubPayload(for event: WatchInputEvent, clubName: String) -> [String: Any] {
+         var payload: [String: Any] = ["clubName": clubName]
+         if let shotType = event.shotType { payload["shotType"] = shotType }
+-        if let strategyMode = eventStrategyModeForEvent(event.strategyMode) {
+-            payload["strategyMode"] = strategyMode
+-        }
++        if let strategyMode = event.strategyMode { payload["strategyMode"] = strategyMode }
+         if let lie = event.lie { payload["lie"] = lie }
+         if let distanceToPinM = event.distanceToPinM { payload["distanceToPinM"] = distanceToPinM }
+         if let offlineOptionId = event.offlineOptionId { payload["offlineOptionId"] = offlineOptionId }

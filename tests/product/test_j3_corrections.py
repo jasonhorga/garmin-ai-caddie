@@ -376,7 +376,6 @@ class CorrectionProductTests(unittest.TestCase):
             self.assertEqual(s.get('history/stats')['scoring']['penalties']['total'],1)
             self.assertEqual(s.get('history/rounds/101')['scorecard'][0]['penalties'],1)
 
-    @unittest.expectedFailure  # C16a KNOWN-RED: unreadable history still appends annotation
     def test_j3_4_unreadable_history_rejects_score_annotations(self):
         with Sandbox() as s:
             s.seed()

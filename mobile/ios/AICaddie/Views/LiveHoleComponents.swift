@@ -2380,16 +2380,33 @@ enum LiveMapDisplaySelection {
         case .precise:
             return precise
         case .garminRaster:
-            guard let precise,
-                  let garminProjection else { return nil }
+            guard let garminProjection,
+                  let width = garminProjection.widthPx,
+                  let height = garminProjection.heightPx,
+                  width > 0,
+                  height > 0 else { return nil }
+            let empty = CoursePrepOverlay(w: width, h: height, ppm: 1, ln: 0, route: [])
+            guard let precise else { return empty }
             return GarminRasterProjectionMath.remapOverlay(
                 precise,
                 from: preciseProjection,
                 to: garminProjection
-            )
+            ) ?? empty
         case .waiting, .factualPending, .factual, .numericPlaceholder:
             return nil
         }
+    }
+
+    static func validTargetPixel(_ pixel: CGPoint?, in overlay: CoursePrepOverlay?) -> CGPoint? {
+        guard let pixel,
+              pixel.x.isFinite,
+              pixel.y.isFinite,
+              let overlay,
+              pixel.x >= 0,
+              pixel.y >= 0,
+              pixel.x <= CGFloat(overlay.w),
+              pixel.y <= CGFloat(overlay.h) else { return nil }
+        return pixel
     }
 }
 
