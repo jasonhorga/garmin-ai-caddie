@@ -2432,14 +2432,22 @@ def lightweight_prep_hole(
     return value if isinstance(value, dict) else None
 
 
-def tee_result_geometry(global_id: int, local_hole: int) -> dict:
+def tee_result_geometry(
+    global_id: int,
+    local_hole: int,
+    *,
+    tee_set: int | None = None,
+    meshes: dict | None = None,
+) -> dict:
     """``fairwayOutline`` and WGS84 ``routeLatLon`` for ``tee_result.classify_tee_result``.
 
     The server-side inputs of a manual round's tee result (IMPLEMENTATION_PLAN B0), the same course
-    facts the phone classifies against: installed prodgeometry gives this hole's fairway outline and
-    its route; otherwise the factual CourseView prep row is used as it stands. That row has no
-    fairway mesh, so its outline is ``None`` and no tee result is guessed. Course facts only: no
-    player ladder, strategy or raster work.
+    facts the phone classifies against. Only ready prodgeometry has them: this hole's fairway
+    outline and the route of ``tee_set`` — the phone's ``route``, so both side a miss against the
+    same line (Blue when that Tee is not published here, as in :func:`prep_hole`). Without ready
+    prodgeometry there is no outline (CourseView ``courseData`` has no fairway polygon), so the
+    result is ``None``, never a guess. ``meshes`` is the already decoded ``hole_render`` mesh JSON
+    when the caller has it. Course facts only: no player ladder, strategy or raster work.
     """
     try:
         coverage = geometry_coverage_for_hole(int(global_id), int(local_hole), require_current_authority=True)
@@ -2447,9 +2455,14 @@ def tee_result_geometry(global_id: int, local_hole: int) -> dict:
         coverage = {}
     if coverage.get("coverage") == "ready":
         try:
-            md, by = hole_render.load_mesh(int(global_id), int(local_hole))
-            route, _route_len = derive_route(md)
+            if meshes is None:
+                md, by = hole_render.load_mesh(int(global_id), int(local_hole))
+            else:
+                md, by = meshes, {m["name"]: m for m in meshes["meshes"]}
             hole_meta = md.get("hole") or {}
+            route, _route_len = derive_route(md)
+            if tee_set is not None and _hole_has_tee_set(hole_meta, tee_set):
+                route = derive_route(md, tee_set)[0] or route
             ref_lat, ref_lon = float(hole_meta["RefLat"]), float(hole_meta["RefLon"])
             # The classifier reads only the LatLon rings; no display frame is built for pixel rings.
             outline = _fairway_outline(by, route, md, lambda point: point)
@@ -2467,15 +2480,7 @@ def tee_result_geometry(global_id: int, local_hole: int) -> dict:
             return {"fairwayOutline": outline, "routeLatLon": route_latlon}
         except Exception:
             pass
-    prep = lightweight_prep_hole(
-        int(global_id),
-        int(local_hole),
-        # Any ladder skips the player's history read; strategy rows are not used here.
-        ladder=sorted(DEFAULT_LADDER.items(), key=lambda kv: -kv[1]),
-    )
-    if not isinstance(prep, dict):
-        return {"fairwayOutline": None, "routeLatLon": []}
-    return {"fairwayOutline": prep.get("fairwayOutline"), "routeLatLon": prep.get("routeLatLon") or []}
+    return {"fairwayOutline": None, "routeLatLon": []}
 
 
 def precise_route_seed_hole(

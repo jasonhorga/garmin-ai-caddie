@@ -100,7 +100,7 @@ class PlayTests(HTTPFixture, unittest.TestCase):
                       event("location", dict(zip(("latitude","longitude"),row["point"])), id="loc2"),
                       *score_events(penalties=0)]
                 with patch.object(geometry_evidence,"_load_hole_sources",return_value=(hazards,surfaces)), \
-                     patch("ai_caddie.courses.course_prep.lightweight_prep_hole",return_value={
+                     patch("ai_caddie.courses.course_prep.tee_result_geometry",return_value={
                          "fairwayOutline":row["fairwayOutline"],"routeLatLon":row["route"]}):
                     response=self.ingest(ev,key=row["id"])
                 self.assertEqual(response.status_code,201,response.text)
