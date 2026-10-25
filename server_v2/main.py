@@ -44,7 +44,11 @@ from .history_overview import load_history_overview_response
 from .history_rounds import load_history_rounds_response
 from . import annotations as annotation_store_routes
 from .data_source import load_history_data_for_mode
-from .history_round_detail import load_history_round_detail_response, load_round_hole_shot_map_response
+from .history_round_detail import (
+    load_history_round_detail_response,
+    load_hole_history_shots_response,
+    load_round_hole_shot_map_response,
+)
 from .history_drilldown import load_history_drilldown_response
 from .history_stats import (
     load_history_stats_response,
@@ -126,6 +130,7 @@ from .models import (
     HoleMapResponse,
     HistoryOverviewResponse,
     HistoryRoundDetailResponse,
+    HoleHistoryShotsResponse,
     RoundHoleShotMapResponse,
     CorrectionLogResponse,
     RoundCorrectionRequest,
@@ -285,6 +290,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
             r"/api/v2/history/rounds/[^/]+",
             r"/api/v2/history/rounds/[^/]+/holes/[0-9]+/shotmap",
             r"/api/v2/history/rounds/[^/]+/correction-log",
+            r"/api/v2/history/courses/[0-9]+/holes/[0-9]+/shots",
             r"/api/v2/courses/[0-9]+/(?:prep|tees|install/status)",
             r"/api/v2/courses/[0-9]+/install/jobs/[^/]+/(?:cancel|retry)",
             r"/api/v2/courses/[0-9]+/holes/[0-9]+/(?:topo|green)\.png",
@@ -560,6 +566,7 @@ def service_index() -> dict[str, object]:
             "historyOverview": "/api/v2/history/overview",
             "historyRounds": "/api/v2/history/rounds",
             "historyRoundDetail": "/api/v2/history/rounds/{round_ref}",
+            "historyHoleShots": "/api/v2/history/courses/{global_id}/holes/{local_hole}/shots",
             "historyStats": "/api/v2/history/stats",
             "historySummary": "/api/v2/history/summary",
             "historyDrilldown": "/api/v2/history/drilldown/{source_ref}",
@@ -730,6 +737,21 @@ def round_hole_shot_map(
         player_id=player_id,
         include_image=include_image,
     )
+
+
+@app.get(
+    "/api/v2/history/courses/{global_id}/holes/{local_hole}/shots",
+    response_model=HoleHistoryShotsResponse,
+)
+def hole_history_shots(
+    global_id: int,
+    local_hole: int = Path(ge=1, le=36),
+    days: int = Query(default=730, ge=1, le=3650),
+    player_id: str = Depends(current_player_id),
+) -> HoleHistoryShotsResponse:
+    # 洞屏「历史」: every own shot on this physical hole (CourseView globalId + localHole) in the last
+    # `days`, as corrected, plus the green centre. The phone selects the circle and summarises.
+    return load_hole_history_shots_response(global_id, local_hole, days=days, player_id=player_id)
 
 
 @app.post(

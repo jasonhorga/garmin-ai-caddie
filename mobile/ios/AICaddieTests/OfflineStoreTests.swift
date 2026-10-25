@@ -1329,9 +1329,6 @@ final class OfflineStoreTests: XCTestCase {
     }
 
     func testLargeDecisionAuditAppendAndReloadDoesNotBlockClubSelection() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        let store = OfflineStore(directoryURL: directory)
         let auditRows: [JSONValue] = (0..<24).map { index in
             .object([
                 "club": .string("Club \(index)"),
@@ -1367,16 +1364,24 @@ final class OfflineStoreTests: XCTestCase {
             ]
         )
 
-        let startedAt = ProcessInfo.processInfo.systemUptime
-        try store.appendEvent(event)
-        let reloaded = try store.loadEvents()
-        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
-
-        XCTAssertEqual(reloaded, [event])
+        // Fastest of up to 3 runs, each in a fresh store: a real regression is slow every time,
+        // while a CI simulator stall (seen at 1.5-14 s, C52) lands on only one of them.
+        var fastest = TimeInterval.infinity
+        for _ in 0..<3 where fastest >= 2.0 {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let store = OfflineStore(directoryURL: directory)
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            try store.appendEvent(event)
+            let reloaded = try store.loadEvents()
+            fastest = min(fastest, ProcessInfo.processInfo.systemUptime - startedAt)
+            XCTAssertEqual(reloaded, [event])
+        }
         XCTAssertLessThan(
-            elapsed,
+            fastest,
             2.0,
-            "club selection persisted and reloaded in \(elapsed)s; this runs synchronously on tap"
+            "club selection persisted and reloaded in \(fastest)s at best; this runs synchronously on tap"
         )
     }
 

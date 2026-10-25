@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import UIKit
 import XCTest
 
 /// One synthetic HTTP backend on port 9000, shared for the lifetime of this UI test process.
@@ -21,6 +22,8 @@ final class ProductFixtureServer: @unchecked Sendable {
     private var state = State()
     private var paths: [String] = []
     private let sourcePackage: [String: Any]
+    /// A plain topo raster sized like the template overlay; served only while coverage is ready.
+    private let topoPNG: Data
     private let startupSemaphore = DispatchSemaphore(value: 0)
     private let startupLock = NSLock()
     private var startupFailure: Error?
@@ -56,6 +59,16 @@ final class ProductFixtureServer: @unchecked Sendable {
         }
         template["coursePrep"] = coursePrep
         sourcePackage = template
+        let overlay = (prep["map"] as? [String: Any])?["overlay"] as? [String: Any]
+        let width = try XCTUnwrap((overlay?["w"] as? NSNumber)?.doubleValue)
+        let height = try XCTUnwrap((overlay?["h"] as? NSNumber)?.doubleValue)
+        let size = CGSize(width: width, height: height)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        topoPNG = UIGraphicsImageRenderer(size: size, format: format).pngData { context in
+            UIColor(red: 0.25, green: 0.5, blue: 0.3, alpha: 1).setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
         listener = try NWListener(using: parameters, on: 9000)
@@ -119,8 +132,17 @@ final class ProductFixtureServer: @unchecked Sendable {
             let target = headers.components(separatedBy: "\r\n").first?.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
             self.paths.append(target)
             let (code, object) = self.response(target)
-            guard let body = try? JSONSerialization.data(withJSONObject: object) else { connection.cancel(); return }
-            var response = Data("HTTP/1.1 \(code) \(code == 200 ? "OK" : "Unavailable")\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
+            let body: Data
+            let contentType: String
+            if let raw = object as? Data {
+                body = raw
+                contentType = "image/png"
+            } else {
+                guard let json = try? JSONSerialization.data(withJSONObject: object) else { connection.cancel(); return }
+                body = json
+                contentType = "application/json"
+            }
+            var response = Data("HTTP/1.1 \(code) \(code == 200 ? "OK" : "Unavailable")\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
             response.append(body)
             connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
         }
@@ -132,9 +154,31 @@ final class ProductFixtureServer: @unchecked Sendable {
         let query = Dictionary((components?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
         if path == "/api/v2/health" { return (200, ["status": "ok", "dataMode": "fixture"]) }
         if path == "/api/v2/mobile/courses/options" {
+            // geometryCoverage and sourceRefs are required by MobileCourseOption; without them the
+            // catalogue fails to decode and the DEBUG app activates its bundled fixture round instead.
             return (200, ["schema": "ai-caddie-course-options-v1", "dataMode": "fixture", "total": 1,
-                "courses": [["globalId": 82001, "name": "Example", "holes": 9, "roundCount": 3, "teeBox": "blue"]],
+                "courses": [["globalId": 82001, "name": "Example", "holes": 9, "roundCount": 3, "teeBox": "blue",
+                    "geometryCoverage": state.coverage, "sourceRefs": ["fixture-course:82001"]]],
                 "generatedAt": "2026-10-23T00:00:00Z"])
+        }
+        // 开始一场 lists provider rows only (nearby with a fix, name search without one). The row has
+        // no coordinates, so the home never treats the player as standing on this course.
+        let match: [String: Any] = ["globalId": 82001, "name": "Example", "holes": 9, "ratio": 1.0]
+        if path == "/api/v2/courses/nearby" {
+            let radius = Int(Double(query["radius_km"] ?? "") ?? 50)
+            return (200, ["schema": "ai-caddie-course-nearby-v1", "radiusKm": radius, "complete": true,
+                "matches": [match], "courses": [match]])
+        }
+        if path == "/api/v2/courses/search" {
+            let name = query["name"] ?? ""
+            let matches = name.localizedCaseInsensitiveContains("example") ? [match] : []
+            return (200, ["schema": "ai-caddie-course-search-v1", "query": name, "matches": matches, "courses": matches])
+        }
+        if path.hasSuffix("/topo.png") {
+            // Partial and missing coverage have no raster; their revision differs (geometryRevision),
+            // so the app's URL-keyed topo cache cannot carry the ready image into them.
+            if state.coverage == "ready" { return (200, topoPNG) }
+            return (404, ["error": "synthetic-unavailable"])
         }
         if path.hasSuffix("/package") {
             var package = sourcePackage
@@ -147,7 +191,10 @@ final class ProductFixtureServer: @unchecked Sendable {
             }
             package["coursePrep"] = configuredPrep()
             if var holes = package["holes"] as? [[String: Any]] {
-                for i in holes.indices { holes[i]["geometryCoverage"] = state.coverage }
+                for i in holes.indices {
+                    holes[i]["geometryCoverage"] = state.coverage
+                    holes[i]["geometryRevision"] = geometryRevision
+                }
                 package["holes"] = holes
             }
             package["geometryCoverage"] = ["state": state.coverage,
@@ -225,11 +272,17 @@ final class ProductFixtureServer: @unchecked Sendable {
         return (404, ["error": "synthetic-unavailable"])
     }
 
+    /// The template revision while ready; other coverage states get their own revision.
+    private var geometryRevision: String {
+        state.coverage == "ready" ? "native-r1" : "native-r1-\(state.coverage)"
+    }
+
     private func configuredPrep() -> [String: Any] {
         var prep = sourcePackage["coursePrep"] as? [String: Any] ?? [:]
         var holes = prep["holes"] as? [[String: Any]] ?? []
         for i in holes.indices {
             holes[i]["geometryCoverage"] = state.coverage
+            holes[i]["geometryRevision"] = geometryRevision
             if state.coverage == "missing" {
                 holes[i]["route"] = []
                 for key in ["map", "holeImageProjection", "greenDistances", "greenOutline"] {

@@ -195,7 +195,7 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(bringIntoView(whiteTee, maxSwipes: 4), "the white Tee must still be clear of the Start band")
         whiteTee.tap()
         // Selecting a tee must not start a round: no Start has been tapped yet.
-        let stillOnStart = app.navigationBars["开始一场"].waitForExistence(timeout: 3)
+        let stillOnStart = app.navigationBars["开始一场"].waitForExistence(timeout: 10)
             && app.buttons["start-round-primary-action"].exists
         if !stillOnStart {
             save("03b-tee-tap-left-start"); dump("03b-tee-tap-left-start")

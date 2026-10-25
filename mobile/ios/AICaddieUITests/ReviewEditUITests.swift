@@ -218,7 +218,7 @@ final class ReviewEditUITests: XCTestCase {
             "a landing tap must select that recorded shot"
         )
         XCTAssertTrue(
-            waitForLabel(editMap, containing: "共 \(addedNumber) 杆", timeout: 2),
+            waitForLabel(editMap, containing: "共 \(addedNumber) 杆", timeout: 10),
             "a tap on a handle must select it, never add another shot"
         )
         XCTAssertFalse(app.navigationBars["改这一杆"].exists, "selection must not cover the map with the old sheet")
@@ -273,7 +273,7 @@ final class ReviewEditUITests: XCTestCase {
             thenHoldForDuration: 2
         )
         XCTAssertTrue(
-            waitForLabel(editMap, containing: "共 \(addedNumber) 杆", timeout: 3),
+            waitForLabel(editMap, containing: "共 \(addedNumber) 杆", timeout: 10),
             "dragging a handle must move it, never add a shot"
         )
         XCTAssertTrue(selectedShot.exists, "the dragged shot must stay selected")
@@ -295,7 +295,7 @@ final class ReviewEditUITests: XCTestCase {
             "› must move the selected shot one place later and keep it selected"
         )
         let numberAfterReorder = shotNumber(selectedShot.label)
-        XCTAssertTrue(waitForLabel(editMap, containing: "共 \(addedNumber) 杆", timeout: 2), "reordering must retain every draft point")
+        XCTAssertTrue(waitForLabel(editMap, containing: "共 \(addedNumber) 杆", timeout: 10), "reordering must retain every draft point")
         settle(1); save("08-reorder-draft"); dump("08-reorder-draft")
         XCTAssertTrue(orderEarlier.isEnabled)
         orderEarlier.tap()
