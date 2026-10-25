@@ -34,6 +34,7 @@ from ai_caddie.caddie.round_loops import (
     ROUND_LOOP_HOLES,
     CourseShape,
     RoundLoopError,
+    RoundLoopFactsMissingError,
     parse_round_loops,
     resolve_round_loops,
     round_loop_key,
@@ -4458,7 +4459,9 @@ def build_live_round_package_for_loops(
         selected = base if half == "all" else _filter_package_to_nine(base, half)
         playable = [h for h in selected.get("holes") or [] if isinstance(h, dict)]
         if len(playable) != ROUND_LOOP_HOLES:
-            raise RoundLoopError(f"{gid}:{half} does not resolve to nine holes")
+            # The shape is proven but this loop's holes are not built (e.g. its release landed
+            # after the template was read): missing facts, not a contradictory request.
+            raise RoundLoopFactsMissingError(f"{gid}:{half} does not resolve to nine holes")
         loop_packages.append(_shift_loop_package(selected, 1 - source_start_hole(half)))
     package = loop_packages[0]
     if len(loop_packages) == 2:

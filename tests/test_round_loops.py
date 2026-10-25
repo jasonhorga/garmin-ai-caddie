@@ -7,6 +7,7 @@ import os
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -337,6 +338,10 @@ def _courseview_par(global_id: int, *_args: object, **_kwargs: object):
     return [4] * release[1] if release else None
 
 
+def _garmin_unknown_layout(global_id: int, *_args: object, **_kwargs: object) -> bytes:
+    raise HTTPError(f"https://garmin.invalid/course-layouts/{global_id}/releases/", 404, "Not Found", None, None)
+
+
 class RoundLoopRouteTests(unittest.TestCase):
     """Both routes share one strict parser and resolver: nothing unproven gets a loopKey."""
 
@@ -353,6 +358,9 @@ class RoundLoopRouteTests(unittest.TestCase):
             patch.object(mobile_live, "geometry_coverage_for_hole", side_effect=_coverage),
             patch.object(mobile_live, "_courseview_segment_resolver", side_effect=_release_resolver),
             patch.object(course_reference, "courseview_par", side_effect=_courseview_par),
+            # A cold course start asks Garmin for the release (C36). These fixture ids are unknown
+            # to Garmin; answer that at the transport boundary instead of reaching the network.
+            patch.object(course_reference, "load_release_pb", side_effect=_garmin_unknown_layout),
         ):
             active.start()
             self.addCleanup(active.stop)

@@ -15,6 +15,7 @@ import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 
 from fastapi import BackgroundTasks, HTTPException
 
@@ -66,7 +67,7 @@ def fake_garmin(release_provider):
             (main.course_install, "enqueue", {"return_value": None}),
         ]:
             stack.enter_context(patch.object(target, name, **kwargs))
-        for mapping in (ms._COURSE_DATA_LOOKUPS, cr._RELEASE_FETCH_FAILED_AT,
+        for mapping in (ms._COURSE_DATA_LOOKUPS, cr._RELEASE_FETCH_FAILED_AT, cr._RELEASE_UNCACHED_FAILURES,
                         mobile._PACKAGE_SINGLEFLIGHT, main._ACTIVE_ROUNDS):
             stack.enter_context(patch.dict(mapping, {}, clear=True))
         yield SimpleNamespace(root=root, courseview=courseview, release=release,
@@ -143,6 +144,26 @@ class ColdReleaseStartTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 503)
         self.assertIn("Retry-After", raised.exception.headers or {})
         self.assertLess(elapsed, 3.0)  # 0.5 s fetch deadline plus the cached build, never the 10 s stall.
+
+    def test_provider_failure_is_retryable(self):
+        def failing_release(gid, live, *, language_code=None):
+            raise HTTPError(f"https://garmin.invalid/{gid}", 502, "Bad Gateway", None, None)
+
+        with fake_garmin(failing_release):
+            with self.assertRaises(HTTPException) as raised:
+                start_round()
+        # Card 2: Garmin failing within the deadline is a retryable start as well.
+        self.assertEqual(raised.exception.status_code, 503)
+
+    def test_course_unknown_to_garmin_remains_422(self):
+        def unknown_release(gid, live, *, language_code=None):
+            raise HTTPError(f"https://garmin.invalid/{gid}", 404, "Not Found", None, None)
+
+        with fake_garmin(unknown_release):
+            with self.assertRaises(HTTPException) as raised:
+                start_round()
+        # Garmin answering "no such layout" is a fact, not an outage: retrying cannot succeed.
+        self.assertEqual(raised.exception.status_code, 422)
 
     def test_loop_shape_error_remains_422(self):
         with fake_garmin(lambda gid, live, *, language_code=None: _release_bytes(int(gid))):
