@@ -80,6 +80,27 @@ def atomic_write_json(path: Path, data: Any) -> None:
             tmp.unlink(missing_ok=True)
 
 
+def _canonical_json(data: Any) -> str:
+    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def atomic_write_json_if_changed(path: Path, data: Any) -> bool:
+    """:func:`atomic_write_json` unless ``path`` already holds the same JSON value.
+
+    History/stats caches fingerprint data files by inode/size/mtime/ctime, so rewriting an
+    identical payload (a re-fetched Garmin response) invalidates every cache built on that
+    directory. Values are compared after key-sorted canonical serialization: key order and
+    whitespace are not changes, while ``1`` vs ``1.0`` vs ``true`` still are. Returns True when
+    the file was written; a missing or unreadable file is always (re)written."""
+    try:
+        if _canonical_json(json.loads(path.read_text(encoding="utf-8"))) == _canonical_json(data):
+            return False
+    except (OSError, ValueError):
+        pass
+    atomic_write_json(path, data)
+    return True
+
+
 def write_json(path: Path, data: Any) -> None:
     atomic_write_json(path, data)
 
