@@ -495,10 +495,9 @@ class J2ResultsTests(unittest.TestCase):
             self.assertEqual(ladder["iron7"], want["iron7"])   # manual 150 beats measured 148
             self.assertEqual(ladder["pw"], want["pw"])         # no typed distance -> own measured median
 
-    @unittest.expectedFailure
     def test_j2_7_measured_ladder_merges_case(self) -> None:
-        """KNOWN-RED #4. Spec 2.7 球包距离阶梯 合并大小写: Driver(6 shots) + driver(5 shots) are one club of 11
-        (median 220). The caddie ladder's measured median keeps only the larger spelling."""
+        """Was KNOWN-RED #4. Spec 2.7 球包距离阶梯 合并大小写: Driver(6 shots) + driver(5 shots) are one club of
+        11 (median 220) in the caddie ladder's measured median too, not only the larger spelling."""
         bag_path = f"/api/v2/players/{ENV.pid}/clubs/bag"
         ENV.put(bag_path, {"clubs": [{"token": "driver"}, {"token": "iron7", "distanceM": 150}, {"token": "pw"}]})
         self.addCleanup(lambda: ENV.put(bag_path, {"clubs": []}))

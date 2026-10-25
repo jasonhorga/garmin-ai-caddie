@@ -9,6 +9,8 @@ import math
 
 from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
+# Case/whitespace-folded club key, None for the Unknown/clubId=0 bucket; shared with the caddie ladder.
+from ai_caddie.core.data import canonical_club_key as _canonical_club
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_course, geometry_coverage_for_hole
 from ai_caddie.history.history import (
     HistoryData,
@@ -62,20 +64,6 @@ def _shot_surface(shot: dict[str, Any]) -> Any:
 
 def _shot_club(shot: dict[str, Any]) -> str:
     return str(shot.get("club") or shot.get("clubName") or "Unknown")
-
-
-# Garmin shots with no club (clubId=0) surface as "Unknown" — thousands of them — and case
-# variants ("PW" vs "Pw") would otherwise split one club into two rows. _canonical_club folds
-# case/whitespace for grouping and returns None for the Unknown/empty bucket so phantom clubs
-# never appear as a real club row in the distance model.
-_UNKNOWN_CLUB_TOKENS = {"", "unknown", "0", "none", "null", "n/a"}
-
-
-def _canonical_club(name: Any) -> str | None:
-    text = " ".join(str(name or "").split())
-    if text.lower() in _UNKNOWN_CLUB_TOKENS:
-        return None
-    return text.upper()
 
 
 def _normalized_shot(shot: dict[str, Any]) -> dict[str, Any]:

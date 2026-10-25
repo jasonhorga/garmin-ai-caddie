@@ -80,6 +80,22 @@ class BuildClubProfilesPlayerScopeTests(unittest.TestCase):
         prof = data.build_club_profiles(shot_dirs=[bad])  # must not raise
         self.assertEqual(prof["7I"]["sampleSize"], 1)     # the good shot counted, the bad one skipped
 
+    def test_case_variants_pool_into_one_profile(self):
+        # Two Garmin clubIds named "Driver" / "driver" are one club (spec 2.7 合并大小写): 3 + 2 shots
+        # pool into one profile of 5 at [200, 210, 220, 230, 240] -> median 220, labelled with the
+        # more-used spelling "Driver". Kept apart, "Driver" alone would have median 210.
+        mixed = self.root / "mixed"; mixed.mkdir()
+        _write_shots(mixed, 1, [{"holeNumber": 1, "shots": [
+            _shot(1, "TEE", 101, 200.0, 31.76, 118.63),
+            _shot(2, "TEE", 101, 210.0, 31.76, 118.63),
+            _shot(3, "TEE", 101, 240.0, 31.76, 118.63),
+            _shot(4, "TEE", 102, 220.0, 31.76, 118.63),
+            _shot(5, "TEE", 102, 230.0, 31.76, 118.63)]}],
+            club_details=[{"id": 101, "name": "Driver"}, {"id": 102, "name": "driver"}])
+        prof = data.build_club_profiles(shot_dirs=[mixed], apply_overrides=False)
+        self.assertEqual(set(prof), {"Driver"})
+        self.assertEqual((prof["Driver"]["sampleSize"], prof["Driver"]["median"]), (5, 220.0))
+
 
 class ShotsForHoleSourcesIsolationTests(unittest.TestCase):
     """shots_for_hole(..., sources=...) projects ONLY the given player trees."""
