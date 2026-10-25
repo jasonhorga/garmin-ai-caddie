@@ -3,14 +3,17 @@
 Every impossible case is a hand calculation on the stated card; each rejection must leave every
 persisted file unchanged.
 """
+import json
 import unittest
 from unittest.mock import patch
 
-from ai_caddie.caddie import mobile_live
+from ai_caddie.caddie import mobile_live, mobile_reconciliation
+from ai_caddie.history import history
 from ai_caddie.reports import annotations
-from ai_caddie.rounds import correction_audit
+from ai_caddie.rounds import correction_audit, round_corrections, round_ingest
 from server_v2 import main, mobile
-from tests.product._support_c16c import HTTPFixture, event, score_events
+from server_v2.models import MobileReconciliationApplyRequest
+from tests.product._support_c16c import META, HTTPFixture, event, score_events
 
 
 def live(round_id, *events):
@@ -90,17 +93,123 @@ class ReconciliationApplyTests(HTTPFixture, unittest.TestCase):
         stored = [(row["kind"], row["payload"]["to"]) for row in annotations.list_annotations(root=self.root)]
         self.assertEqual(stored, [("score_correction", 6), ("putt_correction", 5), ("putt_correction", 1)])
 
-    def test_a_suggestion_the_annotation_store_refuses_fails_the_batch_before_any_write(self):
-        # Card hole 1: 6 strokes, 4 putts, 1 penalty. The phone says putts 2 (a valid fix) and penalties
-        # 0, which becomes penalty_correction strokes=0; the annotation store requires strokes >= 1.
+    def test_penalty_set_to_zero_is_applied_with_a_putt_fix(self):
+        # Card hole 1: 6 strokes, 4 putts, 1 penalty. A phone confirm always sends its penalty count,
+        # here 0, plus putts 2. Putts 2: 6 >= 2 + 1 + 1; then penalties 0: 6 >= 2 + 0 + 1. The hole ends
+        # 6 / 2 / 0: the audit logs putts 4 -> 2 and penalty 1 -> 0.
         rid = str(self.ingest(score_events(strokes=6, putts=4, penalties=1)).json()["id"])
         mobile_live.append_event_batch(rid, live(rid,
             event("putt", {"putts": 2}, id="rec-putt"),
             event("penalty", {"penalties": 0}, id="rec-pen")), idempotency_key="rec", root=self.root)
-        before = self.disk()
         response = self.apply(rid, ["rec-putt:putt-correction", "rec-pen:penalty-correction"])
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["appliedCount"], 2)
+        logged = [(entry["op"], entry["before"], entry["after"])
+                  for row in annotations.list_annotation_records(root=self.root) for entry in row["audit"]["entries"]]
+        self.assertEqual(logged, [("putts", 4, 2), ("penalty", 1, 0)])
+
+    def test_a_suggestion_the_annotation_store_refuses_fails_the_batch_before_any_write(self):
+        # A valid putt fix (hole 1: 6 strokes, putts 4 -> 2) followed by a suggestion with an empty
+        # targetId, which the annotation store refuses. The reconciler drops empty targets itself, so
+        # that suggestion is injected here. Nothing of the batch may be written.
+        rid = self.round_with_local(strokes=6, putts=2)
+        blank = {"id": "blank-target", "targetType": "hole", "targetId": "", "kind": "hole_note",
+                 "payload": {"text": "note", "source": "mobile_reconciliation", "sourceSuggestionId": "blank-target"},
+                 "reason": "injected", "confidence": "medium"}
+        suggest = mobile_reconciliation._annotation_suggestions
+        before = self.disk()
+        with patch.object(mobile_reconciliation, "_annotation_suggestions",
+                          side_effect=lambda **kwargs: [*suggest(**kwargs), blank]):
+            response = self.apply(rid, ["rec-putt:putt-correction", "blank-target"])
         self.assertEqual(response.status_code, 422, response.text)
         self.assertEqual(self.disk(), before)
+
+    def test_the_impossible_hole_is_named_when_another_hole_only_needs_reordering(self):
+        # Card holes 1 and 2: 4 strokes, 2 putts, 0 penalties each. Hole 1 asks putts 5 and total 6: in
+        # the requested order putts 5 is 4 < 5 + 0 + 1, but total 6 (6 >= 3) then putts 5 (6 >= 6) is
+        # possible. Hole 2 asks total 1: 1 < 2 + 0 + 1 in any order. The 422 must name hole 2.
+        rid = str(self.ingest([*score_events(strokes=4, putts=2, penalties=0, hole=1),
+                               *score_events(strokes=4, putts=2, penalties=0, hole=2)]).json()["id"])
+        mobile_live.append_event_batch(rid, live(rid,
+            event("putt", {"putts": 5}, id="h1-putt-5"),
+            event("score", {"strokes": 6}, id="h1-score-6"),
+            event("score", {"strokes": 1}, hole=2, id="h2-score-1")), idempotency_key="rec", root=self.root)
+        before = self.disk()
+        response = self.apply(rid, ["h1-putt-5:putt-correction", "h1-score-6:score-correction",
+                                    "h2-score-1:score-correction"])
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertTrue(response.json()["detail"].startswith("hole 2:"), response.text)
+        self.assertEqual(self.disk(), before)
+
+    def old_impossible_card(self):
+        # An old card stored hole 1 as 3 strokes, 3 putts, 1 penalty (3 < 3 + 1 + 1). Ingest refuses that
+        # card now, so it is written to disk over a possible one.
+        rid = str(self.ingest(score_events(strokes=6, putts=4, penalties=0)).json()["id"])
+        path = self.root / f"data/players/me/scorecards/{rid}.json"
+        card = json.loads(path.read_text())
+        hole = next(row for row in card["scorecardDetails"][0]["scorecard"]["holes"] if row["number"] == 1)
+        hole.update(strokes=3, putts=3, penalties=1)
+        path.write_text(json.dumps(card))
+        return rid
+
+    def test_an_old_impossible_card_with_no_possible_order_writes_nothing(self):
+        # 3 / 3 / 1 -> 4 / 2 / 1: total 4 first is 4 < 3 + 1 + 1, putts 2 first is 3 < 2 + 1 + 1, so no
+        # step order is possible although the final card (4 >= 2 + 1 + 1) is.
+        rid = self.old_impossible_card()
+        mobile_live.append_event_batch(rid, live(rid,
+            event("putt", {"putts": 2}, id="rec-putt"),
+            event("score", {"strokes": 4}, id="rec-score")), idempotency_key="rec", root=self.root)
+        before = self.disk()
+        response = self.apply(rid, ["rec-putt:putt-correction", "rec-score:score-correction"])
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(self.disk(), before)
+
+    def test_an_old_impossible_card_is_fixed_when_an_order_exists(self):
+        # 3 / 3 / 1 -> 5 / 2 / 1: putts 2 first is 3 < 2 + 1 + 1, but total 5 first (5 >= 3 + 1 + 1) then
+        # putts 2 (5 >= 4) is possible.
+        rid = self.old_impossible_card()
+        mobile_live.append_event_batch(rid, live(rid,
+            event("putt", {"putts": 2}, id="rec-putt"),
+            event("score", {"strokes": 5}, id="rec-score")), idempotency_key="rec", root=self.root)
+        response = self.apply(rid, ["rec-putt:putt-correction", "rec-score:score-correction"])
+        self.assertEqual(response.status_code, 200, response.text)
+        stored = [(row["kind"], row["payload"]["to"]) for row in annotations.list_annotations(root=self.root)]
+        self.assertEqual(stored, [("score_correction", 5), ("putt_correction", 2)])
+
+    def test_a_retry_after_a_concurrent_penalty_change_converges(self):
+        # Card hole 1: 6 strokes, 4 putts, 0 penalties; the phone fixes putts 2 and total 4, written putts
+        # first (total 4 first is 4 < 4 + 0 + 1). Right after the putt fix another device sets penalty 2
+        # (6 >= 2 + 2 + 1), so total 4 is 4 < 2 + 2 + 1: 422 with the putt fix kept.
+        rid = self.round_with_local(strokes=4, putts=2)
+        ids = ["rec-score:score-correction", "rec-putt:putt-correction"]
+        add = mobile_reconciliation.add_annotation
+
+        def add_then_other_device(*args, **kwargs):
+            record = add(*args, **kwargs)
+            round_corrections.append_correction(
+                "me", rid, {"op": "setHolePenalty", "hole": 1, "value": 2, "clientMutationId": "other-device"},
+                data_loader=self.data)
+            return record
+
+        with patch.object(mobile_reconciliation, "add_annotation", side_effect=add_then_other_device):
+            first = self.apply(rid, ids)
+        self.assertEqual(first.status_code, 422, first.text)
+        written = [(row["kind"], row["payload"]["to"]) for row in annotations.list_annotations(root=self.root)]
+        self.assertEqual(written, [("putt_correction", 2)])
+        # A retry while the penalty is 2 skips the written fix and refuses total 4 again: nothing changes.
+        before = self.disk()
+        self.assertEqual(self.apply(rid, ids).status_code, 422)
+        self.assertEqual(self.disk(), before)
+        # Penalty back to 0 (6 >= 2 + 0 + 1): the retry writes only the missing total (4 >= 2 + 0 + 1).
+        reset = self.client.post(f"/api/v2/history/rounds/{rid}/corrections",
+                                 json={"op": "setHolePenalty", "hole": 1, "value": 0})
+        self.assertEqual(reset.status_code, 201, reset.text)
+        last = self.apply(rid, ids)
+        self.assertEqual(last.status_code, 200, last.text)
+        self.assertEqual((last.json()["appliedCount"], last.json()["skippedSuggestionIds"]),
+                         (1, ["rec-putt:putt-correction"]))
+        stored = [(row["kind"], row["payload"]["to"]) for row in annotations.list_annotations(root=self.root)]
+        self.assertEqual(stored, [("putt_correction", 2), ("score_correction", 4)])
 
     def test_unreadable_history_inside_the_write_is_retryable_and_writes_nothing(self):
         rid = self.round_with_local(strokes=6, putts=2)  # only the putt fix (4 -> 2) is suggested
@@ -118,6 +227,33 @@ class ReconciliationApplyTests(HTTPFixture, unittest.TestCase):
             response = self.apply(rid, ["rec-putt:putt-correction"])
         self.assertEqual(response.status_code, 503, response.text)
         self.assertEqual(self.disk(), before)
+
+
+class MemberReconciliationApplyTests(HTTPFixture, unittest.TestCase):
+    def test_a_member_apply_writes_only_the_members_round(self):
+        # The owner and member p_alice each have a round with hole 1 at 6 strokes, 4 putts, 0 penalties,
+        # and each phone logged putts 2 (6 >= 2 + 0 + 1). p_alice's apply reads her own events and
+        # history and writes her own annotation store; no owner file changes.
+        owner_rid = str(self.ingest(score_events(strokes=6, putts=4, penalties=0)).json()["id"])
+        mobile_live.append_event_batch(owner_rid, live(owner_rid, event("putt", {"putts": 2}, id="owner-putt")),
+                                       idempotency_key="owner", root=self.root)
+        member_rid = str(round_ingest.ingest_round("p_alice", score_events(strokes=6, putts=4, penalties=0), META,
+                                                   idempotency_key="alice", root=self.root)["id"])
+        mobile_live.append_event_batch(member_rid, live(member_rid, event("putt", {"putts": 2}, id="alice-putt")),
+                                       idempotency_key="alice", root=self.root, player_id="p_alice")
+        member_dir = "data/players/p_alice/"
+        owner_before = {path: body for path, body in self.disk().items() if not path.startswith(member_dir)}
+        with patch.object(mobile, "load_history_data_for_mode",
+                          side_effect=lambda *args, player_id="me", **kwargs: (history.load_history_data(player_id), "fixture")):
+            applied = mobile.apply_mobile_round_reconciliation_response(
+                member_rid, MobileReconciliationApplyRequest(suggestionIds=["alice-putt:putt-correction"]),
+                player_id="p_alice")
+        self.assertEqual(applied.appliedCount, 1)
+        owner_after = {path: body for path, body in self.disk().items() if not path.startswith(member_dir)}
+        self.assertEqual(owner_after, owner_before)
+        member = [(row["kind"], row["targetId"], row["payload"]["to"])
+                  for row in annotations.list_annotations(root=self.root, player_id="p_alice")]
+        self.assertEqual(member, [("putt_correction", f"{member_rid}:1", 2)])
 
 
 class UnderivableScoreStateTests(HTTPFixture, unittest.TestCase):
