@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Services/SyncClient.swift
++++ b/mobile/ios/AICaddie/Services/SyncClient.swift
+@@ -563,7 +563,7 @@
+                 }
+             }
+         }
+-        previous.forEach { $0.cancel() }
++        _ = previous
+     }
+
+     func endRoundStart(_ owner: UUID) {

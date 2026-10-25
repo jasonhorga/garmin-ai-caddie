@@ -37,6 +37,16 @@ public struct GarminRasterResponse: Codable, Equatable {
     public var hasDisplayableImage: Bool {
         imageUrl?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
+
+    /// Whether the live hole's descriptor recovery may stop. A package raster is only a visual
+    /// first frame: keep retrying metadata until the image and its geographic projection are both
+    /// usable, otherwise target placement and route overlays would remain disabled forever on a
+    /// cold course. An open image-version conflict keeps recovery running as well.
+    static func descriptorRecoveryIsSettled(
+        _ raster: GarminRasterResponse?, versionConflictURL: URL?
+    ) -> Bool {
+        raster?.isUsable == true && versionConflictURL == nil
+    }
 }
 
 /// Projection shape intentionally mirrors `holeImageProjection` so the same affine math can be

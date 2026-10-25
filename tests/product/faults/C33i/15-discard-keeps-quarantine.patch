@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3544,7 +3544,7 @@
+         watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
+         do {
+             try offlineStore.discardRound(roundId: package.roundId)
+-            try? offlineStore.removeQuarantinedEvents(roundId: package.roundId)
++            _ = offlineStore
+             watchBridge?.sendRoundClosureToWatch(
+                 roundId: package.roundId,
+                 disposition: .abandoned

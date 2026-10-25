@@ -50,6 +50,30 @@ final class WatchBackendClientTests: XCTestCase {
         XCTAssertEqual(locationPayload?["horizontalAccuracyM"] as? Double, 5)
     }
 
+    func testDirectClubEventsWriteOnlyServerStrategyEnumsAndOmitUnknownRoutes() throws {
+        // A watch posting on its own must honour the server's payload enum, exactly as the phone
+        // bridge does: a known route maps to protect_score/stock/attack, anything else is omitted.
+        let client = makeClient()
+        let cases: [(route: String, mode: String?)] = [
+            ("safe", "protect_score"), ("Protect", "protect_score"), ("protect-score", "protect_score"),
+            ("protect_score", "protect_score"), ("standard", "stock"), (" STOCK ", "stock"),
+            ("normal", "stock"), ("aggressive", "attack"), ("attack", "attack"),
+            ("unknown-route", nil), ("driver-3w", nil), ("route:7I", nil), ("", nil), ("   ", nil),
+            ("未知方案", nil),
+        ]
+        for (route, mode) in cases {
+            for kind in [WatchInputKind.club, .distance] {
+                let event = WatchInputEvent(
+                    eventId: "strategy-\(kind)", roundId: "r1", hole: 3, kind: kind,
+                    value: kind == .club ? "7I" : "142", createdAt: "t", contextClub: "7I",
+                    strategyMode: route
+                )
+                let payload = try XCTUnwrap(client.backendEvent(from: event)["payload"] as? [String: Any])
+                XCTAssertEqual(payload["strategyMode"] as? String, mode, "route=\(route) kind=\(kind)")
+            }
+        }
+    }
+
     func testEventBatchRequestCarriesHeadersAndMappedAppleWatchBatch() throws {
         let client = makeClient(adminToken: "secret")
         let event = WatchInputEvent(eventId: "e1", roundId: "r1", hole: 1, kind: .score, value: "4", createdAt: "t")

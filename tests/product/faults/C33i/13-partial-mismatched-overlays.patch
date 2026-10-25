@@ -1,0 +1,14 @@
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -67,11 +67,6 @@
+         hole: Hole,
+         prep: CoursePrepHole?
+     ) -> Bool {
+-        guard displayState == .precise,
+-              let prep,
+-              prep.geometryCoverage.caseInsensitiveCompare("ready") != .orderedSame else {
+-            return true
+-        }
+         return overlayCompatible(hole: hole, prep: prep)
+     }
+ }

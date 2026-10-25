@@ -110,7 +110,7 @@ public final class LiveRoundEventBuilder {
         if let shotType {
             payload["shotType"] = .string(shotType)
         }
-        if let strategyMode {
+        if let strategyMode = serverStrategyMode(strategyMode) {
             payload["strategyMode"] = .string(strategyMode)
         }
         if let lie {
@@ -130,6 +130,16 @@ public final class LiveRoundEventBuilder {
             payload["actualShot"] = .object(actualShot)
         }
         return event(hole: hole, kind: .club, payload: payload)
+    }
+
+    private func serverStrategyMode(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "protect_score", "protect-score", "protect", "safe": return "protect_score"
+        case "stock", "standard", "normal": return "stock"
+        case "attack", "aggressive": return "attack"
+        default: return nil
+        }
     }
 
     /// Attach the actual club to a location that was already saved. Planning selections use

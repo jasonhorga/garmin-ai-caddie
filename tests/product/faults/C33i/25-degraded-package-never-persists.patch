@@ -1,0 +1,17 @@
+--- a/mobile/ios/AICaddie/Services/OfflineStore.swift
++++ b/mobile/ios/AICaddie/Services/OfflineStore.swift
+@@ -840,12 +840,8 @@
+         allowHoleCountDecrease: Bool = false
+     ) throws -> LiveRoundPackage {
+         try FileManager.default.createDirectory(at: packagesDirectoryURL, withIntermediateDirectories: true)
+-        if package.offlinePackageStatus.mustNotCache,
+-           let existing = try? loadRoundPackage(roundId: package.roundId),
+-           !existing.offlinePackageStatus.mustNotCache {
+-            // A degraded response may be rendered and retried, but it cannot replace an existing
+-            // complete package or its current-round pointer.
+-            return existing
++        if package.offlinePackageStatus.mustNotCache {
++            return (try? loadRoundPackage(roundId: package.roundId)) ?? package
+         }
+         let persistedPackage: LiveRoundPackage
+         if !allowHoleCountDecrease,

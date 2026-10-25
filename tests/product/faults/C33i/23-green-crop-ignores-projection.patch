@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
++++ b/mobile/ios/AICaddie/Views/LiveGreenDetailView.swift
+@@ -27,7 +27,6 @@
+     /// green outline but not geo anchors: a searched course can be drawable before it is registered.
+     static func crop(for hole: CoursePrepHole) -> GreenDetailCrop? {
+         guard let projection = hole.holeImageProjection,
+-              projection.available,
+               let outline = hole.greenOutline,
+               outline.available,
+               let width = projection.widthPx,

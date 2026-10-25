@@ -1,0 +1,20 @@
+--- a/mobile/ios/AICaddie/Services/SyncClient.swift
++++ b/mobile/ios/AICaddie/Services/SyncClient.swift
+@@ -587,7 +587,7 @@
+                 return data
+             }
+             group.addTask {
+-                try await Task.sleep(nanoseconds: UInt64(self.roundStartTimeoutInterval * 1_000_000_000))
++                try await Task.sleep(nanoseconds: UInt64(30_000_000_000))
+                 throw URLError(.timedOut)
+             }
+             defer { group.cancelAll() }
+@@ -617,7 +617,7 @@
+         }
+         applyAuth(to: &request)
+         if foregroundStart {
+-            request.timeoutInterval = roundStartTimeoutInterval
++            request.timeoutInterval = 900
+             request.networkServiceType = .responsiveData
+         }
+         let kind = requestKind ?? (foregroundStart ? .foregroundStart : .background)

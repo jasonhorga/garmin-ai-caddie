@@ -1,4 +1,5 @@
 import CoreLocation
+import Combine
 import SwiftUI
 import AICaddieDomain
 #if canImport(UIKit)
@@ -6,6 +7,137 @@ import UIKit
 #endif
 
 #if canImport(UIKit)
+/// Every fallback is rendered into the same topo crop frame as green.png. Garmin pixels must
+/// pass through their own affine registration before the flag/edge overlays can use them.
+@MainActor
+enum GreenDetailImageResolver {
+    enum Source: Equatable { case detail, topo, garmin, schematic }
+    struct Selection {
+        let source: Source
+        let image: UIImage?
+        let registered: Bool
+        init(source: Source, image: UIImage?, registered: Bool = true) {
+            self.source = source
+            self.image = image
+            self.registered = registered
+        }
+    }
+
+    /// The crop is pure pixel math over the full-hole bitmap, so it needs the bitmap size and the
+    /// green outline but not geo anchors: a searched course can be drawable before it is registered.
+    static func crop(for hole: CoursePrepHole) -> GreenDetailCrop? {
+        guard let projection = hole.holeImageProjection,
+              projection.available,
+              let outline = hole.greenOutline,
+              outline.available,
+              let width = projection.widthPx,
+              let height = projection.heightPx,
+              width > 1, height > 1 else { return nil }
+        return GreenDetailCrop.around(
+            points: outline.pointsPx,
+            imageWidth: Double(width),
+            imageHeight: Double(height)
+        )
+    }
+
+    static func resolve(
+        hole: CoursePrepHole, detailImage: UIImage?, topoURL: URL?, garminURL: URL?,
+        garminProjection: CoursePrepHoleImageProjection?
+    ) -> Selection {
+        resolve(
+            hole: hole, detailImage: detailImage,
+            topoImage: TopoHoleImageStore.cachedImage(for: topoURL),
+            garminImage: GarminRasterImageStore.cachedImage(for: garminURL),
+            garminProjection: garminProjection
+        )
+    }
+
+    static func resolve(
+        hole: CoursePrepHole, detailImage: UIImage?, topoImage: UIImage?, garminImage: UIImage?,
+        garminProjection: CoursePrepHoleImageProjection?
+    ) -> Selection {
+        if let detailImage { return Selection(source: .detail, image: detailImage) }
+        let width = Double(hole.holeImageProjection?.widthPx ?? hole.resolvedMapOverlay?.w ?? 678)
+        let height = Double(hole.holeImageProjection?.heightPx ?? hole.resolvedMapOverlay?.h ?? 1060)
+        let crop = Self.crop(for: hole)
+        guard width > 1, height > 1 else {
+            return Selection(source: .schematic, image: nil)
+        }
+        if let topo = topoImage {
+            guard let crop else { return Selection(source: .topo, image: topo, registered: false) }
+            return Selection(source: .topo, image: cropped(topo, width: width, height: height, crop: crop))
+        }
+        if let raster = garminImage, let crop,
+           let source = garminProjection, source.isUsable,
+           let destination = hole.holeImageProjection, destination.isUsable,
+           let sourceWidth = source.widthPx, let sourceHeight = source.heightPx,
+           sourceWidth > 0, sourceHeight > 0,
+           let origin = GarminRasterProjectionMath.remap(pixel: .zero, from: source, to: destination),
+           let x = GarminRasterProjectionMath.remap(
+               pixel: CGPoint(x: sourceWidth, y: 0), from: source, to: destination
+           ),
+           let y = GarminRasterProjectionMath.remap(
+               pixel: CGPoint(x: 0, y: sourceHeight), from: source, to: destination
+           ) {
+            let transform = CGAffineTransform(
+                a: (x.x - origin.x) / CGFloat(sourceWidth),
+                b: (x.y - origin.y) / CGFloat(sourceWidth),
+                c: (y.x - origin.x) / CGFloat(sourceHeight),
+                d: (y.y - origin.y) / CGFloat(sourceHeight),
+                tx: origin.x - CGFloat(crop.x), ty: origin.y - CGFloat(crop.y)
+            )
+            let image = renderer(crop).image { context in
+                context.cgContext.concatenate(transform)
+                raster.draw(in: CGRect(x: 0, y: 0, width: sourceWidth, height: sourceHeight))
+            }
+            return Selection(source: .garmin, image: image)
+        }
+        if let raster = garminImage {
+            // A visual-only Garmin descriptor has no legal green crop. Keep its factual picture
+            // visible, with geo interactions disabled until a registered asset arrives.
+            return Selection(source: .garmin, image: raster, registered: false)
+        }
+        if let uri = hole.map?.image, let comma = uri.firstIndex(of: ","),
+           let data = Data(base64Encoded: String(uri[uri.index(after: comma)...])),
+           let embedded = UIImage(data: data) {
+            if let crop {
+                return Selection(source: .schematic, image: cropped(embedded, width: width, height: height, crop: crop))
+            }
+            return Selection(source: .schematic, image: embedded, registered: false)
+        }
+        // Final fallback draws the factual green outline, rather than a bare ground + crosshair.
+        guard let crop else { return Selection(source: .schematic, image: nil, registered: false) }
+        let image = renderer(crop).image { context in
+            UIColor(red: 0.10, green: 0.18, blue: 0.12, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: crop.width, height: crop.height))
+            let path = UIBezierPath()
+            for (index, point) in (hole.greenOutline?.pointsPx ?? []).enumerated() where point.count >= 2 {
+                let value = CGPoint(x: point[0] - crop.x, y: point[1] - crop.y)
+                if index == 0 { path.move(to: value) } else { path.addLine(to: value) }
+            }
+            path.close()
+            UIColor(red: 0.30, green: 0.48, blue: 0.28, alpha: 1).setFill()
+            path.fill()
+            UIColor.white.withAlphaComponent(0.6).setStroke()
+            path.lineWidth = 1.5
+            path.stroke()
+        }
+        return Selection(source: .schematic, image: image)
+    }
+
+    private static func renderer(_ crop: GreenDetailCrop) -> UIGraphicsImageRenderer {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: crop.width, height: crop.height), format: format)
+    }
+
+    private static func cropped(_ image: UIImage, width: Double, height: Double, crop: GreenDetailCrop) -> UIImage {
+        renderer(crop).image { _ in
+            image.draw(in: CGRect(x: -crop.x, y: -crop.y, width: width, height: height))
+        }
+    }
+}
+
 /// Phone equivalent of Garmin S70's View Green page. The boundary and flag coordinates stay in the
 /// full-hole affine frame; only the viewport/crop changes, so moving the flag never invents a new
 /// green shape or loses alignment with the normal hole map.
@@ -15,6 +147,12 @@ public struct LiveGreenDetailView: View {
     public let hole: CoursePrepHole
     public let detailURL: URL?
     public let topoURL: URL?
+    public let garminURL: URL?
+    public let garminProjection: CoursePrepHoleImageProjection?
+    @StateObject private var detailImageStore = TopoHoleImageStore()
+    @StateObject private var fallbackTopoStore = TopoHoleImageStore()
+    @StateObject private var fallbackGarminStore = GarminRasterImageStore()
+    @State private var resolvedFallback: GreenDetailImageResolver.Selection?
     @Binding public var targetCoordinate: CLLocationCoordinate2D?
     /// Full-hole topo pixel for the edited flag.  This remains authoritative when a searched
     /// course has a drawable map but no geo projection anchors yet.
@@ -48,6 +186,8 @@ public struct LiveGreenDetailView: View {
         hole: CoursePrepHole,
         detailURL: URL?,
         topoURL: URL?,
+        garminURL: URL? = nil,
+        garminProjection: CoursePrepHoleImageProjection? = nil,
         targetCoordinate: Binding<CLLocationCoordinate2D?>,
         targetPixel: Binding<CGPoint?> = .constant(nil),
         referenceCoordinate: CLLocationCoordinate2D?,
@@ -64,6 +204,8 @@ public struct LiveGreenDetailView: View {
         // 1–4x like the pinch; design snapshots open the green already zoomed.
         _scale = State(initialValue: min(max(initialScale.isFinite ? initialScale : 1, 1), 4))
         self.topoURL = topoURL
+        self.garminURL = garminURL
+        self.garminProjection = garminProjection
         _targetCoordinate = targetCoordinate
         _targetPixel = targetPixel
         self.referenceCoordinate = referenceCoordinate
@@ -84,6 +226,21 @@ public struct LiveGreenDetailView: View {
             header
         }
         .preferredColorScheme(.dark)
+        .task(id: detailURL) { await detailImageStore.load(detailURL) }
+        .task(id: topoURL) { await fallbackTopoStore.load(topoURL) }
+        .task(id: garminURL) {
+            guard TopoHoleImageStore.cachedImage(for: topoURL) == nil else { return }
+            await fallbackGarminStore.load(garminURL)
+        }
+        .task(id: "\(detailURL?.absoluteString ?? "")|\(topoURL?.absoluteString ?? "")|\(garminURL?.absoluteString ?? "")") {
+            // Resolve once per input set. The stores publish into this view, and this task keeps
+            // the crop off the body evaluation path so scrolling/gesture updates never recrop or
+            // synchronously decode disk images on the main render pass.
+            await refreshFallbackSelection()
+        }
+        .onReceive(detailImageStore.$image) { _ in refreshFallbackSelectionNow() }
+        .onReceive(fallbackTopoStore.$image) { _ in refreshFallbackSelectionNow() }
+        .onReceive(fallbackGarminStore.$image) { _ in refreshFallbackSelectionNow() }
     }
 
     private var header: some View {
@@ -101,7 +258,7 @@ public struct LiveGreenDetailView: View {
                 .font(.headline.weight(.heavy))
                 .foregroundStyle(.white)
             Spacer(minLength: 0)
-            if activeDetailCrop != nil {
+            if detailImageStore.image != nil {
                 Label("高清", systemImage: "sparkles")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.white.opacity(0.75))
@@ -119,11 +276,22 @@ public struct LiveGreenDetailView: View {
         )
     }
 
+    private func greenBaseRect(in size: CGSize) -> CGRect {
+        if activeDetailCrop != nil {
+            return detailRect(in: size)
+        }
+        if let overlay = hole.resolvedMapOverlay, overlay.w > 1, overlay.h > 1,
+           let frame = LivePlayMapOverlayLayout.mapFrame(
+               overlayWidth: overlay.w, overlayHeight: overlay.h, in: size
+           ) {
+            return frame
+        }
+        return CGRect(origin: .zero, size: size)
+    }
+
     @ViewBuilder
     private func greenViewport(in size: CGSize) -> some View {
-        let baseRect = activeDetailCrop == nil
-            ? CGRect(origin: .zero, size: size)
-            : detailRect(in: size)
+        let baseRect = greenBaseRect(in: size)
         let displayedScale = min(max(scale * pinchScale, 1), 4)
         let rawDisplayedOffset = CGSize(
             width: offset.width + transientOffset.width,
@@ -148,6 +316,7 @@ public struct LiveGreenDetailView: View {
             // The transparent interaction surface is below controls and the distance panel. A map
             // drag therefore cannot win the hit test for a button layered above it.
             greenInteractionLayer(size: size, baseRect: baseRect)
+                .allowsHitTesting(detailFallbackSelection.registered)
 
             if scale > 1.01 {
                 VStack(spacing: 9) {
@@ -164,9 +333,11 @@ public struct LiveGreenDetailView: View {
 
             VStack {
                 Spacer()
-                distancePanel
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 18)
+                if detailFallbackSelection.registered {
+                    distancePanel
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 18)
+                }
             }
         }
         .frame(width: size.width, height: size.height)
@@ -181,24 +352,21 @@ public struct LiveGreenDetailView: View {
     @ViewBuilder
     private func greenMapContent(size: CGSize, baseRect: CGRect) -> some View {
         ZStack {
-            if activeDetailCrop != nil, baseRect.width > 0 {
+            if !detailFallbackSelection.registered, let image = detailFallbackSelection.image {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .frame(width: size.width, height: size.height)
+            } else if activeDetailCrop != nil, baseRect.width > 0 {
                 // Keep the fallback in the same crop coordinate system as the high-resolution
                 // response, so an offline/404 request still leaves a usable green map.
                 TopoHoleBaseImage(topoURL: detailURL, fallback: detailFallbackImage)
                     .frame(width: baseRect.width, height: baseRect.height)
                     .position(x: baseRect.midX, y: baseRect.midY)
+            } else if let image = detailFallbackImage {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .frame(width: size.width, height: size.height)
             } else {
-                HoleImageMapView(
-                    hole: hole,
-                    topoURL: topoURL,
-                    showsCardChrome: false,
-                    showsFactualRoute: true,
-                    showsRecommendedRoute: false,
-                    // Green view is a putting instrument; obstacle overlays belong to the explicit
-                    // hazard picker and should not appear as incidental red spans here.
-                    showsHazards: false
-                )
-                .frame(width: size.width, height: size.height)
+                TopoHoleBaseImage(topoURL: topoURL, fallback: detailFallbackImage)
+                    .frame(width: size.width, height: size.height)
             }
         }
         .frame(width: size.width, height: size.height)
@@ -363,18 +531,7 @@ public struct LiveGreenDetailView: View {
     }
 
     private func crop() -> GreenDetailCrop? {
-        guard let projection = hole.holeImageProjection,
-              let width = projection.widthPx,
-              let height = projection.heightPx,
-              let outline = hole.greenOutline,
-              outline.available,
-              width > 1,
-              height > 1 else { return nil }
-        return GreenDetailCrop.around(
-            points: outline.pointsPx,
-            imageWidth: Double(width),
-            imageHeight: Double(height)
-        )
+        GreenDetailImageResolver.crop(for: hole)
     }
 
     /// The affine crop is authoritative whenever the hole has a factual green outline. The remote
@@ -385,43 +542,29 @@ public struct LiveGreenDetailView: View {
         return crop()
     }
 
-    private var decodedHoleImage: UIImage? {
-        guard let uri = hole.map?.image,
-              let comma = uri.firstIndex(of: ","),
-              let data = Data(base64Encoded: String(uri[uri.index(after: comma)...])) else {
-            return nil
-        }
-        return UIImage(data: data)
+    private var detailFallbackSelection: GreenDetailImageResolver.Selection {
+        resolvedFallback ?? .init(source: .schematic, image: nil, registered: false)
     }
 
-    private var detailFallbackImage: UIImage? {
-        guard let image = decodedHoleImage,
-              let cgImage = image.cgImage,
-              let projection = hole.holeImageProjection,
-              let width = projection.widthPx,
-              let height = projection.heightPx,
-              width > 1,
-              height > 1,
-              let crop = activeDetailCrop else {
-            return nil
-        }
-        // The fallback may be encoded at a different pixel density than the geometry frame. Scale
-        // the crop before clipping so the projected outline remains aligned in either case.
-        let scaleX = CGFloat(cgImage.width) / CGFloat(width)
-        let scaleY = CGFloat(cgImage.height) / CGFloat(height)
-        let bounds = CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
-        let cropRect = CGRect(
-            x: CGFloat(crop.x) * scaleX,
-            y: CGFloat(crop.y) * scaleY,
-            width: CGFloat(crop.width) * scaleX,
-            height: CGFloat(crop.height) * scaleY
-        ).integral.intersection(bounds)
-        guard cropRect.width >= 1,
-              cropRect.height >= 1,
-              let cropped = cgImage.cropping(to: cropRect) else {
-            return nil
-        }
-        return UIImage(cgImage: cropped, scale: image.scale, orientation: image.imageOrientation)
+    private var detailFallbackImage: UIImage? { detailFallbackSelection.image }
+
+    private func refreshFallbackSelectionNow() {
+        resolvedFallback = GreenDetailImageResolver.resolve(
+            hole: hole, detailImage: detailImageStore.image,
+            topoImage: fallbackTopoStore.image, garminImage: fallbackGarminStore.image,
+            garminProjection: garminProjection
+        )
+    }
+
+    @MainActor
+    private func refreshFallbackSelection() async {
+        // Published store values are read after each load task completes. The resolver receives
+        // URLs only for cache lookup and stores its final crop in state, so body never repeats it.
+        resolvedFallback = GreenDetailImageResolver.resolve(
+            hole: hole, detailImage: detailImageStore.image,
+            topoImage: fallbackTopoStore.image, garminImage: fallbackGarminStore.image,
+            garminProjection: garminProjection
+        )
     }
 
     /// Four thin lines from the flag to the front / back / left / right edges, a short cross tick at
@@ -433,7 +576,7 @@ public struct LiveGreenDetailView: View {
         scale: CGFloat,
         offset: CGSize
     ) {
-        guard let flagPx = effectiveFlagPixel,
+        guard detailFallbackSelection.registered, let flagPx = effectiveFlagPixel,
               let flagBase = fullPixelPoint(flagPx, baseRect: baseRect),
               let flag = transformed(flagBase, in: size, scale: scale, offset: offset) else { return }
         if let edges = edgeDistances() {

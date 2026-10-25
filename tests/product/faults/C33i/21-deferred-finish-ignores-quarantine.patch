@@ -1,0 +1,13 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3205,10 +3205,6 @@
+                       try offlineStore.loadPendingMedia(roundId: record.roundId).isEmpty else {
+                     throw LiveRoundFinishError.incompleteAcknowledgement
+                 }
+-                if let blockedHole = try blockingQuarantineHole(roundId: record.roundId) {
+-                    syncStatus = "结束已暂停 · 第 \(blockedHole) 洞成绩上传被拒，请重新录入"
+-                    throw LiveRoundFinishError.blockedByQuarantine
+-                }
+                 try await syncClient.finishRound(
+                     roundId: record.roundId,
+                     metadata: record.metadata

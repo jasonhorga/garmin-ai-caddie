@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/Models/GarminRaster.swift
++++ b/mobile/ios/AICaddie/Models/GarminRaster.swift
+@@ -45,6 +45,6 @@
+     static func descriptorRecoveryIsSettled(
+         _ raster: GarminRasterResponse?, versionConflictURL: URL?
+     ) -> Bool {
+-        raster?.isUsable == true && versionConflictURL == nil
++        raster?.hasDisplayableImage == true && versionConflictURL == nil
+     }
+ }

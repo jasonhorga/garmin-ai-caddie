@@ -1,0 +1,24 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4262,21 +4262,6 @@
+ 
+     private func isSingleEventPayloadValidation422(_ body: String?) -> Bool {
+         guard let body else { return false }
+-        if let data = body.data(using: .utf8),
+-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+-           let details = object["detail"] as? [[String: Any]] {
+-            guard !details.isEmpty else { return false }
+-            return details.allSatisfy { item in
+-                guard let loc = item["loc"] as? [Any],
+-                      let message = item["msg"] as? String else { return false }
+-                let location = loc.compactMap { $0 as? String }
+-                let lower = message.lowercased()
+-                let forbidden = ["event_commit_store_corrupt", "request_reservation_store_corrupt",
+-                                 "roundid", "round_id", "idempotency", "reservation", "store_corrupt"]
+-                return location.contains("events") && location.contains("payload")
+-                    && !forbidden.contains(where: { lower.contains($0) })
+-            }
+-        }
+         let detail: String
+         if let data = body.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

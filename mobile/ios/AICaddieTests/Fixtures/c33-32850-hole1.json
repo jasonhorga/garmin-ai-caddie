@@ -1,0 +1,364 @@
+{
+  "schema": "ai-caddie-live-round-package-v2",
+  "roundId": "c33-round",
+  "dataMode": "fixture",
+  "sourceCoverage": {
+    "state": "ready",
+    "dataMode": "fixture",
+    "requestedRoundId": "c33-round",
+    "selectedRoundId": null,
+    "roundFound": false,
+    "availableRoundCount": 0,
+    "holeCount": 1,
+    "clubProfileCount": 0,
+    "playerStatsWindow": "last20",
+    "preparationMode": "course",
+    "requestedCourseGlobalId": 32850,
+    "courseFound": true,
+    "mapSource": "courseData",
+    "mapBuildId": 266,
+    "mapVariant": "medium-plus",
+    "preciseGeometryState": "partial"
+  },
+  "missingData": [],
+  "playerProfile": {
+    "playerId": "fixture-player",
+    "displayName": "Fixture",
+    "handedness": "unknown"
+  },
+  "course": {
+    "globalId": 32850,
+    "name": "27人俱樂部",
+    "venueName": "27人俱樂部",
+    "venueNameSource": null,
+    "segmentLabel": "北",
+    "teeBox": "blue"
+  },
+  "holes": [
+    {
+      "number": 1,
+      "par": 4,
+      "yards": 419,
+      "geometryCoverage": "ready",
+      "geometryRevision": "f456c41392cb0369",
+      "geometryAuthorityObservation": "current",
+      "sourceGlobalId": 32850,
+      "sourceLocalHole": 1,
+      "teeLatitude": 39.16430735288879,
+      "teeLongitude": 116.99425534750503,
+      "courseHoleNumber": 1
+    }
+  ],
+  "coursePrep": {
+    "schema": "ai-caddie-course-prep-package-v1",
+    "globalId": 32850,
+    "holes": [
+      {
+        "globalId": 32850,
+        "localHole": 1,
+        "hole": 1,
+        "par": 4,
+        "par_source": "estimate",
+        "blue_yards": 421,
+        "route_len_m": 384.9,
+        "route": [
+          [
+            118.9,
+            53.2,
+            0.0
+          ],
+          [
+            87.1,
+            179.9,
+            130.5
+          ],
+          [
+            81.4,
+            230.2,
+            181.2
+          ],
+          [
+            75.8,
+            280.4,
+            231.7
+          ],
+          [
+            68.8,
+            330.4,
+            282.2
+          ],
+          [
+            62.6,
+            380.6,
+            332.8
+          ],
+          [
+            63.5,
+            432.8,
+            384.9
+          ]
+        ],
+        "geometryCoverage": "partial",
+        "geometryRevision": "f456c41392cb0369",
+        "sourceRefs": [
+          "course:32850",
+          "geometry-route:32850:1"
+        ],
+        "missingData": [
+          {
+            "label": "courseview_route",
+            "reason": "CourseView route unavailable; precise geometry route is shown while full prep loads"
+          }
+        ],
+        "candidateRoutes": [],
+        "carryTargets": [],
+        "steps": [],
+        "cautions": [],
+        "landing_m": null,
+        "tee_club": null,
+        "hazards": {
+          "water_carry": [],
+          "bunkers": []
+        },
+        "map": {
+          "image": null,
+          "overlay": {
+            "w": 678,
+            "h": 1060,
+            "ppm": 1.9637,
+            "ln": 384.9,
+            "route": [
+              [
+                368.4,
+                900.7,
+                0.0
+              ],
+              [
+                342.6,
+                645.7,
+                130.5
+              ],
+              [
+                345.8,
+                546.2,
+                181.2
+              ],
+              [
+                349.0,
+                447.2,
+                231.7
+              ],
+              [
+                349.6,
+                348.0,
+                282.2
+              ],
+              [
+                352.0,
+                248.6,
+                332.8
+              ],
+              [
+                368.4,
+                147.6,
+                384.9
+              ]
+            ]
+          }
+        },
+        "greenDistances": {
+          "available": true,
+          "frontM": 362.8,
+          "frontYd": 397,
+          "middleM": 382.9,
+          "middleYd": 419,
+          "backM": 399.9,
+          "backYd": 437,
+          "source": "prodgeometry.Green.drc",
+          "frontRouteM": 364.7,
+          "backRouteM": 384.9,
+          "frontLat": 39.1675348,
+          "frontLon": 116.9936706,
+          "middleLat": 39.1677102,
+          "middleLon": 116.993605,
+          "backLat": 39.1678588,
+          "backLon": 116.993559
+        },
+        "holeImageProjection": {
+          "available": true,
+          "widthPx": 678,
+          "heightPx": 1060,
+          "refs": [
+            {
+              "lat": 39.163829,
+              "lon": 116.992878,
+              "px": 122.4,
+              "py": 970.5
+            },
+            {
+              "lat": 39.163829,
+              "lon": 116.9942683,
+              "px": 355.5,
+              "py": 1004.5
+            },
+            {
+              "lat": 39.164907,
+              "lon": 116.992878,
+              "px": 156.4,
+              "py": 737.3
+            }
+          ]
+        },
+        "greenOutline": {
+          "available": true,
+          "source": "prodgeometry.Green.drc.boundary",
+          "pointsPx": [
+            [
+              338.4,
+              130.8
+            ],
+            [
+              340.0,
+              140.1
+            ],
+            [
+              347.0,
+              149.0
+            ],
+            [
+              354.5,
+              159.2
+            ],
+            [
+              358.9,
+              171.7
+            ],
+            [
+              362.9,
+              183.8
+            ],
+            [
+              368.8,
+              187.8
+            ],
+            [
+              376.6,
+              187.9
+            ],
+            [
+              383.6,
+              183.5
+            ],
+            [
+              387.7,
+              176.0
+            ],
+            [
+              389.7,
+              165.0
+            ],
+            [
+              389.5,
+              154.6
+            ],
+            [
+              385.6,
+              143.0
+            ],
+            [
+              382.1,
+              130.4
+            ],
+            [
+              378.5,
+              121.5
+            ],
+            [
+              368.7,
+              115.7
+            ],
+            [
+              356.1,
+              116.1
+            ],
+            [
+              345.9,
+              119.3
+            ],
+            [
+              340.3,
+              125.1
+            ]
+          ]
+        }
+      }
+    ],
+    "missingData": [
+      {
+        "label": "courseview_route",
+        "reason": "CourseView route unavailable; precise geometry route is shown while full prep loads"
+      },
+      {
+        "label": "geometry",
+        "reason": "precise prodgeometry is pending; factual CourseView courseData is active"
+      }
+    ]
+  },
+  "geometryCoverage": {
+    "state": "partial",
+    "readyHoles": 8,
+    "totalHoles": 9
+  },
+  "readinessChecks": [],
+  "roundLoops": [
+    {
+      "globalId": 32850,
+      "half": "all",
+      "roundStartHole": 1,
+      "sourceStartHole": 1,
+      "holeCount": 9
+    }
+  ],
+  "loopKey": "32850:all",
+  "caddieContextSeeds": [],
+  "clubProfiles": [],
+  "caddieDecisionEndpoint": "/api/v2/caddie/decision",
+  "offlinePackageStatus": {
+    "state": "degraded",
+    "preparedAt": "2026-10-24T06:36:47Z",
+    "expiresAt": "2026-10-25T06:36:47Z",
+    "cachePolicy": {
+      "staleAfterHours": 6,
+      "expiresAfterHours": 24
+    }
+  },
+  "readinessState": "blocked",
+  "generatedAt": "2026-10-24T06:36:47Z",
+  "weatherSnapshot": {
+    "schema": "ai-caddie-weather-snapshot-v1",
+    "state": "missing",
+    "source": "fixture",
+    "confidence": "low",
+    "missingData": []
+  },
+  "eventCursor": {
+    "serverSequence": 0,
+    "pendingEventCount": 0
+  },
+  "recentHistory": {
+    "course": {
+      "courseKey": "fixture-32850",
+      "roundCount": 0,
+      "recentScores": [],
+      "roundIds": []
+    },
+    "rounds": [],
+    "holes": []
+  },
+  "cachedCaddieRules": {
+    "decisionContract": "ai-caddie-decision-v2",
+    "offlineCapable": false,
+    "requiredInputs": [],
+    "degradeWhenMissing": []
+  }
+}
