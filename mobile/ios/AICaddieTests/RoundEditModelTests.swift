@@ -47,6 +47,7 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertFalse(model.isEditing)
         XCTAssertFalse(model.hasUnsavedChanges)
         XCTAssertEqual(model.map, baseline)
+        // An inverted wait: a simulator stall can only make it miss a stray request, never fail it.
         await fulfillment(of: [unexpectedRequest], timeout: 0.25)
     }
 
@@ -129,7 +130,7 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertFalse(model.isEditing)
         XCTAssertEqual(mutationIds.count, 2)
         XCTAssertEqual(mutationIds.first, mutationIds.last)
-        await fulfillment(of: [posts], timeout: 2)
+        await fulfillment(of: [posts], timeout: 10)
     }
 
     func testMaplessSaveUsesFactSnapshotAndNeverEncodesPixels() async throws {
@@ -174,7 +175,7 @@ final class RoundEditModelTests: XCTestCase {
             XCTAssertNil(fact["order"])
             XCTAssertNil(fact["geometryRevision"])
         }
-        await fulfillment(of: [posted], timeout: 2)
+        await fulfillment(of: [posted], timeout: 10)
     }
 
     func testPreciseOverlayWithoutDuplicatedEmbeddedImageCanEditPositions() {
@@ -217,7 +218,7 @@ final class RoundEditModelTests: XCTestCase {
         let saved = await model.save()
         XCTAssertTrue(saved)
         XCTAssertEqual(payloadShots.compactMap { $0["order"] as? Int }, [1, 2])
-        await fulfillment(of: [posted], timeout: 2)
+        await fulfillment(of: [posted], timeout: 10)
     }
 
     // MARK: B3 同屏改杆

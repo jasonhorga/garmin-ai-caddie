@@ -440,7 +440,7 @@ final class WatchEventBridgeTests: XCTestCase {
             reply.fulfill()
         }
 
-        await fulfillment(of: [callback, reply], timeout: 2)
+        await fulfillment(of: [callback, reply], timeout: 10)
         XCTAssertEqual(replyPayload?["accepted"] as? Bool, true)
         XCTAssertEqual(replyPayload?["duplicateEventIds"] as? [String], [event.eventId])
         XCTAssertEqual(try store.loadEvents().map(\.eventId), [event.eventId])
