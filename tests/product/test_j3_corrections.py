@@ -273,7 +273,6 @@ class CorrectionProductTests(unittest.TestCase):
                     self.assertEqual(shotmap(s)['shots'][1]['club'],'6I')
                     self.assertEqual(len(s.get('history/rounds/101/correction-log')['entries']),1)
 
-    @unittest.expectedFailure  # C16a KNOWN-RED: projection omits persisted correction
     def test_j3_1_review_consumes_corrected_club(self):
         with Sandbox() as s:
             prepare(s, snapshot=False)
@@ -282,7 +281,6 @@ class CorrectionProductTests(unittest.TestCase):
             clubs = s.get('history/rounds/101')['holeDetails'][0]['shots']
             self.assertEqual([x['club'] for x in clubs], ['Driver','6I','PW'])
 
-    @unittest.expectedFailure  # C16a KNOWN-RED: projection omits persisted correction
     def test_j3_1_statistics_consume_corrected_club(self):
         with Sandbox() as s:
             prepare(s, snapshot=False)
@@ -291,7 +289,6 @@ class CorrectionProductTests(unittest.TestCase):
             clubs = s.get('history/stats')['clubs']
             self.assertEqual(sorted((c['club'],c['median']) for c in clubs), [('6I',100),('Driver',200),('PW',20)])
 
-    @unittest.expectedFailure  # C16a KNOWN-RED: projection omits persisted correction
     def test_j3_1_bag_model_consumes_corrected_club(self):
         with Sandbox() as s:
             prepare(s, snapshot=False)
@@ -301,14 +298,12 @@ class CorrectionProductTests(unittest.TestCase):
             self.assertNotIn('7I', profiles)
             self.assertEqual(profiles['6I']['median'],100)
 
-    @unittest.expectedFailure  # C16a KNOWN-RED: projection omits persisted correction
     def test_j3_1_review_consumes_deleted_shot(self):
         with Sandbox() as s:
             prepare(s, snapshot=False)
             self.assertEqual(s.correct({'op':'deleteShot','shotId':'s:101:2'}).status_code,201)
             self.assertEqual(s.get('history/rounds/101')['round']['shotCount'],2)
 
-    @unittest.expectedFailure  # C16a KNOWN-RED: projection omits persisted correction
     def test_j3_1_review_consumes_added_shot(self):
         with Sandbox() as s:
             prepare(s, snapshot=False)
@@ -316,7 +311,6 @@ class CorrectionProductTests(unittest.TestCase):
                                         'club':'SW','lie':'Bunker'}).status_code,201)
             self.assertEqual(s.get('history/rounds/101')['round']['shotCount'],4)
 
-    @unittest.expectedFailure  # C16a KNOWN-RED: projection omits persisted correction
     def test_j3_1_review_consumes_corrected_total(self):
         with Sandbox() as s:
             s.seed()
@@ -326,7 +320,6 @@ class CorrectionProductTests(unittest.TestCase):
             self.assertEqual(detail['scorecard'][0]['score'],6)
             self.assertEqual(detail['round']['score'],74)
 
-    @unittest.expectedFailure  # C16a KNOWN-RED: statistics omit corrected landing lie
     def test_j3_1_statistics_consume_corrected_lie(self):
         with Sandbox() as s:
             prepare(s)
@@ -340,7 +333,6 @@ class CorrectionProductTests(unittest.TestCase):
             self.assertEqual([(r['surface'], r['count']) for r in driver['surfaceDistribution']],
                              [('bunker', 1)])
 
-    @unittest.expectedFailure  # C16a KNOWN-RED: review retains source ordering
     def test_j3_1_review_consumes_reordered_shots(self):
         with Sandbox() as s:
             prepare(s)
@@ -352,7 +344,6 @@ class CorrectionProductTests(unittest.TestCase):
             self.assertEqual([(x['club'], x['order']) for x in shots],
                              [('PW',1),('Driver',2),('7I',3)])
 
-    @unittest.expectedFailure  # C16a KNOWN-RED: review retains source distance
     def test_j3_1_review_consumes_moved_landing(self):
         with Sandbox() as s:
             prepare(s)
@@ -365,7 +356,6 @@ class CorrectionProductTests(unittest.TestCase):
             self.assertEqual(shots[1]['club'], '7I')
             self.assertEqual(shots[1]['distance'], 0)
 
-    @unittest.expectedFailure  # C16a KNOWN-RED: projection omits persisted correction
     def test_j3_1_statistics_consume_corrected_penalty(self):
         with Sandbox() as s:
             s.seed()

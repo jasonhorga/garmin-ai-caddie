@@ -380,7 +380,6 @@ class J2ResultsTests(unittest.TestCase):
                 seq = sequences[w["roundId"]]
                 self.assertEqual(seq["putts"][seq["holes"].index(w["hole"])], w["putts"])
 
-    @unittest.expectedFailure
     def test_j2_5_corrected_default_hole_counts_in_gir(self) -> None:
         """KNOWN-RED #2. Spec 2.5 / B0c: a default hole leaves putting AND GIR, and a putt correction
         brings it back ("订正过则计入"; B0c "对该洞做过推杆更正则重新计入"). Product re-admits it to
@@ -395,7 +394,6 @@ class J2ResultsTests(unittest.TestCase):
         self.assertEqual((last10["scrambling"]["chances"], last10["scrambling"]["saves"]),
                          (V("2.2", "compareScoring", "last10", "scrambleChances"), V("2.2", "compareScoring", "last10", "scrambleSaves")))
 
-    @unittest.expectedFailure
     def test_j2_5_putt_correction_recomputes_gir(self) -> None:
         """KNOWN-RED #3. GIR is 按推杆推算 (README §4: 第一推是第几杆 <= Par-1) and a correction is used at
         once by the statistics (spec 3.1). P4#5: 5 strokes, putts corrected 2 -> 3, so GIR becomes true."""

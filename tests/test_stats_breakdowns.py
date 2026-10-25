@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from ai_caddie.history import history, history_stats, mobile_stats, stats_cache
+from ai_caddie.history.corrected_history import corrected_rounds
 from ai_caddie.history.history import HistoryData
 from ai_caddie.rounds import round_ingest
 
@@ -52,8 +53,11 @@ class StatsBreakdownsTest(unittest.TestCase):
     def setUp(self) -> None:
         stats_cache.clear()
         self.addCleanup(stats_cache.clear)
-        correction = {"kind": "putt_correction", "targetId": "r2:11", "payload": {"to": 1}}
-        self.scoring = history_stats._scoring(_history(), [correction])
+        correction = {"kind": "putt_correction", "targetType": "hole", "targetId": "r2:11", "payload": {"to": 1}}
+        # The statistics read the corrected history (corrected_history); _scoring takes it as built.
+        data = _history()
+        data = HistoryData(raw_rounds=data.raw_rounds, rounds=corrected_rounds(data.rounds, [correction]), shots=data.shots)
+        self.scoring = history_stats._scoring(data)
 
     def test_putt_distribution_skips_default_holes_and_applies_corrections(self) -> None:
         putting = self.scoring["putting"]
@@ -72,7 +76,9 @@ class StatsBreakdownsTest(unittest.TestCase):
         )
 
     def test_scrambling_is_par_or_better_after_a_missed_green(self) -> None:
-        self.assertEqual(self.scoring["scrambling"], {"chances": 3, "saves": 1, "pct": 33.3})
+        # r1:1 (no save), r1:2 (save), r2:10 (no save), and r2:11: its putts are corrected 2 -> 1, so
+        # GIR follows the corrected putts (4 - 1 = 3 > par - 2) — a missed green saved at par.
+        self.assertEqual(self.scoring["scrambling"], {"chances": 4, "saves": 2, "pct": 50.0})
 
     def test_round_sequences_are_newest_first_with_skipped_and_corrected_values(self) -> None:
         sequences = self.scoring["roundSequences"]
@@ -152,8 +158,9 @@ class StatsBreakdownsTest(unittest.TestCase):
 
 def _scoring_of(rounds: list[dict], annotations: list[dict] | None = None) -> dict:
     stats_cache.clear()
+    rounds = corrected_rounds(rounds, annotations or [])
     data = HistoryData(raw_rounds=[{"id": row["id"], "hasShots": False} for row in rounds], rounds=rounds, shots=[])
-    return history_stats._scoring(data, annotations or [])
+    return history_stats._scoring(data)
 
 
 class LoopIdentityTest(unittest.TestCase):
@@ -275,8 +282,8 @@ class LoopIdentityTest(unittest.TestCase):
         row = {"id": "merged_1_2", "date": "2026-09-01", "course": "Plain", "courseKey": "plain", "merged": True,
                "frontNineGlobalCourseId": 7, "backNineGlobalCourseId": 8, "holesCompleted": 18, "strokes": 72,
                "holePars": "444444444" + "345345345", "holes": first + second}
-        corrections = [{"kind": "putt_correction", "targetId": "merged_1_2:3", "payload": {"to": 1}},
-                       {"kind": "putt_correction", "targetId": "merged_1_2:12", "payload": {"to": 3}}]
+        corrections = [{"kind": "putt_correction", "targetType": "hole", "targetId": "merged_1_2:3", "payload": {"to": 1}},
+                       {"kind": "putt_correction", "targetType": "hole", "targetId": "merged_1_2:12", "payload": {"to": 3}}]
         scoring = _scoring_of([row], corrections)
         seq = scoring["roundSequences"][0]
         self.assertEqual(seq["holes"], list(range(1, 19)))
