@@ -29,8 +29,8 @@ class ServerV2HistoryStatsTests(unittest.TestCase):
         self.assertEqual(payload["schema"], "ai-caddie-history-stats-v1")
         self.assertEqual(payload["dataMode"], "fixture")
         self.assertEqual(payload["summary"]["totalRounds"], 3)
-        # handicap fields ride along in the summary; with only 3 fixture rounds
-        # (<5 rated) the estimate is None, but the keys must be present
+        # handicap fields ride along in the summary; with only 3 fixture rounds the
+        # estimate may be None (<3 rated), but the keys must be present
         self.assertIn("handicapEstimate", payload["summary"])
         self.assertIn("handicapTrend", payload["summary"])
         for key in ("handicapEstimate", "handicapTrend"):

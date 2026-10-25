@@ -6,7 +6,14 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import unittest
 
-from ai_caddie.caddie.analysis import build_hole_analysis, build_round_analysis, overlay_geojson, render_svg, strategy_distances
+from ai_caddie.caddie.analysis import (
+    build_hole_analysis,
+    build_round_analysis,
+    data_quality,
+    overlay_geojson,
+    render_svg,
+    strategy_distances,
+)
 from ai_caddie.core.data import (
     ROOT,
     local_to_wgs84,
@@ -186,6 +193,21 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(analysis["schema"], "ai-caddie-round-analysis-v1")
         self.assertGreaterEqual(analysis["summary"]["analyzedHoles"], 9)
         self.assertGreaterEqual(analysis["summary"]["confidenceCounts"].get("high", 0), 9)
+
+    def test_club_profile_lookup_ignores_case_variants(self) -> None:
+        # build_club_profiles pools "Driver"/"driver" into one profile labelled with the most-used
+        # spelling; a shot logged as "driver" must still find it, while a club with no profile at
+        # all is still flagged.
+        geometry = {"hasHazards": True, "hasMeshes": True, "hazards": {}}
+        shots = [
+            {"shotOrder": 1, "clubName": "driver", "start": {"local": [0.0, 0.0]}, "end": {"local": [0.0, 220.0]}},
+            {"shotOrder": 2, "clubName": "PW", "start": {"local": [0.0, 220.0]}, "end": {"local": [0.0, 330.0]}},
+        ]
+        profiles = {"Driver": {"median": 220.0, "sampleSize": 30}}
+
+        quality = data_quality({}, shots, geometry, profiles)
+
+        self.assertEqual(quality["issues"], ["club sample low for PW"])
 
     def test_overlay_does_not_rewrite_missing_tee_shot(self) -> None:
         _require_local_garmin_tests(self)
