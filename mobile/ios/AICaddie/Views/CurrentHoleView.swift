@@ -835,7 +835,7 @@ public struct CurrentHoleView: View {
                     .reportsLiveChrome()
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 8)
+                .padding(.bottom, LivePlayBottomRow.bottomPadding)
             }
         }
         .overlay(alignment: .topLeading) { liveCaddieRouteSummary }

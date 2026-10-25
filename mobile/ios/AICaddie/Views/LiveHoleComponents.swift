@@ -1614,6 +1614,14 @@ enum LivePlayMapOverlayLayout {
     /// preserving pixel alignment with the factual route.
     static let liveMapTopInset: CGFloat = 80
 
+    /// Its counterpart at the bottom: the fixed 记分 / 记一杆 row (`LivePlayBottomRow`) on its
+    /// padding above the home indicator, plus `chromeGap`. The lightweight frame keeps at least this
+    /// room before (and after) the row is measured, so the tee never opens under the row and
+    /// measuring it does not move the map.
+    static var liveMapBottomInset: CGFloat {
+        LivePlayBottomRow.height + LivePlayBottomRow.bottomPadding + LivePlayBottomRow.homeIndicatorInset + chromeGap
+    }
+
     /// The hero map's tap rectangle is positioned below the fixed header. SwiftUI reports gesture
     /// locations in that rectangle's local coordinate space, while projected markers and green
     /// outlines use the complete hero space.
@@ -1797,7 +1805,8 @@ enum LivePlayMapOverlayLayout {
     ///
     /// Chrome in the upper part of the hero (title, round buttons, 洞位图, green ladder) sets the top
     /// inset; chrome in the lower part (记分, 记一杆, the obstacle bar) sets the bottom inset; the side
-    /// controls only constrain labels. Before the chrome is measured the header inset is used.
+    /// controls only constrain labels. The insets never go below `liveMapTopInset` and
+    /// `liveMapBottomInset`, which also stand in before the chrome is measured.
     ///
     /// Garmin's raster with no route on it yet (its descriptor arrived before CourseView prep, or
     /// the prep has no projection to remap through) frames the whole raster between the same insets:
@@ -1817,7 +1826,7 @@ enum LivePlayMapOverlayLayout {
         let upper = rects.filter { $0.maxY <= viewport.height * 0.45 }
         let lower = rects.filter { $0.minY >= viewport.height * 0.55 }
         let top = max(liveMapTopInset, (upper.map(\.maxY).max() ?? 0) + chromeGap)
-        let bottom = lower.map(\.minY).min().map { max(viewport.height - $0 + chromeGap, 0) } ?? 0
+        let bottom = max(liveMapBottomInset, lower.map(\.minY).min().map { viewport.height - $0 + chromeGap } ?? 0)
         guard top + bottom < viewport.height else { return nil }
         let hasRoute = overlay.route.contains { $0.count >= 2 && $0[0].isFinite && $0[1].isFinite }
         guard hasRoute else {
