@@ -240,13 +240,15 @@ final class C33EventTests: XCTestCase {
         ))
         await model.waitForWatchRoundClosureReconciliationForTesting()
         XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).count, 1)
-        XCTAssertFalse(await model.finishActiveRound())
+        let blockedFinish = await model.finishActiveRound()
+        XCTAssertFalse(blockedFinish)
         try store.appendEvent(LiveRoundEvent(eventId: "replacement-score", roundId: package.roundId,
             timestamp: "2026-01-01T00:01:00Z", hole: 1, kind: .score,
             payload: ["strokes": .number(4)]))
         await model.syncPendingEvents()
         XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
-        XCTAssertTrue(await model.finishActiveRound())
+        let finished = await model.finishActiveRound()
+        XCTAssertTrue(finished)
     }
 }
 #endif
