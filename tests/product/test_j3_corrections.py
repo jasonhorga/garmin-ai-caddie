@@ -400,6 +400,23 @@ class CorrectionProductTests(unittest.TestCase):
             entries = [entry for entry in response.json()['stored']['audit']['entries'] if entry['op'] == 'penalty']
             self.assertEqual([(entry['before'], entry['after']) for entry in entries], [(1, 0)])
 
+    def test_c53_set_hole_penalty_audit_follows_annotation_then_correction(self):
+        with Sandbox() as s:
+            s.seed()
+            raw = s.fake.input['scorecards']['101']
+            raw['scorecardDetails'][0]['scorecard']['holes'][0]['penalties'] = 1
+            write(s.root / 'data/scorecards/101.json', raw)
+            annotation_response = s.request('POST', 'annotations', json={
+                'targetType': 'hole', 'targetId': '101:1', 'kind': 'penalty_correction',
+                'payload': {'strokes': 0}, 'clientMutationId': 'annotation-clear',
+            })
+            self.assertEqual(annotation_response.status_code, 200, annotation_response.text)
+            response = s.correct({'op': 'setHolePenalty', 'hole': 1, 'value': 1,
+                                  'clientMutationId': 'annotation-then-set'})
+            self.assertEqual(response.status_code, 201, response.text)
+            entries = [entry for entry in response.json()['stored']['audit']['entries'] if entry['op'] == 'penalty']
+            self.assertEqual([(entry['before'], entry['after']) for entry in entries], [(0, 1)])
+
 
     def test_j3_4_unreadable_history_rejects_score_annotations(self):
         with Sandbox() as s:
