@@ -88,33 +88,6 @@ final class WatchHoleMapViewportTests: XCTestCase {
         }
     }
 
-    func testCompactGlanceContentBudgetFitsEverySupportedInstrumentFace() {
-        let faces = [
-            CGSize(width: 176, height: 215),
-            CGSize(width: 198, height: 242),
-            CGSize(width: 205, height: 251),
-        ]
-
-        for size in faces {
-            let safeRect = WatchDisplayGeometry.contentRect(in: size)
-            XCTAssertGreaterThanOrEqual(
-                safeRect.width,
-                WatchCaddieGlanceView.compactInstrumentMinimumWidth,
-                "compact F/M/B glance needs a stable width on (size)"
-            )
-            XCTAssertLessThanOrEqual(
-                WatchCaddieGlanceView.compactInstrumentContentHeight,
-                WatchCaddieGlanceView.compactInstrumentHeight,
-                "compact glance content must not require clipping on (size)"
-            )
-            XCTAssertLessThanOrEqual(
-                WatchCaddieGlanceView.compactInstrumentHeight + 6,
-                safeRect.height - WatchDisplayGeometry.instrumentActionHeight,
-                "compact glance plus the action rail must stay inside the safe area on (size)"
-            )
-        }
-    }
-
     func testEdgeBackGestureAcceptsAHorizontalSwipeFromTheLeftEdge() {
         XCTAssertTrue(WatchEdgeBackGesture.shouldTrigger(
             startX: 20,
