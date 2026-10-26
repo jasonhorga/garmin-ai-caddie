@@ -2089,6 +2089,7 @@
     ],
     "state": "ready"
    },
+   "venueLoops": [],
    "weatherSnapshot": {
     "confidence": "low",
     "missingData": [
@@ -4400,6 +4401,7 @@
     ],
     "state": "ready"
    },
+   "venueLoops": [],
    "weatherSnapshot": {
     "confidence": "low",
     "missingData": [
@@ -6731,6 +6733,7 @@
     ],
     "state": "ready"
    },
+   "venueLoops": [],
    "weatherSnapshot": {
     "confidence": "low",
     "missingData": [
