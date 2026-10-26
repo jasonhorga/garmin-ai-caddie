@@ -75,7 +75,8 @@ raise SystemExit(not result.wasSuccessful())
                 )
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertIn("Repository artifacts changed", result.stderr)
-                self.assertIn(f"!! output/{artifact.name}", result.stderr)
+                self.assertIn("New/changed repository artifacts:", result.stderr)
+                self.assertIn(f"output/{artifact.name}", result.stderr)
             finally:
                 artifact.unlink(missing_ok=True)
                 if not output_existed:

@@ -179,6 +179,59 @@ def install():
     def disposable_root(root):
         return cache_root if Path(root or ".").resolve() == ROOT else root
 
+    # Patch application defaults before main snapshots them or constructs its job
+    # store. Explicit test roots and database URL overrides keep their scope.
+    from ai_caddie.connectors import snapshot, sync_lock
+    from ai_caddie.reports import reports
+    from ai_caddie.rounds import players
+    from server_v2 import db, reports as report_routes, sync_jobs
+
+    snapshot.ROOT = cache_root
+    players.ROOT = cache_root
+    db.ROOT = cache_root
+    report_routes.REPORT_ROOT = cache_root
+    sync_jobs.ROOT = cache_root
+
+    # SYNC_DIR/STATUS_FILE remain relative: explicit root / STATUS_FILE is part
+    # of snapshot's API. Redirect the default root rather than making that suffix
+    # absolute (which would silently discard explicit per-test roots).
+    def redirect_snapshot_root(function):
+        @wraps(function)
+        def redirected(*args, root=ROOT, **kwargs):
+            return function(*args, root=disposable_root(root), **kwargs)
+        return redirected
+
+    snapshot.write_connector_status = redirect_snapshot_root(snapshot.write_connector_status)
+    snapshot.read_connector_status = redirect_snapshot_root(snapshot.read_connector_status)
+    original_lock_path = sync_lock.sync_lock_path
+
+    @wraps(original_lock_path)
+    def sync_lock_path(root):
+        return original_lock_path(disposable_root(root))
+
+    sync_lock.sync_lock_path = sync_lock_path
+    original_report_path = reports.report_store_file
+
+    @wraps(original_report_path)
+    def report_store_file(root=None):
+        return original_report_path(disposable_root(root))
+
+    reports.report_store_file = report_store_file
+    original_report_root = reports.evidence_root
+
+    @wraps(original_report_root)
+    def report_evidence_root(player_id, *, root=None):
+        return original_report_root(player_id, root=disposable_root(root))
+
+    reports.evidence_root = report_evidence_root
+    original_job_init = sync_jobs.GarminSyncJobStore.__init__
+
+    @wraps(original_job_init)
+    def job_store_init(self, *, root=ROOT):
+        original_job_init(self, root=disposable_root(root))
+
+    sync_jobs.GarminSyncJobStore.__init__ = job_store_init
+
     original_evidence_root = decision.evidence_root
 
     @wraps(original_evidence_root)
@@ -205,3 +258,7 @@ def install():
     mobile.MOBILE_ROOT = cache_root
     mobile.DECISION_LEDGER_ROOT = cache_root
     mobile.DECISION_AUDIT_ROOT = cache_root
+
+    from server_v2 import main
+
+    main.SYNC_ROOT = cache_root

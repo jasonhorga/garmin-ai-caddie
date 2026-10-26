@@ -28,6 +28,11 @@ class OfflineApplicationStoreTests(unittest.TestCase):
     def test_connector_status_defaults_are_disposable(self):
         self.assertDisposable(snapshot.ROOT / snapshot.SYNC_DIR)
         self.assertDisposable(snapshot.ROOT / snapshot.STATUS_FILE)
+        status = snapshot.ROOT / snapshot.STATUS_FILE
+        if status.exists():
+            self.addCleanup(status.write_bytes, status.read_bytes())
+        else:
+            self.addCleanup(status.unlink, missing_ok=True)
         path = snapshot.write_connector_status(state="no_data", detail="fixture", snapshot_id=None)
         self.assertDisposable(path)
         self.assertEqual(snapshot.read_connector_status()["state"], "no_data")

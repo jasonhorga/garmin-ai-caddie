@@ -37,6 +37,10 @@ files there, outside the checkout:
   default topo and green-detail PNG caches.
 - Decision ledgers/audits, mobile event logs/acks and their event/package locks,
   including member partitions.
+- Connector status, sync locks and durable sync jobs; report ledgers, the player
+  registry and the default SQLite identity database. These defaults are patched
+  before the API module constructs its sync job store. Explicit temporary roots
+  and database URL overrides retain their scope; no database URL is set globally.
 
 Explicit temporary roots, per-test path patches and topo environment overrides
 retain their scope. `core.data.ROOT` and batch scripts/snapshot anchors still refer
@@ -47,8 +51,11 @@ unmodified domain constants in clean children which never import `tests`.
 Only batch's `subprocess.run` / `Popen` calls receive a source-tree `PYTHONPATH`
 through an explicit child environment, so exporters remain importable from the
 temporary cwd. The parent environment and unrelated children keep their original
-`PYTHONPATH` and `AI_CADDIE_TOPO_CACHE_DIR`. Other application stores are outside this
-list; these defaults do not promise to redirect every filesystem write.
+`PYTHONPATH` and `AI_CADDIE_TOPO_CACHE_DIR`. Snapshot status suffixes remain
+relative so explicit `root / STATUS_FILE` scopes still work; their default root
+is disposable. CI rejects any persistent change under repository `data/` or
+`output/`, including stores newly introduced by tests. New production defaults
+must be redirected here or explicitly patched to a temporary root by their tests.
 
 `test_offline_followups` exercises successful cache/export/ledger writes and
 event-store lock creation and compares `git status --ignored` for `data/` and
@@ -60,7 +67,8 @@ python -m tests.check_isolation discover -s tests -t . -v
 ```
 
 The checker preserves unittest's failure status and also fails on new or
-changed repository artifact status, including ignored files. Discovery regression
+changed repository artifacts, including rewritten ignored files whose git status
+is unchanged. Failures list only this run's changed paths. Discovery regression
 tests run it in a fresh interpreter; CI also uses it around the full backend suite.
 
 Provider entry points and their offline callers:
