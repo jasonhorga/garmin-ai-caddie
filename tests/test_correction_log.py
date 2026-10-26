@@ -303,7 +303,7 @@ class AnnotationBeforeValueTest(_Store):
         first = self.add("penalty_correction", {"strokes": 3})
         self.assertEqual(first["audit"]["entries"][0]["before"], 2)
         stored = self.write({"op": "setHolePenalty", "hole": 4, "value": 1})
-        self.assertEqual(stored["audit"]["entries"][0]["before"], 2)  # shot-map manualPenalty view
+        self.assertEqual(stored["audit"]["entries"][0]["before"], 3)  # annotation's effective penalty
         second = self.add("penalty_correction", {"strokes": 4})
         self.assertEqual(second["audit"]["entries"][0]["before"], 1)  # the later correction-store write wins
 
@@ -349,7 +349,7 @@ class AnnotationBeforeValueTest(_Store):
                 steps["annotation" if first == "correction" else "correction"]()
                 records = rc.load_correction_events("me", "42") + ann.list_annotation_records(root=self.root)
                 records.sort(key=lambda record: record["auditSeq"])
-                expected_before = 2 if first == "correction" else 0
+                expected_before = 2 if first == "correction" else 3
                 self.assertEqual(records[1]["audit"]["entries"][0]["before"], expected_before)
 
     def test_unknown_round_annotation_is_stored_with_a_pending_audit(self) -> None:
