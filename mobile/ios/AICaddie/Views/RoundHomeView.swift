@@ -783,7 +783,6 @@ public struct RoundHomeView: View {
                         activeHole: package.courseHoleNumber(forRoundHole: activeHole),
                         recorded: scored.count,
                         toPar: liveToPar(scoredHoles: scored),
-                        reservesEndAction: false,
                         dots: HubHoleDot.loopDots(
                             roundHoles: package.holes.map(\.number),
                             activeHole: activeHole
@@ -1223,9 +1222,6 @@ struct HubInProgressCard: View {
     let recorded: Int
     /// Score to par over the recorded holes; nil → omitted, never guessed.
     var toPar: Int? = nil
-    /// Leaves room on the right of 继续 for the home's 结束 button, which the app lays over the
-    /// card (a button cannot live inside the card's NavigationLink).
-    var reservesEndAction = false
     /// The loop holding the active hole; empty → no dot row.
     var dots: [HubHoleDot] = []
 
@@ -1279,7 +1275,6 @@ struct HubInProgressCard: View {
                 Spacer(minLength: 14)
             }
             HubBentoPrimaryButtonLabel(title: continueTitle, fullWidth: true)
-                .padding(.trailing, reservesEndAction ? HubEndRoundPill.reservedWidth : 0)
         }
         .padding(18)
         .hubBentoHero { HubBentoStyle.deepGreen }
@@ -1393,16 +1388,6 @@ struct HubPrimaryPill: View {
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .background(LiveHoleStyle.green)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-}
-
-/// 结束 beside 继续 on the in-progress card: opens the finish page (保存并结束 / 继续打球 / 放弃本场).
-struct HubEndRoundPill: View {
-    static let width: CGFloat = 76
-    static let reservedWidth: CGFloat = width + 10
-
-    var body: some View {
-        HubBentoOutlineButtonLabel(title: "结束", width: Self.width)
     }
 }
 
