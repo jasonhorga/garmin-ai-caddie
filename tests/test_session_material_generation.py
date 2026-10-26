@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
+import signal
+import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import threading
 import unittest
@@ -153,6 +157,52 @@ class SessionMaterialGenerationTests(unittest.TestCase):
             (token_dir / "csrf.txt").write_text("csrf-legacy\n")
 
             self.assertIsNone(session_material.read_session_material(token_dir))
+
+    def test_subprocess_killed_after_second_import_switch_keeps_a_complete_pair(self) -> None:
+        script = r"""
+import os
+from pathlib import Path
+import signal
+import sys
+
+from ai_caddie.connectors.session_material import save_garmin_cn_web_session
+
+root = Path(sys.argv[1])
+save_garmin_cn_web_session(
+    web_session_header="Cookie: JWT_WEB=A",
+    anti_forgery_value="csrf-A",
+    root=root,
+)
+
+def kill_on_switch(_source, _destination):
+    os.kill(os.getpid(), signal.SIGKILL)
+
+os.replace = kill_on_switch
+save_garmin_cn_web_session(
+    web_session_header="Cookie: JWT_WEB=B",
+    anti_forgery_value="csrf-B",
+    root=root,
+)
+"""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            completed = subprocess.run(
+                [sys.executable, "-c", script, str(root)],
+                cwd=Path(__file__).resolve().parents[1],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, -signal.SIGKILL, completed.stderr)
+
+            with patch.object(garmin_auth, "TOKEN_DIR", root / ".garmin_tokens"):
+                auth = garmin_auth._read_existing()
+            self.assertIsNotNone(auth)
+            assert auth is not None
+            self.assertIn(
+                (auth.cookie_header, auth.csrf_token),
+                {("JWT_WEB=A", "csrf-A"), ("JWT_WEB=B", "csrf-B")},
+            )
 
 
 if __name__ == "__main__":
