@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+from dataclasses import replace
 import hashlib
 import hmac
 import logging
@@ -21,7 +22,10 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
 from ai_caddie.courses import course_reconciliation, course_search
-from ai_caddie.courses.course_reference import record_courseview_catalogue_names
+from ai_caddie.courses.course_reference import (
+    record_courseview_catalogue_names,
+    record_courseview_venue_loops,
+)
 from ai_caddie.history import stats_cache
 from ai_caddie.history.stats_cache import cached_load_history_data
 from ai_caddie.rounds import correction_audit, round_corrections, round_ingest, swing_candidates
@@ -1498,6 +1502,7 @@ def course_search_endpoint(
         city=city,
         append_history=True,
     )
+    record_courseview_venue_loops(_venue_loop_index_rows(matches), root=ROOT)
     return {
         "schema": "ai-caddie-course-search-v1",
         "query": name,
@@ -1641,6 +1646,36 @@ def _course_match_payload(match: course_search.CourseMatch) -> dict:
     return payload
 
 
+def _venue_loop_index_rows(matches: object) -> list:
+    """Give the durable loop index only rows with an unambiguous physical venue.
+
+    Provider names such as ``Venue ~ A`` have a factual decomposition; plain names without a
+    loop/venue boundary remain excluded so unrelated nine-hole courses cannot be merged.
+    """
+    from ai_caddie.courses.name_authority import canonical_course_identity
+
+    rows = []
+    for match in matches or ():
+        if getattr(match, "venue_name", None):
+            rows.append(match)
+            continue
+        if int(getattr(match, "holes", 0) or 0) != 9:
+            continue
+        canonical = canonical_course_identity(
+            getattr(match, "name", ""),
+            segment_override=getattr(match, "segment_label", None),
+            holes=9,
+        )
+        if not canonical.venue or not canonical.segment:
+            continue
+        rows.append(replace(
+            match,
+            venue_name=canonical.venue,
+            segment_label=getattr(match, "segment_label", None) or canonical.segment,
+        ))
+    return rows
+
+
 @app.get("/api/v2/courses/nearby")
 def course_nearby_endpoint(
     background_tasks: BackgroundTasks,
@@ -1685,6 +1720,7 @@ def course_nearby_endpoint(
         overlay_coordinates=False,
         append_history=False,
     )
+    record_courseview_venue_loops(_venue_loop_index_rows(matches), root=ROOT)
     if matches:
         # Durable full map prep replaces metadata-only warming. All provider courses in 30 km
         # enter the bounded low-priority lane; this response never waits for downloads/renders.
@@ -2035,6 +2071,15 @@ def _discover_nearby_maps(latitude: float, longitude: float) -> None:
         result = course_search.courseview_nearby(latitude=latitude, longitude=longitude, radius_km=30)
         matches = result.matches if isinstance(result, course_search.NearbyCourseResult) else result
         record_courseview_catalogue_names(matches, root=ROOT)
+        reconciled = _reconcile_player_course_matches(
+            matches,
+            player_id=OWNER_ID,
+            nearby_origin=(latitude, longitude),
+            nearby_radius_km=30,
+            overlay_coordinates=False,
+            append_history=False,
+        )
+        record_courseview_venue_loops(_venue_loop_index_rows(reconciled), root=ROOT)
         enqueue_nearby(matches)
     except Exception:
         logger.exception("nearby_prewarm discovery_failed")

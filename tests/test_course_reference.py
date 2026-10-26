@@ -51,6 +51,29 @@ class EstimateTests(unittest.TestCase):
 
 
 class PersistenceTests(unittest.TestCase):
+    def test_venue_loop_index_keeps_explicit_venues_separate(self) -> None:
+        from ai_caddie.courses.course_search import CourseMatch
+
+        rows = [
+            CourseMatch(31905, "愉景灣 ~ A", 9, None, None, 0.0, venue_name="愉景灣", segment_label="A"),
+            CourseMatch(31906, "愉景灣 ~ B", 9, None, None, 0.0, venue_name="愉景灣", segment_label="B"),
+            CourseMatch(40001, "另一球会 ~ A", 9, None, None, 0.0, venue_name="另一球会", segment_label="A"),
+            CourseMatch(49999, "没有明确球会", 9, None, None, 0.0),
+        ]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(cr, "courseview_par", return_value=[4] * 9):
+                cr.record_courseview_venue_loops(rows, root=root)
+            self.assertEqual(
+                [row["globalId"] for row in cr.courseview_venue_loops(31905, "拼写不同的愉景灣", root=root)],
+                [31905, 31906],
+            )
+            self.assertEqual(
+                [row["globalId"] for row in cr.courseview_venue_loops(40001, "另一球会", root=root)],
+                [40001],
+            )
+            self.assertEqual(cr.courseview_venue_loops(49999, None, root=root), [])
+
     def test_catalogue_name_cache_accepts_only_native_garmin_cjk_rows(self) -> None:
         from ai_caddie.courses.course_search import CourseMatch
 

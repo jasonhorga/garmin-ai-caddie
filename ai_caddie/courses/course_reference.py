@@ -222,6 +222,85 @@ def _catalogue_name_path(global_id: int, *, root: Path = ROOT) -> Path:
     return _courseview_dir(root) / f"{int(global_id)}_catalogue_name.json"
 
 
+def _venue_loops_path(*, root: Path = ROOT) -> Path:
+    return _courseview_dir(root) / "venue_loops.json"
+
+
+def _venue_key(value: object) -> str:
+    return normalize_course_text(value).casefold()
+
+
+def record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> None:
+    """Persist explicit, reconciled nine-hole venue rows from nearby discovery.
+
+    ``venue_name`` is deliberately required.  A provider name is not a safe fallback here:
+    without a venue identity every unrelated nine-hole row would be grouped together.
+    """
+    payload = safe_read_json(_venue_loops_path(root=root), default={})
+    venues: dict[str, dict] = {}
+    for group in payload.get("venues", []) if isinstance(payload, dict) else []:
+        if not isinstance(group, dict) or not _venue_key(group.get("venueName")):
+            continue
+        key = _venue_key(group["venueName"])
+        venues[key] = {
+            "venueKey": key,
+            "venueName": str(group["venueName"]).strip(),
+            "loops": [row for row in group.get("loops", []) if isinstance(row, dict)],
+        }
+    changed = False
+    for match in matches or ():
+        try:
+            gid = int(match.global_id)
+            holes = int(match.holes or 0)
+            venue = str(getattr(match, "venue_name", None) or "").strip()
+            if gid <= 0 or holes != 9 or not venue:
+                continue
+            key = _venue_key(venue)
+            if not key:
+                continue
+            group = venues.setdefault(key, {"venueKey": key, "venueName": venue, "loops": []})
+            label = normalize_course_text(getattr(match, "segment_label", None)) or None
+            name = normalize_course_text(getattr(match, "name", None)) or venue
+            pars = courseview_par(gid, allow_fetch=False) or []
+            par = sum(int(value) for value in pars if isinstance(value, (int, float))) if len(pars) == 9 else 36
+            row = {"globalId": gid, "name": name, "segmentLabel": label, "holeCount": 9, "par": max(1, int(par))}
+            prior = next((item for item in group["loops"] if int(item.get("globalId") or 0) == gid), None)
+            if prior != row:
+                group["loops"] = [item for item in group["loops"] if int(item.get("globalId") or 0) != gid]
+                group["loops"].append(row)
+                changed = True
+        except (AttributeError, TypeError, ValueError, OverflowError, OSError):
+            continue
+    if changed:
+        atomic_write_json(_venue_loops_path(root=root), {
+            "schema": "garmin-courseview-venue-loops-v1",
+            "venues": sorted(venues.values(), key=lambda item: item["venueKey"]),
+        })
+
+
+def courseview_venue_loops(global_id: int, venue_name: str | None = None, *, root: Path = ROOT) -> list[dict]:
+    """Read the durable nearby venue index, preferring the group containing ``global_id``."""
+    if not _venue_key(venue_name):
+        return []
+    payload = safe_read_json(_venue_loops_path(root=root), default={})
+    groups = payload.get("venues", []) if isinstance(payload, dict) else []
+    groups = [group for group in groups if isinstance(group, dict) and isinstance(group.get("loops"), list)]
+    for group in groups:
+        if any(
+            isinstance(row, dict) and str(row.get("globalId") or "").isdigit()
+            and int(row["globalId"]) == int(global_id)
+            for row in group["loops"]
+        ):
+            return [dict(row) for row in group["loops"] if isinstance(row, dict)]
+    key = _venue_key(venue_name)
+    if not key:
+        return []
+    for group in groups:
+        if _venue_key(group.get("venueName")) == key:
+            return [dict(row) for row in group["loops"] if isinstance(row, dict)]
+    return []
+
+
 def courseview_catalogue_name(global_id: int, *, root: Path = ROOT) -> str | None:
     """A previously observed zh_CHS Garmin catalogue row, never a client alias."""
     payload = safe_read_json(_catalogue_name_path(global_id, root=root), default={})

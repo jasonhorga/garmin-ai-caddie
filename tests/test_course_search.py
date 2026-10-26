@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from ai_caddie.courses import course_search as cs
@@ -510,6 +511,41 @@ class CourseSearchEndpointTests(unittest.TestCase):
         kwargs = reconcile.call_args.kwargs
         self.assertFalse(kwargs["overlay_coordinates"])
         self.assertFalse(kwargs["append_history"])
+
+    def test_nearby_http_persists_venue_index_used_by_cache_only_package(self) -> None:
+        from ai_caddie.caddie.mobile_live import _venue_loops_for_package
+        from ai_caddie.courses import course_search
+        from server_v2 import main as server_main
+
+        canned = [
+            course_search.CourseMatch(31905, "愉景灣 ~ A", 9, "香港", "香港", 0.0, venue_name="愉景灣", segment_label="A"),
+            course_search.CourseMatch(31906, "愉景灣 ~ B", 9, "香港", "香港", 0.0, venue_name="愉景灣", segment_label="B"),
+            course_search.CourseMatch(40101, "另一球会 ~ A", 9, "香港", "香港", 0.0, venue_name="另一球会", segment_label="A"),
+        ]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch.object(server_main, "ROOT", root),
+                patch.object(server_main.course_search, "courseview_nearby", return_value=canned),
+                patch.object(server_main, "_reconcile_player_course_matches", return_value=canned),
+                patch("server_v2.map_startup.enqueue_nearby"),
+                patch("server_v2.map_startup.prefetch_nearby_releases"),
+                patch("ai_caddie.courses.course_reference.courseview_par", return_value=[4] * 9),
+            ):
+                response = self._client().get(
+                    "/api/v2/courses/nearby",
+                    params={"latitude": 22.29, "longitude": 114.27, "radius_km": 50},
+                )
+            self.assertEqual(response.status_code, 200)
+            rows = _venue_loops_for_package(
+                31905,
+                venue_name="愉景灣（另一种拼写）",
+                segment_label="A",
+                holes=[{"par": 4} for _ in range(9)],
+                root=root,
+            )
+            self.assertEqual([row["globalId"] for row in rows], [31905, 31906])
+            self.assertNotIn(40101, [row["globalId"] for row in rows])
 
     def test_nearby_endpoint_enqueues_full_maps_for_all_provider_matches(self) -> None:
         from ai_caddie.courses import course_search
