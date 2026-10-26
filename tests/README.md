@@ -1,9 +1,20 @@
 # Offline backend tests
 
 Run a module with `python -m unittest tests.test_course_reference`. For discovery,
-use `python -m unittest discover -s tests -t .` (the CI command). The explicit top
-level makes unittest import `tests/__init__.py` before loading test modules;
-`discover -s tests` alone does not guarantee that package initialization.
+use `python -m unittest discover -s tests -t .`. CI wraps this command with
+`python -m tests.check_isolation discover -s tests -t . -v`.
+`python -m unittest discover -s tests` also installs the offline defaults:
+without `-t .`, unittest treats `tests/` as its top level, skips its
+`__init__.py`, and imports modules as `test_xxx`. It still visits packages in
+sorted order, independently of the `-p` file pattern. `tests/_bootstrap/` sorts
+before the test modules and other test packages and imports `tests.offline`
+through its canonical package name. Both entry points install the guard once,
+before importing tests. Product and acceptance directories have the same
+`_bootstrap/` entry point for standalone `discover -s tests/product` and
+`discover -s tests/acceptance` (without `-t`). Keep a bootstrap package first in
+every test directory's discovery order. The discovery regression automatically
+enumerates all directories containing `test*.py` and checks guard installation
+before the first test import, so newly added directories are covered too.
 
 `tests.offline` blocks real urllib and requests traffic to Garmin CN/COM hosts,
 including subdomains, and blocks Playwright and xvfb login launches. It raises
@@ -16,13 +27,49 @@ For an intentionally selected live integration test, wrap the request in
 exceptions and does not propagate to background threads. Do not use real player
 accounts in tests. The normal suite has no live integration tests.
 
-Default release, courseData, course-par, geometry download/export and raster caches use a
-unique `.test-cache-*` temporary directory per interpreter, deleted at exit.
-Keeping it below the repository preserves geometry exports' relative path
-contract; the real `ROOT/data/courseview` cache is neither a source nor a write
-target. Explicit temporary roots and per-test path patches retain their scope.
-The prep-cache fingerprint reads the same disposable CourseView directory.
-Fixtures and the production `ROOT` constants are unchanged.
+These default paths use one `.test-cache-*` directory per interpreter in the
+system temporary directory, deleted on normal exit. SIGKILL can leave temporary
+files there, outside the checkout:
+
+- Release, courseData, course-par, downloaded geometry, exported meshes,
+  hazards and batch summaries; prep-cache fingerprints read those same files.
+- Garmin raster and overlay raster caches, overlay exports, vector-prep JSON,
+  default topo and green-detail PNG caches.
+- Decision ledgers/audits, mobile event logs/acks and their event/package locks,
+  including member partitions.
+- Connector status, sync locks and durable sync jobs; report ledgers, the player
+  registry and the default SQLite identity database. These defaults are patched
+  before the API module constructs its sync job store. Explicit temporary roots
+  and database URL overrides retain their scope; no database URL is set globally.
+
+Explicit temporary roots, per-test path patches and topo environment overrides
+retain their scope. `core.data.ROOT` and batch scripts/snapshot anchors still refer
+to the source tree. Test-side `batch.ROOT` is redirected because it anchors
+relative export paths and `output/.prodgeometry-staging`; `topo_render.ROOT` is
+redirected for its default cache path. Production root-resolution tests read the
+unmodified domain constants in clean children which never import `tests`.
+Only batch's `subprocess.run` / `Popen` calls receive a source-tree `PYTHONPATH`
+through an explicit child environment, so exporters remain importable from the
+temporary cwd. The parent environment and unrelated children keep their original
+`PYTHONPATH` and `AI_CADDIE_TOPO_CACHE_DIR`. Snapshot status suffixes remain
+relative so explicit `root / STATUS_FILE` scopes still work; their default root
+is disposable. CI rejects any persistent change under repository `data/` or
+`output/`, including stores newly introduced by tests. New production defaults
+must be redirected here or explicitly patched to a temporary root by their tests.
+
+`test_offline_followups` exercises successful cache/export/ledger writes and
+event-store lock creation and compares `git status --ignored` for `data/` and
+`output/` before/after. To apply the same check to any modules (or CI discovery):
+
+```sh
+python -m tests.check_isolation tests.test_geometry_authority
+python -m tests.check_isolation discover -s tests -t . -v
+```
+
+The checker preserves unittest's failure status and also fails on new or
+changed repository artifacts, including rewritten ignored files whose git status
+is unchanged. Failures list only this run's changed paths. Discovery regression
+tests run it in a fresh interpreter; CI also uses it around the full backend suite.
 
 Provider entry points and their offline callers:
 
