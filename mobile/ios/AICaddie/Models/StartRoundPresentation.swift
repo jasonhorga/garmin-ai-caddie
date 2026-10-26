@@ -30,7 +30,6 @@ enum StartRoundPresentation {
     /// preserve the player's choice and the Tee authority belonging to that choice.
     struct CourseRowState: Equatable {
         let selection: StartRoundView.CourseSelectionState
-        let startHalf: String
         let userPickedTee: Bool
         let fetchedTees: [CourseTee]
         let teeLoadFailed: Bool
@@ -51,7 +50,6 @@ enum StartRoundPresentation {
         }
         return CourseRowState(
             selection: StartRoundView.selectionState(for: option, lastUsedTee: lastUsedTee, uuid: uuid),
-            startHalf: state.selection.globalIdText == String(option.globalId) ? state.startHalf : "front",
             userPickedTee: false,
             fetchedTees: [],
             teeLoadFailed: false

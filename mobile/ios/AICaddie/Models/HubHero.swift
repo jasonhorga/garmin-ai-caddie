@@ -247,7 +247,6 @@ struct HubQuickCourseOrdering {
         let option: MobileCourseOption
         let isNearby: Bool
         let lastPlayedAt: Date?
-        let lastViewedAt: Date?
         let downloadedAt: Date?
         let playCount: Int
 
@@ -255,33 +254,32 @@ struct HubQuickCourseOrdering {
             option: MobileCourseOption,
             isNearby: Bool = false,
             lastPlayedAt: Date? = nil,
-            lastViewedAt: Date? = nil,
             downloadedAt: Date? = nil,
             playCount: Int = 0
         ) {
             self.option = option
             self.isNearby = isNearby
             self.lastPlayedAt = lastPlayedAt
-            self.lastViewedAt = lastViewedAt
             self.downloadedAt = downloadedAt
             self.playCount = playCount
         }
     }
 
     static func ordered(_ candidates: [Candidate], limit: Int = 4) -> [Candidate] {
-        var unique: [Int: Candidate] = [:]
+        var unique: [String: Candidate] = [:]
         for candidate in candidates {
             guard candidate.option.globalId > 0 else { continue }
-            if let existing = unique[candidate.option.globalId] {
-                unique[candidate.option.globalId] = merge(existing, candidate)
+            let key = candidate.option.venueDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if let existing = unique[key] {
+                unique[key] = merge(existing, candidate)
             } else {
-                unique[candidate.option.globalId] = candidate
+                unique[key] = candidate
             }
         }
         return unique.values.sorted { lhs, rhs in
             if lhs.isNearby != rhs.isNearby { return lhs.isNearby }
-            let lhsDate = maxDate(lhs.lastPlayedAt, lhs.lastViewedAt, lhs.downloadedAt)
-            let rhsDate = maxDate(rhs.lastPlayedAt, rhs.lastViewedAt, rhs.downloadedAt)
+            let lhsDate = effectiveDate(for: lhs)
+            let rhsDate = effectiveDate(for: rhs)
             if lhsDate != rhsDate { return lhsDate > rhsDate }
             if lhs.playCount != rhs.playCount { return lhs.playCount > rhs.playCount }
             if lhs.option.venueDisplayName != rhs.option.venueDisplayName {
@@ -293,13 +291,25 @@ struct HubQuickCourseOrdering {
 
     private static func merge(_ lhs: Candidate, _ rhs: Candidate) -> Candidate {
         Candidate(
-            option: lhs.option,
+            option: preferredOption(lhs, rhs),
             isNearby: lhs.isNearby || rhs.isNearby,
             lastPlayedAt: maxDate(lhs.lastPlayedAt, rhs.lastPlayedAt),
-            lastViewedAt: maxDate(lhs.lastViewedAt, rhs.lastViewedAt),
             downloadedAt: maxDate(lhs.downloadedAt, rhs.downloadedAt),
             playCount: max(lhs.playCount, rhs.playCount)
         )
+    }
+
+    static func effectiveDate(for candidate: Candidate) -> Date {
+        maxDate(candidate.lastPlayedAt, candidate.downloadedAt)
+            .addingTimeInterval(Double(candidate.playCount) * 7 * 24 * 60 * 60)
+    }
+
+    private static func preferredOption(_ lhs: Candidate, _ rhs: Candidate) -> MobileCourseOption {
+        if rhs.isNearby && !lhs.isNearby { return rhs.option }
+        let lhsDate = effectiveDate(for: lhs)
+        let rhsDate = effectiveDate(for: rhs)
+        if rhsDate > lhsDate { return rhs.option }
+        return lhs.option
     }
 
     private static func maxDate(_ dates: Date?...) -> Date {
