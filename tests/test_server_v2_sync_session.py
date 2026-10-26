@@ -8,10 +8,16 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from ai_caddie.connectors.sync_lock import acquire_sync_lock
+from ai_caddie.connectors import session_material
 from server_v2.main import app
 
 
 class ServerV2SyncSessionTests(unittest.TestCase):
+    @staticmethod
+    def _current_generation(token_dir: Path) -> Path:
+        name = (token_dir / session_material.CURRENT_FILE).read_text(encoding="ascii").strip()
+        return token_dir / session_material.GENERATIONS_DIR / name
+
     def test_sync_session_endpoint_requires_admin_token_when_configured(self) -> None:
         client = TestClient(app)
 
@@ -51,7 +57,9 @@ class ServerV2SyncSessionTests(unittest.TestCase):
                         "antiForgeryValue": "connect-csrf-token: csrf-secret-value",
                     },
                 )
-                web_cookie_exists = (root / ".garmin_tokens" / "web_cookie.txt").exists()
+                generation = self._current_generation(root / ".garmin_tokens")
+                cookie = generation / "web_cookie.txt"
+                web_cookie_exists = cookie.exists() and cookie.read_text(encoding="utf-8") == "JWT_WEB=abc123\n"
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(web_cookie_exists)
@@ -71,8 +79,9 @@ class ServerV2SyncSessionTests(unittest.TestCase):
                 )
 
             payload = response.json()
-            session_file = root / ".garmin_tokens" / "web_cookie.txt"
-            anti_forgery_file = root / ".garmin_tokens" / "csrf.txt"
+            generation = self._current_generation(root / ".garmin_tokens")
+            session_file = generation / "web_cookie.txt"
+            anti_forgery_file = generation / "csrf.txt"
             session_text = session_file.read_text(encoding="utf-8").strip()
             anti_forgery_text = anti_forgery_file.read_text(encoding="utf-8").strip()
 
