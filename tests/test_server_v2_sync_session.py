@@ -57,7 +57,9 @@ class ServerV2SyncSessionTests(unittest.TestCase):
                         "antiForgeryValue": "connect-csrf-token: csrf-secret-value",
                     },
                 )
-                web_cookie_exists = (root / ".garmin_tokens" / session_material.CURRENT_FILE).exists()
+                generation = self._current_generation(root / ".garmin_tokens")
+                cookie = generation / "web_cookie.txt"
+                web_cookie_exists = cookie.exists() and cookie.read_text(encoding="utf-8") == "JWT_WEB=abc123\n"
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(web_cookie_exists)

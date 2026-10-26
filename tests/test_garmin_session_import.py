@@ -140,7 +140,10 @@ class GarminSessionImportTests(unittest.TestCase):
 
             self.assertEqual([path.name for path in failed], ["csrf.txt"])
             self.assertEqual((cookie.read_bytes(), csrf.read_bytes()), before)
-            self.assertFalse((token_dir / session_material.CURRENT_FILE).exists())
+            self.assertEqual(
+                sorted(path.name for path in token_dir.iterdir()),
+                ["csrf.txt", "web_cookie.txt"],
+            )
 
     def test_rollback_failure_on_one_file_still_restores_the_other_and_raises_original(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -196,12 +199,21 @@ class GarminSessionImportTests(unittest.TestCase):
             with mock.patch("os.open", side_effect=open_):
                 _save_replacement(root)
 
-            self.assertGreaterEqual(created_modes.count(0o600), 3)
+            self.assertEqual(created_modes, [0o600, 0o600, 0o600])
             generation = _current_generation(token_dir)
             self.assertEqual(stat.S_IMODE((generation / "web_cookie.txt").stat().st_mode), 0o600)
             self.assertEqual(stat.S_IMODE((generation / "csrf.txt").stat().st_mode), 0o600)
             self.assertEqual((generation / "web_cookie.txt").read_text(encoding="utf-8"), "JWT_WEB=replacement\n")
             self.assertEqual((generation / "csrf.txt").read_text(encoding="utf-8"), "replacement-csrf\n")
+            self.assertEqual(
+                sorted(path.name for path in token_dir.iterdir()),
+                [session_material.CURRENT_FILE, session_material.GENERATIONS_DIR],
+            )
+            self.assertEqual(stat.S_IMODE((token_dir / session_material.CURRENT_FILE).stat().st_mode), 0o600)
+            self.assertEqual(
+                sorted(path.name for path in generation.iterdir()),
+                ["csrf.txt", "web_cookie.txt"],
+            )
 
 
 if __name__ == "__main__":

@@ -164,7 +164,10 @@ class MemberSyncRoutesTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         token_dir = self._member_token_dir(self.alice["id"])
-        self.assertTrue((token_dir / session_material.CURRENT_FILE).exists())
+        generation = self._current_generation(token_dir)
+        cookie = generation / "web_cookie.txt"
+        self.assertTrue(cookie.exists())
+        self.assertEqual(cookie.read_text(encoding="utf-8"), "JWT_WEB=alice-secret\n")
 
     # --- sync ---------------------------------------------------------------------
     def _bind_alice(self) -> None:

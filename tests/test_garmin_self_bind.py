@@ -62,7 +62,8 @@ def _write_scorecard(scorecard_dir: Path, sid: int = 7, course: str = "Member Pr
 
 class PathDecouplingTests(unittest.TestCase):
     def test_fetch_runtime_binds_explicit_token_and_data_dirs(self) -> None:
-        original_cookie = fetch_module.COOKIE_FILE
+        original_token_dir = fetch_module.TOKEN_DIR
+        original_auth_token_dir = garmin_auth_module.TOKEN_DIR
         original_scorecard = fetch_module.SCORECARD_DIR
         original_clubs = fetch_module.CLUBS_BAG_FILE
         with TemporaryDirectory() as tmp:
@@ -70,8 +71,6 @@ class PathDecouplingTests(unittest.TestCase):
             data_dir = Path(tmp) / "part"
             with _fetch_runtime(token_dir=token_dir, data_dir=data_dir):
                 self.assertEqual(fetch_module.TOKEN_DIR, token_dir)
-                self.assertEqual(fetch_module.COOKIE_FILE, token_dir / "web_cookie.txt")
-                self.assertEqual(fetch_module.CSRF_FILE, token_dir / "csrf.txt")
                 self.assertEqual(fetch_module.DATA_DIR, data_dir)
                 self.assertEqual(fetch_module.SUMMARY_FILE, data_dir / "summary.json")
                 self.assertEqual(fetch_module.SCORECARD_DIR, data_dir / "scorecards")
@@ -79,10 +78,10 @@ class PathDecouplingTests(unittest.TestCase):
                 # CLUBS_BAG_FILE must repoint too, or a member's fetch_clubs clobbers the owner's bag.
                 self.assertEqual(fetch_module.CLUBS_BAG_FILE, data_dir / "club_bag.json")
                 # garmin_auth (the cookie reader) is scoped to the same token dir.
-                self.assertEqual(garmin_auth_module.COOKIE_FILE, token_dir / "web_cookie.txt")
-                self.assertEqual(garmin_auth_module.CSRF_FILE, token_dir / "csrf.txt")
+                self.assertEqual(garmin_auth_module.TOKEN_DIR, token_dir)
         # Globals restored after the context.
-        self.assertEqual(fetch_module.COOKIE_FILE, original_cookie)
+        self.assertEqual(fetch_module.TOKEN_DIR, original_token_dir)
+        self.assertEqual(garmin_auth_module.TOKEN_DIR, original_auth_token_dir)
         self.assertEqual(fetch_module.SCORECARD_DIR, original_scorecard)
         self.assertEqual(fetch_module.CLUBS_BAG_FILE, original_clubs)
 

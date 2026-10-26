@@ -7,10 +7,12 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
 from ai_caddie.connectors import session_material
+from ai_caddie.connectors.sync_lock import acquire_sync_lock
 from ai_caddie.garmin import garmin_auth
 
 
@@ -99,6 +101,10 @@ class SessionMaterialGenerationTests(unittest.TestCase):
             (orphan / "web_cookie.txt").write_text("JWT_WEB=orphan\n")
             (token_dir / ".web_cookie.txt.crashed.tmp").write_text("partial")
             (token_dir / session_material.GENERATIONS_DIR / ".pointer.tmp").write_text("partial")
+            old = time.time() - session_material.ORPHAN_GRACE_SECONDS - 1
+            os.utime(orphan, (old, old))
+            os.utime(token_dir / ".web_cookie.txt.crashed.tmp", (old, old))
+            os.utime(token_dir / session_material.GENERATIONS_DIR / ".pointer.tmp", (old, old))
 
             session_material.cleanup_session_material(root)
 
@@ -106,6 +112,42 @@ class SessionMaterialGenerationTests(unittest.TestCase):
             self.assertFalse(orphan.exists())
             self.assertFalse((token_dir / ".web_cookie.txt.crashed.tmp").exists())
             self.assertFalse((token_dir / session_material.GENERATIONS_DIR / ".pointer.tmp").exists())
+
+    def test_cleanup_skips_while_sync_holds_lock_and_session_stays_readable(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save(root, "JWT_WEB=first", "csrf-first")
+            token_dir = root / ".garmin_tokens"
+            orphan = token_dir / session_material.GENERATIONS_DIR / "old-orphan"
+            orphan.mkdir()
+            old = time.time() - session_material.ORPHAN_GRACE_SECONDS - 1
+            os.utime(orphan, (old, old))
+
+            with acquire_sync_lock(root):
+                session_material.cleanup_session_material(root)
+                self.assertTrue(orphan.exists())
+                session_material.save_session_material(
+                    token_dir=token_dir,
+                    web_session="JWT_WEB=second",
+                    anti_forgery="csrf-second",
+                )
+                self.assertEqual(
+                    session_material.read_session_material(token_dir),
+                    ("JWT_WEB=second", "csrf-second"),
+                )
+
+            session_material.cleanup_session_material(root)
+            self.assertFalse(orphan.exists())
+
+    def test_cleanup_failure_is_logged_and_does_not_escape(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(
+                session_material,
+                "_cleanup_token_dir",
+                side_effect=PermissionError("simulated permission failure"),
+            ):
+                session_material.cleanup_session_material(root)
 
     def test_legacy_pair_is_read_and_migrated_on_first_write(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -115,9 +157,7 @@ class SessionMaterialGenerationTests(unittest.TestCase):
             (token_dir / "web_cookie.txt").write_text("JWT_WEB=legacy\n")
             (token_dir / "csrf.txt").write_text("csrf-legacy\n")
 
-            with patch.object(garmin_auth, "TOKEN_DIR", token_dir), patch.object(
-                garmin_auth, "COOKIE_FILE", token_dir / "web_cookie.txt"
-            ), patch.object(garmin_auth, "CSRF_FILE", token_dir / "csrf.txt"):
+            with patch.object(garmin_auth, "TOKEN_DIR", token_dir):
                 auth = garmin_auth._read_existing()
 
             self.assertIsNotNone(auth)
@@ -174,7 +214,10 @@ save_garmin_cn_web_session(
     root=root,
 )
 
+real_replace = os.replace
+
 def kill_on_switch(_source, _destination):
+    real_replace(_source, _destination)
     os.kill(os.getpid(), signal.SIGKILL)
 
 os.replace = kill_on_switch
