@@ -229,6 +229,11 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(map.waitForExistence(timeout: 10) && map.isHittable)
         map.swipeLeft()
         XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 20), "prep hole navigation must move to hole 2")
+        XCTAssertEqual(
+            app.descendants(matching: .any)["live-hole-pager"].value as? String,
+            "第 2 洞",
+            "the native pager selection must follow the visible hole after a map swipe"
+        )
         settle(1); save("c30-prep-hole-2"); dump("c30-prep-hole-2")
 
         let back = app.buttons["live-back-home"]

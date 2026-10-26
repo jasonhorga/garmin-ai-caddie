@@ -919,6 +919,7 @@ public struct RoundHomeView: View {
                 holePagerScrollDisabled = false
             }
             .accessibilityIdentifier("live-hole-pager")
+            .accessibilityValue(holePagerSelection.map { "第 \($0) 洞" } ?? "")
         } else {
             Color.clear
         }
