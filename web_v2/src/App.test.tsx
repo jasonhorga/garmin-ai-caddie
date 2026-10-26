@@ -2316,7 +2316,7 @@ describe('App navigation', () => {
         if (statsCalls === 2) return firstRefresh
         if (statsCalls === 3) {
           return new Promise<Response>((_resolve, reject) => {
-            secondRefreshSignal = init?.signal
+            secondRefreshSignal = init?.signal ?? undefined
             init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
           })
         }
@@ -2375,7 +2375,7 @@ describe('App navigation', () => {
         if (statsCalls === 1) return Promise.resolve({ ok: true, json: async () => statsPayload() })
         if (statsCalls < 4) {
           return new Promise<Response>((resolve, reject) => {
-            const signal = init?.signal
+            const signal = init?.signal ?? undefined
             const onAbort = () => reject(new DOMException('aborted', 'AbortError'))
             signal?.addEventListener('abort', onAbort, { once: true })
             refreshRequests.push({ signal, resolve })
