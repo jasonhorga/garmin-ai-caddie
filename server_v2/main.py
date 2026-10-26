@@ -64,7 +64,7 @@ from .geometry import (
     load_hole_geometry_evidence_response,
     load_hole_map_response,
 )
-from .garmin_raster import ROUTER as garmin_raster_router
+from .garmin_raster import ROUTER as garmin_raster_router, prefetch_holes as prefetch_garmin_rasters
 from .pin_sheet import read_pin_sheet_response
 from .media import (
     analyze_media_response,
@@ -306,7 +306,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
             r"/api/v2/courses/[0-9]+/(?:prep|tees|install/status)",
             r"/api/v2/courses/[0-9]+/install/jobs/[^/]+/(?:cancel|retry)",
             r"/api/v2/courses/[0-9]+/holes/[0-9]+/(?:topo|green)\.png",
-            r"/api/v2/courses/[0-9]+/holes/[0-9]+/garmin-raster(?:\.jpg)?",
+            r"/api/v2/courses/[0-9]+/holes/[0-9]+/garmin-raster(?:\.jpg|\.webp)?",
             r"/api/v2/players/[^/]+/clubs/bag",
             r"/api/v2/geometry/course/[0-9]+/coverage",
             r"/api/v2/geometry/hole/[0-9]+/[0-9]+",
@@ -2316,6 +2316,15 @@ def run_course_install_job(identifier: str) -> None:
         ),
     )
     ordered_rows = play_order(ordered_rows, current_hole)
+    if priority < NEARBY:
+        # Garmin's hole images need only the release, not geometry: warm the whole course in play
+        # order on the raster's own small pool, so a hole the player pages to before its precise
+        # map exists is already local. Repeated passes queue each hole once. The pure-Python matte
+        # waits between holes while a round start's playing-hole prepare is running.
+        prefetch_garmin_rasters(
+            [(int(row.get("globalId") or 0), int(row.get("localHole") or 0)) for row in ordered_rows],
+            should_yield=_map_startup.startup_in_flight,
+        )
     pending_rows = [
         row for row in ordered_rows
         if row.get("geometry") in {"queued", "running"}

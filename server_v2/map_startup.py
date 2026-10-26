@@ -165,6 +165,12 @@ def priority_hole_plan(global_id: int, local_hole: int) -> dict | None:
     return None
 
 
+def startup_in_flight() -> bool:
+    """Whether a round start's playing-hole prepare is still running; optional warm-up yields to it."""
+    with _LOCK:
+        return any(not future.done() for future in _STARTING.values())
+
+
 def _register_hole_plan_provider() -> None:
     from ai_caddie.caddie.mobile_live import add_hole_plan_provider
 
