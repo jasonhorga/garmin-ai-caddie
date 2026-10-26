@@ -67,6 +67,25 @@ enum CurrentHoleLocation: Equatable {
     }
 }
 
+/// Remembers the last hole reported by GPS while 备战 moves between hole screens. A manual hole
+/// preview wins until the location actually changes to another hole.
+struct PrepHoleFollowingState: Equatable {
+    private(set) var lastLocatedHole: Int?
+
+    mutating func reset() {
+        lastLocatedHole = nil
+    }
+
+    mutating func navigationTarget(currentLocatedHole: Int?, displayedHole: Int) -> Int? {
+        guard let currentLocatedHole else { return nil }
+        let target = currentLocatedHole != lastLocatedHole && currentLocatedHole != displayedHole
+            ? currentLocatedHole
+            : nil
+        lastLocatedHole = currentLocatedHole
+        return target
+    }
+}
+
 /// Pure "which hole am I on" from the package's hole geometry. Unlike `LiveHoleGPSResolver` (a
 /// cautious proposal during play that abstains between two close tees), this always gives one answer
 /// so the pre-round screen can follow the player and the first stroke has a definite hole.

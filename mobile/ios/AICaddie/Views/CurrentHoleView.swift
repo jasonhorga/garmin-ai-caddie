@@ -168,6 +168,7 @@ public struct CurrentHoleView: View {
     private let onFinishRound: () async -> Bool
     private let onDiscardRound: () -> Void
     private let onAdvanceHole: (Int) -> Void
+    private let onPrepLocationChanged: (Int?, Int) -> Int?
     private let onLiveHoleInitialLoadDidFinish: () -> Void
     /// Before the first stroke the same screen is a memory-only prep surface.
     private let isPrepMode: Bool
@@ -331,6 +332,7 @@ public struct CurrentHoleView: View {
         onFinishRound: @escaping () async -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
+        onPrepLocationChanged: @escaping (Int?, Int) -> Int? = { _, _ in nil },
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         isPrepMode: Bool = false,
@@ -360,6 +362,7 @@ public struct CurrentHoleView: View {
         self.onFinishRound = onFinishRound
         self.onDiscardRound = onDiscardRound
         self.onAdvanceHole = onAdvanceHole
+        self.onPrepLocationChanged = onPrepLocationChanged
         self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
         self.isPrepMode = isPrepMode
@@ -537,11 +540,12 @@ public struct CurrentHoleView: View {
                 coordinate: latestFix.coordinate,
                 horizontalAccuracyM: latestFix.horizontalAccuracyM
             )
-            if isPrepMode,
-               case .onHole(let locatedHole) = CurrentHoleLocator.locate(fix: latestFix, package: package),
-               locatedHole != hole.number,
-               package.holes.contains(where: { $0.number == locatedHole }) {
-                onAdvanceHole(locatedHole)
+            if isPrepMode {
+                let locatedHole = CurrentHoleLocator.locate(fix: latestFix, package: package).hole
+                if let target = onPrepLocationChanged(locatedHole, hole.number),
+                   package.holes.contains(where: { $0.number == target }) {
+                    onAdvanceHole(target)
+                }
             }
             // watch P1c: push the live position to the watch so its hole-map 「你」 pans as you walk. Only
             // when the hole map is up (holePrep loaded) — avoids chatter before the round view is ready.

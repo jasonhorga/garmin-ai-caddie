@@ -148,6 +148,9 @@ public struct RoundHomeView: View {
     @State private var pendingHomeDiscard = false
     @State private var showHomeDiscardConfirmation = false
     @State private var path: [HubRoute] = []
+    /// The last GPS-resolved prep hole lives above `CurrentHoleView`, so recreating a destination
+    /// after a manual hole preview does not mistake the same fix for a new location.
+    @State private var prepHoleFollowing = PrepHoleFollowingState()
     /// The last round's 18-hole symbol strip, from the cached round archive (empty when unknown).
     @State private var lastRoundStrip: [HistoryScoreCell] = []
     /// README §8 "在球场附近": the home's own fix (never a permission prompt here — the start
@@ -495,7 +498,10 @@ public struct RoundHomeView: View {
                 path = []
             }
         }
-        .onChange(of: prepPackage?.roundId) { _, roundId in
+        .onChange(of: prepPackage?.roundId) { previousRoundID, roundId in
+            if previousRoundID != roundId {
+                prepHoleFollowing.reset()
+            }
             guard liveRoundState == nil, roundId != nil else { return }
             path = LiveHoleRoutePath.afterPrepPackageRefresh(
                 current: path,
@@ -620,6 +626,13 @@ public struct RoundHomeView: View {
                         current: path,
                         nextHole: next,
                         isPrepMode: isPrepHoleScreen
+                    )
+                },
+                onPrepLocationChanged: { locatedHole, displayedHole in
+                    guard isPrepHoleScreen else { return nil }
+                    return prepHoleFollowing.navigationTarget(
+                        currentLocatedHole: locatedHole,
+                        displayedHole: displayedHole
                     )
                 },
                 onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish,
