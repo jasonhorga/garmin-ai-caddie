@@ -83,6 +83,16 @@ class WindowedHistoryDataTests(unittest.TestCase):
         data = HistoryData(raw_rounds=[], rounds=[], shots=[])
         self.assertIs(windowed_history_data(data, "all"), data)
 
+    def test_window_subset_clears_full_history_fingerprints(self) -> None:
+        rounds = [_round("old", "2026-01-01"), _round("new", "2026-01-02")]
+        data = HistoryData(
+            raw_rounds=[dict(row) for row in rounds], rounds=rounds, shots=[],
+            source_fingerprint="all-rounds", correction_fingerprint="all-corrections",
+        )
+        subset = windowed_history_data(data, "last10")
+        self.assertIsNone(subset.source_fingerprint)
+        self.assertIsNone(subset.correction_fingerprint)
+
     def test_last10_keeps_newest_rounds_and_their_shots(self) -> None:
         rounds = [_round(f"r{i}", f"2026-01-{i:02d}") for i in range(1, 13)]  # r1 oldest .. r12 newest
         raw_rounds = [dict(row) for row in rounds]

@@ -2288,11 +2288,129 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '备战' }))
     await waitFor(() => expect(statsCalls).toBe(1))
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
-    await userEvent.click(await screen.findByRole('button', { name: '后端配置' }))
     expect(await screen.findByRole('heading', { name: '数据健康不可用' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '重试历史统计' }))
     await waitFor(() => expect(statsCalls).toBe(2))
     expect(await screen.findByRole('heading', { name: '数据健康' })).toBeInTheDocument()
+  })
+
+  it('publishes a completed signal refresh even when the next signal refresh is cancelled', async () => {
+    let syncCalls = 0
+    let statsCalls = 0
+    let resolveFirstRefresh!: (value: Response) => void
+    let secondRefreshSignal: AbortSignal | undefined
+    const firstRefresh = new Promise<Response>((resolve) => { resolveFirstRefresh = resolve })
+    const published = {
+      ...statsPayload(),
+      dataQuality: [{ label: 'shots', state: 'ready', ready: 11, total: 11, refs: [] }],
+    }
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === '/api/v2/readiness') return Promise.resolve({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) })
+      if (String(path).startsWith('/api/v2/sync/garmin?') && init?.method === 'POST') {
+        syncCalls += 1
+        if (syncCalls === 3) return Promise.reject(new DOMException('aborted', 'AbortError'))
+        return Promise.resolve({ ok: true, json: async () => syncRunPayload() })
+      }
+      if (path === '/api/v2/history/stats') {
+        statsCalls += 1
+        if (statsCalls === 2) return firstRefresh
+        if (statsCalls === 3) {
+          return new Promise<Response>((_resolve, reject) => {
+            secondRefreshSignal = init?.signal
+            init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+          })
+        }
+        return Promise.resolve({ ok: true, json: async () => statsPayload() })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
+          if (String(path).startsWith('/api/v2/history/stats/mobile')) return statsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusCanSyncPayload()
+          return overviewPayload()
+        },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: '成绩' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '备战' }))
+    await waitFor(() => expect(statsCalls).toBe(1))
+    await userEvent.click(screen.getByRole('button', { name: '设置' }))
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
+    await waitFor(() => expect(statsCalls).toBe(2))
+    await act(async () => resolveFirstRefresh({ ok: true, json: async () => published } as Response))
+    expect(await screen.findByText('11/11')).toBeInTheDocument()
+
+    // The next refresh is the one that gets cancelled. The third sync POST is aborted before
+    // it can start another refresh, so the completed first response must remain visible.
+    await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
+    await waitFor(() => expect(statsCalls).toBe(3))
+    await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
+    await waitFor(() => expect(syncCalls).toBe(3))
+    await waitFor(() => expect(secondRefreshSignal?.aborted).toBe(true))
+    expect(screen.getByText('11/11')).toBeInTheDocument()
+  })
+
+  it('publishes the latest completed signal refresh after two cancelled refreshes', async () => {
+    let syncCalls = 0
+    let statsCalls = 0
+    const refreshRequests: Array<{ signal?: AbortSignal; resolve: (value: Response) => void }> = []
+    const latest = {
+      ...statsPayload(),
+      dataQuality: [{ label: 'shots', state: 'ready', ready: 22, total: 22, refs: [] }],
+    }
+    const fetchMock = vi.fn((path: string, init?: RequestInit) => {
+      if (path === '/api/v2/readiness') return Promise.resolve({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) })
+      if (String(path).startsWith('/api/v2/sync/garmin?') && init?.method === 'POST') {
+        syncCalls += 1
+        return Promise.resolve({ ok: true, json: async () => syncRunPayload() })
+      }
+      if (path === '/api/v2/history/stats') {
+        statsCalls += 1
+        if (statsCalls === 1) return Promise.resolve({ ok: true, json: async () => statsPayload() })
+        if (statsCalls < 4) {
+          return new Promise<Response>((resolve, reject) => {
+            const signal = init?.signal
+            const onAbort = () => reject(new DOMException('aborted', 'AbortError'))
+            signal?.addEventListener('abort', onAbort, { once: true })
+            refreshRequests.push({ signal, resolve })
+          })
+        }
+        return Promise.resolve({ ok: true, json: async () => latest })
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => {
+          if (path === '/api/v2/history/summary') return summaryPayload()
+          if (String(path).startsWith('/api/v2/history/stats/mobile')) return statsPayload()
+          if (path === '/api/v2/sync/status') return syncStatusCanSyncPayload()
+          return overviewPayload()
+        },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: '成绩' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '备战' }))
+    await waitFor(() => expect(statsCalls).toBe(1))
+    await userEvent.click(screen.getByRole('button', { name: '设置' }))
+    expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
+    await waitFor(() => expect(statsCalls).toBe(2))
+    await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
+    await waitFor(() => expect(statsCalls).toBe(3))
+    await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
+    await waitFor(() => expect(statsCalls).toBe(4))
+    await waitFor(() => expect(refreshRequests[0]?.signal?.aborted).toBe(true))
+    await waitFor(() => expect(refreshRequests[1]?.signal?.aborted).toBe(true))
+    expect(await screen.findByText('22/22')).toBeInTheDocument()
   })
 
   // The 报告 console was removed from the consumer history nav (de-engineer pass); the workspace is

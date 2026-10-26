@@ -852,16 +852,28 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(out["holes"][0]["sampleCount"], 5)     # was 0 before the fix
 
     def test_recent_history_reads_corrected_round_totals(self) -> None:
-        from ai_caddie.caddie.mobile_live import _recent_history
+        # Go through the mobile round-package entry point so the test proves that the
+        # package reader itself applies the durable correction before _recent_history.
+        from tests.product.fixtures.c16a.support import Sandbox
 
-        row = {"id": "r1", "courseKey": "c_demo", "course": "Demo", "date": "2026-05-01",
-               "score": 80, "strokes": 80, "par": 72, "courseCanonical": "Demo"}
-        corrected = {**row, "score": 84, "strokes": 84, "_scoreCorrectedRefs": ["r1:1"]}
-        source = HistoryData(raw_rounds=[row], rounds=[corrected], shots=[], corrected=True,
-                             source_fingerprint="source", correction_fingerprint="correction")
-        stats = {"courses": [{"courseKey": "c_demo", "roundCount": 1}], "holes": []}
-        out = _recent_history(source, stats, row)
-        self.assertEqual(out["rounds"][0]["score"], 84)
+        with Sandbox() as sandbox:
+            sandbox.seed()
+            response = sandbox.request('POST', 'annotations', json={
+                'targetType': 'hole', 'targetId': '101:1', 'kind': 'score_correction',
+                'payload': {'to': 6}, 'clientMutationId': 'mobile-score-6',
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+            from server_v2 import mobile as mobile_service
+            with patch.object(
+                mobile_service,
+                'load_history_data_for_mode',
+                side_effect=lambda *, player_id='me': (stats_cache.cached_load_history_data(player_id), 'local'),
+            ), patch.object(mobile_service, 'MOBILE_ROOT', sandbox.root), \
+                 patch.object(mobile_service, 'ANNOTATION_ROOT', sandbox.root):
+                package = mobile_service.build_mobile_round_package_response(
+                    '101', captured_at='2026-05-25T08:00:00Z',
+                )
+            self.assertEqual(package.recentHistory['rounds'][0]['score'], 74)
 
     def test_mobile_course_options_list_recent_courses_for_start_round(self) -> None:
         client = TestClient(app)
