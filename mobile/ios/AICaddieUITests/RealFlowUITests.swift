@@ -694,9 +694,8 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["live-play-panel-anchor"].firstMatch.exists)
         XCTAssertFalse(app.descendants(matching: .any)["live-action-dock"].firstMatch.exists)
         let liveRecordShot = app.buttons["记一杆"]
-        let liveScoreHole = app.buttons["完成本洞"]
         XCTAssertTrue(liveRecordShot.waitForExistence(timeout: 5))
-        XCTAssertFalse(liveScoreHole.exists)
+        XCTAssertFalse(app.buttons["完成本洞"].exists)
         XCTAssertFalse(app.buttons["计分卡"].exists)
         XCTAssertGreaterThan(liveRecordShot.frame.minX, liveWindowFrame.width * 0.6, "记一杆 sits bottom-right")
         XCTAssertGreaterThan(liveRecordShot.frame.minY, liveWindowFrame.height * 0.78, "记一杆 sits bottom-right")
@@ -746,8 +745,7 @@ final class RealFlowUITests: XCTestCase {
             "the obstacle control must expose one selected outline without navigating away"
         )
         XCTAssertFalse(
-            firstSelectedHazard.frame.intersects(liveRecordShot.frame)
-                || firstSelectedHazard.frame.intersects(liveScoreHole.frame),
+            firstSelectedHazard.frame.intersects(liveRecordShot.frame),
             "the obstacle bar must sit between the corner actions, never under them"
         )
         XCTAssertFalse(
