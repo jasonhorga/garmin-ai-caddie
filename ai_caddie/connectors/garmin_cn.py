@@ -17,6 +17,7 @@ from ai_caddie.rounds.players import OWNER_ID
 
 from .base import ConnectorRunResult
 from .redaction import sanitize_secret_text
+from .session_material import read_session_material
 from .snapshot import (
     build_snapshot_manifest,
     write_connector_status,
@@ -110,8 +111,6 @@ def _fetch_runtime(*, token_dir: Path, data_dir: Path, allow_self_heal: bool = T
 
     fetch_originals = {
         "TOKEN_DIR": fetch_module.TOKEN_DIR,
-        "COOKIE_FILE": fetch_module.COOKIE_FILE,
-        "CSRF_FILE": fetch_module.CSRF_FILE,
         "DATA_DIR": fetch_module.DATA_DIR,
         "SUMMARY_FILE": fetch_module.SUMMARY_FILE,
         "SCORECARD_DIR": fetch_module.SCORECARD_DIR,
@@ -121,21 +120,15 @@ def _fetch_runtime(*, token_dir: Path, data_dir: Path, allow_self_heal: bool = T
     }
     auth_originals = {
         "TOKEN_DIR": garmin_auth_module.TOKEN_DIR,
-        "COOKIE_FILE": garmin_auth_module.COOKIE_FILE,
-        "CSRF_FILE": garmin_auth_module.CSRF_FILE,
     }
     try:
         fetch_module.TOKEN_DIR = token_dir
-        fetch_module.COOKIE_FILE = token_dir / "web_cookie.txt"
-        fetch_module.CSRF_FILE = token_dir / "csrf.txt"
         fetch_module.DATA_DIR = data_dir
         fetch_module.SUMMARY_FILE = data_dir / "summary.json"
         fetch_module.SCORECARD_DIR = data_dir / "scorecards"
         fetch_module.SHOT_DIR = data_dir / "shots"
         fetch_module.CLUBS_BAG_FILE = data_dir / "club_bag.json"
         garmin_auth_module.TOKEN_DIR = token_dir
-        garmin_auth_module.COOKIE_FILE = token_dir / "web_cookie.txt"
-        garmin_auth_module.CSRF_FILE = token_dir / "csrf.txt"
         if not allow_self_heal:
             def _member_no_self_heal(_session) -> bool:
                 raise GarminAuthExpired(
@@ -178,14 +171,12 @@ class MemberGarminCnAuthProvider(GarminCnAuthProvider):
     def make_session(self, *, force_refresh_auth: bool):
         # force_refresh_auth is intentionally ignored — members have no stored creds to
         # re-mint with, and self-healing would mean using the owner's profile.
-        cookie_file = garmin_auth_module.COOKIE_FILE
-        csrf_file = garmin_auth_module.CSRF_FILE
-        cookie = cookie_file.read_text().strip() if cookie_file.exists() else ""
-        csrf = csrf_file.read_text().strip() if csrf_file.exists() else ""
-        if not cookie or not csrf:
+        pair = read_session_material(garmin_auth_module.TOKEN_DIR)
+        if pair is None:
             raise GarminAuthExpired(
                 "Garmin session missing or expired for this player. Re-bind your Garmin."
             )
+        cookie, csrf = pair
         auth = garmin_auth_module.GarminWebAuth(cookie, csrf, "member-cache", cookie.count("="))
         session = requests.Session()
         session.headers.update(garmin_auth_module.auth_headers(auth))

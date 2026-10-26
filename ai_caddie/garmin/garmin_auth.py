@@ -20,10 +20,10 @@ import re
 
 import requests
 
+from ai_caddie.connectors.session_material import read_session_material, save_session_material
+
 ROOT = Path(__file__).resolve().parents[2]
 TOKEN_DIR = ROOT / ".garmin_tokens"
-COOKIE_FILE = TOKEN_DIR / "web_cookie.txt"
-CSRF_FILE = TOKEN_DIR / "csrf.txt"
 
 GOLF_SUMMARY_URL = (
     "https://connect.garmin.cn/golf-api/gcs-golfcommunity/api/v2/scorecard/summary"
@@ -41,12 +41,10 @@ class GarminWebAuth:
 
 
 def _read_existing() -> GarminWebAuth | None:
-    if not COOKIE_FILE.exists() or not CSRF_FILE.exists():
+    pair = read_session_material(TOKEN_DIR)
+    if pair is None:
         return None
-    cookie = COOKIE_FILE.read_text().strip()
-    csrf = CSRF_FILE.read_text().strip()
-    if not cookie or not csrf:
-        return None
+    cookie, csrf = pair
     return GarminWebAuth(cookie, csrf, "local-cache", cookie.count("="))
 
 
@@ -125,10 +123,9 @@ def _csrf_from_existing_or_html(cookie_header: str, csrf_from_cookie: str | None
         if match:
             return match.group(0)
 
-    if CSRF_FILE.exists():
-        existing = CSRF_FILE.read_text().strip()
-        if existing:
-            return existing
+    pair = read_session_material(TOKEN_DIR)
+    if pair is not None:
+        return pair[1]
     return None
 
 
@@ -170,12 +167,11 @@ def validate_web_auth(auth: GarminWebAuth) -> tuple[bool, int | None]:
 
 
 def save_web_auth(auth: GarminWebAuth) -> None:
-    TOKEN_DIR.mkdir(mode=0o700, exist_ok=True)
-    TOKEN_DIR.chmod(0o700)
-    COOKIE_FILE.write_text(auth.cookie_header + "\n")
-    CSRF_FILE.write_text(auth.csrf_token + "\n")
-    COOKIE_FILE.chmod(0o600)
-    CSRF_FILE.chmod(0o600)
+    save_session_material(
+        token_dir=TOKEN_DIR,
+        web_session=auth.cookie_header,
+        anti_forgery=auth.csrf_token,
+    )
 
 
 def _try_playwright_refresh(*, validate: bool) -> GarminWebAuth | None:

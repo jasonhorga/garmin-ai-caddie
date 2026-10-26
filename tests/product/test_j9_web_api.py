@@ -33,6 +33,11 @@ def _round_body(course: str) -> dict[str, object]:
 
 
 class J9WebApiTests(unittest.TestCase):
+    @staticmethod
+    def _current_generation(token_dir: Path) -> Path:
+        name = (token_dir / session_material.CURRENT_FILE).read_text(encoding="ascii").strip()
+        return token_dir / session_material.GENERATIONS_DIR / name
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -125,7 +130,8 @@ class J9WebApiTests(unittest.TestCase):
                 response = self.client.post(path, headers=headers, json=good)
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.json()["state"], "stored")
-                cookie, csrf = token_dir / "web_cookie.txt", token_dir / "csrf.txt"
+                generation = self._current_generation(token_dir)
+                cookie, csrf = generation / "web_cookie.txt", generation / "csrf.txt"
                 # Handwritten golden for the imported material; header prefix is not stored.
                 self.assertEqual((cookie.read_text(), csrf.read_text()), (cookie_sample + "\n", csrf_sample + "\n"))
                 before = (cookie.read_bytes(), csrf.read_bytes())
