@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from ai_caddie.courses import course_reference as cr
+from ai_caddie.courses import prep_cache
 
 
 class PlayedParAggregationTests(unittest.TestCase):
@@ -147,6 +148,111 @@ class PersistenceTests(unittest.TestCase):
                 language_code=cr.COURSEVIEW_RELEASE_LANGUAGE_CODE,
             )
             self.assertTrue(all(row and row["course_id"] == 31936 for row in rows))
+
+    def test_stale_release_refresh_same_bytes_preserves_pb_and_prep_fingerprint(self) -> None:
+        """Refreshing an unchanged release advances fetchedAt without touching release bytes."""
+        fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        payload = fixture.read_bytes()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_dir = root / "data" / "courseview"
+            release_dir.mkdir(parents=True)
+            release_path = release_dir / "31936_releases.pb"
+            release_path.write_bytes(payload)
+            metadata_path = release_dir / "31936_releases.meta.json"
+            metadata_path.write_text(
+                json.dumps({
+                    "globalId": 31936,
+                    "languageCode": cr.COURSEVIEW_RELEASE_LANGUAGE_CODE,
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "fetchedAt": 1,
+                }),
+                encoding="utf-8",
+            )
+            os.utime(release_path, (1, 1))
+            original_courseview_dir = prep_cache._COURSEVIEW_DIR
+            prep_cache._COURSEVIEW_DIR = release_dir
+            self.addCleanup(setattr, prep_cache, "_COURSEVIEW_DIR", original_courseview_dir)
+            inode_before = release_path.stat().st_ino
+            mtime_before = release_path.stat().st_mtime_ns
+            sig_before = prep_cache._course_data_sig(31936)
+            fingerprint_before = prep_cache._fingerprint(31936)
+
+            with patch.object(cr, "load_release_pb", return_value=payload) as fetch:
+                info = cr.courseview_release_info(31936, root=root)
+                self.assertEqual(info["course_id"], 31936)
+                info_again = cr.courseview_release_info(31936, root=root)
+
+            fetch.assert_called_once_with(
+                31936,
+                True,
+                language_code=cr.COURSEVIEW_RELEASE_LANGUAGE_CODE,
+            )
+            self.assertEqual(info_again["course_id"], 31936)
+            self.assertEqual(release_path.read_bytes(), payload)
+            self.assertEqual(release_path.stat().st_ino, inode_before)
+            self.assertEqual(release_path.stat().st_mtime_ns, mtime_before)
+            self.assertEqual(prep_cache._course_data_sig(31936), sig_before)
+            self.assertEqual(prep_cache._fingerprint(31936), fingerprint_before)
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertGreater(metadata["fetchedAt"], 1)
+
+    def test_stale_release_refresh_different_bytes_writes_and_changes_prep_fingerprint(self) -> None:
+        fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        original = fixture.read_bytes()
+        # A repeated release_version field is valid protobuf; inspect_release uses the latest value.
+        replacement = original + b"\x10\x81\x01"
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_dir = root / "data" / "courseview"
+            release_dir.mkdir(parents=True)
+            release_path = release_dir / "31936_releases.pb"
+            release_path.write_bytes(original)
+            metadata_path = release_dir / "31936_releases.meta.json"
+            metadata_path.write_text(
+                json.dumps({
+                    "globalId": 31936,
+                    "languageCode": cr.COURSEVIEW_RELEASE_LANGUAGE_CODE,
+                    "sha256": hashlib.sha256(original).hexdigest(),
+                    "fetchedAt": 1,
+                }),
+                encoding="utf-8",
+            )
+            os.utime(release_path, (1, 1))
+            original_courseview_dir = prep_cache._COURSEVIEW_DIR
+            prep_cache._COURSEVIEW_DIR = release_dir
+            self.addCleanup(setattr, prep_cache, "_COURSEVIEW_DIR", original_courseview_dir)
+            inode_before = release_path.stat().st_ino
+            sig_before = prep_cache._course_data_sig(31936)
+
+            with patch.object(cr, "load_release_pb", return_value=replacement) as fetch:
+                info = cr.courseview_release_info(31936, root=root)
+
+            fetch.assert_called_once()
+            self.assertEqual(info["course_id"], 31936)
+            self.assertEqual(release_path.read_bytes(), replacement)
+            self.assertNotEqual(release_path.stat().st_ino, inode_before)
+            self.assertNotEqual(prep_cache._course_data_sig(31936), sig_before)
+
+    def test_old_release_without_metadata_uses_mtime_for_refresh(self) -> None:
+        fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        payload = fixture.read_bytes()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_path = root / "data" / "courseview" / "31936_releases.pb"
+            release_path.parent.mkdir(parents=True)
+            release_path.write_bytes(payload)
+            os.utime(release_path, (1, 1))
+            with patch.object(cr, "load_release_pb", return_value=payload) as fetch:
+                info = cr.courseview_release_info(31936, root=root)
+
+            fetch.assert_called_once_with(
+                31936,
+                True,
+                language_code=cr.COURSEVIEW_RELEASE_LANGUAGE_CODE,
+            )
+            self.assertEqual(info["course_id"], 31936)
+            self.assertTrue((release_path.parent / "31936_releases.meta.json").exists())
 
     def test_stale_release_cache_refreshes_atomically_when_online(self) -> None:
         old_fixture = Path(__file__).parent / "fixtures" / "courseview_release_31870.pb"
