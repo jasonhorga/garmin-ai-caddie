@@ -107,7 +107,7 @@ final class OfflineCourseDownloadProgressTests: XCTestCase {
             "暂不支持备战",
         ])
         XCTAssertEqual(rows.map { $0.fraction != nil }, [false, true, true, false, false, false])
-        XCTAssertEqual(rows[1].subtitle, MobileCourseSearchView.recentRowSubtitle(downloads[1]))
+        XCTAssertEqual(rows[1].subtitle, StartRoundPresentation.recentRowSubtitle(downloads[1]))
         XCTAssertEqual(Set(rows.map(\.id)).count, rows.count)
     }
 }

@@ -356,7 +356,10 @@ public struct StartRoundView: View {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.course.venueDisplayName).font(.subheadline.weight(.semibold))
-                            Text(downloadStatus(row)).font(.caption).foregroundStyle(.secondary)
+                            Text(downloadStatus(row))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("start-round-offline-status-\(row.id)")
                         }
                         Spacer()
                         if row.phase == .failed {
@@ -377,6 +380,7 @@ public struct StartRoundView: View {
             .padding(12)
             .background(Color.white)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("start-round-offline-courses")
         }
     }
@@ -1045,6 +1049,7 @@ public struct StartRoundView: View {
         guard let first = StartRoundPresentation.preselectedLoop(
             in: row.segments, current: selectedSegment, recent: recentResolvedCourseOption
         ) else { return }
+        prepValidationFailed = false
         userPickedVenue = true
         selectedCourseWasManualSearch = Self.preservesManualSearchProvenance(
             wasManualSearch: selectedCourseWasManualSearch,
@@ -1196,6 +1201,7 @@ public struct StartRoundView: View {
 
     private func selectLoop(_ segment: MobileCourseOption) {
         guard String(segment.globalId) != courseGlobalIdText else { return }
+        prepValidationFailed = false
         userPickedVenue = true
         selectedCourseWasManualSearch = Self.preservesManualSearchProvenance(
             wasManualSearch: selectedCourseWasManualSearch,
@@ -1443,7 +1449,7 @@ public struct StartRoundView: View {
                     .accessibilityIdentifier("start-round-preparation-error")
             }
             if prepValidationFailed {
-                Label("球场地图已变化，请重试下载后再开始", systemImage: "exclamationmark.triangle.fill")
+                Label("球场地图正在重新下载，已先打开可用地图", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1489,16 +1495,15 @@ public struct StartRoundView: View {
             isValidatingPrepCourse = true
             let valid = await onValidateReadyPrepCourse(record)
             isValidatingPrepCourse = false
-            guard valid else {
-                prepValidationFailed = true
-                return
-            }
+            prepValidationFailed = !valid
         }
         if usesCombinedLoops {
             onPrepareCourseRound(
                 roundId,
                 teeBox,
-                StartRoundPresentation.combinedLoopEntries(selected: course, venueLoops: selectedVenueLoops)
+                StartRoundPresentation.combinedLoopEntries(selected: course).map {
+                    RoundLoopEntry(globalId: $0.globalId, half: "all")
+                }
             )
         } else {
             _ = onOpenPrepCourse(course)

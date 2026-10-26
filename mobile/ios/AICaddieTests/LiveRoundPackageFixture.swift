@@ -58,8 +58,8 @@ enum LiveRoundPackageFixture {
         }
         root["holes"] = holes
         root["roundLoops"] = [
-            loopRow(globalId: globalId, half: "front", holeCount: 9),
-            loopRow(globalId: globalId, half: "back", holeCount: 9),
+            loopRow(globalId: globalId, half: "front", roundStartHole: 1, sourceStartHole: 1, holeCount: 9),
+            loopRow(globalId: globalId, half: "back", roundStartHole: 10, sourceStartHole: 10, holeCount: 9),
         ]
         root["loopKey"] = "\(globalId):front+\(globalId):back"
         return try decode(root)
@@ -88,12 +88,18 @@ enum LiveRoundPackageFixture {
         return globalId
     }
 
-    private static func loopRow(globalId: Int, half: String, holeCount: Int) -> [String: Any] {
+    private static func loopRow(
+        globalId: Int,
+        half: String,
+        roundStartHole: Int = 1,
+        sourceStartHole: Int = 1,
+        holeCount: Int
+    ) -> [String: Any] {
         [
             "globalId": globalId,
             "half": half,
-            "roundStartHole": 1,
-            "sourceStartHole": 1,
+            "roundStartHole": roundStartHole,
+            "sourceStartHole": sourceStartHole,
             "holeCount": holeCount,
         ]
     }

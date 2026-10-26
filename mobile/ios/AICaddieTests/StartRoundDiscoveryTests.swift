@@ -22,7 +22,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
 
     func testThreeNineHoleVenueStartsOnlyTheSelectedLoop() {
         let loops = [blackKnight(31794, "A"), blackKnight(31795, "B"), blackKnight(31796, "C")]
-        let entries = StartRoundPresentation.combinedLoopEntries(selected: loops[1], venueLoops: loops)
+        let entries = StartRoundPresentation.combinedLoopEntries(selected: loops[1])
         XCTAssertEqual(entries, [RoundLoopEntry(globalId: 31795, half: "all")])
     }
 
