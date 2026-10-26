@@ -337,10 +337,14 @@ final class GarminRasterImageStore: ObservableObject {
         }
     }
 
-    /// Keep existing WebP/PNG entries; only pre-WebP JPEGs are orphaned by the new image URLs.
+    /// Keep existing WebP/PNG entries; the pre-WebP JPEGs are orphaned by the new image URLs.
+    /// Runs once per directory (marker file): a JPEG saved afterwards belongs to a URL still in use
+    /// (an older offline pack) and must survive later launches.
     static func prepareDiskCacheDirectory(in cachesDirectory: URL) -> URL {
         let directory = cachesDirectory.appendingPathComponent("AICaddieGarminRasterImages-v1", isDirectory: true)
-        if let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+        let marker = directory.appendingPathComponent(".legacy-jpeg-cleanup-done")
+        if !FileManager.default.fileExists(atPath: marker.path),
+           let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
             for file in files where file.pathExtension.lowercased() == "jpg" {
                 do {
                     try FileManager.default.removeItem(at: file)
@@ -350,6 +354,7 @@ final class GarminRasterImageStore: ObservableObject {
                     )
                 }
             }
+            FileManager.default.createFile(atPath: marker.path, contents: Data())
         }
         return directory
     }

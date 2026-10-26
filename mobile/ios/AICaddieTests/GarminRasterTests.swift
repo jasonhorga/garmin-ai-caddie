@@ -621,9 +621,13 @@ final class GarminRasterTests: XCTestCase {
             XCTAssertEqual(try Data(contentsOf: images.appendingPathComponent(name)), bytes)
         }
         XCTAssertEqual(try Data(contentsOf: unrelated), bytes)
+        // A JPEG cached after the one-time cleanup is still referenced by an older offline pack.
+        let laterJPEG = images.appendingPathComponent("later.jpg")
+        try bytes.write(to: laterJPEG)
         let again = GarminRasterImageStore.prepareDiskCacheDirectory(in: root)
         XCTAssertEqual(again, prepared)
         XCTAssertEqual(try Data(contentsOf: images.appendingPathComponent("current.webp")), bytes)
+        XCTAssertEqual(try Data(contentsOf: laterJPEG), bytes)
     }
 
     private final class AcceptHeader {
