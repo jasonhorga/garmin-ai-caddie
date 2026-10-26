@@ -361,11 +361,12 @@ public struct StartRoundView: View {
             return
         }
         teeLoadFailed = false
-        // Carried rows need no request; `requestTees` raises the loading gate itself.
-        isLoadingTees = false
         guard let tees = await Self.courseTeeRows(
             globalId: globalId,
             carried: carriedCourseTees,
+            setLoading: { loading in
+                if teeRequestToken == requestToken { isLoadingTees = loading }
+            },
             request: { await requestTees(globalId: $0, requestToken: requestToken) }
         ) else { return }
         fetchedTees = tees
@@ -390,10 +391,17 @@ public struct StartRoundView: View {
     static func courseTeeRows(
         globalId: Int,
         carried: [Int: [CourseTee]],
+        setLoading: (Bool) -> Void = { _ in },
         request: (Int) async -> [CourseTee]?
     ) async -> [CourseTee]? {
-        if let rows = carried[globalId], !rows.isEmpty { return rows }
-        return await request(globalId)
+        if let rows = carried[globalId], !rows.isEmpty {
+            setLoading(false)
+            return rows
+        }
+        // Only carried authority may release the gate before the async lookup.
+        let rows = await request(globalId)
+        setLoading(false)
+        return rows
     }
 
     /// GET /tees for the selected course. Nil when the answer is stale (course changed, task
@@ -414,11 +422,6 @@ public struct StartRoundView: View {
         // release. The course default (`unknown`) may start meanwhile (`isStartAllowed`). A failed
         // refresh still falls back to the known Tee list.
         isLoadingTees = !recentHasTeeAuthority
-        defer {
-            if teeRequestToken == requestToken {
-                isLoadingTees = false
-            }
-        }
         let tees = await onLoadCourseTees(globalId)
         guard !Task.isCancelled,
               teeRequestToken == requestToken,
