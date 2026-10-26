@@ -1,6 +1,6 @@
 import Foundation
 
-/// 首页「今天」天气磁贴: the current conditions at the player (or the course), from
+/// 首页天气行: the current conditions at the player (or the course), from
 /// `GET /api/v2/weather/snapshot?source=open_meteo` (a read; nothing is stored).
 public struct HomeWeather: Decodable, Equatable {
     public let state: String
@@ -114,7 +114,7 @@ public struct HomeWeatherPresentation: Equatable {
 }
 
 enum HomeWeatherClient {
-    /// One best-effort read; any failure leaves the tile in its quiet "暂无天气" state.
+    /// One best-effort read; any failure leaves the home weather line hidden.
     static func fetch(
         baseURL: URL,
         adminToken: String?,

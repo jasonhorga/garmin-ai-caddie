@@ -1017,7 +1017,8 @@ public struct StartRoundView: View {
     // MARK: - First loop (README §8: only the first nine is chosen here)
 
     /// The selected venue's courses from the authority that supplied the selection, in the course's
-    /// order. An 18-hole single course is one row here; `loopSection` shows it as 前九 / 后九.
+    /// order. An 18-hole single course is one row here; C99 leaves its opening hole to the first
+    /// stroke and therefore does not render a front/back selector.
     private var selectedVenueLoops: [MobileCourseOption] {
         guard let selectedSegment else { return [] }
         let loops = Self.sameVenueStartableCourses(

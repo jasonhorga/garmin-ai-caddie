@@ -773,7 +773,6 @@ public struct RoundHomeView: View {
         )
     }
 
-    /// "开始" / "再打上次那个": start that loop and tee directly; the Hub enters the first hole when
     private var quickCourseCandidates: [HubQuickCourseOrdering.Candidate] {
         let downloadedByID = prepCourseDownloads.reduce(into: [Int: PrepCourseDownloadRecord]()) { result, record in
             if (result[record.course.globalId]?.updatedAt ?? .distantPast) < record.updatedAt {
@@ -934,7 +933,7 @@ public struct RoundHomeView: View {
         }
     }
 
-    /// Where the 今天 tile reads the weather: the home's own fix, else the round's first Tee.
+    /// Weather reads the home's own fix, else the round's first Tee.
     private var weatherCoordinate: (latitude: Double, longitude: Double)? {
         if let fix = heroLocation.latestFix {
             return (fix.coordinate.latitude, fix.coordinate.longitude)
