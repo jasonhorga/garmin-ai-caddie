@@ -1128,6 +1128,18 @@ class RoundLoop(BaseModel):
     holeCount: Literal[9]
 
 
+class VenueLoop(BaseModel):
+    """A factual nine-hole layout in the package's physical venue directory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    globalId: int = Field(ge=1)
+    name: str
+    segmentLabel: str | None = None
+    holeCount: Literal[9]
+    par: int = Field(ge=1)
+
+
 class LiveRoundPackageResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True, extra="forbid")
 
@@ -1147,6 +1159,7 @@ class LiveRoundPackageResponse(BaseModel):
     # the presentation number.
     roundLoops: list[RoundLoop]
     loopKey: str
+    venueLoops: list[VenueLoop] = Field(default_factory=list)
     caddieContextSeeds: list[dict[str, Any]]
     enrichmentState: dict[str, Any] | None = None
     weatherSnapshot: dict[str, Any]

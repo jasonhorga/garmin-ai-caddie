@@ -126,6 +126,23 @@ public enum RoundIdentityError: Error, Equatable {
     case holeDoesNotMatchItsLoop(Int)
 }
 
+/// A factual nine-hole layout in the package's physical venue directory.
+public struct VenueLoop: Codable, Equatable, Hashable {
+    public let globalId: Int
+    public let name: String
+    public let segmentLabel: String?
+    public let holeCount: Int
+    public let par: Int
+
+    public init(globalId: Int, name: String, segmentLabel: String? = nil, holeCount: Int = 9, par: Int) {
+        self.globalId = globalId
+        self.name = name
+        self.segmentLabel = segmentLabel
+        self.holeCount = holeCount
+        self.par = par
+    }
+}
+
 public struct LiveRoundPackage: Codable, Equatable {
     /// The only package contract this client accepts. Every package is checked with
     /// ``validatedRoundIdentity()`` when it arrives from the server (SyncClient) and whenever it is
@@ -147,6 +164,8 @@ public struct LiveRoundPackage: Codable, Equatable {
     /// presentation number.
     public let roundLoops: [RoundLoop]
     public let loopKey: String
+    /// Same-venue nine-hole directory supplied by the server; absent on older packages.
+    public let venueLoops: [VenueLoop]?
     public let coursePrep: CoursePrepPackage?
     public let geometryCoverage: GeometryCoverage
     public let readinessChecks: [PackageReadinessCheck]
@@ -174,6 +193,7 @@ public struct LiveRoundPackage: Codable, Equatable {
         holes: [Hole],
         roundLoops: [RoundLoop],
         loopKey: String,
+        venueLoops: [VenueLoop]? = nil,
         coursePrep: CoursePrepPackage? = nil,
         geometryCoverage: GeometryCoverage,
         readinessChecks: [PackageReadinessCheck],
@@ -199,6 +219,7 @@ public struct LiveRoundPackage: Codable, Equatable {
         self.holes = holes
         self.roundLoops = roundLoops
         self.loopKey = loopKey
+        self.venueLoops = venueLoops
         self.coursePrep = coursePrep
         self.geometryCoverage = geometryCoverage
         self.readinessChecks = readinessChecks
@@ -306,6 +327,7 @@ public struct LiveRoundPackage: Codable, Equatable {
             holes: holes,
             roundLoops: roundLoops,
             loopKey: loopKey,
+            venueLoops: venueLoops,
             coursePrep: nextCoursePrep,
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks,
@@ -349,6 +371,7 @@ public struct LiveRoundPackage: Codable, Equatable {
             holes: holes,
             roundLoops: roundLoops,
             loopKey: loopKey,
+            venueLoops: venueLoops,
             coursePrep: coursePrep,
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks,
@@ -398,6 +421,7 @@ public struct LiveRoundPackage: Codable, Equatable {
             holes: holes,
             roundLoops: roundLoops,
             loopKey: loopKey,
+            venueLoops: venueLoops,
             coursePrep: coursePrep,
             geometryCoverage: geometryCoverage,
             readinessChecks: readinessChecks.map { check in
@@ -763,6 +787,7 @@ public struct LiveRoundPackage: Codable, Equatable {
             holes: sortedHoles,
             roundLoops: RoundLoopEntry.table(entries),
             loopKey: RoundLoopEntry.loopKey(entries),
+            venueLoops: venueLoops,
             coursePrep: prepRows.isEmpty ? nil : CoursePrepPackage(
                 schema: coursePrep?.schema ?? "ai-caddie-course-prep-v1",
                 globalId: course.globalId,

@@ -525,6 +525,21 @@
       "type": "string",
       "pattern": "^$|^[1-9][0-9]*:(all|front|back)(\\+[1-9][0-9]*:(all|front|back))?$"
     },
+    "venueLoops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["globalId", "name", "holeCount", "par"],
+        "properties": {
+          "globalId": {"type": "integer", "minimum": 1},
+          "name": {"type": "string"},
+          "segmentLabel": {"type": ["string", "null"]},
+          "holeCount": {"type": "integer", "const": 9},
+          "par": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
     "caddieContextSeeds": {
       "type": "array",
       "items": {

@@ -34,6 +34,7 @@ struct LiveRoundFinishSummaryView: View {
     let scores: [Int: LiveHoleScore]
     let isFinishingRound: Bool
     let finishErrorMessage: String?
+    var onAddNine: (() -> Void)? = nil
     let onFinish: () -> Void
     let onContinue: () -> Void
     let onDiscard: () -> Void
@@ -73,26 +74,39 @@ struct LiveRoundFinishSummaryView: View {
         .interactiveDismissDisabled(isFinishingRound)
     }
 
-    private var scoreHero: some View {
-        HStack(alignment: .bottom, spacing: 16) {
-            Text(summary.toPar.map(LiveRoundScoreSummary.toParText) ?? "—")
-                .font(.system(size: 96, weight: .bold))
-                .monospacedDigit()
-                .foregroundStyle(LivePlayStyle.ink)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .accessibilityIdentifier("live-finish-to-par")
-            VStack(alignment: .leading, spacing: 2) {
-                Text(summary.holes.isEmpty ? "—" : "\(summary.strokes) 杆")
-                    .font(.system(size: 24, weight: .bold))
-                    .monospacedDigit()
+    @ViewBuilder private var scoreHero: some View {
+        if summary.holes.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("还没记杆")
+                    .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(LivePlayStyle.ink)
+                    .accessibilityIdentifier("live-finish-no-score")
                 Text(Self.parLine(summary: summary, holes: orderedHoles))
                     .font(.system(size: 13))
                     .monospacedDigit()
                     .foregroundStyle(LivePlayStyle.ink60)
             }
-            .padding(.bottom, 6)
+        } else {
+            HStack(alignment: .bottom, spacing: 16) {
+                Text(summary.toPar.map(LiveRoundScoreSummary.toParText) ?? "—")
+                    .font(.system(size: 96, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(LivePlayStyle.ink)
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("live-finish-to-par")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(summary.strokes) 杆")
+                        .font(.system(size: 24, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(LivePlayStyle.ink)
+                    Text(Self.parLine(summary: summary, holes: orderedHoles))
+                        .font(.system(size: 13))
+                        .monospacedDigit()
+                        .foregroundStyle(LivePlayStyle.ink60)
+                }
+                .padding(.bottom, 6)
+            }
         }
     }
 
@@ -100,6 +114,14 @@ struct LiveRoundFinishSummaryView: View {
     static func parLine(summary: LiveRoundScoreSummary, holes: [Hole]) -> String {
         let par = summary.holes.isEmpty ? holes.reduce(0) { $0 + $1.par } : summary.par
         return "Par \(par) · \(summary.holes.count)/\(holes.count) 洞"
+    }
+
+    static func showsAddNine(canAddNine: Bool, recordedHoleCount: Int) -> Bool {
+        canAddNine && recordedHoleCount > 0
+    }
+
+    static func primaryActionTitle(recordedHoleCount: Int) -> String {
+        recordedHoleCount == 0 ? "退出 · 不保存" : "保存并结束"
     }
 
     private var scorecard: some View {
@@ -163,12 +185,26 @@ struct LiveRoundFinishSummaryView: View {
 
     private var actions: some View {
         VStack(spacing: 10) {
-            Button(action: onFinish) {
+            if Self.showsAddNine(canAddNine: onAddNine != nil, recordedHoleCount: summary.holes.count),
+               let onAddNine {
+                Button(action: onAddNine) {
+                    Label("再打一个 9 洞", systemImage: "plus.circle")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(LiveScoreStyle.primaryInk)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(LiveScoreStyle.primaryFill.opacity(0.82), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(isFinishingRound)
+                .accessibilityIdentifier("live-finish-add-nine")
+            }
+            Button(action: summary.holes.isEmpty ? onDiscard : onFinish) {
                 HStack(spacing: 8) {
-                    if isFinishingRound {
+                    if isFinishingRound && !summary.holes.isEmpty {
                         ProgressView().tint(LiveScoreStyle.primaryInk)
                     }
-                    Text("保存并结束")
+                    Text(Self.primaryActionTitle(recordedHoleCount: summary.holes.count))
                         .font(.system(size: 17, weight: .bold))
                 }
                 .foregroundStyle(LiveScoreStyle.primaryInk)
@@ -178,7 +214,7 @@ struct LiveRoundFinishSummaryView: View {
             }
             .buttonStyle(.plain)
             .disabled(isFinishingRound)
-            .accessibilityIdentifier("live-finish-save")
+            .accessibilityIdentifier(summary.holes.isEmpty ? "live-finish-exit" : "live-finish-save")
 
             Button(action: onContinue) {
                 Text("继续打球")
@@ -192,13 +228,15 @@ struct LiveRoundFinishSummaryView: View {
             .buttonStyle(.plain)
             .disabled(isFinishingRound)
 
-            Button("放弃本场", role: .destructive, action: onDiscard)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(LiveScoreStyle.bad)
-                .buttonStyle(.plain)
-                .disabled(isFinishingRound)
-                .padding(.top, 4)
-                .accessibilityIdentifier("live-finish-discard")
+            if !summary.holes.isEmpty {
+                Button("放弃本场", role: .destructive, action: onDiscard)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(LiveScoreStyle.bad)
+                    .buttonStyle(.plain)
+                    .disabled(isFinishingRound)
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("live-finish-discard")
+            }
         }
     }
 }
