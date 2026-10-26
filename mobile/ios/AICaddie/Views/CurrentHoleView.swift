@@ -748,7 +748,7 @@ public struct CurrentHoleView: View {
     }
 
     public var body: some View {
-        liveHoleContent
+        liveHoleContentWithHazardRequests
         .overlay {
             if turnContinuationPending, queuedTurnLoop == nil, let continuingLoopName {
                 turnContinuingOverlay(loopName: continuingLoopName)
@@ -927,12 +927,6 @@ public struct CurrentHoleView: View {
             guard garminVersionConflictURL != nil else { return }
             await loadGarminRaster()
         }
-        .task(id: hazardMappingRequest) {
-            await runHazardMappingRequest()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            liveSceneIsActive = phase == .active
-        }
         .onChange(of: pinSheetItems) { _, items in
             guard !items.isEmpty else { return }
             Task { await importPinSheet(items) }
@@ -1006,6 +1000,17 @@ public struct CurrentHoleView: View {
     //
     // B1 (live-play.html): the hole map owns the whole screen. There is no bottom panel and no plan
     // card; the route and landing labels are drawn on the map and every control floats on its edges.
+    /// Kept out of `body`'s modifier chain, which is already at the type checker's limit (C89).
+    private var liveHoleContentWithHazardRequests: some View {
+        liveHoleContent
+            .task(id: hazardMappingRequest) {
+                await runHazardMappingRequest()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                liveSceneIsActive = phase == .active
+            }
+    }
+
     private var liveHoleContent: some View {
         ZStack {
             LivePlayStyle.base.ignoresSafeArea()
