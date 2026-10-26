@@ -3677,6 +3677,11 @@ public final class LiveRoundAppModel: ObservableObject {
               let course = prepCourse,
               syncClient != nil,
               prep.holes.contains(where: { $0.number == hole }) else { return }
+        let downloadedKey = PrepCourseDownloadRecord.key(
+            globalId: prep.course.globalId,
+            teeBox: prep.course.teeBox
+        )
+        guard !downloadedCourseKeys.contains(downloadedKey) else { return }
         guard prepPriorityRoundID != prep.roundId || prepPriorityHole != hole else { return }
         prepPriorityRoundID = prep.roundId
         prepPriorityHole = hole
@@ -3699,7 +3704,6 @@ public final class LiveRoundAppModel: ObservableObject {
                   self.prepPackage?.roundId == roundID,
                   let refreshed else { return }
             self.prepPackage = refreshed
-            self.pendingLiveHole = hole
         }
     }
 

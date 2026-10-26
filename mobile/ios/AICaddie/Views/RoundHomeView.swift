@@ -44,6 +44,11 @@ enum LiveHoleRoutePath {
         if isPrepMode { return [.prep, .hole(hole)] }
         return [.hole(hole)]
     }
+
+    static func afterPrepPackageRefresh(current: [HubRoute], pendingHole: Int?) -> [HubRoute] {
+        guard let pendingHole else { return current }
+        return forPendingHole(current: current, hole: pendingHole, isPrepMode: true)
+    }
 }
 
 public struct RoundHomeView: View {
@@ -479,7 +484,11 @@ public struct RoundHomeView: View {
             if previousRoundId == nil, currentRoundId != nil,
                path.first == .prep,
                let hole = liveRoundState?.activeHole ?? pendingLiveHole {
-                path = [.hole(hole)]
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    path = [.hole(hole)]
+                }
             }
             // 撤销开打 ends the round but keeps the hole screen, back in 备战.
             if previousRoundId != nil, currentRoundId == nil, prepPackage == nil {
@@ -487,9 +496,11 @@ public struct RoundHomeView: View {
             }
         }
         .onChange(of: prepPackage?.roundId) { _, roundId in
-            guard liveRoundState == nil, roundId != nil,
-                  let hole = pendingLiveHole ?? prepPackage?.holes.first?.number else { return }
-            path = LiveHoleRoutePath.forPendingHole(current: path, hole: hole, isPrepMode: true)
+            guard liveRoundState == nil, roundId != nil else { return }
+            path = LiveHoleRoutePath.afterPrepPackageRefresh(
+                current: path,
+                pendingHole: pendingLiveHole ?? prepPackage?.holes.first?.number
+            )
         }
         .onChange(of: package?.holeSetIdentity) { _, _ in
             reconcileLiveHoleRouteWithPackage()

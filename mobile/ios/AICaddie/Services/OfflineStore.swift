@@ -1536,11 +1536,16 @@ public final class OfflineStore {
         try saveLiveRoundProgress(progress)
     }
 
-    func loadLiveRoundProgress() throws -> LiveRoundProgress? {
+    private func loadLiveRoundProgress() throws -> LiveRoundProgress? {
         guard FileManager.default.fileExists(atPath: liveProgressURL.path) else {
             return nil
         }
         return try decoder.decode(LiveRoundProgress.self, from: Data(contentsOf: liveProgressURL))
+    }
+
+    /// Test-visible presence check that does not expose the private progress-file representation.
+    func hasLiveRoundProgress() throws -> Bool {
+        try loadLiveRoundProgress() != nil
     }
 
     private func saveLiveRoundProgress(_ progress: LiveRoundProgress) throws {
