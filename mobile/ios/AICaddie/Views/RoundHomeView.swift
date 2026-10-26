@@ -143,10 +143,6 @@ public struct RoundHomeView: View {
     public let onUndoRoundStart: () -> Void
 
     @State private var showSettings = false
-    /// The in-progress card's 结束: the same finish page as the live map's 结束本场.
-    @State private var showFinishSummary = false
-    @State private var pendingHomeDiscard = false
-    @State private var showHomeDiscardConfirmation = false
     @State private var path: [HubRoute] = []
     /// The last GPS-resolved prep hole lives above `CurrentHoleView`, so recreating a destination
     /// after a manual hole preview does not mistake the same fix for a new location.
@@ -432,53 +428,6 @@ public struct RoundHomeView: View {
         // The NavigationStack owns the system status bar, so the immersive hole destination cannot
         // hide it reliably from inside CurrentHoleView. Keep normal chrome on every non-live route.
         .statusBarHidden(Self.isLiveHoleRoute(path.last))
-        .sheet(isPresented: $showFinishSummary, onDismiss: {
-            // 放弃本场 asks once, after the finish page has closed (a dialog requested while the
-            // sheet is still dismissing is dropped).
-            guard pendingHomeDiscard else { return }
-            pendingHomeDiscard = false
-            showHomeDiscardConfirmation = true
-        }) {
-            if let package {
-            LiveRoundFinishSummaryView(
-                courseName: package.course.venueDisplayName,
-                holes: package.holes,
-                loopTitles: LiveScorecardLoops.titles(
-                    package: package,
-                    catalogue: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions)
-                ),
-                scores: LiveRoundFinishSummaryView.completedScores(
-                    holes: package.holes,
-                    liveRoundState: liveRoundState,
-                    recordedScoreHoles: recordedScoreHoles
-                ),
-                isFinishingRound: isFinishingRound,
-                finishErrorMessage: finishErrorMessage,
-                onFinish: {
-                    Task {
-                        if await onFinishRound() {
-                            showFinishSummary = false
-                        }
-                    }
-                },
-                onContinue: { showFinishSummary = false },
-                onDiscard: {
-                    pendingHomeDiscard = true
-                    showFinishSummary = false
-                }
-            )
-            }
-        }
-        .confirmationDialog(
-            "确定放弃本场？",
-            isPresented: $showHomeDiscardConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("放弃本场", role: .destructive) { onDiscardRound() }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("放弃后这一场不会保存，已记的成绩、落点和待上传媒体会删除。")
-        }
         .onChange(of: pendingLiveHole) { _, hole in
             #if DEBUG
             UITestEventLatencyTrace.record("round-home.pending-change hole=\(hole ?? -1)")
