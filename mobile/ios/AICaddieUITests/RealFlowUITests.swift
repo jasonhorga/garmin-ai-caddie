@@ -451,15 +451,16 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment.removeValue(forKey: "UITEST_FOLLOW_HOLE_TEE")
         launchFresh()
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
-        XCTAssertTrue(openStartRound(), "home must expose pre-round prep")
+        XCTAssertTrue(openStartRound(), "home must expose a new-round entry")
         XCTAssertTrue(
             app.navigationBars["开始一场"].waitForExistence(timeout: 12),
-            "pre-round entry must navigate directly to the prep course picker"
+            "new-round entry must navigate to the course finder"
         )
-        XCTAssertTrue(
-            app.buttons["course-catalog-nearby-action"].waitForExistence(timeout: 5),
-            "pre-round planning must offer the explicit nearby-course action"
-        )
+        let openSearch = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20))
+        openSearch.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["course-catalog-nearby-action"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.textFields["course-catalog-city-field"].exists)
         XCTAssertTrue(app.textFields["course-catalog-keyword-field"].exists)
         XCTAssertTrue(app.buttons["course-catalog-search-action"].exists)
@@ -481,8 +482,12 @@ final class RealFlowUITests: XCTestCase {
             "pre-round name search must return the approved 北京丽宫 course"
         )
         prepResult.tap()
-        // 备战 now opens the same live hole screen. It has no round state and therefore carries
-        // the explicit no-recording banner until the first on-course stroke.
+        let prepStart = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(prepStart.waitForExistence(timeout: 12))
+        XCTAssertTrue(waitUntilEnabled(prepStart, timeout: 90))
+        prepStart.tap()
+        // The course page opens the same live hole screen. It has no round state and therefore
+        // carries the explicit no-recording banner until the first on-course stroke.
         let prepBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         XCTAssertTrue(prepBanner.waitForExistence(timeout: 30), "备战 should open the live hole screen")
         XCTAssertTrue(
@@ -498,13 +503,19 @@ final class RealFlowUITests: XCTestCase {
         let prepBack = app.buttons["live-back-home"]
         XCTAssertTrue(prepBack.waitForExistence(timeout: 8) && prepBack.isHittable)
         prepBack.tap()
+        XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 8))
+        app.buttons["home-new-round"].tap()
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
-        let retainedDownload = app.buttons.matching(NSPredicate(
+        let retainedDownload = app.descendants(matching: .any).matching(NSPredicate(
             format: "identifier BEGINSWITH %@",
-            "start-round-venue-\(approvedJourneyCourseGlobalId)"
+            "start-round-offline-row-\(approvedJourneyCourseGlobalId):"
         )).firstMatch
         XCTAssertTrue(scrollTo(retainedDownload, maxSwipes: 12))
-        XCTAssertTrue(nonEmptyAccessibilityValue(retainedDownload))
+        let retainedStatus = retainedDownload.label + " " + ((retainedDownload.value as? String) ?? "")
+        XCTAssertTrue(
+            ["下载", "准备", "失败", "已下载"].contains(where: { retainedStatus.contains($0) }),
+            "the start-page offline row must show its download state"
+        )
         settle(1); save("06b-prep-download-retained"); dump("06b-prep-download-retained")
 
         restoreDefaultGPSLaunchEnvironment()
@@ -512,18 +523,17 @@ final class RealFlowUITests: XCTestCase {
         launchFresh()
         XCTAssertTrue(openStartRound())
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
-        let relaunchedDownload = app.buttons.matching(NSPredicate(
+        let relaunchedDownload = app.descendants(matching: .any).matching(NSPredicate(
             format: "identifier BEGINSWITH %@",
-            "start-round-venue-\(approvedJourneyCourseGlobalId)"
+            "start-round-offline-row-\(approvedJourneyCourseGlobalId):"
         )).firstMatch
         XCTAssertTrue(scrollTo(relaunchedDownload, maxSwipes: 12))
-        XCTAssertTrue(nonEmptyAccessibilityValue(relaunchedDownload))
-        XCTAssertTrue(waitForValue("uitest-installed", on: relaunchedDownload, timeout: 240))
-        XCTAssertFalse(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "下载")).firstMatch.exists,
-            "the prep picker shows no download/preparation copy"
-        )
-        relaunchedDownload.tap()
+        XCTAssertTrue(waitForText("已下载", in: relaunchedDownload, timeout: 240))
+        let relaunchedCourse = selectStartCourse(approvedJourneyCourseGlobalId)
+        XCTAssertTrue(relaunchedCourse.exists)
+        let relaunchedStart = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(waitUntilEnabled(relaunchedStart, timeout: 90))
+        relaunchedStart.tap()
         let relaunchedBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         XCTAssertTrue(relaunchedBanner.waitForExistence(timeout: 30))
         XCTAssertTrue(
@@ -1541,6 +1551,14 @@ final class RealFlowUITests: XCTestCase {
         if element.exists, (element.value as? String) == expected { return true }
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == true AND value == %@", expected),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForText(_ expected: String, in element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND (label CONTAINS %@ OR value CONTAINS %@)", expected, expected),
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed

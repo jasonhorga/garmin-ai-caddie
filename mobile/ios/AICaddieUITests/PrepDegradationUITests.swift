@@ -5,7 +5,7 @@ import XCTest
 /// route that the background download upgrades to the precise map, holes 3-12 factual only and
 /// holes 13-18 with no drawable route.
 ///
-/// Proves: 选了就进 (the prep map opens at once for a course whose download has just started, no
+/// Proves: 选了就进 (the course map opens at once for a course whose download has just started, no
 /// "地图尚未准备完成" gate); a factual route shows immediately; the one full-screen waiting page
 /// for a hole with nothing drawable; not-ready holes only faded in the strip (and still open); the
 /// precise map replacing the factual one in place without resetting the player's zoom; and the
@@ -70,10 +70,10 @@ final class PrepDegradationUITests: XCTestCase {
         launch()
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
 
-        let prepTile = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "备战")).firstMatch
-        XCTAssertTrue(prepTile.waitForExistence(timeout: 30), "home must expose 备战")
-        prepTile.tap()
-        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 12))
+        let newRound = app.buttons["home-new-round"]
+        XCTAssertTrue(newRound.waitForExistence(timeout: 30), "home must expose a new-round entry")
+        newRound.tap()
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
         let keyword = app.textFields["course-catalog-keyword-field"]
         XCTAssertTrue(keyword.waitForExistence(timeout: 5))
         keyword.tap()
@@ -84,6 +84,10 @@ final class PrepDegradationUITests: XCTestCase {
         let result = app.buttons["course-catalog-result-\(degradedCourseGlobalId)"]
         XCTAssertTrue(scrollIntoView(result, maxSwipes: 12), "the fixture search must list the degraded course")
         result.tap()
+        let start = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(start.waitForExistence(timeout: 12), "search selection must open the course page")
+        XCTAssertTrue(waitUntilEnabled(start, timeout: 30))
+        start.tap()
 
         let banner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         XCTAssertTrue(banner.waitForExistence(timeout: 30), "备战 must open the live hole screen")
@@ -101,12 +105,18 @@ final class PrepDegradationUITests: XCTestCase {
         let back = app.buttons["live-back-home"]
         XCTAssertTrue(back.waitForExistence(timeout: 8) && back.isHittable)
         back.tap()
-        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 8))
-        let retained = app.buttons.matching(NSPredicate(
-            format: "identifier BEGINSWITH %@", "prep-download-row-\(degradedCourseGlobalId):"
+        XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 8))
+        app.buttons["home-new-round"].tap()
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        let retained = app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "start-round-offline-row-\(degradedCourseGlobalId):"
         )).firstMatch
-        XCTAssertTrue(scrollIntoView(retained, maxSwipes: 12), "the selection stays in 最近备战")
-        XCTAssertTrue(((retained.value as? String) ?? "").hasPrefix("uitest-"))
+        XCTAssertTrue(scrollIntoView(retained, maxSwipes: 12), "the selection stays in the start-page download section")
+        let retainedStatus = retained.label + " " + ((retained.value as? String) ?? "")
+        XCTAssertTrue(
+            ["下载", "准备", "失败", "已下载"].contains(where: { retainedStatus.contains($0) }),
+            "the offline row must expose its current download state"
+        )
         save("b4c-02-library-retained")
     }
 
