@@ -261,7 +261,12 @@ def record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> None
             group = venues.setdefault(key, {"venueKey": key, "venueName": venue, "loops": []})
             label = normalize_course_text(getattr(match, "segment_label", None)) or None
             name = normalize_course_text(getattr(match, "name", None)) or venue
-            pars = courseview_par(gid, allow_fetch=False) or []
+            try:
+                pars = courseview_par(gid, allow_fetch=False) or []
+            except Exception:
+                # Nearby discovery is metadata-only; a missing local par cache must not discard
+                # an otherwise explicit venue row from the durable index.
+                pars = []
             par = sum(int(value) for value in pars if isinstance(value, (int, float))) if len(pars) == 9 else 36
             row = {"globalId": gid, "name": name, "segmentLabel": label, "holeCount": 9, "par": max(1, int(par))}
             prior = next((item for item in group["loops"] if int(item.get("globalId") or 0) == gid), None)
