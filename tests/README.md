@@ -1,14 +1,20 @@
 # Offline backend tests
 
 Run a module with `python -m unittest tests.test_course_reference`. For discovery,
-use `python -m unittest discover -s tests -t .` (the CI command).
+use `python -m unittest discover -s tests -t .`. CI wraps this command with
+`python -m tests.check_isolation discover -s tests -t . -v`.
 `python -m unittest discover -s tests` also installs the offline defaults:
 without `-t .`, unittest treats `tests/` as its top level, skips its
 `__init__.py`, and imports modules as `test_xxx`. It still visits packages in
 sorted order, independently of the `-p` file pattern. `tests/_bootstrap/` sorts
 before the test modules and other test packages and imports `tests.offline`
 through its canonical package name. Both entry points install the guard once,
-before importing tests. Keep that bootstrap package first in discovery order.
+before importing tests. Product and acceptance directories have the same
+`_bootstrap/` entry point for standalone `discover -s tests/product` and
+`discover -s tests/acceptance` (without `-t`). Keep a bootstrap package first in
+every test directory's discovery order. The discovery regression automatically
+enumerates all directories containing `test*.py` and checks guard installation
+before the first test import, so newly added directories are covered too.
 
 `tests.offline` blocks real urllib and requests traffic to Garmin CN/COM hosts,
 including subdomains, and blocks Playwright and xvfb login launches. It raises
@@ -28,16 +34,20 @@ files there, outside the checkout:
 - Release, courseData, course-par, downloaded geometry, exported meshes,
   hazards and batch summaries; prep-cache fingerprints read those same files.
 - Garmin raster and overlay raster caches, overlay exports, vector-prep JSON,
-  topo and green-detail PNG caches (`AI_CADDIE_TOPO_CACHE_DIR`).
+  default topo and green-detail PNG caches.
 - Decision ledgers/audits, mobile event logs/acks and their event/package locks,
   including member partitions.
 
 Explicit temporary roots, per-test path patches and topo environment overrides
-retain their scope. Fixture/source roots stay intact. Only the batch exporter’s
-test-side `ROOT` is redirected too, because it anchors relative export paths and
-`output/.prodgeometry-staging`. Its scripts/snapshot anchors still refer to the
-source tree; test `PYTHONPATH` lets exporter children import from that tree while
-running in the temporary directory. Other application stores are outside this
+retain their scope. `core.data.ROOT` and batch scripts/snapshot anchors still refer
+to the source tree. Test-side `batch.ROOT` is redirected because it anchors
+relative export paths and `output/.prodgeometry-staging`; `topo_render.ROOT` is
+redirected for its default cache path. Production root-resolution tests read the
+unmodified domain constants in clean children which never import `tests`.
+Only batch's `subprocess.run` / `Popen` calls receive a source-tree `PYTHONPATH`
+through an explicit child environment, so exporters remain importable from the
+temporary cwd. The parent environment and unrelated children keep their original
+`PYTHONPATH` and `AI_CADDIE_TOPO_CACHE_DIR`. Other application stores are outside this
 list; these defaults do not promise to redirect every filesystem write.
 
 `test_offline_followups` exercises successful cache/export/ledger writes and
@@ -51,7 +61,7 @@ python -m tests.check_isolation discover -s tests -t . -v
 
 The checker preserves unittest's failure status and also fails on new or
 changed repository artifact status, including ignored files. Discovery regression
-tests run it in a fresh interpreter; no CI workflow change is needed.
+tests run it in a fresh interpreter; CI also uses it around the full backend suite.
 
 Provider entry points and their offline callers:
 

@@ -88,7 +88,8 @@ def install():
         garmin_playwright_login._reexec_under_xvfb
     )
 
-    # Keep the actual repo ROOT intact for fixtures and root-resolution tests.
+    # Keep core.data.ROOT intact as the fixture/source anchor. Batch and topo
+    # runtime roots below are redirected; production-root tests use clean children.
     # SIGKILL can bypass cleanup, so disposable files must live outside the repo.
     from ai_caddie.core import data as disk
     ROOT = disk.ROOT
@@ -138,21 +139,40 @@ def install():
     garmin_raster.RASTER_CACHE_DIR = cache_root / "output" / "garmin_raster"
 
     from ai_caddie.courses import vector_prep
-    from ai_caddie.geometry import overlay_prodgeometry_on_raster as overlay
+    from ai_caddie.geometry import overlay_prodgeometry_on_raster as overlay, topo_render
 
     overlay.RASTER_CACHE = cache_root / "output" / "hole_overlays"
     overlay.OUT_DIR = cache_root / "output" / "prodgeometry_overlay"
     vector_prep._CACHE_DIR = cache_root / "output" / "vector-prep"
-    os.environ["AI_CADDIE_TOPO_CACHE_DIR"] = str(cache_root / "output" / "topo_render_cache")
+    topo_render.ROOT = cache_root
 
     # batch's ROOT also anchors relative_to() and its hard-coded staging path.
     # SCRIPT_DIR / DEFAULT_SNAPSHOT still point at the real source tree. Its
     # Python exporter children run from this disposable cwd, so expose the source
-    # via PYTHONPATH rather than moving any production/fixture ROOT constants.
+    # only in batch's subprocess environment, leaving the parent and other children
+    # unchanged. Both run() and interruptible Popen() need the same environment.
     batch_prodgeometry_course.ROOT = cache_root
-    os.environ["PYTHONPATH"] = os.pathsep.join(
-        [str(ROOT), *filter(None, os.environ.get("PYTHONPATH", "").split(os.pathsep))]
-    )
+    original_subprocess = batch_prodgeometry_course.subprocess
+
+    class BatchSubprocess:
+        def __getattr__(self, name):
+            return getattr(original_subprocess, name)
+
+        def child_kwargs(self, kwargs):
+            inherited = kwargs.get("env")
+            env = dict(os.environ if inherited is None else inherited)
+            env["PYTHONPATH"] = os.pathsep.join(
+                [str(ROOT), *filter(None, env.get("PYTHONPATH", "").split(os.pathsep))]
+            )
+            return {**kwargs, "env": env}
+
+        def run(self, *args, **kwargs):
+            return original_subprocess.run(*args, **self.child_kwargs(kwargs))
+
+        def Popen(self, *args, **kwargs):
+            return original_subprocess.Popen(*args, **self.child_kwargs(kwargs))
+
+    batch_prodgeometry_course.subprocess = BatchSubprocess()
 
     from ai_caddie.caddie import decision, mobile_live
 

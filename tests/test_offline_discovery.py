@@ -71,7 +71,7 @@ raise SystemExit(not result.wasSuccessful())
                 result = subprocess.run(
                     [sys.executable, "-m", "tests.check_isolation", "c67_artifact_probe"],
                     cwd=root, capture_output=True, text=True, timeout=30,
-                    env={**os.environ, "PYTHONPATH": os.pathsep.join([tmp, os.environ["PYTHONPATH"]])},
+                    env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [tmp, os.environ.get("PYTHONPATH")]))},
                 )
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertIn("Repository artifacts changed", result.stderr)

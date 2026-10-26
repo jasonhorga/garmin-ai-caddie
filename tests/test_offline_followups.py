@@ -86,13 +86,19 @@ class OfflineFollowupTests(unittest.TestCase):
         self.assertFalse(stages[0].exists(), "batch staging was not cleaned")
 
     def test_batch_exporter_child_can_import_sources_from_disposable_cwd(self):
-        ok, output = batch.run([
+        command = [
             sys.executable, "-c",
             "import os; from ai_caddie.geometry import measure_prodgeometry_distances as m; "
             "print(os.getcwd()); print(m.__file__)",
-        ])
+        ]
+        ok, output = batch.run(command)
         self.assertTrue(ok, output)
         cwd, source = output.strip().splitlines()
+        self.assertEqual(Path(cwd), batch.ROOT)
+        self.assertTrue(Path(source).is_relative_to(ROOT))
+        result = batch._run_interruptible(command, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        cwd, source = result.stdout.strip().splitlines()
         self.assertEqual(Path(cwd), batch.ROOT)
         self.assertTrue(Path(source).is_relative_to(ROOT))
 
