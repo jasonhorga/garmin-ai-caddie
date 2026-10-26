@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie.core.fixtures import fixture_history_data
-from ai_caddie.reports.annotations import list_annotations
+from ai_caddie.reports.annotations import add_annotation, list_annotation_records, list_annotations
 from ai_caddie.caddie.decision import list_decision_audits, store_decision
 from ai_caddie.history.history import HistoryData
 from ai_caddie.caddie.mobile_live import append_event_batch
@@ -21,6 +21,91 @@ from ai_caddie.history.corrected_history import corrected_history_data
 
 
 class MobileReconciliationTests(unittest.TestCase):
+    def test_missing_penalty_matches_local_zero_without_writing_a_correction(self) -> None:
+        # C74 / C53: an absent Garmin penalty has effective value 0.
+        data = HistoryData(raw_rounds=[], rounds=[{
+            "id": "empty-penalty", "holes": [
+                {"number": 1, "strokes": 4, "putts": 2, "penalties": None},
+            ],
+        }], shots=[])
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch("empty-penalty", [{
+                "eventId": "zero-penalty", "roundId": "empty-penalty", "hole": 1,
+                "kind": "penalty", "payload": {"penalties": 0},
+            }], idempotency_key="empty-penalty", root=root)
+            result = reconcile_mobile_round_events("empty-penalty", data, root=root)
+            self.assertEqual(result["annotationSuggestions"], [])
+            self.assertEqual([row["eventId"] for row in result["matched"]], ["zero-penalty"])
+            applied = apply_mobile_reconciliation_suggestions(
+                "empty-penalty", data, root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            self.assertEqual(applied["appliedCount"], 0)
+            self.assertEqual(list_annotation_records(root=root), [])
+
+    def test_score_and_putts_match_corrections_written_elsewhere(self) -> None:
+        # C74: raw 6/3 corrected to 5/2 must match local 5/2, with no new suggestions.
+        data = HistoryData(raw_rounds=[], rounds=[{
+            "id": "corrected", "ids": ["source-card"], "holes": [
+                {"number": 1, "strokes": 6, "putts": 3, "penalties": 0},
+            ],
+        }], shots=[])
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for kind, value in (("score", 5), ("putt", 2)):
+                add_annotation("hole", "source-card:1", f"{kind}_correction", {"to": value},
+                               root=root, data_loader=lambda: data)
+            append_event_batch("corrected", [
+                {"eventId": "local-score", "roundId": "corrected", "hole": 1,
+                 "kind": "score", "payload": {"strokes": 5}},
+                {"eventId": "local-putt", "roundId": "corrected", "hole": 1,
+                 "kind": "putt", "payload": {"putts": 2}},
+            ], idempotency_key="corrected", root=root)
+            result = reconcile_mobile_round_events("corrected", data, root=root)
+            for kind in ("score", "putt"):
+                with self.subTest(kind=kind):
+                    self.assertEqual([s for s in result["annotationSuggestions"] if s["kind"] == f"{kind}_correction"], [])
+            self.assertEqual({row["eventId"] for row in result["matched"]}, {"local-score", "local-putt"})
+
+    def test_back_then_front_nines_use_display_holes_for_reconciliation_and_audit(self) -> None:
+        # C74 / hole_sides: first physical 10 -> display 1; second physical 1 -> display 10.
+        # Legacy merged rows repeat 10..18; normalised rows retain physical numbers in localHole.
+        for legacy in (True, False):
+            with self.subTest(legacy=legacy), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                data = HistoryData(raw_rounds=[], rounds=[{
+                    "id": "merged", "ids": ["back-card", "front-card"], "merged": True,
+                    "holes": [
+                        {"number": n + 9 if legacy else n, "localHole": n + 9,
+                         "strokes": 5, "putts": 2, "penalties": 1} for n in range(1, 10)
+                    ] + [
+                        {"number": n + 9, "strokes": 7, "putts": 3, "penalties": 0}
+                        for n in range(1, 10)
+                    ],
+                }], shots=[])
+                append_event_batch("merged", [
+                    {"eventId": f"{hole}-{kind}", "roundId": "merged", "hole": hole,
+                     "kind": kind, "payload": {field: value}}
+                    for hole, values in ((1, (5, 2, 1)), (10, (7, 3, 0)))
+                    for kind, field, value in zip(
+                        ("score", "putt", "penalty"), ("strokes", "putts", "penalties"), values,
+                    )
+                ], idempotency_key="merged", root=root)
+                result = reconcile_mobile_round_events("merged", data, root=root)
+                self.assertEqual(result["annotationSuggestions"], [])
+                self.assertEqual({row["ref"] for row in result["matched"]}, {"merged:1", "merged:10"})
+                self.assertEqual(len(result["matched"]), 6)
+                for hole, total in ((1, 6), (10, 8)):
+                    add_annotation("hole", f"merged:{hole}", "score_correction", {"to": total},
+                                   root=root, data_loader=lambda: data)
+                records = list_annotation_records(root=root)
+                self.assertEqual(
+                    [(r["audit"]["entries"][0]["hole"], r["audit"]["entries"][0]["before"])
+                     for r in records], [(1, 5), (10, 7)],
+                )
+                corrected = corrected_history_data(data, annotations_root=root, corrections_root=root)
+                self.assertEqual([corrected.rounds[0]["holes"][i]["strokes"] for i in (0, 9)], [6, 8])
+
     def test_penalty_reconciliation_only_suggests_effective_value_conflicts(self) -> None:
         data = HistoryData(
             raw_rounds=[{"id": "penalty-round", "hasShots": False}],
