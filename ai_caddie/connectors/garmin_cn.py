@@ -111,8 +111,6 @@ def _fetch_runtime(*, token_dir: Path, data_dir: Path, allow_self_heal: bool = T
 
     fetch_originals = {
         "TOKEN_DIR": fetch_module.TOKEN_DIR,
-        "COOKIE_FILE": fetch_module.COOKIE_FILE,
-        "CSRF_FILE": fetch_module.CSRF_FILE,
         "DATA_DIR": fetch_module.DATA_DIR,
         "SUMMARY_FILE": fetch_module.SUMMARY_FILE,
         "SCORECARD_DIR": fetch_module.SCORECARD_DIR,
@@ -122,21 +120,15 @@ def _fetch_runtime(*, token_dir: Path, data_dir: Path, allow_self_heal: bool = T
     }
     auth_originals = {
         "TOKEN_DIR": garmin_auth_module.TOKEN_DIR,
-        "COOKIE_FILE": garmin_auth_module.COOKIE_FILE,
-        "CSRF_FILE": garmin_auth_module.CSRF_FILE,
     }
     try:
         fetch_module.TOKEN_DIR = token_dir
-        fetch_module.COOKIE_FILE = token_dir / "web_cookie.txt"
-        fetch_module.CSRF_FILE = token_dir / "csrf.txt"
         fetch_module.DATA_DIR = data_dir
         fetch_module.SUMMARY_FILE = data_dir / "summary.json"
         fetch_module.SCORECARD_DIR = data_dir / "scorecards"
         fetch_module.SHOT_DIR = data_dir / "shots"
         fetch_module.CLUBS_BAG_FILE = data_dir / "club_bag.json"
         garmin_auth_module.TOKEN_DIR = token_dir
-        garmin_auth_module.COOKIE_FILE = token_dir / "web_cookie.txt"
-        garmin_auth_module.CSRF_FILE = token_dir / "csrf.txt"
         if not allow_self_heal:
             def _member_no_self_heal(_session) -> bool:
                 raise GarminAuthExpired(

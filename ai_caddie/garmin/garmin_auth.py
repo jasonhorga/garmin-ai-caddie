@@ -24,8 +24,6 @@ from ai_caddie.connectors.session_material import read_session_material, save_se
 
 ROOT = Path(__file__).resolve().parents[2]
 TOKEN_DIR = ROOT / ".garmin_tokens"
-COOKIE_FILE = TOKEN_DIR / "web_cookie.txt"
-CSRF_FILE = TOKEN_DIR / "csrf.txt"
 
 GOLF_SUMMARY_URL = (
     "https://connect.garmin.cn/golf-api/gcs-golfcommunity/api/v2/scorecard/summary"

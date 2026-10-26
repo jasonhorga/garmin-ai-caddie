@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import os
+import logging
 from pathlib import Path
 import secrets
 import shutil
+import time
 from typing import Any
 
 from ai_caddie.core.data import ROOT
 
 from .snapshot import write_connector_status
+from .sync_lock import SyncInProgress, acquire_sync_lock
 
 
 SESSION_DIR = ".garmin_tokens"
@@ -19,6 +22,8 @@ ANTI_FORGERY_FILE = "csrf.txt"
 GENERATIONS_DIR = "generations"
 CURRENT_FILE = "current"
 ALLOWED_SESSION_SOURCES = {"manual_paste", "web_secure_paste", "ios_secure_input", "ios_keychain_replay", "ios_web_login"}
+ORPHAN_GRACE_SECONDS = 10 * 60
+LOGGER = logging.getLogger(__name__)
 
 
 def _single_line(value: str, field: str) -> str:
@@ -107,6 +112,11 @@ def _current_generation_dir(token_dir: Path) -> Path | None:
     return generation
 
 
+def _current_generation_name(token_dir: Path) -> str | None:
+    generation = _current_generation_dir(token_dir)
+    return generation.name if generation is not None else None
+
+
 def read_session_material(token_dir: Path | str) -> tuple[str, str] | None:
     """Read cookie and CSRF from one immutable generation, with legacy fallback.
 
@@ -145,8 +155,11 @@ def _publish_generation(token_dir: Path, web_session: str, anti_forgery: str) ->
     token_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     token_dir.chmod(0o700)
     generations = token_dir / GENERATIONS_DIR
+    generations_existed = generations.is_dir()
     generations.mkdir(mode=0o700, exist_ok=True)
     generations.chmod(0o700)
+    if not generations_existed:
+        _fsync_directory(token_dir)
     generation_name = f"generation-{os.getpid()}-{secrets.token_hex(12)}"
     generation = generations / generation_name
     generation.mkdir(mode=0o700)
@@ -156,6 +169,7 @@ def _publish_generation(token_dir: Path, web_session: str, anti_forgery: str) ->
         _write_generation_file(generation / WEB_SESSION_FILE, (web_session + "\n").encode("utf-8"))
         _write_generation_file(generation / ANTI_FORGERY_FILE, (anti_forgery + "\n").encode("utf-8"))
         _fsync_directory(generation)
+        _fsync_directory(generations)
 
         pointer_tmp = token_dir / f".{CURRENT_FILE}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
         _write_generation_file(pointer_tmp, (generation_name + "\n").encode("ascii"))
@@ -175,8 +189,10 @@ def _publish_generation(token_dir: Path, web_session: str, anti_forgery: str) ->
 def save_session_material(*, token_dir: Path | str, web_session: str, anti_forgery: str) -> None:
     """Store an already validated cookie/CSRF pair using generation publication."""
     directory = Path(token_dir)
+    previous_generation = _current_generation_name(directory)
     _publish_generation(directory, web_session, anti_forgery)
     _remove_legacy_files(directory)
+    _remove_generation(directory, previous_generation)
 
 
 def _remove_legacy_files(token_dir: Path) -> None:
@@ -188,12 +204,26 @@ def _remove_legacy_files(token_dir: Path) -> None:
             continue
 
 
-def _cleanup_token_dir(token_dir: Path) -> None:
+def _remove_generation(token_dir: Path, generation_name: str | None) -> None:
+    if not generation_name:
+        return
+    generation = token_dir / GENERATIONS_DIR / generation_name
+    try:
+        if generation.is_dir() and not generation.is_symlink():
+            shutil.rmtree(generation)
+    except OSError:
+        LOGGER.warning("could not remove previous Garmin session generation", exc_info=True)
+
+
+def _cleanup_token_dir(token_dir: Path, *, now: float | None = None) -> None:
     if not token_dir.is_dir():
         return
+    cutoff = (time.time() if now is None else now) - ORPHAN_GRACE_SECONDS
     # SIGKILL can leave either a file temp or an unfinished generation behind.
     for path in sorted(token_dir.rglob("*.tmp"), key=lambda item: len(item.parts), reverse=True):
         try:
+            if path.stat().st_mtime > cutoff:
+                continue
             if path.is_dir() and not path.is_symlink():
                 shutil.rmtree(path)
             else:
@@ -208,6 +238,8 @@ def _cleanup_token_dir(token_dir: Path) -> None:
         if current is not None and child == current:
             continue
         try:
+            if child.stat().st_mtime > cutoff:
+                continue
             if child.is_dir() and not child.is_symlink():
                 shutil.rmtree(child)
             else:
@@ -219,12 +251,18 @@ def _cleanup_token_dir(token_dir: Path) -> None:
 def cleanup_session_material(root: Path | str = ROOT) -> None:
     """Remove session temp files and orphan generations for owner and member partitions."""
     base = Path(root)
-    candidates = [base / SESSION_DIR]
-    players = base / "data" / "players"
-    if players.is_dir():
-        candidates.extend(path / SESSION_DIR for path in players.iterdir() if path.is_dir())
-    for token_dir in candidates:
-        _cleanup_token_dir(token_dir)
+    try:
+        with acquire_sync_lock(base):
+            candidates = [base / SESSION_DIR]
+            players = base / "data" / "players"
+            if players.is_dir():
+                candidates.extend(path / SESSION_DIR for path in players.iterdir() if path.is_dir())
+            for token_dir in candidates:
+                _cleanup_token_dir(token_dir)
+    except SyncInProgress:
+        LOGGER.info("skipping Garmin session cleanup while sync is in progress")
+    except Exception:
+        LOGGER.warning("Garmin session cleanup failed; continuing startup", exc_info=True)
 
 
 def save_garmin_cn_web_session(
@@ -252,6 +290,7 @@ def save_garmin_cn_web_session(
     token_dir.chmod(0o700)
     pointer = token_dir / CURRENT_FILE
     previous_pointer = pointer.read_bytes() if pointer.exists() else None
+    previous_generation = _current_generation_name(token_dir)
     detail = "Garmin CN web session saved for local sync. Run sync to refresh local data."
     try:
         _publish_generation(token_dir, web_session, anti_forgery)
@@ -267,6 +306,7 @@ def save_garmin_cn_web_session(
             data_dir=Path(data_dir) if data_dir is not None else None,
         )
         _remove_legacy_files(token_dir)
+        _remove_generation(token_dir, previous_generation)
     except Exception:
         if previous_pointer is None:
             pointer.unlink(missing_ok=True)
