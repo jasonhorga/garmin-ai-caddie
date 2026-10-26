@@ -1855,7 +1855,8 @@ final class DesignSnapshotTests: XCTestCase {
     /// was the dark-green ground (26, 46, 30) with only a corner spinner, and asserted nothing.
     @MainActor
     func testCaptureGarminRasterLoading() throws {
-        let url = URL(string: "http://127.0.0.1:9/api/v2/courses/1/holes/1/garmin-raster.png?v=asset-loading-sky1")!
+        // A reserved .test host never answers, so the capture stays on the loading frame.
+        let url = URL(string: "https://garmin-loading.example.test/api/v2/courses/1/holes/1/garmin-raster.png?v=asset-loading-sky1")!
         let png = try captureScreen(
             GarminRasterStandaloneView(
                 url: url,
