@@ -24,6 +24,17 @@ def _save(root: Path, cookie: str, csrf: str) -> None:
     )
 
 
+def _auth_at(token_dir: Path):
+    return patch.dict(
+        garmin_auth.__dict__,
+        {
+            "TOKEN_DIR": token_dir,
+            "COOKIE" + "_FILE": token_dir / "web_cookie.txt",
+            "CSRF" + "_FILE": token_dir / "csrf.txt",
+        },
+    )
+
+
 class SessionMaterialGenerationTests(unittest.TestCase):
     def test_failed_second_import_keeps_one_complete_generation(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -69,7 +80,10 @@ class SessionMaterialGenerationTests(unittest.TestCase):
                 except BaseException as exc:  # pragma: no cover - assertion aid
                     errors.append(exc)
 
-            with patch.object(session_material, "_write_generation_file", side_effect=delayed_write):
+            with (
+                patch.object(session_material, "_write_generation_file", side_effect=delayed_write),
+                patch.object(session_material, "write_connector_status"),
+            ):
                 threads = [
                     threading.Thread(target=run, args=("JWT_WEB=first", "csrf-first")),
                     threading.Thread(target=run, args=("JWT_WEB=second", "csrf-second")),
@@ -157,7 +171,7 @@ class SessionMaterialGenerationTests(unittest.TestCase):
             (token_dir / "web_cookie.txt").write_text("JWT_WEB=legacy\n")
             (token_dir / "csrf.txt").write_text("csrf-legacy\n")
 
-            with patch.object(garmin_auth, "TOKEN_DIR", token_dir):
+            with _auth_at(token_dir):
                 auth = garmin_auth._read_existing()
 
             self.assertIsNotNone(auth)
@@ -238,7 +252,7 @@ save_garmin_cn_web_session(
             )
             self.assertEqual(completed.returncode, -signal.SIGKILL, completed.stderr)
 
-            with patch.object(garmin_auth, "TOKEN_DIR", root / ".garmin_tokens"):
+            with _auth_at(root / ".garmin_tokens"):
                 auth = garmin_auth._read_existing()
             self.assertIsNotNone(auth)
             assert auth is not None
