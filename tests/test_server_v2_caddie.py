@@ -315,6 +315,33 @@ class ServerV2CaddieTests(unittest.TestCase):
         self.assertNotIn("cookie", response.text.lower())
         self.assertNotIn("token", response.text.lower())
 
+    def test_context_endpoint_uses_bounded_pin_distance_for_missing_data(self) -> None:
+        client = TestClient(app)
+
+        for distance_m, expected_missing in (
+            (0, True),
+            (-5, True),
+            (5000, True),
+            (1000.1, True),
+            (1000, False),
+            (142, False),
+        ):
+            with self.subTest(distance_m=distance_m):
+                response = client.get(
+                    "/api/v2/caddie/context",
+                    params={
+                        "source_ref": "900001:7",
+                        "shot_type": "approach",
+                        "distance_to_pin_m": distance_m,
+                        "lie": "fairway",
+                    },
+                )
+
+                self.assertEqual(response.status_code, 200)
+                labels = {row["label"] for row in response.json()["missingData"]}
+                self.assertEqual("distance_to_pin" in labels, expected_missing)
+                self.assertEqual("distanceToPin_m" in response.json()["context"], not expected_missing)
+
     def test_context_endpoint_includes_history_patterns_for_decision_risk(self) -> None:
         client = TestClient(app)
 

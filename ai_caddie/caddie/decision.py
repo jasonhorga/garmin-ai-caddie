@@ -5467,6 +5467,7 @@ def _recovery_options(context: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
     source_ref = _source_ref(analysis, shot_type)
+    distance_to_pin_m = analysis.get("distanceToPin_m") if _has_pin_distance(analysis) else None
     context = {
         "roundId": analysis.get("roundId"),
         "source": analysis.get("source"),
@@ -5476,7 +5477,7 @@ def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
         "globalId": analysis.get("globalId"),
         "localHole": analysis.get("localHole"),
         "shotType": shot_type,
-        "distanceToPin_m": analysis.get("distanceToPin_m"),
+        "distanceToPin_m": distance_to_pin_m,
         "currentLocation": analysis.get("currentLocation"),
         "targetLocation": analysis.get("targetLocation"),
         "shotBearingDeg": analysis.get("shotBearingDeg"),
