@@ -2,7 +2,7 @@
 from io import BytesIO
 import json
 from pathlib import Path
-import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -14,17 +14,10 @@ from ai_caddie.core import data as disk
 from ai_caddie.courses import course_reference, vector_prep
 from ai_caddie.geometry import batch_prodgeometry_course as batch
 from ai_caddie.geometry import overlay_prodgeometry_on_raster as overlay, topo_render
+from tests.check_isolation import repository_artifacts
 
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def repository_artifacts():
-    """Include ignored files, which normal git status would hide."""
-    return subprocess.check_output(
-        ["git", "status", "--porcelain", "--ignored", "--untracked-files=all",
-         "--", "data/", "output/"], cwd=ROOT, text=True,
-    )
 
 
 class OfflineFollowupTests(unittest.TestCase):
@@ -50,7 +43,7 @@ class OfflineFollowupTests(unittest.TestCase):
         self.assertDisposable(topo_render.cache_dir())
         png = BytesIO()
         Image.new("RGB", (2, 2)).save(png, format="PNG")
-        with patch.object(overlay, "urlopen", return_value=BytesIO(png.getvalue())):
+        with patch.object(overlay.urllib.request, "urlopen", return_value=BytesIO(png.getvalue())):
             self.assertEqual(overlay.fetch_raster("https://fixture.invalid/c67.png").size, (2, 2))
         with (
             patch.object(vector_prep.prep_cache, "_requested_geometry_sig", return_value=()),
@@ -67,6 +60,8 @@ class OfflineFollowupTests(unittest.TestCase):
     def test_default_batch_export_including_staging_is_disposable(self):
         # This root anchors relative_to() AND the otherwise hard-coded staging path.
         self.assertDisposable(batch.ROOT)
+        # geometry_sync / batch.main create the publish directories for the worker.
+        batch.HAZARD_ROOT.mkdir(parents=True, exist_ok=True)
         stages = []
 
         def fake_run(cmd, **kwargs):
@@ -90,16 +85,27 @@ class OfflineFollowupTests(unittest.TestCase):
         self.assertTrue(stages)
         self.assertFalse(stages[0].exists(), "batch staging was not cleaned")
 
+    def test_batch_exporter_child_can_import_sources_from_disposable_cwd(self):
+        ok, output = batch.run([
+            sys.executable, "-c",
+            "import os; from ai_caddie.geometry import measure_prodgeometry_distances as m; "
+            "print(os.getcwd()); print(m.__file__)",
+        ])
+        self.assertTrue(ok, output)
+        cwd, source = output.strip().splitlines()
+        self.assertEqual(Path(cwd), batch.ROOT)
+        self.assertTrue(Path(source).is_relative_to(ROOT))
+
     def test_default_decision_and_mobile_event_locks_are_disposable(self):
         from server_v2 import caddie, mobile
         self.assertDisposable(caddie.DECISION_LEDGER_ROOT)
         self.assertDisposable(mobile.MOBILE_ROOT)
         record = decision.store_decision({"decisionId": "c67-fixture", "sourceRef": "fixture-round:1"})
         self.assertEqual(record["decisionId"], "c67-fixture")
-        ledger = decision.decision_ledger_file(decision.evidence_root("owner"))
+        ledger = decision.decision_ledger_file(decision.evidence_root(disk.OWNER_ID))
         self.assertDisposable(ledger)
         self.assertTrue(ledger.exists())
-        for player in ("owner", "c67-member"):
+        for player in (disk.OWNER_ID, "c67-member"):
             self.assertDisposable(mobile_live.mobile_event_log(player_id=player))
             self.assertDisposable(mobile_live.mobile_event_ack_store(player_id=player))
             self.assertEqual(mobile_live.round_events("c67-empty", player_id=player), [])

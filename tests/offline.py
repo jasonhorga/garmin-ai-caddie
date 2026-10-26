@@ -5,6 +5,7 @@ test must opt in with ``allow_garmin_network``; the opt-in is local to its conte
 and does not enable background threads. Never use it with a real player account.
 """
 import atexit
+import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
@@ -87,13 +88,12 @@ def install():
         garmin_playwright_login._reexec_under_xvfb
     )
 
-    # Keep the actual repo ROOT intact for fixtures, scripts and root-resolution
-    # tests. A child directory also preserves batch export's relative_to(ROOT)
-    # path contract, while never reading/writing the repository's provider cache.
+    # Keep the actual repo ROOT intact for fixtures and root-resolution tests.
+    # SIGKILL can bypass cleanup, so disposable files must live outside the repo.
     from ai_caddie.core import data as disk
     ROOT = disk.ROOT
 
-    temporary = TemporaryDirectory(prefix=".test-cache-", dir=ROOT)
+    temporary = TemporaryDirectory(prefix=".test-cache-")
     atexit.register(temporary.cleanup)
     cache_root = Path(temporary.name)
     courseview = cache_root / "data" / "courseview"
@@ -136,3 +136,52 @@ def install():
     batch_prodgeometry_course.HAZARD_ROOT = disk.HAZARD_DIR
     batch_prodgeometry_course.SUMMARY_ROOT = cache_root / "output" / "prodgeometry_batch"
     garmin_raster.RASTER_CACHE_DIR = cache_root / "output" / "garmin_raster"
+
+    from ai_caddie.courses import vector_prep
+    from ai_caddie.geometry import overlay_prodgeometry_on_raster as overlay
+
+    overlay.RASTER_CACHE = cache_root / "output" / "hole_overlays"
+    overlay.OUT_DIR = cache_root / "output" / "prodgeometry_overlay"
+    vector_prep._CACHE_DIR = cache_root / "output" / "vector-prep"
+    os.environ["AI_CADDIE_TOPO_CACHE_DIR"] = str(cache_root / "output" / "topo_render_cache")
+
+    # batch's ROOT also anchors relative_to() and its hard-coded staging path.
+    # SCRIPT_DIR / DEFAULT_SNAPSHOT still point at the real source tree. Its
+    # Python exporter children run from this disposable cwd, so expose the source
+    # via PYTHONPATH rather than moving any production/fixture ROOT constants.
+    batch_prodgeometry_course.ROOT = cache_root
+    os.environ["PYTHONPATH"] = os.pathsep.join(
+        [str(ROOT), *filter(None, os.environ.get("PYTHONPATH", "").split(os.pathsep))]
+    )
+
+    from ai_caddie.caddie import decision, mobile_live
+
+    def disposable_root(root):
+        return cache_root if Path(root or ".").resolve() == ROOT else root
+
+    original_evidence_root = decision.evidence_root
+
+    @wraps(original_evidence_root)
+    def evidence_root(player_id, *, root=None):
+        return original_evidence_root(player_id, root=disposable_root(root))
+
+    decision.evidence_root = evidence_root
+
+    def redirect_mobile_path(function):
+        @wraps(function)
+        def path(root=None, **kwargs):
+            return function(disposable_root(root), **kwargs)
+        return path
+
+    mobile_live.mobile_event_log = redirect_mobile_path(mobile_live.mobile_event_log)
+    mobile_live.mobile_event_ack_store = redirect_mobile_path(mobile_live.mobile_event_ack_store)
+
+    # Set route defaults too: event-store locks and the cross-worker package lock
+    # use MOBILE_ROOT directly, while decision routes supply explicit roots.
+    from server_v2 import caddie, mobile
+
+    caddie.DECISION_LEDGER_ROOT = cache_root
+    caddie.DECISION_AUDIT_ROOT = cache_root
+    mobile.MOBILE_ROOT = cache_root
+    mobile.DECISION_LEDGER_ROOT = cache_root
+    mobile.DECISION_AUDIT_ROOT = cache_root
