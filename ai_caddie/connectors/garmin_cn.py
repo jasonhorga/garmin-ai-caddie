@@ -17,6 +17,7 @@ from ai_caddie.rounds.players import OWNER_ID
 
 from .base import ConnectorRunResult
 from .redaction import sanitize_secret_text
+from .session_material import read_session_material
 from .snapshot import (
     build_snapshot_manifest,
     write_connector_status,
@@ -178,14 +179,12 @@ class MemberGarminCnAuthProvider(GarminCnAuthProvider):
     def make_session(self, *, force_refresh_auth: bool):
         # force_refresh_auth is intentionally ignored — members have no stored creds to
         # re-mint with, and self-healing would mean using the owner's profile.
-        cookie_file = garmin_auth_module.COOKIE_FILE
-        csrf_file = garmin_auth_module.CSRF_FILE
-        cookie = cookie_file.read_text().strip() if cookie_file.exists() else ""
-        csrf = csrf_file.read_text().strip() if csrf_file.exists() else ""
-        if not cookie or not csrf:
+        pair = read_session_material(garmin_auth_module.TOKEN_DIR)
+        if pair is None:
             raise GarminAuthExpired(
                 "Garmin session missing or expired for this player. Re-bind your Garmin."
             )
+        cookie, csrf = pair
         auth = garmin_auth_module.GarminWebAuth(cookie, csrf, "member-cache", cookie.count("="))
         session = requests.Session()
         session.headers.update(garmin_auth_module.auth_headers(auth))
