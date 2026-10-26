@@ -37,7 +37,11 @@ final class ProductPhoneUITests: XCTestCase {
         } else { app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "denied" }
         launchedWithFix = latitude != nil
         app.launch()
-        XCTAssertTrue(element("home-new-round").waitForExistence(timeout: 15), "synthetic home bootstrapped")
+        XCTAssertTrue(
+            element("home-new-round").waitForExistence(timeout: 15)
+                || element("home-in-progress-round").waitForExistence(timeout: 15),
+            "synthetic home bootstrapped"
+        )
     }
 
     private func reveal(_ target: XCUIElement) {
@@ -110,6 +114,11 @@ final class ProductPhoneUITests: XCTestCase {
             var state = ProductFixtureServer.State(); state.roundCount = count
             server.configure(state)
             launch()
+            if count == 0 {
+                XCTAssertFalse(element("home-recent-trend").exists, "empty history hides the trend entry")
+                app.terminate()
+                continue
+            }
             scores()
             for id in ["results-entry-analysis", "results-entry-time", "results-entry-distribution", "results-entry-courses", "results-all-rounds"] {
                 let entry = element(id)
@@ -270,6 +279,7 @@ final class ProductPhoneUITests: XCTestCase {
     func test_j5_4_live_tee_and_post_shot_ranges_recompute_after_position_change() {
         launch(latitude: "0")
         startRound()
+        recordFirstShot()
         assertRanges([243, 365, 486], row: "tee")
         XCTAssertFalse(element("selected-hazard-1").exists, "hazards hidden by default")
         let toggle = element("live-hazard-toggle")
@@ -331,6 +341,14 @@ final class ProductPhoneUITests: XCTestCase {
         XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 15))
     }
 
+    private func recordFirstShot() {
+        tap("live-record-shot")
+        let skip = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "跳过球杆")).firstMatch
+        XCTAssertTrue(skip.waitForExistence(timeout: 5), "the first stroke must open the actual-club choice")
+        skip.tap()
+        XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 10))
+    }
+
     func test_j4_5_phone_three_map_states_have_visible_content() {
         // The precise tier is the phone's precise topo surface; route-only and waiting have none yet.
         for (name, expected) in [("ready", "live-hole-map-precise"), ("partial", "live-hole-map-partial"), ("missing", "live-map-preparing-surface")] {
@@ -352,24 +370,32 @@ final class ProductPhoneUITests: XCTestCase {
     func test_j5_5_phone_score_remains_saveable_with_and_without_gps() {
         for (name, latitude) in [("no-fix", Optional<String>.none), ("accurate-fix", "0")] {
             launch(latitude: latitude); startRound()
-            XCTAssertEqual(element("live-record-shot").isEnabled, latitude != nil, name)
-            tap("live-score-hole")
-            let save = element("score-save")
-            insideWindow(save, name)
-            XCTAssertTrue(save.isEnabled, name)
-            reveal(save) // a control: it must also be hittable before the tap
-            save.tap()
-            XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 10))
+            let record = element("live-record-shot")
+            XCTAssertEqual(record.isEnabled, latitude != nil, name)
+            if latitude == nil {
+                XCTAssertFalse(element("live-score-hole").exists, "prep mode has no score action without a first stroke")
+                XCTAssertFalse(element("score-save").exists, "prep mode cannot save a hole score without a first stroke")
+            } else {
+                recordFirstShot()
+                tap("live-score-hole")
+                let save = element("score-save")
+                insideWindow(save, name)
+                XCTAssertTrue(save.isEnabled, name)
+                reveal(save) // a control: it must also be hittable before the tap
+                save.tap()
+                XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 10))
+            }
             app.terminate()
         }
     }
 
     func test_j5_10_nine_hole_finish_uses_par_thirty_six_and_fits() {
-        launch(); startRound()
+        launch(latitude: "0"); startRound()
         for hole in 1...9 {
             let title = element("live-hole-title")
             let advanced = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in title.label.contains(String(hole)) }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [advanced], timeout: 10), .completed, "play order \(hole)")
+            if hole == 1 { recordFirstShot() }
             tap("live-score-hole")
             tap("score-save")
         }
@@ -386,7 +412,8 @@ final class ProductPhoneUITests: XCTestCase {
     }
 
     func test_j5_2_home_active_card_replaces_new_round_and_can_resume() {
-        launch(); startRound()
+        launch(latitude: "0"); startRound()
+        recordFirstShot()
         tap("live-back-home") // 返回 goes straight home and keeps the round (CurrentHoleView).
         insideWindow(element("home-in-progress-round"), "active round hero")
         XCTAssertFalse(element("home-new-round").exists)

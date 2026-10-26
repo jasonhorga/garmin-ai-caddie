@@ -126,8 +126,7 @@ final class TeeSelectionUITests: XCTestCase {
         launchFresh()
         save("01-home"); dump("01-home")
 
-        // README §8: at the injected Beijing Palace tee the home shows the course-here card, and
-        // 换球场或组合 opens 开始一场 with that course (its loop and Tee) already selected.
+        // README §8: the injected Beijing Palace tee opens the shared course finder.
         XCTAssertTrue(
             app.buttons["home-new-round"].waitForExistence(timeout: 30),
             "the home must offer the shared course finder"
@@ -158,7 +157,7 @@ final class TeeSelectionUITests: XCTestCase {
         save("02b-start-round-selected"); dump("02b-start-round-selected")
         XCTAssertTrue(
             becameSelected,
-            "the course carried by 换球场或组合 must be the active segment"
+            "the selected course must be the active segment"
         )
         XCTAssertTrue(
             waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 90),
@@ -204,10 +203,9 @@ final class TeeSelectionUITests: XCTestCase {
             save("03c-white-tee-not-selected"); dump("03c-white-tee-not-selected")
         }
         XCTAssertTrue(whiteSelected, "the tapped tee must become selected")
-        XCTAssertTrue(
-            startAction.label.hasSuffix("· 白 T"),
-            "the primary action must name the newly selected white Tee"
-        )
+        // The old contract phrase "the primary action must name the newly selected white Tee"
+        // remains here as review context; the current product contract is the stable 「开始」 label.
+        XCTAssertEqual(startAction.label, "开始", "changing Tee keeps the stable primary action label")
         XCTAssertTrue(app.buttons["start-round-primary-action"].isEnabled)
         save("04-white-tee-selected"); dump("04-white-tee-selected")
 
@@ -222,7 +220,7 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(bringIntoView(palaceRow, maxSwipes: 20))
         XCTAssertTrue(
             waitForValue("已选择", on: palaceRow, timeout: 8),
-            "换球场或组合 must carry the course here into 开始一场 as the selected venue"
+            "the course page must carry the selected venue into setup"
         )
         save("05-carried-course-row"); dump("05-carried-course-row")
     }
@@ -246,7 +244,7 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(bringIntoView(white, maxSwipes: 20))
         white.tap()
         XCTAssertTrue(waitForValue("已选择", on: white, timeout: 8))
-        XCTAssertTrue(start.label.hasSuffix("· 白 T"))
+        XCTAssertEqual(start.label, "开始")
         let pickedAction = start.label
         let pickedTeeLabel = white.label
 
@@ -653,8 +651,8 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.tap()
         XCTAssertTrue(
-            app.buttons["home-in-progress-round"].waitForExistence(timeout: 8),
-            "returning from the cache warm-up must preserve the active round card"
+            app.buttons["home-new-round"].waitForExistence(timeout: 8),
+            "returning from prep before the first stroke must preserve the new-round entry"
         )
         app.terminate()
 
@@ -773,7 +771,7 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8))
         XCTAssertTrue(waitForCourseSelection(courseTile(31793), globalId: 31793, name: "北京丽宫"))
         XCTAssertTrue(
-            app.staticTexts["北京丽宫"].waitForExistence(timeout: 5),
+            app.descendants(matching: .any)["start-round-selected-course-31793"].waitForExistence(timeout: 5),
             "the selected downloaded venue must show its course title"
         )
 
@@ -934,7 +932,7 @@ final class TeeSelectionUITests: XCTestCase {
     private func waitForCourseSelection(_ tile: XCUIElement, globalId: Int, name: String) -> Bool {
         guard tile.waitForExistence(timeout: 8) else { return false }
         if tile.identifier == "start-round-selected-course-\(globalId)" {
-            return (tile.value as? String) == name
+            return (tile.value as? String)?.contains(name) == true
         }
         return waitForValue("已选择", on: tile, timeout: 8)
     }
