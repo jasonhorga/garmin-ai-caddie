@@ -76,6 +76,38 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("c99-whole-course-prep-first-hole"); dump("c99-whole-course-prep-first-hole")
     }
 
+    /// The same whole-course prep package must allow a player standing on hole 10 to start there;
+    /// no front-nine cursor is persisted before the first stroke.
+    func testWholeCourseBackNineStartsFromFirstStrokeJourney() throws {
+        app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
+        app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
+        app.launchEnvironment["UITEST_RESET_COURSE_LIBRARY"] = "1"
+        launchFresh()
+        app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
+        app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
+
+        XCTAssertTrue(openStartRound())
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        let course = selectStartCourse(approvedJourneyCourseGlobalId)
+        XCTAssertTrue(course.waitForExistence(timeout: 8))
+        let start = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(waitUntilEnabled(start, timeout: 90))
+        start.tap()
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 90))
+
+        let map = app.descendants(matching: .any)["live-open-map-from-hero"]
+        for _ in 1...9 {
+            XCTAssertTrue(map.waitForExistence(timeout: 15) && map.isHittable)
+            map.swipeLeft()
+        }
+        XCTAssertTrue(app.staticTexts["第 10 洞"].waitForExistence(timeout: 30))
+        let record = app.buttons["live-record-shot"]
+        XCTAssertTrue(record.waitForExistence(timeout: 10) && record.isHittable)
+        record.tap()
+        XCTAssertTrue(app.buttons["live-undo-round-start"].waitForExistence(timeout: 15))
+        settle(1); save("c99-whole-course-prep-back-nine"); dump("c99-whole-course-prep-back-nine")
+    }
+
     /// C30 rework-3 evidence: the prep surface promotes in place, can be undone in place, and
     /// remains on the picker when a hole-priority refresh completes after Back.
     func testC30PrepReworkJourney() throws {
@@ -88,6 +120,10 @@ final class RealFlowUITests: XCTestCase {
 
         XCTAssertTrue(openStartRound())
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        let openSearch = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20))
+        openSearch.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
         let query = app.textFields["course-catalog-keyword-field"]
         XCTAssertTrue(scrollTo(query, maxSwipes: 8))
         query.tap()
@@ -99,6 +135,10 @@ final class RealFlowUITests: XCTestCase {
         let result = app.buttons["course-catalog-result-\(approvedJourneyCourseGlobalId)"]
         XCTAssertTrue(scrollTo(result, maxSwipes: 30))
         result.tap()
+        let start = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(start.waitForExistence(timeout: 12))
+        XCTAssertTrue(waitUntilEnabled(start, timeout: 90))
+        start.tap()
         XCTAssertTrue(app.descendants(matching: .any)["live-round-banner"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 20))
         settle(1); save("c30-prep-before-start"); dump("c30-prep-before-start")
@@ -127,6 +167,8 @@ final class RealFlowUITests: XCTestCase {
         let back = app.buttons["live-back-home"]
         XCTAssertTrue(back.waitForExistence(timeout: 8) && back.isHittable)
         back.tap()
+        XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 10))
+        app.buttons["home-new-round"].tap()
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 10))
         settle(1); save("c30-prep-back-picker"); dump("c30-prep-back-picker")
         // Let the asynchronous priority response settle; it must update facts only and never push
@@ -511,9 +553,12 @@ final class RealFlowUITests: XCTestCase {
             "start-round-offline-row-\(approvedJourneyCourseGlobalId):"
         )).firstMatch
         XCTAssertTrue(scrollTo(retainedDownload, maxSwipes: 12))
-        let retainedStatus = retainedDownload.label + " " + ((retainedDownload.value as? String) ?? "")
+        let retainedStatus = app.staticTexts.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "start-round-offline-status-\(approvedJourneyCourseGlobalId):"
+        )).firstMatch
         XCTAssertTrue(
-            ["下载", "准备", "失败", "已下载"].contains(where: { retainedStatus.contains($0) }),
+            retainedStatus.waitForExistence(timeout: 8)
+                && ["下载", "准备", "失败", "已下载"].contains(where: { retainedStatus.label.contains($0) }),
             "the start-page offline row must show its download state"
         )
         settle(1); save("06b-prep-download-retained"); dump("06b-prep-download-retained")
@@ -528,7 +573,10 @@ final class RealFlowUITests: XCTestCase {
             "start-round-offline-row-\(approvedJourneyCourseGlobalId):"
         )).firstMatch
         XCTAssertTrue(scrollTo(relaunchedDownload, maxSwipes: 12))
-        XCTAssertTrue(waitForText("已下载", in: relaunchedDownload, timeout: 240))
+        let relaunchedStatus = app.staticTexts.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "start-round-offline-status-\(approvedJourneyCourseGlobalId):"
+        )).firstMatch
+        XCTAssertTrue(waitForText("已下载", in: relaunchedStatus, timeout: 240))
         let relaunchedCourse = selectStartCourse(approvedJourneyCourseGlobalId)
         XCTAssertTrue(relaunchedCourse.exists)
         let relaunchedStart = app.buttons["start-round-primary-action"]
@@ -1783,7 +1831,7 @@ final class RealFlowUITests: XCTestCase {
             entry.tap()
             return true
         }
-        return tapContaining(["换球场或组合", "今天去哪打"])
+        return false
     }
 
     private func showStartCoursePage() {

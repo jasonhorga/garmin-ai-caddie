@@ -74,6 +74,10 @@ final class PrepDegradationUITests: XCTestCase {
         XCTAssertTrue(newRound.waitForExistence(timeout: 30), "home must expose a new-round entry")
         newRound.tap()
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        let openSearch = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(scrollIntoView(openSearch, maxSwipes: 20), "start page must expose catalogue search")
+        openSearch.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
         let keyword = app.textFields["course-catalog-keyword-field"]
         XCTAssertTrue(keyword.waitForExistence(timeout: 5))
         keyword.tap()
@@ -112,11 +116,11 @@ final class PrepDegradationUITests: XCTestCase {
             format: "identifier BEGINSWITH %@", "start-round-offline-row-\(degradedCourseGlobalId):"
         )).firstMatch
         XCTAssertTrue(scrollIntoView(retained, maxSwipes: 12), "the selection stays in the start-page download section")
-        let retainedStatus = retained.label + " " + ((retained.value as? String) ?? "")
-        XCTAssertTrue(
-            ["下载", "准备", "失败", "已下载"].contains(where: { retainedStatus.contains($0) }),
-            "the offline row must expose its current download state"
-        )
+        let status = app.staticTexts.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "start-round-offline-status-\(degradedCourseGlobalId):"
+        )).firstMatch
+        XCTAssertTrue(status.waitForExistence(timeout: 8))
+        XCTAssertTrue(["下载", "准备", "失败", "已下载"].contains(where: { status.label.contains($0) }))
         save("b4c-02-library-retained")
     }
 

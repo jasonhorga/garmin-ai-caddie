@@ -1052,17 +1052,12 @@ final class TeeSelectionUITests: XCTestCase {
     /// The single home play entry opens the course finder; shortcut chips use the course page directly.
     @discardableResult
     private func openStartRound() -> Bool {
-        let change = app.buttons["home-new-round"]
-        if change.waitForExistence(timeout: 4), change.isHittable {
-            change.tap()
-            return true
-        }
         let entry = app.buttons["home-new-round"]
         if entry.waitForExistence(timeout: 4), entry.isHittable {
             entry.tap()
             return true
         }
-        return tapContaining(["换球场或组合", "今天去哪打"])
+        return false
     }
 
     /// Keep the no-GPS interaction journey isolated from the next UI test. This follows the same
