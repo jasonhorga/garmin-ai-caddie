@@ -4203,6 +4203,15 @@ def build_live_round_package_for_course(
         segment_holes=provider_holes,
     )
     front_package["course"] = front_course
+    front_package["venueLoops"] = _venue_loops_for_package(
+        int(global_id),
+        venue_name=front_course.get("venueName") or front_course.get("name"),
+        segment_label=front_course.get("segmentLabel"),
+        holes=list(front_package.get("holes") or []),
+        latitude=next((h.get("teeLatitude") for h in front_package.get("holes") or [] if isinstance(h, dict)), None),
+        longitude=next((h.get("teeLongitude") for h in front_package.get("holes") or [] if isinstance(h, dict)), None),
+        include_current=is_loop_cap,
+    )
     if is_loop_cap:
         # A 9-hole loop is a complete round in itself, not "the front of an 18" — label it "all"
         # so the app offers "加打另一个9洞" (a second loop) rather than a front/back toggle.
@@ -4223,6 +4232,7 @@ def _venue_loops_for_package(
     holes: list[dict[str, Any]],
     latitude: float | None = None,
     longitude: float | None = None,
+    include_current: bool = True,
 ) -> list[dict[str, Any]]:
     """Return the CourseView nine-hole directory for a package's physical venue."""
     target_venue = normalize_course_text(venue_name).casefold()
@@ -4300,7 +4310,7 @@ def _venue_loops_for_package(
         except Exception:
             current_label = None
     current_display = f"{current_name} ~ {current_label}" if current_label else current_name
-    if len(holes) == ROUND_LOOP_HOLES:
+    if include_current and len(holes) == ROUND_LOOP_HOLES:
         add(int(global_id), current_display, current_label, ROUND_LOOP_HOLES, current_par)
     return sorted(rows.values(), key=lambda row: (row.get("segmentLabel") or "~~", row["globalId"]))
 
