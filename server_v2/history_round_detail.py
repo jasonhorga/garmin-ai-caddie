@@ -9,7 +9,6 @@ from ai_caddie.rounds.round_shot_map import build_round_hole_shot_map
 from ai_caddie.reports import annotations as report_annotations
 
 from .data_source import load_history_data_for_mode
-from . import annotations
 from .models import HistoryRoundDetailResponse, RoundHoleShotMapResponse
 
 
