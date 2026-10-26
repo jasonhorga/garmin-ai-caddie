@@ -740,8 +740,8 @@ public struct RoundHoleShotMapScreen: View {
         .preferredColorScheme(.dark)
         .toolbar(.hidden, for: .navigationBar)
         .task(id: hole) { await load() }
-        .onChange(of: scoreRow?.putts) { _, putts in
-            editModel?.adoptRecordedPutts(putts)
+        .onChange(of: scoreRow) { _, row in
+            editModel?.adoptRecordedScorecard(score: row?.score, putts: row?.putts)
         }
         .onDisappear {
             guard isEditing else { return }
