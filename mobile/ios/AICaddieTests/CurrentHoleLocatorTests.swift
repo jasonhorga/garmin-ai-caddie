@@ -27,13 +27,18 @@ final class CurrentHoleLocatorTests: XCTestCase {
 
     func testCorridorTieUsesPackageOrder() {
         let holes = [
-            HoleLocatorGeometry(hole: 5, tee: coordinate(40, 116), green: coordinate(40.001, 116.001)),
-            HoleLocatorGeometry(hole: 6, tee: coordinate(40, 116.002), green: coordinate(40.001, 116.003)),
+            HoleLocatorGeometry(hole: 5, tee: coordinate(40, 115.9995), green: coordinate(40.001, 115.99975)),
+            HoleLocatorGeometry(hole: 6, tee: coordinate(40, 116.0005), green: coordinate(40.001, 116.00025)),
         ]
         let result = CurrentHoleLocator.locate(
-            coordinate: coordinate(40.0005, 116.0015), horizontalAccuracyM: 5, holes: holes
+            coordinate: coordinate(40.0005, 116), horizontalAccuracyM: 5, holes: holes
         )
         XCTAssertEqual(result, .onHole(5))
+
+        let reversed = CurrentHoleLocator.locate(
+            coordinate: coordinate(40.0005, 116), horizontalAccuracyM: 5, holes: Array(holes.reversed())
+        )
+        XCTAssertEqual(reversed, .onHole(6))
     }
 
     func testFairwayOutlineSelectsHoleAwayFromStraightCorridor() {
