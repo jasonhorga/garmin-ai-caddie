@@ -1007,15 +1007,15 @@ final class WatchDesignSnapshotTests: XCTestCase {
 
         XCTAssertEqual(
             view.loopChoices.map(\.title),
-            ["A 场 + A 场", "A 场 + B 场", "A 场 + C 场", "只打A 场", "只打B 场", "只打C 场"]
+            ["A 场", "B 场", "C 场"]
         )
-        XCTAssertEqual(view.loopChoices.map(\.detail), ["18 洞", "18 洞", "18 洞", "9 洞", "9 洞", "9 洞"])
-        XCTAssertEqual(view.loopChoices.map(\.isSelected), [false, false, false, true, false, false])
+        XCTAssertEqual(view.loopChoices.map(\.detail), ["9 洞", "9 洞", "9 洞"])
+        XCTAssertEqual(view.loopChoices.map(\.isSelected), [true, false, false])
         XCTAssertEqual(view.initialStage, .holes)
     }
 
     @MainActor
-    func testRoundSetupOffersApprovedFullFrontAndBackChoicesForACompletePair() {
+    func testRoundSetupOffersOnlyFirstLoopChoicesForACompletePair() {
         let front = WatchCourseOption(
             globalId: 301,
             name: "黑骑士 ~ A",
@@ -1038,9 +1038,9 @@ final class WatchDesignSnapshotTests: XCTestCase {
         )
         let view = WatchRoundSetupView(front: front, courses: [front, back])
 
-        XCTAssertEqual(view.loopChoices.map(\.title), ["A 场 + A 场", "A 场 + B 场", "只打A 场", "只打B 场"])
-        XCTAssertEqual(view.loopChoices.map(\.detail), ["18 洞", "18 洞", "9 洞", "9 洞"])
-        XCTAssertEqual(view.loopChoices.map(\.isSelected), [false, false, true, false])
+        XCTAssertEqual(view.loopChoices.map(\.title), ["A 场", "B 场"])
+        XCTAssertEqual(view.loopChoices.map(\.detail), ["9 洞", "9 洞"])
+        XCTAssertEqual(view.loopChoices.map(\.isSelected), [true, false])
     }
 
     @MainActor
@@ -1058,8 +1058,8 @@ final class WatchDesignSnapshotTests: XCTestCase {
         let view = WatchRoundSetupView(front: front, courses: [front])
 
         XCTAssertEqual(view.initialStage, .holes)
-        XCTAssertEqual(view.loopChoices.map(\.title), ["全 18 洞", "只打 9 洞"])
-        XCTAssertEqual(view.loopChoices.map(\.detail), ["同一球场打两轮", "A 场"])
+        XCTAssertEqual(view.loopChoices.map(\.title), ["A 场"])
+        XCTAssertEqual(view.loopChoices.map(\.detail), ["9 洞"])
         XCTAssertEqual(view.teeChoices.map(\.title), ["蓝 T", "白 T"])
         XCTAssertEqual(view.teeChoices.map(\.detail), ["码数未知", "码数未知"])
         XCTAssertEqual(view.teeChoices.map(\.isSelected), [true, false])
