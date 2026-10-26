@@ -5,7 +5,7 @@ import SwiftUI
 /// 球局主页(Hub)— README §8 / `pre-round.html` 第 1 屏:最大一块主卡随情况变(进行中 =
 /// “继续第 N 洞”;有上次/已知球场 = 该球场 + 上次的第一个环和发球台 + “开始”;都没有 = 搜索),
 /// 备战 · 成绩磁贴、上一场速览(18 洞记分符号条)。灰底圆角白卡(ScrollView),保留导航接线(实战逐洞、
-/// 赛前攻略、历史复盘、Garmin 账号)。Garmin 同步状态只在设置里,首页不写。
+/// 备战洞屏、历史复盘、Garmin 账号)。Garmin 同步状态只在设置里,首页不写。
 /// 表现型卡片组件(Hub*)纯输入,供 CI 设计快照复用。
 /// Hub navigation routes driven by a path, so the app can jump straight into the live hole after
 /// 开始记分 (instead of bouncing back to the Hub). 备战/复盘 stay simple leaf links.
@@ -14,6 +14,8 @@ public enum HubRoute: Hashable {
     /// 开始一场 with the home card's course (and its last tee) preselected.
     case startCourse(globalId: Int, teeBox: String?)
     case hole(Int)
+    /// 备战: pick a course; it opens on the hole screen (`.hole`) without a round.
+    case prep
     case history
     case roundReview(roundRef: String, courseName: String?, globalId: Int?, backGlobalId: Int?, nine: String?, teeBox: String?)
 }
@@ -29,6 +31,23 @@ enum LiveHoleRouteReconciliation {
             return restoredActiveHole
         }
         return packageHoles.first
+    }
+}
+
+enum LiveHoleRoutePath {
+    static func afterAdvance(current: [HubRoute], nextHole: Int, isPrepMode: Bool) -> [HubRoute] {
+        guard isPrepMode, current.first == .prep else { return [.hole(nextHole)] }
+        return [.prep, .hole(nextHole)]
+    }
+
+    static func forPendingHole(current: [HubRoute], hole: Int, isPrepMode: Bool) -> [HubRoute] {
+        if isPrepMode { return [.prep, .hole(hole)] }
+        return [.hole(hole)]
+    }
+
+    static func afterPrepPackageRefresh(current: [HubRoute], pendingHole: Int?) -> [HubRoute] {
+        guard let pendingHole else { return current }
+        return forPendingHole(current: current, hole: pendingHole, isPrepMode: true)
     }
 }
 
@@ -110,6 +129,18 @@ public struct RoundHomeView: View {
     public let onConsumePendingLiveHole: () -> Void
     public let onLiveHoleInitialLoadDidFinish: () -> Void
     public let onLiveAppearanceChanged: (Bool) -> Void
+    /// 备战 on the hole screen: the course package shown while no round exists (memory only).
+    public let prepPackage: LiveRoundPackage?
+    public let prepTeeOptions: [String]
+    public let isOpeningPrepCourse: Bool
+    /// Open a 备战 course on the hole screen; false when a round is in progress.
+    public let onOpenPrepCourse: (MobileCourseOption) -> Bool
+    public let onPrepHoleChanged: (Int) -> Void
+    public let onClosePrep: () -> Void
+    public let onChangePrepTee: (String, Int?) -> Void
+    /// The first stroke inside a hole's area starts the round there; false when it could not.
+    public let onStartRoundFromFirstStroke: (Int) -> Bool
+    public let onUndoRoundStart: () -> Void
 
     @State private var showSettings = false
     /// The in-progress card's 结束: the same finish page as the live map's 结束本场.
@@ -117,6 +148,9 @@ public struct RoundHomeView: View {
     @State private var pendingHomeDiscard = false
     @State private var showHomeDiscardConfirmation = false
     @State private var path: [HubRoute] = []
+    /// The last GPS-resolved prep hole lives above `CurrentHoleView`, so recreating a destination
+    /// after a manual hole preview does not mistake the same fix for a new location.
+    @State private var prepHoleFollowing = PrepHoleFollowingState()
     /// The last round's 18-hole symbol strip, from the cached round archive (empty when unknown).
     @State private var lastRoundStrip: [HistoryScoreCell] = []
     /// README §8 "在球场附近": the home's own fix (never a permission prompt here — the start
@@ -190,6 +224,15 @@ public struct RoundHomeView: View {
         onConsumePendingLiveHole: @escaping () -> Void = {},
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
         onLiveAppearanceChanged: @escaping (Bool) -> Void = { _ in },
+        prepPackage: LiveRoundPackage? = nil,
+        prepTeeOptions: [String] = [],
+        isOpeningPrepCourse: Bool = false,
+        onOpenPrepCourse: @escaping (MobileCourseOption) -> Bool = { _ in false },
+        onPrepHoleChanged: @escaping (Int) -> Void = { _ in },
+        onClosePrep: @escaping () -> Void = {},
+        onChangePrepTee: @escaping (String, Int?) -> Void = { _, _ in },
+        onStartRoundFromFirstStroke: @escaping (Int) -> Bool = { _ in false },
+        onUndoRoundStart: @escaping () -> Void = {},
         heroLocationProvider: LocationProvider? = nil,
         initialHeroNearbyOptions: [MobileCourseOption] = []
     ) {
@@ -257,6 +300,15 @@ public struct RoundHomeView: View {
         self.onConsumePendingLiveHole = onConsumePendingLiveHole
         self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
         self.onLiveAppearanceChanged = onLiveAppearanceChanged
+        self.prepPackage = prepPackage
+        self.prepTeeOptions = prepTeeOptions
+        self.isOpeningPrepCourse = isOpeningPrepCourse
+        self.onOpenPrepCourse = onOpenPrepCourse
+        self.onPrepHoleChanged = onPrepHoleChanged
+        self.onClosePrep = onClosePrep
+        self.onChangePrepTee = onChangePrepTee
+        self.onStartRoundFromFirstStroke = onStartRoundFromFirstStroke
+        self.onUndoRoundStart = onUndoRoundStart
         #if DEBUG
         let environment = ProcessInfo.processInfo.environment
         if environment["UITEST_MODE"] == "1",
@@ -315,6 +367,8 @@ public struct RoundHomeView: View {
                     startRoundView(globalId: globalId, teeBox: teeBox)
                 case .hole(let number):
                     currentHoleView(number)
+                case .prep:
+                    prepCoursePickerView()
                 case .history:
                     if let package {
                         RecentRoundReviewView(
@@ -427,9 +481,32 @@ public struct RoundHomeView: View {
             enterPendingLiveHole(hole)
         }
         .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
-            if previousRoundId != nil, currentRoundId == nil {
+            // The first stroke promotes the memory-only prep package to a live round while the
+            // current hole destination is still visible. Drop the picker route immediately so
+            // Back leaves the live hole screen instead of returning to the prep picker.
+            if previousRoundId == nil, currentRoundId != nil,
+               path.first == .prep,
+               let hole = liveRoundState?.activeHole ?? pendingLiveHole {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    path = [.hole(hole)]
+                }
+            }
+            // 撤销开打 ends the round but keeps the hole screen, back in 备战.
+            if previousRoundId != nil, currentRoundId == nil, prepPackage == nil {
                 path = []
             }
+        }
+        .onChange(of: prepPackage?.roundId) { previousRoundID, roundId in
+            if previousRoundID != roundId {
+                prepHoleFollowing.reset()
+            }
+            guard liveRoundState == nil, roundId != nil else { return }
+            path = LiveHoleRoutePath.afterPrepPackageRefresh(
+                current: path,
+                pendingHole: pendingLiveHole ?? prepPackage?.holes.first?.number
+            )
         }
         .onChange(of: package?.holeSetIdentity) { _, _ in
             reconcileLiveHoleRouteWithPackage()
@@ -439,6 +516,11 @@ public struct RoundHomeView: View {
         }
         .onChange(of: path) { _, routes in
             onLiveAppearanceChanged(Self.isLiveHoleRoute(routes.last))
+            // Leaving the picker or the hole screen before the first stroke drops 备战 (and any
+            // course still opening): nothing was recorded, so there is nothing to keep.
+            if liveRoundState == nil, !routes.contains(where: Self.isPrepOrHoleRoute) {
+                onClosePrep()
+            }
         }
         .onAppear {
             #if DEBUG
@@ -459,6 +541,13 @@ public struct RoundHomeView: View {
     private static func isLiveHoleRoute(_ route: HubRoute?) -> Bool {
         guard case .hole = route else { return false }
         return true
+    }
+
+    private static func isPrepOrHoleRoute(_ route: HubRoute) -> Bool {
+        switch route {
+        case .prep, .hole: return true
+        default: return false
+        }
     }
 
     /// Adding/removing a physical nine changes the destination's valid hole set without ending the
@@ -486,7 +575,11 @@ public struct RoundHomeView: View {
             "round-home.enter.begin hole=\(hole) course=\(package?.course.globalId ?? -1)"
         )
         #endif
-        path = [.hole(hole)]
+        path = LiveHoleRoutePath.forPendingHole(
+            current: path,
+            hole: hole,
+            isPrepMode: prepPackage != nil
+        )
         onConsumePendingLiveHole()
         #if DEBUG
         UITestEventLatencyTrace.record(
@@ -495,13 +588,26 @@ public struct RoundHomeView: View {
         #endif
     }
 
+    /// The hole screen's package: the live round's, else the 备战 course's, else the home package.
+    private var holeScreenPackage: LiveRoundPackage? {
+        if liveRoundState == nil, let prepPackage { return prepPackage }
+        return package
+    }
+
+    /// Before the first stroke nothing is a round: hole changes only move the screen (no cursor is
+    /// saved) and the Watch is not told about a course the player is only looking at.
+    private var isPrepHoleScreen: Bool {
+        liveRoundState == nil && prepPackage != nil
+    }
+
     @ViewBuilder private func currentHoleView(_ number: Int) -> some View {
-        if let package, let hole = package.holes.first(where: { $0.number == number }) {
+        if let package = holeScreenPackage, let hole = package.holes.first(where: { $0.number == number }) {
             // round-11: forward the round-management closures so 球局调整(加打/减九洞/结束本场)lives
             // inside the in-progress screen instead of the Hub.
             CurrentHoleView(
                 package: package, hole: hole, caddieBaseURL: apiBaseURL, adminToken: adminToken,
-                offlineStore: offlineStore, watchBridge: watchBridge, liveRoundState: liveRoundState,
+                offlineStore: offlineStore, watchBridge: isPrepHoleScreen ? nil : watchBridge,
+                liveRoundState: liveRoundState,
                 // Network catalogue + installed templates: the turn's loops must resolve offline too.
                 courseOptions: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions),
                 isPreparingRound: isPreparingRound,
@@ -511,11 +617,31 @@ public struct RoundHomeView: View {
                 onContinueIntoSecondLoop: onContinueIntoSecondLoop, onFinishRound: onFinishRound,
                 onDiscardRound: onDiscardRound,
                 onAdvanceHole: { next in
-                    onSetActiveHole(next)
-                    path = [.hole(next)]
+                    if !isPrepHoleScreen {
+                        onSetActiveHole(next)
+                    } else {
+                        onPrepHoleChanged(next)
+                    }
+                    path = LiveHoleRoutePath.afterAdvance(
+                        current: path,
+                        nextHole: next,
+                        isPrepMode: isPrepHoleScreen
+                    )
+                },
+                onPrepLocationChanged: { locatedHole, displayedHole in
+                    guard isPrepHoleScreen else { return nil }
+                    return prepHoleFollowing.navigationTarget(
+                        currentLocatedHole: locatedHole,
+                        displayedHole: displayedHole
+                    )
                 },
                 onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish,
                 onRetainReadyHolePrep: onRetainReadyHolePrep,
+                isPrepMode: isPrepHoleScreen,
+                prepTeeOptions: prepTeeOptions,
+                onStartRoundFromFirstStroke: onStartRoundFromFirstStroke,
+                onUndoRoundStart: onUndoRoundStart,
+                onChangePrepTee: onChangePrepTee,
                 onEvent: onEvent
             )
             // A hole owns its score/club/map/GPS presentation state and scroll position. NavigationStack
@@ -532,6 +658,26 @@ public struct RoundHomeView: View {
             // the outgoing destination then left NavigationStack on the old hole (live Native
             // 37126990984). Changing or removing the second loop still re-identifies holes 10–18.
             .id("\(package.roundId):\(hole.number):\(hole.sourceGlobalId):\(hole.sourceLocalHole)")
+        }
+    }
+
+    /// 备战者已有目的地：直接名称搜索，不走现场 GPS 选场。The chosen course opens on the hole screen.
+    @ViewBuilder private func prepCoursePickerView() -> some View {
+        if let apiBaseURL {
+            PrepCoursePickerView(
+                courseOptions: courseOptions,
+                downloadedCourseOptions: downloadedCourseOptions,
+                downloadedCourseKeys: downloadedCourseKeys,
+                downloads: prepCourseDownloads,
+                downloadPresentation: prepCourseDownloadPresentation,
+                apiBaseURL: apiBaseURL,
+                adminToken: adminToken,
+                isOpeningCourse: isOpeningPrepCourse,
+                onDownload: onDownloadPrepCourse,
+                onRetryDownload: onRetryPrepCourseDownload,
+                onValidateReadyDownload: onValidateReadyPrepCourse,
+                onOpenCourse: onOpenPrepCourse
+            )
         }
     }
 
@@ -771,24 +917,9 @@ public struct RoundHomeView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home-tile-scores")
-                if let apiBaseURL {
-                    NavigationLink {
-                        // 备战者已有目的地：直接名称搜索，不走现场 GPS 选场。
-                        PrepCoursePickerView(
-                            courseOptions: courseOptions,
-                            downloadedCourseOptions: downloadedCourseOptions,
-                            downloadedCourseKeys: downloadedCourseKeys,
-                            downloads: prepCourseDownloads,
-                            downloadPresentation: prepCourseDownloadPresentation,
-                            apiBaseURL: apiBaseURL,
-                            adminToken: adminToken,
-                            offlineStore: offlineStore,
-                            onDownload: onDownloadPrepCourse,
-                            onRetryDownload: onRetryPrepCourseDownload,
-                            onValidateReadyDownload: onValidateReadyPrepCourse,
-                            onLoadCourseTees: onLoadCourseTees
-                        )
-                    } label: {
+                if apiBaseURL != nil {
+                    // A path route, so choosing a course can replace the picker with the hole screen.
+                    NavigationLink(value: HubRoute.prep) {
                         HubPrepTile(downloadedCount: downloadedCourseOptions.count)
                     }
                     .buttonStyle(.plain)

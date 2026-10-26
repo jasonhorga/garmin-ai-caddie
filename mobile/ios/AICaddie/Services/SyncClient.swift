@@ -649,7 +649,7 @@ public final class SyncClient {
     }
 
     /// The round's ordered loops (`loops=`): one or two entries, the first on `globalId`.
-    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, includeEventCursor: Bool = true, foregroundStart: Bool = false, requestKind: PackageRequestKind? = nil) async throws -> LiveRoundPackage {
+    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, includeEventCursor: Bool = true, foregroundStart: Bool = false, requestKind: PackageRequestKind? = nil, priorityHole: Int? = nil) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
             resolvingAgainstBaseURL: false
@@ -666,6 +666,9 @@ public final class SyncClient {
             URLQueryItem(name: "background_geometry", value: backgroundGeometry ? "true" : "false"),
             URLQueryItem(name: "include_event_cursor", value: includeEventCursor ? "true" : "false"),
         ]
+        if let priorityHole {
+            components.queryItems?.append(URLQueryItem(name: "priority_hole", value: String(priorityHole)))
+        }
         guard let url = components.url else {
             throw URLError(.badURL)
         }

@@ -1,25 +1,25 @@
 import SwiftUI
 
 /// 备战入口：既可以按城市／球场名搜索，也可以直接查看当前位置附近球场。
-/// 选了就进（README §8）：选中的球场加入 App 级下载库并继续在后台下载，同时立即进入赛前攻略；
-/// 未就绪的洞按地图降级契约显示，进入前不再弹任何地图准备提示。
+/// 选了就进：选中的球场加入 App 级下载库并继续在后台下载，同时直接进入洞屏的备战模式（和打球时
+/// 同一个屏，design 2026-10-23 §2）；未就绪的洞按地图降级契约显示，进入前不弹地图准备提示。
 public struct PrepCoursePickerView: View {
     public let courseOptions: [MobileCourseOption]
     public let downloadedCourseOptions: [MobileCourseOption]
     public let downloadedCourseKeys: Set<String>
     public let apiBaseURL: URL?
     public let adminToken: String?
-    public let offlineStore: OfflineStore?
+    public let isOpeningCourse: Bool
     public let onDownload: (MobileCourseOption) -> Void
     public let onRetryDownload: (String) -> Void
     public let onValidateReadyDownload: (PrepCourseDownloadRecord) async -> Bool
-    public let onLoadCourseTees: (Int) async -> [CourseTee]
+    /// Open the course on the hole screen in 备战; false when a round is in progress.
+    public let onOpenCourse: (MobileCourseOption) -> Bool
 
     /// `MobileCourseSearchView` owns the shared catalogue-search UI; this screen owns only the
     /// short-lived location provider used to request an explicit nearby search.
     @StateObject private var locationProvider = LocationProvider()
     @ObservedObject private var downloadPresentation: PrepCourseDownloadPresentationState
-    @State private var selectedCourse: MobileCourseOption?
 
     public init(
         courseOptions: [MobileCourseOption],
@@ -29,11 +29,11 @@ public struct PrepCoursePickerView: View {
         downloadPresentation: PrepCourseDownloadPresentationState? = nil,
         apiBaseURL: URL?,
         adminToken: String?,
-        offlineStore: OfflineStore? = nil,
+        isOpeningCourse: Bool = false,
         onDownload: @escaping (MobileCourseOption) -> Void = { _ in },
         onRetryDownload: @escaping (String) -> Void = { _ in },
         onValidateReadyDownload: @escaping (PrepCourseDownloadRecord) async -> Bool = { _ in true },
-        onLoadCourseTees: @escaping (Int) async -> [CourseTee] = { _ in [] }
+        onOpenCourse: @escaping (MobileCourseOption) -> Bool = { _ in true }
     ) {
         self.courseOptions = courseOptions
         self.downloadedCourseOptions = downloadedCourseOptions
@@ -44,17 +44,18 @@ public struct PrepCoursePickerView: View {
         )
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
-        self.offlineStore = offlineStore
+        self.isOpeningCourse = isOpeningCourse
         self.onDownload = onDownload
         self.onRetryDownload = onRetryDownload
         self.onValidateReadyDownload = onValidateReadyDownload
-        self.onLoadCourseTees = onLoadCourseTees
+        self.onOpenCourse = onOpenCourse
     }
 
     public var body: some View {
         MobileCourseSearchView(
             locationProvider: locationProvider,
             mode: .nearbyAndName,
+            presentation: .prep,
             title: "备战球场",
             dismissAfterSelection: false,
             installedGlobalIds: [],
@@ -78,35 +79,6 @@ public struct PrepCoursePickerView: View {
         .onDisappear {
             locationProvider.stopUpdatingLocation()
         }
-        .navigationDestination(isPresented: selectedCoursePresented) {
-            if let course = selectedCourse, let apiBaseURL {
-                CourseReviewView(
-                    client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken),
-                    globalId: course.globalId,
-                    holeCount: course.resolvedHoles,
-                    teeBox: course.teeBox,
-                    offlineStore: offlineStore,
-                    // `onDownload` updates the app-owned queue on the next published render. The
-                    // destination must nevertheless observe that durable row from its FIRST frame,
-                    // so it resolves an equivalent queued snapshot until the row is published.
-                    download: selectedDownload(for: course),
-                    courseTees: course.tees ?? [],
-                    onLoadCourseTees: onLoadCourseTees,
-                    onChangeTee: changeTee
-                )
-            }
-        }
-    }
-
-    private var selectedCoursePresented: Binding<Bool> {
-        Binding(
-            get: { selectedCourse != nil },
-            set: { isPresented in
-                if !isPresented {
-                    selectedCourse = nil
-                }
-            }
-        )
     }
 
     private func searchCourses(
@@ -157,21 +129,9 @@ public struct PrepCoursePickerView: View {
         open(download.course.replacingTeeBox(download.teeBox))
     }
 
-    /// 右上换发球台: the other Tee is its own durable library row (its own download and template);
-    /// the open prep screen keeps its hole and follows the new Tee's facts as they install.
-    private func changeTee(_ tee: String) {
-        guard let course = selectedCourse else { return }
-        let trimmed = tee.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              downloadID(for: course) != downloadID(for: course.replacingTeeBox(trimmed)) else { return }
-        let next = course.replacingTeeBox(trimmed)
-        onDownload(next)
-        open(next)
-    }
-
     private func open(_ course: MobileCourseOption) {
-        selectedCourse = course
         revalidateIfInstalled(course)
+        _ = onOpenCourse(course)
     }
 
     /// A complete local package opens at once and is checked against the server's current Garmin

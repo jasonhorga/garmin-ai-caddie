@@ -1522,7 +1522,7 @@ class MobileContractTests(unittest.TestCase):
             app_swift,
         )
         self.assertIn(
-            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, foregroundStart: preparationToken != nil)",
+            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, foregroundStart: preparationToken != nil, priorityHole: priorityHole)",
             app_swift,
         )
         self.assertIn(
@@ -1798,7 +1798,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("prewarmRoundTopo()", app_swift)
         self.assertNotIn("prewarmCourseTopo(globalId:", app_swift)
         self.assertIn("enum HubRoute", round_home)
-        self.assertIn("path = [.hole(hole)]", round_home)
+        self.assertIn("path = LiveHoleRoutePath.forPendingHole", round_home)
         self.assertIn("onConsumePendingLiveHole()", round_home)
         self.assertIn("onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish", round_home)
         self.assertIn("onLiveHoleInitialLoadDidFinish()", current_hole)
@@ -2030,7 +2030,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("onFinishRound: onFinishRound", round_home)
         self.assertIn("private let onFinishRound: () async -> Bool", current_hole)
         self.assertIn("showRoundSummary = true", current_hole)
-        self.assertIn("LiveHoleAdvanceResolution.resolve(after: accepted.hole, package: package)", current_hole)
+        self.assertIn("LiveHoleAdvanceResolution.resolve(", current_hole)
+        self.assertIn("loops: package.roundLoops", current_hole)
         self.assertNotIn("未保存的记录会被丢弃", current_hole)
         # The former Save/Continue-only sheet could trap an invalid round. Keep a deliberate
         # destructive exit with exactly one confirmation, presented after the asking sheet closed.
@@ -3072,7 +3073,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("地图尚未准备完成", prep_picker)
         self.assertNotIn("validationMessage", prep_picker)
         self.assertNotIn(".alert(", prep_picker)
-        self.assertIn("selectedCourse = course\n        revalidateIfInstalled(course)", prep_picker)
+        self.assertIn("onDownload(course)\n        open(course)", prep_picker)
+        self.assertIn("_ = onOpenCourse(course)", prep_picker)
         self.assertIn("_ = await onValidateReadyDownload(record)", prep_picker)
         self.assertIn("guard record.phase == .ready else { return false }", app_source)
         self.assertNotIn("地图尚未准备完成", app_source)
@@ -3080,23 +3082,21 @@ class MobileContractTests(unittest.TestCase):
         # A still-downloading retained row opens the prep map too; only a terminal failure is disabled.
         self.assertIn(".disabled(isTerminalFailure)", course_search)
         self.assertNotIn("正在下载，完成后可打开", course_search)
-        # 右上换发球台: the other Tee is its own durable library row.
-        self.assertIn("onChangeTee: changeTee", prep_picker)
-        self.assertIn("let next = course.replacingTeeBox(trimmed)\n        onDownload(next)", prep_picker)
-        self.assertIn("onLoadCourseTees: onLoadCourseTees", prep_picker)
+        # 选场页 now hands the selected course to the shared live hole screen; the live screen owns
+        # the Tee menu and the model keeps its prep package in memory.
+        current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        self.assertIn('accessibilityIdentifier("live-prep-tee-menu")', current_hole)
+        self.assertIn("onChangePrepTee", current_hole)
+        self.assertIn("public func changePrepTee", app_source)
         self.assertIn("onNearby: nearbyCourses", prep_picker)
         self.assertIn("requestAuthorization()", prep_picker)
         self.assertIn("startUpdatingLocation()", prep_picker)
         self.assertIn("stopUpdatingLocation()", prep_picker)
         self.assertNotIn("discoverNearbyCourses", prep_picker)
-        self.assertIn(".navigationDestination(isPresented: selectedCoursePresented)", prep_picker)
-        self.assertIn("CourseReviewView(", prep_picker)
-        self.assertIn("client: SyncClient(baseURL: apiBaseURL, adminToken: adminToken)", prep_picker)
-        self.assertIn("globalId: course.globalId", prep_picker)
-        self.assertIn("holeCount: course.resolvedHoles", prep_picker)
-        self.assertIn("download: selectedDownload(for: course)", prep_picker)
-        # The queued record constructor owns the stable identity; matching its id avoids copying the
-        # key algorithm into the picker and keeps the first destination frame managed.
+        self.assertIn("onOpenCourse: onOpenPrepCourse", round_home)
+        self.assertIn("case .prep:", round_home)
+        self.assertIn("case .hole(let number):", round_home)
+        # The queued record constructor still owns the stable identity for a newly selected row.
         self.assertIn("let queued = queuedDownloadIntent(for: course)", prep_picker)
         self.assertIn("$0.id == queued.id", prep_picker)
         self.assertIn("phase: .queued", prep_picker)
@@ -3119,7 +3119,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("intervalReadout(currentMetres:", course_prep)
         self.assertIn("yards(fromMetres:", course_prep)
 
-        self.assertIn('.navigationTitle("赛前球场攻略")', course_review)
+        # 备战选场页直接进入共用的 live hole screen; retained rendering helpers use its new title.
+        self.assertIn('.navigationTitle("备战洞屏")', course_review)
         # The header yards are the facts' own Tee (``teeYards`` when resolved, else ``blueYards``);
         # no Tee colour label is attached to a number it may not describe.
         self.assertIn("decodeIfPresent(Int.self, forKey: .teeYards)", course_prep)
@@ -3131,7 +3132,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("fetchCoursePrep(", course_review)
         self.assertNotIn("fetchCoursePackage(", course_review)
         self.assertNotIn("fetchCourseGeometryCoverage", course_review)
-        self.assertIn("offlineStore?.loadCourseTemplate(globalId: globalId, teeBox: teeBox)", course_review)
+        self.assertIn("struct CoursePrepStrategyScreen: View", course_review)
         # B4b-2: one canonical whole-course template per course + Tee; no `nine` selector.
         self.assertNotIn("nine: nine", course_review)
         # B4c 地图降级契约: no all-or-nothing package gate and no download/status copy on the screen.
@@ -3143,7 +3144,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("完整地图准备中", course_review)
         self.assertNotIn("地图尚未准备完成", course_review)
         self.assertNotIn("private var holeNavigator", course_review)
-        self.assertIn("PrepHoleRows.build(", course_review)
+        self.assertIn("let current = currentRow", course_review)
         self.assertIn("LiveMapDisplayState.resolvePrep(", prep_presentation)
         self.assertIn("static func resolvePrep(", live_components)
         self.assertIn("var fadesInHoleStrip: Bool", live_components)

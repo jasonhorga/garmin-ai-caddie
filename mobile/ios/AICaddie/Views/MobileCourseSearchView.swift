@@ -342,7 +342,7 @@ public struct MobileCourseSearchView: View {
             .accessibilityValue(Self.uiTestInstallValue(phase: download.phase, verifiedReady: verifiedReady))
             .accessibilityHint(isTerminalFailure
                 ? "该球场暂不支持备战，请使用开始一场"
-                : "打开赛前攻略")
+                : "打开备战洞屏")
 
             if !isTerminalFailure && download.phase == .failed {
                 Button {

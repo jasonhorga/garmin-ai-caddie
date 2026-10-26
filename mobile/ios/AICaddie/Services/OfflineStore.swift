@@ -26,12 +26,22 @@ public struct LiveRoundStateSnapshot: Codable, Equatable {
     /// Hole numbers with an explicit score event. `holes` also contains default UI state for every
     /// package hole, so its count is not round progress.
     public let scoredHoles: [Int]
+    /// The hole whose first stroke started this round on the hole screen (play order starts here);
+    /// nil for a round started from 开始一场, which plays its package order.
+    public let startHole: Int?
 
-    public init(roundId: String, activeHole: Int, holes: [LiveHoleStateSnapshot], scoredHoles: [Int] = []) {
+    public init(
+        roundId: String,
+        activeHole: Int,
+        holes: [LiveHoleStateSnapshot],
+        scoredHoles: [Int] = [],
+        startHole: Int? = nil
+    ) {
         self.roundId = roundId
         self.activeHole = activeHole
         self.holes = holes
         self.scoredHoles = scoredHoles
+        self.startHole = startHole
     }
 
     public func holeState(for hole: Int) -> LiveHoleStateSnapshot? {
@@ -161,6 +171,8 @@ private struct LiveRoundProgress: Codable, Equatable {
     let roundId: String
     var activeHole: Int
     var scoreDraft: LiveScoreDraft?
+    /// Absent in progress files written before the hole-screen start.
+    var startHole: Int? = nil
 }
 
 private struct ReplayEventIdentity: Hashable {
@@ -1480,9 +1492,21 @@ public final class OfflineStore {
         let progress = LiveRoundProgress(
             roundId: roundId,
             activeHole: hole,
-            scoreDraft: current?.roundId == roundId ? current?.scoreDraft : nil
+            scoreDraft: current?.roundId == roundId ? current?.scoreDraft : nil,
+            startHole: current?.roundId == roundId ? current?.startHole : nil
         )
         try saveLiveRoundProgress(progress)
+    }
+
+    /// The hole screen's first stroke starts the round here: the cursor and play order both begin
+    /// at `startHole`.
+    public func saveRoundStart(roundId: String, startHole: Int) throws {
+        try saveLiveRoundProgress(LiveRoundProgress(
+            roundId: roundId,
+            activeHole: startHole,
+            scoreDraft: nil,
+            startHole: startHole
+        ))
     }
 
     public func saveLiveScoreDraft(roundId: String, draft: LiveScoreDraft) throws {
@@ -1491,7 +1515,8 @@ public final class OfflineStore {
         let progress = LiveRoundProgress(
             roundId: roundId,
             activeHole: activeHole,
-            scoreDraft: draft
+            scoreDraft: draft,
+            startHole: current?.roundId == roundId ? current?.startHole : nil
         )
         try saveLiveRoundProgress(progress)
     }
@@ -1516,6 +1541,11 @@ public final class OfflineStore {
             return nil
         }
         return try decoder.decode(LiveRoundProgress.self, from: Data(contentsOf: liveProgressURL))
+    }
+
+    /// Test-visible presence check that does not expose the private progress-file representation.
+    func hasLiveRoundProgress() throws -> Bool {
+        try loadLiveRoundProgress() != nil
     }
 
     private func saveLiveRoundProgress(_ progress: LiveRoundProgress) throws {
@@ -1993,9 +2023,8 @@ public final class OfflineStore {
             holeStates[event.hole] = state
         }
 
-        if let progress = try? loadLiveRoundProgress(),
-           progress.roundId == roundId,
-           package.holes.contains(where: { $0.number == progress.activeHole }) {
+        let progress = (try? loadLiveRoundProgress()).flatMap { $0.roundId == roundId ? $0 : nil }
+        if let progress, packageHoleNumbers.contains(progress.activeHole) {
             activeHole = progress.activeHole
         }
 
@@ -2005,7 +2034,8 @@ public final class OfflineStore {
             holes: holeStates.values.sorted { lhs, rhs in
                 lhs.hole < rhs.hole
             },
-            scoredHoles: scoredHoles.sorted()
+            scoredHoles: scoredHoles.sorted(),
+            startHole: progress?.startHole.flatMap { packageHoleNumbers.contains($0) ? $0 : nil }
         )
     }
 

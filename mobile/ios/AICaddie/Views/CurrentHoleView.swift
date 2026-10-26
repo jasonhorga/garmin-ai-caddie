@@ -129,8 +129,8 @@ enum LiveHoleAdvanceResolution: Equatable {
     case advance(to: Int)
     case finish
 
-    static func resolve(after acceptedHole: Int, package: LiveRoundPackage) -> Self {
-        let ordered = package.holes.map(\.number)
+    static func resolve(after acceptedHole: Int, package: LiveRoundPackage, startingAt startHole: Int? = nil, loops: [RoundLoop]? = nil) -> Self {
+        let ordered = RoundPlayOrder.holes(package.holes.map(\.number), startingAt: startHole, loops: loops ?? package.roundLoops)
         if let index = ordered.firstIndex(of: acceptedHole), ordered.indices.contains(index + 1) {
             return .advance(to: ordered[index + 1])
         }
@@ -168,7 +168,14 @@ public struct CurrentHoleView: View {
     private let onFinishRound: () async -> Bool
     private let onDiscardRound: () -> Void
     private let onAdvanceHole: (Int) -> Void
+    private let onPrepLocationChanged: (Int?, Int) -> Int?
     private let onLiveHoleInitialLoadDidFinish: () -> Void
+    /// Before the first stroke the same screen is a memory-only prep surface.
+    private let isPrepMode: Bool
+    private let prepTeeOptions: [String]
+    private let onStartRoundFromFirstStroke: (Int) -> Bool
+    private let onUndoRoundStart: () -> Void
+    private let onChangePrepTee: (String, Int?) -> Void
 
     @StateObject private var locationProvider = LocationProvider()
     @State private var score: Int
@@ -269,6 +276,7 @@ public struct CurrentHoleView: View {
     /// The finish page's 放弃本场 asks for its confirmation only after that sheet has closed.
     @State private var pendingSummaryDiscard = false
     @State private var pendingPhoneShot: PendingPhoneShot?
+    @State private var prepNotice: String?
     @State private var heroMapScale: CGFloat = 1
     @State private var heroMapOffset: CGSize = .zero
     /// Floating chrome frames (global) and the hero's own global frame: the lightweight map is
@@ -324,8 +332,14 @@ public struct CurrentHoleView: View {
         onFinishRound: @escaping () async -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
+        onPrepLocationChanged: @escaping (Int?, Int) -> Int? = { _, _ in nil },
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
+        isPrepMode: Bool = false,
+        prepTeeOptions: [String] = [],
+        onStartRoundFromFirstStroke: @escaping (Int) -> Bool = { _ in false },
+        onUndoRoundStart: @escaping () -> Void = {},
+        onChangePrepTee: @escaping (String, Int?) -> Void = { _, _ in },
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
     ) {
         self.package = package
@@ -348,8 +362,14 @@ public struct CurrentHoleView: View {
         self.onFinishRound = onFinishRound
         self.onDiscardRound = onDiscardRound
         self.onAdvanceHole = onAdvanceHole
+        self.onPrepLocationChanged = onPrepLocationChanged
         self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
+        self.isPrepMode = isPrepMode
+        self.prepTeeOptions = prepTeeOptions
+        self.onStartRoundFromFirstStroke = onStartRoundFromFirstStroke
+        self.onUndoRoundStart = onUndoRoundStart
+        self.onChangePrepTee = onChangePrepTee
         let seed = package.caddieContextSeeds.first { $0.hole == hole.number }
         let restoredHoleState = liveRoundState?.holeState(for: hole.number)
         let restoredTarget = Self.restoredTarget(from: restoredHoleState)
@@ -520,6 +540,13 @@ public struct CurrentHoleView: View {
                 coordinate: latestFix.coordinate,
                 horizontalAccuracyM: latestFix.horizontalAccuracyM
             )
+            if isPrepMode {
+                let locatedHole = CurrentHoleLocator.locate(fix: latestFix, package: package).hole
+                if let target = onPrepLocationChanged(locatedHole, hole.number),
+                   package.holes.contains(where: { $0.number == target }) {
+                    onAdvanceHole(target)
+                }
+            }
             // watch P1c: push the live position to the watch so its hole-map 「你」 pans as you walk. Only
             // when the hole map is up (holePrep loaded) — avoids chatter before the round view is ready.
             if holePrep != nil {
@@ -754,16 +781,20 @@ public struct CurrentHoleView: View {
                             holeNumber: hole.courseHoleNumber,
                             par: hole.par,
                             yards: hole.yards,
-                            roundLine: liveRoundLine,
+                            roundLine: isPrepMode ? nil : liveRoundLine,
                             onBack: { dismiss() }
                         )
                         .reportsLiveChrome()
-                        LivePlayRoundButtons(
-                            onOpenScorecard: { showScorecard = true },
-                            onEndRound: { showRoundSummary = true }
-                        )
-                        .reportsLiveChrome()
-                        .padding(.leading, 52)
+                        prepRoundBanner
+                            .reportsLiveChrome()
+                        if !isPrepMode {
+                            LivePlayRoundButtons(
+                                onOpenScorecard: { showScorecard = true },
+                                onEndRound: { showRoundSummary = true }
+                            )
+                            .reportsLiveChrome()
+                            .padding(.leading, 52)
+                        }
                         LivePlayPinSheetButton(
                             items: $pinSheetItems,
                             title: pinSheetButtonTitle,
@@ -773,6 +804,8 @@ public struct CurrentHoleView: View {
                             onDismissMessage: { pinSheetMessage = nil }
                         )
                         .padding(.leading, 52)
+                        .padding(.top, 36)
+                        .reportsLiveChrome()
                     }
                     Spacer(minLength: 8)
                     LivePlayGreenLadder(
@@ -810,8 +843,10 @@ public struct CurrentHoleView: View {
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
                 HStack(alignment: .bottom, spacing: 10) {
-                    LivePlayScoreButton(action: beginScoreConfirmation)
-                        .reportsLiveChrome()
+                    if !isPrepMode {
+                        LivePlayScoreButton(action: beginScoreConfirmation)
+                            .reportsLiveChrome()
+                    }
                     Spacer(minLength: 0)
                     if let selectedLiveHazard,
                        let selectedLiveHazardIndex {
@@ -828,7 +863,7 @@ public struct CurrentHoleView: View {
                         Spacer(minLength: 0)
                     }
                     LivePlayRecordShotButton(
-                        enabled: liveCoordinateForCurrentHole != nil,
+                        enabled: canRecordShot,
                         recordedShotCount: recordedNonPuttShotCount,
                         action: recordShotLocation
                     )
@@ -844,6 +879,66 @@ public struct CurrentHoleView: View {
         // point inside its frame. That made the green entry (`live-open-green-from-hero`) and the
         // map itself unreachable for VoiceOver and XCTest even though touches passed through the
         // transparent spacers. The controls stay individual elements.
+    }
+
+    /// The one screen has two states. The prep banner is deliberately a compact control so a
+    /// mistaken first stroke can be undone without leaving the hole screen.
+    private var prepRoundBanner: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(roundBannerText)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .lineLimit(1)
+                    .accessibilityIdentifier("live-round-banner")
+                if isPrepMode, !prepTeeOptions.isEmpty {
+                    Menu {
+                        ForEach(prepTeeOptions, id: \.self) { tee in
+                            Button(tee) { onChangePrepTee(tee, hole.number) }
+                        }
+                    } label: {
+                        Label("T 台", systemImage: "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .accessibilityIdentifier("live-prep-tee-menu")
+                }
+                if !isPrepMode, liveRoundState?.startHole != nil {
+                    Button("撤销开打") { onUndoRoundStart() }
+                        .font(.system(size: 11, weight: .semibold))
+                        .accessibilityIdentifier("live-undo-round-start")
+                }
+            }
+            if let prepNotice {
+                Text(prepNotice)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("live-prep-notice")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .environment(\.colorScheme, .dark)
+        .foregroundStyle(.white)
+    }
+
+    private var roundBannerText: String {
+        HoleScreenRoundBanner.resolve(
+            roundStarted: !isPrepMode,
+            location: prepLocation,
+            courseHoleNumber: package.courseHoleNumber(forRoundHole:),
+            currentCourseHole: hole.courseHoleNumber
+        ).text
+    }
+
+    private var prepLocation: CurrentHoleLocation {
+        CurrentHoleLocator.locate(fix: locationProvider.latestFix, package: package)
+    }
+
+    private var canRecordShot: Bool {
+        guard isPrepMode || liveCoordinateForCurrentHole != nil else { return false }
+        guard isPrepMode else { return true }
+        return locationProvider.latestFix != nil
     }
 
     /// The selected caddie route is drawn on the map; this invisible element reads it out for
@@ -1434,7 +1529,7 @@ public struct CurrentHoleView: View {
                 ) else { return }
                 guard let target = HoleSwipeNavigation.target(
                     current: hole.number,
-                    holes: package.holes.map(\.number),
+                    holes: RoundPlayOrder.holes(package.holes.map(\.number), startingAt: liveRoundState?.startHole, loops: package.roundLoops),
                     translation: value.translation
                 ) else { return }
                 #if canImport(UIKit)
@@ -3440,7 +3535,9 @@ public struct CurrentHoleView: View {
                 watchHole: watchHole,
                 prep: prep
             )
-            onRetainReadyHolePrep(package.roundId, hole.number, prep)
+            if !isPrepMode {
+                onRetainReadyHolePrep(package.roundId, hole.number, prep)
+            }
         }
         return true
     }
@@ -4582,6 +4679,7 @@ public struct CurrentHoleView: View {
     }
 
     private func beginScoreConfirmation() {
+        guard !isPrepMode else { return }
         if scoreDraft == nil {
             // Preselect from the best evidence (README §2): Watch swings → the phone's 记一杆
             // count + 2 putts → par. The phone does not receive Watch swing counts yet (B7).
@@ -4618,7 +4716,12 @@ public struct CurrentHoleView: View {
             penaltyCount = accepted.penalty
         }
         if accepted.advanceAfterSave {
-            switch LiveHoleAdvanceResolution.resolve(after: accepted.hole, package: package) {
+            switch LiveHoleAdvanceResolution.resolve(
+                after: accepted.hole,
+                package: package,
+                startingAt: liveRoundState?.startHole,
+                loops: package.roundLoops
+            ) {
             case .advance(let next):
                 onAdvanceHole(next)
             case .finish:
@@ -4700,7 +4803,7 @@ public struct CurrentHoleView: View {
     }
 
     private func nextHole(after number: Int) -> Int? {
-        let ordered = package.holes.map(\.number)
+        let ordered = RoundPlayOrder.holes(package.holes.map(\.number), startingAt: liveRoundState?.startHole, loops: package.roundLoops)
         guard let index = ordered.firstIndex(of: number), ordered.indices.contains(index + 1) else {
             return nil
         }
@@ -4799,7 +4902,22 @@ public struct CurrentHoleView: View {
     }
 
     private func recordShotLocation() {
-        guard let currentCoordinate = liveCoordinateForCurrentHole else { return }
+        let shotCoordinate = isPrepMode
+            ? locationProvider.latestFix?.coordinate
+            : liveCoordinateForCurrentHole
+        guard let currentCoordinate = shotCoordinate else { return }
+        if isPrepMode {
+            guard case .onHole(let locatedHole) = prepLocation,
+                  locatedHole == hole.number else {
+                prepNotice = HoleScreenRoundBanner.notStartedNotice(prepLocation)
+                return
+            }
+            guard onStartRoundFromFirstStroke(hole.number) else {
+                prepNotice = "开打失败，请重试"
+                return
+            }
+            prepNotice = nil
+        }
         let shotOrder = recordedNonPuttShotCount + 1
         let builder = LiveRoundEventBuilder(roundId: package.roundId)
         let locationEvent = builder.makeLocationEvent(
@@ -4864,6 +4982,7 @@ public struct CurrentHoleView: View {
     }
 
     private func emit(kind: LiveRoundEventKind, timestamp: String, payload: [String: JSONValue]) {
+        guard !isPrepMode else { return }
         onEvent(
             LiveRoundEvent(
                 eventId: UUID().uuidString,
