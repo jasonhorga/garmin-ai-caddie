@@ -941,7 +941,6 @@ final class DesignSnapshotTests: XCTestCase {
             NavigationStack {
                 MobileCourseSearchView(
                     locationProvider: LocationProvider(),
-                    presentation: .startRound,
                     onSearch: { _, _ in [] },
                     onNearby: { _, _, _ in [] },
                     onSelect: { _, _ in }

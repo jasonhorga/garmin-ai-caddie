@@ -8,40 +8,17 @@ public enum MobileCourseSearchMode: Equatable {
     case nameOnly
 }
 
-/// Which contract the shared catalogue sheet renders for (README §8).
-public enum MobileCourseSearchPresentation: Equatable {
-    /// 备战: shows positioning progress and the retained 最近备战 courses (no download state).
-    case prep
-    /// 开始一场: no positioning, download or offline status copy; a course that is not downloaded
-    /// is still selectable and prepared in the background. A nearby failure shows only a retry icon.
-    case startRound
-}
-
 /// iPhone entry to Garmin's full CourseView catalogue. Search is deliberately explicit rather than
 /// firing on every keystroke; the result list is metadata-only and selecting a row does not install
 /// every match.
 public struct MobileCourseSearchView: View {
     @ObservedObject public var locationProvider: LocationProvider
     public let mode: MobileCourseSearchMode
-    public let presentation: MobileCourseSearchPresentation
     public let title: String
     public let dismissAfterSelection: Bool
-    public let installedGlobalIds: Set<Int>
-    public let installedCourseKeys: Set<String>?
-    /// Parent catalogue/download rows retain the same Garmin identity across refreshes. Nearby and
-    /// search responses are expected to use Garmin's locale-aware provider spelling as well.
-    public let knownCourseOptions: [MobileCourseOption]
-    public let retainedDownloads: [PrepCourseDownloadRecord]
     public let onSearch: (String, String?) async throws -> [MobileCourseSearchMatch]
     public let onNearby: (Double, Double, Int) async throws -> [MobileCourseSearchMatch]
     public let onSelect: (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
-    public let onOpenRetainedDownload: (PrepCourseDownloadRecord) -> Void
-    public let onRetryRetainedDownload: (String) -> Void
-    /// Resolves a search row to the exact durable download identity selected by its parent.
-    /// Search metadata intentionally does not contain a tee/nine choice, while one Garmin
-    /// globalId can have several installed tee variants. A nil resolver falls back to the
-    /// catalogue row's explicit tee (or the documented blue/all default).
-    public let retainedDownloadKey: ((MobileCourseSearchMatch) -> String?)?
 
     private enum SearchKind: Equatable {
         case nearby
@@ -70,35 +47,19 @@ public struct MobileCourseSearchView: View {
     public init(
         locationProvider: LocationProvider,
         mode: MobileCourseSearchMode = .nearbyAndName,
-        presentation: MobileCourseSearchPresentation = .prep,
         title: String? = nil,
         dismissAfterSelection: Bool = true,
-        installedGlobalIds: Set<Int> = [],
-        installedCourseKeys: Set<String>? = nil,
-        knownCourseOptions: [MobileCourseOption] = [],
-        retainedDownloads: [PrepCourseDownloadRecord] = [],
         onSearch: @escaping (String, String?) async throws -> [MobileCourseSearchMatch],
         onNearby: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
-        onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void,
-        onOpenRetainedDownload: @escaping (PrepCourseDownloadRecord) -> Void = { _ in },
-        onRetryRetainedDownload: @escaping (String) -> Void = { _ in },
-        retainedDownloadKey: ((MobileCourseSearchMatch) -> String?)? = nil
+        onSelect: @escaping (MobileCourseSearchMatch, [MobileCourseSearchMatch]) -> Void
     ) {
         self.locationProvider = locationProvider
         self.mode = mode
-        self.presentation = presentation
-        self.title = title ?? (mode == .nameOnly ? "搜索备战球场" : "找球场")
+        self.title = title ?? "找球场"
         self.dismissAfterSelection = dismissAfterSelection
-        self.installedGlobalIds = installedGlobalIds
-        self.installedCourseKeys = installedCourseKeys
-        self.knownCourseOptions = knownCourseOptions
-        self.retainedDownloads = retainedDownloads
         self.onSearch = onSearch
         self.onNearby = onNearby
         self.onSelect = onSelect
-        self.onOpenRetainedDownload = onOpenRetainedDownload
-        self.onRetryRetainedDownload = onRetryRetainedDownload
-        self.retainedDownloadKey = retainedDownloadKey
     }
 
     public var body: some View {
@@ -131,7 +92,7 @@ public struct MobileCourseSearchView: View {
                     .disabled(!canSearchNearby)
                     .accessibilityIdentifier("course-catalog-nearby-action")
 
-                    if presentation == .startRound && nearbyFailed && activeSearch == nil {
+                    if nearbyFailed && activeSearch == nil {
                         Button {
                             Task { await searchNearby() }
                         } label: {
@@ -190,16 +151,6 @@ public struct MobileCourseSearchView: View {
                 }
             }
 
-            if presentation == .prep && !retainedDownloads.isEmpty {
-                Section {
-                    ForEach(Self.recentRows(retainedDownloads)) { download in
-                        retainedDownloadRow(download)
-                    }
-                } header: {
-                    Text("最近备战")
-                }
-            }
-
             // `didSearch` is set before the async request starts so the button can immediately
             // reflect the active query. Empty results are a conclusion, not a loading state: do not
             // render the empty state until the request's defer has marked it complete.
@@ -224,14 +175,6 @@ public struct MobileCourseSearchView: View {
             if !matches.isEmpty {
                 Section(lastSearch == .nearby ? "附近结果" : "搜索结果") {
                     ForEach(matches) { match in
-                        let isInstalled = courseIsInstalled(for: match)
-                        let download = retainedDownload(for: match)
-                        let uiTestValue = presentation == .prep
-                            ? Self.uiTestInstallValue(
-                                phase: download?.phase,
-                                verifiedReady: isInstalled
-                            )
-                            : ""
                         Button {
                             guard match.courseOption != nil else { return }
                             onSelect(match, matches)
@@ -264,7 +207,6 @@ public struct MobileCourseSearchView: View {
                         .buttonStyle(.plain)
                         .disabled(match.courseOption == nil)
                         .accessibilityIdentifier("course-catalog-result-\(match.globalId)")
-                        .accessibilityValue(uiTestValue)
                     }
                 }
             }
@@ -280,144 +222,14 @@ public struct MobileCourseSearchView: View {
         }
     }
 
-    /// 最近备战 lists each course once. The library keeps one install per course and tee, so the
-    /// same 9 holes prepared with 蓝 T and later 白 T read as two identical "黑骑士 · A 场" rows;
-    /// only the most recent one (the input is newest first) is shown.
-    static func recentRows(_ downloads: [PrepCourseDownloadRecord]) -> [PrepCourseDownloadRecord] {
-        var seen = Set<Int>()
-        return downloads.filter { download in
-            seen.insert(download.course.globalId).inserted
-        }
-    }
-
-    /// "A 场 · 蓝 T": the nine and the tee it was prepared for.
-    static func recentRowSubtitle(_ download: PrepCourseDownloadRecord) -> String {
-        guard let tee = StartRoundPresentation.teeShortLabel(download.teeBox) else {
-            return download.course.segmentDisplayTitle
-        }
-        return "\(download.course.segmentDisplayTitle) · \(tee)"
-    }
-
-    /// A retained 最近备战 row is just the course: the player taps it and enters 备战 (README §8
-    /// 选了就进). Its download keeps running in the app-owned library without any status copy,
-    /// progress bar or spinner here. The only visible states are the actionable ones: a failed
-    /// download offers 重试, and a course that can never be prepared says so and is disabled.
-    @ViewBuilder
-    private func retainedDownloadRow(_ download: PrepCourseDownloadRecord) -> some View {
-        let verifiedReady = download.phase == .ready && retainedDownloadIsInstalled(download)
-        let isTerminalFailure = download.isTerminalFailure
-        HStack(spacing: 10) {
-            Button {
-                onOpenRetainedDownload(download)
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "flag.fill")
-                        .foregroundStyle(isTerminalFailure ? .secondary : LiveHoleStyle.green)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(download.course.localizedName)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                        Text(isTerminalFailure
-                            ? "\(Self.recentRowSubtitle(download)) · 暂不支持备战"
-                            : Self.recentRowSubtitle(download))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .accessibilityHidden(true)
-                    }
-                    Spacer(minLength: 4)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            // 选了就进 (README §8): a row that is still downloading opens the prep map too; holes
-            // that are not ready follow the map degradation contract there.
-            .disabled(isTerminalFailure)
-            // Keep the stable row id on the actual opening button. Applying it to the wrapping
-            // HStack makes SwiftUI expose a synthetic button that can inherit the id but not the
-            // opening action when a retry control is present beside it.
-            .accessibilityIdentifier("prep-download-row-\(download.id)")
-            .accessibilityLabel(download.course.localizedName)
-            .accessibilityValue(Self.uiTestInstallValue(phase: download.phase, verifiedReady: verifiedReady))
-            .accessibilityHint(isTerminalFailure
-                ? "该球场暂不支持备战，请使用开始一场"
-                : "打开备战洞屏")
-
-            if !isTerminalFailure && download.phase == .failed {
-                Button {
-                    onRetryRetainedDownload(download.id)
-                } label: {
-                    Label("重试", systemImage: "arrow.clockwise")
-                        .font(.caption.weight(.semibold))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("prep-download-retry-\(download.id)")
-            } else {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-            }
-        }
-    }
-
-    /// UI-test seam only (DEBUG builds launched with `UITEST_MODE=1`): the durable install state as
-    /// an opaque token, so real-simulator journeys can prove that a selection is retained, keeps
-    /// downloading across relaunch and finishes installing — without any download wording on
-    /// screen or read out by VoiceOver. Release builds, and DEBUG outside UI tests, expose nothing.
-    static func uiTestInstallValue(phase: PrepCourseDownloadPhase?, verifiedReady: Bool) -> String {
-        #if DEBUG
-        guard ProcessInfo.processInfo.environment["UITEST_MODE"] == "1" else { return "" }
-        if verifiedReady { return "uitest-installed" }
-        return "uitest-\(phase?.rawValue ?? "none")"
-        #else
-        return ""
-        #endif
-    }
-
     private var trimmedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func courseIsInstalled(for match: MobileCourseSearchMatch) -> Bool {
-        guard let course = match.courseOption else { return false }
-        guard let installedCourseKeys else {
-            return installedGlobalIds.contains(course.globalId)
-        }
-        // Search results may carry a provider tee label while the app's known option carries the
-        // canonical tee selected for this account. Reuse the parent's exact resolver first so the
-        // badge cannot disagree with the retained-download action for White/Red/custom tees.
-        if let resolvedKey = retainedDownloadKey?(match) {
-            return installedCourseKeys.contains(resolvedKey)
-        }
-        let tee = course.teeBox?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return installedCourseKeys.contains(PrepCourseDownloadRecord.key(
-            globalId: course.globalId,
-            teeBox: tee?.isEmpty == false ? tee! : "blue"
-        ))
     }
 
     private func displayName(for match: MobileCourseSearchMatch) -> String {
         // Search/nearby responses are backend-reconciled. A downloaded or
         // historical row is metadata only and must not rename this result.
         return match.displayName
-    }
-
-    private func retainedDownloadIsInstalled(_ download: PrepCourseDownloadRecord) -> Bool {
-        if let installedCourseKeys {
-            return installedCourseKeys.contains(download.id)
-        }
-        return installedGlobalIds.contains(download.course.globalId)
-    }
-
-    private func retainedDownload(for match: MobileCourseSearchMatch) -> PrepCourseDownloadRecord? {
-        guard let course = match.courseOption else { return nil }
-        let key = retainedDownloadKey?(match) ?? PrepCourseDownloadRecord.key(
-            globalId: course.globalId,
-            teeBox: course.teeBox ?? "blue"
-        )
-        return retainedDownloads.first { $0.id == key }
     }
 
     private var trimmedCity: String {
@@ -435,12 +247,9 @@ public struct MobileCourseSearchView: View {
             && nearbyLongitude.isFinite && (-180...180).contains(nearbyLongitude)
     }
 
-    /// 备战 names the positioning / lookup progress; 开始一场 keeps one plain action (a spinner
-    /// icon while it looks, disabled until a fix exists) and no status copy.
     private var nearbyActionTitle: String {
-        guard presentation == .prep else { return "查看附近球场" }
         if activeSearch == .nearby { return "正在查找" }
-        return hasNearbyLocation ? "查看附近球场" : "正在定位…"
+        return "查看附近球场"
     }
 
     private var canSearchNearby: Bool {
@@ -510,11 +319,7 @@ public struct MobileCourseSearchView: View {
             ).filter { seen.insert($0.globalId).inserted }
         } catch {
             matches = []
-            if presentation == .startRound {
-                nearbyFailed = true
-            } else {
-                errorText = Self.searchErrorMessage(error, nearby: true)
-            }
+            nearbyFailed = true
         }
     }
 

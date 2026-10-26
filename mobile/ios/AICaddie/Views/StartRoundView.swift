@@ -52,6 +52,8 @@ public struct StartRoundView: View {
     public let prepCourseDownloads: [PrepCourseDownloadRecord]
     public let onDownloadPrepCourse: (MobileCourseOption) -> Void
     public let onRetryPrepCourseDownload: (String) -> Void
+    public let onValidateReadyPrepCourse: (PrepCourseDownloadRecord) async -> Bool
+    public let isOpeningPrepCourse: Bool
 
     private let callerCourseGlobalId: Int?
     private let callerTeeBox: String
@@ -86,6 +88,8 @@ public struct StartRoundView: View {
     @State private var teeRequestToken: UUID?
     @State private var nearbyRequestToken: UUID?
     @State private var page: Page
+    @State private var isValidatingPrepCourse = false
+    @State private var prepValidationFailed = false
 
     public init(
         // 不在消费者界面里写死可读的原始局号(如 900001):没显式传时生成一个不透明的本地局号,
@@ -115,6 +119,8 @@ public struct StartRoundView: View {
         prepCourseDownloads: [PrepCourseDownloadRecord] = [],
         onDownloadPrepCourse: @escaping (MobileCourseOption) -> Void = { _ in },
         onRetryPrepCourseDownload: @escaping (String) -> Void = { _ in },
+        onValidateReadyPrepCourse: @escaping (PrepCourseDownloadRecord) async -> Bool = { _ in true },
+        isOpeningPrepCourse: Bool = false,
         initialPage: Page? = nil,
         // Snapshot fixtures pass a provider with a fixed fix; the app reads CoreLocation.
         locationProvider: LocationProvider? = nil,
@@ -158,6 +164,8 @@ public struct StartRoundView: View {
         self.prepCourseDownloads = prepCourseDownloads
         self.onDownloadPrepCourse = onDownloadPrepCourse
         self.onRetryPrepCourseDownload = onRetryPrepCourseDownload
+        self.onValidateReadyPrepCourse = onValidateReadyPrepCourse
+        self.isOpeningPrepCourse = isOpeningPrepCourse
         self._page = State(initialValue: Self.openingPage(
             initialPage: initialPage,
             defaultCourseGlobalId: defaultCourseGlobalId
@@ -246,7 +254,7 @@ public struct StartRoundView: View {
     private static let surface = Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255)
 
     /// `pre-round.html` screen 2: one course list, the first nine-hole loop as big tiles, tee dots,
-    /// and one primary action that names the choice. No location / download status prose.
+    /// the app-owned offline download rows, and one primary action that names the choice.
     public var body: some View {
         Group {
             if page == .course { coursePage } else { setupPage }
@@ -270,14 +278,10 @@ public struct StartRoundView: View {
             NavigationStack {
                 MobileCourseSearchView(
                     locationProvider: locationProvider,
-                    // 开始一场: no positioning / download status copy (README §8).
-                    presentation: .startRound,
                     // The parent owns the sheet binding. Selection must commit the course and tee
                     // provenance here before the sheet closes; a child NavigationStack dismiss can
                     // otherwise race SwiftUI's state transaction and lose the selected row.
                     dismissAfterSelection: false,
-                    installedGlobalIds: Set(downloadedCourseOptions.map(\.globalId)),
-                    knownCourseOptions: courseOptions + downloadedCourseOptions,
                     onSearch: { query, city in
                         let coordinate = locationProvider.latestFix?.coordinate
                         return try await onSearchCourses(
@@ -358,8 +362,10 @@ public struct StartRoundView: View {
                         if row.phase == .failed {
                             Button("重试") { onRetryPrepCourseDownload(row.id) }
                                 .buttonStyle(.bordered)
-                        } else if row.phase == .queued {
-                            Button("下载") { onDownloadPrepCourse(row.course) }
+                        } else if row.phase != .ready {
+                            Button(row.phase == .queued ? "下载" : "继续下载") {
+                                onDownloadPrepCourse(row.course.replacingTeeBox(row.teeBox))
+                            }
                                 .buttonStyle(.bordered)
                         }
                     }
@@ -1436,21 +1442,18 @@ public struct StartRoundView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("start-round-preparation-error")
             }
+            if prepValidationFailed {
+                Label("球场地图已变化，请重试下载后再开始", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("start-round-prep-validation-error")
+            }
             Button {
-                if let courseGlobalId {
-                    let course = selectedSegment
-                        ?? MobileCourseOption(globalId: courseGlobalId, name: "", holes: 18)
-                    if usesCombinedLoops {
-                        onPrepareCourseRound(roundId, teeBox, selectedVenueLoops.map {
-                            RoundLoopEntry(globalId: $0.globalId, half: "all")
-                        })
-                    } else {
-                        _ = onOpenPrepCourse(course.replacingTeeBox(teeBox))
-                    }
-                }
+                Task { await startSelectedCourse() }
             } label: {
                 HStack(spacing: 8) {
-                    if isPreparing {
+                    if isPreparing || isOpeningPrepCourse || isValidatingPrepCourse {
                         ProgressView()
                             .tint(.white)
                     }
@@ -1466,8 +1469,39 @@ public struct StartRoundView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .buttonStyle(.plain)
-            .disabled(!canStart)
+            .disabled(!canStart || isOpeningPrepCourse || isValidatingPrepCourse)
             .accessibilityIdentifier("start-round-primary-action")
+        }
+    }
+
+    @MainActor
+    private func startSelectedCourse() async {
+        guard let courseGlobalId else { return }
+        let course = (selectedSegment
+            ?? MobileCourseOption(globalId: courseGlobalId, name: "", holes: 18))
+            .replacingTeeBox(teeBox)
+        prepValidationFailed = false
+        if let record = prepCourseDownloads.first(where: {
+            $0.course.globalId == course.globalId
+                && $0.teeBox.caseInsensitiveCompare(course.teeBox ?? teeBox) == .orderedSame
+                && $0.phase == .ready
+        }) {
+            isValidatingPrepCourse = true
+            let valid = await onValidateReadyPrepCourse(record)
+            isValidatingPrepCourse = false
+            guard valid else {
+                prepValidationFailed = true
+                return
+            }
+        }
+        if usesCombinedLoops {
+            onPrepareCourseRound(
+                roundId,
+                teeBox,
+                StartRoundPresentation.combinedLoopEntries(selected: course, venueLoops: selectedVenueLoops)
+            )
+        } else {
+            _ = onOpenPrepCourse(course)
         }
     }
 

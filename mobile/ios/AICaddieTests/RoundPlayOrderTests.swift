@@ -2,6 +2,14 @@ import XCTest
 @testable import AICaddie
 
 final class RoundPlayOrderTests: XCTestCase {
+    func testQuickCourseShortcutUsesStartCourseRoute() {
+        let option = MobileCourseOption(globalId: 31795, name: "北京丽宫", teeBox: "White")
+        XCTAssertEqual(
+            RoundHomeView.quickCourseRoute(for: option),
+            .startCourse(globalId: 31795, teeBox: "White")
+        )
+    }
+
     func testFrontNineStartingAtFiveWrapsAtNine() {
         XCTAssertEqual(RoundPlayOrder.holes(Array(1...9), startingAt: 5), [5, 6, 7, 8, 9, 1, 2, 3, 4])
     }

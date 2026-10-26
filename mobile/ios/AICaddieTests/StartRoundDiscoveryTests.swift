@@ -20,6 +20,12 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertNil(StartRoundPresentation.preselectedLoop(in: [], current: nil, recent: otherVenue))
     }
 
+    func testThreeNineHoleVenueStartsOnlyTheSelectedLoop() {
+        let loops = [blackKnight(31794, "A"), blackKnight(31795, "B"), blackKnight(31796, "C")]
+        let entries = StartRoundPresentation.combinedLoopEntries(selected: loops[1], venueLoops: loops)
+        XCTAssertEqual(entries, [RoundLoopEntry(globalId: 31795, half: "all")])
+    }
+
     func testPreselectedTeePrefersLastUsedThenCourseDefault() {
         XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: "white", offered: ["Gold", "Blue", "White"], defaultTee: "blue"), "White")
         XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: "red", offered: ["Gold", "Blue", "White"], defaultTee: "blue"), "Blue")

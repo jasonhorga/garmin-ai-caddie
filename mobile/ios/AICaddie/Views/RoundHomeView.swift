@@ -648,7 +648,9 @@ public struct RoundHomeView: View {
             onOpenPrepCourse: onOpenPrepCourse,
             prepCourseDownloads: prepCourseDownloads,
             onDownloadPrepCourse: onDownloadPrepCourse,
-            onRetryPrepCourseDownload: onRetryPrepCourseDownload
+            onRetryPrepCourseDownload: onRetryPrepCourseDownload,
+            onValidateReadyPrepCourse: onValidateReadyPrepCourse,
+            isOpeningPrepCourse: isOpeningPrepCourse
         )
     }
 
@@ -842,10 +844,7 @@ public struct RoundHomeView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(candidates, id: \.option.globalId) { candidate in
-                            NavigationLink(value: HubRoute.startCourse(
-                                globalId: candidate.option.globalId,
-                                teeBox: candidate.option.teeBox
-                            )) {
+                            NavigationLink(value: Self.quickCourseRoute(for: candidate.option)) {
                                 HubQuickCourseChip(
                                     title: candidate.option.venueDisplayName,
                                     isNearby: candidate.isNearby
@@ -858,6 +857,10 @@ public struct RoundHomeView: View {
                 }
             }
         }
+    }
+
+    static func quickCourseRoute(for option: MobileCourseOption) -> HubRoute {
+        .startCourse(globalId: option.globalId, teeBox: option.teeBox)
     }
 
     @ViewBuilder private var recentTrendSection: some View {

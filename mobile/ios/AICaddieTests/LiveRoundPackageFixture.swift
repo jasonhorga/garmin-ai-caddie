@@ -39,6 +39,32 @@ enum LiveRoundPackageFixture {
         return try decode(root)
     }
 
+    /// The fixture's factual rows duplicated as a complete 18-hole course, used by prep tests to
+    /// verify that opening a normal course exposes both halves before the first stroke.
+    static func wholeCourse(dataMode: String? = nil) throws -> LiveRoundPackage {
+        var root = try object(dataMode: dataMode)
+        let globalId = try courseGlobalId(root)
+        guard let sourceHoles = root["holes"] as? [[String: Any]] else {
+            throw FixtureError.malformed("holes")
+        }
+        var holes = sourceHoles
+        holes += sourceHoles.map { source in
+            var copy = source
+            let number = (source["number"] as? Int ?? 0) + 9
+            copy["number"] = number
+            copy["sourceLocalHole"] = number
+            copy["courseHoleNumber"] = number
+            return copy
+        }
+        root["holes"] = holes
+        root["roundLoops"] = [
+            loopRow(globalId: globalId, half: "front", holeCount: 9),
+            loopRow(globalId: globalId, half: "back", holeCount: 9),
+        ]
+        root["loopKey"] = "\(globalId):front+\(globalId):back"
+        return try decode(root)
+    }
+
     private static func object(dataMode: String?) throws -> [String: Any] {
         let data = try Data(contentsOf: url)
         guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {

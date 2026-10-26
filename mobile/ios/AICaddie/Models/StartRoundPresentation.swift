@@ -271,6 +271,17 @@ enum StartRoundPresentation {
         return [RoundLoopEntry(globalId: selected.globalId, half: chosen)]
     }
 
+    /// A 27-hole venue's selected nine is the only loop for this start. The other nines are
+    /// offered again by NineLoopPlan after the first loop; sending all venue rows here would make
+    /// the package contain three `all` loops and the server rejects it.
+    static func combinedLoopEntries(
+        selected: MobileCourseOption,
+        venueLoops: [MobileCourseOption] = []
+    ) -> [RoundLoopEntry] {
+        _ = venueLoops
+        [RoundLoopEntry(globalId: selected.globalId, half: "all")]
+    }
+
     /// The primary action: "从 B 场 开始 · 蓝 T" for a nine-hole loop and "从 后九 开始 · 蓝 T" for a
     /// half of an 18-hole course (the shared `NineLoopPlan` copy), "开始" before a course is chosen.
     static func startActionTitle(
