@@ -12,8 +12,9 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie.history import stats_cache
-from ai_caddie.history.corrected_history import corrected_history_data
+from ai_caddie.history.corrected_history import corrected_history_data, corrected_rounds, hole_sides
 from ai_caddie.history.history import HistoryData
+from ai_caddie.history.history_stats import _round_breakdowns
 from server_v2 import data_source, geometry as geometry_routes
 from tests.product.fixtures.c16a.support import Sandbox, write
 
@@ -155,6 +156,71 @@ class HoleEvidenceTest(unittest.TestCase):
                 self.assertEqual([r['club'] for r in s.get(url)['shotRoutes']], ['Driver', '6I', 'PW'])
                 features = _shot_route_features(s.get('geometry/hole/900001/1/map?source_ref=101:1'))
                 self.assertEqual([f['club'] for f in features], ['Driver', '6I', 'PW'])
+
+
+class HoleNumberFallbackTest(unittest.TestCase):
+    def test_missing_number_uses_original_position_in_mapping_and_stats(self) -> None:
+        # C76: the second stored hole is display 2, with its own 3 putts (not hole 1's 2).
+        holes = [{'number': 1, 'strokes': 4, 'putts': 2, 'par': 4},
+                 {'strokes': 5, 'putts': 3, 'par': 4},
+                 {'number': 3, 'strokes': 4, 'putts': 2, 'par': 4}]
+        row = {'id': 'ordinal', 'holes': holes}
+        self.assertEqual(hole_sides(row), [
+            (holes[0], 1, 1, 'front'), (holes[1], 2, 2, 'front'), (holes[2], 3, 3, 'front'),
+        ])
+        self.assertEqual(holes[1], {'strokes': 5, 'putts': 3, 'par': 4})
+        stats = _round_breakdowns(HistoryData(raw_rounds=[], rounds=[row], shots=[]))
+        self.assertEqual(stats['roundSequences'][0]['holes'], [1, 2, 3])
+        self.assertEqual(stats['roundSequences'][0]['putts'], [2, 3, 2])
+
+    def test_corrected_fallback_hole_is_referenced_by_its_display_number(self) -> None:
+        # C76 review: a score correction on the unnumbered hole cites "ordinal:2", never "ordinal:None".
+        row = {'id': 'ordinal', 'holes': [{'number': 1, 'strokes': 4, 'par': 4},
+                                          {'strokes': 5, 'par': 4},
+                                          {'number': 3, 'strokes': 4, 'par': 4}]}
+        annotation = {'targetType': 'hole', 'targetId': 'ordinal:2', 'kind': 'score_correction',
+                      'payload': {'from': 5, 'to': 6}, 'createdAt': '2026-10-26T00:00:00Z'}
+        [corrected] = corrected_rounds([row], [annotation])
+        self.assertEqual(corrected['holes'][1]['strokes'], 6)
+        self.assertEqual(corrected['_scoreCorrectedRefs'], ['ordinal:2'])
+
+    def test_explicit_display_number_wins_over_fallback_in_either_order(self) -> None:
+        # C76: position 1/2 would reuse the explicit display 1/2, so only that named hole survives.
+        for holes in ([{}, {'number': 1}], [{'number': 2}, {}]):
+            with self.subTest(holes=holes):
+                explicit = next(h for h in holes if h.get('number'))
+                n = explicit['number']
+                self.assertEqual(hole_sides({'holes': holes}), [(explicit, n, n, 'front')])
+
+    def test_merged_fallback_uses_display_position_and_keeps_physical_sides(self) -> None:
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                holes = [{'number': n + 9 if legacy else n, 'localHole': n + 9}
+                         for n in range(1, 10)] + [{'number': n} for n in range(10, 19)]
+                del holes[1]['number']
+                del holes[12]['number']
+                original = deepcopy(holes)
+                sides = hole_sides({'merged': True, 'holes': holes})
+                # Original positions 2 and 13 become display 2/13; physical 11/4 on front/back.
+                self.assertIn((holes[1], 2, 11, 'front'), sides)
+                self.assertIn((holes[12], 13, 4, 'back'), sides)
+                self.assertEqual(len({display for _, display, _, _ in sides}), len(sides))
+                self.assertEqual(holes, original)
+
+    def test_merged_collision_is_checked_after_display_normalization(self) -> None:
+        # Legacy physical 10 on the first card is display 1 and takes priority over position 1.
+        holes = [{}] + [{'number': n} for n in range(10, 19)] * 2
+        row = {'merged': True, 'holes': holes}
+        sides = hole_sides(row)
+        self.assertNotIn(holes[0], [hole for hole, _, _, _ in sides])
+        self.assertEqual([display for _, display, _, _ in sides], list(range(1, 19)))
+
+    def test_skipped_fallback_keeps_existing_merged_side_boundary(self) -> None:
+        # Without the colliding position-2 fallback, the explicit 10,11 run is the back side.
+        holes = [{'number': 10}, {}, {'number': 11}]
+        self.assertEqual(hole_sides({'merged': True, 'holes': holes}), [
+            (holes[0], 10, 1, 'back'), (holes[2], 11, 2, 'back'),
+        ])
 
 
 class HoleReplayFilterTest(unittest.TestCase):

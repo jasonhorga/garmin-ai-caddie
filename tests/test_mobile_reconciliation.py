@@ -21,6 +21,29 @@ from ai_caddie.history.corrected_history import corrected_history_data
 
 
 class MobileReconciliationTests(unittest.TestCase):
+    def test_missing_hole_number_matches_score_and_putts_by_original_position(self) -> None:
+        # C76: the unnumbered second hole is display 2, scored 5 with 3 putts.
+        data = HistoryData(raw_rounds=[], rounds=[{
+            "id": "ordinal", "holes": [
+                {"number": 1, "strokes": 4, "putts": 2},
+                {"strokes": 5, "putts": 3},
+                {"number": 3, "strokes": 4, "putts": 2},
+            ],
+        }], shots=[])
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch("ordinal", [
+                {"eventId": "ordinal-score", "roundId": "ordinal", "hole": 2,
+                 "kind": "score", "payload": {"strokes": 5}},
+                {"eventId": "ordinal-putt", "roundId": "ordinal", "hole": 2,
+                 "kind": "putt", "payload": {"putts": 3}},
+            ], idempotency_key="ordinal", root=root)
+            result = reconcile_mobile_round_events("ordinal", data, root=root)
+        self.assertEqual([(r["eventId"], r["ref"]) for r in result["matched"]],
+                         [("ordinal-score", "ordinal:2"), ("ordinal-putt", "ordinal:2")])
+        self.assertEqual(result["localOnly"], [])
+        self.assertEqual(result["annotationSuggestions"], [])
+
     def test_missing_penalty_matches_local_zero_without_writing_a_correction(self) -> None:
         # C74 / C53: an absent Garmin penalty has effective value 0.
         data = HistoryData(raw_rounds=[], rounds=[{
