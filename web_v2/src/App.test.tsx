@@ -2285,7 +2285,7 @@ describe('App navigation', () => {
 
     render(<App />)
     expect(await screen.findByRole('heading', { name: '成绩' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '表现分析' }))
+    await userEvent.click(screen.getByRole('button', { name: '备战' }))
     await waitFor(() => expect(statsCalls).toBe(1))
     expect(await screen.findByRole('heading', { name: '历史数据加载失败' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '重试' }))

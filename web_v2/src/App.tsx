@@ -434,11 +434,11 @@ export default function App() {
     setStatsState({ status: 'loading' })
     try {
       const data = await fetchHistoryStats(adminTokenOverride)
-      if (statsRequestSeq.current !== seq || seq <= publishedStatsSeq.current) return
+      if (seq <= publishedStatsSeq.current) return
       publishedStatsSeq.current = seq
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
-      if (statsRequestSeq.current !== seq || seq <= publishedStatsSeq.current) return
+      if (seq <= publishedStatsSeq.current) return
       publishedStatsSeq.current = seq
       setStatsState({ status: 'error', message: errorMessage(error) })
     }
@@ -455,12 +455,12 @@ export default function App() {
     try {
       const data = await fetchHistoryStats(adminTokenOverride, 'all', signal)
       if (signal?.aborted) return
-      if (statsRequestSeq.current !== seq || seq <= publishedStatsSeq.current) return
+      if (seq <= publishedStatsSeq.current) return
       publishedStatsSeq.current = seq
       setStatsState({ status: 'ready', data })
     } catch (error: unknown) {
       if (signal?.aborted || isAbortError(error)) return
-      if (statsRequestSeq.current !== seq || seq <= publishedStatsSeq.current) return
+      if (seq <= publishedStatsSeq.current) return
       publishedStatsSeq.current = seq
       setStatsState((current) => (current.status === 'ready' ? current : { status: 'error', message: errorMessage(error) }))
     }
