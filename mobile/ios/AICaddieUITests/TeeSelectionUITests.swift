@@ -228,6 +228,45 @@ final class TeeSelectionUITests: XCTestCase {
         save("05-carried-course-row"); dump("05-carried-course-row")
     }
 
+    func testReturningToSameVenueKeepsManuallySelectedWhiteTee() throws {
+        launchFresh()
+        guard openStartRound() else {
+            XCTFail("the home must open 开始一场 for the same-venue regression")
+            return
+        }
+        let palace = selectCourse(31793, timeout: 20)
+        let start = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(waitUntilEnabled(start, timeout: 90))
+        let blue = app.buttons.matching(NSPredicate(format: "identifier ==[c] %@", "start-round-tee-blue")).firstMatch
+        XCTAssertTrue(blue.waitForExistence(timeout: 8))
+        XCTAssertTrue(bringIntoView(blue, maxSwipes: 20))
+        blue.tap()
+        XCTAssertTrue(waitForValue("已选择", on: blue, timeout: 8))
+        let white = app.buttons.matching(NSPredicate(format: "identifier ==[c] %@", "start-round-tee-white")).firstMatch
+        XCTAssertTrue(white.waitForExistence(timeout: 8))
+        XCTAssertTrue(bringIntoView(white, maxSwipes: 20))
+        white.tap()
+        XCTAssertTrue(waitForValue("已选择", on: white, timeout: 8))
+        XCTAssertTrue(start.label.hasSuffix("· 白 T"))
+        let pickedAction = start.label
+        let pickedTeeLabel = white.label
+
+        showCoursePage()
+        let row = app.buttons["start-round-venue-31793"]
+        XCTAssertTrue(row.waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForValue("已选择", on: row, timeout: 8))
+        XCTAssertTrue(bringIntoView(row, maxSwipes: 20))
+        // Tap the venue directly: selectCourse's loop helper must not repair the selection.
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForValue("已选择", on: palace, timeout: 8))
+        XCTAssertTrue(waitForValue("已选择", on: white, timeout: 8), "reopening the same venue must keep the manual White pick")
+        XCTAssertEqual(white.label, pickedTeeLabel, "the fetched Tee's yardage must remain available")
+        XCTAssertEqual(start.label, pickedAction)
+        XCTAssertTrue(start.isEnabled)
+        save("same-venue-white-kept"); dump("same-venue-white-kept")
+    }
+
     /// Unlike the deterministic journeys below, this path must use the simulator's real
     /// CLLocationManager delivery. The workflow resets TCC and sets the simulator coordinate before
     /// xcodebuild starts; this test accepts the system sheet and proves that the authorization
@@ -667,11 +706,18 @@ final class TeeSelectionUITests: XCTestCase {
         )
         let pickedAction = pendingStart.label
         save("nearby-pending-02-picked-while-waiting"); dump("nearby-pending-02-picked-while-waiting")
-        // Pending and distance rows belong to the course page. Observe the request there;
-        // leaving that page for setup must not count as the nearby request having completed.
+        // Stay on setup past the 45-second nearby delay. No row re-selection may restore a
+        // default Tee and hide a late nearby response overwriting the player's actual choice.
+        settle(46)
+        XCTAssertTrue(app.descendants(matching: .any)["start-round-page-setup"].exists)
+        XCTAssertTrue(waitForValue("已选择", on: courseTile(31793), timeout: 8))
+        XCTAssertEqual(pendingStart.label, pickedAction, "nearby's arrival must keep the picked loop and tee without re-selection")
+        XCTAssertTrue(pendingStart.isEnabled)
+        save("nearby-pending-03-answered-pick-kept"); dump("nearby-pending-03-answered-pick-kept")
+        // Pending and distance rows belong to the course page. Check completion there only after
+        // verifying that setup retained the choice, without tapping the venue again.
         showCoursePage()
         XCTAssertTrue(waitForValue("已选择", on: waitingRow, timeout: 5))
-        XCTAssertTrue(pending.exists, "the pick happened while nearby was still pending")
         let pendingGone = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"),
             object: pending
@@ -689,14 +735,7 @@ final class TeeSelectionUITests: XCTestCase {
             waitForValue("已选择", on: app.buttons["start-round-venue-31793"], timeout: 8),
             "the course picked while waiting must stay selected after nearby lands"
         )
-        let retainedLoop = selectCourse(31793, timeout: 8)
-        XCTAssertTrue(waitForValue("已选择", on: retainedLoop, timeout: 8))
-        XCTAssertEqual(
-            app.buttons["start-round-primary-action"].label,
-            pickedAction,
-            "nearby's arrival must keep the picked loop and tee"
-        )
-        save("nearby-pending-03-answered-pick-kept"); dump("nearby-pending-03-answered-pick-kept")
+        save("nearby-pending-04-distance-row-selected"); dump("nearby-pending-04-distance-row-selected")
         app.terminate()
         app.launchEnvironment.removeValue(forKey: "UITEST_NEARBY_DELAY_MS")
 
@@ -734,9 +773,6 @@ final class TeeSelectionUITests: XCTestCase {
         }
         XCTAssertTrue(app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8))
         XCTAssertTrue(waitForValue("已选择", on: courseTile(31793), timeout: 8))
-        showCoursePage()
-        XCTAssertTrue(waitForValue("已选择", on: downloaded, timeout: 8))
-        selectCourse(31793, timeout: 8)
         XCTAssertTrue(
             app.buttons.matching(
                 NSPredicate(
