@@ -133,6 +133,13 @@ public struct CoursePrepStep: Codable, Equatable {
 public struct CoursePrepMissingData: Codable, Equatable {
     public let label: String?
     public let reason: String?
+    public let state: String?
+
+    public init(label: String?, reason: String?, state: String? = nil) {
+        self.label = label
+        self.reason = reason
+        self.state = state
+    }
 }
 
 public struct CoursePrepCandidateRoute: Codable, Equatable {

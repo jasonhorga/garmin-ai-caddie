@@ -407,6 +407,27 @@ class PureLogicTests(unittest.TestCase):
         # The hole's installed plan is still offered from the player's ladder.
         self.assertEqual(row["steps"][0]["club"], "1W")
 
+    def test_topo_frame_elevation_read_failure_warns_with_hole_and_exception(self) -> None:
+        # C95: keep the installed plan available, but never hide a flat-terrain fallback.
+        row = {
+            "par": 4, "route_len_m": 320.0,
+            "hazards": {"water_carry": [], "bunkers": []}, "missingData": [],
+        }
+        for error in [OSError("mesh unreadable"), ValueError("invalid mesh JSON"), KeyError("meshes")]:
+            with self.subTest(error=error):
+                with patch.object(cp, "precise_route_seed_hole", return_value=dict(row)), \
+                        patch.object(cp.hole_render, "load_mesh", side_effect=error), \
+                        self.assertLogs(cp.logger, level="WARNING") as logs:
+                    result = cp._topo_frame_prep_hole(
+                        99999, 3, coverage={"topoCoverage": "ready", "topoRevision": "topo-r1"},
+                        ladder=[("1W", 200), ("7I", 128)],
+                    )
+                self.assertIsNotNone(result)
+                self.assertTrue(result["steps"])
+                self.assertIn("99999", logs.output[0])
+                self.assertIn("3", logs.output[0])
+                self.assertIn(str(error), logs.output[0])
+
     def test_prep_hole_keeps_the_courseview_row_when_the_topo_is_not_ready(self) -> None:
         md = {"hole": {"RefLat": 40.0, "RefLon": 116.0, "TeeLocations": [], "Doglegs": []}}
         coverage = {

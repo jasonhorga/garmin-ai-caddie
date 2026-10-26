@@ -1,5 +1,7 @@
 #if !SWIFT_PACKAGE && canImport(UIKit)
 import CoreGraphics
+import SwiftUI
+import UIKit
 import XCTest
 @testable import AICaddie
 
@@ -277,6 +279,69 @@ final class C89HoleMapFrameTests: XCTestCase {
     }
 
     // MARK: - The partial-row probe: stops on a failed export, backs off, pauses in the background
+
+    func testObstacleFailureUsesTheServerStateRegardlessOfDisplayReason() throws {
+        // Handwritten geometry_evidence.py JSON: state is authoritative; reason is display copy.
+        let cases: [(String, Bool)] = [
+            (#"[{"label":"hazards","state":"failed","reason":"export unavailable"}]"#, true),
+            (#"[{"label":"hazards","state":"pending","reason":"prodgeometry hazard export failed"}]"#, false),
+            (#"[{"label":"hazards","reason":"prodgeometry hazard export failed"}]"#, false),
+            (#"[{"label":"meshes","state":"failed","reason":"mesh unavailable"}]"#, false),
+        ]
+        for (missingJSON, failed) in cases {
+            var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(sameFrameRow())) as? [String: Any])
+            json["missingData"] = try JSONSerialization.jsonObject(with: Data(missingJSON.utf8))
+            let row = try JSONDecoder().decode(CoursePrepHole.self, from: JSONSerialization.data(withJSONObject: json))
+            XCTAssertEqual(LiveHolePrepUpgradePolicy.hazardExportFailed(row), failed, missingJSON)
+            XCTAssertEqual(LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: row), !failed)
+            // C95: a terminal failure never promises that precise data will arrive, even during a request.
+            for inFlight in [false, true] where failed {
+                XCTAssertEqual(
+                    LiveHazardMapFrame.notice(
+                        for: .needsMapping(.sameFramePrep), requestInFlight: inFlight, prep: row
+                    ),
+                    "拿不到精确数据 · 距离见下方"
+                )
+            }
+        }
+    }
+
+    func testProbeCancelledDuringFetchPublishesNoInterimRow() async throws {
+        let row = try sameFrameRow()
+        let held = Held()
+        var interim = 0
+        let request = Task { @MainActor in
+            await LiveHolePrepProbe.run(
+                fetch: { await held.wait(); return row },
+                publishInterim: { _ in interim += 1 },
+                wait: { _ in }
+            )
+        }
+        try await waitUntilHeld(held)
+        request.cancel()
+        held.release()
+        let result = await request.value
+        XCTAssertNil(result)
+        XCTAssertEqual(interim, 0, "a cancelled hole task must not publish even a partial row")
+    }
+
+    func testInitialScenePhaseUpdatesTheProbeMirrorBeforeAnyPhaseChange() async throws {
+        for phase in [ScenePhase.inactive, .background, .active] {
+            var isActive = true
+            let root = Color.clear
+                .modifier(LiveHoleSceneActivity(isActive: Binding(get: { isActive }, set: { isActive = $0 })))
+                .environment(\.scenePhase, phase)
+            let host = UIHostingController(rootView: root)
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            defer { window.isHidden = true; window.rootViewController = nil }
+            host.view.layoutIfNeeded()
+            // Let SwiftUI commit the initial onChange callback without changing the environment.
+            try await Task.sleep(nanoseconds: 100_000_000)
+            XCTAssertEqual(isActive, phase == .active, "initial phase: \(phase)")
+        }
+    }
 
     func testAFailedObstacleExportStopsTheProbe() async throws {
         let pending = try sameFrameRow(hazardExport: "pending")

@@ -361,11 +361,12 @@ public struct StartRoundView: View {
             return
         }
         teeLoadFailed = false
-        // Carried rows need no request; `requestTees` raises the loading gate itself.
-        isLoadingTees = false
         guard let tees = await Self.courseTeeRows(
             globalId: globalId,
             carried: carriedCourseTees,
+            setLoading: { loading in
+                if teeRequestToken == requestToken { isLoadingTees = loading }
+            },
             request: { await requestTees(globalId: $0, requestToken: requestToken) }
         ) else { return }
         fetchedTees = tees
@@ -390,8 +391,11 @@ public struct StartRoundView: View {
     static func courseTeeRows(
         globalId: Int,
         carried: [Int: [CourseTee]],
+        setLoading: (Bool) -> Void = { _ in },
         request: (Int) async -> [CourseTee]?
     ) async -> [CourseTee]? {
+        // C92 red baseline: preserve loadTees' early release before the async lookup.
+        setLoading(false)
         if let rows = carried[globalId], !rows.isEmpty { return rows }
         return await request(globalId)
     }

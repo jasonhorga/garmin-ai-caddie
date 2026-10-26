@@ -190,6 +190,18 @@ enum LiveHolePrepProbe {
     }
 }
 
+/// Keep the probe's foreground mirror in the live content's small modifier boundary.
+struct LiveHoleSceneActivity: ViewModifier {
+    @Environment(\.scenePhase) private var scenePhase
+    @Binding var isActive: Bool
+
+    func body(content: Content) -> some View {
+        content.onChange(of: scenePhase) { _, phase in
+            isActive = phase == .active
+        }
+    }
+}
+
 /// The selected obstacle in the pixel frame of the bitmap on screen, or what is still missing to
 /// draw it there.
 @MainActor
@@ -269,7 +281,10 @@ enum LiveHazardMapFrame {
 
     /// `descriptorLoading`: this hole's Garmin descriptor request is still running (a mapping request
     /// that found it already loading returns at once), so its registration may yet arrive.
-    static func notice(for resolution: Resolution, requestInFlight: Bool, descriptorLoading: Bool = false) -> String? {
+    static func notice(
+        for resolution: Resolution, requestInFlight: Bool, descriptorLoading: Bool = false,
+        prep: CoursePrepHole? = nil
+    ) -> String? {
         guard case let .needsMapping(source) = resolution else { return nil }
         if requestInFlight, source != .noMap { return "正在定位障碍…" }
         if descriptorLoading, source == .garminRegistration { return "正在定位障碍…" }
@@ -376,7 +391,6 @@ enum LiveHoleAdvanceResolution: Equatable {
 
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
 
     public let package: LiveRoundPackage
     public let hole: Hole
@@ -1006,9 +1020,7 @@ public struct CurrentHoleView: View {
             .task(id: hazardMappingRequest) {
                 await runHazardMappingRequest()
             }
-            .onChange(of: scenePhase) { _, phase in
-                liveSceneIsActive = phase == .active
-            }
+            .modifier(LiveHoleSceneActivity(isActive: $liveSceneIsActive))
     }
 
     private var liveHoleContent: some View {
