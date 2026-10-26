@@ -2785,7 +2785,8 @@ public final class OfflineStore {
             timestamp: redactedTransportText(event.timestamp),
             hole: event.hole,
             kind: event.kind,
-            payload: payload
+            payload: payload,
+            startHole: event.startHole
         )
     }
 

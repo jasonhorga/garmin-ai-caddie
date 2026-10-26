@@ -2576,6 +2576,85 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(marker.payload["serverSequence"], .number(42))
     }
 
+    func testFirstStrokeUploadsStartHoleAndFreshDeviceRestoresPlayOrder() throws {
+        let package = try courseRoundPackage(
+            globalId: 1,
+            loops: [RoundLoopEntry(globalId: 1, half: "all")],
+            roundId: "server-start-nine"
+        )
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory.appendingPathComponent("phone"))
+        try store.saveRoundStart(roundId: package.roundId, startHole: 5)
+        try store.appendEvent(LiveRoundEvent(
+            eventId: "first-stroke", roundId: package.roundId,
+            timestamp: "2026-06-20T00:00:00Z", hole: 5, kind: .score,
+            payload: ["strokes": .number(1)]
+        ))
+        let pending = try store.loadPendingEvents(roundId: package.roundId)
+        XCTAssertEqual(pending.first?.startHole, 5)
+
+        // A different store has neither the old progress file nor an inferred start hole.
+        let fresh = OfflineStore(directoryURL: directory.appendingPathComponent("new-phone"))
+        let transported = try JSONDecoder().decode([LiveRoundEvent].self, from: JSONEncoder().encode(pending))
+        _ = try fresh.applyReplayEvents(transported)
+        let restored = try fresh.restoreLiveRoundState(roundId: package.roundId, package: package)
+        XCTAssertEqual(restored.startHole, 5)
+        // C63: a nine-hole round starting at 5 plays 5...9, then 1...4 (handwritten).
+        XCTAssertEqual(
+            RoundPlayOrder.holes(package.holes.map(\.number), startingAt: restored.startHole, loops: package.roundLoops),
+            [5, 6, 7, 8, 9, 1, 2, 3, 4]
+        )
+        XCTAssertEqual(restored.holes.map(\.hole), [1, 2, 3, 4, 5, 6, 7, 8, 9])
+    }
+
+    func testReplayRestoresFirstDisplayStartHoleAcrossTwoNines() throws {
+        let package = try courseRoundPackage(
+            globalId: 1,
+            loops: [RoundLoopEntry(globalId: 1, half: "back"), RoundLoopEntry(globalId: 1, half: "front")],
+            roundId: "server-start-two-nines"
+        )
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let events = [
+            LiveRoundEvent(eventId: "start", roundId: package.roundId,
+                           timestamp: "2026-06-20T00:00:00Z", hole: 13, kind: .score,
+                           payload: ["strokes": .number(1)], startHole: 13),
+            LiveRoundEvent(eventId: "later", roundId: package.roundId,
+                           timestamp: "2026-06-20T00:01:00Z", hole: 14, kind: .score,
+                           payload: ["strokes": .number(1)], startHole: 14),
+        ]
+        _ = try store.applyReplayEvents(events)
+        let restored = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+        // Display 13 is physical hole 4 on the second loop: never store sourceLocalHole here.
+        XCTAssertEqual(package.holes.first { $0.number == 13 }?.sourceLocalHole, 4)
+        XCTAssertEqual(restored.startHole, 13)
+        XCTAssertEqual(restored.activeHole, 14)
+        XCTAssertEqual(
+            RoundPlayOrder.holes(package.holes.map(\.number), startingAt: restored.startHole, loops: package.roundLoops),
+            [13, 14, 15, 16, 17, 18, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        )
+    }
+
+    func testLegacyReplayDoesNotInferStartHoleAndKeepsLocalStart() throws {
+        let package = try fixturePackage()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let event = try JSONDecoder().decode(LiveRoundEvent.self, from: Data("""
+            {"schema":"ai-caddie-live-round-event-v1","eventId":"legacy","roundId":"\(package.roundId)",
+             "timestamp":"2026-06-20T00:00:00Z","hole":5,"kind":"score","payload":{"strokes":1}}
+            """.utf8))
+        _ = try store.applyReplayEvents([event])
+        let legacy = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+        XCTAssertNil(legacy.startHole)
+        XCTAssertEqual(RoundPlayOrder.holes(package.holes.map(\.number), startingAt: legacy.startHole), package.holes.map(\.number))
+        try store.saveRoundStart(roundId: package.roundId, startHole: 5)
+        let local = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+        XCTAssertEqual(local.startHole, 5)
+    }
+
     func testRestoreLiveRoundStateLeavesClubUnselectedUntilAClubEventExists() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
