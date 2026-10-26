@@ -88,6 +88,17 @@ def _assert_json_schema_rejects(testcase: unittest.TestCase, schema: dict[str, o
 
 
 class MobileContractTests(unittest.TestCase):
+    def test_live_hazard_mapping_request_belongs_to_the_view_task(self) -> None:
+        # C95 lifecycle contract: changing holes/leaving the view must cancel hazard work.
+        source = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
+        content = source.split("private var liveHoleContentWithHazardRequests: some View {", 1)[1]
+        content = content.split("private var liveHoleContent: some View {", 1)[0]
+        self.assertRegex(content, r"\.task\(id: hazardMappingRequest\)\s*\{\s*await runHazardMappingRequest\(\)")
+        selection = source.split("private func requestHazardMappingIfNeeded(", 1)[1]
+        selection = selection.split("private func runHazardMappingRequest()", 1)[0]
+        self.assertNotRegex(selection, r"\bTask\s*\{")
+        self.assertEqual(len(re.findall(r"await\s+runHazardMappingRequest\(\)", source)), 1)
+
     def test_ios_start_round_has_course_and_setup_pages(self) -> None:
         source = _read_required_source(self, IOS_DIR / "Views" / "StartRoundView.swift")
         presentation = _read_required_source(self, IOS_DIR / "Models" / "StartRoundPresentation.swift")

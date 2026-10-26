@@ -2466,7 +2466,7 @@ enum LiveMapDisplaySelection {
 
 /// Compact live-hole fallback. It keeps the same numeric facts visible while both raster paths are
 /// unavailable; the copy describes the active download without exposing an implementation state.
-struct LiveMapNumericPlaceholder: View {
+public struct LiveMapNumericPlaceholder: View {
     let holeNumber: Int
     let par: Int?
     let yards: Int?
@@ -2474,7 +2474,7 @@ struct LiveMapNumericPlaceholder: View {
     let middleYards: Int?
     let backYards: Int?
 
-    var body: some View {
+    public var body: some View {
         ZStack {
             LivePlayStyle.base
             VStack(spacing: 12) {

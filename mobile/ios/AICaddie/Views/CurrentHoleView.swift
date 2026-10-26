@@ -95,11 +95,10 @@ enum LiveHolePrepUpgradePolicy {
             && !hazardExportFailed(prep)
     }
 
-    /// `/prep` reports the derivative lane's terminal failure as the hazards row
-    /// `prodgeometry hazard export failed` (geometry_evidence.py); a pending export says `pending`.
+    /// geometry_evidence.py reports the terminal derivative state separately from display copy.
     static func hazardExportFailed(_ prep: CoursePrepHole?) -> Bool {
         (prep?.missingData ?? []).contains {
-            $0.label == "hazards" && $0.reason == "prodgeometry hazard export failed"
+            $0.label == "hazards" && $0.state == "failed"
         }
     }
 
@@ -190,6 +189,18 @@ enum LiveHolePrepProbe {
     }
 }
 
+/// Keep the probe's foreground mirror in the live content's small modifier boundary.
+struct LiveHoleSceneActivity: ViewModifier {
+    @Environment(\.scenePhase) private var scenePhase
+    @Binding var isActive: Bool
+
+    func body(content: Content) -> some View {
+        content.onChange(of: scenePhase, initial: true) { _, phase in
+            isActive = phase == .active
+        }
+    }
+}
+
 /// The selected obstacle in the pixel frame of the bitmap on screen, or what is still missing to
 /// draw it there.
 @MainActor
@@ -269,8 +280,14 @@ enum LiveHazardMapFrame {
 
     /// `descriptorLoading`: this hole's Garmin descriptor request is still running (a mapping request
     /// that found it already loading returns at once), so its registration may yet arrive.
-    static func notice(for resolution: Resolution, requestInFlight: Bool, descriptorLoading: Bool = false) -> String? {
+    static func notice(
+        for resolution: Resolution, requestInFlight: Bool, descriptorLoading: Bool = false,
+        prep: CoursePrepHole? = nil
+    ) -> String? {
         guard case let .needsMapping(source) = resolution else { return nil }
+        if source == .sameFramePrep, LiveHolePrepUpgradePolicy.hazardExportFailed(prep) {
+            return "拿不到精确数据 · 距离见下方"
+        }
         if requestInFlight, source != .noMap { return "正在定位障碍…" }
         if descriptorLoading, source == .garminRegistration { return "正在定位障碍…" }
         switch source {
@@ -376,7 +393,6 @@ enum LiveHoleAdvanceResolution: Equatable {
 
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
 
     public let package: LiveRoundPackage
     public let hole: Hole
@@ -1006,9 +1022,7 @@ public struct CurrentHoleView: View {
             .task(id: hazardMappingRequest) {
                 await runHazardMappingRequest()
             }
-            .onChange(of: scenePhase) { _, phase in
-                liveSceneIsActive = phase == .active
-            }
+            .modifier(LiveHoleSceneActivity(isActive: $liveSceneIsActive))
     }
 
     private var liveHoleContent: some View {
@@ -2165,6 +2179,18 @@ public struct CurrentHoleView: View {
         )
     }
 
+    /// The same current-hole facts as LivePlayTopInfo, including the selected Tee's yardage.
+    private var liveMapPlaceholder: LiveMapNumericPlaceholder {
+        LiveMapNumericPlaceholder(
+            holeNumber: hole.courseHoleNumber,
+            par: hole.par,
+            yards: hole.yards,
+            frontYards: holePrep?.greenDistances?.frontM.map { CoursePrepRoute.yards(fromMetres: $0) },
+            middleYards: holePrep?.greenDistances?.middleM.map { CoursePrepRoute.yards(fromMetres: $0) },
+            backYards: holePrep?.greenDistances?.backM.map { CoursePrepRoute.yards(fromMetres: $0) }
+        )
+    }
+
     /// 球洞俯视图(2D): precise topo first, then Garmin's raster, then a numeric placeholder.
     @ViewBuilder private var liveMapBackdrop: some View {
         if liveMapDisplayState == .garminRaster {
@@ -2188,18 +2214,12 @@ public struct CurrentHoleView: View {
                         garminRasterImageRetrying = true
                         garminRasterImageFailed = true
                     },
-                    onVersionConflict: { retryGarminDescriptorAfterVersionConflict(liveGarminRasterURL) }
+                    onVersionConflict: { retryGarminDescriptorAfterVersionConflict(liveGarminRasterURL) },
+                    placeholder: liveMapPlaceholder
                 )
                 .transition(.opacity)
             } else {
-                LiveMapNumericPlaceholder(
-                    holeNumber: hole.courseHoleNumber,
-                    par: hole.par,
-                    yards: hole.yards,
-                    frontYards: nil,
-                    middleYards: nil,
-                    backYards: nil
-                )
+                liveMapPlaceholder
             }
         } else if let holePrep, liveMapDisplayState == .precise {
             liveHoleImageMap(holePrep)
@@ -2213,14 +2233,7 @@ public struct CurrentHoleView: View {
                 .accessibilityIdentifier("live-hole-map-precise")
         } else {
             ZStack {
-                LiveMapNumericPlaceholder(
-                    holeNumber: hole.courseHoleNumber,
-                    par: hole.par,
-                    yards: hole.yards,
-                    frontYards: holePrep?.greenDistances?.frontM.map { CoursePrepRoute.yards(fromMetres: $0) },
-                    middleYards: holePrep?.greenDistances?.middleM.map { CoursePrepRoute.yards(fromMetres: $0) },
-                    backYards: holePrep?.greenDistances?.backM.map { CoursePrepRoute.yards(fromMetres: $0) }
-                )
+                liveMapPlaceholder
                 if garminRasterImageRetrying, let retryURL = liveGarminRasterURL {
                     GarminRasterStandaloneView(
                         url: retryURL,
@@ -2233,7 +2246,8 @@ public struct CurrentHoleView: View {
                             garminRasterImageRetrying = false
                             garminRasterImageFailed = true
                         },
-                        onVersionConflict: { retryGarminDescriptorAfterVersionConflict(retryURL) }
+                        onVersionConflict: { retryGarminDescriptorAfterVersionConflict(retryURL) },
+                        placeholder: liveMapPlaceholder
                     )
                     .opacity(0.001)
                     .allowsHitTesting(false)
@@ -2294,7 +2308,8 @@ public struct CurrentHoleView: View {
                              selectedPlanIndex: selectedPlanIndex,
                              // `LivePlannedRouteRenderer` draws the route with its "杆名 码数"
                              // labels in the viewport plane (screen-size type at every zoom).
-                             drawsPlannedRouteInMap: false)
+                             drawsPlannedRouteInMap: false,
+                             placeholder: liveMapPlaceholder)
     }
 
     /// The distance reference is useful only before the first full shot of a hole. With no GPS
@@ -2645,7 +2660,8 @@ public struct CurrentHoleView: View {
             LiveHazardMapFrame.notice(
                 for: $0,
                 requestInFlight: hazardMappingRequest?.hole == hole.number,
-                descriptorLoading: descriptorLoading
+                descriptorLoading: descriptorLoading,
+                prep: holePrep
             )
         }
     }
@@ -2662,6 +2678,7 @@ public struct CurrentHoleView: View {
             garminProjection: liveGarminRasterProjection
         )
         guard case let .needsMapping(source) = resolution, source != .noMap else { return }
+        if source == .sameFramePrep, LiveHolePrepUpgradePolicy.hazardExportFailed(holePrep) { return }
         hazardMappingRequest = LiveHazardMapFrame.Request(hole: hole.number, source: source)
     }
 

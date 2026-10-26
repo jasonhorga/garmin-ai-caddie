@@ -22,6 +22,94 @@ from tests.round_loop_authority import fixture_course_authority
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def _identity_course_package(self, root: Path, round_id: str, loops: list[tuple[int, str]]):
+        from server_v2 import mobile as mobile_service
+
+        with (
+            patch.object(mobile_service, "MOBILE_ROOT", root),
+            patch.object(mobile_service, "_refresh_course_release_authority", return_value=[]),
+            patch("ai_caddie.caddie.mobile_live._courseview_segment_resolver", return_value=("Fixture Course", 18)),
+            patch("ai_caddie.courses.course_reference.courseview_par", return_value=[4] * 18),
+        ):
+            return mobile_service.build_mobile_course_package_response(
+                55555, round_id=round_id, loops=loops, map_only=True, include_event_cursor=False,
+            )
+
+    def test_unchanged_package_identity_returns_while_round_finish_holds_player_lock(self) -> None:
+        from server_v2 import mobile as mobile_service
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            loops = [(55555, "front")]
+            self._identity_course_package(root, "lock-fast-path", loops)
+            path = next(root.rglob("round_identity/*.json"))
+            before = path.stat().st_mtime_ns
+            done = threading.Event()
+            results, errors = [], []
+
+            def request() -> None:
+                try:
+                    results.append(self._identity_course_package(root, "lock-fast-path", loops))
+                except Exception as exc:
+                    errors.append(exc)
+                finally:
+                    done.set()
+
+            with patch.object(mobile_service, "MOBILE_ROOT", root):
+                with mobile_service._mobile_materialization_lock("me"):
+                    worker = threading.Thread(target=request)
+                    worker.start()
+                    completed_while_locked = done.wait(timeout=3)
+                worker.join(timeout=5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(errors, [])
+            self.assertTrue(completed_while_locked, "unchanged package waited for round finish")
+            self.assertEqual(results[0].roundId, "lock-fast-path")
+            self.assertEqual(path.stat().st_mtime_ns, before)
+
+    def test_offline_first_nine_events_get_identity_from_late_course_package(self) -> None:
+        from ai_caddie.caddie.mobile_live import append_event_batch
+        from ai_caddie.caddie.mobile_round_identity import load_mobile_round_identity
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch("late-package", [{
+                "eventId": f"score-{n}", "roundId": "late-package", "hole": n,
+                "kind": "score", "payload": {"strokes": 4},
+            } for n in range(1, 10)], idempotency_key="offline", root=root)
+            package = self._identity_course_package(
+                root, "late-package", [(55555, "front"), (55555, "back")],
+            )
+            self.assertEqual(package.roundId, "late-package")
+            identity = load_mobile_round_identity("late-package", root=root)
+            self.assertEqual(identity["loopKey"], "55555:front+55555:back")
+            self.assertEqual([h["sourceLocalHole"] for h in identity["holes"]], list(range(1, 19)))
+
+    def test_corrupt_identity_does_not_fail_package_or_rebind_legacy_events(self) -> None:
+        from ai_caddie.caddie.mobile_live import append_event_batch
+        from ai_caddie.caddie.mobile_reconciliation import reconcile_mobile_round_events
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            loops = [(55555, "back")]
+            self._identity_course_package(root, "corrupt-package", loops)
+            next(root.rglob("round_identity/*.json")).write_text("{broken", encoding="utf-8")
+            append_event_batch("corrupt-package", [{
+                "eventId": "legacy-score", "roundId": "corrupt-package", "hole": 1,
+                "kind": "score", "payload": {"strokes": 5},
+            }], idempotency_key="legacy", root=root)
+            with self.assertLogs("ai_caddie.caddie.mobile_round_identity", level="WARNING"):
+                package = self._identity_course_package(root, "corrupt-package", loops)
+                result = reconcile_mobile_round_events("corrupt-package", HistoryData(
+                    raw_rounds=[], shots=[], rounds=[{
+                        "id": "corrupt-package", "globalId": 55555,
+                        "holes": [{"number": 1, "strokes": 5}],
+                    }],
+                ), root=root)
+            self.assertEqual(package.roundId, "corrupt-package")
+            self.assertEqual([r["ref"] for r in result["matched"]], ["corrupt-package:1"])
+            self.assertEqual(result["annotationSuggestions"], [])
+
     def test_reconciliation_apply_returns_409_for_mutation_key_with_different_content(self) -> None:
         from ai_caddie.caddie.mobile_live import append_event_batch
         from ai_caddie.reports.annotations import list_annotation_records
@@ -951,6 +1039,8 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertIn(black_knight["geometryCoverage"], {"ready", "partial", "missing"})
 
     def test_mobile_round_package_matches_ios_sync_client_endpoint(self) -> None:
+        from ai_caddie.caddie.mobile_round_identity import load_mobile_round_identity
+
         client = TestClient(app)
 
         def missing_geometry(global_id: int, local_hole: int) -> dict[str, object]:
@@ -976,6 +1066,7 @@ class ServerV2MobileTests(unittest.TestCase):
                     patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
                 ):
                     response = client.get("/api/v2/mobile/rounds/900001/package")
+                    identity = load_mobile_round_identity("900001", root=root)
         finally:
             stats_cache.clear()
 
@@ -983,6 +1074,9 @@ class ServerV2MobileTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["schema"], "ai-caddie-live-round-package-v2")
         self.assertEqual(payload["roundId"], "900001")
+        self.assertIsNotNone(identity)
+        self.assertEqual(identity["roundId"], "900001")
+        self.assertEqual(identity["loopKey"], payload["loopKey"])
         self.assertEqual(payload["dataMode"], "fixture")
         self.assertEqual(payload["sourceCoverage"]["state"], "ready")
         self.assertTrue(payload["sourceCoverage"]["roundFound"])

@@ -406,14 +406,20 @@ final class SpeculativePrefetchTests: XCTestCase {
     private func newAreaModel(
         nearby: [(id: Int, km: Double, holes: Int)],
         noBlue: Set<Int> = [],
-        failing: Set<Int> = []
+        failing: Set<Int> = [],
+        carriedTees: [Int: [String]] = [:]
     ) throws -> (LiveRoundAppModel, TeeLookups) {
         let store = OfflineStore(directoryURL: directory)
         try store.saveRecentCourseSelection(homeCourse())
         let lookups = TeeLookups()
-        let rows = nearby
-            .map { #"{"globalId":\#($0.id),"name":"球场\#($0.id)","holes":\#($0.holes),"ratio":1,"distanceKm":\#($0.km)}"# }
-            .joined(separator: ",")
+        let rows = try nearby.map { row -> String in
+            var json: [String: Any] = ["globalId": row.id, "name": "球场\(row.id)", "holes": row.holes, "ratio": 1, "distanceKm": row.km]
+            if let tees = carriedTees[row.id] {
+                json["teeOptions"] = ["schema": "ai-caddie-course-tees-v1", "globalId": row.id,
+                                      "tees": tees.map { ["teeBox": $0, "name": $0] }]
+            }
+            return String(decoding: try JSONSerialization.data(withJSONObject: json), as: UTF8.self)
+        }.joined(separator: ",")
         NewAreaURLProtocol.handler = { request in
             guard let path = request.url?.path else { return nil }
             if path == "/api/v2/courses/nearby" {
@@ -453,6 +459,32 @@ final class SpeculativePrefetchTests: XCTestCase {
 
     /// The real path: a nearby answer somewhere new reads the Tees and queues the blue-Tee courses as
     /// guesses, anchors the area, and the same area does not ask again.
+    func testCarriedTeeOptionsSkipLookupsIncludingNoBlueAndEmptyOffers() async throws {
+        // Three nearest rows are authoritative; only row 103 lacks teeOptions (C91 / C92①).
+        let (model, lookups) = try newAreaModel(
+            nearby: [(101, 0.4, 18), (102, 1.0, 18), (103, 2.0, 9)],
+            carriedTees: [101: ["white", "Blue"], 102: ["white"]]
+        )
+        model.publishOfflineStorageUsageForTesting(empty)
+        model.setNetworkStateForTesting(wifi)
+        _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
+        await model.waitForNewAreaPassForTesting()
+        XCTAssertEqual(lookups.all, [103], "carried Tees, including no blue, never call /tees")
+        XCTAssertEqual(newAreaGuesses(model), [101, 103])
+        await model.cancelPrepCourseDownloadForTesting()
+    }
+
+    func testAnEmptyCarriedTeeOfferIsSettledWithoutALookup() async throws {
+        let (model, lookups) = try newAreaModel(nearby: [(104, 0.4, 18)], carriedTees: [104: []])
+        model.publishOfflineStorageUsageForTesting(empty)
+        model.setNetworkStateForTesting(wifi)
+        _ = try await model.nearbyCourses(latitude: away.latitude, longitude: away.longitude, radiusKm: 5)
+        await model.waitForNewAreaPassForTesting()
+        XCTAssertEqual(lookups.all, [])
+        XCTAssertEqual(newAreaGuesses(model), [])
+        await model.cancelPrepCourseDownloadForTesting()
+    }
+
     func testANearbyAnswerSomewhereNewQueuesItsBlueTeeCourses() async throws {
         let (model, lookups) = try newAreaModel(
             nearby: [(11, 0.4, 18), (12, 1.0, 18), (13, 2.0, 9), (14, 3.0, 18)],

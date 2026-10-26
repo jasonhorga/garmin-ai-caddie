@@ -612,6 +612,42 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(paths.tees, ["/api/v2/courses/31795/tees"], "a row without them asks /tees once")
     }
 
+    func testRemoteTeeLookupKeepsConcreteColourStartGatedAcrossItsAwait() async {
+        var loading = true
+        let rows = await StartRoundView.courseTeeRows(
+            globalId: 31795, carried: [:], setLoading: { loading = $0 },
+            request: { _ in
+                XCTAssertTrue(loading, "no frame may release the gate before the remote request")
+                await Task.yield()
+                XCTAssertTrue(loading, "the gate remains raised while the request is suspended")
+                XCTAssertFalse(StartRoundView.isStartAllowed(
+                    isPreparing: false, isLoadingTees: loading, roundId: "fixture-round",
+                    courseGlobalId: 31795, teeBox: "blue", selectedCourseRequiresRemoteTees: false,
+                    teeOptions: ["blue"], selectedCourseWasManualSearch: false
+                ))
+                return [CourseTee(teeBox: "blue", name: "Blue")]
+            }
+        )
+        XCTAssertEqual(rows?.map(\.teeBox), ["blue"])
+        XCTAssertFalse(loading)
+
+        loading = true
+        let failed = await StartRoundView.courseTeeRows(
+            globalId: 31795, carried: [31795: []], setLoading: { loading = $0 },
+            request: { _ in XCTAssertTrue(loading); return nil }
+        )
+        XCTAssertNil(failed)
+        XCTAssertFalse(loading, "a finished failed request releases the gate too")
+
+        loading = true
+        let carried = await StartRoundView.courseTeeRows(
+            globalId: 31795, carried: [31795: [CourseTee(teeBox: "white", name: "White")]],
+            setLoading: { loading = $0 }, request: { _ in XCTFail("carried rows need no request"); return nil }
+        )
+        XCTAssertEqual(carried?.map(\.teeBox), ["white"])
+        XCTAssertFalse(loading, "carried rows release the gate without a network await")
+    }
+
     func testFailedTeeRequestStillOffersRetryNextToTheCourseDefault() throws {
         // C87 rework: a nearby course now starts on `unknown`, so its Tee list is ["unknown"], never
         // empty. A failed /tees must still show 重试获取发球台 while 球场默认 T remains startable.

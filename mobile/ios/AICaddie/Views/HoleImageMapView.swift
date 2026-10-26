@@ -153,6 +153,8 @@ public struct HoleImageMapView: View {
     /// flag are drawn once, crisp, by this view's canvas.
     public let baseEdgeExtension: EdgeInsets
     public let baseEdgeFeather: CGFloat
+    /// Current-hole facts while Garmin pixels load; supplied by the live screen.
+    public let placeholder: LiveMapNumericPlaceholder?
 
     public init(hole: CoursePrepHole, selectedClub: String? = nil, selectedClubMetres: Double? = nil,
                 pinOverlayPixel: CGPoint? = nil,
@@ -173,7 +175,8 @@ public struct HoleImageMapView: View {
                 showsPrepClubLabel: Bool = true, showsClubLabel: Bool = true,
                 teeDistanceArcYards: Int? = nil,
                 plannedShots: [MapPlannedShot] = [], selectedPlanIndex: Int? = nil,
-                drawsPlannedRouteInMap: Bool = true, baseEdgeExtension: EdgeInsets = EdgeInsets(), baseEdgeFeather: CGFloat = 0) {
+                drawsPlannedRouteInMap: Bool = true, baseEdgeExtension: EdgeInsets = EdgeInsets(), baseEdgeFeather: CGFloat = 0,
+                placeholder: LiveMapNumericPlaceholder? = nil) {
         self.hole = hole
         self.selectedClub = selectedClub
         self.selectedClubMetres = selectedClubMetres
@@ -203,6 +206,7 @@ public struct HoleImageMapView: View {
         self.drawsPlannedRouteInMap = drawsPlannedRouteInMap
         self.baseEdgeExtension = baseEdgeExtension
         self.baseEdgeFeather = baseEdgeFeather
+        self.placeholder = placeholder
     }
 
     public var body: some View {
@@ -222,7 +226,8 @@ public struct HoleImageMapView: View {
                     onGarminImageReady: onGarminImageReady,
                     onGarminImageFailed: onGarminImageFailed,
                     onGarminImageRetrying: onGarminImageRetrying,
-                    onGarminImageVersionConflict: onGarminImageVersionConflict
+                    onGarminImageVersionConflict: onGarminImageVersionConflict,
+                    garminPlaceholder: placeholder
                 )
                     .continuingTerrain(baseEdgeExtension, feather: baseEdgeFeather)
                 Canvas { context, size in

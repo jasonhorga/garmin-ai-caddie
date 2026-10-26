@@ -368,6 +368,13 @@ class CourseviewSearchTests(unittest.TestCase):
 
 
 class CourseSearchEndpointTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from server_v2 import main as server_main
+
+        # Cached Tee payloads outlive each test's mocked release/geometry authority.
+        server_main._memoized_course_tees_payload.cache_clear()
+        self.addCleanup(server_main._memoized_course_tees_payload.cache_clear)
+
     def _client(self):
         from fastapi.testclient import TestClient
         from server_v2.main import app
