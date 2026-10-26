@@ -44,6 +44,102 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(result["localOnly"], [])
         self.assertEqual(result["annotationSuggestions"], [])
 
+    def test_package_display_holes_reconcile_three_garmin_round_shapes(self) -> None:
+        """Phone events use package display holes for back starts, mixed nines, and A+A laps.
+
+        The first shape is Garmin's legacy merged representation when the player started on the
+        physical back nine: both scorecards are stored as 10..18, while the package presents the
+        first card as display holes 1..9. The other two shapes use the normal merged 1..9 + 10..18
+        display storage; the second shape has two different nines and the third visits one nine
+        twice (both still keep physical source holes in ``localHole``).
+        """
+        cases = (
+            {
+                "name": "back-nine-start",
+                "package_numbers": list(range(1, 10)),
+                "garmin_holes": [
+                    *[
+                        {"number": number + 9, "localHole": number + 9, "strokes": 5, "putts": 2, "penalties": 0}
+                        for number in range(1, 10)
+                    ],
+                    *[
+                        {"number": number + 9, "localHole": number, "strokes": 7, "putts": 3, "penalties": 1}
+                        for number in range(1, 10)
+                    ],
+                ],
+            },
+            {
+                "name": "two-nine-combo",
+                "package_numbers": list(range(1, 19)),
+                "garmin_holes": [
+                    *[
+                        {"number": number, "localHole": number, "strokes": 5, "putts": 2, "penalties": 0}
+                        for number in range(1, 10)
+                    ],
+                    *[
+                        {"number": number + 9, "localHole": number, "strokes": 7, "putts": 3, "penalties": 1}
+                        for number in range(1, 10)
+                    ],
+                ],
+            },
+            {
+                "name": "nine-loop-second-lap",
+                "package_numbers": list(range(1, 19)),
+                "garmin_holes": [
+                    *[
+                        {"number": number, "localHole": number, "strokes": 5, "putts": 2, "penalties": 0}
+                        for number in range(1, 10)
+                    ],
+                    *[
+                        {"number": number + 9, "localHole": number, "strokes": 7, "putts": 3, "penalties": 1}
+                        for number in range(1, 10)
+                    ],
+                ],
+            },
+        )
+
+        for case in cases:
+            with self.subTest(shape=case["name"]), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                round_id = f"display-{case['name']}"
+                data = HistoryData(
+                    raw_rounds=[],
+                    rounds=[
+                        {
+                            "id": round_id,
+                            "merged": True,
+                            "holes": case["garmin_holes"],
+                        }
+                    ],
+                    shots=[],
+                )
+                append_event_batch(
+                    round_id,
+                    [
+                        {
+                            "eventId": f"{round_id}-{hole}",
+                            "roundId": round_id,
+                            "hole": hole,
+                            "kind": "score",
+                            "payload": {"strokes": 5 if hole <= 9 else 7},
+                        }
+                        for hole in case["package_numbers"]
+                    ],
+                    idempotency_key=round_id,
+                    root=root,
+                )
+
+                result = reconcile_mobile_round_events(round_id, data, root=root)
+
+            self.assertEqual(result["annotationSuggestions"], [])
+            self.assertEqual(result["localOnly"], [])
+            self.assertEqual(result["conflicts"], [])
+            self.assertEqual(result["garminOnly"], [])
+            self.assertEqual(
+                [row["hole"] for row in result["matched"]],
+                case["package_numbers"],
+            )
+
     def test_missing_penalty_matches_local_zero_without_writing_a_correction(self) -> None:
         # C74 / C53: an absent Garmin penalty has effective value 0.
         data = HistoryData(raw_rounds=[], rounds=[{
