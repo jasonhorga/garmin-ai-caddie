@@ -831,9 +831,9 @@ def _sequence_distance(context: dict[str, Any]) -> float:
         return canonical
     # A live/manual distance is more current than the package's tee-distance fallback.
     for key in ("distanceToPin_m", "remainingToPin_m", "holeRemaining_m"):
-        if context.get(key) is not None:
+        if _has_pin_distance({"distanceToPin_m": context.get(key)}):
             value = _float(context.get(key))
-            if math.isfinite(value) and 0.0 < value <= 1000.0:
+            if value <= 1000.0:
                 return value
     # Sparse live seeds may have the downloaded hole yardage but no route-length field yet.
     # Use that factual tee distance as a bounded fallback; an unrelated GPS fix is never
@@ -4691,7 +4691,7 @@ def _apply_live_location(context: dict[str, Any]) -> dict[str, Any]:
     analysis = dict(context)
     current = _coordinate(analysis.get("currentLocation"))
     target = _coordinate(_target_location(analysis))
-    if current is None or target is None or analysis.get("distanceToPin_m") is not None:
+    if current is None or target is None or _has_pin_distance(analysis):
         return analysis
 
     distance_m = round(_haversine_m(current, target), 1)
@@ -5210,7 +5210,7 @@ def _pin_distance(context: dict[str, Any]) -> float:
 
 
 def _has_pin_distance(context: dict[str, Any]) -> bool:
-    """Approach/recovery carries are offsets from a measured distance; without one they are invented."""
+    """Only a finite, positive distance supports measured pin-distance decisions and evidence."""
     distance_m = _float(context.get("distanceToPin_m"), math.nan)
     return math.isfinite(distance_m) and distance_m > 0
 
@@ -5503,7 +5503,7 @@ def _shot_evidence(analysis: dict[str, Any], selected: dict[str, Any] | None) ->
         ),
     }]
     distance_m = analysis.get("distanceToPin_m")
-    if distance_m is not None:
+    if _has_pin_distance(analysis):
         rows.append({"kind": "green", "text": f"distance to pin={round(_float(distance_m), 1)}m"})
     live_distance = analysis.get("_liveDistanceEvidence")
     if isinstance(live_distance, dict):
