@@ -11,6 +11,7 @@ from ai_caddie.caddie.decision import audit_decision, latest_decision_record, st
 from ai_caddie.caddie.mobile_event_store import open_mobile_event_store
 from ai_caddie.history.history import HistoryData, OWNER_ID
 from ai_caddie.caddie.mobile_live import mobile_event_log
+from ai_caddie.caddie.mobile_round_identity import MobileRoundIdentityError, load_mobile_round_identity
 
 
 def _safe_int(value: Any) -> int | None:
@@ -73,6 +74,51 @@ def _hole_scores(
             "ref": f"{round_row.get('id')}:{number}",
         }
     return scores
+
+
+def _reconciliation_hole_map(
+    round_row: dict[str, Any], identity: dict[str, Any] | None,
+) -> dict[int, int] | None:
+    """Phone display -> physical course/hole/visit -> existing Garmin correction reference.
+
+    A legacy stream has no physical table; startHole remains on its original display axis and
+    must not be treated as a rotation. Garmin's hole_sides numbering is never changed here.
+    """
+    if identity is None or not round_row:
+        return None
+    # A materialized phone round already uses the phone's display holes, unlike Garmin cards.
+    if round_row.get("source") == "manual":
+        return {hole["number"]: hole["number"] for hole in identity["holes"]}
+    from ai_caddie.history.corrected_history import hole_sides
+
+    front_gid = _safe_int(
+        round_row.get("frontNineGlobalCourseId") or round_row.get("globalId")
+        or round_row.get("courseGlobalId") or round_row.get("courseId")
+    )
+    back_gid = _safe_int(round_row.get("backNineGlobalCourseId"))
+    nine_gids = {loop["globalId"] for loop in identity["roundLoops"] if loop["half"] == "all"}
+    garmin_visits: dict[tuple[int, int], list[int]] = {}
+    for hole, display, physical, side in hole_sides(round_row):
+        gid = _safe_int(hole.get("sourceGlobalId")) or (back_gid if side == "back" and back_gid else front_gid)
+        local = _safe_int(hole.get("sourceLocalHole") or hole.get("localHole")) or physical
+        if not round_row.get("merged") and not (hole.get("sourceLocalHole") or hole.get("localHole")):
+            # Distinct second courses and nine-hole A+A loops restart physical holes at 1.
+            # A single 18-hole course retains physical 10..18, regardless of its start hole.
+            if display > 9 and (gid in nine_gids or (back_gid and back_gid != front_gid)):
+                local = display - 9
+        if gid is not None:
+            garmin_visits.setdefault((gid, local), []).append(display)
+
+    visits: dict[tuple[int, int], int] = {}
+    mapping: dict[int, int] = {}
+    for hole in sorted(identity["holes"], key=lambda row: row["number"]):
+        key = (hole["sourceGlobalId"], hole["sourceLocalHole"])
+        visit = visits.get(key, 0)
+        visits[key] = visit + 1
+        candidates = garmin_visits.get(key, [])
+        if visit < len(candidates):
+            mapping[hole["number"]] = candidates[visit]
+    return mapping
 
 
 def _shot_facts(round_id: str, data: HistoryData) -> list[dict[str, Any]]:
@@ -373,6 +419,9 @@ def reconcile_mobile_round_events(
 ) -> dict[str, Any]:
     events = _event_rows(round_id, root=root, player_id=player_id)
     round_row = _round_row(round_id, data)
+    hole_map = _reconciliation_hole_map(
+        round_row, load_mobile_round_identity(round_id, root=root, player_id=player_id),
+    )
     scores = _hole_scores(round_row, root=root, annotations_root=annotations_root, player_id=player_id)
     shots = _shot_facts(round_id, data)
     unmatched_shots = {shot["ref"]: shot for shot in shots}
@@ -382,6 +431,14 @@ def reconcile_mobile_round_events(
     candidate_audits: list[dict[str, Any]] = []
 
     for event in events:
+        if hole_map is not None:
+            local_hole = _safe_int(event.get("hole")) or 0
+            if local_hole > 0:
+                if local_hole not in hole_map:
+                    # An authoritative table must never silently fall back to a different
+                    # physical hole with the same display number and suggest a wrong correction.
+                    raise MobileRoundIdentityError("mobile_round_hole_identity_unresolved")
+                event = {**event, "hole": hole_map[local_hole]}
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         kind = str(event.get("kind") or "")
         hole = _safe_int(event.get("hole")) or 0

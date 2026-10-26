@@ -18,9 +18,172 @@ from ai_caddie.caddie.mobile_reconciliation import (
     reconcile_mobile_round_events,
 )
 from ai_caddie.history.corrected_history import corrected_history_data
+from ai_caddie.caddie.mobile_round_identity import (
+    MobileRoundIdentityError, load_mobile_round_identity, save_mobile_round_identity,
+)
+from ai_caddie.caddie.round_loops import round_loop_key, round_loops_table
+
+
+def _save_identity(root: Path, round_id: str, loops: list[tuple[int, str]], player_id: str = "me") -> None:
+    # Input adapter: a complete package identity without geometry/weather enrichment.
+    holes = []
+    for index, (gid, half) in enumerate(loops):
+        for offset in range(9):
+            number = index * 9 + offset + 1
+            local = offset + (10 if half == "back" else 1)
+            holes.append({"number": number, "sourceGlobalId": gid, "sourceLocalHole": local,
+                          "courseHoleNumber": number if half == "all" else local})
+    save_mobile_round_identity(round_id, round_loops_table(loops), round_loop_key(loops), holes,
+                               root=root, player_id=player_id)
 
 
 class MobileReconciliationTests(unittest.TestCase):
+    def test_mapped_suggestion_applies_to_original_garmin_ref_and_reconciles_all_facts(self) -> None:
+        data = HistoryData(raw_rounds=[], rounds=[{
+            "id": "back", "globalId": 55555, "holesCompleted": 9,
+            "holes": [{"number": n, "strokes": 4, "putts": 2, "penalties": 0}
+                      for n in range(10, 19)],
+        }], shots=[{"roundId": "back", "hole": 10, "clubName": "7I"}])
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "back", [(55555, "back")])
+            append_event_batch("back", [{
+                "eventId": kind, "roundId": "back", "hole": 1, "startHole": 1,
+                "kind": kind, "payload": {field: value},
+            } for kind, field, value in (("score", "strokes", 5), ("putt", "putts", 2),
+                                         ("penalty", "penalties", 0), ("club", "clubName", "7I"))],
+                idempotency_key="facts", root=root)
+            result = reconcile_mobile_round_events("back", data, root=root)
+            self.assertEqual([(r["kind"], r["ref"]) for r in result["matched"]],
+                             [("putt", "back:10"), ("penalty", "back:10"), ("club", "back:10:1")])
+            self.assertEqual(result["garminOnly"], [])  # There is a real shot to consume here.
+            self.assertEqual(result["annotationSuggestions"][0]["targetId"], "back:10")
+            applied = apply_mobile_reconciliation_suggestions(
+                "back", data, root=root, annotations_root=root, data_loader=lambda: data,
+            )
+            self.assertEqual(applied["appliedCount"], 1)
+            self.assertEqual(list_annotation_records(root=root)[0]["targetId"], "back:10")
+            after = reconcile_mobile_round_events("back", data, root=root)
+            self.assertEqual(len(after["matched"]), 4)
+            self.assertEqual(after["annotationSuggestions"], [])
+            self.assertEqual(after["localOnly"], [])
+            self.assertEqual(after["conflicts"], [])
+            self.assertEqual(data.rounds[0]["holes"][0]["strokes"], 4)
+
+    def test_saved_physical_course_and_visit_distinguish_mixed_nines_and_second_laps(self) -> None:
+        cases = (
+            # Phone A+B, Garmin B+A: the course id must participate in the match.
+            ("mixed", [(31796, "all"), (31794, "all")], 31794, 31796,
+             (7, 5), list(range(10, 19)) + list(range(1, 10))),
+            ("repeat", [(31796, "all"), (31796, "all")], 31796, 31796,
+             (5, 7), list(range(1, 19))),
+            # Garmin may omit the back id when one nine is played twice.
+            ("repeat-no-back-id", [(31796, "all"), (31796, "all")], 31796, None,
+             (5, 7), list(range(1, 19))),
+        )
+        for name, loops, front_gid, back_gid, totals, targets in cases:
+            with self.subTest(shape=name), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                data = HistoryData(raw_rounds=[], rounds=[{
+                    "id": name, "globalId": front_gid, "frontNineGlobalCourseId": front_gid,
+                    "backNineGlobalCourseId": back_gid, "holesCompleted": 18,
+                    "holes": [{"number": n, "strokes": totals[0 if n <= 9 else 1]}
+                              for n in range(1, 19)],
+                }], shots=[])
+                _save_identity(root, name, loops)
+                append_event_batch(name, [{
+                    "eventId": f"score-{n}", "roundId": name, "hole": n, "kind": "score",
+                    "payload": {"strokes": 5 if n <= 9 else 7},
+                } for n in range(1, 19)], idempotency_key=name, root=root)
+                result = reconcile_mobile_round_events(name, data, root=root)
+                self.assertEqual([r["ref"] for r in result["matched"]], [f"{name}:{n}" for n in targets])
+                self.assertEqual(result["annotationSuggestions"], [])
+                self.assertEqual(result["localOnly"], [])
+                self.assertEqual(result["conflicts"], [])
+
+    def test_identity_changes_preserve_played_holes_and_player_partitions(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "same-id", [(55555, "back")], player_id="member-a")
+            self.assertIsNone(load_mobile_round_identity("same-id", root=root))
+            self.assertIsNone(load_mobile_round_identity("same-id", root=root, player_id="member-b"))
+            append_event_batch("same-id", [{
+                "eventId": "first", "roundId": "same-id", "hole": 1,
+                "kind": "score", "payload": {"strokes": 4},
+            }], idempotency_key="first", root=root, player_id="member-a")
+            _save_identity(root, "same-id", [(55555, "back"), (55555, "front")], player_id="member-a")
+            # The unplayed second nine may change. The already played first nine cannot.
+            _save_identity(root, "same-id", [(55555, "back"), (55555, "back")], player_id="member-a")
+            with self.assertRaises(MobileRoundIdentityError):
+                _save_identity(root, "same-id", [(55555, "front")], player_id="member-a")
+            stored = load_mobile_round_identity("same-id", root=root, player_id="member-a")
+            self.assertEqual(stored["loopKey"], "55555:back+55555:back")
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "same-id", "globalId": 55555, "holes": [{"number": 10, "strokes": 4}],
+            }], shots=[])
+            result = reconcile_mobile_round_events("same-id", data, root=root, player_id="member-a")
+            self.assertEqual([r["ref"] for r in result["matched"]], ["same-id:10"])
+            self.assertEqual(reconcile_mobile_round_events("same-id", data, root=root)["matched"], [])
+
+    def test_saved_identity_preserves_merged_display_refs_and_manual_round_numbers(self) -> None:
+        for shape in ("legacy", "normalized", "manual"):
+            with self.subTest(shape=shape), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                row = {
+                    "id": shape, "globalId": 55555, "frontNineGlobalCourseId": 55555,
+                    "backNineGlobalCourseId": 55555, "merged": True,
+                    "holes": [
+                        {"number": n + 9 if shape == "legacy" else n, "localHole": n + 9, "strokes": 5}
+                        for n in range(1, 10)
+                    ] + [{"number": n, "strokes": 7} for n in range(10, 19)],
+                }
+                if shape == "manual":
+                    row.update(source="manual", merged=False)
+                    row["holes"] = [{"number": n, "strokes": 5 if n <= 9 else 7} for n in range(1, 19)]
+                data = HistoryData(raw_rounds=[], rounds=[row], shots=[])
+                _save_identity(root, shape, [(55555, "back"), (55555, "front")])
+                append_event_batch(shape, [{
+                    "eventId": f"score-{n}", "roundId": shape, "hole": n, "kind": "score",
+                    "payload": {"strokes": 5 if n <= 9 else 7},
+                } for n in range(1, 19)], idempotency_key=shape, root=root)
+                result = reconcile_mobile_round_events(shape, data, root=root)
+                self.assertEqual([r["ref"] for r in result["matched"]], [f"{shape}:{n}" for n in range(1, 19)])
+                self.assertEqual(result["annotationSuggestions"], [])
+                self.assertEqual(result["localOnly"], [])
+                self.assertEqual(result["conflicts"], [])
+
+    def test_unresolved_physical_identity_refuses_wrong_hole_suggestions(self) -> None:
+        from fastapi import HTTPException
+        from server_v2 import mobile as mobile_service
+        from server_v2.models import MobileReconciliationApplyRequest
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "mismatch", [(55555, "back")])
+            append_event_batch("mismatch", [{
+                "eventId": "score", "roundId": "mismatch", "hole": 1,
+                "kind": "score", "payload": {"strokes": 5},
+            }], idempotency_key="mismatch", root=root)
+            # The same numeric display hole on another course is not a matching physical hole.
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "mismatch", "globalId": 66666, "holes": [{"number": 1, "strokes": 4}],
+            }], shots=[])
+            with (
+                patch.object(mobile_service, "MOBILE_ROOT", root),
+                patch.object(mobile_service, "load_history_data_for_mode", return_value=(data, "fixture")),
+            ):
+                for operation in (
+                    lambda: mobile_service.reconcile_mobile_round_response("mismatch"),
+                    lambda: mobile_service.apply_mobile_round_reconciliation_response(
+                        "mismatch", MobileReconciliationApplyRequest(suggestionIds=[]),
+                    ),
+                ):
+                    with self.assertRaises(HTTPException) as caught:
+                        operation()
+                    self.assertEqual(caught.exception.status_code, 409)
+                    self.assertEqual(caught.exception.detail, "mobile_round_hole_identity_unresolved")
+            self.assertEqual(list_annotation_records(root=root), [])
+
     def test_back_start_package_events_match_physical_numbered_garmin_cards(self) -> None:
         """Exercise the real package -> event append -> reconciliation service boundary.
 
@@ -107,6 +270,9 @@ class MobileReconciliationTests(unittest.TestCase):
                 self.assertEqual(result["localOnly"], [])
                 self.assertEqual(result["conflicts"], [])
                 self.assertEqual(result["annotationSuggestions"], [])
+                # A later package request must not retroactively reinterpret a legacy stream.
+                _save_identity(root, "legacy-card", [(55555, "back")])
+                self.assertIsNone(load_mobile_round_identity("legacy-card", root=root))
 
     def test_missing_hole_number_matches_score_and_putts_by_original_position(self) -> None:
         # C76: the unnumbered second hole is display 2, scored 5 with 3 putts.
