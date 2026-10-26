@@ -319,7 +319,7 @@ class CorrectionProductTests(unittest.TestCase):
             s.seed()
             response = s.request('POST', 'annotations', json={
                 'targetType': 'shot', 'targetId': '101:1:1', 'kind': 'lie_correction',
-                'payload': {'from': 'Fairway', 'to': 'Bunker'}, 'clientMutationId': 'caddie-lie-bunker',
+                'payload': {'from': 'Rough', 'to': 'Bunker'}, 'clientMutationId': 'caddie-lie-bunker',
             })
             self.assertEqual(response.status_code, 200, response.text)
             context = s.get('caddie/context?source_ref=101:1:1&shot_type=approach')
