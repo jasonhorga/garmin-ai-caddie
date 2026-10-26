@@ -91,13 +91,19 @@ final class ReviewEditUITests: XCTestCase {
             XCTFail("review-edit evidence must enter 单场复盘 before capture")
             return
         }
-        settle(2); save("02-round-review"); dump("02-round-review")
+        let reviewContentReady = element("round-review-content-ready")
+        guard reviewContentReady.waitForExistence(timeout: 60) else {
+            save("no-review-content"); dump("no-review-content")
+            XCTFail("review-edit evidence must wait for the loaded review content")
+            return
+        }
+        save("02-round-review"); dump("02-round-review")
 
         // The scorecard cells are buttons (`round-review-hole-N`); tapping one opens the full-screen
         // hole pager. The resolver selected this hole only after proving multiple separated,
         // club-labelled GPS positions; they must remain editable before the add-shot flow counts.
         let holeButton = app.buttons["round-review-hole-\(reviewEvidence.hole)"]
-        guard holeButton.waitForExistence(timeout: 60), bringIntoViewAndTap(holeButton, maxSwipes: 4) else {
+        guard holeButton.waitForExistence(timeout: 5), bringIntoView(holeButton, maxSwipes: 4) else {
             save("nohole"); dump("nohole")
             XCTFail("review-edit evidence must open its resolver-verified real hole")
             return
@@ -105,7 +111,12 @@ final class ReviewEditUITests: XCTestCase {
         // B3: the hole is full screen with the navigation bar hidden; the glass close button is the
         // stable proof that the pager was presented.
         let closeButton = app.buttons["round-shot-map-close"]
-        guard closeButton.waitForExistence(timeout: 12) else {
+        guard tapAndWaitForElements(
+            holeButton,
+            destinations: [closeButton],
+            timeout: 12,
+            diagnosticName: "hole-\(reviewEvidence.hole)"
+        ) else {
             XCTFail("review-edit evidence must enter the shot-map pager before capture")
             return
         }
@@ -125,22 +136,22 @@ final class ReviewEditUITests: XCTestCase {
         settle(2); save("03-shot-map"); dump("03-shot-map")
 
         let editButton = app.buttons["round-edit-begin"]
-        guard editButton.waitForExistence(timeout: 12) else {
+        guard waitUntilHittable(editButton, timeout: 12) else {
             save("noeditbtn"); dump("noeditbtn")
             XCTFail("review-edit evidence must expose the map edit action")
             return
         }
 
         // ---- Enter edit mode on the same screen → numbered landings become drag handles ----
-        guard editButton.isHittable else {
-            save("noeditbtn2"); dump("noeditbtn2")
-            XCTFail("review-edit evidence must enter map edit mode")
-            return
-        }
-        editButton.tap()
+        let editCancel = app.buttons["round-edit-cancel"]
+        let editSave = app.buttons["round-edit-save"]
         XCTAssertTrue(
-            app.buttons["round-edit-cancel"].waitForExistence(timeout: 5)
-                && app.buttons["round-edit-save"].exists,
+            tapAndWaitForElements(
+                editButton,
+                destinations: [editCancel, editSave],
+                timeout: 5,
+                diagnosticName: "begin-edit"
+            ),
             "edit mode must expose the explicit zero-write Cancel and final Save actions"
         )
         XCTAssertTrue(
@@ -510,14 +521,68 @@ final class ReviewEditUITests: XCTestCase {
     }
 
     @discardableResult
-    private func bringIntoViewAndTap(_ element: XCUIElement, maxSwipes: Int) -> Bool {
+    private func bringIntoView(_ element: XCUIElement, maxSwipes: Int) -> Bool {
         for _ in 0..<maxSwipes {
-            if element.exists, element.isHittable { element.tap(); return true }
+            if element.exists, element.isHittable { return true }
             app.swipeUp()
             settle(0.6)
         }
-        if element.exists, element.isHittable { element.tap(); return true }
-        return false
+        return element.exists && element.isHittable
+    }
+
+    /// Wait for a control to become actionable, tap it, and retry once within the original timeout
+    /// budget when the destination readiness marker does not appear. A SwiftUI transition can expose
+    /// a hittable source while its action is still being committed; the second tap handles that
+    /// narrow window without masking a genuinely missing destination.
+    private func tapAndWaitForElements(
+        _ source: XCUIElement,
+        destinations: [XCUIElement],
+        timeout: TimeInterval,
+        diagnosticName: String
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        let firstDeadline = min(deadline, Date().addingTimeInterval(timeout / 2))
+        let sourceReady = max(0, firstDeadline.timeIntervalSinceNow) > 0
+            && waitUntilHittable(source, timeout: max(0, firstDeadline.timeIntervalSinceNow))
+        if sourceReady {
+            source.tap()
+            let destinationBudget = max(0, firstDeadline.timeIntervalSinceNow)
+            if destinationBudget > 0, waitForAllReady(destinations, timeout: destinationBudget) {
+                return true
+            }
+        } else {
+            print("REVIEW_EDIT_TAP source-not-ready \(diagnosticName) exists=\(source.exists) hittable=\(source.isHittable)")
+        }
+
+        print(
+            "REVIEW_EDIT_TAP retry \(diagnosticName) sourceExists=\(source.exists) "
+                + "sourceHittable=\(source.isHittable) destinations="
+                + destinations.map { "\($0.identifier):\($0.exists)" }.joined(separator: ",")
+        )
+        print(source.debugDescription)
+        let retrySourceBudget = max(0, deadline.timeIntervalSinceNow) / 2
+        if retrySourceBudget > 0, waitUntilHittable(source, timeout: retrySourceBudget) {
+            source.tap()
+        }
+        let destinationBudget = max(0, deadline.timeIntervalSinceNow)
+        return destinationBudget > 0 && waitForAllReady(destinations, timeout: destinationBudget)
+    }
+
+    private func waitUntilHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND hittable == true"),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForAllReady(_ elements: [XCUIElement], timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        for element in elements {
+            let remaining = max(0, deadline.timeIntervalSinceNow)
+            guard waitUntilHittable(element, timeout: remaining) else { return false }
+        }
+        return true
     }
 
     // MARK: - capture helpers
