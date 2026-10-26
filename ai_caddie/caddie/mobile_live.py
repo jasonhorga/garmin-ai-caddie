@@ -4099,7 +4099,15 @@ def build_live_round_package_for_course(
         if ensure_geometry:
             geometry_ensure = _ensure_geometry_for_course(int(global_id))
         if template_round is not None:
-            package_source = replace(source, rounds=[*source.rounds, template_round])
+            # A template round changes the history payload.  Clear full-history
+            # fingerprints so profile caches cannot mistake this derived view for
+            # the original source data.
+            package_source = replace(
+                source,
+                rounds=[*source.rounds, template_round],
+                source_fingerprint=None,
+                correction_fingerprint=None,
+            )
     package = build_live_round_package(
         live_round_id,
         data=package_source,

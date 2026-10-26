@@ -125,8 +125,11 @@ def _effective_score_data(data: HistoryData, annotations: list[dict[str, Any]] |
         return data
     return HistoryData(
         raw_rounds=data.raw_rounds, rounds=rounds, shots=data.shots,
-        corrected=data.corrected, source_fingerprint=data.source_fingerprint,
-        correction_fingerprint=data.correction_fingerprint,
+        corrected=data.corrected,
+        # This view has a different round payload.  A full-history fingerprint would
+        # make downstream fingerprint-keyed profile caches serve the wrong subset.
+        source_fingerprint=None,
+        correction_fingerprint=None,
     )
 
 
@@ -3993,6 +3996,8 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
         raw_rounds=[row for row in data.raw_rounds if _round_id(row) in keep_ids],
         rounds=rounds,
         shots=[shot for shot in data.shots if _shot_round_id(shot) in keep_ids],
+        source_fingerprint=None,
+        correction_fingerprint=None,
     )
 
 

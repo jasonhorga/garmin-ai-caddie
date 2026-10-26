@@ -319,6 +319,8 @@ def corrected_round(
         data,
         rounds=[row],
         shots=[data.shots[position] for position, _shot in round_source_shots(data, row)],
+        source_fingerprint=None,
+        correction_fingerprint=None,
     )
     corrected = corrected_history_data(
         view, player_id=player_id, annotations_root=annotations_root, corrections_root=corrections_root,
