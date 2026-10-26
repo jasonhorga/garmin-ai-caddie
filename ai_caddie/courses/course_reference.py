@@ -346,8 +346,10 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
                 group["lastSeenAt"] = now
         except (AttributeError, TypeError, ValueError, OverflowError, OSError):
             continue
-    # Keep one bounded index file. Current-batch groups are ordered by first appearance, so a
-    # single search with more than 64 venues is stable and does not churn on every retry.
+    # Keep one bounded index file. Current-batch groups win eviction in first-appearance order,
+    # so a single search with more than 64 venues is stable. The file itself is written in a
+    # fixed venueKey order: batch order only decides who is kept, otherwise alternating
+    # discovery batches would reorder (and rewrite) the shared file on every request.
     seen_rank = {key: index for index, key in enumerate(seen_venue_order)}
     retained = sorted(
         venues.items(),
@@ -357,7 +359,8 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
             -float(pair[1].get("lastSeenAt") or 0),
         ),
     )
-    retained_venues = [group for _, group in retained[:_VENUE_LOOPS_MAX_VENUES]]
+    retained_venues = [group for _, group in sorted(
+        retained[:_VENUE_LOOPS_MAX_VENUES], key=lambda pair: pair[0])]
     original_venues = payload.get("venues", []) if isinstance(payload, dict) else []
     if retained_venues != original_venues:
         _atomic_write_venue_loops(_venue_loops_path(root=root), {
