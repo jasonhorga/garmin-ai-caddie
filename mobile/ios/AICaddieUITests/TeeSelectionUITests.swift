@@ -138,17 +138,9 @@ final class TeeSelectionUITests: XCTestCase {
             return
         }
         settle(9)
-        save("02-start-round"); dump("02-start-round")  // 一个球场列表 + 第一个环 + 发球台圆点
+        save("02-start-round"); dump("02-start-round")
 
-        let palaceRow = app.buttons["start-round-venue-31793"]
-        guard palaceRow.waitForExistence(timeout: 15) else {
-            XCTFail("开始一场 must list the carried Beijing Palace (31793) row")
-            return
-        }
-        XCTAssertTrue(
-            waitForValue("已选择", on: palaceRow, timeout: 8),
-            "换球场或组合 must carry the course here into 开始一场 as the selected venue"
-        )
+        // 换球场或组合 enters setup directly with its carried loop and Tee selected.
         let palace = courseTile(31793)
         XCTAssertTrue(palace.waitForExistence(timeout: 8), "the selected venue must show its loop tile")
         let startAction = app.buttons["start-round-primary-action"]
@@ -179,9 +171,8 @@ final class TeeSelectionUITests: XCTestCase {
         let teeRow = app.descendants(matching: .any)["start-round-tee-selector"]
         XCTAssertTrue(teeRow.waitForExistence(timeout: 10), "the selected course must show its tee dots")
         // Change from the real default to the real white Tee and prove the selection is reflected in
-        // the primary action while the course remains startable. The Tee row follows the whole
-        // course list, which a real GPS fix can fill with dozens of nearby venues (41 in live
-        // Native 37115276317), so it is scrolled into view before the screenshot and the tap.
+        // the primary action while the course remains startable. Scroll the setup page to keep
+        // the Tee row clear of the pinned Start band before the screenshot and the tap.
         let whiteTee = app.buttons.matching(
             NSPredicate(format: "identifier ==[c] %@", "start-round-tee-white")
         ).firstMatch
@@ -220,6 +211,21 @@ final class TeeSelectionUITests: XCTestCase {
         )
         XCTAssertTrue(app.buttons["start-round-primary-action"].isEnabled)
         save("04-white-tee-selected"); dump("04-white-tee-selected")
+
+        // The venue list lives on page one. Returning to it must retain the carried 31793 row
+        // and its selection, even after changing the Tee on setup.
+        showCoursePage()
+        let palaceRow = app.buttons["start-round-venue-31793"]
+        guard palaceRow.waitForExistence(timeout: 15) else {
+            XCTFail("开始一场 must list the carried Beijing Palace (31793) row")
+            return
+        }
+        XCTAssertTrue(bringIntoView(palaceRow, maxSwipes: 20))
+        XCTAssertTrue(
+            waitForValue("已选择", on: palaceRow, timeout: 8),
+            "换球场或组合 must carry the course here into 开始一场 as the selected venue"
+        )
+        save("05-carried-course-row"); dump("05-carried-course-row")
     }
 
     /// Unlike the deterministic journeys below, this path must use the simulator's real
@@ -300,9 +306,7 @@ final class TeeSelectionUITests: XCTestCase {
             search.waitForExistence(timeout: 5) && search.isHittable,
             "denied GPS must never strand the player without city/name search"
         )
-        let start = app.buttons["start-round-primary-action"]
-        XCTAssertTrue(start.exists)
-        XCTAssertFalse(start.isEnabled, "no historical course may be silently selected as nearby")
+        assertCoursePickerHasNoSelection()
 
         search.tap()
         XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
@@ -363,7 +367,7 @@ final class TeeSelectionUITests: XCTestCase {
             search.waitForExistence(timeout: 5) && search.isHittable,
             "waiting for a GPS fix must never block city/name search"
         )
-        XCTAssertFalse(app.buttons["start-round-primary-action"].isEnabled)
+        assertCoursePickerHasNoSelection()
         save("no-fix-01-start-round"); dump("no-fix-01-start-round")
 
         search.tap()
@@ -520,7 +524,7 @@ final class TeeSelectionUITests: XCTestCase {
         // result only removes nearby attribution. Any retained row carries no distance and none
         // is selected, so nothing starts until the player chooses.
         assertRetainedRowsAreUnselectedWithoutDistance("the empty nearby result")
-        XCTAssertFalse(app.buttons["start-round-primary-action"].isEnabled)
+        assertCoursePickerHasNoSelection()
         save("empty-nearby-01-start-round"); dump("empty-nearby-01-start-round")
 
         let search = app.buttons["start-round-search-all-courses"]
@@ -555,7 +559,7 @@ final class TeeSelectionUITests: XCTestCase {
         // A transport failure removes nearby attribution only: retained recent / downloaded rows
         // stay, without distance and unselected; the retry icon is the only failure affordance.
         assertRetainedRowsAreUnselectedWithoutDistance("a failed nearby request at an ocean coordinate")
-        XCTAssertFalse(app.buttons["start-round-primary-action"].isEnabled)
+        assertCoursePickerHasNoSelection()
         save("nearby-failure-01-start-round"); dump("nearby-failure-01-start-round")
 
         let search = app.buttons["start-round-search-all-courses"]
@@ -655,15 +659,19 @@ final class TeeSelectionUITests: XCTestCase {
             app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8),
             "tapping the downloaded venue opens the loop and tee setup page"
         )
-        XCTAssertTrue(waitForValue("已选择", on: waitingRow, timeout: 5))
+        XCTAssertTrue(waitForValue("已选择", on: courseTile(31793), timeout: 5))
         let pendingStart = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
             waitUntilEnabled(pendingStart, timeout: 20),
             "the downloaded course is startable while nearby is pending"
         )
-        XCTAssertTrue(pending.exists, "the pick happened while nearby was still pending")
         let pickedAction = pendingStart.label
         save("nearby-pending-02-picked-while-waiting"); dump("nearby-pending-02-picked-while-waiting")
+        // Pending and distance rows belong to the course page. Observe the request there;
+        // leaving that page for setup must not count as the nearby request having completed.
+        showCoursePage()
+        XCTAssertTrue(waitForValue("已选择", on: waitingRow, timeout: 5))
+        XCTAssertTrue(pending.exists, "the pick happened while nearby was still pending")
         let pendingGone = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == false"),
             object: pending
@@ -681,6 +689,8 @@ final class TeeSelectionUITests: XCTestCase {
             waitForValue("已选择", on: app.buttons["start-round-venue-31793"], timeout: 8),
             "the course picked while waiting must stay selected after nearby lands"
         )
+        let retainedLoop = selectCourse(31793, timeout: 8)
+        XCTAssertTrue(waitForValue("已选择", on: retainedLoop, timeout: 8))
         XCTAssertEqual(
             app.buttons["start-round-primary-action"].label,
             pickedAction,
@@ -709,7 +719,7 @@ final class TeeSelectionUITests: XCTestCase {
             "a failed nearby request must not list any course as nearby"
         )
 
-        let downloaded = firstDownloadedCourseSegment()
+        let downloaded = app.buttons["start-round-venue-31793"]
         XCTAssertTrue(
             downloaded.waitForExistence(timeout: 8),
             "only a genuinely downloaded nearby course may survive the service failure"
@@ -722,7 +732,11 @@ final class TeeSelectionUITests: XCTestCase {
         if downloaded.value as? String != "已选择" {
             downloaded.tap()
         }
+        XCTAssertTrue(app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8))
+        XCTAssertTrue(waitForValue("已选择", on: courseTile(31793), timeout: 8))
+        showCoursePage()
         XCTAssertTrue(waitForValue("已选择", on: downloaded, timeout: 8))
+        selectCourse(31793, timeout: 8)
         XCTAssertTrue(
             app.buttons.matching(
                 NSPredicate(
@@ -763,6 +777,31 @@ final class TeeSelectionUITests: XCTestCase {
     }
 
     // MARK: - navigation helpers
+
+    /// Course discovery is page one; only page two owns the loop, Tee and Start action.
+    private func showCoursePage() {
+        if app.descendants(matching: .any)["start-round-page-setup"].exists {
+            let back = app.buttons["start-round-back-to-courses"]
+            XCTAssertTrue(back.waitForExistence(timeout: 8) && back.isHittable)
+            back.tap()
+        }
+        XCTAssertTrue(app.descendants(matching: .any)["start-round-page-course"].waitForExistence(timeout: 8))
+    }
+
+    private func assertCoursePickerHasNoSelection() {
+        XCTAssertTrue(app.descendants(matching: .any)["start-round-page-course"].waitForExistence(timeout: 8))
+        XCTAssertEqual(
+            app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH %@ AND value == %@", "start-round-venue-", "已选择")
+            ).count,
+            0,
+            "no historical or downloaded course may be silently selected"
+        )
+        XCTAssertFalse(
+            app.buttons["start-round-primary-action"].exists,
+            "Start belongs to setup after an explicit course choice; the picker cannot start a round"
+        )
+    }
 
     private func launchFresh(resetActiveRound: Bool = false) {
         if resetActiveRound || shouldResetActiveRoundOnNextLaunch {
@@ -897,14 +936,6 @@ final class TeeSelectionUITests: XCTestCase {
         return !frame.isNull && !frame.isEmpty && visibleSafeRect(for: element).contains(frame)
     }
 
-    /// B4b: 开始一场 is one course list. After a failed nearby request the only rows left are
-    /// local ones (downloaded / recent); the first venue row is the downloaded course.
-    private func firstDownloadedCourseSegment() -> XCUIElement {
-        app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-")
-        ).firstMatch
-    }
-
     /// Provider-nearby rows are the only rows that carry a distance ("1.2 公里").
     /// The known retained course (this fixture's recent 31793) is still listed — README §8's one
     /// list keeps recently played courses — without a nearby distance and unselected; no venue row
@@ -960,14 +991,15 @@ final class TeeSelectionUITests: XCTestCase {
     private func selectCourse(_ globalId: Int, timeout: TimeInterval) -> XCUIElement {
         let tile = courseTile(globalId)
         if tile.exists, tile.value as? String == "已选择" { return tile }
+        showCoursePage()
         let row = app.buttons["start-round-venue-\(globalId)"]
-        if row.waitForExistence(timeout: timeout), row.isHittable {
-            row.tap()
-            XCTAssertTrue(
-                app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8),
-                "tapping a venue opens the loop and tee setup page"
-            )
-        }
+        XCTAssertTrue(row.waitForExistence(timeout: timeout))
+        XCTAssertTrue(bringIntoView(row, maxSwipes: 20), "the requested venue must be tappable on the course page")
+        row.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8),
+            "tapping a venue opens the loop and tee setup page"
+        )
         if tile.waitForExistence(timeout: 8), tile.value as? String != "已选择", tile.isHittable {
             tile.tap()
         }

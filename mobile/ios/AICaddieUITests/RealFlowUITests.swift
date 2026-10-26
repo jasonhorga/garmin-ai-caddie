@@ -1234,6 +1234,7 @@ final class RealFlowUITests: XCTestCase {
         launchFresh()
         XCTAssertTrue(openStartRound(), "home must expose the new-course start path")
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        showStartCoursePage()
 
         let openSearch = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20), "start form must expose full-catalogue search")
@@ -1300,6 +1301,19 @@ final class RealFlowUITests: XCTestCase {
 
         // Re-open the same product search and prove the identical globalId is also discoverable by
         // name. Re-selecting it must retain the Tee authority already fetched above.
+        showStartCoursePage()
+        // The checked venue row and its localized name live on the course page, while the
+        // selected loop and primary action live on setup. Preserve both sets of assertions.
+        let selectedVenue = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND value == %@", "start-round-venue-", "已选择")
+        ).firstMatch
+        XCTAssertTrue(scrollTo(selectedVenue, maxSwipes: 24))
+        XCTAssertEqual(selectedVenue.value as? String, "已选择")
+        selectedNewCourseDisplayName = selectedVenue.label
+            .components(separatedBy: ", ")
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertFalse(selectedNewCourseDisplayName?.isEmpty ?? true)
         XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20))
         openSearch.tap()
         XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
@@ -1329,19 +1343,12 @@ final class RealFlowUITests: XCTestCase {
             waitUntilEnabled(primary, timeout: 20),
             "re-selecting the same course must not clear Tees and strand the start action"
         )
-        // B4b: the selected venue is the checked row of the one course list; its label starts
-        // with the localized venue name ("北京丽宫, 18 洞").
-        let selectedVenue = app.buttons.matching(
-            NSPredicate(format: "identifier BEGINSWITH %@ AND value == %@", "start-round-venue-", "已选择")
-        ).firstMatch
-        XCTAssertTrue(
-            selectedVenue.waitForExistence(timeout: 5),
-            "the selected course must retain a visible localized venue name"
-        )
-        selectedNewCourseDisplayName = selectedVenue.label
-            .components(separatedBy: ", ")
-            .first?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name = selectedNewCourseDisplayName {
+            XCTAssertTrue(
+                app.staticTexts[name].waitForExistence(timeout: 5),
+                "setup must retain the selected course's visible localized venue name"
+            )
+        }
         XCTAssertTrue(scrollTo(primary, maxSwipes: 20))
         settle(1); save("09c-new-course-ready-to-start"); dump("09c-new-course-ready-to-start")
         primary.tap()
@@ -1890,11 +1897,21 @@ final class RealFlowUITests: XCTestCase {
         return tapContaining(["换球场或组合", "今天去哪打"])
     }
 
-    /// B4b 开始一场: select a course by its row in the one course list, then its loop tile.
+    private func showStartCoursePage() {
+        if app.descendants(matching: .any)["start-round-page-setup"].exists {
+            let back = app.buttons["start-round-back-to-courses"]
+            XCTAssertTrue(back.waitForExistence(timeout: 8) && back.isHittable)
+            back.tap()
+        }
+        XCTAssertTrue(app.descendants(matching: .any)["start-round-page-course"].waitForExistence(timeout: 8))
+    }
+
+    /// B4b 开始一场: select a course on the course page, then its loop tile on setup.
     @discardableResult
     private func selectStartCourse(_ globalId: Int) -> XCUIElement {
         let tile = courseTile(globalId)
         if tile.exists, tile.value as? String == "已选择" { return tile }
+        showStartCoursePage()
         let row = app.buttons["start-round-venue-\(globalId)"]
         if scrollTo(row, maxSwipes: 24) {
             row.tap()
