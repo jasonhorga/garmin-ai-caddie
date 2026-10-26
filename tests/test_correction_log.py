@@ -332,9 +332,8 @@ class AnnotationBeforeValueTest(_Store):
             # The annotation's effective penalty includes the correction store written just before it.
             self.assertEqual(second["audit"]["entries"][0]["before"], 2)
         else:
-            # A shot edit's before is the edit screen (the shot map's own manualPenalty), which never
-            # showed annotation-path penalty corrections.
-            self.assertEqual(second["audit"]["entries"][0]["before"], 0)
+            # The effective penalty includes the annotation written just before this correction.
+            self.assertEqual(second["audit"]["entries"][0]["before"], 3)
 
     def test_concurrent_penalty_order_both_ways(self) -> None:
         for first in ("correction", "annotation"):

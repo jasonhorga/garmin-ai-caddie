@@ -2287,10 +2287,12 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: '成绩' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '备战' }))
     await waitFor(() => expect(statsCalls).toBe(1))
-    expect(await screen.findByRole('heading', { name: '历史数据加载失败' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: '重试' }))
+    await userEvent.click(screen.getByRole('button', { name: '设置' }))
+    await userEvent.click(await screen.findByRole('button', { name: '后端配置' }))
+    expect(await screen.findByRole('heading', { name: '数据健康不可用' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '重试历史统计' }))
     await waitFor(() => expect(statsCalls).toBe(2))
-    expect(await screen.findByRole('heading', { name: '表现分析' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '数据健康' })).toBeInTheDocument()
   })
 
   // The 报告 console was removed from the consumer history nav (de-engineer pass); the workspace is

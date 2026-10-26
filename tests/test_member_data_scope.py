@@ -12,6 +12,7 @@ from ai_caddie.core import data
 from ai_caddie.courses import course_prep
 from ai_caddie.geometry import shot_projection as sp
 from ai_caddie.history.history import HistoryData
+from ai_caddie.history import history
 
 
 def _shot(order, shot_type, club_id, meters, lat, lon, exclude=False):
@@ -100,12 +101,21 @@ class BuildClubProfilesPlayerScopeTests(unittest.TestCase):
     def test_history_projection_can_supply_corrected_shots(self):
         class History:
             shots = [
-                {"club": "6I", "distance": 100.0, "shotType": "APPROACH"},
-                {"club": "6I", "distance": 110.0, "shotType": "APPROACH"},
+                {"club": "6I", "distance": 100.0, "type": "APPROACH"},
+                {"club": "6I", "distance": 110.0, "type": "APPROACH"},
+                {"club": "Putter", "distance": 20.0, "type": "PUTT"},
             ]
 
         profiles = data.build_club_profiles(history_data=History())
         self.assertEqual((profiles["6I"]["sampleSize"], profiles["6I"]["median"]), (2, 100.0))
+
+    def test_member_history_club_map_ignores_owner_override(self):
+        shot_data = {"clubDetails": [{"clubId": 2, "name": "7I"}]}
+        with patch.object(history, "load_club_overrides", return_value={2: {"name": "OWNER-DRIVER"}}):
+            member_map, _ = history._build_club_map(shot_data, player_id="memberA")
+            owner_map, _ = history._build_club_map(shot_data, player_id="me")
+        self.assertEqual(member_map[2], "7I")
+        self.assertEqual(owner_map[2], "OWNER-DRIVER")
 
 
 class ShotsForHoleSourcesIsolationTests(unittest.TestCase):

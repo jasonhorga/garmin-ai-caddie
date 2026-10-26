@@ -28,6 +28,18 @@ class ServerV2MobileTests(unittest.TestCase):
         authority.start()
         self.addCleanup(authority.stop)
 
+    def test_history_package_signature_uses_source_and_correction_fingerprints(self) -> None:
+        from server_v2.mobile import _history_package_signature
+
+        first = HistoryData(raw_rounds=[], rounds=[], shots=[], source_fingerprint="source-1",
+                            correction_fingerprint="correction-1")
+        same = HistoryData(raw_rounds=[], rounds=[], shots=[], source_fingerprint="source-1",
+                           correction_fingerprint="correction-1")
+        changed = HistoryData(raw_rounds=[], rounds=[], shots=[], source_fingerprint="source-1",
+                              correction_fingerprint="correction-2")
+        self.assertEqual(_history_package_signature(first), _history_package_signature(same))
+        self.assertNotEqual(_history_package_signature(first), _history_package_signature(changed))
+
     def test_course_start_defers_non_priority_caddie_enrichment_explicitly(self) -> None:
         from ai_caddie.caddie import mobile_live
         from ai_caddie.core.fixtures import fixture_history_data
@@ -838,6 +850,18 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(out["course"]["roundCount"], 5)        # was 0 before the fix
         self.assertEqual(out["course"]["courseName"], "黑骑士")  # base name, not "~ A"
         self.assertEqual(out["holes"][0]["sampleCount"], 5)     # was 0 before the fix
+
+    def test_recent_history_reads_corrected_round_totals(self) -> None:
+        from ai_caddie.caddie.mobile_live import _recent_history
+
+        row = {"id": "r1", "courseKey": "c_demo", "course": "Demo", "date": "2026-05-01",
+               "score": 80, "strokes": 80, "par": 72, "courseCanonical": "Demo"}
+        corrected = {**row, "score": 84, "strokes": 84, "_scoreCorrectedRefs": ["r1:1"]}
+        source = HistoryData(raw_rounds=[row], rounds=[corrected], shots=[], corrected=True,
+                             source_fingerprint="source", correction_fingerprint="correction")
+        stats = {"courses": [{"courseKey": "c_demo", "roundCount": 1}], "holes": []}
+        out = _recent_history(source, stats, row)
+        self.assertEqual(out["rounds"][0]["score"], 84)
 
     def test_mobile_course_options_list_recent_courses_for_start_round(self) -> None:
         client = TestClient(app)

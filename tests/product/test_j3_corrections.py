@@ -291,6 +291,14 @@ class CorrectionProductTests(unittest.TestCase):
             clubs = s.get('history/stats')['clubs']
             self.assertEqual(sorted((c['club'],c['median']) for c in clubs), [('6I',100),('Driver',200),('PW',20)])
 
+    def test_c53_last20_stats_apply_added_shot_once_after_prior_correction(self):
+        with Sandbox() as s:
+            prepare(s, snapshot=False)
+            self.assertEqual(s.correct({'op': 'addShot', 'hole': 1, 'px': [280, 440],
+                                        'club': 'SW', 'lie': 'Bunker'}).status_code, 201)
+            stats = s.get('history/stats?window=last20')
+            self.assertEqual(stats['summary']['shotCount'], 4)
+
     def test_j3_1_bag_model_consumes_corrected_club(self):
         with Sandbox() as s:
             prepare(s, snapshot=False)
