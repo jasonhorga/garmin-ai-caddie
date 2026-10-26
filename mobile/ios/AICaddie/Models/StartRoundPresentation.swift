@@ -43,7 +43,13 @@ enum StartRoundPresentation {
         lastUsedTee: String?,
         uuid: UUID = UUID()
     ) -> CourseRowState {
-        CourseRowState(
+        // 返回 → the same venue is navigation back to setup, not a new round selection.
+        // A row refreshed from another source may omit the chosen loop or rename the course.
+        if state.selection.globalIdText == String(option.globalId)
+            || current.map({ StartRoundView.samePhysicalVenue($0, option) }) == true {
+            return state
+        }
+        return CourseRowState(
             selection: StartRoundView.selectionState(for: option, lastUsedTee: lastUsedTee, uuid: uuid),
             startHalf: state.selection.globalIdText == String(option.globalId) ? state.startHalf : "front",
             userPickedTee: false,

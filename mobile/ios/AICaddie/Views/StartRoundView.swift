@@ -945,7 +945,7 @@ public struct StartRoundView: View {
         }
     }
 
-    /// Choosing a venue selects its first loop; tapping the already-selected venue keeps the loop.
+    /// A different venue uses its preferred loop/Tee; reopening the selected venue keeps setup.
     private func selectCourseRow(_ row: StartCourseListRow) {
         guard let first = StartRoundPresentation.preselectedLoop(
             in: row.segments, current: selectedSegment, recent: recentResolvedCourseOption
