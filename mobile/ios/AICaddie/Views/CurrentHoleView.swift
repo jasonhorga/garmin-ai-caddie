@@ -83,6 +83,52 @@ enum LiveTopoAvailability {
     }
 }
 
+/// When the active hole keeps probing `/prep` after its first load, and which interim rows it
+/// publishes before the ready one.
+@MainActor
+enum LiveHolePrepUpgradePolicy {
+    static func shouldWaitForPreciseHoleMap(prep: CoursePrepHole?, hasCachedTopo: Bool) -> Bool {
+        prep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame && !hasCachedTopo
+    }
+
+    static func adoptsInterimRow(_ incoming: CoursePrepHole, current: CoursePrepHole?, hole: Hole) -> Bool {
+        false
+    }
+}
+
+/// The selected obstacle in the pixel frame of the bitmap on screen, or what is still missing to
+/// draw it there.
+@MainActor
+enum LiveHazardMapFrame {
+    enum MappingSource: Equatable {
+        /// A prep row in the precise topo's own frame (`/prep` once the mesh is installed).
+        case sameFramePrep
+        /// The Garmin raster descriptor's registration (`garmin-raster` metadata).
+        case garminRegistration
+        /// No map is shown at all.
+        case noMap
+    }
+
+    enum Resolution: Equatable {
+        case drawable(hole: CoursePrepHole, row: LiveHazardDisplayItem)
+        case needsMapping(MappingSource)
+    }
+
+    static func resolve(
+        state: LiveMapDisplayState,
+        hole: Hole,
+        prep: CoursePrepHole,
+        row: LiveHazardDisplayItem,
+        garminProjection: CoursePrepHoleImageProjection?
+    ) -> Resolution {
+        .drawable(hole: prep, row: row)
+    }
+
+    static func notice(for resolution: Resolution, requestInFlight: Bool) -> String? {
+        nil
+    }
+}
+
 /// Shared horizontal-navigation decision for live and review hole maps. Vertical scrolls and short
 /// map adjustments are ignored; edit/precision surfaces can disable the transition explicitly.
 enum HoleSwipeNavigation {

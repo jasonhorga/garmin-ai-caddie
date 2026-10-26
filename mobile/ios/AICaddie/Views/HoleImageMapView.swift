@@ -102,6 +102,10 @@ public struct HoleImageMapView: View {
     public let garminRasterURL: URL?
     public let garminRasterProjection: CoursePrepHoleImageProjection?
     public let garminRasterReloadID: Int
+    /// A partial (CourseView lightweight) row has its own display frame. Over the precise topo it
+    /// is drawn only when the caller has verified that both share one pixel frame
+    /// (`LiveTopoAvailability.overlayCompatible`); ready and legacy rows always share it.
+    public let partialOverlayMatchesTopo: Bool
     public let onPreciseImageReady: (() -> Void)?
     public let onPreciseImageFailed: (() -> Void)?
     public let onGarminImageReady: (() -> Void)?
@@ -155,6 +159,7 @@ public struct HoleImageMapView: View {
                 topoURL: URL? = nil, garminRasterURL: URL? = nil,
                 garminRasterProjection: CoursePrepHoleImageProjection? = nil,
                 garminRasterReloadID: Int = 0,
+                partialOverlayMatchesTopo: Bool = false,
                 onPreciseImageReady: (() -> Void)? = nil,
                 onPreciseImageFailed: (() -> Void)? = nil,
                 onGarminImageReady: (() -> Void)? = nil,
@@ -177,6 +182,7 @@ public struct HoleImageMapView: View {
         self.garminRasterURL = garminRasterURL
         self.garminRasterProjection = garminRasterProjection
         self.garminRasterReloadID = garminRasterReloadID
+        self.partialOverlayMatchesTopo = partialOverlayMatchesTopo
         self.onPreciseImageReady = onPreciseImageReady
         self.onPreciseImageFailed = onPreciseImageFailed
         self.onGarminImageReady = onGarminImageReady
@@ -248,6 +254,17 @@ public struct HoleImageMapView: View {
 
     public var hasMap: Bool {
         displayOverlay != nil
+    }
+
+    /// Whether this row's route, tee, flag and plan are drawn over the base bitmap at all.
+    var drawsFactLayer: Bool {
+        displayOverlay != nil
+    }
+
+    /// The coarse CourseView fairway band and green, drawn as the factual map of a partial row.
+    var drawsLightweightFacts: Bool {
+        hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+            && garminRasterURL == nil
     }
 
     #if canImport(UIKit)
@@ -350,8 +367,7 @@ public struct HoleImageMapView: View {
         }().flatMap { Self.safeLandingMetres($0, for: hole) }
         let landingRow = Self.landingOverlayPoint(overlay, targetMetres: landingTargetMetres)
         let landing = landingRow.map { CGPoint(x: $0[0] * sx, y: $0[1] * sy) }
-        if hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame,
-           garminRasterURL == nil {
+        if drawsLightweightFacts {
             drawLightweightFacts(
                 &context,
                 routePoints: routePoints,
