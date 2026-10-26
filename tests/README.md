@@ -22,6 +22,14 @@ including subdomains, and blocks Playwright and xvfb login launches. It raises
 `requests.ConnectionError` for requests. Production callers can use their normal
 offline/no-data fallback. Explicit fake transports still work without an opt-in.
 
+API lifespan background work is disabled by default with
+`AI_CADDIE_BOOT_BACKGROUND_WORK=0`: stats/prepare-recent warmers, sync recovery and
+course-install recovery must not outlive a test and consume another test's mocks.
+Startup wiring tests explicitly set it to `1` within a scoped environment patch
+and mock `server_v2.main._start_boot_background_work`. Ordinary service processes
+start all four tasks by default. Security validation and logging still run during
+test lifespans.
+
 For an intentionally selected live integration test, wrap the request in
 `with tests.offline.allow_garmin_network():`. This opt-in is nested, restores on
 exceptions and does not propagate to background threads. Do not use real player
@@ -70,6 +78,10 @@ The checker preserves unittest's failure status and also fails on new or
 changed repository artifacts, including rewritten ignored files whose git status
 is unchanged. Failures list only this run's changed paths. Discovery regression
 tests run it in a fresh interpreter; CI also uses it around the full backend suite.
+The checker detects changes using file metadata, including modification time
+(`mtime`). Another process writing `data/` or `output/` in the same checkout can
+therefore cause a local false positive. Run isolation checks in a checkout without
+other writers, or use a separate clone for concurrent work.
 
 Provider entry points and their offline callers:
 

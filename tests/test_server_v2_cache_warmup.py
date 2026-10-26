@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 from fastapi.testclient import TestClient
 
@@ -147,18 +147,54 @@ class AppStartupTests(unittest.TestCase):
     """Tests that server startup fires the background cache warmer."""
 
     def test_app_startup_triggers_background_warmer_once(self) -> None:
-        """FastAPI lifespan fires warm_stats_cache_in_background exactly once at boot.
+        """FastAPI lifespan invokes the shared background startup entry exactly once.
 
         Using TestClient as a context manager runs the lifespan (startup + shutdown);
-        the patched warmer must be called exactly once so the first user request after
+        the patched entry must be called exactly once so the first user request after
         a cold boot is already a cache hit without blocking the server from serving.
         """
         from server_v2.main import app
 
-        with patch("server_v2.main.warm_stats_cache_in_background") as warm_mock:
+        with (
+            patch.dict(os.environ, {"AI_CADDIE_BOOT_BACKGROUND_WORK": "1"}),
+            patch("server_v2.main._start_boot_background_work") as boot,
+        ):
             with TestClient(app) as client:
                 client.get("/api/v2/health")
-            warm_mock.assert_called_once_with()
+            boot.assert_called_once_with()
+
+    def test_background_entry_starts_all_four_workers(self) -> None:
+        from server_v2 import main
+
+        resume, prepare = Mock(), Mock()
+        with (
+            patch.object(main, "warm_stats_cache_in_background") as warm_mock,
+            patch.object(main._garmin_sync_jobs, "start") as sync_start,
+            patch.object(main, "threading") as threads,
+        ):
+            threads.Thread.side_effect = [resume, prepare]
+            main._start_boot_background_work()
+
+        warm_mock.assert_called_once_with()
+        sync_start.assert_called_once_with(main._run_garmin_sync_job)
+        self.assertEqual(threads.Thread.call_args_list, [
+            call(target=main.course_install.resume_pending_jobs,
+                 name="course-install-resume", daemon=True),
+            call(target=main._prepare_recent_bg, args=(main.OWNER_ID,),
+                 kwargs={"prep_warm_delay_s": main._boot_prep_warm_delay_s()},
+                 name="prepare-recent-boot", daemon=True),
+        ])
+        resume.start.assert_called_once_with()
+        prepare.start.assert_called_once_with()
+
+    def test_service_starts_background_work_by_default(self) -> None:
+        from server_v2 import main
+
+        with patch.dict(os.environ), patch.object(main, "_start_boot_background_work") as boot:
+            os.environ.pop("AI_CADDIE_BOOT_BACKGROUND_WORK", None)
+            with TestClient(main.app):
+                pass
+        boot.assert_called_once_with()
 
 
 if __name__ == "__main__":

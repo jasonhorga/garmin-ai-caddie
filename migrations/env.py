@@ -9,7 +9,7 @@ from server_v2.identity_models import Base
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Resolve the DB URL: an explicit alembic.ini value (or one a caller set) wins; otherwise fall
 # back to the app's env-derived database_url(). alembic.ini ships empty, so deploys use database_url().

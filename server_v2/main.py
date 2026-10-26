@@ -213,20 +213,8 @@ def configure_request_timing_logging() -> None:
         service_log.propagate = False
 
 
-@contextlib.asynccontextmanager
-async def _lifespan(_app: FastAPI):
-    """FastAPI lifespan: warm history caches at startup so the first user request is a hit.
-
-    Fires ``warm_stats_cache_in_background`` on a daemon thread immediately after the
-    server starts serving.  Failure-isolated inside ``warm_stats_cache`` itself — a warm
-    error never prevents the server from handling requests.  (The identity schema is owned
-    solely by Alembic — ``alembic upgrade head`` in start_api.sh — never the app process,
-    so create_all can never race or shadow a migration. Phase 1a is additive.)
-    """
-    # Fail fast (require-admin profile with no admin token) / warn loudly (open-dev owner-grant active)
-    # before serving any request — the per-request path already fail-closes, this makes it audible at boot.
-    configure_request_timing_logging()
-    assert_admin_security_config()
+def _start_boot_background_work() -> None:
+    """Start the process-owned warmers and recovery workers once the API can boot."""
     warm_stats_cache_in_background()
     _garmin_sync_jobs.start(_run_garmin_sync_job)
     threading.Thread(
@@ -242,6 +230,26 @@ async def _lifespan(_app: FastAPI):
         name="prepare-recent-boot",
         daemon=True,
     ).start()
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """FastAPI lifespan: warm history caches at startup so the first user request is a hit.
+
+    Fires ``warm_stats_cache_in_background`` on a daemon thread immediately after the
+    server starts serving.  Failure-isolated inside ``warm_stats_cache`` itself — a warm
+    error never prevents the server from handling requests.  (The identity schema is owned
+    solely by Alembic — ``alembic upgrade head`` in start_api.sh — never the app process,
+    so create_all can never race or shadow a migration. Phase 1a is additive.)
+    """
+    # Fail fast (require-admin profile with no admin token) / warn loudly (open-dev owner-grant active)
+    # before serving any request — the per-request path already fail-closes, this makes it audible at boot.
+    configure_request_timing_logging()
+    assert_admin_security_config()
+    # Offline tests opt out at runtime, so importing main before the guard is also safe.
+    # Normal service processes retain all four startup tasks by default.
+    if os.environ.get("AI_CADDIE_BOOT_BACKGROUND_WORK", "1") != "0":
+        _start_boot_background_work()
     yield
 
 

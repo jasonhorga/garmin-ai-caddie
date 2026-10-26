@@ -701,11 +701,9 @@ class CourseInstallJournalTests(unittest.TestCase):
             def replan() -> list[int]:
                 with course_install._LOCK:
                     course_install._RETRY_TIMERS.pop(job, None)
-                # An earlier Alembic test (fileConfig, disable_existing_loggers=True) leaves this
-                # logger disabled in the full suite, which would swallow assertLogs.
-                with patch.object(course_install.threading, "Timer", return_value=Mock()), patch.object(
-                    course_install.logger, "disabled", False
-                ), self.assertLogs(course_install.logger, level="DEBUG") as logs:
+                with patch.object(course_install.threading, "Timer", return_value=Mock()), self.assertLogs(
+                    course_install.logger, level="DEBUG"
+                ) as logs:
                     course_install._schedule_retry(job)
                 return [r.levelno for r in logs.records if "stage=derivatives" in r.getMessage()]
 
@@ -1418,10 +1416,7 @@ class CourseInstallHandOffTests(unittest.TestCase):
 
         def replan() -> list[int]:
             self.ci._RETRY_TIMERS.pop(job, None)
-            # The full suite's Alembic fileConfig disables this logger; production does not.
-            with patch.object(self.ci.logger, "disabled", False), self.assertLogs(
-                self.ci.logger, level="DEBUG"
-            ) as logs:
+            with self.assertLogs(self.ci.logger, level="DEBUG") as logs:
                 self.ci._schedule_retry(job)
             return [r.levelno for r in logs.records if "stage=derivatives" in r.getMessage()]
 
@@ -1526,7 +1521,6 @@ class ServiceLogVisibilityTests(unittest.TestCase):
             lg.setLevel(logging.NOTSET)
             lg.handlers[:] = []
             lg.propagate = True
-            lg.disabled = False  # Alembic runs in its own process in production (start_api.sh).
         with patch.object(logging.getLogger(), "level", logging.WARNING):
             server_main.configure_request_timing_logging()
             with TemporaryDirectory() as directory, patch.dict(
