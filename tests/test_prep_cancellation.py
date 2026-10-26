@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import httpx
 from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response
 
 from ai_caddie.courses import course_prep, course_reference, prep_cache
 from ai_caddie.courses.prep_work import checkpoint, cancellation, PrepCancelled
@@ -18,7 +19,46 @@ class Request:
         await asyncio.Future()  # Connected client; cancelled when the request worker finishes.
 
 
+class NonCancellableReceive:
+    """Model BaseHTTPMiddleware's receive proxy while its outer response is still open."""
+
+    def __init__(self) -> None:
+        self.started = threading.Event()
+        self.allow_build = threading.Event()
+        self.release = asyncio.Event()
+        self.finished = asyncio.Event()
+
+    async def receive(self):
+        self.started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            # The proxy does not finish cancellation until the response owner closes it.
+            await self.release.wait()
+            raise
+        finally:
+            self.finished.set()
+
+
 class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_completed_prep_does_not_wait_for_receive_proxy_cancellation(self):
+        request = NonCancellableReceive()
+
+        def build():
+            self.assertTrue(request.allow_build.wait(2))
+            return Response(status_code=200)
+
+        task = asyncio.create_task(run_prep(request, build))
+        self.assertTrue(await asyncio.to_thread(request.started.wait, 2))
+        request.allow_build.set()
+        try:
+            response = await asyncio.wait_for(asyncio.shield(task), 1)
+            self.assertEqual(response.status_code, 200)
+        finally:
+            request.release.set()
+            await asyncio.wait_for(request.finished.wait(), 1)
+            await task
+
     async def test_concurrent_http_requests_and_cache_hit_build_once(self):
         prep_cache.clear()
         self.addCleanup(prep_cache.clear)
