@@ -21,6 +21,93 @@ from ai_caddie.history.corrected_history import corrected_history_data
 
 
 class MobileReconciliationTests(unittest.TestCase):
+    def test_back_start_package_events_match_physical_numbered_garmin_cards(self) -> None:
+        """Exercise the real package -> event append -> reconciliation service boundary.
+
+        The nine-hole case is documented in merge_same_day_halves: Garmin records a standalone
+        back nine as 10..18. The eighteen-hole case is a defensive counterexample, not evidence
+        that Garmin stores a back-start eighteen this way. In both, loop order proves that phone
+        holes 1..9 mean physical 10..18; a startHole of 1 alone cannot prove that mapping.
+        """
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_reference
+        from server_v2 import mobile as mobile_service
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        for count in (9, 18):
+            with self.subTest(holes=count), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                round_id = f"physical-back-{count}"
+                numbers = range(10, 19) if count == 9 else range(1, 19)
+                data = HistoryData(raw_rounds=[], rounds=[{
+                    "id": round_id, "globalId": 55555, "course": "Fixture Course",
+                    "courseCanonical": "Fixture Course", "courseKey": "fixture-course",
+                    "holesCompleted": count, "holePars": "4" * 18,
+                    "holes": [{"number": n, "par": 4, "strokes": 4 if n > 9 else 6,
+                               "putts": 2, "penalties": 0} for n in numbers],
+                }], shots=[])
+                loops = [(55555, "back")] + ([(55555, "front")] if count == 18 else [])
+                with (
+                    patch.object(mobile_service, "MOBILE_ROOT", root),
+                    patch.object(mobile_service, "load_history_data_for_mode", return_value=(data, "fixture")),
+                    patch.object(mobile_service, "_refresh_course_release_authority", return_value=[]),
+                    patch.object(mobile_live, "_courseview_segment_resolver", return_value=("Fixture Course", 18)),
+                    patch.object(course_reference, "courseview_par", return_value=[4] * 18),
+                ):
+                    package = mobile_service.build_mobile_course_package_response(
+                        55555, round_id=round_id, loops=loops, include_event_cursor=False,
+                    ).model_dump(by_alias=True)
+                    # Independent hand table: back first, then front. Do not derive the oracle
+                    # from the package's sourceLocalHole or the reconciliation mapping.
+                    expected_physical = list(range(10, 19)) + (list(range(1, 10)) if count == 18 else [])
+                    self.assertEqual([h["number"] for h in package["holes"]], list(range(1, count + 1)))
+                    self.assertEqual([h["sourceLocalHole"] for h in package["holes"]], expected_physical)
+                    events = [{
+                        "schema": "ai-caddie-live-round-event-v1",
+                        "eventId": f"score-{h['number']}", "roundId": round_id,
+                        "clientId": "ios-phone", "timestamp": "2026-05-25T00:00:00Z",
+                        "startHole": 1, "hole": h["number"], "kind": "score",
+                        "payload": {"strokes": 4 if h["number"] <= 9 else 6},
+                    } for h in package["holes"]]
+                    ack = mobile_service.append_mobile_events_response(
+                        round_id, LiveRoundEventBatchRequest(roundId=round_id, events=events),
+                        idempotency_key=round_id,
+                    )
+                    self.assertEqual(ack.accepted, count)
+                    result = mobile_service.reconcile_mobile_round_response(round_id).model_dump(by_alias=True)
+
+                self.assertEqual(
+                    [(r["eventId"], r["ref"]) for r in result["matched"]],
+                    [(f"score-{i}", f"{round_id}:{n}") for i, n in enumerate(expected_physical, 1)],
+                    result["summary"],
+                )
+                self.assertEqual(result["localOnly"], [])
+                self.assertEqual(result["conflicts"], [])
+                self.assertEqual(result["annotationSuggestions"], [])
+
+    def test_start_hole_alone_keeps_legacy_card_display_references(self) -> None:
+        # C63 startHole is on the SAME axis as event.hole, not an offset to apply to it.
+        # Without a persisted package loop table these events already name Garmin display holes.
+        for count, start in ((9, None), (9, 10), (18, 10)):
+            with self.subTest(holes=count, start=start), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                numbers = list(range(10, 19)) if count == 9 else list(range(1, 19))
+                data = HistoryData(raw_rounds=[], rounds=[{
+                    "id": "legacy-card", "globalId": 55555, "holesCompleted": count,
+                    "holes": [{"number": n, "strokes": 4 if n > 9 else 6} for n in numbers],
+                }], shots=[])
+                events = [{
+                    "eventId": f"legacy-{n}", "roundId": "legacy-card", "hole": n,
+                    "kind": "score", "payload": {"strokes": 4 if n > 9 else 6},
+                    **({"startHole": start} if start is not None else {}),
+                } for n in numbers]
+                append_event_batch("legacy-card", events, idempotency_key="legacy", root=root)
+                result = reconcile_mobile_round_events("legacy-card", data, root=root)
+                self.assertEqual([r["ref"] for r in result["matched"]], [f"legacy-card:{n}" for n in numbers])
+                self.assertEqual(result["localOnly"], [])
+                self.assertEqual(result["conflicts"], [])
+                self.assertEqual(result["annotationSuggestions"], [])
+
     def test_missing_hole_number_matches_score_and_putts_by_original_position(self) -> None:
         # C76: the unnumbered second hole is display 2, scored 5 with 3 putts.
         data = HistoryData(raw_rounds=[], rounds=[{
@@ -50,48 +137,51 @@ class MobileReconciliationTests(unittest.TestCase):
         The first shape is Garmin's legacy merged representation when the player started on the
         physical back nine: both scorecards are stored as 10..18, while the package presents the
         first card as display holes 1..9. The other two shapes use the normal merged 1..9 + 10..18
-        display storage; the second shape has two different nines and the third visits one nine
-        twice (both still keep physical source holes in ``localHole``).
+        display storage; the second shape has two different course ids and the third visits one
+        course twice. merge_same_day_halves does not add localHole to the second card.
         """
         cases = (
             {
-                "name": "back-nine-start",
-                "package_numbers": list(range(1, 10)),
+                "name": "legacy-back-then-front-merge",
+                "front_gid": 55555, "back_gid": 55555,
+                "package_numbers": list(range(1, 19)),
                 "garmin_holes": [
                     *[
-                        {"number": number + 9, "localHole": number + 9, "strokes": 5, "putts": 2, "penalties": 0}
+                        {"number": number + 9, "strokes": 5, "putts": 2, "penalties": 0}
                         for number in range(1, 10)
                     ],
                     *[
-                        {"number": number + 9, "localHole": number, "strokes": 7, "putts": 3, "penalties": 1}
+                        {"number": number + 9, "strokes": 7, "putts": 3, "penalties": 1}
                         for number in range(1, 10)
                     ],
                 ],
             },
             {
                 "name": "two-nine-combo",
+                "front_gid": 31796, "back_gid": 31794,
                 "package_numbers": list(range(1, 19)),
                 "garmin_holes": [
                     *[
-                        {"number": number, "localHole": number, "strokes": 5, "putts": 2, "penalties": 0}
+                        {"number": number, "strokes": 5, "putts": 2, "penalties": 0}
                         for number in range(1, 10)
                     ],
                     *[
-                        {"number": number + 9, "localHole": number, "strokes": 7, "putts": 3, "penalties": 1}
+                        {"number": number + 9, "strokes": 7, "putts": 3, "penalties": 1}
                         for number in range(1, 10)
                     ],
                 ],
             },
             {
                 "name": "nine-loop-second-lap",
+                "front_gid": 31796, "back_gid": 31796,
                 "package_numbers": list(range(1, 19)),
                 "garmin_holes": [
                     *[
-                        {"number": number, "localHole": number, "strokes": 5, "putts": 2, "penalties": 0}
+                        {"number": number, "strokes": 5, "putts": 2, "penalties": 0}
                         for number in range(1, 10)
                     ],
                     *[
-                        {"number": number + 9, "localHole": number, "strokes": 7, "putts": 3, "penalties": 1}
+                        {"number": number + 9, "strokes": 7, "putts": 3, "penalties": 1}
                         for number in range(1, 10)
                     ],
                 ],
@@ -108,6 +198,8 @@ class MobileReconciliationTests(unittest.TestCase):
                         {
                             "id": round_id,
                             "merged": True,
+                            "frontNineGlobalCourseId": case["front_gid"],
+                            "backNineGlobalCourseId": case["back_gid"],
                             "holes": case["garmin_holes"],
                         }
                     ],
@@ -131,14 +223,13 @@ class MobileReconciliationTests(unittest.TestCase):
 
                 result = reconcile_mobile_round_events(round_id, data, root=root)
 
-            self.assertEqual(result["annotationSuggestions"], [])
-            self.assertEqual(result["localOnly"], [])
-            self.assertEqual(result["conflicts"], [])
-            self.assertEqual(result["garminOnly"], [])
-            self.assertEqual(
-                [row["hole"] for row in result["matched"]],
-                case["package_numbers"],
-            )
+                self.assertEqual(result["annotationSuggestions"], [])
+                self.assertEqual(result["localOnly"], [])
+                self.assertEqual(result["conflicts"], [])
+                self.assertEqual(
+                    [row["hole"] for row in result["matched"]],
+                    case["package_numbers"],
+                )
 
     def test_missing_penalty_matches_local_zero_without_writing_a_correction(self) -> None:
         # C74 / C53: an absent Garmin penalty has effective value 0.
