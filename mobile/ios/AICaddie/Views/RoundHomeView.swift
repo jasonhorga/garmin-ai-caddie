@@ -424,6 +424,8 @@ public struct RoundHomeView: View {
                 loadLastRoundStrip()
             }
             .task(id: weatherKey) {
+                homeWeather = nil
+                homeCity = nil
                 await refreshHomeWeather()
             }
         }
