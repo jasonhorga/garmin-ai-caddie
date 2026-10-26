@@ -657,12 +657,9 @@ public struct RoundHomeView: View {
         }
         .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
             if previousRoundId != currentRoundId {
-                if let previousRoundId {
-                    liveHoleSessions.reset(roundId: previousRoundId)
-                }
-                if currentRoundId == nil {
-                    liveHoleSessions.reset()
-                }
+                // A round id is the session boundary. Clear every entity when a new round starts
+                // or the current round ends, so a reused hole number cannot inherit another nine.
+                liveHoleSessions.reset()
             }
             // The first stroke promotes the memory-only prep package to a live round while the
             // current hole destination is still visible. Drop the picker route immediately so
@@ -684,9 +681,7 @@ public struct RoundHomeView: View {
         .onChange(of: prepPackage?.roundId) { previousRoundID, roundId in
             if previousRoundID != roundId {
                 prepHoleFollowing.reset()
-                if let previousRoundID {
-                    liveHoleSessions.reset(roundId: previousRoundID)
-                }
+                liveHoleSessions.reset()
             }
             guard liveRoundState == nil, roundId != nil else { return }
             path = LiveHoleRoutePath.afterPrepPackageRefresh(
