@@ -204,6 +204,13 @@ class HoleNumberFallbackTest(unittest.TestCase):
         self.assertNotIn(holes[0], [hole for hole, _, _, _ in sides])
         self.assertEqual([display for _, display, _, _ in sides], list(range(1, 19)))
 
+    def test_skipped_fallback_keeps_existing_merged_side_boundary(self) -> None:
+        # Without the colliding position-2 fallback, the explicit 10,11 run is the back side.
+        holes = [{'number': 10}, {}, {'number': 11}]
+        self.assertEqual(hole_sides({'merged': True, 'holes': holes}), [
+            (holes[0], 10, 1, 'back'), (holes[2], 11, 2, 'back'),
+        ])
+
 
 class HoleReplayFilterTest(unittest.TestCase):
     def test_filter_is_per_round_and_preserves_unselected_source_shots(self) -> None:

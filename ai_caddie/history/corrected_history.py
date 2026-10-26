@@ -78,16 +78,20 @@ def round_correction_events(
 
 
 def hole_sides(row: dict[str, Any]) -> list[tuple[dict[str, Any], int, int, str]]:
-    """``(hole, display number 1...18, physical hole, side)`` for every numbered hole in a round.
+    """``(hole, display number 1...18, physical hole, side)`` for every resolvable hole in a round.
 
     Merged same-day rounds hold the first scorecard as 1...9 and the second renumbered 10...18.
     A first card Garmin numbered 10...18 is displayed 1...9 by the merge with its physical hole in
     ``localHole``; rows built before that normalisation still repeat 10...18, so the second half
     is taken as the trailing run 10, 11, ... to the end and the rest is the first half.
     Hole corrections name the display hole (``{round}:{display}``), like the review and shot map.
+    A missing number falls back to its original 1-based position, unless its display number is
+    already occupied by an explicitly numbered hole. Source holes are never rewritten.
     """
-    holes = [hole for hole in row.get("holes") or [] if isinstance(hole, dict) and int(hole.get("number") or 0)]
-    numbers = [int(hole.get("number") or 0) for hole in holes]
+    indexed_holes = [(index, hole) for index, hole in enumerate(row.get("holes") or [], start=1)
+                     if isinstance(hole, dict)]
+    holes = [hole for _index, hole in indexed_holes]
+    numbers = [int(hole.get("number") or 0) or index for index, hole in indexed_holes]
     out: list[tuple[dict[str, Any], int, int, str]] = []
     if row.get("merged"):
         split = len(holes)
@@ -106,6 +110,17 @@ def hole_sides(row: dict[str, Any]) -> list[tuple[dict[str, Any], int, int, str]
     else:
         for hole, number in zip(holes, numbers):
             out.append((hole, number, number, "back" if number > 9 else "front"))
+    # Compare display numbers after merged-nine normalization: a legacy first-card 10 may be
+    # display 1. Explicit identities win even when they occur later in the source list.
+    explicit_displays = {display for hole, display, _physical, _side in out
+                         if int(hole.get("number") or 0)}
+    blocked = {index for (index, hole), (_hole, display, _physical, _side) in zip(indexed_holes, out)
+               if not int(hole.get("number") or 0) and display in explicit_displays}
+    if blocked:
+        # A rejected fallback must not change the merged-nine split. Resolve again without it;
+        # placeholders retain every remaining hole's original ordinal, without mutating the row.
+        return hole_sides({**row, "holes": [None if index in blocked else hole
+                                          for index, hole in enumerate(row.get("holes") or [], start=1)]})
     out.sort(key=lambda item: item[1])
     return out
 
