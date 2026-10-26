@@ -424,7 +424,7 @@ public struct HoleImageMapView: View {
                         shots: projectedPlan
                     )
                 }
-            } else if let landing, let pin {
+            } else if drawsPlannedRouteInMap, let landing, let pin {
                 for arc in Self.flightArcs(tee: tee, landing: landing, pin: pin) {
                     drawFlightArc(&context, arc: arc)
                 }
@@ -435,7 +435,7 @@ public struct HoleImageMapView: View {
                         at: Self.clubLabelPoint(landing: landing, pin: pin)
                     )
                 }
-            } else if let pin,
+            } else if drawsPlannedRouteInMap, let pin,
                       hole.par == 3 || (!plannedShots.isEmpty && plannedShots.last?.shouldEndAtPin == true)
                       || (plannedShots.isEmpty && hole.steps.last?.role.map {
                           let role = $0.lowercased()

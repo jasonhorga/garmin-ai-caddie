@@ -2335,8 +2335,23 @@ enum LiveMapDisplayState: Equatable {
         let coverage: String?
         let preciseTopoImageReady: Bool
         let garminRaster: GarminRasterResponse?
+        /// A descriptor URL is metadata only. The bitmap must be decoded into memory (or report
+        /// ready through the image store) before the raster state can replace numeric facts.
+        let garminImageReady: Bool
         let garminImageFailed: Bool
         let hasCachedPreciseTopo: Bool
+
+        init(
+            coverage: String?, preciseTopoImageReady: Bool, garminRaster: GarminRasterResponse?,
+            garminImageReady: Bool = true, garminImageFailed: Bool, hasCachedPreciseTopo: Bool
+        ) {
+            self.coverage = coverage
+            self.preciseTopoImageReady = preciseTopoImageReady
+            self.garminRaster = garminRaster
+            self.garminImageReady = garminImageReady
+            self.garminImageFailed = garminImageFailed
+            self.hasCachedPreciseTopo = hasCachedPreciseTopo
+        }
 
         var preciseGeometryReady: Bool {
             coverage?.caseInsensitiveCompare("ready") == .orderedSame || hasCachedPreciseTopo
@@ -2348,7 +2363,9 @@ enum LiveMapDisplayState: Equatable {
     /// but its projection is intentionally absent and the caller draws no geo overlays.
     static func resolveLive(_ inputs: LiveInputs) -> LiveMapDisplayState {
         if inputs.preciseTopoImageReady && inputs.preciseGeometryReady { return .precise }
-        if !inputs.garminImageFailed, inputs.garminRaster?.hasDisplayableImage == true {
+        if !inputs.garminImageFailed,
+           inputs.garminImageReady,
+           inputs.garminRaster?.hasDisplayableImage == true {
             return .garminRaster
         }
         return .numericPlaceholder
