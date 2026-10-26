@@ -1,4 +1,6 @@
 import XCTest
+import CoreLocation
+import CoreGraphics
 @testable import AICaddie
 
 final class RoundPlayOrderTests: XCTestCase {
@@ -117,10 +119,16 @@ final class RoundPlayOrderTests: XCTestCase {
             geometryCoverage: "ready", geometryRevision: "prep-r1"
         )
         XCTAssertEqual(LiveHoleSessionCache.cacheRevision(hole: hole, prep: prep), "topo-r1")
+        let noTopoHole = Hole(
+            number: 10, par: 4, yards: 400, geometryCoverage: .partial,
+            geometryRevision: "geometry-r1", topoAvailable: false, topoRevision: nil,
+            sourceGlobalId: 101, sourceLocalHole: 1, courseHoleNumber: 10
+        )
+        XCTAssertEqual(LiveHoleSessionCache.cacheRevision(hole: noTopoHole, prep: prep), "prep-r1")
         let cache = LiveHoleSessionCache()
         cache.update(
             roundId: "round", hole: 10, sourceGlobalId: 101, sourceLocalHole: 1,
-            teeBox: "white", geometryRevision: LiveHoleSessionCache.cacheRevision(hole: hole, prep: prep)
+            teeBox: "white", geometryRevision: LiveHoleSessionCache.cacheRevision(hole: noTopoHole, prep: prep)
         ) { entry in
             entry.holePrep = prep
             entry.prepRequestCompleted = true
@@ -135,7 +143,7 @@ final class RoundPlayOrderTests: XCTestCase {
         }
         let retained = cache.entry(
             roundId: "round", hole: 10, sourceGlobalId: 101, sourceLocalHole: 1,
-            teeBox: "white", geometryRevision: "topo-r1"
+            teeBox: "white", geometryRevision: "prep-r1"
         )
         XCTAssertEqual(retained.holePrep, prep)
         XCTAssertTrue(retained.prepRequestCompleted)
@@ -228,20 +236,33 @@ final class RoundPlayOrderTests: XCTestCase {
             LiveCaddieDecisionSignaturePolicy.signature(for: acrossGps, endpoint: "/decision"),
             "crossing a 10 m coordinate bucket must invalidate the decision"
         )
-        let mapInputs: [(String, JSONValue)] = [
-            ("greenPinCoordinate", .object(["latitude": .number(40.1), "longitude": .number(116.1)])),
-            ("greenPinPixel", .array([.number(101), .number(202)])),
-            ("targetPixel", .array([.number(303), .number(404)]))
+        let mapBase = LiveCaddieDecisionSignaturePolicy.caddieDecisionSignatureRequest(
+            from: base,
+            greenPinCoordinate: CLLocationCoordinate2D(latitude: 40.1, longitude: 116.1),
+            greenPinPixel: CGPoint(x: 101, y: 202),
+            targetPixel: CGPoint(x: 303, y: 404)
+        )
+        let mapChanges: [(String, CaddieDecisionRequest)] = [
+            ("greenPinCoordinate", LiveCaddieDecisionSignaturePolicy.caddieDecisionSignatureRequest(
+                from: base,
+                greenPinCoordinate: CLLocationCoordinate2D(latitude: 40.2, longitude: 116.1),
+                greenPinPixel: CGPoint(x: 101, y: 202), targetPixel: CGPoint(x: 303, y: 404)
+            )),
+            ("greenPinPixel", LiveCaddieDecisionSignaturePolicy.caddieDecisionSignatureRequest(
+                from: base,
+                greenPinCoordinate: CLLocationCoordinate2D(latitude: 40.1, longitude: 116.1),
+                greenPinPixel: CGPoint(x: 102, y: 202), targetPixel: CGPoint(x: 303, y: 404)
+            )),
+            ("targetPixel", LiveCaddieDecisionSignaturePolicy.caddieDecisionSignatureRequest(
+                from: base,
+                greenPinCoordinate: CLLocationCoordinate2D(latitude: 40.1, longitude: 116.1),
+                greenPinPixel: CGPoint(x: 101, y: 202), targetPixel: CGPoint(x: 304, y: 404)
+            ))
         ]
-        for (key, value) in mapInputs {
-            var changed = baseContext
-            changed[key] = value
+        for (key, changed) in mapChanges {
             XCTAssertNotEqual(
-                LiveCaddieDecisionSignaturePolicy.signature(
-                    for: CaddieDecisionRequest(shotType: "tee", context: changed),
-                    endpoint: "/decision"
-                ),
-                LiveCaddieDecisionSignaturePolicy.signature(for: base, endpoint: "/decision"),
+                LiveCaddieDecisionSignaturePolicy.signature(for: changed, endpoint: "/decision"),
+                LiveCaddieDecisionSignaturePolicy.signature(for: mapBase, endpoint: "/decision"),
                 "changing \(key) must invalidate the decision signature"
             )
         }
@@ -279,24 +300,35 @@ final class RoundPlayOrderTests: XCTestCase {
     func testPagerSelectionResetsAfterLeavingHoleOrChangingSession() {
         XCTAssertTrue(
             LiveHolePagerSelectionLifecycle.shouldReset(
-                previousPath: [.hole(6)], currentPath: [],
-                previousRoundId: "round-a", currentRoundId: "round-a",
-                previousPrepRoundId: nil, currentPrepRoundId: nil
+                previousPath: [.hole(6)], currentPath: []
             )
         )
         XCTAssertTrue(
             LiveHolePagerSelectionLifecycle.shouldReset(
-                previousPath: [.prep, .hole(6)], currentPath: [.prep],
-                previousRoundId: nil, currentRoundId: nil,
-                previousPrepRoundId: "prep-a", currentPrepRoundId: "prep-b"
+                previousPath: [.prep, .hole(6)], currentPath: [.prep]
             )
         )
         XCTAssertFalse(
             LiveHolePagerSelectionLifecycle.shouldReset(
-                previousPath: [.hole(6)], currentPath: [.hole(6)],
-                previousRoundId: "round-a", currentRoundId: "round-a",
-                previousPrepRoundId: nil, currentPrepRoundId: nil
+                previousPath: [.hole(6)], currentPath: [.hole(6)]
             )
+        )
+    }
+
+    func testPagerSelectionReconcilesWhenRoundChangesWithoutPathChange() {
+        // The route remains [.hole(6)] while a new round/package arrives; re-seeding with no
+        // active-hole override must keep that routed hole selected instead of leaving nil.
+        XCTAssertEqual(
+            LiveHolePagerSelectionLifecycle.selectionAfterSessionChange(
+                path: [.hole(6)], ordered: Array(1...9), activeHole: nil, pendingLiveHole: nil
+            ),
+            6
+        )
+        XCTAssertEqual(
+            LiveHolePagerSelectionLifecycle.selectionAfterSessionChange(
+                path: [.hole(6)], ordered: Array(1...9), activeHole: 4, pendingLiveHole: nil
+            ),
+            4
         )
     }
 

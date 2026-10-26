@@ -1,4 +1,5 @@
 import CoreLocation
+import CoreGraphics
 import Foundation
 import PhotosUI
 import SwiftUI
@@ -15,6 +16,40 @@ private struct PendingPhoneShot: Identifiable {
 }
 
 enum LiveCaddieDecisionSignaturePolicy {
+    /// Build the cache-only additions from the same inputs used by the live view. The POST body
+    /// remains unchanged; this request is passed directly to `signature` for cache identity.
+    static func caddieDecisionSignatureRequest(
+        from request: CaddieDecisionRequest,
+        greenPinCoordinate: CLLocationCoordinate2D?,
+        greenPinPixel: CGPoint?,
+        targetPixel: CGPoint?
+    ) -> CaddieDecisionRequest {
+        var context = request.context
+        if let greenPinCoordinate,
+           greenPinCoordinate.latitude.isFinite,
+           greenPinCoordinate.longitude.isFinite {
+            context["greenPinCoordinate"] = .object([
+                "latitude": .number(greenPinCoordinate.latitude),
+                "longitude": .number(greenPinCoordinate.longitude)
+            ])
+        }
+        if let greenPinPixel, greenPinPixel.x.isFinite, greenPinPixel.y.isFinite {
+            context["greenPinPixel"] = .array([
+                .number(Double(greenPinPixel.x)), .number(Double(greenPinPixel.y))
+            ])
+        }
+        if let targetPixel, targetPixel.x.isFinite, targetPixel.y.isFinite {
+            context["targetPixel"] = .array([
+                .number(Double(targetPixel.x)), .number(Double(targetPixel.y))
+            ])
+        }
+        return CaddieDecisionRequest(
+            shotType: request.shotType,
+            context: context,
+            includeExplanation: request.includeExplanation
+        )
+    }
+
     static func signature(for request: CaddieDecisionRequest, endpoint: String) -> String? {
         var context = request.context
         if case .number(let distance)? = context["distanceToPin_m"], distance.isFinite {
@@ -550,7 +585,6 @@ public struct CurrentHoleView: View {
     /// final pixel is still committed when the target is released.
     @State private var heroTargetDragGrabbed = false
     @GestureState private var heroTargetDragging = false
-    @GestureState private var heroTargetDidDrag = false
     @State private var showGreenDetail = false
     @State private var selectedHazardID: String?
     /// The obstacle-mapping request (same-frame prep / Garmin registration) in flight. Its
@@ -668,9 +702,17 @@ public struct CurrentHoleView: View {
         self.onStartRoundFromFirstStroke = onStartRoundFromFirstStroke
         self.onUndoRoundStart = onUndoRoundStart
         self.onChangePrepTee = onChangePrepTee
+        let packagePrepForHole = package.coursePrep?.holes.first { $0.hole == hole.number }
+        let cachedSessionSeed = sharedSessionCache.entry(
+            roundId: package.roundId,
+            hole: hole.number,
+            sourceGlobalId: hole.sourceGlobalId,
+            sourceLocalHole: hole.sourceLocalHole,
+            teeBox: package.course.teeBox
+        )
         let initialGeometryRevision = LiveHoleSessionCache.cacheRevision(
             hole: hole,
-            prep: package.coursePrep?.holes.first { $0.hole == hole.number }
+            prep: cachedSessionSeed.holePrep ?? packagePrepForHole
         )
         let initialSession = sharedSessionCache.entry(
             roundId: package.roundId,
@@ -700,8 +742,7 @@ public struct CurrentHoleView: View {
         self._selectedStrategyMode = State(initialValue: restoredHoleState?.selectedStrategyMode ?? "stock")
         self._distanceToPinText = State(initialValue: Self.validDistanceText(restoredHoleState?.distanceToPinM))
         self._selectedLie = State(initialValue: restoredHoleState?.lie ?? "fairway")
-        let initialHolePrep = initialSession.holePrep
-            ?? package.coursePrep?.holes.first { $0.hole == hole.number }
+        let initialHolePrep = initialSession.holePrep ?? packagePrepForHole
         self._holePrep = State(initialValue: initialHolePrep)
         // Embedded image validation and disk URL lookup happen in the hole task, away from init.
         self._hasEmbeddedTopoImage = State(
@@ -845,8 +886,28 @@ public struct CurrentHoleView: View {
         )
     }
 
+    private var packagePrepForCurrentHole: CoursePrepHole? {
+        package.coursePrep?.holes.first { $0.hole == hole.number }
+    }
+
+    /// Revision reads use the same latest-known prep source as init and neighbour prefetch. The
+    /// cache entry is read without a revision first so an unknown package row cannot rebase it.
+    private var cachePrepForCurrentHole: CoursePrepHole? {
+        sessionCache.entry(
+            roundId: package.roundId,
+            hole: hole.number,
+            sourceGlobalId: hole.sourceGlobalId,
+            sourceLocalHole: hole.sourceLocalHole,
+            teeBox: package.course.teeBox
+        ).holePrep ?? packagePrepForCurrentHole
+    }
+
     private var sessionGeometryRevision: String? {
-        LiveHoleSessionCache.cacheRevision(hole: hole, prep: holePrep)
+        cacheRevisionForCurrentHole
+    }
+
+    private var cacheRevisionForCurrentHole: String? {
+        LiveHoleSessionCache.cacheRevision(hole: hole, prep: cachePrepForCurrentHole)
     }
 
     private func sessionEntry() -> LiveHoleSessionCache.Entry {
@@ -970,7 +1031,7 @@ public struct CurrentHoleView: View {
             Task { await loadCaddieDecision(syncClub: true) }
         }
         .task(id: localTopoRevisionTaskKey) {
-            let revision = LiveTopoAvailability.revision(hole: hole, prep: holePrep)
+            let revision = cacheRevisionForCurrentHole
             let store = offlineStore
             let localURL = await Task.detached(priority: .utility) {
                 store?.loadCourseTopoImageURL(
@@ -1954,7 +2015,7 @@ public struct CurrentHoleView: View {
                 // The Touch Target works on the factual map while the precise one is pending
                 // (B4c): `carryOverMapInteraction` keeps the target on the same spot when it lands.
                 SpatialTapGesture().onEnded { value in
-                    guard !heroTargetDidDrag,
+                    guard !heroTargetDragGrabbed,
                           value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset,
                           greenPath?.contains(value.location) != true else { return }
                     handleHeroMapTap(at: value.location, in: geometry.size)
@@ -2003,7 +2064,7 @@ public struct CurrentHoleView: View {
             .onEnded { value in
                 guard !usesExternalHolePager else { return }
                 // A drag that grabbed the Touch Target never pages the hole.
-                guard !heroTargetDragging else { return }
+                guard !heroTargetDragGrabbed else { return }
                 guard HeroMapGesturePolicy.acceptsHoleSwipe(
                     scale: heroMapScale,
                     pinchScale: heroMapPinchScale
@@ -2188,11 +2249,6 @@ public struct CurrentHoleView: View {
             .updating($heroTargetDragging) { value, state, _ in
                 if !state {
                     state = heroTargetHit(at: value.startLocation, in: viewport)
-                }
-            }
-            .updating($heroTargetDidDrag) { value, state, _ in
-                if heroTargetHit(at: value.startLocation, in: viewport) {
-                    state = true
                 }
             }
             .onChanged { value in
@@ -3030,7 +3086,7 @@ public struct CurrentHoleView: View {
     }
 
     private var localTopoRevisionTaskKey: String {
-        "\(hole.sourceGlobalId):\(hole.sourceLocalHole):\(LiveTopoAvailability.revision(hole: hole, prep: holePrep) ?? "")"
+        "\(hole.sourceGlobalId):\(hole.sourceLocalHole):\(cacheRevisionForCurrentHole ?? "")"
     }
 
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
@@ -3042,7 +3098,7 @@ public struct CurrentHoleView: View {
         }
         #endif
         return LiveTopoAvailability.url(
-            hole: hole, prep: holePrep, localURL: localTopoURL, baseURL: caddieBaseURL
+            hole: hole, prep: cachePrepForCurrentHole, localURL: localTopoURL, baseURL: caddieBaseURL
         )
     }
 
@@ -3856,7 +3912,7 @@ public struct CurrentHoleView: View {
         )
         guard garminDescriptorLoadingKey != requestKey else { return }
         let session = sessionEntry()
-        let revision = LiveHoleSessionCache.cacheRevision(hole: hole, prep: holePrep)
+        let revision = cacheRevisionForCurrentHole
         if let cached = session.garminRaster,
            !LiveHoleSessionCachePolicy.shouldFetchGarmin(
                cached: cached,
@@ -3975,9 +4031,16 @@ public struct CurrentHoleView: View {
                     globalId: neighbour.sourceGlobalId,
                     localHole: neighbour.sourceLocalHole
                 ) else { return }
+                let cachedPrep = liveHoleSessions.entry(
+                    roundId: package.roundId,
+                    hole: neighbour.number,
+                    sourceGlobalId: neighbour.sourceGlobalId,
+                    sourceLocalHole: neighbour.sourceLocalHole,
+                    teeBox: package.course.teeBox
+                ).holePrep
                 let revision = LiveHoleSessionCache.cacheRevision(
                     hole: neighbour,
-                    prep: package.coursePrep?.holes.first { $0.hole == neighbour.number }
+                    prep: cachedPrep ?? package.coursePrep?.holes.first { $0.hole == neighbour.number }
                 )
                 liveHoleSessionsUpdate(
                     hole: neighbour,
@@ -5101,23 +5164,11 @@ public struct CurrentHoleView: View {
     private func caddieDecisionSignatureRequest(
         from request: CaddieDecisionRequest
     ) -> CaddieDecisionRequest {
-        var context = request.context
-        if let pin = validTargetCoordinate(greenPinCoordinate) {
-            context["greenPinCoordinate"] = .object([
-                "latitude": .number(pin.latitude),
-                "longitude": .number(pin.longitude)
-            ])
-        }
-        if let pin = greenPinPixel, pin.x.isFinite, pin.y.isFinite {
-            context["greenPinPixel"] = .array([.number(Double(pin.x)), .number(Double(pin.y))])
-        }
-        if let target = targetPixel, target.x.isFinite, target.y.isFinite {
-            context["targetPixel"] = .array([.number(Double(target.x)), .number(Double(target.y))])
-        }
-        return CaddieDecisionRequest(
-            shotType: request.shotType,
-            context: context,
-            includeExplanation: request.includeExplanation
+        LiveCaddieDecisionSignaturePolicy.caddieDecisionSignatureRequest(
+            from: request,
+            greenPinCoordinate: validTargetCoordinate(greenPinCoordinate),
+            greenPinPixel: greenPinPixel,
+            targetPixel: targetPixel
         )
     }
 

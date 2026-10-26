@@ -290,30 +290,43 @@ fileprivate extension LiveHoleSessionCache.Entry {
                 greenOutline: prep.greenOutline,
                 fairwayOutline: prep.fairwayOutline
             )
+            // A request already using this entry must finish; otherwise its completion can race the
+            // trim and publish a second request. Only a real bitmap eviction reopens the gate.
+            if !prepRequestStarted {
+                prepRequestCompleted = false
+                preciseProbeStarted = false
+            }
         }
         localTopoURL = nil
-        // The embedded bitmap is gone, so the next active-hole path must be allowed to fetch it.
-        prepRequestStarted = false
-        prepRequestCompleted = false
-        preciseProbeStarted = false
     }
 }
 
 enum LiveHolePagerSelectionLifecycle {
     static func shouldReset(
         previousPath: [HubRoute],
-        currentPath: [HubRoute],
-        previousRoundId: String?,
-        currentRoundId: String?,
-        previousPrepRoundId: String?,
-        currentPrepRoundId: String?
+        currentPath: [HubRoute]
     ) -> Bool {
-        if previousRoundId != currentRoundId || previousPrepRoundId != currentPrepRoundId {
-            return true
-        }
         let leftHole = previousPath.contains { if case .hole = $0 { return true }; return false }
         let stillHasHole = currentPath.contains { if case .hole = $0 { return true }; return false }
         return leftHole && !stillHasHole
+    }
+
+    static func selectionAfterSessionChange(
+        path: [HubRoute],
+        ordered: [Int],
+        activeHole: Int?,
+        pendingLiveHole: Int?
+    ) -> Int? {
+        guard let routedHole = path.reversed().compactMap({ route -> Int? in
+            if case let .hole(number) = route { return number }
+            return nil
+        }).first else { return nil }
+        return LiveHolePagerInitialSelection.resolve(
+            current: nil,
+            ordered: ordered,
+            preferredHole: activeHole ?? pendingLiveHole ?? routedHole,
+            fallbackHole: routedHole
+        )
     }
 }
 
@@ -781,8 +794,6 @@ public struct RoundHomeView: View {
                 // A round id is the session boundary. Clear every entity when a new round starts
                 // or the current round ends, so a reused hole number cannot inherit another nine.
                 liveHoleSessions.reset()
-                holePagerSelection = nil
-                holePagerNavigationLock = nil
             }
             // The first stroke promotes the memory-only prep package to a live round while the
             // current hole destination is still visible. Drop the picker route immediately so
@@ -800,19 +811,24 @@ public struct RoundHomeView: View {
             if previousRoundId != nil, currentRoundId == nil, prepPackage == nil {
                 path = []
             }
+            if previousRoundId != currentRoundId {
+                reconcilePagerSelectionAfterSessionChange()
+            }
         }
         .onChange(of: prepPackage?.roundId) { previousRoundID, roundId in
             if previousRoundID != roundId {
                 prepHoleFollowing.reset()
                 liveHoleSessions.reset()
-                holePagerSelection = nil
-                holePagerNavigationLock = nil
             }
-            guard liveRoundState == nil, roundId != nil else { return }
-            path = LiveHoleRoutePath.afterPrepPackageRefresh(
-                current: path,
-                pendingHole: pendingLiveHole ?? prepPackage?.holes.first?.number
-            )
+            if liveRoundState == nil, roundId != nil {
+                path = LiveHoleRoutePath.afterPrepPackageRefresh(
+                    current: path,
+                    pendingHole: pendingLiveHole ?? prepPackage?.holes.first?.number
+                )
+            }
+            if previousRoundID != roundId {
+                reconcilePagerSelectionAfterSessionChange()
+            }
         }
         .onChange(of: package?.holeSetIdentity) { _, _ in
             reconcileLiveHoleRouteWithPackage()
@@ -831,11 +847,7 @@ public struct RoundHomeView: View {
             // left so a later course/round opening honors its routed initial hole.
             if LiveHolePagerSelectionLifecycle.shouldReset(
                 previousPath: previousRoutes,
-                currentPath: routes,
-                previousRoundId: liveRoundState?.roundId,
-                currentRoundId: liveRoundState?.roundId,
-                previousPrepRoundId: prepPackage?.roundId,
-                currentPrepRoundId: prepPackage?.roundId
+                currentPath: routes
             ) {
                 holePagerSelection = nil
                 holePagerNavigationLock = nil
@@ -1076,6 +1088,34 @@ public struct RoundHomeView: View {
             roundId: package.roundId,
             keepingHoles: Set(ordered[lower...upper])
         )
+    }
+
+    /// Session/package replacement can leave the same `.hole` route value in the path. Re-seed the
+    /// pager explicitly so clearing the old cache never leaves every retained page unselected.
+    private func reconcilePagerSelectionAfterSessionChange() {
+        guard let screenPackage = holeScreenPackage else {
+            holePagerSelection = nil
+            holePagerNavigationLock = nil
+            return
+        }
+        let ordered = RoundPlayOrder.holes(
+            screenPackage.holes.map(\.number),
+            startingAt: liveRoundState?.startHole,
+            loops: screenPackage.roundLoops
+        )
+        guard let selected = LiveHolePagerSelectionLifecycle.selectionAfterSessionChange(
+            path: path,
+            ordered: ordered,
+            activeHole: liveRoundState?.activeHole,
+            pendingLiveHole: pendingLiveHole
+        ) else {
+            holePagerSelection = nil
+            holePagerNavigationLock = nil
+            return
+        }
+        holePagerSelection = selected
+        holePagerNavigationLock = LiveHoleNavigationLock(currentHole: selected)
+        trimLiveHoleSessions(around: selected, package: screenPackage)
     }
 
     /// 备战者已有目的地：直接名称搜索，不走现场 GPS 选场。The chosen course opens on the hole screen.
