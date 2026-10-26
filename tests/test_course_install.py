@@ -1433,7 +1433,7 @@ class CourseInstallHandOffTests(unittest.TestCase):
         # the package's lacking-hazards self-heal) and its first plan is again ("running", 0, None).
         self.ci.update(job, phase="queued", stage="derivatives", clear_error=True)
         self.installed(job, 1, derivatives="running", derivativesFailureCount=0)
-        # main: terminal cleanup makes this a new plan, so it is INFO again.
+        # Before C56, the terminal write retained the old signature, so this logged DEBUG.
         self.assertEqual(replan(), [logging.INFO])
 
     def test_terminal_write_clears_plan_signature_and_wake_epoch(self) -> None:

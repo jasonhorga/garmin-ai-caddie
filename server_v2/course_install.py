@@ -1403,7 +1403,7 @@ def hole_plan(global_id: int, local_hole: int) -> dict[str, Any] | None:
             row = (state.get("holes") or {}).get(key)
             if not isinstance(row, dict):
                 continue
-            # Nearby warming has its own priority provider.  A deferred nearby journal must not
+            # Nearby warming uses these shared journals, but a deferred nearby journal must not
             # make a player's failed install look retryable after that player lost ownership.
             if (
                 str(state.get("loopKey") or "").endswith(":nearby-assets")
