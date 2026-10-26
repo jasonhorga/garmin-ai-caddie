@@ -361,16 +361,13 @@ public struct StartRoundView: View {
             return
         }
         teeLoadFailed = false
-        let tees: [CourseTee]
-        if case let .carried(rows) = StartRoundPresentation.teeLoad(carried: carriedCourseTees[globalId] ?? []) {
-            // The nearby/search row already carried the server's cached /tees answer: show those
-            // rows and yards at once and send no request (C87).
-            isLoadingTees = false
-            tees = rows
-        } else {
-            guard let fetched = await requestTees(globalId: globalId, requestToken: requestToken) else { return }
-            tees = fetched
-        }
+        // Carried rows need no request; `requestTees` raises the loading gate itself.
+        isLoadingTees = false
+        guard let tees = await Self.courseTeeRows(
+            globalId: globalId,
+            carried: carriedCourseTees,
+            request: { await requestTees(globalId: $0, requestToken: requestToken) }
+        ) else { return }
         fetchedTees = tees
         let pickedTee = userPickedTee ? teeBox : nil
         teeBox = Self.teeAfterRefresh(
@@ -386,6 +383,17 @@ public struct StartRoundView: View {
                     .caseInsensitiveCompare(picked.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
             }
         } ?? false
+    }
+
+    /// The selected course's Tee rows: those its nearby/search row carried (the server's cached
+    /// `/tees` answer) at once with no request (C87); otherwise `request` (GET /tees), nil when unusable.
+    static func courseTeeRows(
+        globalId: Int,
+        carried: [Int: [CourseTee]],
+        request: (Int) async -> [CourseTee]?
+    ) async -> [CourseTee]? {
+        if let rows = carried[globalId], !rows.isEmpty { return rows }
+        return await request(globalId)
     }
 
     /// GET /tees for the selected course. Nil when the answer is stale (course changed, task
@@ -1220,14 +1228,18 @@ public struct StartRoundView: View {
             Text("发球台")
                 .font(.footnote.weight(.bold))
                 .foregroundStyle(.secondary)
-            if selectedCourseRequiresRemoteTees, teeLoadFailed, teeOptions.isEmpty {
+            if Self.showsTeeRetry(
+                requiresRemoteTees: selectedCourseRequiresRemoteTees,
+                teeLoadFailed: teeLoadFailed,
+                fetchedTees: fetchedTees,
+                courseTees: selectedSegment?.tees ?? []
+            ) {
                 // Tee authority failed: the course default still starts; retry is an icon.
                 HStack(spacing: 12) {
                     Button {
                         teeBox = "unknown"
-                        teeLoadFailed = false
                     } label: {
-                        teeChipLabel("unknown", selected: false)
+                        teeChipLabel("unknown", selected: teeBox.caseInsensitiveCompare("unknown") == .orderedSame)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("start-round-use-course-default-tee")
@@ -1260,6 +1272,18 @@ public struct StartRoundView: View {
                 }
             }
         }
+    }
+
+    /// `/tees` failed and the course has no Tee rows from anywhere else (fetched, carried by its
+    /// nearby row, or bundled): offer a retry next to the course default, which still starts. The
+    /// Tee list itself is not the gate, because the course default (`unknown`) is always in it.
+    static func showsTeeRetry(
+        requiresRemoteTees: Bool,
+        teeLoadFailed: Bool,
+        fetchedTees: [CourseTee],
+        courseTees: [String]
+    ) -> Bool {
+        requiresRemoteTees && teeLoadFailed && fetchedTees.isEmpty && courseTees.isEmpty
     }
 
     private func teeChip(_ tee: String) -> some View {
