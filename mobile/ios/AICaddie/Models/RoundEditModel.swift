@@ -35,7 +35,7 @@ public final class RoundEditModel: ObservableObject {
     private let sync: SyncClient
     private let roundRef: String
     /// The scorecard total is read-only in this editor, but it bounds the editable putts/penalty.
-    private let recordedScore: Int?
+    private var recordedScore: Int?
     /// The canonical round id for hole-level putt corrections (the stats read `{canonical}:{hole}`);
     /// the requested ref when the detail has not told us the canonical one.
     private let puttTargetRoundRef: String
@@ -96,6 +96,13 @@ public final class RoundEditModel: ObservableObject {
         guard !isEditing, originalPutts != value else { return }
         originalPutts = value
         putts = value
+    }
+
+    /// Adopt a refreshed scorecard without overwriting an open draft.
+    public func adoptRecordedScorecard(score: Int?, putts: Int?) {
+        guard !isEditing else { return }
+        recordedScore = score
+        adoptRecordedPutts(putts)
     }
 
     /// Compatibility name for older call sites; leaving edit mode always means discarding its draft.

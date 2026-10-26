@@ -624,6 +624,68 @@ final class RoundEditModelTests: XCTestCase {
         await fulfillment(of: [unexpectedRequest], timeout: 0.25)
     }
 
+    func testRefreshedLowerScoreRejectsDraftEvenWhenRecordedPuttsDidNotChange() async throws {
+        let unexpectedRequest = expectation(description: "refreshed total must reject before any write")
+        unexpectedRequest.isInverted = true
+        let model = makeModel(score: 5, putts: 3) { request in
+            unexpectedRequest.fulfill()
+            return Self.response(request, status: 201, body: #"{"stored":{}}"#)
+        }
+
+        model.adoptRecordedScorecard(score: 4, putts: 3)
+        model.enterEdit()
+        model.setPenalty(1) // C68/C20: 4 < 3 putts + 1 penalty + 1; the stale total 5 allows it.
+
+        let saved = await model.save()
+
+        XCTAssertFalse(saved, "validation must use the externally corrected total of 4")
+        XCTAssertTrue(model.isEditing)
+        XCTAssertTrue(model.hasUnsavedChanges)
+        XCTAssertEqual(model.saveError, "总杆不得低于推杆+罚杆+1，草稿仍在；请调整后重试")
+        await fulfillment(of: [unexpectedRequest], timeout: 0.25)
+    }
+
+    func testRefreshedHigherScoreAllowsDraftThatTheLoadedScoreWouldReject() async throws {
+        var postCount = 0
+        let model = makeModel(score: 4, putts: 3) { request in
+            guard request.httpMethod == "POST" else { return Self.response(request, status: 503) }
+            postCount += 1
+            return Self.response(request, status: 201, body: #"{"stored":{}}"#)
+        }
+
+        model.adoptRecordedScorecard(score: 5, putts: 3)
+        model.enterEdit()
+        model.setPenalty(1) // C20: 5 == 3 putts + 1 penalty + 1; the stale total 4 rejects it.
+
+        let saved = await model.save()
+
+        XCTAssertTrue(saved)
+        XCTAssertEqual(postCount, 1)
+        XCTAssertFalse(model.isEditing)
+        XCTAssertNil(model.saveError)
+    }
+
+    func testScorecardRefreshPreservesBothTotalsAndPuttsWhileAnyDraftIsOpen() async throws {
+        // adoptRecordedPutts protects every open draft, including one with no changes yet.
+        for manuallyChangedPutts in [false, true] {
+            let model = makeModel(score: 5, putts: 3) { request in
+                Self.response(request, status: request.httpMethod == "POST" ? 201 : 503, body: #"{"stored":{}}"#)
+            }
+            model.enterEdit()
+            if manuallyChangedPutts { model.adjustPutts(by: -1) }
+
+            model.adoptRecordedScorecard(score: 4, putts: 1)
+
+            XCTAssertEqual(model.putts, manuallyChangedPutts ? 2 : 3)
+            XCTAssertEqual(model.hasUnsavedChanges, manuallyChangedPutts)
+            // C20: both drafts require 5 (2+2+1 or 3+1+1), so adopting 4 would reject them.
+            model.setPenalty(manuallyChangedPutts ? 2 : 1)
+            let saved = await model.save()
+            XCTAssertTrue(saved, "an open draft must keep its original scorecard baseline")
+            XCTAssertNil(model.saveError)
+        }
+    }
+
     private func makeModel(
         shots: [RoundShot]? = nil,
         includeMap: Bool = true,
