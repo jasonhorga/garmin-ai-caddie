@@ -59,14 +59,47 @@ enum NineLoopTurn {
     /// The network row stays authoritative for the same id, except when it is coarser than the
     /// installed template: a whole-course / unlabeled row (the CourseView-unavailable shape) never
     /// masks an installed nine-hole loop with a factual label.
-    static func loopCatalogue(network: [MobileCourseOption], downloaded: [MobileCourseOption]) -> [MobileCourseOption] {
+    static func loopCatalogue(
+        network: [MobileCourseOption],
+        downloaded: [MobileCourseOption],
+        venueLoops: [VenueLoop] = [],
+        venueName: String? = nil
+    ) -> [MobileCourseOption] {
         let installed = Dictionary(downloaded.map { ($0.globalId, $0) }, uniquingKeysWith: { first, _ in first })
         let merged = network.map { row -> MobileCourseOption in
             guard let local = installed[row.globalId], isFactualLoop(local), !isFactualLoop(row) else { return row }
             return local
         }
         let listed = Set(network.map(\.globalId))
-        return merged + downloaded.filter { !listed.contains($0.globalId) }
+        let packageRows = venueLoops.map { option(for: $0, venueName: venueName) }
+        let packageIds = Set(packageRows.map(\.globalId))
+        var result = merged
+            + downloaded.filter { !listed.contains($0.globalId) && !packageIds.contains($0.globalId) }
+        for row in packageRows {
+            if let index = result.firstIndex(where: { $0.globalId == row.globalId }) {
+                let existing = result[index]
+                // A package row is allowed to repair an equally precise network row, while a
+                // coarse package fact must never erase a labelled/downloaded loop.
+                if !(isFactualLoop(existing) && !isFactualLoop(row)) {
+                    result[index] = row
+                }
+            } else {
+                result.append(row)
+            }
+        }
+        return result
+    }
+
+    static func option(for loop: VenueLoop, venueName: String?) -> MobileCourseOption {
+        let venue = venueName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return MobileCourseOption(
+            globalId: loop.globalId,
+            name: loop.name,
+            holes: loop.holeCount,
+            venueName: venue?.isEmpty == false ? venue : nil,
+            segmentLabel: loop.segmentLabel,
+            segmentHoles: loop.holeCount
+        )
     }
 
     /// A nine-hole loop with the course's own loop label.
@@ -76,11 +109,31 @@ enum NineLoopTurn {
 
     /// The venue's nine-hole loops for `active` (itself included), in loop-label order.
     static func siblings(of active: MobileCourseOption, in catalogue: [MobileCourseOption]) -> [MobileCourseOption] {
-        guard let venue = active.venueName else { return [] }
+        let venue = normalizedVenue(active.venueName)
         var seen = Set<Int>()
         return catalogue
-            .filter { ($0.venueName ?? "") == venue && $0.resolvedHoles == 9 && seen.insert($0.globalId).inserted }
+            .filter {
+                $0.resolvedHoles == 9
+                    && ($0.globalId == active.globalId || (!venue.isEmpty && normalizedVenue($0.venueName) == venue))
+                    && seen.insert($0.globalId).inserted
+            }
             .sorted { ($0.resolvedSegmentLabel ?? "~~") < ($1.resolvedSegmentLabel ?? "~~") }
+    }
+
+    private static func normalizedVenue(_ value: String?) -> String {
+        (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current).lowercased()
+    }
+
+    /// One candidate source shared by the turn sheet (A) and scorecard add control (B).
+    static func candidateLoops(package: LiveRoundPackage, catalogue: [MobileCourseOption]) -> [NineLoop] {
+        guard let first = package.roundLoops.first else { return [] }
+        if first.isCourseHalf { return halves(globalId: first.globalId) }
+        guard let active = catalogue.first(where: { $0.globalId == first.globalId }), active.resolvedHoles == 9 else {
+            return []
+        }
+        return siblings(of: active, in: catalogue).compactMap { option in
+            option.globalId == active.globalId ? firstLoop(option) : loop(option)
+        }
     }
 
     /// The live hole's turn decision (`CurrentHoleView`): a plan when the round is still one loop —
@@ -108,12 +161,10 @@ enum NineLoopTurn {
         }
         guard let active = catalogue.first(where: { $0.globalId == first.globalId }),
               active.resolvedHoles == 9 else { return nil }
-        return plan(
-            front: active,
-            siblings: siblings(of: active, in: catalogue),
-            remembered: remembered,
-            history: history
-        )
+        let loops = candidateLoops(package: package, catalogue: catalogue)
+        let candidateIDs = Set(loops.map(\.id))
+        let options = siblings(of: active, in: catalogue).filter { candidateIDs.contains(firstLoop($0).id) }
+        return plan(front: active, siblings: options, remembered: remembered, history: history)
     }
 
     /// First loop id → second loop id. `remembered` wins; history is newest first.

@@ -17,7 +17,11 @@ from ai_caddie.history import stats_cache
 from ai_caddie.reports.annotations import add_annotation
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.history.history import HistoryData
-from ai_caddie.caddie.mobile_live import apply_past_round_loop_identity, build_live_round_package
+from ai_caddie.caddie.mobile_live import (
+    _venue_loops_for_package,
+    apply_past_round_loop_identity,
+    build_live_round_package,
+)
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from tests.round_loop_authority import fixture_course_authority
 
@@ -88,6 +92,38 @@ def _assert_json_schema_rejects(testcase: unittest.TestCase, schema: dict[str, o
 
 
 class MobileContractTests(unittest.TestCase):
+    def test_package_venue_loop_directory_includes_current_and_sibling_nines(self) -> None:
+        # C96: package discovery must provide factual same-venue nines even when history/options
+        # are empty.  The expected rows come from CourseView nearby records, not client synthesis.
+        from ai_caddie.courses.course_search import CourseMatch, NearbyCourseResult
+
+        nearby = NearbyCourseResult(
+            matches=(
+                CourseMatch(31905, "愉景灣 ~ A", 9, None, None, 1.0, venue_name="愉景灣", segment_label="A"),
+                CourseMatch(31906, "愉景灣 ~ B", 9, None, None, 0.9, venue_name="愉景灣", segment_label="B"),
+            ),
+            complete=True,
+            pages_fetched=1,
+        )
+        from ai_caddie.courses.course_reference import record_courseview_venue_loops
+        from ai_caddie.courses import course_reference
+        with TemporaryDirectory() as tmp, patch("ai_caddie.courses.course_reference.courseview_par", side_effect=lambda gid, **_: [4] * 9 if gid == 31905 else [4] * 8 + [3]):
+            record_courseview_venue_loops(nearby.matches, root=Path(tmp))
+            reader = course_reference.courseview_venue_loops
+            with patch("ai_caddie.courses.course_reference.courseview_venue_loops", side_effect=lambda gid, venue, **_: reader(gid, venue, root=Path(tmp))):
+                rows = _venue_loops_for_package(
+                    31905,
+                    venue_name="愉景灣",
+                    segment_label="A",
+                    holes=[{"par": 4} for _ in range(9)],
+                    latitude=22.29,
+                    longitude=114.27,
+                )
+        self.assertEqual(
+            [(row["globalId"], row["segmentLabel"], row["holeCount"], row["par"]) for row in rows],
+            [(31905, "A", 9, 36), (31906, "B", 9, 35)],
+        )
+
     def test_live_hazard_mapping_request_belongs_to_the_view_task(self) -> None:
         # C95 lifecycle contract: changing holes/leaving the view must cancel hazard work.
         source = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
@@ -2033,7 +2069,7 @@ class MobileContractTests(unittest.TestCase):
         # Halves of an 18-hole course and a venue's nine-hole loops are offered alike.
         self.assertIn("loopAddControl", current_hole)
         self.assertIn("private var selectableSecondLoops: [NineLoop]", current_hole)
-        self.assertIn("return NineLoopTurn.halves(globalId: first.globalId)", current_hole)
+        self.assertIn("NineLoopTurn.candidateLoops(package: package, catalogue: courseOptions)", current_hole)
         self.assertIn("onSetSecondLoop(entry, package.roundId)", current_hole)
         self.assertIn("onSetSecondLoop(nil, package.roundId)", current_hole)
         self.assertIn("加打另一个 9 洞", current_hole)
@@ -2051,6 +2087,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct LiveRoundFinishSummaryView: View", summary)
         for label in ["保存并结束", "继续打球", "放弃本场", "GIR 上果岭 · 按推杆推算", "球道命中", "推杆", "罚杆"]:
             self.assertIn(label, summary)
+        self.assertIn("再打一个 9 洞", summary)
+        self.assertIn("还没记杆", summary)
+        self.assertIn("退出 · 不保存", summary)
+        self.assertIn("onAddNine", current_hole)
         self.assertIn("finishErrorMessage", summary)
         # B2 本场汇总: review layout (score -> scorecard -> four tiles) and no sync status.
         self.assertIn("LiveNineCard(", summary)
@@ -2667,7 +2707,7 @@ class MobileContractTests(unittest.TestCase):
         # Offline: the live hole resolves its loops from the network catalogue plus installed
         # templates, so the turn appears without course discovery.
         self.assertIn("courseOptions: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions)", round_home)
-        self.assertIn("return NineLoopTurn.siblings(of: active, in: courseOptions)", current_hole)
+        self.assertIn("NineLoopTurn.candidateLoops(package: package, catalogue: courseOptions)", current_hole)
         # A coarse same-id network row (18 holes / no loop label) never masks the installed loop.
         self.assertIn("guard let local = installed[row.globalId], isFactualLoop(local), !isFactualLoop(row) else { return row }", turn)
         self.assertIn("NineLoopTurn.planAtEndOfFirstLoop(\n            package: package, catalogue: courseOptions,", current_hole)
@@ -2679,7 +2719,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("current.removingSecondLoop()", compose)
         # No synthesized loop names in any selectable B4 control: the turn and both live-round
         # loop menus (＋加打 / 改打) offer only factual loop labels (or 前九 / 后九).
-        self.assertIn("NineLoopTurn.siblings(of: active, in: courseOptions).compactMap(NineLoopTurn.loop)", current_hole)
+        self.assertIn("NineLoopTurn.candidateLoops(package: package, catalogue: courseOptions)", current_hole)
         self.assertIn('Button("＋ \\(loop.displayName) · 凑 18 洞")', current_hole)
         self.assertIn('Button("改打 \\(loop.displayName)")', current_hole)
         self.assertNotIn("loopLabel(", current_hole)
