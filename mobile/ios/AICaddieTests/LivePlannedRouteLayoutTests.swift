@@ -438,6 +438,73 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
         }
     }
 
+    /// C64: retain the shared renderer coverage formerly in the deleted prep-screen tests.
+    func testZoomedAndPannedRouteLabelsStayOnScreenAndClearOfTheLiveChrome() throws {
+        let map = try edgeHuggingLightweightMap()
+        let overlay = try XCTUnwrap(map.hole.resolvedMapOverlay)
+        let legs = map.plannedLegs()
+        let frame = try XCTUnwrap(LivePlayMapOverlayLayout.lightweightFittedFrame(
+            overlay: overlay,
+            viewport: phone,
+            chrome: liveChrome
+        ))
+        let screen = CGRect(origin: .zero, size: phone)
+        let cases: [(name: String, scale: CGFloat, offset: CGSize)] = [
+            ("zoomed", 2, CGSize(width: -30, height: 40)),
+            ("zoomed far", 3, CGSize(width: 120, height: 400)),
+        ]
+        for testCase in cases {
+            let offset = LivePlayMapOverlayLayout.clampedOffset(
+                testCase.offset,
+                mapFrame: frame,
+                viewportSize: phone,
+                scale: testCase.scale,
+                keepsRestReachable: true
+            )
+            let labels = LivePlannedRouteRenderer.placedRouteLabels(
+                size: phone,
+                legs: legs,
+                overlay: overlay,
+                scale: testCase.scale,
+                offset: offset,
+                topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+                fittedFrame: frame,
+                exclusions: liveChrome
+            )
+            XCTAssertEqual(labels.count, 3, "\(testCase.name): one slot per planned stroke")
+            XCTAssertTrue(labels.contains { $0.rect != nil }, "\(testCase.name): exercise placed labels")
+            for label in labels {
+                guard let rect = label.rect else { continue }
+                XCTAssertEqual(rect.size, LivePlannedRouteRenderer.routeLabelSize(for: label.text, isTeeLabel: false))
+                XCTAssertTrue(screen.contains(rect), "\(testCase.name): \(label.text) at \(rect) leaves the screen")
+                for excluded in liveChrome {
+                    XCTAssertFalse(
+                        rect.intersects(excluded),
+                        "\(testCase.name): \(label.text) at \(rect) is under chrome \(excluded)"
+                    )
+                }
+            }
+
+            // No legal placement remains when an exclusion covers the whole viewport.
+            // Keep the same visible landings, zoom and pan so this exercises hard exclusion
+            // filtering, rather than the earlier off-screen-anchor omission.
+            let blocked = LivePlannedRouteRenderer.placedRouteLabels(
+                size: phone,
+                legs: legs,
+                overlay: overlay,
+                scale: testCase.scale,
+                offset: offset,
+                topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+                fittedFrame: frame,
+                exclusions: liveChrome + [screen]
+            )
+            XCTAssertEqual(blocked.count, 3)
+            for label in blocked {
+                XCTAssertNil(label.rect, "\(testCase.name): \(label.text) must be omitted when no space is clear")
+            }
+        }
+    }
+
     func testFittedFrameDrivesProjectionUnprojectionAndThePanClamp() throws {
         let frame = CGRect(x: -40, y: 120, width: 480, height: 752)
         XCTAssertEqual(

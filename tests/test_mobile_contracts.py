@@ -2510,30 +2510,19 @@ class MobileContractTests(unittest.TestCase):
         live_hole_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
         hole_map_view = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
         hub_style = _read_required_source(self, IOS_DIR / "Views" / "HubReviewStyle.swift")
-        course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
         shot_map_view = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         sync_client = _read_required_source(self, IOS_DIR / "Services" / "SyncClient.swift")
         # 2D hole map = server-rendered hole image + recommended route/club overlay; shared by
-        # 实战 (CurrentHoleView) + 备战 (CourseReviewView). Per-hole source gid → composite back
+        # 实战 + 备战 now share CurrentHoleView. Per-hole source gid → composite back
         # nines fetch the right loop's geometry.
         self.assertIn("struct HoleImageMapView", hole_map_view)
         self.assertIn(
             "func fetchHolePrep(globalId: Int, localHole: Int, render: Bool = false, teeBox: String? = nil) async throws -> CoursePrepHole?",
             sync_client,
         )
-        self.assertIn("HoleImageMapView(", course_review)
-        self.assertIn("hole: prep,", course_review)
-        # B4c: a stale (positively replaced) topo is never shown (`PrepHoleRows` withholds it), but a
-        # downloaded current bitmap is shown whatever the row's precision — the topo is keyed by the
-        # hole's geometry revision, not the Tee (device review, build 77: 白 T lost the map).
-        self.assertIn("topoURL: row.topoURL,", course_review)
-        self.assertNotIn("row.state == .precise ? row.topoURL : nil", course_review)
-        # Default-none obstacles on 备战: no obstacle spans and no measured obstacle labels.
-        self.assertIn("showsHazards: false,", course_review)
-        self.assertIn("showsPrepFactOverlays: false,", course_review)
-        self.assertNotIn("showsHazards: true", course_review)
-        self.assertNotIn("showsPrepFactOverlays: true", course_review)
-        self.assertIn("showsClubLabel: false", course_review)
+        # Both entry modes use the live hole map; the old prep-only hero was removed.
+        self.assertIn("showsHazards: false,", current_hole)
+        self.assertIn("showsClubLabel: false", current_hole)
         # B4b-2 v2 holes always carry their physical identity; nothing falls back to the course id.
         self.assertIn("let mapGlobalId = hole.sourceGlobalId", current_hole)
         self.assertNotIn("sourceGlobalId ??", current_hole)
@@ -2569,9 +2558,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('URLQueryItem(name: "v", value: topoStyleVersion)', sync_client)
         self.assertIn("TopoHoleBaseImage(", hole_map_view)
         self.assertIn("garminRasterURL: garminRasterURL", hole_map_view)
-        # 备战 fitted maps continue the base bitmap's terrain from its own edge pixels (never a
-        # flat ground or a second copy of the map): the base layer is wired to the continuation,
-        # which only the prep hero turns on, and only while its fitted map does not cover the screen.
+        # The shared base layer still supports terrain continuation for its remaining callers.
         self.assertIn(".continuingTerrain(baseEdgeExtension, feather: baseEdgeFeather)", hole_map_view)
         self.assertIn("baseEdgeExtension: EdgeInsets = EdgeInsets(), baseEdgeFeather: CGFloat = 0", hole_map_view)
         self.assertIn("enum TopoEdgeExtension", topo_base)
@@ -2579,19 +2566,6 @@ class MobileContractTests(unittest.TestCase):
         # One calm fill of the mean edge colour, never edge pixels stretched outward into bands.
         self.assertNotIn("cropping(to:", topo_base)
         self.assertIn(".mask { FeatheredEdgesMask(width: edgeFeather) }", topo_base)
-        prep_screen = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
-        self.assertIn(
-            "extension: covering ? EdgeInsets() : Self.terrainExtension(rest: rest, viewport: size),",
-            prep_screen,
-        )
-        self.assertIn("baseEdgeExtension: terrain,", prep_screen)
-        # The map-frame probe is a UI-test seam: DEBUG + UITEST_MODE only.
-        self.assertIn("if viewport.isFitted, Self.exposesMapFrameForUITests {", prep_screen)
-        self.assertEqual(prep_screen.count('.accessibilityIdentifier("prep-map-frame")'), 1)
-        frame_seam = prep_screen[prep_screen.index("static var exposesMapFrameForUITests: Bool {"):]
-        frame_seam = frame_seam[: frame_seam.index("#endif")]
-        self.assertIn("#if DEBUG", frame_seam)
-        self.assertIn('ProcessInfo.processInfo.environment["UITEST_MODE"] == "1"', frame_seam)
         self.assertIn("enum MapSurfaceStyle", hub_style)
         self.assertIn("func mapSurface() -> some View", hub_style)
         self.assertIn("map.mapSurface()", hole_map_view)
@@ -2664,7 +2638,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('accessibilityIdentifier("live-map-numeric-placeholder")', live_hole_components)
         self.assertIn("struct HoleMapWaitingPage: View", live_hole_components)
         self.assertIn("HoleMapWaitingPage(holeNumber: holeNumber, par: par, yards: yards)", live_hole_components)
-        self.assertIn("HoleMapWaitingPage(", course_review)
         self.assertNotIn("下载", live_hole_components[live_hole_components.index("struct HoleMapWaitingPage"):live_hole_components.index("/// Apple-Maps-style dark-glass bottom panel")])
 
     def test_topo_style_version_invalidates_phone_watch_caches_and_transfers(self) -> None:
@@ -3121,72 +3094,42 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("return retainedDownloads.first { $0.id == key }", course_search)
         self.assertNotIn("$0.course.globalId == match.globalId", course_search)
 
-    def test_ios_course_review_product_copy_and_route_yardage_contract(self) -> None:
+    def test_ios_shared_prep_route_yardage_and_removed_screen_contract(self) -> None:
         course_review = _read_required_source(self, IOS_DIR / "Views" / "CourseReviewView.swift")
         prep_presentation = _read_required_source(self, IOS_DIR / "Models" / "CoursePrepPresentation.swift")
         live_components = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
-        hole_map_view_source = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
         course_prep = _read_required_source(self, IOS_DIR / "Models" / "CoursePrep.swift")
-        caddie_plan = _read_required_source(self, IOS_DIR / "Views" / "CaddiePlanView.swift")
+        # C64: only shared live-map framing remains in CourseReviewView.swift.
+        for deleted_type in (
+            "CoursePrepStrategyScreen", "PrepHoleMapHero", "PrepChromeRectsKey",
+            "PrepRouteLabelAudit", "PrepGlassModifier", "CourseReviewMapPolicy",
+        ):
+            self.assertNotIn(deleted_type, course_review)
+        self.assertNotIn("coursePrepParSourceLabel", course_review)
+        self.assertNotIn("fittedRestFrame", course_review)
+        self.assertIn("extension PrepMapLayout", course_review)
+        self.assertIn("static func routeRestFrame(", course_review)
+        self.assertIn("enum PrepChromeLayout", course_review)
+        self.assertIn("struct Insets: Equatable", course_review)
+        self.assertIn("PrepMapLayout.routeRestFrame(", live_components)
+        self.assertIn("PrepChromeLayout.Insets(top: top, bottom: bottom)", live_components)
 
         self.assertIn("struct CoursePrepHazardIntervalReadout: Equatable", course_prep)
         self.assertIn("enum CoursePrepRoute", course_prep)
         self.assertIn("intervalReadout(currentMetres:", course_prep)
         self.assertIn("yards(fromMetres:", course_prep)
-
-        # 备战选场页直接进入共用的 live hole screen; retained rendering helpers use its new title.
-        self.assertIn('.navigationTitle("备战洞屏")', course_review)
-        # The header yards are the facts' own Tee (``teeYards`` when resolved, else ``blueYards``);
-        # no Tee colour label is attached to a number it may not describe.
         self.assertIn("decodeIfPresent(Int.self, forKey: .teeYards)", course_prep)
         self.assertIn("yards: prep?.playingYards ?? hole.yards", prep_presentation)
-        self.assertNotIn('"蓝T \\(', course_review)
-        # Prep has no page-scoped network loader: the app-owned download writes the local template
-        # hole by hole and this destination only reads it (README §8 选了就进).
-        self.assertNotIn("stride(from: 1, through: holeCount, by: 3)", course_review)
-        self.assertNotIn("fetchCoursePrep(", course_review)
-        self.assertNotIn("fetchCoursePackage(", course_review)
-        self.assertNotIn("fetchCourseGeometryCoverage", course_review)
-        self.assertIn("struct CoursePrepStrategyScreen: View", course_review)
-        # B4b-2: one canonical whole-course template per course + Tee; no `nine` selector.
-        self.assertNotIn("nine: nine", course_review)
-        # B4c 地图降级契约: no all-or-nothing package gate and no download/status copy on the screen.
-        self.assertNotIn("hasCompleteOfflineCoursePrep", course_review)
-        self.assertNotIn("hasCourseTopoImages", course_review)
-        self.assertNotIn("prep-download-incomplete", course_review)
-        self.assertNotIn("prep-local-package-missing", course_review)
-        self.assertNotIn("球场包正在准备", course_review)
-        self.assertNotIn("完整地图准备中", course_review)
-        self.assertNotIn("地图尚未准备完成", course_review)
-        self.assertNotIn("private var holeNavigator", course_review)
-        self.assertIn("let current = currentRow", course_review)
         self.assertIn("LiveMapDisplayState.resolvePrep(", prep_presentation)
         self.assertIn("static func resolvePrep(", live_components)
         self.assertIn("var fadesInHoleStrip: Bool", live_components)
         self.assertIn("case garminRaster", live_components)
         self.assertIn("case numericPlaceholder", live_components)
-        self.assertIn(".opacity(row.state.fadesInHoleStrip && !isCurrent ? 0.35 : 1)", course_review)
-        self.assertIn('accessibilityIdentifier("prep-hole-strip-\\(row.number)")', course_review)
-        self.assertIn('accessibilityIdentifier("prep-map-waiting-\\(row?.number ?? 1)")', course_review)
-        self.assertIn('accessibilityIdentifier("prep-hole-header-\\(row.number)")', course_review)
-        self.assertIn('accessibilityIdentifier("prep-hole-map-\\(row.number)")', course_review)
-        # A precise map replacing the factual one keeps the screen-owned viewport (zoom/pan).
-        self.assertIn("viewport: $session.viewport,", course_review)
         self.assertIn("struct PrepHoleMapSession: Equatable", prep_presentation)
         self.assertIn("struct HoleMapViewportState: Equatable", prep_presentation)
-        # P1-4: the map fills the screen; chrome only moves the fitted rest position.
-        self.assertIn("struct PrepHoleMapHero: View", course_review)
-        self.assertIn(".frame(width: size.width, height: size.height)", course_review)
-        self.assertIn("bottomInset: insets.bottom", course_review)
-        # The bitmap covers the whole viewport (aspect fill); insets only move its rest position.
         self.assertIn("enum PrepMapLayout", prep_presentation)
         self.assertIn("let scale = max(viewport.width / CGFloat(overlayWidth), viewport.height / CGFloat(overlayHeight))", prep_presentation)
-        self.assertIn("fittedFrame: rest", course_review)
-        self.assertIn(".position(x: rest.midX, y: rest.midY)", course_review)
-        self.assertNotIn(".padding(.top, topInset)\n                    .padding(.bottom, bottomInset)", course_review)
         self.assertIn("fittedFrame: CGRect? = nil", _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift"))
-        # Live insets only feed the rest frame (restFrame(bottomInset:)): B4c reverted the
-        # bottomInset parameter on the shared live layout/renderer, and the bitmap is never padded.
         self.assertNotIn("bottomInset: CGFloat", live_components)
         self.assertNotIn(".padding(.bottom, bottomInset)", live_components)
         self.assertNotIn(".padding(.bottom, bottom)", live_components)
@@ -3194,62 +3137,21 @@ class MobileContractTests(unittest.TestCase):
             ".padding(.bottom, LivePlayMapOverlayLayout.liveMapBottomInset)",
             _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift"),
         )
-        # Route labels keep wholly clear of the prep chrome (header, badge, panel, reset control):
-        # one layout source (`PrepChromeLayout`) and hard exclusions in the shared label layout.
         live_chrome_source = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
-        self.assertIn("enum PrepChromeLayout", course_review)
-        self.assertIn("exclusions: exclusions", course_review)
-        self.assertIn(".reportsPrepChrome()", course_review)
-        self.assertIn("PrepChromeLayout.mapInsets(contentFrame: contentFrame, in: heroFrame)", course_review)
-        # The first frame is deterministic: exclusions are computed in the drawing pass from the
-        # content frame (never the content area's near-zero safe-area insets); measured chrome
-        # rects only extend them.
-        self.assertNotIn("geo.safeAreaInsets", course_review)
-        self.assertIn("static func exclusions(", course_review)
-        self.assertIn("measured: measuredChrome,", course_review)
-        self.assertIn("static func badgeWidth(number: Int, subtitle: String?) -> CGFloat", course_review)
-        design_snapshots = _read_required_source(self, IOS_DIR.parent / "AICaddieTests" / "DesignSnapshotTests.swift")
-        self.assertIn("chromeAudit: true", design_snapshots)
-        self.assertIn("pillOverChromePixels(in: png)", design_snapshots)
         self.assertIn("static func layoutLabelsAvoiding(", live_chrome_source)
         self.assertIn("exclusions: [CGRect] = []", live_chrome_source)
         self.assertIn("static func routeLabelSize(for text: String, isTeeLabel: Bool) -> CGSize", live_chrome_source)
-        self.assertNotIn(".padding(.horizontal, 8)", course_review)
-        self.assertNotIn("allowsRotation: true", course_review)
-        # P1-1 / P1-2: plans come from the live decision authority and drive the map legs, whose
-        # landings carry the live "球杆 码数" labels, and the whole club order.
         self.assertIn("OfflineCaddieDecisionEvaluator().makeDecision(", prep_presentation)
         self.assertIn("LiveCaddieRouteAuthority.resolve(", prep_presentation)
         self.assertIn("LiveCaddieSeedFactory.resolve(package: template, hole: hole, prep: prep)", prep_presentation)
         self.assertIn("CaddieDecisionRequestBuilder.addingCanonicalPlan(to: base, prep: prep)", prep_presentation)
         self.assertNotIn("球童建议", prep_presentation)
-        self.assertIn("plannedShots: plan?.shots ?? [],", course_review)
-        self.assertIn("drawsPlannedRouteInMap: false", course_review)
-        self.assertIn("LivePlannedRouteRenderer.draw(", course_review)
-        # Labels are computed for the whole leg sequence: the last shot's played distance starts at
-        # the previous landing (the same rule as the plan chips).
-        self.assertIn("LivePlannedRouteRenderer.labelTexts(legs: legs, pixelsPerMetre: overlay.ppm)", course_review)
-        self.assertIn('accessibilityIdentifier("prep-map-route")', course_review)
-        self.assertIn('accessibilityIdentifier("prep-plan-\\(index)")', course_review)
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
         self.assertIn("CaddieDecisionRequestBuilder.addingCanonicalPlan(to: baseRequest, prep: holePrep)", current_hole)
-        # B4b-2 identity: the player sees the course's own hole number.
         self.assertIn("displayNumber: hole.courseHoleNumber", prep_presentation)
-        # 右上换发球台 with the shared Tee colour table.
-        self.assertIn("TeeColor.forTee(tee)", course_review)
-        self.assertIn("ToolbarItem(placement: .topBarTrailing)", course_review)
         self.assertTrue((IOS_DIR.parent / "AICaddieTests" / "PrepMapDegradationTests.swift").exists())
         self.assertTrue((IOS_DIR.parent / "AICaddieUITests" / "PrepDegradationUITests.swift").exists())
-        self.assertNotIn("简化地图 · 精确地图准备中", course_review)
-        self.assertNotIn("简化地图 · 精确地图暂不可用 · 重试", course_review)
-        # De-engineered: the "Par 来源：…" provenance label is hidden from the consumer course review.
-        self.assertNotIn("Par 来源", course_review)
-        # Course review uses the shared measured projection on the map. Hazard ranging itself is a
-        # separate one-at-a-time instrument, so the caddie recommendation page does not duplicate
-        # obstacle cards or their distance labels.
         hole_map = _read_required_source(self, IOS_DIR / "Views" / "HoleImageMapView.swift")
-        # The prep map is the complete factual overview. Do not silently clip it to two
-        # obstacles; the dedicated live browser can still focus one row at a time.
         self.assertIn("ForEach(Array(prepHazardAnnotations.enumerated())", hole_map)
         self.assertNotIn("prepHazardAnnotations.prefix(2)", hole_map)
         self.assertIn('Text("到 \\(toYards) · 过 \\(overYards)")', hole_map)
@@ -3259,14 +3161,11 @@ class MobileContractTests(unittest.TestCase):
             "the fitted viewport must not disable its pinch/rotation subtree",
         )
         self.assertIn(".clipped()", hole_map)
-        self.assertNotIn("private var hazardsSection", course_review)
         hazard_detail = _read_required_source(self, IOS_DIR / "Views" / "LiveHazardDetailView.swift")
         self.assertIn('distanceColumn(title: "到前沿", value: row.frontYards)', hazard_detail)
         self.assertIn('distanceColumn(title: "过后沿", value: row.backYards)', hazard_detail)
         self.assertIn('identifier: "hazard-previous"', hazard_detail)
         self.assertIn('identifier: "hazard-next"', hazard_detail)
-        self.assertNotIn("离球路", course_review)
-        self.assertNotIn('?? "?"', course_review)
 
     def test_ios_clients_attach_admin_token_header_when_configured(self) -> None:
         app_swift = _read_required_source(self, IOS_DIR / "AICaddieApp.swift")
