@@ -1214,7 +1214,8 @@ struct SpeculativePrefetchSettingsSection: View {
 // MARK: - 表现型卡片(纯输入 → CI 设计快照可复用)
 
 /// 主卡 · 进行中 (首页 C): deep-green card — 进行中, the course, 已打 N 洞, the big to-par (when
-/// known), this loop's holes as dots (scored = colour by result, current = ring), 继续第 N 洞.
+/// known), this loop's holes as dots (scored = colour by result, current = ring), and the C99
+/// continue action with hole and to-par in one label.
 /// Progress shows recorded holes only.
 struct HubInProgressCard: View {
     let courseName: String
