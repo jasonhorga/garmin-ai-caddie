@@ -41,3 +41,6 @@ mobile/ios/native_build_evidence.json
 # OS
 .DS_Store
 .AppleDouble
+
+# Disposable offline test caches (also removed at interpreter exit).
+.test-cache-*/

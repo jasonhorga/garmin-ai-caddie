@@ -908,6 +908,7 @@ public struct RoundHoleShotMapScreen: View {
                 backGlobalId: backGlobalId,
                 nine: nine,
                 teeBox: teeBox,
+                score: scoreRow?.score,
                 putts: scoreRow?.putts,
                 puttTargetRoundRef: canonicalRoundRef
             )
