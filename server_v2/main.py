@@ -10,6 +10,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Any, Annotated, Literal
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
@@ -1687,9 +1688,26 @@ def course_nearby_endpoint(
     if matches:
         # Durable full map prep replaces metadata-only warming. All provider courses in 30 km
         # enter the bounded low-priority lane; this response never waits for downloads/renders.
-        from server_v2.map_startup import enqueue_nearby
+        # The nearest courses' small CourseView releases are fetched first, so a tap on one of
+        # them finds its Tee rows cached.
+        from server_v2.map_startup import enqueue_nearby, prefetch_nearby_releases
 
         background_tasks.add_task(enqueue_nearby, matches)
+        background_tasks.add_task(prefetch_nearby_releases, matches)
+    # Only the nearest three rows, the courses that prefetch warms, carry Tee rows: each costs a
+    # release decode and a geometry pass, and a 50 km answer may list hundreds of courses.
+    from server_v2.map_startup import _nearest_three
+
+    tee_row_ids = {int(match.global_id) for match in _nearest_three(matches)}
+    payloads = []
+    for match in matches:
+        payload = _course_match_payload(match)
+        tee_options = (
+            _cached_course_tees_payload(int(match.global_id)) if int(match.global_id) in tee_row_ids else None
+        )
+        if tee_options is not None:
+            payload["teeOptions"] = tee_options
+        payloads.append(payload)
     return {
         "schema": "ai-caddie-course-nearby-v1",
         "radiusKm": radius_km,
@@ -1697,8 +1715,94 @@ def course_nearby_endpoint(
         "partialReason": partial_reason,
         "pagesFetched": pages_fetched,
         "cacheStatus": cache_status,
-        "matches": [_course_match_payload(match) for match in matches],
+        "matches": payloads,
     }
+
+
+def _course_tees_payload(global_id: int, options: dict) -> dict:
+    return {
+        "schema": "ai-caddie-course-tees-v1",
+        "globalId": int(global_id),
+        "defaultTeeBox": options["defaultTeeBox"],
+        "tees": options["tees"],
+    }
+
+
+def _cached_course_tees_payload(global_id: int) -> dict | None:
+    """The GET /tees payload for a course whose CourseView release is already cached, else None.
+
+    Cache-only: a nearby row never triggers a Garmin fetch. Without cached release Tee names the
+    row stays metadata-only and the client asks /tees, which owns the cold fetch.
+
+    The answer is reused while the release file and the geometry directories are unchanged, so
+    repeated discoveries neither decode the release nor list the course's holes again. A geometry
+    export that lands later (new yards) changes its directory's signature.
+    """
+    from ai_caddie.core.data import HAZARD_DIR, MESH_DIR
+    from ai_caddie.courses.course_reference import courseview_release_signature
+
+    def directory_signature(path) -> tuple[int, int]:
+        try:
+            stat = path.stat()
+        except OSError:
+            return (0, 0)
+        return (stat.st_mtime_ns, stat.st_ino)
+
+    gid = int(global_id)
+    try:
+        release = courseview_release_signature(gid)
+        if release is None:
+            return _course_tees_payload_from_cache(gid)
+        return _memoized_course_tees_payload(
+            gid, release, directory_signature(MESH_DIR), directory_signature(HAZARD_DIR)
+        )
+    except Exception:
+        logger.warning("course_nearby cached_tees_unavailable gid=%s", global_id, exc_info=True)
+        return None
+
+
+@lru_cache(maxsize=64)
+def _memoized_course_tees_payload(
+    global_id: int,
+    release_signature: tuple[int, int, int],
+    mesh_dir_signature: tuple[int, int],
+    hazard_dir_signature: tuple[int, int],
+) -> dict | None:
+    return _course_tees_payload_from_cache(global_id)
+
+
+def _course_tees_payload_from_cache(global_id: int) -> dict | None:
+    from ai_caddie.caddie.analysis import course_tee_options
+    from ai_caddie.courses.course_reference import courseview_tees
+
+    release_tees = courseview_tees(int(global_id), allow_fetch=False)
+    if not release_tees:
+        return None
+    options = course_tee_options(int(global_id), tee_name_resolver=lambda _gid: release_tees)
+    return _course_tees_payload(int(global_id), options)
+
+
+# GET /tees requests still running. A player is waiting on each one, so nearby warming passes
+# yield until they finish rather than compete for the release lock and the two CPU cores.
+_TEE_REQUESTS_IN_FLIGHT = 0
+_TEE_REQUESTS_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _tee_request_in_flight():
+    global _TEE_REQUESTS_IN_FLIGHT
+    with _TEE_REQUESTS_LOCK:
+        _TEE_REQUESTS_IN_FLIGHT += 1
+    try:
+        yield
+    finally:
+        with _TEE_REQUESTS_LOCK:
+            _TEE_REQUESTS_IN_FLIGHT -= 1
+
+
+def tee_requests_in_flight() -> bool:
+    with _TEE_REQUESTS_LOCK:
+        return _TEE_REQUESTS_IN_FLIGHT > 0
 
 
 @app.get("/api/v2/courses/{global_id}/tees")
@@ -1717,27 +1821,22 @@ def course_tees(
     by the selected course-package request."""
     from ai_caddie.caddie.analysis import course_tee_options
 
-    if ensure_release:
-        from ai_caddie.courses.course_reference import courseview_tees
+    with _tee_request_in_flight():
+        if ensure_release:
+            from ai_caddie.courses.course_reference import courseview_tees
 
-        # A valid cached release is already factual Tee authority. Return it immediately and refresh
-        # an hourly-stale Garmin release after the response; blocking the picker on that refresh made
-        # a known course take ~38 s and allowed the subsequent package request to time out in the
-        # client's connection queue. The genuinely cold/no-cache path still fetches synchronously so
-        # a never-seen course is not enabled with invented Tee data.
-        cached_tees = courseview_tees(int(global_id), allow_fetch=False)
-        if cached_tees:
-            background_tasks.add_task(courseview_tees, int(global_id), allow_fetch=True)
-        else:
-            courseview_tees(int(global_id), allow_fetch=True)
-    options = course_tee_options(int(global_id))
-    response = {
-        "schema": "ai-caddie-course-tees-v1",
-        "globalId": int(global_id),
-        "defaultTeeBox": options["defaultTeeBox"],
-        "tees": options["tees"],
-    }
-    return response
+            # A valid cached release is already factual Tee authority. Return it immediately and
+            # refresh an hourly-stale Garmin release after the response; blocking the picker on that
+            # refresh made a known course take ~38 s and allowed the subsequent package request to
+            # time out in the client's connection queue. The genuinely cold/no-cache path still
+            # fetches synchronously so a never-seen course is not enabled with invented Tee data.
+            cached_tees = courseview_tees(int(global_id), allow_fetch=False)
+            if cached_tees:
+                background_tasks.add_task(courseview_tees, int(global_id), allow_fetch=True)
+            else:
+                courseview_tees(int(global_id), allow_fetch=True)
+        options = course_tee_options(int(global_id))
+    return _course_tees_payload(int(global_id), options)
 
 
 @app.post("/api/v2/geometry/hole/{global_id}/{local_hole}/ensure", response_model=GeometryEnsureResponse)
@@ -2161,6 +2260,7 @@ def nearby_work_blocked() -> bool:
 
 from server_v2 import map_startup as _map_startup
 _map_startup.nearby_work_blocked = lambda: nearby_work_blocked()
+_map_startup.tee_requests_in_flight = lambda: tee_requests_in_flight()
 
 
 def run_course_install_job(identifier: str) -> None:
@@ -2175,7 +2275,9 @@ def run_course_install_job(identifier: str) -> None:
     if state is None:
         return
     if str(state.get("loopKey") or "").endswith(":nearby-assets"):
-        if nearby_work_blocked():
+        # Discovery admission ignores Tee requests (a skipped enqueue would wait for the next
+        # discovery); a pass that would start while a player waits on /tees defers instead.
+        if nearby_work_blocked() or tee_requests_in_flight():
             course_install.update(identifier, phase="queued", stage="deferred", clear_error=True)
             return
         from ai_caddie.courses.course_reference import courseview_release_info

@@ -58,6 +58,16 @@ enum StartRoundPresentation {
         )
     }
 
+    /// Carried Tee rows by global id, for the rows of one nearby/search response that have them.
+    static func carriedTees(in matches: [MobileCourseSearchMatch]) -> [Int: [CourseTee]] {
+        var result: [Int: [CourseTee]] = [:]
+        for match in matches {
+            guard let tees = match.teeOptions?.tees, !tees.isEmpty else { continue }
+            result[match.globalId] = tees
+        }
+        return result
+    }
+
     static func preselectedLoop(
         in loops: [MobileCourseOption],
         current: MobileCourseOption?,
