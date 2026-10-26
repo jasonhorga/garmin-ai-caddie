@@ -8,6 +8,7 @@ from typing import Any
 import html
 import json
 import math
+import logging
 
 from ai_caddie.geometry.measure_prodgeometry_distances import (
     bind_selected_green_target,
@@ -34,6 +35,7 @@ from ai_caddie.core.data import (
     wgs84_to_local,
     write_json,
 )
+logger = logging.getLogger(__name__)
 from ai_caddie.caddie.decision import build_decision_plan, judge_decision_outcome
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -937,10 +939,11 @@ def build_hole_analysis(
     try:
         from ai_caddie.history.corrected_history import corrected_history_data
         from ai_caddie.history import history
-        from ai_caddie.history.history import load_history_data
+        from ai_caddie.history.stats_cache import cached_load_history_data
 
-        profile_history = corrected_history_data(load_history_data(), annotations_root=history.ROOT)
+        profile_history = corrected_history_data(cached_load_history_data(), annotations_root=history.ROOT)
     except Exception:
+        logger.warning("failed to load corrected analysis history", exc_info=True)
         profile_history = None
     club_profiles = build_club_profiles(history_data=profile_history)
     shots = enrich_shots(hole, geometry)

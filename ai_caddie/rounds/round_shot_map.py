@@ -366,8 +366,9 @@ def build_round_hole_shot_map(
     corrections: list[dict[str, Any]] | None = None,
     *,
     include_image: bool = True,
+    annotations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    return _hole_shot_map(data, round_ref, hole, corrections, include_image=include_image)[0]
+    return _hole_shot_map(data, round_ref, hole, corrections, include_image=include_image, annotations=annotations)[0]
 
 
 def _hole_shot_map(
@@ -375,6 +376,7 @@ def _hole_shot_map(
     corrections: list[dict[str, Any]] | None = None,
     *,
     include_image: bool = True,
+    annotations: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], Any, Any]:
     """The shot map plus the (project, unproject) pair of the frame its pixels are in (None, None
     when no frame was available)."""
@@ -388,6 +390,10 @@ def _hole_shot_map(
     par = _par_for(row, hole)
     corr = corrections or []
     manual_penalty = round_corrections.hole_penalty(corr, hole)
+    if annotations is not None:
+        from ai_caddie.rounds.correction_audit import effective_hole
+        _total, _putts, (effective_penalty, _winner) = effective_hole(row, hole, annotations, corr)
+        manual_penalty = int(effective_penalty or 0)
     shots = _source_shots_for_hole(data, row, hole, corr)
     geometry_revision: str | None = None
     map_kind: str | None = None

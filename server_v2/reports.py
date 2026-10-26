@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.history.corrected_history import corrected_history_data
+from . import annotations
 from ai_caddie.llm.llm_providers import build_text_provider
 from ai_caddie.reports.reports import (
     audit_report_narrative,
@@ -37,7 +38,7 @@ def _history_stats_dict(player_id: str = OWNER_ID) -> dict[str, object]:
 
 def _history_data(player_id: str = OWNER_ID):
     data, _mode = load_history_data_for_mode(player_id=player_id)
-    return corrected_history_data(data, player_id=player_id, annotations_root=REPORT_ROOT)
+    return corrected_history_data(data, player_id=player_id, annotations_root=annotations.ANNOTATION_ROOT)
 
 
 def _report_response(report: dict[str, object], *, kind: str, subject_id: str) -> ReviewReportResponse:

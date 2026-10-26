@@ -37,7 +37,7 @@ from uuid import uuid4
 from ai_caddie.connectors.redaction import sanitize_secret_text
 from ai_caddie.core.data import clean_club_name
 from ai_caddie.history import history as _history
-from ai_caddie.history.history import HistoryData, round_source_shots
+from ai_caddie.history.history import HistoryData, OWNER_ID, round_source_shots
 from ai_caddie.rounds import round_corrections as rc
 from ai_caddie.rounds import score_invariant
 
@@ -460,6 +460,7 @@ def correction_fingerprint(
 
 def _correction_entries(
     data: HistoryData, round_ref: str, existing: list[dict[str, Any]], event: dict[str, Any],
+    *, player_id: str = OWNER_ID, annotations_root: Path | str | None = None,
 ) -> tuple[int, list[dict[str, Any]], dict[str, Any] | None, str | None]:
     row = _match_round(data, round_ref)
     if row is None:
@@ -469,11 +470,10 @@ def _correction_entries(
         raise AuditUnavailable("the event's hole cannot be resolved")
     before_view = _hole_view(data, round_ref, hole, existing)
     before = _view_state(before_view)
-    # The shot-map view exposes only player-entered penalty state.  Audit entries must compare
-    # against the value the reader actually uses, including a Garmin penalty that has not yet been
-    # echoed into a correction event.  Keep the same changed-stepper rule as ``is_penalty_correction``
-    # so a snapshot that merely echoes zero does not erase the source penalty.
-    before["penalty"] = _effective_correction_penalty(row, hole, existing)
+    from ai_caddie.reports.annotations import list_annotation_records
+    annotations = list_annotation_records(root=annotations_root or _history.ROOT, player_id=player_id)
+    _total, _putts, (before_penalty, _before_winner) = effective_hole(row, hole, annotations, existing)
+    before["penalty"] = before_penalty
     op = event.get("op")
     if op == "replaceHoleShots":
         after = _state_from_rows(event.get("shots") or [], revision=event.get("geometryRevision"),
@@ -485,7 +485,11 @@ def _correction_entries(
                                  penalty=event.get("manualPenalty"), positions=False)
     else:
         after = _view_state(_hole_view(data, round_ref, hole, [*existing, event]))
-    after["penalty"] = _effective_correction_penalty(row, hole, [*existing, event])
+    pending_event = {**event, "auditSeq": _PENDING_AUDIT_SEQ}
+    _total, _putts, (after_penalty, _after_winner) = effective_hole(
+        row, hole, annotations, [*existing, pending_event]
+    )
+    after["penalty"] = after_penalty
     position_bearing = op in POSITION_OPS or (op == "editField" and event.get("field") == "position")
     entries, comparison = diff_states(before, after, position_bearing=position_bearing)
     if op == "restoreShot":
@@ -496,29 +500,18 @@ def _correction_entries(
     return hole, entries, comparison, fingerprint
 
 
-def _effective_correction_penalty(
-    row: dict[str, Any], hole: int, corrections: list[dict[str, Any]],
-) -> int:
-    """Return the effective penalty for correction auditing, including the source card."""
-    card = _scorecard_hole(row, hole) or {}
-    value = _int(card.get("penalties")) or 0
-    for position, correction in enumerate(corrections):
-        if _int(correction.get("hole")) != hole or not is_penalty_correction(corrections, position):
-            continue
-        candidate = correction.get("value") if correction.get("op") == "setHolePenalty" else correction.get("manualPenalty")
-        parsed = _int(candidate)
-        if parsed is not None:
-            value = parsed
-    return value
-
-
 def _finish_entries(entries: list[dict[str, Any]], *, event_id: str, hole: int | None) -> list[dict[str, Any]]:
     return [{"logId": f"{event_id}:{index}", "hole": hole, **entry} for index, entry in enumerate(entries)]
 
 
-def build_correction_audit(data: HistoryData, round_ref: str, existing: list[dict[str, Any]], stored: dict[str, Any]) -> dict[str, Any]:
+def build_correction_audit(
+    data: HistoryData, round_ref: str, existing: list[dict[str, Any]], stored: dict[str, Any],
+    *, player_id: str = OWNER_ID, annotations_root: Path | str | None = None,
+) -> dict[str, Any]:
     try:
-        hole, entries, comparison, fingerprint = _correction_entries(data, round_ref, existing, stored)
+        hole, entries, comparison, fingerprint = _correction_entries(
+            data, round_ref, existing, stored, player_id=player_id, annotations_root=annotations_root,
+        )
     except Exception as exc:  # the event is still stored; the audit is pending until repaired
         fingerprint = None
         try:
@@ -568,7 +561,9 @@ def write_correction(
         stored["seq"] = max((_int(prior.get("seq")) or 0 for prior in existing), default=0) + 1
         stored["ts"] = _now(now)
         stored["requestDigest"] = digest
-        stored["audit"] = build_correction_audit(data, canonical_ref, existing, stored)
+        stored["audit"] = build_correction_audit(
+            data, canonical_ref, existing, stored, player_id=player_id, annotations_root=root,
+        )
         stored["audit"]["sourceRevision"] = source_revision
         stored["auditSeq"] = next_audit_seq(player_id, root=root)
         append_record(rc._corrections_path(player_id, canonical_ref, root), stored)
@@ -672,7 +667,7 @@ def _require_possible_hole(
     """
     try:
         annotations, corrections = load_annotations(), load_corrections()
-        total, putts, penalty = effective_hole(row, hole, annotations, corrections)
+        (total, _), (putts, _), (penalty, _) = effective_hole(row, hole, annotations, corrections)
     except Exception as exc:
         raise IdentityUnavailable(safe_reason("score state unavailable", exc)) from exc
     score_invariant.require_possible_hole_score(total, putts, penalty, hole=hole)
@@ -680,13 +675,13 @@ def _require_possible_hole(
 
 def effective_hole(
     row: dict[str, Any], hole: int, annotations: list[dict[str, Any]], corrections: list[dict[str, Any]],
-) -> tuple[Any, Any, Any]:
+) -> tuple[tuple[Any, dict[str, Any] | None], tuple[Any, dict[str, Any] | None], tuple[Any, dict[str, Any] | None]]:
     target_ids = _hole_target_ids(row, hole)
     total, putts, penalty = (
         _effective_value(op, row, hole, target_ids, annotations, corrections)
         for op in ("total", "putts", "penalty")
     )
-    return total[0], putts[0], penalty[0]
+    return total, putts, penalty
 
 
 def _require_possible_annotation(
@@ -758,7 +753,7 @@ def order_possible_annotations(
             key = (str(card.get("id")), target[1])
             if key not in current:
                 corrections = _round_correction_events(player_id, card, root)
-                current[key] = list(effective_hole(card, target[1], annotations, corrections))
+                current[key] = [value for value, _winner in effective_hole(card, target[1], annotations, corrections)]
             payload = row.get("payload") or {}
             changes.append((key, _HOLE_STATE_INDEX[op], _int(payload.get("strokes" if op == "penalty" else "to"))))
     except Exception as exc:

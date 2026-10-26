@@ -122,7 +122,11 @@ def _effective_score_data(data: HistoryData, annotations: list[dict[str, Any]] |
     rounds = corrected_rounds(data.rounds, annotations, fields=("total",))
     if rounds is data.rounds:
         return data
-    return HistoryData(raw_rounds=data.raw_rounds, rounds=rounds, shots=data.shots)
+    return HistoryData(
+        raw_rounds=data.raw_rounds, rounds=rounds, shots=data.shots,
+        corrected=data.corrected, source_fingerprint=data.source_fingerprint,
+        correction_fingerprint=data.correction_fingerprint,
+    )
 
 
 # Memo for one build pass — `build_history_stats` recomputes effective shots ~7× (once per section)
@@ -4070,7 +4074,8 @@ def build_history_stats(
     report_records = list_report_stats_records(root=reports_root, player_id=player_id)
     decision_audits = list_decision_audits(root=decision_audit_root, player_id=player_id)
     # Spec 3.1: every section reads the one corrected history (events + annotations over the source).
-    data = corrected_history_data(data, player_id=player_id, annotations_root=annotations_root)
+    if not data.corrected:
+        data = corrected_history_data(data, player_id=player_id, annotations_root=annotations_root)
     hole_rows = _holes(data, annotations, report_records)
     issue_rows = _issues(data, annotations, report_records)
     diagnosis = _diagnosis(data, issue_rows)

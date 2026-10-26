@@ -11,6 +11,8 @@ import math
 import re
 import threading
 import weakref
+import json
+import hashlib
 
 from ai_caddie.caddie.analysis import COLORS, _component_points, _convex_hull, load_geometry
 from ai_caddie.core.data import (
@@ -97,6 +99,15 @@ class HistoryData:
     raw_rounds: list[dict[str, Any]]
     rounds: list[dict[str, Any]]
     shots: list[dict[str, Any]]
+    corrected: bool = False
+    source_fingerprint: str | None = None
+    correction_fingerprint: str | None = None
+
+
+def history_data_fingerprint(data: "HistoryData") -> str:
+    payload = {"raw_rounds": data.raw_rounds, "rounds": data.rounds, "shots": data.shots}
+    encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode()
+    return hashlib.blake2b(encoded, digest_size=16).hexdigest()
 
 
 def millionths_to_deg(value: int | float | None) -> float | None:
@@ -970,7 +981,11 @@ def load_history_data(player_id: str = OWNER_ID) -> HistoryData:
     # here — staying consistent with merge_same_day_halves / load_shot_history, which
     # already skip them, so the rounds/shots/raw_rounds views never disagree.
     active_raw = [row for row in raw_rounds if not row.get("supersededBy")]
-    return HistoryData(raw_rounds=active_raw, rounds=rounds, shots=shots)
+    result = HistoryData(raw_rounds=active_raw, rounds=rounds, shots=shots)
+    return HistoryData(
+        raw_rounds=result.raw_rounds, rounds=result.rounds, shots=result.shots,
+        source_fingerprint=history_data_fingerprint(result),
+    )
 
 
 def _round_public(

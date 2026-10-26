@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import Counter
-from pathlib import Path
 from typing import Any
 
 from ai_caddie.rounds import players
@@ -15,6 +14,7 @@ from ai_caddie.history.history import (
 )
 from ai_caddie.history.corrected_history import corrected_history_data
 from .data_source import load_history_data_for_mode
+from . import annotations
 from .models import (
     CurrentPlayer,
     DataQualityBadge,
@@ -28,7 +28,6 @@ from .models import (
     ScoreStripCell,
 )
 
-ANNOTATION_ROOT = Path(".")
 
 
 def score_class_for_hole(score: int | None, par: int | None) -> str:
@@ -277,5 +276,5 @@ def build_history_overview_response(
 
 def load_history_overview_response(player_id: str = OWNER_ID) -> HistoryOverviewResponse:
     data, _mode = load_history_data_for_mode(player_id=player_id)
-    data = corrected_history_data(data, player_id=player_id, annotations_root=ANNOTATION_ROOT)
+    data = corrected_history_data(data, player_id=player_id, annotations_root=annotations.ANNOTATION_ROOT)
     return build_history_overview_response(data, _current_player_model(player_id))

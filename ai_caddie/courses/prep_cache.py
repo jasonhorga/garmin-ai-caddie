@@ -190,6 +190,8 @@ def _fingerprint(
     par_sig = _file_sig(_COURSES_DIR / f"{gid}.json")  # par record (shared)
     geometry_sig = _requested_geometry_sig(gid, requested)
     if player_id == OWNER_ID:
+        correction_dir = DATA_DIR / "players" / player_id / "corrections"
+        annotation_file = DATA_DIR / "annotations" / "annotations.jsonl"
         return (
             geometry_sig,                                   # only the requested holes' geometry
             _dir_sig(SHOT_DIR),                              # club ladder (profiles) + your-shots scatter
@@ -197,6 +199,8 @@ def _fingerprint(
             _file_sig(CLUBS_BAG_FILE),                       # restrict_to_bag (real Garmin bag)
             _manual_bag_sig(OWNER_ID),                       # manual distance/selection overrides
             _file_sig(CLUBS_FILE),                           # manual club-name overrides (clubs.json)
+            _dir_sig(correction_dir),                        # corrected hole/shot facts
+            _file_sig(annotation_file),                      # score/club/lie annotations
             par_sig,
             _course_data_sig(global_id),                    # CourseView route/green/hazard facts
         )
@@ -209,6 +213,8 @@ def _fingerprint(
         _dir_sig(base / "shots"),                            # their measured ladder + scatter
         _dir_sig(base / "scorecards"),                       # their scatter reads scorecards too
         _manual_bag_sig(player_id),                           # their manual bag (selection + typed dist)
+        _dir_sig(base / "corrections"),                       # corrected hole/shot facts
+        _file_sig(base / "data" / "annotations" / "annotations.jsonl"),
         par_sig,
         _course_data_sig(global_id),                         # shared CourseView lightweight map
     )

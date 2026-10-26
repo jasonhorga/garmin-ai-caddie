@@ -97,11 +97,12 @@ def _history_package_signature(data: object) -> tuple[Any, ...]:
     rounds = getattr(data, "rounds", None) or []
     shots = getattr(data, "shots", None) or []
     round_ids = tuple(str(row.get("id") or "") for row in rounds if isinstance(row, dict))
-    # ``cached_load_history_data`` returns the same object for an unchanged file manifest and a new
-    # object after a sync/ingest. Include that identity so a package already being built cannot be
-    # shared with a caller that observed a freshly materialized, same-id history revision.
     stable_ids = hashlib.blake2b("\x00".join(round_ids).encode("utf-8"), digest_size=16).hexdigest()
-    return (id(data), len(rounds), len(shots), stable_ids)
+    return (
+        len(rounds), len(shots), stable_ids,
+        getattr(data, "source_fingerprint", None),
+        getattr(data, "correction_fingerprint", None),
+    )
 
 
 def _package_singleflight(key: tuple[Any, ...], builder: Callable[[], Any], *,
@@ -603,6 +604,8 @@ def build_mobile_course_package_response(
         mode = "fixture" if get_settings().data_mode == "fixture" else "local"
     else:
         data, mode = load_history_data_for_mode(player_id=player_id)
+        if isinstance(data, HistoryData) and not data.corrected:
+            data = corrected_history_data(data, player_id=player_id, annotations_root=ANNOTATION_ROOT)
     mark_request_stage("history_load")
     key = (
         "course",

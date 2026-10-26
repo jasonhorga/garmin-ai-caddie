@@ -14,6 +14,7 @@ import copy
 import hashlib
 import json
 import math
+import logging
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
@@ -31,19 +32,21 @@ DEFAULT_LADDER = {  # metres; overridden by the player's real club model when av
     "1W": 200, "3W": 171, "3H": 159, "5I": 146, "6I": 132, "7I": 128,
     "8I": 122, "9I": 114, "PW": 102, "A杆": 84, "50°": 53, "54°": 52, "58°": 42,
 }
+logger = logging.getLogger(__name__)
 
 
 def _corrected_profile_history(player_id: str = OWNER_ID):
     """Load the shared corrected history for measured club distances."""
     try:
         from ai_caddie.history.corrected_history import corrected_history_data
-        from ai_caddie.history.history import load_history_data
+        from ai_caddie.history.stats_cache import cached_load_history_data
         from ai_caddie.history import history
 
         return corrected_history_data(
-            load_history_data(player_id), player_id=player_id, annotations_root=history.ROOT,
+            cached_load_history_data(player_id), player_id=player_id, annotations_root=history.ROOT,
         )
     except Exception:
+        logger.warning("failed to load corrected profile history for %s", player_id, exc_info=True)
         return None
 
 
@@ -1093,15 +1096,7 @@ def _member_measured_by_token(player_id: str) -> dict[str, int]:
     profile_args = {"shot_dirs": shot_dirs, "apply_overrides": False}
     if profile_history is not None:
         profile_args["history_data"] = profile_history
-    try:
-        measured = build_club_profiles(**profile_args)
-    except TypeError as exc:
-        # Keep lightweight test doubles and older integrations that implement the pre-C53
-        # signature working; the production function accepts history_data.
-        if "history_data" not in str(exc):
-            raise
-        profile_args.pop("history_data", None)
-        measured = build_club_profiles(**profile_args)
+    measured = build_club_profiles(**profile_args)
     by_token: dict[str, int] = {}
     samples: dict[str, int] = {}
     for club_name, profile in measured.items():

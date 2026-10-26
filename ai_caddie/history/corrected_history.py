@@ -22,10 +22,10 @@ from pathlib import Path
 from typing import Any
 
 from ai_caddie.core.data import OWNER_ID
-from ai_caddie.history.history import HistoryData, round_source_shots
+from ai_caddie.history.history import HistoryData, history_data_fingerprint, round_source_shots
 from ai_caddie.reports.annotations import list_annotation_records
 from ai_caddie.rounds import round_corrections
-from ai_caddie.rounds.correction_audit import effective_hole, _effective_value, is_penalty_correction
+from ai_caddie.rounds.correction_audit import effective_hole, is_penalty_correction
 
 SHOT_ANNOTATION_KINDS = {"club_correction": "club", "lie_correction": "surface"}
 HOLE_ANNOTATION_FIELDS = {"score_correction": "total", "putt_correction": "putts", "penalty_correction": "penalty"}
@@ -175,7 +175,9 @@ def corrected_rounds(
                 holes.append(hole)
                 continue
             # The audited effective value: the same rule the correction log and spec 5.7 check use.
-            total, putts, penalty = effective_hole(row, number, records, penalty_events)
+            (total, _total_winner), (putts, _putts_winner), (penalty, penalty_winner) = effective_hole(
+                row, number, records, penalty_events
+            )
             corrected = dict(hole)
             if "total" in kinds and total is not None:
                 original = _int(hole.get("strokes"))
@@ -190,11 +192,7 @@ def corrected_rounds(
             if "penalty" in kinds and penalty is not None:
                 corrected["penalties"] = penalty
                 corrected["_penaltyCorrected"] = True
-                target_ids = {f"{ref}:{number}" for ref in refs}
-                _penalty, winner = _effective_value(
-                    "penalty", row, number, target_ids, records, penalty_events,
-                )
-                corrected["_penaltyReason"] = _penalty_reason(winner)
+                corrected["_penaltyReason"] = _penalty_reason(penalty_winner)
             if kinds & {"total", "putts"}:
                 corrected["gir"] = _gir(corrected, _hole_par(row, corrected, number))
             holes.append(corrected)
@@ -286,9 +284,17 @@ def corrected_history_data(
     rounds = corrected_rounds(data.rounds, annotations, events_by_round)
     shot_data = HistoryData(raw_rounds=data.raw_rounds, rounds=data.rounds, shots=_annotated_shots(data.shots, annotations))
     shots = _corrected_shots(shot_data, events_by_round)
-    if rounds is data.rounds and shots is data.shots:
+    correction_fingerprint = history_data_fingerprint(
+        HistoryData(raw_rounds=[], rounds=events_by_round, shots=annotations)
+    )
+    if rounds is data.rounds and shots is data.shots and data.corrected:
         return data
-    return HistoryData(raw_rounds=data.raw_rounds, rounds=rounds, shots=shots)
+    return HistoryData(
+        raw_rounds=data.raw_rounds, rounds=rounds, shots=shots,
+        corrected=True,
+        source_fingerprint=data.source_fingerprint or history_data_fingerprint(data),
+        correction_fingerprint=correction_fingerprint,
+    )
 
 
 def corrected_round(

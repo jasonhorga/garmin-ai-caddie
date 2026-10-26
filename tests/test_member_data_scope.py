@@ -11,6 +11,7 @@ from unittest.mock import patch
 from ai_caddie.core import data
 from ai_caddie.courses import course_prep
 from ai_caddie.geometry import shot_projection as sp
+from ai_caddie.history.history import HistoryData
 
 
 def _shot(order, shot_type, club_id, meters, lat, lon, exclude=False):
@@ -163,7 +164,7 @@ class EffectiveClubLadderMemberTests(unittest.TestCase):
             Path("/B/shots"): {"Driver": {"clubName": "Driver", "median": 240.0, "sampleSize": 20}},
         }
 
-        def fake_profiles(*, shot_dirs, apply_overrides=True):
+        def fake_profiles(*, shot_dirs, apply_overrides=True, history_data=None):
             out = {}
             for d in shot_dirs:
                 out.update(profiles.get(d, {}))
@@ -185,6 +186,20 @@ class EffectiveClubLadderMemberTests(unittest.TestCase):
         self.assertEqual(ladder_b["iron7"], 140)
         # Same bag, different ladders -> each reflects only that member's own shots.
         self.assertNotEqual(ladder_a, ladder_b)
+
+    def test_member_ladder_uses_corrected_history_shot_distance(self):
+        corrected = HistoryData(
+            raw_rounds=[], rounds=[], shots=[
+                {"type": "TEE", "club": "7I", "distance": 175.0},
+                {"type": "PUTT", "club": "Putter", "distance": 20.0},
+            ], corrected=True, source_fingerprint="source", correction_fingerprint="annotation-1",
+        )
+        bag = {"clubs": [{"token": "iron7"}]}
+        with patch.object(course_prep, "load_manual_club_bag", return_value=bag), \
+             patch.object(course_prep, "_corrected_profile_history", return_value=corrected), \
+             patch("ai_caddie.history.history._player_shot_sources", return_value=[(Path("/sc"), Path("/shots"))]):
+            ladder = dict(course_prep.effective_club_ladder("member-corrected"))
+        self.assertEqual(ladder["iron7"], 175)
 
     def test_member_zero_shots_falls_back_typed_then_default(self):
         # Manual bag but ZERO logged shots (a no-Garmin member who hasn't played) -> measured empty
