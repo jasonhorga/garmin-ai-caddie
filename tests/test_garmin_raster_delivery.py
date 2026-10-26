@@ -18,6 +18,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -365,6 +366,55 @@ class PrefetchTests(unittest.TestCase):
             for future in raster_api.prefetch_holes([(7, 3)]):
                 future.result(timeout=5)
         self.assertEqual(fetch.call_count, 1)
+
+    def test_stuck_prepare_releases_both_prefetch_workers_after_30_seconds(self) -> None:
+        # C94 permits 30–60 s of yielding; choose 30 s so a stuck prepare cannot stop a course.
+        # Each worker has a controlled monotonic clock; the one-second real timeout bounds even
+        # the old infinite wait. Cleanup releases it without completing the simulated prepare.
+        prepare: Future = Future()
+        stop = threading.Event()
+        clock = threading.local()
+        waited: list[float] = []
+
+        def monotonic() -> float:
+            return getattr(clock, "elapsed", 0.0)
+
+        def sleep(seconds: float) -> None:
+            clock.elapsed = monotonic() + seconds
+            stop.wait(0.001)
+
+        def fetch(_global_id: int, _hole: int) -> bytes:
+            waited.append(monotonic())
+            return b"webp"
+
+        with (
+            patch.dict(os.environ, {"AI_CADDIE_GARMIN_RASTER_PREFETCH": "1"}),
+            patch.object(raster_api, "_PREFETCHED", set()),
+            patch.object(raster_api, "time", SimpleNamespace(monotonic=monotonic, sleep=sleep)),
+            patch.object(garmin_raster, "raster_asset_version", return_value="777"),
+            patch.object(garmin_raster, "fetch_matted_raster", side_effect=fetch),
+            patch.object(raster_api, "course_hole_garmin_raster", return_value={"available": True}),
+            patch.object(raster_api.logger, "warning") as warning,
+        ):
+            futures = raster_api.prefetch_holes(
+                [(7, 3), (7, 4)], should_yield=lambda: not prepare.done() and not stop.is_set()
+            )
+            try:
+                for future in futures:
+                    try:
+                        self.assertTrue(future.result(timeout=1))
+                    except TimeoutError:
+                        self.fail("prefetch stayed blocked by prepare beyond the 30-second yield limit")
+                self.assertFalse(prepare.done())
+                self.assertEqual(waited, [30.0, 30.0])
+                messages = [call.args[0] % call.args[1:] for call in warning.call_args_list]
+                self.assertEqual(len(messages), 2)
+                for hole in (3, 4):
+                    self.assertTrue(any(f"course=7 hole={hole}" in message for message in messages), messages)
+            finally:
+                stop.set()
+                for future in futures:
+                    future.result(timeout=1)
 
     def test_prefetch_is_off_when_disabled(self) -> None:
         with (
