@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 import os
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from ai_caddie.core.priority_work import FOREGROUND, NEARBY, SELECTED_COURSE, PriorityExecutor
 from ai_caddie.courses.course_search import CourseMatch
@@ -78,6 +78,54 @@ class NearbyWarmTests(unittest.TestCase):
         with patch.dict(ms._REGION_ENQUEUED, {}, clear=True), patch.object(ms.course_install, "enqueue", side_effect=[OSError("disk"), {}]):
             self.assertEqual(ms.enqueue_nearby([distant, near]), 0)
             self.assertEqual(ms.enqueue_nearby([near]), 1)
+
+    def test_nearby_prefetches_the_nearest_three_tee_releases(self):
+        # C87: discovery fetches the small CourseView release (Tee names) of the nearest three courses
+        # so a tap on one of them finds its Tee rows already cached.
+        from server_v2 import map_startup as ms
+        matches = [CourseMatch(i, f"Golf {i}", 9, None, None, 1, distance_km=i) for i in range(5, 0, -1)]
+        matches.append(CourseMatch(99, "Far", 9, None, None, 1, distance_km=0, provider_distance_km=45))
+        with patch.object(ms, "courseview_release_info", return_value={"tees": []}) as release:
+            self.assertEqual(ms.prefetch_nearby_releases(matches), 3)
+        self.assertEqual(
+            release.call_args_list,
+            [call(1, allow_fetch=True), call(2, allow_fetch=True), call(3, allow_fetch=True)],
+        )
+
+    def test_nearby_install_pass_yields_while_a_tee_request_is_in_flight(self):
+        # C87: a player waiting on GET /tees outranks regional warming. A nearby pass that starts
+        # meanwhile defers instead of competing for the release lock and the CPU.
+        from fastapi.testclient import TestClient
+        from server_v2 import main
+        state = {"globalId": 123, "loopKey": "123:nearby-assets", "priority": NEARBY}
+        entered, release = threading.Event(), threading.Event()
+
+        def slow_release_tees(global_id, *, allow_fetch=True, **_kwargs):
+            if allow_fetch:
+                entered.set()
+                release.wait(5)
+            return []
+
+        responses = []
+        with (patch("ai_caddie.courses.course_reference.courseview_tees", side_effect=slow_release_tees),
+              patch("ai_caddie.caddie.analysis.course_tee_options", return_value={"defaultTeeBox": "black", "tees": []}),
+              patch.object(main.course_install, "state_for_worker", return_value=state),
+              patch("ai_caddie.courses.course_reference.courseview_release_info", return_value=None) as fetch,
+              patch.object(main.course_install, "update") as update):
+            client = TestClient(main.app)
+            request = threading.Thread(
+                target=lambda: responses.append(client.get("/api/v2/courses/123/tees?ensure_release=true"))
+            )
+            request.start()
+            try:
+                self.assertTrue(entered.wait(5))
+                main.run_course_install_job("nearby")
+            finally:
+                release.set()
+                request.join(10)
+        self.assertEqual([response.status_code for response in responses], [200])
+        fetch.assert_not_called()
+        update.assert_called_once_with("nearby", phase="queued", stage="deferred", clear_error=True)
 
 
 def rectangle(x0, y0, x1, y1):

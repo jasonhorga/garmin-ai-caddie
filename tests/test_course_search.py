@@ -525,6 +525,76 @@ class CourseSearchEndpointTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         prewarm.assert_called_once_with(canned)
 
+    def test_nearby_endpoint_carries_cached_tee_options_without_fetching(self) -> None:
+        # C87: a course whose CourseView release is already cached lists its Tee rows in the nearby
+        # row itself, so selecting it never waits on GET /tees. An uncached course stays metadata-only
+        # and the request never fetches a release from Garmin.
+        from ai_caddie.courses import course_search
+        from server_v2 import main as server_main
+
+        canned = [
+            course_search.CourseMatch(31794, "Venue ~ A", 9, "北京", "北京", 0.0, 40.0, 116.5, 0.1),
+            course_search.CourseMatch(31795, "Venue ~ B", 9, "北京", "北京", 0.0, 40.0, 116.5, 0.2),
+        ]
+        cached_release_tees = {
+            31794: [
+                {"name": "Blue", "gender": "MEN", "index": 1},
+                {"name": "White", "gender": "MEN", "index": 2},
+            ],
+        }
+        lookups: list[tuple[int, bool]] = []
+
+        def release_tees(global_id: int, *, allow_fetch: bool = True, **_kwargs) -> list[dict]:
+            lookups.append((int(global_id), allow_fetch))
+            return [] if allow_fetch else cached_release_tees.get(int(global_id), [])
+
+        with (
+            patch.object(server_main.course_search, "courseview_nearby", return_value=canned),
+            patch.object(server_main, "_reconcile_player_course_matches", return_value=canned),
+            patch("server_v2.map_startup.enqueue_nearby"),
+            patch("server_v2.map_startup.prefetch_nearby_releases", create=True),
+            patch("ai_caddie.courses.course_reference.courseview_tees", side_effect=release_tees),
+            patch("ai_caddie.caddie.analysis.available_prep_holes", return_value=[]),
+        ):
+            response = self._client().get(
+                "/api/v2/courses/nearby",
+                params={"latitude": 40.0, "longitude": 116.5, "radius_km": 50},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        cached_row, uncached_row = response.json()["matches"]
+        # The same payload GET /tees returns: release names/indices; Blue is the default when present.
+        self.assertEqual(cached_row["teeOptions"]["schema"], "ai-caddie-course-tees-v1")
+        self.assertEqual(cached_row["teeOptions"]["globalId"], 31794)
+        self.assertEqual(cached_row["teeOptions"]["defaultTeeBox"], "blue")
+        self.assertEqual(
+            [(tee["teeBox"], tee["name"], tee["set"]) for tee in cached_row["teeOptions"]["tees"]],
+            [("blue", "Blue", 1), ("white", "White", 2)],
+        )
+        self.assertNotIn("teeOptions", uncached_row)
+        self.assertIn((31794, False), lookups)
+        self.assertNotIn(True, [allow_fetch for _gid, allow_fetch in lookups])
+
+    def test_nearby_endpoint_prefetches_tee_releases_after_responding(self) -> None:
+        from ai_caddie.courses import course_search
+        from server_v2 import main as server_main
+
+        canned = [course_search.CourseMatch(31794, "Venue ~ A", 9, "北京", "北京", 0.0, 40.0, 116.5, 0.1)]
+        with (
+            patch.object(server_main.course_search, "courseview_nearby", return_value=canned),
+            patch.object(server_main, "_reconcile_player_course_matches", return_value=canned),
+            patch("server_v2.map_startup.enqueue_nearby"),
+            patch("server_v2.map_startup.prefetch_nearby_releases", create=True) as prefetch,
+            patch("ai_caddie.courses.course_reference.courseview_tees", return_value=[]),
+        ):
+            response = self._client().get(
+                "/api/v2/courses/nearby",
+                params={"latitude": 40.0, "longitude": 116.5, "radius_km": 50},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        prefetch.assert_called_once_with(canned)
+
     def test_mobile_options_discovery_uses_30km_and_enqueues_without_waiting_for_maps(self) -> None:
         from server_v2 import main as server_main
         canned = [cs.CourseMatch(1, "Golf", 9, None, None, 1, distance_km=1)]

@@ -506,6 +506,69 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertFalse(common(false))
     }
 
+    func testNearbyRowCarryingTeesShowsThemAtOnceWithoutATeesRequest() throws {
+        // C87 (build 96, 沙河): a nearby row whose CourseView release the server already caches
+        // carries the GET /tees answer. Selecting it lists those Tee rows and enables Start at once;
+        // no /tees request is sent or awaited.
+        let payload = Data("""
+        {"schema":"ai-caddie-course-nearby-v1","radiusKm":50,"matches":[
+          {"globalId":31794,"name":"测试球场 ~ A","holes":9,"ratio":0,"distanceKm":0.4,
+           "teeOptions":{"schema":"ai-caddie-course-tees-v1","globalId":31794,"defaultTeeBox":"blue","tees":[
+             {"teeBox":"black","name":"Black","set":1,"yards":3400,"holeCount":9,"default":false},
+             {"teeBox":"blue","name":"Blue","set":2,"yards":3200,"holeCount":9,"default":true}]}},
+          {"globalId":31795,"name":"测试球场 ~ B","holes":9,"ratio":0,"distanceKm":0.5}]}
+        """.utf8)
+        let response = try JSONDecoder().decode(MobileNearbyCoursesResponse.self, from: payload)
+        let option = try XCTUnwrap(response.matches.first?.courseOption)
+        let selection = StartRoundView.selectionState(for: option, lastUsedTee: nil)
+        XCTAssertEqual(selection.teeBox, "blue", "the carried course default is preselected")
+        let options = StartRoundView.resolvedTeeOptions(
+            fetchedTees: [], courseTees: option.tees ?? [], teeBox: selection.teeBox,
+            requiresRemoteTees: true, wasManualSearch: false
+        )
+        XCTAssertEqual(options, ["black", "blue"])
+        XCTAssertTrue(StartRoundView.isStartAllowed(
+            isPreparing: false, isLoadingTees: false,
+            roundId: selection.roundId, courseGlobalId: 31794, teeBox: selection.teeBox,
+            selectedCourseRequiresRemoteTees: true, teeOptions: options, selectedCourseWasManualSearch: false
+        ))
+
+        let carried = StartRoundPresentation.carriedTees(in: response.matches)
+        let rows = try XCTUnwrap(carried[31794])
+        XCTAssertEqual(rows.map(\.yards), [3400, 3200], "the yard row comes with the carried Tee rows")
+        XCTAssertEqual(StartRoundPresentation.teeLoad(carried: rows), .carried(rows))
+        XCTAssertNil(carried[31795])
+        XCTAssertEqual(StartRoundPresentation.teeLoad(carried: carried[31795] ?? []), .request)
+    }
+
+    func testNearbyCourseWithoutTeesYetStartsOnTheCourseDefault() throws {
+        // C87: with no carried Tee rows the picker shows 球场默认 T at once and Start is usable while
+        // /tees is still loading; such a round starts on the server's course default (`unknown`).
+        // The real list replaces it when it arrives, so the player can still change Tee first.
+        let match = MobileCourseSearchMatch(
+            globalId: 31795, name: "测试球场 ~ B", holes: 9, city: nil, province: nil, ratio: 0
+        )
+        let option = try XCTUnwrap(match.courseOption)
+        let selection = StartRoundView.selectionState(for: option, lastUsedTee: nil)
+        XCTAssertEqual(selection.teeBox, "unknown")
+        XCTAssertEqual(StartRoundPresentation.teeShortLabel(selection.teeBox), "球场默认 T")
+        let options = StartRoundView.resolvedTeeOptions(
+            fetchedTees: [], courseTees: option.tees ?? [], teeBox: selection.teeBox,
+            requiresRemoteTees: true, wasManualSearch: false
+        )
+        XCTAssertEqual(options, ["unknown"])
+        XCTAssertTrue(StartRoundView.isStartAllowed(
+            isPreparing: false, isLoadingTees: true,
+            roundId: selection.roundId, courseGlobalId: 31795, teeBox: selection.teeBox,
+            selectedCourseRequiresRemoteTees: true, teeOptions: options, selectedCourseWasManualSearch: false
+        ))
+        let rows = [CourseTee(teeBox: "white", name: "White"), CourseTee(teeBox: "blue", name: "Blue", isDefault: true)]
+        XCTAssertEqual(
+            StartRoundView.teeAfterRefresh(current: selection.teeBox, userPicked: false, lastUsed: nil, rows: rows),
+            "blue"
+        )
+    }
+
     func testTailSearchSelectionCarriesCourseIntoStartRoundState() {
         let tail = MobileCourseOption(
             globalId: 31793,
