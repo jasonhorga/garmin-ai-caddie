@@ -89,8 +89,18 @@ enum LiveTopoAvailability {
 enum LiveHolePrepUpgradePolicy {
     /// A partial row keeps the probe running even when the topo bitmap is already cached: the row
     /// drawn over that bitmap can still be in the CourseView frame (C89, build 96 hole 1).
+    /// A row whose obstacle export has failed for good starts no probe: polling cannot make it ready.
     static func shouldWaitForPreciseHoleMap(prep: CoursePrepHole?) -> Bool {
         prep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+            && !hazardExportFailed(prep)
+    }
+
+    /// `/prep` reports the derivative lane's terminal failure as the hazards row
+    /// `prodgeometry hazard export failed` (geometry_evidence.py); a pending export says `pending`.
+    static func hazardExportFailed(_ prep: CoursePrepHole?) -> Bool {
+        (prep?.missingData ?? []).contains {
+            $0.label == "hazards" && $0.reason == "prodgeometry hazard export failed"
+        }
     }
 
     /// A partial row in the topo's own frame replaces a row in another frame at once; the probe
@@ -102,7 +112,9 @@ enum LiveHolePrepUpgradePolicy {
     }
 }
 
-/// A fetched `/prep` row reaches the screen and the watch.
+/// A fetched `/prep` row reaches the screen and the watch only while the task that asked for it
+/// still owns the hole. Changing holes or leaving the screen cancels that task, and a row landing
+/// afterwards must not push the old hole's state to the watch (C89).
 @MainActor
 enum LiveHolePrepPublication {
     static func run(
@@ -110,23 +122,27 @@ enum LiveHolePrepPublication {
         publish: (CoursePrepHole) async -> Bool,
         pushWatch: () -> Void
     ) async -> Bool {
-        guard let row = await fetch() else { return false }
-        guard await publish(row) else { return false }
+        guard let row = await fetch(), !Task.isCancelled else { return false }
+        guard await publish(row), !Task.isCancelled else { return false }
         pushWatch()
         return true
     }
 }
 
-/// The active hole's `/prep` probe while its row is partial.
+/// The active hole's `/prep` probe while its row is partial: quick at first, backing off to once a
+/// minute, only while the app is in the foreground, and never past a failed obstacle export (each
+/// response carries the hole's surfaces, so a hopeless poll is not free).
 @MainActor
 enum LiveHolePrepProbe {
     static let firstDelaySeconds: UInt64 = 2
+    static let maxDelaySeconds: UInt64 = 60
 
     static func nextDelay(after seconds: UInt64) -> UInt64 {
-        min(seconds * 2, 15)
+        min(seconds * 2, maxDelaySeconds)
     }
 
-    /// Probes until the ready row arrives (returned) or the owning task is cancelled (nil).
+    /// Probes until the ready row arrives (returned), the obstacle export fails, or the owning task
+    /// is cancelled (nil). Each partial row is offered to `publishInterim` first.
     static func run(
         fetch: () async -> CoursePrepHole?,
         publishInterim: (CoursePrepHole) async -> Void,
@@ -140,8 +156,10 @@ enum LiveHolePrepProbe {
                 delaySeconds = nextDelay(after: delaySeconds)
                 continue
             }
+            guard !Task.isCancelled else { return nil }
             guard refreshed.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
                 await publishInterim(refreshed)
+                if LiveHolePrepUpgradePolicy.hazardExportFailed(refreshed) { return nil }
                 delaySeconds = nextDelay(after: delaySeconds)
                 continue
             }
@@ -150,12 +168,25 @@ enum LiveHolePrepProbe {
         return nil
     }
 
+    /// Waits `seconds` of foreground time in one-second slices. While the app is not active the
+    /// wait is paused; once it is active again the wait ends at once, so the hole is probed on return.
     static func foregroundWait(
         seconds: UInt64,
         isActive: () -> Bool,
         sleep: (UInt64) async throws -> Void
     ) async throws {
-        try await sleep(seconds)
+        var remaining = seconds
+        var wasInactive = false
+        while true {
+            guard isActive() else {
+                wasInactive = true
+                try await sleep(1)
+                continue
+            }
+            if wasInactive || remaining == 0 { return }
+            try await sleep(1)
+            remaining -= 1
+        }
     }
 }
 
@@ -175,6 +206,12 @@ enum LiveHazardMapFrame {
     enum Resolution: Equatable {
         case drawable(hole: CoursePrepHole, row: LiveHazardDisplayItem)
         case needsMapping(MappingSource)
+    }
+
+    /// One obstacle-mapping request: the hole it is for and what it fetches.
+    struct Request: Equatable {
+        let hole: Int
+        let source: MappingSource
     }
 
     static func resolve(
@@ -230,9 +267,12 @@ enum LiveHazardMapFrame {
         }
     }
 
+    /// `descriptorLoading`: this hole's Garmin descriptor request is still running (a mapping request
+    /// that found it already loading returns at once), so its registration may yet arrive.
     static func notice(for resolution: Resolution, requestInFlight: Bool, descriptorLoading: Bool = false) -> String? {
         guard case let .needsMapping(source) = resolution else { return nil }
         if requestInFlight, source != .noMap { return "正在定位障碍…" }
+        if descriptorLoading, source == .garminRegistration { return "正在定位障碍…" }
         switch source {
         case .sameFramePrep:
             return "障碍位置等精确数据到了再画 · 距离见下方"
@@ -336,6 +376,7 @@ enum LiveHoleAdvanceResolution: Equatable {
 
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     public let package: LiveRoundPackage
     public let hole: Hole
@@ -465,8 +506,11 @@ public struct CurrentHoleView: View {
     @State private var heroTargetDidDrag = false
     @State private var showGreenDetail = false
     @State private var selectedHazardID: String?
-    /// The hole whose obstacle-mapping request (same-frame prep / Garmin registration) is in flight.
-    @State private var hazardMappingRequestHole: Int?
+    /// The obstacle-mapping request (same-frame prep / Garmin registration) in flight. Its
+    /// `.task(id:)` owns the request, so changing holes or leaving the screen cancels it.
+    @State private var hazardMappingRequest: LiveHazardMapFrame.Request?
+    /// Mirrors `scenePhase` for the `/prep` probe, which reads it from its running task.
+    @State private var liveSceneIsActive = true
     @State private var scoreDraft: LiveScoreDraft?
     @State private var showScorecard = false
     @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
@@ -793,6 +837,8 @@ public struct CurrentHoleView: View {
             requestedStrategyMode = nil
             selectedPlanIndex = nil
             selectedHazardID = nil
+            // A previous hole's obstacle-mapping request is cancelled with its `.task(id:)`.
+            hazardMappingRequest = nil
             preciseMapTimedOut = false
             garminRaster = Self.packageGarminRaster(for: hole)
             preciseTopoImageReady = false
@@ -880,6 +926,12 @@ public struct CurrentHoleView: View {
         .task(id: garminVersionConflictURL) {
             guard garminVersionConflictURL != nil else { return }
             await loadGarminRaster()
+        }
+        .task(id: hazardMappingRequest) {
+            await runHazardMappingRequest()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            liveSceneIsActive = phase == .active
         }
         .onChange(of: pinSheetItems) { _, items in
             guard !items.isEmpty else { return }
@@ -2582,15 +2634,21 @@ public struct CurrentHoleView: View {
     }
 
     private var selectedHazardMapNotice: String? {
-        selectedLiveHazardResolution.flatMap {
-            LiveHazardMapFrame.notice(for: $0, requestInFlight: hazardMappingRequestHole == hole.number)
+        let descriptorLoading = garminDescriptorLoadingKey != nil
+            && garminDescriptorLoadingKey == activeRasterRequestKey
+        return selectedLiveHazardResolution.flatMap {
+            LiveHazardMapFrame.notice(
+                for: $0,
+                requestInFlight: hazardMappingRequest?.hole == hole.number,
+                descriptorLoading: descriptorLoading
+            )
         }
     }
 
     /// A selected obstacle the bitmap on screen cannot place yet fetches what is missing: this
     /// hole's prep row in the topo frame, or the Garmin descriptor's registration.
     private func requestHazardMappingIfNeeded(for row: LiveHazardDisplayItem) {
-        guard let holePrep, hazardMappingRequestHole != hole.number else { return }
+        guard let holePrep, hazardMappingRequest?.hole != hole.number else { return }
         let resolution = LiveHazardMapFrame.resolve(
             state: liveMapDisplayState,
             hole: hole,
@@ -2599,16 +2657,20 @@ public struct CurrentHoleView: View {
             garminProjection: liveGarminRasterProjection
         )
         guard case let .needsMapping(source) = resolution, source != .noMap else { return }
-        let requestedHole = hole.number
-        hazardMappingRequestHole = requestedHole
-        Task { @MainActor in
-            if source == .garminRegistration {
-                await loadGarminRaster()
-            } else {
-                _ = await loadHoleMap()
-            }
-            if hazardMappingRequestHole == requestedHole { hazardMappingRequestHole = nil }
+        hazardMappingRequest = LiveHazardMapFrame.Request(hole: hole.number, source: source)
+    }
+
+    /// Runs under `.task(id: hazardMappingRequest)`: changing holes resets the request (and leaving
+    /// the screen ends the view), which cancels this task before a late row can be published.
+    private func runHazardMappingRequest() async {
+        guard let request = hazardMappingRequest, request.hole == hole.number else { return }
+        if request.source == .garminRegistration {
+            await loadGarminRaster()
+        } else {
+            _ = await loadHoleMap()
         }
+        guard !Task.isCancelled else { return }
+        if hazardMappingRequest == request { hazardMappingRequest = nil }
     }
 
     /// Garmin raster is the current map authority until the precise CourseView image is available.
@@ -3641,51 +3703,55 @@ public struct CurrentHoleView: View {
             return false
         }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
-        let lightweight: CoursePrepHole
-        do {
-            guard let fetched = try await client.fetchHolePrep(
-                globalId: mapGlobalId,
-                localHole: mapLocalHole,
-                teeBox: package.course.teeBox
-            ) else { return false }
-            lightweight = fetched
-        } catch {
-            // Keep the package's retained prep facts. Returning false prevents the partial-map
-            // upgrade loop from polling forever while the player is offline.
-            return false
-        }
-        // Old cached/server payloads may lack the three topo anchors. Keep that compatibility path,
-        // but never make current geometry pay the cold server-render cost that lost hole 4's facts.
-        var resolved = lightweight
-        if lightweight.resolvedMapOverlay == nil,
-           !lightweight.route.isEmpty,
-           let rendered = try? await client.fetchHolePrep(
-               globalId: mapGlobalId,
-               localHole: mapLocalHole,
-               render: true,
-               teeBox: package.course.teeBox
-           ) {
-            resolved = rendered
-        }
-        #if DEBUG
-        // A freshly fetched hole can be visible before SwiftUI publishes the `@State` assignment
-        // performed by retainThenPublishHolePrep. Move the deterministic simulator fix from the
-        // already-resolved value so a hole transition cannot temporarily disable shot capture.
-        moveSimulatedLocationToHoleTeeIfRequested(resolved)
-        #endif
-        let didPublish = await retainThenPublishHolePrep(
-            resolved,
-            globalId: mapGlobalId,
-            sourceLocalHole: mapLocalHole,
-            watchHole: hole.number
+        // The hole task or the 障碍 mapping task owns this request. A row landing after that task
+        // was cancelled (the player changed holes) is neither shown nor pushed to the watch (C89).
+        return await LiveHolePrepPublication.run(
+            fetch: {
+                // On failure keep the package's retained prep facts. Returning nil prevents the
+                // partial-map upgrade loop from polling forever while the player is offline.
+                guard let lightweight = try? await client.fetchHolePrep(
+                    globalId: mapGlobalId,
+                    localHole: mapLocalHole,
+                    teeBox: package.course.teeBox
+                ) else { return nil }
+                // Old cached/server payloads may lack the three topo anchors. Keep that compatibility
+                // path, but never make current geometry pay the cold server-render cost that lost
+                // hole 4's facts.
+                if lightweight.resolvedMapOverlay == nil,
+                   !lightweight.route.isEmpty,
+                   let rendered = try? await client.fetchHolePrep(
+                       globalId: mapGlobalId,
+                       localHole: mapLocalHole,
+                       render: true,
+                       teeBox: package.course.teeBox
+                   ) {
+                    return rendered
+                }
+                return lightweight
+            },
+            publish: { resolved in
+                #if DEBUG
+                // A freshly fetched hole can be visible before SwiftUI publishes the `@State`
+                // assignment performed by retainThenPublishHolePrep. Move the deterministic simulator
+                // fix from the already-resolved value so a hole transition cannot temporarily disable
+                // shot capture.
+                moveSimulatedLocationToHoleTeeIfRequested(resolved)
+                #endif
+                return await retainThenPublishHolePrep(
+                    resolved,
+                    globalId: mapGlobalId,
+                    sourceLocalHole: mapLocalHole,
+                    watchHole: hole.number
+                )
+            },
+            pushWatch: {
+                // Re-push to the watch now that F/M/B + plays-like are available. The ordered
+                // bootstrap will fetch and push the matching caddie decision right after this step.
+                if holePrep != nil {
+                    sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+                }
+            }
         )
-        guard didPublish else { return false }
-        // Re-push to the watch now that F/M/B + plays-like are available. The ordered bootstrap will
-        // fetch and push the matching caddie decision immediately after this map step.
-        if let holePrep {
-            sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
-        }
-        return true
     }
 
     @MainActor
@@ -3702,34 +3768,27 @@ public struct CurrentHoleView: View {
         }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
         // The server-side install journal is already doing the expensive work. Keep the active
-        // hole responsive with a short bounded probe instead of making a player wait through a
-        // 60-second exponential slot after geometry has become ready.
-        var delaySeconds: UInt64 = 2
+        // hole responsive with a short first probe, then back off (LiveHolePrepProbe): a cold
+        // course's geometry can take minutes, and the hole being played should still switch to its
+        // precise map when it lands. Leaving the hole cancels this.
         let deadline = Date().addingTimeInterval(30)
-
-        while !Task.isCancelled {
-            if !preciseMapTimedOut, Date() >= deadline {
-                // Stop presenting the lightweight route as pending after a bounded wait, so the
-                // player is never held behind a spinner, but keep probing at the slow cadence: a
-                // cold course's geometry can take minutes, and the hole being played should still
-                // switch to its precise map the moment it lands. Leaving the hole cancels this.
-                preciseMapTimedOut = true
-            }
-            do {
-                try await Task.sleep(nanoseconds: delaySeconds * 1_000_000_000)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            guard let refreshed = try? await client.fetchHolePrep(
-                globalId: mapGlobalId,
-                localHole: mapLocalHole,
-                teeBox: package.course.teeBox
-            ) else {
-                delaySeconds = min(delaySeconds * 2, 15)
-                continue
-            }
-            if LiveHolePrepUpgradePolicy.adoptsInterimRow(refreshed, current: holePrep, hole: hole) {
+        let ready = await LiveHolePrepProbe.run(
+            fetch: {
+                if !preciseMapTimedOut, Date() >= deadline {
+                    // Stop presenting the lightweight route as pending after a bounded wait, so the
+                    // player is never held behind a spinner, but keep probing.
+                    preciseMapTimedOut = true
+                }
+                return try? await client.fetchHolePrep(
+                    globalId: mapGlobalId,
+                    localHole: mapLocalHole,
+                    teeBox: package.course.teeBox
+                )
+            },
+            publishInterim: { refreshed in
+                guard LiveHolePrepUpgradePolicy.adoptsInterimRow(refreshed, current: holePrep, hole: hole) else {
+                    return
+                }
                 // The topo-frame row replaces a CourseView row at once; keep probing for ready.
                 _ = await retainThenPublishHolePrep(
                     refreshed,
@@ -3737,27 +3796,34 @@ public struct CurrentHoleView: View {
                     sourceLocalHole: mapLocalHole,
                     watchHole: hole.number
                 )
+            },
+            wait: { seconds in
+                // No probe in the background; back in the foreground the hole is probed at once.
+                try await LiveHolePrepProbe.foregroundWait(
+                    seconds: seconds,
+                    isActive: { liveSceneIsActive },
+                    sleep: { try await Task.sleep(nanoseconds: $0 * 1_000_000_000) }
+                )
             }
-            guard refreshed.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
-                delaySeconds = min(delaySeconds * 2, 15)
-                continue
-            }
-
-            // Cache the matching bitmap and retain the precise prep before SwiftUI can publish the
-            // ready map. A force-quit immediately after the map appears must therefore reopen the
-            // same factual map instead of the partial package captured when the round started.
-            let didPublish = await retainThenPublishHolePrep(
-                refreshed,
-                globalId: mapGlobalId,
-                sourceLocalHole: mapLocalHole,
-                watchHole: hole.number
-            )
-            guard didPublish else { return }
-            // Rehydrate the decision from precise geometry after the durable map state is visible.
-            await loadCaddieDecision(syncClub: syncClub && !hasUserSelectedClub)
-            guard !Task.isCancelled else { return }
+        )
+        guard let ready else {
+            // A failed obstacle export ends the wait: the row on screen is the hole's final map.
+            if !Task.isCancelled { preciseMapTimedOut = true }
             return
         }
+
+        // Cache the matching bitmap and retain the precise prep before SwiftUI can publish the
+        // ready map. A force-quit immediately after the map appears must therefore reopen the
+        // same factual map instead of the partial package captured when the round started.
+        let didPublish = await retainThenPublishHolePrep(
+            ready,
+            globalId: mapGlobalId,
+            sourceLocalHole: mapLocalHole,
+            watchHole: hole.number
+        )
+        guard didPublish else { return }
+        // Rehydrate the decision from precise geometry after the durable map state is visible.
+        await loadCaddieDecision(syncClub: syncClub && !hasUserSelectedClub)
     }
 
     @MainActor
