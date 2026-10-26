@@ -107,7 +107,7 @@ def enqueue_nearby(matches) -> int:
 
 
 def priority_hole_plan(global_id: int, local_hole: int) -> dict | None:
-    """Package hook: the playing hole's geometry fetch is in flight in this process."""
+    """Package hook for the playing hole's startup fetch; nearby warming is separate."""
     target = (int(global_id), int(local_hole))
     with _LOCK:
         for key, hole in _STARTING_HOLES.items():
