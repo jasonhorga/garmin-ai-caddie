@@ -190,6 +190,17 @@ def _release_fetched_at(global_id: int, pb: bytes, *, root: Path = ROOT) -> floa
     return fetched_at if math.isfinite(fetched_at) else None
 
 
+def release_cache_fetched_at(global_id: int, *, root: Path = ROOT) -> float | None:
+    """Return the shared release freshness clock, falling back to legacy ``.pb`` mtime."""
+    path = _courseview_dir(root) / f"{int(global_id)}_releases.pb"
+    try:
+        pb = path.read_bytes()
+        fetched_at = _release_fetched_at(global_id, pb, root=root)
+        return fetched_at if fetched_at is not None else path.stat().st_mtime
+    except OSError:
+        return None
+
+
 def record_release_language(global_id: int, pb: bytes, *, root: Path = ROOT) -> None:
     try:
         atomic_write_json_if_changed(
@@ -410,6 +421,18 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def save_release_pb(global_id: int, pb: bytes, *, root: Path = ROOT) -> None:
+    """Persist a fetched release without replacing identical bytes, then refresh its sidecar clock."""
+    path = _courseview_dir(root) / f"{int(global_id)}_releases.pb"
+    try:
+        current_pb = path.read_bytes()
+    except OSError:
+        current_pb = None
+    if current_pb != pb:
+        _atomic_write_bytes(path, pb)
+    record_release_language(global_id, pb, root=root)
+
+
 def _release_lock(global_id: int, root: Path) -> threading.Lock:
     key = (str(root.resolve()), int(global_id))
     return _RELEASE_LOCKS[hash(key) % len(_RELEASE_LOCKS)]
@@ -430,10 +453,10 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
                 cached_info = inspect_valid_release(pb, expected_course_id=gid)
                 localized = _release_cache_is_localized(gid, pb, root=root)
                 cached_info["_localized"] = localized
-                fetched_at = _release_fetched_at(gid, pb, root=root)
-                freshness_clock = fetched_at if fetched_at is not None else path.stat().st_mtime
+                freshness_clock = release_cache_fetched_at(gid, root=root)
                 stale = (
-                    time.time() - freshness_clock > COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S
+                    freshness_clock is None
+                    or time.time() - freshness_clock > COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S
                     or not localized
                 )
             except (OSError, ValueError):
@@ -472,13 +495,7 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
                 return cached_info  # offline: the last complete release remains usable
             _RELEASE_FETCH_FAILED_AT.pop(failure_key, None)
             _RELEASE_UNCACHED_FAILURES.pop(failure_key, None)
-            try:
-                current_pb = path.read_bytes()
-            except OSError:
-                current_pb = None
-            if current_pb != candidate:
-                _atomic_write_bytes(path, candidate)
-            record_release_language(gid, candidate, root=root)
+            save_release_pb(gid, candidate, root=root)
             info["_localized"] = True
             return info
         return cached_info
