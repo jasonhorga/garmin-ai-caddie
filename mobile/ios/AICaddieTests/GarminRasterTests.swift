@@ -557,29 +557,23 @@ final class GarminRasterTests: XCTestCase {
     }
 
     /// C88: the server's Garmin raster is a WebP whose sky is transparent. The store asks for WebP
-    /// first and keeps the alpha both from the network and from its own disk copy. ImageIO cannot
-    /// encode WebP here, so the stub server answers the .webp URL with PNG bytes of the same alpha;
-    /// the store decodes whatever it is served (WebP decoding is the system's, iOS 14+).
+    /// first and keeps the alpha both from the network and from its own disk copy.
     @MainActor
     func testStoreLoadsTheTransparentWebpRasterAndKeepsItsAlpha() async throws {
         let url = URL(string: "https://garmin-webp.example.test/api/v2/courses/1/holes/1/garmin-raster.webp?v=c88-\(UUID().uuidString)-sky1")!
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-        let png = try XCTUnwrap(
-            UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8), format: format).image { context in
-                UIColor(red: 0.41, green: 0.62, blue: 0.36, alpha: 1).setFill()
-                context.fill(CGRect(x: 2, y: 2, width: 4, height: 4))
-            }.pngData()
+        // Synthetic 40-byte RGBA WebP generated with Pillow: transparent 8x8 canvas,
+        // rectangle (2, 2)..(5, 5) filled (104, 158, 92, 255), saved as lossless WebP.
+        let webp = try XCTUnwrap(
+            Data(base64Encoded: "UklGRiAAAABXRUJQVlA4TBQAAAAvB8ABEA8wnoM2XPMf8BieiP4HDw==")
         )
         let accept = AcceptHeader()
         CapturingURLProtocol.requestHandler = { request in
             accept.value = request.value(forHTTPHeaderField: "Accept")
             let response = HTTPURLResponse(
                 url: request.url!, statusCode: 200, httpVersion: nil,
-                headerFields: ["Content-Type": "image/png"]
+                headerFields: ["Content-Type": "image/webp"]
             )!
-            return (response, png)
+            return (response, webp)
         }
         URLProtocol.registerClass(CapturingURLProtocol.self)
         defer {
@@ -587,9 +581,11 @@ final class GarminRasterTests: XCTestCase {
             CapturingURLProtocol.requestHandler = nil
         }
 
-        let store = GarminRasterImageStore()
+        // A decoder regression must fail the assertion, rather than retrying forever.
+        let store = GarminRasterImageStore(sleep: { _ in throw CancellationError() })
         await store.load(url)
         let loaded = try XCTUnwrap(store.image)
+        XCTAssertEqual(loaded.size, CGSize(width: 8, height: 8))
         XCTAssertEqual(accept.value?.hasPrefix("image/webp"), true, "requested \(accept.value ?? "nil")")
         XCTAssertEqual(try alpha(of: loaded, x: 0, y: 0), 0)
         XCTAssertEqual(try alpha(of: loaded, x: 4, y: 4), 255)
@@ -599,6 +595,35 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertEqual(try alpha(of: disk, x: 0, y: 0), 0)
         XCTAssertEqual(try alpha(of: disk, x: 4, y: 4), 255)
         GarminRasterImageStore.evict(url)
+    }
+
+    @MainActor
+    func testDiskCacheStartupRemovesOnlyLegacyJPEGs() throws {
+        let manager = FileManager.default
+        let root = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? manager.removeItem(at: root) }
+        let images = root.appendingPathComponent("AICaddieGarminRasterImages-v1", isDirectory: true)
+        let metadata = root.appendingPathComponent("AICaddieGarminRasterMetadata-v1", isDirectory: true)
+        try manager.createDirectory(at: images, withIntermediateDirectories: true)
+        try manager.createDirectory(at: metadata, withIntermediateDirectories: true)
+        let bytes = Data([1, 2, 3])
+        for name in ["old.jpg", "old-uppercase.JPG", "current.webp", "retained.png"] {
+            try bytes.write(to: images.appendingPathComponent(name))
+        }
+        let unrelated = metadata.appendingPathComponent("unrelated.jpg")
+        try bytes.write(to: unrelated)
+
+        let prepared = GarminRasterImageStore.prepareDiskCacheDirectory(in: root)
+        XCTAssertEqual(prepared, images)
+        XCTAssertFalse(manager.fileExists(atPath: images.appendingPathComponent("old.jpg").path))
+        XCTAssertFalse(manager.fileExists(atPath: images.appendingPathComponent("old-uppercase.JPG").path))
+        for name in ["current.webp", "retained.png"] {
+            XCTAssertEqual(try Data(contentsOf: images.appendingPathComponent(name)), bytes)
+        }
+        XCTAssertEqual(try Data(contentsOf: unrelated), bytes)
+        let again = GarminRasterImageStore.prepareDiskCacheDirectory(in: root)
+        XCTAssertEqual(again, prepared)
+        XCTAssertEqual(try Data(contentsOf: images.appendingPathComponent("current.webp")), bytes)
     }
 
     private final class AcceptHeader {

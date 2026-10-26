@@ -132,6 +132,9 @@ final class GarminRasterImageStore: ObservableObject {
     /// the numeric placeholder. Later attempts back off to 30 s, then at most 60 s until success
     /// or cancellation when the player leaves this hole.
     private static var retryCursorByURL: [URL: GarminRasterRetryCursor] = [:]
+    private static let diskCacheDirectory = prepareDiskCacheDirectory(
+        in: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+    )
 
     @Published private(set) var image: UIImage?
     @Published private(set) var isLoading = false
@@ -152,6 +155,8 @@ final class GarminRasterImageStore: ObservableObject {
         self.nowNanoseconds = nowNanoseconds
         self.sleep = sleep
         self.loader = loader
+        // Run the one-time legacy cleanup when the store first starts, even before an image load.
+        _ = Self.diskCacheDirectory
     }
 
     static func resetRetryCursors() {
@@ -332,6 +337,23 @@ final class GarminRasterImageStore: ObservableObject {
         }
     }
 
+    /// Keep existing WebP/PNG entries; only pre-WebP JPEGs are orphaned by the new image URLs.
+    static func prepareDiskCacheDirectory(in cachesDirectory: URL) -> URL {
+        let directory = cachesDirectory.appendingPathComponent("AICaddieGarminRasterImages-v1", isDirectory: true)
+        if let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+            for file in files where file.pathExtension.lowercased() == "jpg" {
+                do {
+                    try FileManager.default.removeItem(at: file)
+                } catch {
+                    AICaddieLog.storage.info(
+                        "Garmin raster legacy cache cleanup deferred: \(String(describing: error), privacy: .public)"
+                    )
+                }
+            }
+        }
+        return directory
+    }
+
     private static func diskURL(for url: URL) -> URL {
         let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
             .map { String(format: "%02x", $0) }
@@ -340,9 +362,7 @@ final class GarminRasterImageStore: ObservableObject {
         // format the URL path names.
         let pathExtension = url.pathExtension.lowercased()
         let fileExtension = ["webp", "png", "jpg"].contains(pathExtension) ? pathExtension : "jpg"
-        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("AICaddieGarminRasterImages-v1", isDirectory: true)
-            .appendingPathComponent("\(digest).\(fileExtension)")
+        return diskCacheDirectory.appendingPathComponent("\(digest).\(fileExtension)")
     }
 }
 #endif
