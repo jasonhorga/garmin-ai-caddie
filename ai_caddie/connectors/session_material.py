@@ -212,7 +212,7 @@ def _remove_generation(token_dir: Path, generation_name: str | None) -> None:
         if generation.is_dir() and not generation.is_symlink():
             shutil.rmtree(generation)
     except OSError:
-        LOGGER.warning("could not remove previous Garmin session generation", exc_info=True)
+        LOGGER.warning("could not remove previous Garmin session generation")
 
 
 def _cleanup_token_dir(token_dir: Path, *, now: float | None = None) -> None:
@@ -261,8 +261,11 @@ def cleanup_session_material(root: Path | str = ROOT) -> None:
                 _cleanup_token_dir(token_dir)
     except SyncInProgress:
         LOGGER.info("skipping Garmin session cleanup while sync is in progress")
-    except Exception:
-        LOGGER.warning("Garmin session cleanup failed; continuing startup", exc_info=True)
+    except Exception as exc:
+        LOGGER.warning(
+            "Garmin session cleanup failed; continuing startup (%s)",
+            type(exc).__name__,
+        )
 
 
 def save_garmin_cn_web_session(
