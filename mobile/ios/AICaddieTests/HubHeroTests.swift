@@ -42,6 +42,20 @@ final class HubHeroTests: XCTestCase {
         )
     }
 
+    func testQuickCoursesPutNearbyFirstThenRecentAndFrequentCourses() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let nearby = MobileCourseOption(globalId: 1, name: "附近", holes: 9)
+        let recent = MobileCourseOption(globalId: 2, name: "最近", holes: 9)
+        let frequent = MobileCourseOption(globalId: 3, name: "常打", holes: 9)
+        let ordered = HubQuickCourseOrdering.ordered([
+            .init(option: recent, lastPlayedAt: now),
+            .init(option: frequent, lastPlayedAt: now, playCount: 4),
+            .init(option: nearby, isNearby: true, lastPlayedAt: now.addingTimeInterval(-10)),
+        ])
+        XCTAssertEqual(ordered.map { $0.option.globalId }, [1, 3, 2])
+        XCTAssertEqual(HubQuickCourseOrdering.ordered(ordered, limit: 2).count, 2)
+    }
+
     private func loop(_ id: Int, _ venue: String, _ label: String, lat: Double, lon: Double) -> MobileCourseOption {
         MobileCourseOption(
             globalId: id,

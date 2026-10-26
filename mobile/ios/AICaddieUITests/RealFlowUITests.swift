@@ -1180,14 +1180,7 @@ final class RealFlowUITests: XCTestCase {
         )
         // README §8: standing at the course (the journey's GPS fix), the main card offers this
         // course's last first loop + tee and "开始" starts it directly — not the setup form.
-        let startHere = app.buttons["home-start-nearby"]
-        let courseHereOffered = startHere.exists
-        if courseHereOffered {
-            XCTAssertTrue(
-                app.buttons["home-change-course"].exists,
-                "the course-here card keeps 换球场或组合 next to its one-tap 开始"
-            )
-        }
+        let courseHereOffered = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home-quick-course-")).firstMatch.exists
         XCTAssertFalse(app.navigationBars["开始一场"].exists, "finish must not strand the player in the setup form")
         XCTAssertFalse(app.staticTexts["进行中"].exists, "the explicitly finished round must no longer be active")
         settle(1); save("journey-finished-home"); dump("journey-finished-home")
@@ -1197,16 +1190,8 @@ final class RealFlowUITests: XCTestCase {
         // package id, deciding “not new”, and remaining forever on the preparation screen.
         XCTAssertTrue(openStartRound())
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
-        if courseHereOffered {
-            // 换球场或组合 opens 开始一场 with the course here already selected (no extra tap).
-            let preselected = courseTile(approvedJourneyCourseGlobalId)
-            XCTAssertTrue(preselected.waitForExistence(timeout: 12))
-            XCTAssertEqual(
-                preselected.value as? String,
-                "已选择",
-                "换球场或组合 must open 开始一场 with the course here preselected"
-            )
-        }
+        // C99's shared finder starts without a preselected course; the shortcut itself opens the
+        // tee page directly when the player wants a known venue.
         let repeatSegment = selectStartCourse(approvedJourneyCourseGlobalId)
         XCTAssertTrue(repeatSegment.exists)
         XCTAssertEqual(repeatSegment.value as? String, "已选择")
@@ -1523,9 +1508,7 @@ final class RealFlowUITests: XCTestCase {
 
     /// The home's new-round entry: the course-here card's one-tap 开始, or the search card.
     private func waitForHomeNewRoundEntry(timeout: TimeInterval) -> Bool {
-        let entry = app.buttons.matching(
-            NSPredicate(format: "identifier IN %@", ["home-start-nearby", "home-new-round"])
-        ).firstMatch
+        let entry = app.buttons["home-new-round"]
         return entry.waitForExistence(timeout: timeout)
     }
 
@@ -1884,11 +1867,6 @@ final class RealFlowUITests: XCTestCase {
     /// preselected; the search card opens it with nothing selected. The card's "开始" skips 开始一场.
     @discardableResult
     private func openStartRound() -> Bool {
-        let change = app.buttons["home-change-course"]
-        if change.waitForExistence(timeout: 4), change.isHittable {
-            change.tap()
-            return true
-        }
         let entry = app.buttons["home-new-round"]
         if entry.waitForExistence(timeout: 4), entry.isHittable {
             entry.tap()
@@ -1935,10 +1913,11 @@ final class RealFlowUITests: XCTestCase {
     /// B4b-2: a nine-hole loop is one tile (`start-round-course-segment-G`); an 18-hole course
     /// shows 前九 / 后九 tiles (`start-round-course-half-G-front|back`) with 前九 preselected.
     private func courseTile(_ globalId: Int) -> XCUIElement {
-        app.buttons.matching(NSPredicate(
-            format: "identifier == %@ OR identifier == %@",
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier == %@ OR identifier == %@ OR identifier == %@",
             "start-round-course-segment-\(globalId)",
-            "start-round-course-half-\(globalId)-front"
+            "start-round-course-half-\(globalId)-front",
+            "start-round-selected-course"
         )).firstMatch
     }
 

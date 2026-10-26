@@ -129,8 +129,8 @@ final class TeeSelectionUITests: XCTestCase {
         // README §8: at the injected Beijing Palace tee the home shows the course-here card, and
         // 换球场或组合 opens 开始一场 with that course (its loop and Tee) already selected.
         XCTAssertTrue(
-            app.buttons["home-change-course"].waitForExistence(timeout: 30),
-            "at Beijing Palace the home must offer the course-here card with 换球场或组合"
+            app.buttons["home-new-round"].waitForExistence(timeout: 30),
+            "the home must offer the shared course finder"
         )
         guard openStartRound() else {
             save("02-start-missing"); dump("02-start-missing")
@@ -140,7 +140,13 @@ final class TeeSelectionUITests: XCTestCase {
         settle(9)
         save("02-start-round"); dump("02-start-round")
 
-        // 换球场或组合 enters setup directly with its carried loop and Tee selected.
+        let courseRow = app.buttons["start-round-venue-31793"]
+        XCTAssertTrue(courseRow.waitForExistence(timeout: 12), "the finder must list Beijing Palace")
+        courseRow.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8))
+
+        // The selected course page now starts with Tee selection; an 18-hole course has no
+        // front/back tiles (the first-stroke location decides the opening hole).
         let palace = courseTile(31793)
         XCTAssertTrue(palace.waitForExistence(timeout: 8), "the selected venue must show its loop tile")
         let startAction = app.buttons["start-round-primary-action"]
@@ -158,14 +164,7 @@ final class TeeSelectionUITests: XCTestCase {
             waitUntilEnabled(app.buttons["start-round-primary-action"], timeout: 90),
             "the carried course must load its Tee authority and become startable"
         )
-        XCTAssertTrue(
-            palace.label.contains("前九"),
-            "an 18-hole course starts on one of its halves: 前九 is the preselected tile (B4b-2)"
-        )
-        XCTAssertTrue(
-            startAction.label.hasPrefix("从 前九 开始"),
-            "the primary action must name the half being started and its tee"
-        )
+        XCTAssertFalse(palace.label.contains("前九"), "an 18-hole course no longer asks for a half")
 
         // The 发球台 row: colour dots with this course's yardages from GET /courses/{id}/tees.
         let teeRow = app.descendants(matching: .any)["start-round-tee-selector"]
@@ -932,10 +931,11 @@ final class TeeSelectionUITests: XCTestCase {
     /// B4b-2: a nine-hole loop is one tile (`start-round-course-segment-G`); an 18-hole course
     /// shows 前九 / 后九 tiles (`start-round-course-half-G-front|back`) with 前九 preselected.
     private func courseTile(_ globalId: Int) -> XCUIElement {
-        app.buttons.matching(NSPredicate(
-            format: "identifier == %@ OR identifier == %@",
+        app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier == %@ OR identifier == %@ OR identifier == %@",
             "start-round-course-segment-\(globalId)",
-            "start-round-course-half-\(globalId)-front"
+            "start-round-course-half-\(globalId)-front",
+            "start-round-selected-course"
         )).firstMatch
     }
 

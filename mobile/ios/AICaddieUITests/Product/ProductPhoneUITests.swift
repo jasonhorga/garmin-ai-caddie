@@ -37,7 +37,7 @@ final class ProductPhoneUITests: XCTestCase {
         } else { app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "denied" }
         launchedWithFix = latitude != nil
         app.launch()
-        XCTAssertTrue(element("home-tile-scores").waitForExistence(timeout: 15), "synthetic home bootstrapped")
+        XCTAssertTrue(element("home-new-round").waitForExistence(timeout: 15), "synthetic home bootstrapped")
     }
 
     private func reveal(_ target: XCUIElement) {
@@ -66,7 +66,7 @@ final class ProductPhoneUITests: XCTestCase {
         XCTExpectFailure(reason, failingBlock: block)
     }
 
-    private func scores() { tap("home-tile-scores"); XCTAssertTrue(element("results-handicap").waitForExistence(timeout: 10)) }
+    private func scores() { tap("home-recent-trend"); XCTAssertTrue(element("results-handicap").waitForExistence(timeout: 10)) }
     private func review() {
         scores()
         tap("results-all-rounds")
@@ -301,16 +301,15 @@ final class ProductPhoneUITests: XCTestCase {
 
     private func startRound() {
         if launchedWithFix {
-            // The fix is hole 1's tee. Nearby discovery installs Example, whose tee anchor puts the
-            // player on the course, so the home offers it directly (spec 5.2 附近) and 开球 enters
-            // the first hole without the start-round page.
-            let start = element("home-start-nearby")
-            XCTAssertTrue(start.waitForExistence(timeout: 30), "on-course home card")
-            let offer = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Example", "开始")).firstMatch
-            XCTAssertTrue(offer.exists, "the on-course card offers Example")
-            let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: start)
-            XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 15), .completed)
-            start.tap()
+            // C99 routes every new round through the shared course finder. A nearby course is
+            // already the first row, then its tee page is shown before Start.
+            tap("home-new-round")
+            let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-")).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 30), "nearby course row")
+            row.tap()
+            let start = element("start-round-primary-action")
+            XCTAssertTrue(start.waitForExistence(timeout: 15))
+            reveal(start); start.tap()
             XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 15))
             return
         }
@@ -391,7 +390,7 @@ final class ProductPhoneUITests: XCTestCase {
         tap("live-back-home") // 返回 goes straight home and keeps the round (CurrentHoleView).
         insideWindow(element("home-in-progress-round"), "active round hero")
         XCTAssertFalse(element("home-new-round").exists)
-        XCTAssertTrue(element("home-end-round").isEnabled)
+        XCTAssertFalse(element("home-end-round").exists, "ending is available from the hole screen only")
         tap("home-in-progress-round")
         XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 10))
     }
@@ -399,10 +398,11 @@ final class ProductPhoneUITests: XCTestCase {
     func test_j5_3_home_secondary_tiles_fit_without_weather_or_archive_strip() {
         var state = ProductFixtureServer.State(); state.roundCount = 0
         server.configure(state); launch()
-        for id in ["home-tile-scores", "home-tile-prep", "home-tile-bag", "home-tile-weather"] {
-            insideWindow(element(id), id)
-        }
-        XCTAssertTrue(integers(in: element("home-tile-weather").label).isEmpty, "missing weather has no numeric temperature")
+        insideWindow(element("home-new-round"), "home-new-round")
+        XCTAssertFalse(element("home-tile-prep").exists)
+        XCTAssertFalse(element("home-tile-bag").exists)
+        XCTAssertFalse(element("home-tile-weather").exists)
+        XCTAssertFalse(element("home-weather-line").exists, "missing weather omits the line")
         XCTAssertFalse(element("home-last-round-strip").exists, "no archived round to attach the strip to")
     }
 

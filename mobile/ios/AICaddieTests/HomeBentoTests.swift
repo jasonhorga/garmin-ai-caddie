@@ -11,6 +11,7 @@ final class HomeBentoTests: XCTestCase {
         XCTAssertEqual(tile.conditionText, "雨")
         XCTAssertEqual(tile.symbolName, "cloud.rain")
         XCTAssertEqual(tile.windText, "东风 5 m/s · 3 级")
+        XCTAssertEqual(tile.windForceText, "东风 3 级")
         XCTAssertEqual(tile.rainText, "降雨 70% · 带伞")
 
         let calm = try XCTUnwrap(HomeWeather(
@@ -18,6 +19,7 @@ final class HomeBentoTests: XCTestCase {
         ).presentation)
         XCTAssertEqual(calm.conditionText, "晴")
         XCTAssertEqual(calm.windText, "微风 1 m/s")
+        XCTAssertEqual(calm.windForceText, "微风")
         XCTAssertEqual(calm.rainText, "降雨 0%")
     }
 
