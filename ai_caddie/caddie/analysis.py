@@ -241,16 +241,36 @@ def _load_tee_distance_geometry(global_id: int, local_hole: int) -> dict[str, An
     the compact hazard export's Tee rows.  Read the decoded hole transiently solely to preserve the
     selected-green compatibility binding for older hazard exports, then release it before the next
     hole; no mesh/component object escapes this function or enters the classification cache.
+
+    Only each Tee's ``sets`` and ``target_distance_m`` are kept, cached by both files' signatures:
+    a repeated picker request reads neither file again, and a replaced release export (new
+    signature) is read afresh.
     """
-    hazards = None
     h_path = hazard_path(global_id, local_hole)
+    m_path = mesh_path(global_id, local_hole)
+    return {"hazards": _tee_distance_hazards_cached(
+        str(h_path),
+        _geometry_file_signature(h_path),
+        str(m_path),
+        _geometry_file_signature(m_path),
+    )}
+
+
+@lru_cache(maxsize=1024)
+def _tee_distance_hazards_cached(
+    h_path_str: str,
+    h_signature: tuple[int, int, int],
+    m_path_str: str,
+    m_signature: tuple[int, int, int],
+) -> dict[str, Any] | None:
+    h_path, m_path = Path(h_path_str), Path(m_path_str)
+    hazards = None
     if h_path.exists():
         try:
             hazards = read_json(h_path)
         except (OSError, ValueError, TypeError):
             hazards = None
 
-    m_path = mesh_path(global_id, local_hole)
     if hazards is not None and m_path.exists():
         try:
             hazards = bind_selected_green_target(hazards, read_json(m_path))
@@ -258,7 +278,14 @@ def _load_tee_distance_geometry(global_id: int, local_hole: int) -> dict[str, An
             # A damaged optional mesh must not erase factual Tee rows already present in the compact
             # hazard export.  The normal geometry coverage path reports the damaged precise asset.
             pass
-    return {"hazards": hazards}
+    if not isinstance(hazards, dict):
+        return None
+    tees = [
+        {"sets": list(tee.get("sets") or []), "target_distance_m": tee.get("target_distance_m")}
+        for tee in hazards.get("tees") or []
+        if isinstance(tee, dict)
+    ]
+    return {"tees": tees}
 
 
 def course_tee_options(

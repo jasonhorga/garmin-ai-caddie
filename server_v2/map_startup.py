@@ -64,6 +64,37 @@ def ensure_startup_course_data(global_id: int) -> dict | None:
     return future.result()
 
 
+def _nearest_three(matches) -> list:
+    """The physical nearest three provider courses within the warming radius."""
+    def distance(match):
+        value = match.provider_distance_km if match.provider_distance_km is not None else match.distance_km
+        return float(value) if value is not None else float("inf")
+
+    eligible = {int(m.global_id): m for m in matches
+                if int(m.global_id) > 0 and 0 <= distance(m) <= RADIUS_KM and 1 <= int(m.holes or 0) <= 36}
+    return sorted(eligible.values(), key=distance)[:3]
+
+
+def prefetch_nearby_releases(matches) -> int:
+    """Cache the nearest three courses' small CourseView release (Tee names) after discovery.
+
+    A tap on one of them then finds its Tee rows cached and /tees answers without a Garmin round
+    trip. Fresh caches are not refetched; a cold or hourly-stale one is fetched under the same
+    per-course release lock /tees uses, so a concurrent /tees waits for this fetch, not a second one.
+    """
+    if nearby_work_blocked():
+        return 0
+    count = 0
+    for match in _nearest_three(matches):
+        try:
+            if courseview_release_info(int(match.global_id), allow_fetch=True):
+                count += 1
+        except Exception:
+            logger.warning("nearby_release_prefetch failed gid=%s", match.global_id, exc_info=True)
+    logger.log(logging.INFO if count else logging.DEBUG, "nearby_release_prefetch cached=%s", count)
+    return count
+
+
 def enqueue_nearby(matches) -> int:
     """The nearest three provider courses, without personal prep or a synchronous download.
 
@@ -74,14 +105,8 @@ def enqueue_nearby(matches) -> int:
         return 0
     # Choose the physical nearest three before dedup/backoff: repeated discovery must not
     # gradually enqueue the fourth through thirtieth courses while the first three are busy.
-    def distance(match):
-        value = match.provider_distance_km if match.provider_distance_km is not None else match.distance_km
-        return float(value) if value is not None else float("inf")
-
-    eligible = {int(m.global_id): m for m in matches
-                if int(m.global_id) > 0 and 0 <= distance(m) <= RADIUS_KM and 1 <= int(m.holes or 0) <= 36}
     count = 0
-    for match in sorted(eligible.values(), key=distance)[:3]:
+    for match in _nearest_three(matches):
         gid = int(match.global_id)
         holes = int(match.holes)
         with _LOCK:
