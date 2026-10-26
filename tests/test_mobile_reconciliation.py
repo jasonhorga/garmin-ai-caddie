@@ -38,6 +38,106 @@ def _save_identity(root: Path, round_id: str, loops: list[tuple[int, str]], play
 
 
 class MobileReconciliationTests(unittest.TestCase):
+    def test_saved_identity_keeps_missing_garmin_back_nine_local_only(self) -> None:
+        # R3: an 18-hole phone round and a nine-hole Garmin upload share exactly holes 1..9.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "partial", [(55555, "front"), (55555, "back")])
+            append_event_batch("partial", [{
+                "eventId": f"score-{n}", "roundId": "partial", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 19)], idempotency_key="partial", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "partial", "globalId": 55555,
+                "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("partial", data, root=root)
+            self.assertEqual([r["ref"] for r in result["matched"]],
+                             [f"partial:{n}" for n in range(1, 10)])
+            self.assertEqual([r["hole"] for r in result["localOnly"]], list(range(10, 19)))
+            self.assertEqual(result["conflicts"], [])
+            self.assertEqual([r["targetId"] for r in result["annotationSuggestions"]],
+                             [f"partial:{n}" for n in range(10, 19)])
+
+    def test_saved_identity_matches_merged_front_then_back_of_eighteen_hole_course(self) -> None:
+        self._assert_merged_eighteen_hole_halves_match("front")
+
+    def test_saved_identity_matches_merged_two_back_nines_of_eighteen_hole_course(self) -> None:
+        self._assert_merged_eighteen_hole_halves_match("back")
+
+    def _assert_merged_eighteen_hole_halves_match(self, first_half: str) -> None:
+        from ai_caddie.history.history import merge_same_day_halves
+
+        # Garmin's two real nine-hole cards are merged by the production history adapter.
+        # First lap scores 5, second 7; both laps retain canonical display refs 1..18.
+        first_numbers = range(1, 10) if first_half == "front" else range(10, 19)
+        cards = [{
+            "id": name, "date": f"2026-05-25T{hour}:00:00Z", "courseCanonical": "Fixture Course",
+            "globalId": 55555, "holesCompleted": 9,
+            "holes": [{"number": n, "strokes": score} for n in numbers],
+        } for name, hour, score, numbers in (
+            ("first", "08", 5, first_numbers), ("second", "10", 7, range(10, 19)),
+        )]
+        rows = merge_same_day_halves(cards)
+        round_id = rows[0]["id"]
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, round_id, [(55555, first_half), (55555, "back")])
+            append_event_batch(round_id, [{
+                "eventId": f"score-{n}", "roundId": round_id, "hole": n,
+                "kind": "score", "payload": {"strokes": 5 if n <= 9 else 7},
+            } for n in range(1, 19)], idempotency_key="merged", root=root)
+            result = reconcile_mobile_round_events(
+                round_id, HistoryData(raw_rounds=cards, rounds=rows, shots=[]), root=root,
+            )
+            self.assertEqual([r["ref"] for r in result["matched"]],
+                             [f"{round_id}:{n}" for n in range(1, 19)])
+            self.assertEqual(result["localOnly"], [])
+            self.assertEqual(result["conflicts"], [])
+            self.assertEqual(result["annotationSuggestions"], [])
+
+    def test_saved_identity_falls_back_for_garmin_card_without_any_course_id(self) -> None:
+        # R3: missing course authority must preserve the legacy display-based match.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "no-gid", [(55555, "back")])
+            append_event_batch("no-gid", [{
+                "eventId": f"score-{n}", "roundId": "no-gid", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 10)], idempotency_key="no-gid", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "no-gid", "holes": [{"number": n, "strokes": 5} for n in range(1, 10)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("no-gid", data, root=root)
+            self.assertEqual([r["ref"] for r in result["matched"]],
+                             [f"no-gid:{n}" for n in range(1, 10)])
+            self.assertEqual(result["annotationSuggestions"], [])
+
+    def test_identity_expands_after_locally_added_second_nine_events_arrive(self) -> None:
+        # R3 setSecondLoop: phone holes 10 and 11 may arrive before package validation.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "expand", [(55555, "front")])
+            append_event_batch("expand", [{
+                "eventId": f"score-{n}", "roundId": "expand", "hole": n,
+                "kind": "score", "payload": {"strokes": 5 if n <= 9 else 7},
+            } for n in range(1, 12)], idempotency_key="first-eleven", root=root)
+            _save_identity(root, "expand", [(55555, "front"), (55555, "back")])
+            self.assertEqual(load_mobile_round_identity("expand", root=root)["loopKey"],
+                             "55555:front+55555:back")
+            append_event_batch("expand", [{
+                "eventId": f"score-{n}", "roundId": "expand", "hole": n,
+                "kind": "score", "payload": {"strokes": 7},
+            } for n in range(12, 19)], idempotency_key="remaining", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "expand", "globalId": 55555,
+                "holes": [{"number": n, "strokes": 5 if n <= 9 else 7} for n in range(1, 19)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("expand", data, root=root)
+            self.assertEqual([r["ref"] for r in result["matched"]],
+                             [f"expand:{n}" for n in range(1, 19)])
+            self.assertEqual(result["annotationSuggestions"], [])
+
     def test_mapped_suggestion_applies_to_original_garmin_ref_and_reconciles_all_facts(self) -> None:
         data = HistoryData(raw_rounds=[], rounds=[{
             "id": "back", "globalId": 55555, "holesCompleted": 9,
