@@ -538,6 +538,9 @@ public final class LiveRoundAppModel: ObservableObject {
     ]
     private var roundEnrichmentTask: Task<Void, Never>?
     private var roundEnrichmentRoundId: String?
+    /// Only the live hole's map + first caddie completion releases personal enrichment. The
+    /// all-hole cache's fallback/hole-change release must not send this CPU-heavy request early.
+    private var roundEnrichmentInitialLoadRoundId: String?
     /// Caches one hole's Garmin raster where the live map reads it; true once it is there.
     /// Tests inject a recorder.
     var garminRasterDownloader: (URL) async -> Bool = { url in
@@ -1669,6 +1672,7 @@ public final class LiveRoundAppModel: ObservableObject {
         #endif
         guard let snapshot = package,
               let syncClient,
+              roundEnrichmentInitialLoadRoundId == snapshot.roundId,
               isAwaitingRoundEnrichment(snapshot.roundId) else { return }
         if roundEnrichmentRoundId == snapshot.roundId, roundEnrichmentTask != nil { return }
         roundEnrichmentTask?.cancel()
@@ -1719,6 +1723,7 @@ public final class LiveRoundAppModel: ObservableObject {
         roundEnrichmentTask?.cancel()
         roundEnrichmentTask = nil
         roundEnrichmentRoundId = nil
+        roundEnrichmentInitialLoadRoundId = nil
     }
 
     /// Fold the ordinary package into the live round the player is already on. Its personal facts
@@ -1843,6 +1848,10 @@ public final class LiveRoundAppModel: ObservableObject {
     /// pipeline starts here so precise assets can be retained without delaying the first playable
     /// facts.
     func liveHoleInitialLoadDidFinish() {
+        if let roundId = package?.roundId, liveRoundState?.roundId == roundId {
+            roundEnrichmentInitialLoadRoundId = roundId
+            beginRoundEnrichmentIfNeeded()
+        }
         releaseFreshEntry(reason: "live-initial-load-finished")
         resumeInterruptedOfflineCourseDownload()
     }
@@ -2076,6 +2085,10 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Waits for the background personal package of a map-only start (C85), merged or given up.
     func waitForRoundEnrichmentForTesting() async {
         await roundEnrichmentTask?.value
+    }
+
+    func mergeRoundEnrichmentForTesting(_ full: LiveRoundPackage) -> Bool {
+        mergeRoundEnrichment(full)
     }
 
     /// Waits for the round's Garmin raster pass (C85).
@@ -5757,7 +5770,15 @@ public final class LiveRoundAppModel: ObservableObject {
             if newAreaIntent != nil { replaceNewAreaIntent(with: nil) }
             return
         }
-        let area = NewAreaRequest(latitude: latitude, longitude: longitude, courses: courses)
+        var area = NewAreaRequest(latitude: latitude, longitude: longitude, courses: courses)
+        let selectedIDs = Set(courses.map(\.globalId))
+        for match in matches where selectedIDs.contains(match.globalId) {
+            guard let offered = match.teeOptions, offered.globalId == match.globalId else { continue }
+            // A carried offer is the /tees answer, including an empty offer or no blue Tee.
+            // Settle it now so the background pass only looks up courses with no answer.
+            area.answered.insert(match.globalId)
+            area.tees[match.globalId] = NewAreaPrefetch.tee(offered: offered.tees)
+        }
         if let current = newAreaIntent, current.isSameArea(as: area) { return }
         replaceNewAreaIntent(with: area)
         scheduleSpeculativePrepCourseDownloads()
@@ -6334,6 +6355,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// row used by StartRoundView. This records facts already accepted by the package contract; it
     /// never invents a localized name or turns the row into a nearby/GPS result.
     private func rememberRecentCourseSelection(from package: LiveRoundPackage) {
+        // The map-only history is deliberately empty. Record the recent row only after the
+        // personal merge, so a failed enrichment also leaves the last known history intact.
+        guard !Self.defersPlayerEnrichment(package) else { return }
         let anchor = package.holes.first {
             $0.teeLatitude != nil && $0.teeLongitude != nil
         }

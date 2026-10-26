@@ -73,6 +73,84 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertNil(requests.last.flatMap { c33Query($0, "map_only") }, "the ordinary package is unchanged")
     }
 
+    func testPersonalRequestWaitsForInitialHoleLoadAndRecentHistoryWaitsForMerge() async throws {
+        let host = "c91-gate.example.test"
+        let roundId = "c91-gate"
+        let map = try package(roundId: roundId, mapOnly: true)
+        let full = try package(roundId: roundId, mapOnly: false)
+        let mapData = try JSONEncoder().encode(map)
+        let fullData = try JSONEncoder().encode(full)
+        let held = C85HeldRequests()
+        let sentBeforeReady = expectation(description: "personal package sent before initial hole load")
+        sentBeforeReady.isInverted = true
+        let sentAfterReady = expectation(description: "personal package sent after initial hole load")
+        let ready = C85Counter()
+        let earlyOnce = C33FirstMatch(), afterOnce = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package" else {
+                proto.reply(404); return
+            }
+            if c33Query(proto.request, "map_only") == "true" { proto.reply(200, mapData); return }
+            guard c33Query(proto.request, "round_id") == roundId else { proto.reply(404); return }
+            held.hold(proto)
+            if ready.value == 0 {
+                if earlyOnce.claim() { sentBeforeReady.fulfill() }
+            } else if afterOnce.claim() { sentAfterReady.fulfill() }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held)
+        let model = fixture.model
+        // The shared fixture documents three previous rounds, latest round-a on May 20.
+        let previous = MobileCourseOption(globalId: c85CourseId, name: "Fixture Links", roundCount: 3,
+                                          latestRoundId: "round-a", latestRoundDate: "2026-05-20T08:00:00", holes: 9, teeBox: "blue")
+        try fixture.store.saveRecentCourseSelection(previous)
+        await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: map.loopEntries)
+        // Even the asset pipeline's fallback release cannot substitute for the initial-load signal.
+        let generation = try XCTUnwrap(model.freshEntryReleaseGenerationForTesting)
+        model.releaseFreshEntryForTesting(generation: generation)
+        await fulfillment(of: [sentBeforeReady], timeout: 0.2)
+        XCTAssertEqual(try fixture.store.loadRecentCourseSelection()?.roundCount, 3)
+        XCTAssertEqual(try fixture.store.loadRecentCourseSelection()?.latestRoundId, "round-a")
+        ready.set(1)
+        model.liveHoleInitialLoadDidFinish()
+        await fulfillment(of: [sentAfterReady], timeout: eventWait)
+        held.releaseAll(200, fullData)
+        await model.waitForRoundEnrichmentForTesting()
+        XCTAssertEqual(model.recentCourseOption?.roundCount, 3)
+        XCTAssertEqual(model.recentCourseOption?.latestRoundId, "round-a")
+        XCTAssertEqual(try fixture.store.loadRecentCourseSelection()?.roundCount, 3)
+        XCTAssertEqual(try fixture.store.loadRecentCourseSelection()?.latestRoundDate, "2026-05-20T08:00:00")
+    }
+
+    func testLatePersonalPackageCannotRecreateADiscardedRoundOrReplaceANewRound() async throws {
+        let host = "c91-stale.example.test"
+        let oldMap = try package(roundId: "c91-old", mapOnly: true, standalone: true)
+        let oldFull = try package(roundId: "c91-old", mapOnly: false, standalone: true)
+        let newMap = try package(roundId: "c91-new", mapOnly: true, standalone: true)
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host, c33Query(proto.request, "map_only") == "true" else {
+                proto.reply(404); return
+            }
+            let snapshot = c33Query(proto.request, "round_id") == "c91-old" ? oldMap : newMap
+            proto.reply(200, try! JSONEncoder().encode(snapshot))
+        })
+        let fixture = makeModel(host: host)
+        let model = fixture.model
+        await model.prepareCourseRound(roundId: oldMap.roundId, teeBox: "blue", loops: oldMap.loopEntries)
+        model.discardActiveRound()
+        XCTAssertFalse(model.mergeRoundEnrichmentForTesting(oldFull))
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
+        await model.prepareCourseRound(roundId: newMap.roundId, teeBox: "blue", loops: newMap.loopEntries)
+        XCTAssertFalse(model.mergeRoundEnrichmentForTesting(oldFull))
+        XCTAssertEqual(model.package?.roundId, "c91-new")
+        XCTAssertEqual(try fixture.store.loadCurrentRoundPackage()?.roundId, "c91-new")
+        XCTAssertEqual(model.package?.clubProfiles, [])
+        let template = try XCTUnwrap(fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue"))
+        XCTAssertEqual(template.roundId, "c91-new")
+        XCTAssertEqual(template.clubProfiles, [])
+    }
+
     func testStartEntersOnTheMapPackageAndMergesTheFullPackageIntoTheSameRound() async throws {
         let host = "c85-two-stage.example.test"
         let roundId = "c85-two-stage"
@@ -113,8 +191,10 @@ final class RoundStartTwoStageTests: XCTestCase {
         defer { start.cancel() }
         // Behaviour, not the clock: the full package is never answered here, so hole 1 can only be
         // entered within the wait if the start does not wait for it.
-        await fulfillment(of: [entered, fullSent], timeout: eventWait)
+        await fulfillment(of: [entered], timeout: eventWait)
         await start.value
+        model.liveHoleInitialLoadDidFinish()
+        await fulfillment(of: [fullSent], timeout: eventWait)
         XCTAssertEqual(model.pendingLiveHole, 1)
         XCTAssertFalse(model.isPreparingRound, "the spinner ends with the map package")
         XCTAssertEqual(model.package?.roundId, roundId)
@@ -192,13 +272,13 @@ final class RoundStartTwoStageTests: XCTestCase {
             kind: .score,
             payload: ["strokes": .number(4)]
         ))
+        model.liveHoleInitialLoadDidFinish()
         await model.waitForRoundEnrichmentForTesting()
 
         XCTAssertGreaterThan(failures.value, 2, "the failed package was asked for again")
         XCTAssertEqual(model.package?.roundId, roundId)
         XCTAssertEqual(model.package?.clubProfiles, fullPackage.clubProfiles)
         XCTAssertEqual(model.liveRoundState?.holeState(for: 1)?.score, 4)
-        model.liveHoleInitialLoadDidFinish()
         await model.waitForOfflineCourseDownloadForTesting()
     }
 
@@ -363,16 +443,18 @@ final class RoundStartTwoStageTests: XCTestCase {
             await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: mapPackage.loopEntries)
         }
         defer { start.cancel() }
-        await fulfillment(of: [fullSent, rasterStarted], timeout: eventWait)
+        await fulfillment(of: [rasterStarted], timeout: eventWait)
         await start.value
         XCTAssertEqual(model.pendingLiveHole, 1)
+        model.liveHoleInitialLoadDidFinish()
+        await fulfillment(of: [fullSent], timeout: eventWait)
 
         await model.stopRoundBackgroundWorkForTesting()
         let requestsAtStop = requests.value
         stopped.set(1)
         // Push everything that could start work again: the held personal package fails now (a live
-        // retry loop would ask again at once) and hole 1's first load settles (the fresh-entry
-        // release would start the all-hole download and the raster pass).
+        // retry loop would ask again at once) and the live view repeats its initial-load callback
+        // (it must not restart personal enrichment or either asset pass after the stop).
         held.releaseAll(503)
         model.liveHoleInitialLoadDidFinish()
         await fulfillment(of: [lateRequest], timeout: 2)
@@ -468,18 +550,30 @@ final class RoundStartTwoStageTests: XCTestCase {
     private func package(
         roundId: String,
         mapOnly: Bool,
-        garminRasterVersion: String? = nil
+        garminRasterVersion: String? = nil,
+        standalone: Bool = false
     ) throws -> LiveRoundPackage {
         var root = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: LiveRoundPackageFixture.url)) as? [String: Any]
         )
         root["roundId"] = roundId
+        if standalone {
+            root["dataMode"] = "local"
+            root["roundLoops"] = [["globalId": c85CourseId, "half": "all", "roundStartHole": 1,
+                                   "sourceStartHole": 1, "holeCount": 9]]
+            root["loopKey"] = "\(c85CourseId):all"
+        }
         var coverage = try XCTUnwrap(root["sourceCoverage"] as? [String: Any])
         coverage["requestedRoundId"] = roundId
+        if standalone { coverage["dataMode"] = "local" }
         if mapOnly {
             coverage["playerStatsWindow"] = "deferred"
             root["clubProfiles"] = [] as [Any]
             root["caddieContextSeeds"] = [] as [Any]
+            // #426's map-only answer has no personal history projection.
+            root["recentHistory"] = ["course": ["courseKey": "fixture-links", "roundCount": 0,
+                                               "recentScores": [Int](), "roundIds": [String]()] as [String: Any],
+                                   "rounds": [[String: Any]](), "holes": [[String: Any]]()] as [String: Any]
         }
         root["sourceCoverage"] = coverage
         if let garminRasterVersion {

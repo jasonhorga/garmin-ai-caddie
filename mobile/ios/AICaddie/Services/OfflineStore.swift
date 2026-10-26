@@ -1185,6 +1185,7 @@ public final class OfflineStore {
             // lightweight row a round start or prep request carries; a changed revision still
             // takes the new row.
             package = package.carryingPrecisePrep(from: existing)
+            package = Self.preservingDeferredTemplateContext(in: package, from: existing)
             if !replacingExisting, !Self.shouldReplaceCourseTemplate(existing, with: package) {
                 return
             }
@@ -1441,6 +1442,65 @@ public final class OfflineStore {
                 geometryRevision: prepRevision ?? hole.geometryRevision
             ) != nil
         }
+    }
+
+    /// A #426 map-only response updates the canonical map half of a template. Its empty personal
+    /// projection is not a deletion. This stays at the template boundary: the live round retains
+    /// its `deferred` marker and still fetches this round's personal package.
+    private static func preservingDeferredTemplateContext(
+        in maps: LiveRoundPackage,
+        from existing: LiveRoundPackage
+    ) -> LiveRoundPackage {
+        guard maps.sourceCoverage.playerStatsWindow?.caseInsensitiveCompare("deferred") == .orderedSame,
+              maps.loopKey == existing.loopKey else { return maps }
+        // Field audit: route identity, holes, prep, geometry and cache/readiness gates come from
+        // the map response. Player profile, clubs, seeds (including their enrichment state),
+        // weather, history, rules and decision endpoint stay with the retained personal facts.
+        // Source coverage combines the new route authority with the retained statistics counts.
+        // The cursor belongs to the new round, never to the template's previous round.
+        let personalChecks: Set<String> = ["weather", "club_profiles", "recent_history", "caddie_seeds"]
+        func isPersonalMissingData(_ row: [String: JSONValue]) -> Bool {
+            guard case .string(let label)? = row["label"] else { return false }
+            return personalChecks.contains(label)
+        }
+        return LiveRoundPackage(
+            schema: maps.schema,
+            roundId: maps.roundId,
+            dataMode: maps.dataMode,
+            sourceCoverage: SourceCoverage(
+                state: maps.sourceCoverage.state,
+                dataMode: maps.sourceCoverage.dataMode,
+                requestedRoundId: maps.sourceCoverage.requestedRoundId,
+                selectedRoundId: maps.sourceCoverage.selectedRoundId,
+                roundFound: maps.sourceCoverage.roundFound,
+                availableRoundCount: existing.sourceCoverage.availableRoundCount,
+                holeCount: maps.sourceCoverage.holeCount,
+                clubProfileCount: existing.sourceCoverage.clubProfileCount,
+                playerStatsWindow: existing.sourceCoverage.playerStatsWindow
+            ),
+            missingData: maps.missingData.filter { !isPersonalMissingData($0) }
+                + existing.missingData.filter(isPersonalMissingData),
+            playerProfile: existing.playerProfile,
+            course: maps.course,
+            holes: maps.holes,
+            roundLoops: maps.roundLoops,
+            loopKey: maps.loopKey,
+            coursePrep: maps.coursePrep,
+            geometryCoverage: maps.geometryCoverage,
+            readinessChecks: maps.readinessChecks.filter { !personalChecks.contains($0.label) }
+                + existing.readinessChecks.filter { personalChecks.contains($0.label) },
+            caddieContextSeeds: existing.caddieContextSeeds,
+            weatherSnapshot: existing.weatherSnapshot,
+            clubProfiles: existing.clubProfiles,
+            caddieDecisionEndpoint: existing.caddieDecisionEndpoint,
+            offlinePackageStatus: maps.offlinePackageStatus,
+            eventCursor: maps.eventCursor,
+            recentHistory: existing.recentHistory,
+            cachedCaddieRules: existing.cachedCaddieRules,
+            generatedAt: maps.generatedAt,
+            readinessState: maps.readinessState,
+            enrichmentState: existing.enrichmentState
+        )
     }
 
     /// A transient/degraded refresh must not erase a previously complete offline template. Within
