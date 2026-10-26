@@ -490,6 +490,7 @@ jobs:
             review)
               ONLY_TESTING=(
                 -only-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow
+                -only-testing:AICaddieUITests/RealFlowUITests/testWholeCourseBackNineStartsFromFirstStrokeJourney
                 -only-testing:AICaddieUITests/ReviewEditUITests/testCaptureReviewEditFlow
                 -only-testing:AICaddieUITests/TeeSelectionUITests
                 -only-testing:AICaddieUITests/PrepDegradationUITests
