@@ -22,7 +22,13 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from urllib.error import HTTPError
 
-from ai_caddie.core.data import ROOT, atomic_write_json, read_json, safe_read_json, write_json
+from ai_caddie.core.data import (
+    ROOT,
+    atomic_write_json,
+    atomic_write_json_if_changed,
+    read_json,
+    safe_read_json,
+)
 from ai_caddie.courses.name_authority import contains_cjk, normalize_course_text
 from ai_caddie.geometry.inspect_courseview_release import (
     GARMIN_OMT_SIMPLIFIED_CHINESE,
@@ -312,7 +318,7 @@ def load_course_par(global_id: int, *, root: Path = ROOT) -> CoursePar | None:
 
 def save_course_par(record: CoursePar, *, root: Path = ROOT) -> None:
     _course_dir(root).mkdir(parents=True, exist_ok=True)
-    write_json(_store_path(record.global_id, root=root), asdict(record))
+    atomic_write_json_if_changed(_store_path(record.global_id, root=root), asdict(record))
 
 
 def build_played_store(*, root: Path = ROOT) -> dict[int, CoursePar]:
