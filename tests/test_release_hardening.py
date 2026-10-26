@@ -227,16 +227,13 @@ class SecurityConfigStartupAssertionTests(unittest.TestCase):
 
     def test_open_dev_without_token_warns(self) -> None:
         # Open-dev owner-grant active: no token AND a non-require-admin profile (incl. dev-set + unknown).
-        # Assert on the logger method directly: a prior test that runs Alembic (migrations/env.py →
-        # fileConfig with disable_existing_loggers=True) leaves this logger ``disabled``, which would
-        # swallow assertLogs but never a patched method call.
         for profile in ("", "local", "dev", "test", "weird"):
             with self.subTest(profile=profile):
                 with mock.patch.dict(os.environ, {"AI_CADDIE_SECURITY_PROFILE": profile, "AI_CADDIE_ADMIN_TOKEN": ""}):
-                    with mock.patch.object(players_api.logger, "warning") as warn:
+                    with self.assertLogs(players_api.logger, level="WARNING") as logs:
                         players_api.assert_admin_security_config()
-                    warn.assert_called_once()
-                    self.assertIn("open-dev", warn.call_args.args[0].lower())
+                    self.assertEqual(len(logs.records), 1)
+                    self.assertIn("open-dev", logs.records[0].getMessage().lower())
 
     def test_admin_token_set_without_profile_is_silent(self) -> None:
         # Token present → the open-dev owner-grant is NOT active → no warning, no raise.
@@ -248,10 +245,29 @@ class SecurityConfigStartupAssertionTests(unittest.TestCase):
 
 class SecurityConfigLifespanWiringTests(unittest.TestCase):
     def test_lifespan_invokes_the_security_assertion(self) -> None:
-        with mock.patch("server_v2.main.assert_admin_security_config") as assertion:
+        with (
+            mock.patch.dict(os.environ, {"AI_CADDIE_BOOT_BACKGROUND_WORK": "1"}),
+            mock.patch("server_v2.main._start_boot_background_work") as boot,
+            mock.patch("server_v2.main.assert_admin_security_config") as assertion,
+        ):
             with TestClient(app):  # context-manager entry runs the FastAPI lifespan startup
                 pass
         assertion.assert_called_once()
+        boot.assert_called_once_with()
+
+    def test_invalid_security_config_prevents_background_startup(self) -> None:
+        with (
+            mock.patch.dict(os.environ, {
+                "AI_CADDIE_BOOT_BACKGROUND_WORK": "1",
+                "AI_CADDIE_SECURITY_PROFILE": "private",
+                "AI_CADDIE_ADMIN_TOKEN": "",
+            }),
+            mock.patch("server_v2.main._start_boot_background_work") as boot,
+        ):
+            with self.assertRaises(RuntimeError):
+                with TestClient(app):
+                    pass
+        boot.assert_not_called()
 
 
 if __name__ == "__main__":

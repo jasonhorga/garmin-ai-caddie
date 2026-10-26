@@ -35,8 +35,9 @@ class AppBootsWithDbTests(unittest.TestCase):
                 cfg.set_main_option("sqlalchemy.url", url)
                 command.upgrade(cfg, "head")
                 # 2) boot the app and confirm it serves + the migrated schema is present
-                from server_v2.main import app
-                with TestClient(app) as client:  # context = lifespan runs
+                from server_v2 import main
+
+                with TestClient(main.app) as client:  # context = lifespan runs
                     self.assertEqual(client.get("/api/v2/health").status_code, 200)
                     tables = set(inspect(db.get_engine()).get_table_names())
                     self.assertIn("users", tables)

@@ -1,4 +1,5 @@
 # tests/test_identity_migration.py
+import logging
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 class IdentityMigrationTests(unittest.TestCase):
     def test_upgrade_head_creates_all_model_tables(self):
+        application_logger = logging.getLogger("server_v2.course_install")
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "m.db"
             url = f"sqlite:///{db_path}"
@@ -25,6 +27,10 @@ class IdentityMigrationTests(unittest.TestCase):
             tables = set(inspect(create_engine(url, future=True)).get_table_names())
             model_tables = set(Base.metadata.tables) | {"alembic_version"}
             self.assertTrue(model_tables.issubset(tables), model_tables - tables)
+
+            with self.assertLogs(application_logger, level="INFO") as logs:
+                application_logger.info("application logging survives migration")
+            self.assertEqual(len(logs.records), 1)
 
 
 if __name__ == "__main__":
