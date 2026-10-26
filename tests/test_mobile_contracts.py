@@ -95,14 +95,28 @@ class MobileContractTests(unittest.TestCase):
     def test_package_venue_loop_directory_includes_current_and_sibling_nines(self) -> None:
         # C96: package discovery must provide factual same-venue nines even when history/options
         # are empty.  The expected rows come from CourseView nearby records, not client synthesis.
-        rows = _venue_loops_for_package(
-            31905,
-            venue_name="愉景灣",
-            segment_label="A",
-            holes=[{"par": 4} for _ in range(9)],
-            latitude=22.29,
-            longitude=114.27,
+        from ai_caddie.courses.course_search import CourseMatch, NearbyCourseResult
+
+        nearby = NearbyCourseResult(
+            matches=(
+                CourseMatch(31905, "愉景灣 ~ A", 9, None, None, 1.0, venue_name="愉景灣", segment_label="A"),
+                CourseMatch(31906, "愉景灣 ~ B", 9, None, None, 0.9, venue_name="愉景灣", segment_label="B"),
+            ),
+            complete=True,
+            pages_fetched=1,
         )
+        with (
+            patch("ai_caddie.courses.course_search.courseview_nearby", return_value=nearby),
+            patch("ai_caddie.courses.course_reference.courseview_par", side_effect=lambda gid, **_: [4] * 9 if gid == 31905 else [4] * 8 + [3]),
+        ):
+            rows = _venue_loops_for_package(
+                31905,
+                venue_name="愉景灣",
+                segment_label="A",
+                holes=[{"par": 4} for _ in range(9)],
+                latitude=22.29,
+                longitude=114.27,
+            )
         self.assertEqual(
             [(row["globalId"], row["segmentLabel"], row["holeCount"], row["par"]) for row in rows],
             [(31905, "A", 9, 36), (31906, "B", 9, 35)],
@@ -2066,6 +2080,10 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("struct LiveRoundFinishSummaryView: View", summary)
         for label in ["保存并结束", "继续打球", "放弃本场", "GIR 上果岭 · 按推杆推算", "球道命中", "推杆", "罚杆"]:
             self.assertIn(label, summary)
+        self.assertIn("再打一个 9 洞", summary)
+        self.assertIn("还没记杆", summary)
+        self.assertIn("退出 · 不保存", summary)
+        self.assertIn("onAddNine", current_hole)
         self.assertIn("finishErrorMessage", summary)
         # B2 本场汇总: review layout (score -> scorecard -> four tiles) and no sync status.
         self.assertIn("LiveNineCard(", summary)

@@ -533,6 +533,8 @@ public struct CurrentHoleView: View {
     @State private var pendingHistoricalScoreHole: Int?
     /// The finish page's 放弃本场 asks for its confirmation only after that sheet has closed.
     @State private var pendingSummaryDiscard = false
+    /// The finish page's nine-hole continuation opens the same turn sheet after dismissal.
+    @State private var pendingSummaryTurn = false
     @State private var pendingPhoneShot: PendingPhoneShot?
     @State private var prepNotice: String?
     @State private var heroMapScale: CGFloat = 1
@@ -610,7 +612,26 @@ public struct CurrentHoleView: View {
         self.offlineStore = offlineStore
         self.watchBridge = watchBridge
         self.liveRoundState = liveRoundState
-        self.courseOptions = courseOptions
+        var loopCatalogue = NineLoopTurn.loopCatalogue(
+            network: courseOptions,
+            downloaded: [],
+            venueLoops: package.venueLoops ?? [],
+            venueName: package.course.venueName ?? package.course.name
+        )
+        if let first = package.roundLoops.first,
+           first.half == "all",
+           first.holeCount == RoundLoopEntry.holesPerLoop,
+           !loopCatalogue.contains(where: { $0.globalId == first.globalId }) {
+            loopCatalogue.append(MobileCourseOption(
+                globalId: first.globalId,
+                name: package.course.name,
+                holes: first.holeCount,
+                venueName: package.course.venueName ?? package.course.name,
+                segmentLabel: package.course.segmentLabel,
+                segmentHoles: first.holeCount
+            ))
+        }
+        self.courseOptions = loopCatalogue
         self.isPreparingRound = isPreparingRound
         self.pendingEventCount = pendingEventCount
         self.isFinishingRound = isFinishingRound
@@ -1281,6 +1302,10 @@ public struct CurrentHoleView: View {
     /// The summary's 放弃本场 asks for the confirmation once the summary sheet is gone; presenting
     /// it while the sheet is still dismissing drops it and leaves the player on the map.
     private func handleRoundSummaryDismissed() {
+        if pendingSummaryTurn {
+            pendingSummaryTurn = false
+            turnPlan = turnPlanAtEndOfFirstLoop
+        }
         guard pendingSummaryDiscard else { return }
         pendingSummaryDiscard = false
         showDiscardConfirmation = true
@@ -1408,6 +1433,10 @@ public struct CurrentHoleView: View {
             scores: completedHoleScores,
             isFinishingRound: isFinishingRound,
             finishErrorMessage: finishErrorMessage,
+            onAddNine: canAddNineFromFinish ? {
+                pendingSummaryTurn = true
+                showRoundSummary = false
+            } : nil,
             onFinish: {
                 Task {
                     if await onFinishRound() {
@@ -1421,6 +1450,12 @@ public struct CurrentHoleView: View {
                 showRoundSummary = false
             }
         )
+    }
+
+    private var canAddNineFromFinish: Bool {
+        guard liveRoundState != nil, package.roundLoops.count == 1,
+              let first = package.roundLoops.first else { return false }
+        return first.half == "all" && first.holeCount == RoundLoopEntry.holesPerLoop
     }
 
     private var caddieContextSeed: CaddieContextSeed? {

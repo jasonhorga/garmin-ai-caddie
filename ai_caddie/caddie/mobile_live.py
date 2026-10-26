@@ -3733,6 +3733,14 @@ def build_live_round_package(
         caddie_context_seeds,
         package_course_name,
     )
+    venue_loops = _venue_loops_for_package(
+        course_global_id,
+        venue_name=canonical_course.venue,
+        segment_label=canonical_course.segment,
+        holes=holes,
+        latitude=course_latitude,
+        longitude=course_longitude,
+    )
     # v2 identity is stamped by the caller: a course start from its explicit, proven loop order
     # (``build_live_round_package_for_loops``); a past round from durable proof only
     # (``apply_past_round_loop_identity``). The raw build never guesses a loop table.
@@ -3753,6 +3761,7 @@ def build_live_round_package(
             "teeBox": str(tee_box or round_row.get("teeBox") or "unknown"),
         },
         "holes": holes,
+        "venueLoops": venue_loops,
         "coursePrep": course_prep_package,
         "geometryCoverage": geometry_coverage,
         "readinessChecks": readiness_checks,
@@ -4216,9 +4225,83 @@ def _venue_loops_for_package(
     longitude: float | None = None,
 ) -> list[dict[str, Any]]:
     """Return the CourseView nine-hole directory for a package's physical venue."""
-    # Interface stub for the first red behavior test; the implementation follows in the product
-    # commit.  The current loop is deliberately not synthesized here yet.
-    return []
+    target_venue = normalize_course_text(venue_name).casefold()
+    candidates: list[Any] = []
+    if latitude is not None and longitude is not None:
+        try:
+            from ai_caddie.courses.course_search import courseview_nearby
+
+            nearby = courseview_nearby(
+                float(latitude), float(longitude), radius_km=50, allow_fetch=False
+            )
+            candidates = list(getattr(nearby, "matches", nearby) or [])
+        except Exception:
+            # A cold package must remain playable when the nearby catalogue is unavailable. The
+            # selected loop below is still factual package data and is enough for a same-loop turn.
+            candidates = []
+
+    def par_for(gid: int, fallback: int | None = None) -> int:
+        try:
+            from ai_caddie.courses.course_reference import courseview_par
+
+            pars = courseview_par(int(gid), allow_fetch=False)
+            values = [int(value) for value in pars or [] if isinstance(value, (int, float))]
+            if len(values) == ROUND_LOOP_HOLES:
+                return sum(values)
+        except Exception:
+            pass
+        return int(fallback or 0)
+
+    current_par = sum(int(row.get("par") or 0) for row in holes if isinstance(row, dict))
+    rows: dict[int, dict[str, Any]] = {}
+
+    def add(gid: int, name: str, label: str | None, hole_count: int, par: int) -> None:
+        if gid <= 0 or hole_count != ROUND_LOOP_HOLES or par <= 0:
+            return
+        rows.setdefault(
+            gid,
+            {
+                "globalId": gid,
+                "name": name,
+                "segmentLabel": label,
+                "holeCount": ROUND_LOOP_HOLES,
+                "par": par,
+            },
+        )
+
+    for match in candidates:
+        try:
+            gid = int(match.global_id)
+            holes_count = int(match.holes or 0)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            continue
+        if holes_count != ROUND_LOOP_HOLES:
+            continue
+        raw_name = str(getattr(match, "name", "") or "").strip()
+        identity = canonical_course_identity(raw_name, segment_override=getattr(match, "segment_label", None), holes=holes_count)
+        match_venue = normalize_course_text(getattr(match, "venue_name", None) or identity.venue).casefold()
+        if target_venue and match_venue != target_venue:
+            continue
+        label = normalize_course_text(getattr(match, "segment_label", None) or identity.segment) or None
+        if gid != global_id and not label:
+            continue
+        display_name = f"{identity.venue} ~ {label}" if label else identity.venue
+        add(gid, display_name, label, holes_count, par_for(gid))
+
+    # The package itself is the authoritative fallback, even when neither options nor nearby
+    # search has seen this venue before (the new-course path in C96).
+    current_name = normalize_course_text(venue_name) or f"Course {int(global_id)}"
+    current_label = normalize_course_text(segment_label) or None
+    if current_label is None:
+        try:
+            resolved = _courseview_segment_resolver(int(global_id))
+            if resolved:
+                current_label = _segment_label_from_courseview_name(resolved[0])
+        except Exception:
+            current_label = None
+    current_display = f"{current_name} ~ {current_label}" if current_label else current_name
+    add(int(global_id), current_display, current_label, ROUND_LOOP_HOLES, current_par)
+    return sorted(rows.values(), key=lambda row: (row.get("segmentLabel") or "~~", row["globalId"]))
 
 
 def _course_holes_with_identity(package: dict[str, Any], global_id: int) -> dict[str, Any]:
@@ -4742,6 +4825,17 @@ def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
     if "preciseGeometryState" in source_coverage:
         source_coverage["preciseGeometryState"] = merged["geometryCoverage"]["state"]
     merged["sourceCoverage"] = source_coverage
+
+    # Keep the complete same-venue directory when two selected nines are merged. The front
+    # package normally already carries it, but a cold second-loop release may be the only one with
+    # a cached nearby catalogue row.
+    venue_rows: dict[int, dict[str, Any]] = {}
+    for raw in [*(front.get("venueLoops") or []), *(back.get("venueLoops") or [])]:
+        if isinstance(raw, dict) and _safe_int(raw.get("globalId")):
+            venue_rows[int(raw["globalId"])] = dict(raw)
+    merged["venueLoops"] = sorted(
+        venue_rows.values(), key=lambda row: (str(row.get("segmentLabel") or "~~"), int(row["globalId"]))
+    )
 
     recent_history = dict(front.get("recentHistory") or {})
     back_recent = back.get("recentHistory") or {}

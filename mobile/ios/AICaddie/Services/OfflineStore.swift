@@ -1485,6 +1485,7 @@ public final class OfflineStore {
             holes: maps.holes,
             roundLoops: maps.roundLoops,
             loopKey: maps.loopKey,
+            venueLoops: maps.venueLoops,
             coursePrep: maps.coursePrep,
             geometryCoverage: maps.geometryCoverage,
             readinessChecks: maps.readinessChecks.filter { !personalChecks.contains($0.label) }

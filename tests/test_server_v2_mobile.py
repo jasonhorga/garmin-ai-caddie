@@ -1074,6 +1074,8 @@ class ServerV2MobileTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["schema"], "ai-caddie-live-round-package-v2")
         self.assertEqual(payload["roundId"], "900001")
+        self.assertIn("venueLoops", payload)
+        self.assertIsInstance(payload["venueLoops"], list)
         self.assertIsNotNone(identity)
         self.assertEqual(identity["roundId"], "900001")
         self.assertEqual(identity["loopKey"], payload["loopKey"])
@@ -2641,6 +2643,10 @@ class ServerV2MobileTests(unittest.TestCase):
         # structured beside it instead of becoming a second course name.
         self.assertEqual(payload["course"]["name"], "黑骑士")
         self.assertEqual(payload["course"]["segmentLabel"], "C")
+        self.assertEqual(
+            [(row["globalId"], row["segmentLabel"], row["holeCount"]) for row in payload["venueLoops"]],
+            [(31796, "C", 9)],
+        )
         self.assertTrue(
             all(
                 seed.get("context", {}).get("courseName") == "黑骑士"
