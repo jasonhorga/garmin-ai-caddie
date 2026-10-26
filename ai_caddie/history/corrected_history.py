@@ -201,7 +201,7 @@ def corrected_rounds(
                     delta += total - original
                 corrected["strokes"] = total
                 corrected["_scoreCorrected"] = True
-                corrected_refs.append(f"{row.get('id')}:{hole.get('number')}")
+                corrected_refs.append(f"{row.get('id')}:{number}")
             if "putts" in kinds and putts is not None:
                 corrected["putts"] = putts
                 corrected["_puttCorrected"] = True

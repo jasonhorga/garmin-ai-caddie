@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie.history import stats_cache
-from ai_caddie.history.corrected_history import corrected_history_data, hole_sides
+from ai_caddie.history.corrected_history import corrected_history_data, corrected_rounds, hole_sides
 from ai_caddie.history.history import HistoryData
 from ai_caddie.history.history_stats import _round_breakdowns
 from server_v2 import data_source, geometry as geometry_routes
@@ -172,6 +172,17 @@ class HoleNumberFallbackTest(unittest.TestCase):
         stats = _round_breakdowns(HistoryData(raw_rounds=[], rounds=[row], shots=[]))
         self.assertEqual(stats['roundSequences'][0]['holes'], [1, 2, 3])
         self.assertEqual(stats['roundSequences'][0]['putts'], [2, 3, 2])
+
+    def test_corrected_fallback_hole_is_referenced_by_its_display_number(self) -> None:
+        # C76 review: a score correction on the unnumbered hole cites "ordinal:2", never "ordinal:None".
+        row = {'id': 'ordinal', 'holes': [{'number': 1, 'strokes': 4, 'par': 4},
+                                          {'strokes': 5, 'par': 4},
+                                          {'number': 3, 'strokes': 4, 'par': 4}]}
+        annotation = {'targetType': 'hole', 'targetId': 'ordinal:2', 'kind': 'score_correction',
+                      'payload': {'from': 5, 'to': 6}, 'createdAt': '2026-10-26T00:00:00Z'}
+        [corrected] = corrected_rounds([row], [annotation])
+        self.assertEqual(corrected['holes'][1]['strokes'], 6)
+        self.assertEqual(corrected['_scoreCorrectedRefs'], ['ordinal:2'])
 
     def test_explicit_display_number_wins_over_fallback_in_either_order(self) -> None:
         # C76: position 1/2 would reuse the explicit display 1/2, so only that named hole survives.
