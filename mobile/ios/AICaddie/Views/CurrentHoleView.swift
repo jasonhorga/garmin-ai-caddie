@@ -700,11 +700,19 @@ public struct CurrentHoleView: View {
                       par: hole.par,
                       shotType: initialShotType,
                       fallbackRouteEndM: initialHolePrep.routeLenM
+                  ),
+                  let reconciled = LiveCaddieRouteAuthority.reconciled(
+                      incoming: [installed],
+                      existing: [],
+                      installed: installed,
+                      retained: nil,
+                      explicitSelectionKey: nil,
+                      vetoInstalled: false
                   ) {
             // Installed course facts are the only route authority available on frame zero. This
             // keeps a partial network response from drawing a temporary club-only arc.
-            self._caddieRoutesByHole = State(initialValue: [hole.number: [installed]])
-            self._retainedCaddieRouteByHole = State(initialValue: [hole.number: installed])
+            self._caddieRoutesByHole = State(initialValue: [hole.number: reconciled.merged])
+            self._retainedCaddieRouteByHole = State(initialValue: [hole.number: reconciled.first])
         }
     }
 
@@ -3631,7 +3639,18 @@ public struct CurrentHoleView: View {
         // screen cancels it without leaving a detached poller behind.
         // A cached topo bitmap does not end this: the row drawn over it must reach its frame (C89).
         if LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: holePrep) {
-            await waitForPreciseHoleMap(syncClub: !alreadyRecorded)
+            let session = sessionCache.entry(roundId: package.roundId, hole: hole.number)
+            if !session.preciseProbeStarted {
+                sessionCache.update(roundId: package.roundId, hole: hole.number) { entry in
+                    entry.preciseProbeStarted = true
+                }
+                await waitForPreciseHoleMap(syncClub: !alreadyRecorded)
+                if Task.isCancelled {
+                    sessionCache.update(roundId: package.roundId, hole: hole.number) { entry in
+                        entry.preciseProbeStarted = false
+                    }
+                }
+            }
         }
     }
 

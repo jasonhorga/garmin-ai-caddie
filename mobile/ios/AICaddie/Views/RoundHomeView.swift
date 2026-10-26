@@ -82,7 +82,7 @@ struct LiveHoleNavigationLock: Equatable {
 
 /// Model-layer data that survives a page being unloaded by SwiftUI.  The network tasks remain
 /// owned by the round model; this cache only retains their published result and request identity.
-final class LiveHoleSessionCache: ObservableObject {
+public final class LiveHoleSessionCache: ObservableObject {
     struct Entry {
         var holePrep: CoursePrepHole?
         var garminRaster: GarminRasterResponse?
@@ -92,10 +92,13 @@ final class LiveHoleSessionCache: ObservableObject {
         var caddieRoutes: [CaddiePlanSequence] = []
         var prepRequestStarted = false
         var prepRequestCompleted = false
+        var preciseProbeStarted = false
         var garminRequestStarted = false
     }
 
     private var entries: [String: Entry] = [:]
+
+    public init() {}
 
     func entry(roundId: String, hole: Int) -> Entry {
         entries[key(roundId: roundId, hole: hole)] ?? Entry()
