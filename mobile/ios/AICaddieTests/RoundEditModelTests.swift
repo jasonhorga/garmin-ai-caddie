@@ -583,7 +583,7 @@ final class RoundEditModelTests: XCTestCase {
             ("putts 3→2, penalty 0→2", 3, 0, 2, 2, ["putt", "whole-hole"]),
             ("putts 2→3, penalty 2→0", 2, 2, 3, 0, ["whole-hole", "putt"]),
             ("putts 3→2, penalty 2→0", 3, 2, 2, 0, ["putt", "whole-hole"]),
-            ("putts 2→3, penalty 0→2", 2, 0, 3, 2, ["whole-hole", "putt"]),
+            ("putts 2→3, penalty 0→1", 2, 0, 3, 1, ["whole-hole", "putt"]),
         ]
         for (label, oldPutts, oldPenalty, newPutts, newPenalty, expected) in cases {
             var order: [String] = []
