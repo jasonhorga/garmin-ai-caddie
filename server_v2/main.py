@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
 from ai_caddie.courses import course_reconciliation, course_search
+from ai_caddie.courses.name_authority import split_garmin_course_name
 from ai_caddie.courses.course_reference import (
     record_courseview_catalogue_names,
     record_courseview_venue_loops,
@@ -1653,26 +1654,23 @@ def _venue_loop_index_rows(matches: object) -> list:
     Provider names such as ``Venue ~ A`` have a factual decomposition; plain names without a
     loop/venue boundary remain excluded so unrelated nine-hole courses cannot be merged.
     """
-    from ai_caddie.courses.name_authority import canonical_course_identity
-
     rows = []
     for match in matches or ():
-        if getattr(match, "venue_name", None):
-            rows.append(match)
-            continue
         if int(getattr(match, "holes", 0) or 0) != 9:
             continue
-        canonical = canonical_course_identity(
-            getattr(match, "name", ""),
-            segment_override=getattr(match, "segment_label", None),
-            holes=9,
-        )
-        if not canonical.venue or not canonical.segment:
+        # The durable grouping key must come from the provider's physical name. A played
+        # scorecard may carry a different localized identity spelling; using that here splits
+        # siblings seen before and after the player has played one of them.
+        provider_name = getattr(match, "provider_name", None) or getattr(match, "name", "")
+        venue, provider_segment = split_garmin_course_name(provider_name)
+        venue = venue.strip()
+        segment = provider_segment or getattr(match, "segment_label", None)
+        if not venue or not segment:
             continue
         rows.append(replace(
             match,
-            venue_name=canonical.venue,
-            segment_label=getattr(match, "segment_label", None) or canonical.segment,
+            venue_name=venue,
+            segment_label=segment,
         ))
     return rows
 

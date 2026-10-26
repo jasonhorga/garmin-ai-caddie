@@ -2621,15 +2621,18 @@ class ServerV2MobileTests(unittest.TestCase):
 
         from ai_caddie.courses import course_reference
 
-        with (
-            patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "local")),
-            patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
-            patch.object(course_reference, "courseview_par", return_value=[4, 3, 4, 5, 4, 4, 5, 3, 4]),
-            # Real CourseView clean names are English; the resolver returns that. The package name
-            # must stay Chinese (venue base from the round name) + the loop label from CourseView.
-            patch("ai_caddie.caddie.mobile_live._courseview_segment_resolver", return_value=("The Players Club ~ C", 9)),
-        ):
-            response = self.client_get_course_package(31796, round_id="live-31796", loops="31796:all")
+        # The package endpoint reads the same durable venue index as production. Keep this test's
+        # root empty so a nearby test cannot inject unrelated A/B/C siblings into the assertion.
+        with TemporaryDirectory() as tmp, patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)):
+            with (
+                patch("server_v2.mobile.load_history_data_for_mode", return_value=(data, "local")),
+                patch("ai_caddie.caddie.mobile_live.geometry_coverage_for_hole", side_effect=missing_geometry),
+                patch.object(course_reference, "courseview_par", return_value=[4, 3, 4, 5, 4, 4, 5, 3, 4]),
+                # Real CourseView clean names are English; the resolver returns that. The package name
+                # must stay Chinese (venue base from the round name) + the loop label from CourseView.
+                patch("ai_caddie.caddie.mobile_live._courseview_segment_resolver", return_value=("The Players Club ~ C", 9)),
+            ):
+                response = self.client_get_course_package(31796, round_id="live-31796", loops="31796:all")
 
         self.assertEqual(response.status_code, 200)
         payload = response.json()

@@ -233,6 +233,7 @@ def _venue_key(value: object) -> str:
 
 _VENUE_LOOPS_LOCK = threading.Lock()
 _VENUE_LOOPS_MAX_VENUES = 64
+_VENUE_LOOPS_REFRESH_INTERVAL_SECONDS = 24 * 60 * 60
 
 
 def _atomic_write_venue_loops(path: Path, data: dict) -> None:
@@ -268,6 +269,8 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
             "lastSeenAt": float(group.get("lastSeenAt") or 0),
         }
     changed = False
+    now = time.time()
+    seen_venue_keys: set[str] = set()
     for match in matches or ():
         try:
             gid = int(match.global_id)
@@ -289,6 +292,7 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
             if containing:
                 group_key = containing[0]
                 group = venues[group_key]
+                seen_venue_keys.add(group_key)
                 for duplicate_key in containing[1:]:
                     duplicate = venues.pop(duplicate_key)
                     for item in duplicate["loops"]:
@@ -305,6 +309,13 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
                     "loops": [],
                     "lastSeenAt": 0,
                 })
+                seen_venue_keys.add(key)
+            # A discovery hit is evidence that this venue is still active even when its
+            # particular loop row was already indexed. Refresh at most daily to avoid rewriting
+            # the shared file on every nearby request.
+            if now - float(group.get("lastSeenAt") or 0) >= _VENUE_LOOPS_REFRESH_INTERVAL_SECONDS:
+                group["lastSeenAt"] = now
+                changed = True
             prior = next((item for item in group["loops"]
                           if int(item.get("globalId") or 0) == gid
                           and item.get("segmentLabel") == label), None)
@@ -321,7 +332,7 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
             if prior != row:
                 group["loops"] = [item for item in group["loops"] if int(item.get("globalId") or 0) != gid]
                 group["loops"].append(row)
-                group["lastSeenAt"] = time.time()
+                group["lastSeenAt"] = now
                 changed = True
         except (AttributeError, TypeError, ValueError, OverflowError, OSError):
             continue
@@ -330,7 +341,14 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
     if changed:
         # Keep one bounded index file. The package reads it once per assembly, while discovery
         # remains bounded even after a long sequence of nearby searches.
-        retained = sorted(venues.values(), key=lambda item: item.get("lastSeenAt", 0), reverse=True)
+        retained = sorted(
+            venues.values(),
+            key=lambda item: (
+                _venue_key(item.get("venueName")) in seen_venue_keys,
+                item.get("lastSeenAt", 0),
+            ),
+            reverse=True,
+        )
         _atomic_write_venue_loops(_venue_loops_path(root=root), {
             "schema": "garmin-courseview-venue-loops-v1",
             "venues": retained[:_VENUE_LOOPS_MAX_VENUES],

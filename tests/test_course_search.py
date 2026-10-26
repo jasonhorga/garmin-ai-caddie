@@ -1,4 +1,6 @@
 import unittest
+import json
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -370,11 +372,21 @@ class CourseviewSearchTests(unittest.TestCase):
 
 class CourseSearchEndpointTests(unittest.TestCase):
     def setUp(self) -> None:
+        from ai_caddie.courses import course_search
         from server_v2 import main as server_main
 
         # Cached Tee payloads outlive each test's mocked release/geometry authority.
         server_main._memoized_course_tees_payload.cache_clear()
         self.addCleanup(server_main._memoized_course_tees_payload.cache_clear)
+        # Nearby/search discovery persists nine-hole siblings. Give each endpoint test its own
+        # root so a prior test cannot seed a later package with unrelated A/B/C rows.
+        self._endpoint_cache = TemporaryDirectory(prefix="course-search-endpoint-")
+        self.addCleanup(self._endpoint_cache.cleanup)
+        self._endpoint_root = Path(self._endpoint_cache.name)
+        self._server_root_patch = patch.object(server_main, "ROOT", self._endpoint_root)
+        self._server_root_patch.start()
+        self.addCleanup(self._server_root_patch.stop)
+        course_search._clear_nearby_cache_for_tests()
 
     def _client(self):
         from fastapi.testclient import TestClient
@@ -511,6 +523,52 @@ class CourseSearchEndpointTests(unittest.TestCase):
         kwargs = reconcile.call_args.kwargs
         self.assertFalse(kwargs["overlay_coordinates"])
         self.assertFalse(kwargs["append_history"])
+
+    def test_nearby_index_groups_identity_spelling_with_provider_siblings(self) -> None:
+        from ai_caddie.courses import course_search
+        from server_v2 import main as server_main
+
+        provider_venue = "北京天竺黑骑士球员俱乐部"
+        provider_rows = [
+            course_search.CourseMatch(
+                31794, f"{provider_venue} ~ A", 9, "北京", "北京", 0.9,
+                40.0451, 116.5466, 0.1,
+                provider_name=f"{provider_venue} ~ A",
+            ),
+            course_search.CourseMatch(
+                31795, f"{provider_venue} ~ B", 9, "北京", "北京", 0.8,
+                40.0452, 116.5467, 0.2,
+                provider_name=f"{provider_venue} ~ B",
+            ),
+        ]
+        reconciled = [
+            replace(provider_rows[0], venue_name="黑骑士", venue_name_source="garmin_scorecard_snapshot",
+                    segment_label="A"),
+            provider_rows[1],
+        ]
+        with (
+            patch.object(server_main.course_search, "courseview_nearby", return_value=provider_rows),
+            patch.object(server_main, "_reconcile_player_course_matches", return_value=reconciled),
+            patch("server_v2.map_startup.enqueue_nearby"),
+        ):
+            response = self._client().get(
+                "/api/v2/courses/nearby",
+                params={"latitude": 40.045, "longitude": 116.5466, "radius_km": 50},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        index = json.loads(
+            (self._endpoint_root / "data" / "courseview" / "venue_loops.json").read_text()
+        )
+        self.assertEqual(
+            {
+                row["globalId"]
+                for group in index["venues"]
+                if group["venueName"] == provider_venue
+                for row in group["loops"]
+            },
+            {31794, 31795},
+        )
 
     def test_nearby_http_persists_venue_index_used_by_cache_only_package(self) -> None:
         from ai_caddie.caddie import mobile_live
