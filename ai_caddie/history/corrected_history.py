@@ -43,6 +43,7 @@ ALL_HOLE_FIELDS = ("total", "putts", "penalty")
 _PROJECTION_LOCK = threading.Lock()
 _PROJECTIONS: OrderedDict[tuple, HistoryData] = OrderedDict()
 _PROJECTION_INFLIGHT: dict[tuple, Future] = {}
+_RETRY_PROJECTION = object()
 
 
 def _int(value: Any) -> int | None:
@@ -324,44 +325,60 @@ def corrected_history_data(
     if round_refs is not None or holes_by_round is not None:
         return _build_corrected_history_data(data, **kwargs)
     # Lazy import: stats_cache imports the stats builder, which imports this module.
-    from ai_caddie.history.stats_cache import _dir_sig, _file_sig
+    from ai_caddie.history.stats_cache import (
+        _dir_sig, _file_sig, _GEOMETRY_DIRS, _history_geometry_dir_sig, _history_global_ids,
+    )
 
     annotations = annotation_file(evidence_root(player_id, root=annotations_root)).resolve()
     corrections = round_corrections.corrections_dir(player_id, root=corrections_root).resolve()
-    key = (player_id, data.source_fingerprint or history_data_fingerprint(data),
-           str(annotations), _file_sig(annotations), str(corrections), _dir_sig(corrections))
-    mark("history_correction_revision")
-    with _PROJECTION_LOCK:
-        cached = _PROJECTIONS.get(key)
-        if cached is not None:
-            _PROJECTIONS.move_to_end(key)
-            mark("history_corrected_hit")
-            return cached
-        future = _PROJECTION_INFLIGHT.get(key)
-        leader = future is None
-        if leader:
-            future = Future()
-            _PROJECTION_INFLIGHT[key] = future
-    if not leader:
-        result = future.result()
-        mark("history_corrected_wait")
-        return result
-    try:
-        result = _build_corrected_history_data(data, **kwargs)
+    while True:
+        # Pixel edits are replayed through the historical course's frame. A new mesh/hazard
+        # file must invalidate this projection before any stats/profile reader receives it.
+        global_ids = _history_global_ids(data)
+        geometry = tuple(_history_geometry_dir_sig(path, global_ids) for path in _GEOMETRY_DIRS)
+        key = (player_id, data.source_fingerprint or history_data_fingerprint(data),
+               str(annotations), _file_sig(annotations), str(corrections), _dir_sig(corrections), geometry)
+        mark("history_correction_revision")
         with _PROJECTION_LOCK:
-            _PROJECTIONS[key] = result
-            _PROJECTIONS.move_to_end(key)
-            while len(_PROJECTIONS) > 8:
-                _PROJECTIONS.popitem(last=False)
-        future.set_result(result)
-        mark("history_corrected_build")
-        return result
-    except BaseException as exc:
-        future.set_exception(exc)
-        raise
-    finally:
-        with _PROJECTION_LOCK:
-            _PROJECTION_INFLIGHT.pop(key, None)
+            cached = _PROJECTIONS.get(key)
+            if cached is not None:
+                _PROJECTIONS.move_to_end(key)
+                mark("history_corrected_hit")
+                return cached
+            future = _PROJECTION_INFLIGHT.get(key)
+            leader = future is None
+            if leader:
+                future = Future()
+                _PROJECTION_INFLIGHT[key] = future
+        if not leader:
+            result = future.result()
+            mark("history_corrected_wait")
+            if result is _RETRY_PROJECTION:
+                continue
+            return result
+        try:
+            result = _build_corrected_history_data(data, **kwargs)
+            with _PROJECTION_LOCK:
+                _PROJECTIONS[key] = result
+                _PROJECTIONS.move_to_end(key)
+                while len(_PROJECTIONS) > 8:
+                    _PROJECTIONS.popitem(last=False)
+            future.set_result(result)
+            mark("history_corrected_build")
+            return result
+        except BaseException:
+            # Only the leader owns its failure/cancellation. Detach it BEFORE waking followers
+            # so one of them can become a new leader rather than inherit PrepCancelled (or spin
+            # on the same failed future). Recheck store/geometry versions on every retry.
+            with _PROJECTION_LOCK:
+                if _PROJECTION_INFLIGHT.get(key) is future:
+                    _PROJECTION_INFLIGHT.pop(key)
+            future.set_result(_RETRY_PROJECTION)
+            raise
+        finally:
+            with _PROJECTION_LOCK:
+                if _PROJECTION_INFLIGHT.get(key) is future:
+                    _PROJECTION_INFLIGHT.pop(key)
 
 
 def _build_corrected_history_data(

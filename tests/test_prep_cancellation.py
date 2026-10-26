@@ -14,11 +14,8 @@ from server_v2.prep_work import run_prep
 
 
 class Request:
-    def __init__(self):
-        self.disconnected = False
-
-    async def is_disconnected(self):
-        return self.disconnected
+    async def receive(self):
+        await asyncio.Future()  # Connected client; cancelled when the request worker finishes.
 
 
 class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):

@@ -104,7 +104,7 @@ def _authority_ready(global_id: int, hole: int) -> bool:
 
 
 def _register_one(global_id: int, hole: int, version: str, fetched: bytes | None) -> dict[str, Any]:
-    """Register fetched bytes; callers keep provider IO outside the per-key registration lock."""
+    """Register bytes under the per-hole/version lock, shared with timeout-bounded provider IO."""
     image_url = _versioned_path(global_id, hole, version)
     if not fetched:
         return _unavailable("raster_fetch_failed", image_url=None, version=version)
