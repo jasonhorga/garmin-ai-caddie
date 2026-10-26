@@ -59,6 +59,26 @@ final class CurrentHoleLocatorTests: XCTestCase {
         ), .onHole(5))
     }
 
+    func testPrepHoleFollowingKeepsManualHoleWhenLocationStaysOnHoleOne() {
+        var following = PrepHoleFollowingState()
+
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 1, displayedHole: 1))
+        // The player manually previews hole 2 while the GPS fix remains in hole 1.
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 1, displayedHole: 2))
+        XCTAssertEqual(following.lastLocatedHole, 1)
+    }
+
+    func testPrepHoleFollowingFollowsHoleThreeAfterManualHoleTwo() {
+        var following = PrepHoleFollowingState()
+
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 1, displayedHole: 2))
+        XCTAssertEqual(
+            following.navigationTarget(currentLocatedHole: 3, displayedHole: 2),
+            3
+        )
+    }
+
     private func coordinate(_ latitude: Double, _ longitude: Double) -> CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
