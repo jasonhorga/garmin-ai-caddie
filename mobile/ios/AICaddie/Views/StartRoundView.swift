@@ -1259,6 +1259,7 @@ public struct StartRoundView: View {
                 // Tee authority failed: the course default still starts; retry is an icon.
                 HStack(spacing: 12) {
                     Button {
+                        prepValidationFailed = false
                         teeBox = "unknown"
                     } label: {
                         teeChipLabel("unknown", selected: teeBox.caseInsensitiveCompare("unknown") == .orderedSame)
@@ -1311,6 +1312,7 @@ public struct StartRoundView: View {
     private func teeChip(_ tee: String) -> some View {
         let selected = tee.caseInsensitiveCompare(teeBox) == .orderedSame
         return Button {
+            prepValidationFailed = false
             teeBox = tee
             userPickedTee = true
         } label: {
@@ -1501,9 +1503,7 @@ public struct StartRoundView: View {
             onPrepareCourseRound(
                 roundId,
                 teeBox,
-                StartRoundPresentation.combinedLoopEntries(selected: course).map {
-                    RoundLoopEntry(globalId: $0.globalId, half: "all")
-                }
+                StartRoundPresentation.combinedLoopEntries(selected: course)
             )
         } else {
             _ = onOpenPrepCourse(course)
@@ -1572,6 +1572,7 @@ public struct StartRoundView: View {
 
     private func applySelectedCourse(_ option: MobileCourseOption) {
         if option.globalId != courseGlobalId {
+            prepValidationFailed = false
         }
         let lastUsed = Self.lastUsedTeeForCourse(
             for: option, recent: recentCourseOption,
