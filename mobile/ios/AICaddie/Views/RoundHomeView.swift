@@ -51,6 +51,96 @@ enum LiveHoleRoutePath {
     }
 }
 
+/// Guards the one-hole-at-a-time transition owned by the live pager.  Keeping this rule pure
+/// makes a second fast swipe harmless: it cannot enqueue a transition against a page that has
+/// already started moving, and a stale page cannot advance the current page.
+struct LiveHoleNavigationLock: Equatable {
+    private(set) var currentHole: Int
+    private(set) var isTransitioning = false
+
+    init(currentHole: Int) {
+        self.currentHole = currentHole
+    }
+
+    static func accepts(from: Int, current: Int, isTransitioning: Bool) -> Bool {
+        !isTransitioning && from == current
+    }
+
+    mutating func begin(from: Int, to: Int) -> Bool {
+        guard Self.accepts(from: from, current: currentHole, isTransitioning: isTransitioning),
+              to != currentHole else { return false }
+        currentHole = to
+        isTransitioning = true
+        return true
+    }
+
+    mutating func finish(at hole: Int) {
+        guard hole == currentHole else { return }
+        isTransitioning = false
+    }
+}
+
+/// Model-layer data that survives a page being unloaded by SwiftUI.  The network tasks remain
+/// owned by the round model; this cache only retains their published result and request identity.
+final class LiveHoleSessionCache: ObservableObject {
+    struct Entry {
+        var holePrep: CoursePrepHole?
+        var garminRaster: GarminRasterResponse?
+        var garminRevision: String?
+        var caddieDecision: CaddieDecisionResponse?
+        var caddieDecisionInputSignature: String?
+        var caddieRoutes: [CaddiePlanSequence] = []
+        var prepRequestStarted = false
+        var prepRequestCompleted = false
+        var garminRequestStarted = false
+    }
+
+    private var entries: [String: Entry] = [:]
+
+    func entry(roundId: String, hole: Int) -> Entry {
+        entries[key(roundId: roundId, hole: hole)] ?? Entry()
+    }
+
+    func update(roundId: String, hole: Int, _ update: (inout Entry) -> Void) {
+        let key = key(roundId: roundId, hole: hole)
+        var value = entries[key] ?? Entry()
+        update(&value)
+        entries[key] = value
+    }
+
+    func reset(roundId: String? = nil) {
+        guard let roundId else {
+            entries.removeAll()
+            return
+        }
+        entries = entries.filter { !$0.key.hasPrefix(roundId + "|") }
+    }
+
+    private func key(roundId: String, hole: Int) -> String { "\(roundId)|\(hole)" }
+}
+
+enum LiveHoleSessionCachePolicy {
+    static func shouldFetchPrep(cached: CoursePrepHole?, requestStarted: Bool) -> Bool {
+        cached == nil && !requestStarted
+    }
+
+    static func shouldFetchPrep(
+        cached: CoursePrepHole?, requestStarted: Bool, requestCompleted: Bool
+    ) -> Bool {
+        !requestStarted && !requestCompleted
+    }
+
+    static func shouldFetchGarmin(cached: GarminRasterResponse?, requestStarted: Bool, revision: String?, cachedRevision: String?) -> Bool {
+        guard !requestStarted else { return false }
+        guard let cached else { return true }
+        return cachedRevision != revision || !cached.hasDisplayableImage
+    }
+
+    static func shouldFetchDecision(inputSignature: String, cachedSignature: String?, hasCachedDecision: Bool) -> Bool {
+        !hasCachedDecision || cachedSignature != inputSignature
+    }
+}
+
 public struct RoundHomeView: View {
     /// The active round's package, or the home package (most-played course). Nil until the first
     /// one is cached or fetched (first launch, a slow backend): the home still renders and offers
@@ -148,6 +238,11 @@ public struct RoundHomeView: View {
     @State private var pendingHomeDiscard = false
     @State private var showHomeDiscardConfirmation = false
     @State private var path: [HubRoute] = []
+    /// The live route is one destination containing a paging surface. Keeping the selection here
+    /// avoids rebuilding a CurrentHoleView (and its location/task state) for every swipe.
+    @State private var holePagerSelection: Int?
+    @State private var holePagerTransitioning = false
+    @StateObject private var liveHoleSessions = LiveHoleSessionCache()
     /// The last GPS-resolved prep hole lives above `CurrentHoleView`, so recreating a destination
     /// after a manual hole preview does not mistake the same fix for a new location.
     @State private var prepHoleFollowing = PrepHoleFollowingState()
@@ -366,7 +461,7 @@ public struct RoundHomeView: View {
                 case .startCourse(let globalId, let teeBox):
                     startRoundView(globalId: globalId, teeBox: teeBox)
                 case .hole(let number):
-                    currentHoleView(number)
+                    holePagerView(number)
                 case .prep:
                     prepCoursePickerView()
                 case .history:
@@ -616,17 +711,19 @@ public struct RoundHomeView: View {
                 onSetSecondLoop: onSetSecondLoop,
                 onContinueIntoSecondLoop: onContinueIntoSecondLoop, onFinishRound: onFinishRound,
                 onDiscardRound: onDiscardRound,
+                sessionCache: liveHoleSessions,
+                usesExternalHolePager: true,
                 onAdvanceHole: { next in
-                    if !isPrepHoleScreen {
-                        onSetActiveHole(next)
-                    } else {
-                        onPrepHoleChanged(next)
+                    guard let current = holePagerSelection,
+                          LiveHoleNavigationLock.accepts(
+                              from: number,
+                              current: current,
+                              isTransitioning: holePagerTransitioning
+                          ) else { return }
+                    holePagerTransitioning = true
+                    withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.92)) {
+                        holePagerSelection = next
                     }
-                    path = LiveHoleRoutePath.afterAdvance(
-                        current: path,
-                        nextHole: next,
-                        isPrepMode: isPrepHoleScreen
-                    )
                 },
                 onPrepLocationChanged: { locatedHole, displayedHole in
                     guard isPrepHoleScreen else { return nil }
@@ -658,6 +755,44 @@ public struct RoundHomeView: View {
             // the outgoing destination then left NavigationStack on the old hole (live Native
             // 37126990984). Changing or removing the second loop still re-identifies holes 10–18.
             .id("\(package.roundId):\(hole.number):\(hole.sourceGlobalId):\(hole.sourceLocalHole)")
+        }
+    }
+
+    /// A native page tab view follows the finger and keeps the current and adjacent holes alive.
+    /// The map's own gestures remain on each page. Selection persistence is scheduled for the next
+    /// main-actor turn so save/replay/watch seeding cannot block the gesture callback.
+    @ViewBuilder private func holePagerView(_ initialHole: Int) -> some View {
+        if let package = holeScreenPackage {
+            let ordered = RoundPlayOrder.holes(
+                package.holes.map(\.number),
+                startingAt: liveRoundState?.startHole,
+                loops: package.roundLoops
+            )
+            TabView(selection: $holePagerSelection) {
+                ForEach(ordered, id: \.self) { number in
+                    currentHoleView(number)
+                        .tag(Optional(number))
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .onAppear {
+                holePagerSelection = ordered.contains(initialHole) ? initialHole : ordered.first
+            }
+            .onChange(of: holePagerSelection) { previous, selected in
+                guard let selected, previous != selected else { return }
+                holePagerTransitioning = false
+                Task { @MainActor in
+                    await Task.yield()
+                    if isPrepHoleScreen {
+                        onPrepHoleChanged(selected)
+                    } else {
+                        onSetActiveHole(selected)
+                    }
+                }
+            }
+            .accessibilityIdentifier("live-hole-pager")
+        } else {
+            Color.clear
         }
     }
 

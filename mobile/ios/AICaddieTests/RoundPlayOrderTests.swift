@@ -70,6 +70,33 @@ final class RoundPlayOrderTests: XCTestCase {
         )
     }
 
+    func testHoleNavigationLockDropsFastSecondAdvanceAndStaleSource() {
+        var lock = LiveHoleNavigationLock(currentHole: 3)
+        XCTAssertTrue(lock.begin(from: 3, to: 2))
+        XCTAssertFalse(lock.begin(from: 3, to: 1), "the first transition is still in flight")
+        XCTAssertFalse(lock.begin(from: 9, to: 1), "a stale page cannot advance the current page")
+        lock.finish(at: 2)
+        XCTAssertTrue(lock.begin(from: 2, to: 1))
+    }
+
+    func testGarminDescriptorNeedsDecodedImageBeforeRasterState() {
+        let descriptor = GarminRasterResponse(available: true, imageUrl: "/raster.webp")
+        XCTAssertEqual(
+            LiveMapDisplayState.resolveLive(.init(
+                coverage: "partial", preciseTopoImageReady: false, garminRaster: descriptor,
+                garminImageReady: false, garminImageFailed: false, hasCachedPreciseTopo: false
+            )),
+            .numericPlaceholder
+        )
+        XCTAssertEqual(
+            LiveMapDisplayState.resolveLive(.init(
+                coverage: "partial", preciseTopoImageReady: false, garminRaster: descriptor,
+                garminImageReady: true, garminImageFailed: false, hasCachedPreciseTopo: false
+            )),
+            .garminRaster
+        )
+    }
+
     func testBannerRejectsPracticeAreaStroke() {
         XCTAssertEqual(
             HoleScreenRoundBanner.notStartedNotice(.atCourse),
