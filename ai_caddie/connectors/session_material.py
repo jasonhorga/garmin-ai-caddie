@@ -172,7 +172,18 @@ def _publish_generation(token_dir: Path, web_session: str, anti_forgery: str) ->
 
 def save_session_material(*, token_dir: Path | str, web_session: str, anti_forgery: str) -> None:
     """Store an already validated cookie/CSRF pair using generation publication."""
-    _publish_generation(Path(token_dir), web_session, anti_forgery)
+    directory = Path(token_dir)
+    _publish_generation(directory, web_session, anti_forgery)
+    _remove_legacy_files(directory)
+
+
+def _remove_legacy_files(token_dir: Path) -> None:
+    """Drop flat-layout copies after a generation has become authoritative."""
+    for name in (WEB_SESSION_FILE, ANTI_FORGERY_FILE):
+        try:
+            (token_dir / name).unlink(missing_ok=True)
+        except OSError:
+            continue
 
 
 def _cleanup_token_dir(token_dir: Path) -> None:
@@ -253,6 +264,7 @@ def save_garmin_cn_web_session(
             error_code="session_stored",
             data_dir=Path(data_dir) if data_dir is not None else None,
         )
+        _remove_legacy_files(token_dir)
     except Exception:
         if previous_pointer is None:
             pointer.unlink(missing_ok=True)

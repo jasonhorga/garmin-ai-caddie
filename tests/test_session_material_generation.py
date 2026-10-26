@@ -125,6 +125,8 @@ class SessionMaterialGenerationTests(unittest.TestCase):
             generation = token_dir / session_material.GENERATIONS_DIR / current
             self.assertEqual((generation / "web_cookie.txt").read_text(), "JWT_WEB=migrated\n")
             self.assertEqual((generation / "csrf.txt").read_text(), "csrf-migrated\n")
+            self.assertFalse((token_dir / "web_cookie.txt").exists())
+            self.assertFalse((token_dir / "csrf.txt").exists())
 
     def test_automatic_refresh_uses_the_same_generation_writer(self) -> None:
         with TemporaryDirectory() as tmp:
