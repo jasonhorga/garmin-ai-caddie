@@ -10,6 +10,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Any, Annotated, Literal
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
@@ -1693,10 +1694,17 @@ def course_nearby_endpoint(
 
         background_tasks.add_task(enqueue_nearby, matches)
         background_tasks.add_task(prefetch_nearby_releases, matches)
+    # Only the nearest three rows, the courses that prefetch warms, carry Tee rows: each costs a
+    # release decode and a geometry pass, and a 50 km answer may list hundreds of courses.
+    from server_v2.map_startup import _nearest_three
+
+    tee_row_ids = {int(match.global_id) for match in _nearest_three(matches)}
     payloads = []
     for match in matches:
         payload = _course_match_payload(match)
-        tee_options = _cached_course_tees_payload(int(match.global_id))
+        tee_options = (
+            _cached_course_tees_payload(int(match.global_id)) if int(match.global_id) in tee_row_ids else None
+        )
         if tee_options is not None:
             payload["teeOptions"] = tee_options
         payloads.append(payload)
@@ -1725,18 +1733,52 @@ def _cached_course_tees_payload(global_id: int) -> dict | None:
 
     Cache-only: a nearby row never triggers a Garmin fetch. Without cached release Tee names the
     row stays metadata-only and the client asks /tees, which owns the cold fetch.
-    """
-    from ai_caddie.caddie.analysis import course_tee_options
-    from ai_caddie.courses.course_reference import courseview_tees
 
+    The answer is reused while the release file and the geometry directories are unchanged, so
+    repeated discoveries neither decode the release nor list the course's holes again. A geometry
+    export that lands later (new yards) changes its directory's signature.
+    """
+    from ai_caddie.core.data import HAZARD_DIR, MESH_DIR
+    from ai_caddie.courses.course_reference import courseview_release_signature
+
+    def directory_signature(path) -> tuple[int, int]:
+        try:
+            stat = path.stat()
+        except OSError:
+            return (0, 0)
+        return (stat.st_mtime_ns, stat.st_ino)
+
+    gid = int(global_id)
     try:
-        release_tees = courseview_tees(int(global_id), allow_fetch=False)
-        if not release_tees:
-            return None
-        options = course_tee_options(int(global_id), tee_name_resolver=lambda _gid: release_tees)
+        release = courseview_release_signature(gid)
+        if release is None:
+            return _course_tees_payload_from_cache(gid)
+        return _memoized_course_tees_payload(
+            gid, release, directory_signature(MESH_DIR), directory_signature(HAZARD_DIR)
+        )
     except Exception:
         logger.warning("course_nearby cached_tees_unavailable gid=%s", global_id, exc_info=True)
         return None
+
+
+@lru_cache(maxsize=64)
+def _memoized_course_tees_payload(
+    global_id: int,
+    release_signature: tuple[int, int, int],
+    mesh_dir_signature: tuple[int, int],
+    hazard_dir_signature: tuple[int, int],
+) -> dict | None:
+    return _course_tees_payload_from_cache(global_id)
+
+
+def _course_tees_payload_from_cache(global_id: int) -> dict | None:
+    from ai_caddie.caddie.analysis import course_tee_options
+    from ai_caddie.courses.course_reference import courseview_tees
+
+    release_tees = courseview_tees(int(global_id), allow_fetch=False)
+    if not release_tees:
+        return None
+    options = course_tee_options(int(global_id), tee_name_resolver=lambda _gid: release_tees)
     return _course_tees_payload(int(global_id), options)
 
 
@@ -2218,6 +2260,7 @@ def nearby_work_blocked() -> bool:
 
 from server_v2 import map_startup as _map_startup
 _map_startup.nearby_work_blocked = lambda: nearby_work_blocked()
+_map_startup.tee_requests_in_flight = lambda: tee_requests_in_flight()
 
 
 def run_course_install_job(identifier: str) -> None:

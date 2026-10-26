@@ -9,7 +9,7 @@ import time
 
 from ai_caddie.core.priority_work import FOREGROUND, NEARBY
 from ai_caddie.caddie.round_loops import resolve_round_loops, source_start_hole
-from ai_caddie.courses.course_reference import courseview_release_info
+from ai_caddie.courses.course_reference import COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S, courseview_release_info
 from server_v2 import course_install
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,10 @@ _LOCK = threading.Lock()
 _STARTING: dict[tuple, Future] = {}
 _REGION_ENQUEUED: dict[int, float] = {}
 _REGION_PLAYER = "__nearby_public_assets__"
+# Release prefetch attempts by gid: (monotonic time, release obtained). An obtained release is not
+# prefetched again before its hourly refresh is due; a failed one (404, Garmin outage) backs off.
+_RELEASE_PREFETCHED: dict[int, tuple[float, bool]] = {}
+RELEASE_PREFETCH_RETRY_S = 600.0
 _COURSE_DATA_LOOKUPS: dict[tuple[int, int], tuple[float, Future]] = {}
 # The physical (gid, local hole) each in-flight priority-hole prepare is fetching.
 _STARTING_HOLES: dict[tuple, tuple[int, int]] = {}
@@ -26,6 +30,7 @@ _STARTING_HOLES: dict[tuple, tuple[int, int]] = {}
 
 # The application injects its admission policy after construction; standalone workers are idle.
 nearby_work_blocked = lambda: False
+tee_requests_in_flight = lambda: False
 
 
 def ensure_startup_course_data(global_id: int) -> dict | None:
@@ -81,16 +86,34 @@ def prefetch_nearby_releases(matches) -> int:
     A tap on one of them then finds its Tee rows cached and /tees answers without a Garmin round
     trip. Fresh caches are not refetched; a cold or hourly-stale one is fetched under the same
     per-course release lock /tees uses, so a concurrent /tees waits for this fetch, not a second one.
+
+    Every phone/Watch discovery lands here, so each course is attempted at most once per refresh
+    period (or per backoff after a failure), and a pass yields while a player waits on /tees.
     """
-    if nearby_work_blocked():
+    if nearby_work_blocked() or tee_requests_in_flight():
         return 0
     count = 0
     for match in _nearest_three(matches):
+        if tee_requests_in_flight():
+            break
+        gid = int(match.global_id)
+        with _LOCK:
+            previous = _RELEASE_PREFETCHED.get(gid)
+            if previous is not None:
+                attempted_at, obtained = previous
+                wait = COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S if obtained else RELEASE_PREFETCH_RETRY_S
+                if time.monotonic() - attempted_at < wait:
+                    continue
+            # Claimed before the fetch, so a concurrent discovery skips this course meanwhile.
+            _RELEASE_PREFETCHED[gid] = (time.monotonic(), False)
         try:
-            if courseview_release_info(int(match.global_id), allow_fetch=True):
-                count += 1
+            obtained = bool(courseview_release_info(gid, allow_fetch=True))
         except Exception:
-            logger.warning("nearby_release_prefetch failed gid=%s", match.global_id, exc_info=True)
+            obtained = False
+            logger.warning("nearby_release_prefetch failed gid=%s", gid, exc_info=True)
+        with _LOCK:
+            _RELEASE_PREFETCHED[gid] = (time.monotonic(), obtained)
+        count += int(obtained)
     logger.log(logging.INFO if count else logging.DEBUG, "nearby_release_prefetch cached=%s", count)
     return count
 
