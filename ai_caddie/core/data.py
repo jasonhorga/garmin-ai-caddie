@@ -751,8 +751,32 @@ def _club_profile_inputs_fingerprint(dirs: list[Path], apply_overrides: bool) ->
 
 
 def build_club_profiles(
-    min_distance_m: float = 5.0, *, shot_dirs: list[Path] | None = None, apply_overrides: bool = True
+    min_distance_m: float = 5.0, *, shot_dirs: list[Path] | None = None, apply_overrides: bool = True,
+    history_data: Any | None = None,
 ) -> dict[str, dict[str, Any]]:
+    # Readers that already loaded the shared corrected history can provide it here.  This keeps
+    # measured ladders and analysis aligned with club/lies/add/delete corrections without teaching
+    # each caller how to replay the append-only stores.  The file-backed path below remains the
+    # import/source path for Garmin ingestion and callers that deliberately inspect raw files.
+    if history_data is not None:
+        source_fp = getattr(history_data, "source_fingerprint", None)
+        if not source_fp:
+            return _aggregate_club_profiles(
+                min_distance_m, getattr(history_data, "shots", []) or [], history=True,
+            )
+        correction_fp = getattr(history_data, "correction_fingerprint", None) or ""
+        key = ("history", float(min_distance_m), bool(apply_overrides), source_fp, correction_fp)
+        fingerprint = f"{source_fp}:{correction_fp}"
+        with _club_profile_cache_lock:
+            cached = _CLUB_PROFILE_CACHE.get(key)
+        if cached is not None and cached[0] == fingerprint:
+            return copy.deepcopy(cached[1])
+        profiles = _aggregate_club_profiles(min_distance_m, getattr(history_data, "shots", []) or [], history=True)
+        with _club_profile_cache_lock:
+            _CLUB_PROFILE_CACHE[key] = (fingerprint, copy.deepcopy(profiles))
+            while len(_CLUB_PROFILE_CACHE) > _CLUB_PROFILE_CACHE_MAX:
+                _CLUB_PROFILE_CACHE.pop(next(iter(_CLUB_PROFILE_CACHE)))
+        return profiles
     dirs = [SHOT_DIR] if shot_dirs is None else list(shot_dirs)
     # A test double for an input reader would not show in the file fingerprint: compute directly.
     if (
@@ -776,6 +800,49 @@ def build_club_profiles(
     return profiles
 
 
+def _aggregate_club_profiles(
+    min_distance_m: float, shots: list[dict[str, Any]], *, history: bool = False,
+) -> dict[str, dict[str, Any]]:
+    distances: dict[str, list[float]] = {}
+    spellings: dict[str, dict[str, int]] = {}
+    for shot in shots:
+        if not isinstance(shot, dict):
+            continue
+        shot_type = shot.get("type") if history else shot.get("shotType")
+        if str(shot_type or "").upper() == "PUTT":
+            continue
+        try:
+            meters = float(shot.get("distance") if shot.get("distance") is not None else shot.get("meters"))
+        except (TypeError, ValueError):
+            continue
+        if meters < min_distance_m:
+            continue
+        name = str(shot.get("club") or shot.get("clubName") or "").strip()
+        if not name:
+            continue
+        key = canonical_club_key(name) or name
+        distances.setdefault(key, []).append(meters)
+        counts = spellings.setdefault(key, {})
+        counts[name] = counts.get(name, 0) + 1
+    profiles: dict[str, dict[str, Any]] = {}
+    for key, values in distances.items():
+        name = min(spellings[key].items(), key=lambda kv: (-kv[1], kv[0]))[0]
+        values.sort()
+        n = len(values)
+        if not n:
+            continue
+        pct = lambda p: round(values[max(0, min(n - 1, round((n - 1) * p)))], 1)
+        profiles[name] = {
+            "clubName": name,
+            "sampleSize": n,
+            "p10": pct(0.10),
+            "median": pct(0.50),
+            "p90": pct(0.90),
+            "confidence": "high" if n >= 30 else "medium" if n >= 10 else "low",
+        }
+    return profiles
+
+
 def _build_club_profiles_uncached(
     min_distance_m: float, *, dirs: list[Path], apply_overrides: bool
 ) -> dict[str, dict[str, Any]]:
@@ -786,8 +853,7 @@ def _build_club_profiles_uncached(
     # Spellings that differ only in case/whitespace ("Driver" / "driver" on two Garmin clubIds) are
     # one club: pool their shots under canonical_club_key, the same merge the history club list
     # does, and label the profile with the most-used spelling. The Unknown bucket keeps its raw name.
-    distances: dict[str, list[float]] = {}
-    spellings: dict[str, dict[str, int]] = {}
+    normalized: list[dict[str, Any]] = []
     for shot_dir in dirs:
         for shot_file in shot_dir.glob("*.json"):
             try:
@@ -802,35 +868,9 @@ def _build_club_profiles_uncached(
                         meters = float(shot.get("meters"))
                     except (TypeError, ValueError):
                         continue  # missing / non-numeric meters: skip the shot, never 500 prep
-                    if meters < min_distance_m:
-                        continue
-                    if shot.get("shotType") == "PUTT":
-                        continue
                     name = club_name_from_details(shot.get("clubId"), data, apply_overrides=apply_overrides)
-                    key = canonical_club_key(name) or name
-                    distances.setdefault(key, []).append(meters)
-                    counts = spellings.setdefault(key, {})
-                    counts[name] = counts.get(name, 0) + 1
-
-    profiles: dict[str, dict[str, Any]] = {}
-    for key, values in distances.items():
-        name = min(spellings[key].items(), key=lambda kv: (-kv[1], kv[0]))[0]
-        values.sort()
-        n = len(values)
-        if not n:
-            continue
-        def pct(p: float) -> float:
-            idx = max(0, min(n - 1, round((n - 1) * p)))
-            return round(values[idx], 1)
-        profiles[name] = {
-            "clubName": name,
-            "sampleSize": n,
-            "p10": pct(0.10),
-            "median": pct(0.50),
-            "p90": pct(0.90),
-            "confidence": "high" if n >= 30 else "medium" if n >= 10 else "low",
-        }
-    return profiles
+                    normalized.append({"shotType": shot.get("shotType"), "meters": meters, "clubName": name})
+    return _aggregate_club_profiles(min_distance_m, normalized)
 
 
 # The real input readers, for build_club_profiles to tell them from test doubles.

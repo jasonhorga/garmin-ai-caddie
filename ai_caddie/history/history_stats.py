@@ -6,6 +6,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any, Literal
 import math
+from dataclasses import replace
 
 from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
@@ -122,7 +123,14 @@ def _effective_score_data(data: HistoryData, annotations: list[dict[str, Any]] |
     rounds = corrected_rounds(data.rounds, annotations, fields=("total",))
     if rounds is data.rounds:
         return data
-    return HistoryData(raw_rounds=data.raw_rounds, rounds=rounds, shots=data.shots)
+    return HistoryData(
+        raw_rounds=data.raw_rounds, rounds=rounds, shots=data.shots,
+        corrected=data.corrected,
+        # This view has a different round payload.  A full-history fingerprint would
+        # make downstream fingerprint-keyed profile caches serve the wrong subset.
+        source_fingerprint=None,
+        correction_fingerprint=None,
+    )
 
 
 # Memo for one build pass — `build_history_stats` recomputes effective shots ~7× (once per section)
@@ -3984,10 +3992,12 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
         keep_ids.add(_round_id(row))
         for member in row.get("ids") or []:
             keep_ids.add(str(member))
-    return HistoryData(
+    return replace(data,
         raw_rounds=[row for row in data.raw_rounds if _round_id(row) in keep_ids],
         rounds=rounds,
         shots=[shot for shot in data.shots if _shot_round_id(shot) in keep_ids],
+        source_fingerprint=None,
+        correction_fingerprint=None,
     )
 
 
@@ -4070,7 +4080,8 @@ def build_history_stats(
     report_records = list_report_stats_records(root=reports_root, player_id=player_id)
     decision_audits = list_decision_audits(root=decision_audit_root, player_id=player_id)
     # Spec 3.1: every section reads the one corrected history (events + annotations over the source).
-    data = corrected_history_data(data, player_id=player_id, annotations_root=annotations_root)
+    if not data.corrected:
+        data = corrected_history_data(data, player_id=player_id, annotations_root=annotations_root)
     hole_rows = _holes(data, annotations, report_records)
     issue_rows = _issues(data, annotations, report_records)
     diagnosis = _diagnosis(data, issue_rows)

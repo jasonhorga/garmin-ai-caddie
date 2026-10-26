@@ -11,6 +11,8 @@ import math
 import re
 import threading
 import weakref
+import json
+import hashlib
 
 from ai_caddie.caddie.analysis import COLORS, _component_points, _convex_hull, load_geometry
 from ai_caddie.core.data import (
@@ -97,6 +99,15 @@ class HistoryData:
     raw_rounds: list[dict[str, Any]]
     rounds: list[dict[str, Any]]
     shots: list[dict[str, Any]]
+    corrected: bool = False
+    source_fingerprint: str | None = None
+    correction_fingerprint: str | None = None
+
+
+def history_data_fingerprint(data: "HistoryData") -> str:
+    payload = {"raw_rounds": data.raw_rounds, "rounds": data.rounds, "shots": data.shots}
+    encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode()
+    return hashlib.blake2b(encoded, digest_size=16).hexdigest()
 
 
 def millionths_to_deg(value: int | float | None) -> float | None:
@@ -837,8 +848,8 @@ def remap_shots_to_merged_rounds(
     return remapped
 
 
-def _build_club_map(shot_data: dict[str, Any]) -> tuple[dict[int, str], set[int]]:
-    overrides = load_club_overrides()
+def _build_club_map(shot_data: dict[str, Any], *, player_id: str = OWNER_ID) -> tuple[dict[int, str], set[int]]:
+    overrides = load_club_overrides() if player_id == OWNER_ID else {}
     club_map: dict[int, str] = {}
     retired: set[int] = set()
     for club in shot_data.get("clubDetails", []) or []:
@@ -909,7 +920,7 @@ def load_shot_history(
                 continue
             if shot_data.get("_no_data"):
                 continue
-            club_map, retired = _build_club_map(shot_data)
+            club_map, retired = _build_club_map(shot_data, player_id=player_id)
             # Parse the scorecard once per round, not once per hole: it is only needed for the
             # front/back layout ids that map an absolute hole onto its CourseView hole.
             try:
@@ -937,7 +948,9 @@ def load_shot_history(
                         "localHole": ref.local_hole if ref else None,
                         "order": shot.get("shotOrder"),
                         "clubId": cid,
-                        "clubName": club_map.get(cid) or club_name_from_details(cid, shot_data),
+                        "clubName": club_map.get(cid) or club_name_from_details(
+                            cid, shot_data, apply_overrides=player_id == OWNER_ID,
+                        ),
                         "clubRetired": cid in retired if cid is not None else False,
                         "type": shot.get("shotType"),
                         "auto": shot.get("autoShotType"),
@@ -970,7 +983,11 @@ def load_history_data(player_id: str = OWNER_ID) -> HistoryData:
     # here — staying consistent with merge_same_day_halves / load_shot_history, which
     # already skip them, so the rounds/shots/raw_rounds views never disagree.
     active_raw = [row for row in raw_rounds if not row.get("supersededBy")]
-    return HistoryData(raw_rounds=active_raw, rounds=rounds, shots=shots)
+    result = HistoryData(raw_rounds=active_raw, rounds=rounds, shots=shots)
+    return HistoryData(
+        raw_rounds=result.raw_rounds, rounds=result.rounds, shots=result.shots,
+        source_fingerprint=history_data_fingerprint(result),
+    )
 
 
 def _round_public(
