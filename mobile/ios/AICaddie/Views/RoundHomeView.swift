@@ -97,6 +97,7 @@ public final class LiveHoleSessionCache: ObservableObject {
     }
 
     private var entries: [String: Entry] = [:]
+    @Published private(set) var generation = 0
 
     public init() {}
 
@@ -109,14 +110,17 @@ public final class LiveHoleSessionCache: ObservableObject {
         var value = entries[key] ?? Entry()
         update(&value)
         entries[key] = value
+        generation &+= 1
     }
 
     func reset(roundId: String? = nil) {
         guard let roundId else {
             entries.removeAll()
+            generation &+= 1
             return
         }
         entries = entries.filter { !$0.key.hasPrefix(roundId + "|") }
+        generation &+= 1
     }
 
     private func key(roundId: String, hole: Int) -> String { "\(roundId)|\(hole)" }
@@ -609,7 +613,10 @@ public struct RoundHomeView: View {
         .onChange(of: package?.holeSetIdentity) { _, _ in
             reconcileLiveHoleRouteWithPackage()
         }
-        .onChange(of: liveRoundState?.activeHole) { _, _ in
+        .onChange(of: liveRoundState?.activeHole) { _, activeHole in
+            if !isPrepHoleScreen, let activeHole {
+                holePagerSelection = activeHole
+            }
             reconcileLiveHoleRouteWithPackage()
         }
         .onChange(of: path) { _, routes in
