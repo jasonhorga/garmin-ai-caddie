@@ -175,6 +175,8 @@ _PREFETCH_GUARD = threading.Lock()
 _PREFETCHED: set[tuple[int, int, str]] = set()
 # How often a held warm-up asks again whether the work it yields to has finished.
 _YIELD_POLL_SECONDS = 0.25
+# A stuck round-start prepare must not occupy both warm-up workers forever.
+_YIELD_MAX_WAIT_SECONDS = 30.0
 
 
 def _prefetch_pool() -> ThreadPoolExecutor:
@@ -192,16 +194,24 @@ def _registration_settled(result: dict[str, Any]) -> bool:
     return bool(result.get("available")) or result.get("reason") in _DETERMINISTIC_REASONS
 
 
-def _wait_while(should_yield: Callable[[], bool] | None) -> None:
+def _wait_while(should_yield: Callable[[], bool] | None, *, global_id: int, hole: int) -> None:
     # The matte and registration are pure Python and hold the GIL; a player waiting on a request
     # comes first.  A failing callback never stalls the warm-up.
+    deadline = time.monotonic() + _YIELD_MAX_WAIT_SECONDS
     while should_yield is not None:
         try:
             if not should_yield():
                 return
         except Exception:  # noqa: BLE001
             return
-        time.sleep(_YIELD_POLL_SECONDS)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            logger.warning(
+                "garmin raster prefetch yield timed out after %.0fs: course=%s hole=%s; continuing warm-up",
+                _YIELD_MAX_WAIT_SECONDS, global_id, hole,
+            )
+            return
+        time.sleep(min(_YIELD_POLL_SECONDS, remaining))
 
 
 def _warm_hole(
@@ -213,7 +223,7 @@ def _warm_hole(
     runs before the hole's geometry is installed leaves it for the next pass, whose WebP is then a
     disk read.
     """
-    _wait_while(should_yield)
+    _wait_while(should_yield, global_id=global_id, hole=hole)
     try:
         warmed = garmin_raster.fetch_matted_raster(global_id, hole) is not None
         if warmed:
@@ -234,8 +244,8 @@ def prefetch_holes(
 
     Queuing runs inside an install pass, so it reads only the cached release (holes without one
     wait for a later pass), never contacts Garmin and never raises.  Before each hole a worker
-    waits while ``should_yield()`` is true (by default it never waits).  Returns the futures of
-    newly queued holes.
+    waits while ``should_yield()`` is true, up to the yield limit (by default it never waits).
+    Returns the futures of newly queued holes.
     """
     if os.environ.get("AI_CADDIE_GARMIN_RASTER_PREFETCH", "1") == "0":
         return []
