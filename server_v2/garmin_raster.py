@@ -21,6 +21,7 @@ from PIL import Image
 
 from ai_caddie.geometry import garmin_raster
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
+from ai_caddie.core.request_timing import mark
 
 
 ROUTER = APIRouter()
@@ -34,6 +35,8 @@ _DETERMINISTIC_REASONS = {
     "all_edges_cropped", "vertical_edges_cropped", "scale_out_of_range", "land_component_missing"
 }
 logger = logging.getLogger(__name__)
+_INFLIGHT_LOCK = threading.Lock()
+_INFLIGHT: dict[tuple[int, int, str], Future] = {}
 
 
 def _register_lock(global_id: int, hole: int, version: str) -> threading.RLock:
@@ -86,7 +89,7 @@ def _authority_ready(global_id: int, hole: int) -> bool:
 
 
 def _register_one(global_id: int, hole: int, version: str, fetched: bytes | None) -> dict[str, Any]:
-    """Register fetched bytes; callers keep provider IO outside the per-key registration lock."""
+    """Register bytes under the per-hole/version lock; provider IO happens outside it."""
     image_url = _versioned_path(global_id, hole, version)
     if not fetched:
         return _unavailable("raster_fetch_failed", image_url=None, version=version)
@@ -281,23 +284,55 @@ def course_hole_garmin_raster(
     hole: int = Path(ge=1, le=36),
 ) -> dict[str, Any]:
     version = _asset_version(global_id, hole)
+    mark("raster_revision")
     if not version:
         return _unavailable("raster_url_missing", image_url=None)
     lock = _register_lock(global_id, hole, version)
     with lock:
         cached = _projection_result(global_id, hole, version)
-        if cached is not None:
-            return cached
+    if cached is not None:
+        mark("raster_projection_hit")
+        return cached
+    key = (int(global_id), int(hole), str(version))
+    with _INFLIGHT_LOCK:
+        future = _INFLIGHT.get(key)
+        if future is None:
+            future = Future()
+            _INFLIGHT[key] = future
+            leader = True
+        else:
+            leader = False
+    if not leader:
+        mark("raster_inflight_wait")
+        return future.result()
     try:
-        fetched = garmin_raster.fetch_raster(global_id, hole)
-    except Exception as exc:
-        logger.warning("garmin raster fetch failed: %s", type(exc).__name__)
-        fetched = None
-    with lock:
-        cached = _projection_result(global_id, hole, version)
+        # A previous leader may have settled the projection between our cache miss and taking
+        # leadership; re-check so that window does not cost a second fetch and registration.
+        with lock:
+            cached = _projection_result(global_id, hole, version)
         if cached is not None:
+            mark("raster_projection_hit")
+            future.set_result(cached)
             return cached
-        result = _register_one(global_id, hole, version, fetched)
-        if _registration_settled(result):
-            garmin_raster.save_projection_cache(global_id, hole, version, result)
+        # Share only requests that overlap in time. Completed unavailable results are deliberately
+        # not retained; a later request must retry the provider/authority check.
+        try:
+            fetched = garmin_raster.fetch_raster(global_id, hole)
+        except Exception as exc:
+            logger.warning("garmin raster fetch failed: %s", type(exc).__name__)
+            fetched = None
+        mark("raster_fetch")
+        with lock:
+            result = _register_one(global_id, hole, version, fetched)
+            mark("raster_register")
+            if _registration_settled(result):
+                garmin_raster.save_projection_cache(global_id, hole, version, result)
+        future.set_result(result)
         return result
+    except BaseException as exc:
+        future.set_exception(exc)
+        raise
+    finally:
+        with _INFLIGHT_LOCK:
+            if _INFLIGHT.get(key) is future:
+                _INFLIGHT.pop(key, None)

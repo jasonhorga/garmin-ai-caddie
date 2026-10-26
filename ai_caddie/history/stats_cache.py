@@ -29,6 +29,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+from ai_caddie.core.request_timing import mark
 
 from ai_caddie.reports.annotations import annotation_file
 from ai_caddie.core.data import (
@@ -289,6 +290,28 @@ def _aux_files(
     ]
 
 
+def correction_projection_inputs(
+    player_id: str = OWNER_ID,
+    *,
+    annotations_root: Path | str | None = None,
+    corrections_root: Path | str | None = None,
+    data: Any | None = None,
+) -> tuple:
+    """Read-only revision inputs shared by corrected-history projections.
+
+    Storage path resolution stays in this cache/fingerprint module so domain readers do not
+    bypass the correction stores directly. Geometry is limited to courses represented in ``data``.
+    """
+    annotations = annotation_file(evidence_root(player_id, root=annotations_root)).resolve()
+    corrections = round_corrections.corrections_dir(player_id, root=corrections_root).resolve()
+    global_ids = _history_global_ids(data) if data is not None else ()
+    geometry = tuple(_history_geometry_dir_sig(path, global_ids) for path in _GEOMETRY_DIRS)
+    return (
+        str(annotations), _file_sig(annotations),
+        str(corrections), _dir_sig(corrections), geometry,
+    )
+
+
 def _dir_sig(directory: Path) -> tuple[int, str]:
     """Per-file manifest fingerprint: ``(file_count, digest)`` where ``digest`` hashes
     every file's ``(name, size, mtime_ns)``.
@@ -394,7 +417,8 @@ def _data_signature(data) -> tuple:
     # Python's built-in hash is intentionally randomized per process, which is fine for the
     # in-memory cache but would make a disk-cache fingerprint miss after every restart.
     stable_ids = hashlib.blake2b(round_ids.encode("utf-8"), digest_size=16).hexdigest()
-    return (len(shots), stable_ids)
+    return (len(shots), stable_ids, getattr(data, "source_fingerprint", None),
+            getattr(data, "correction_fingerprint", None))
 
 
 def _fingerprint(data, roots: dict[str, Any], player_id: str = OWNER_ID) -> tuple:
@@ -443,9 +467,11 @@ def cached_load_history_data(player_id: str = OWNER_ID):
     player has its own entry, so loading one player never evicts another."""
     while True:
         fingerprint = tuple(_dir_sig(d) for d in _load_dirs(player_id))
+        mark("history_source_revision")
         with _lock:
             hit = _load_cache.get(player_id)
             if hit is not None and hit[0] == fingerprint:
+                mark("history_source_hit")
                 return hit[1]
             event = _load_inflight.get(player_id)
             if event is None:
@@ -456,6 +482,7 @@ def cached_load_history_data(player_id: str = OWNER_ID):
                 leader = False
         if not leader:
             event.wait()
+            mark("history_source_wait")
             continue
 
         error: BaseException | None = None
@@ -463,6 +490,7 @@ def cached_load_history_data(player_id: str = OWNER_ID):
         try:
             # Owner keeps the no-arg call so load_history_data stays byte-for-byte identical.
             value = _load_history_data() if player_id == OWNER_ID else _load_history_data(player_id=player_id)
+            mark("history_source_build")
         except BaseException as exc:  # never strand concurrent history consumers
             error = exc
         with _lock:
@@ -494,6 +522,12 @@ def cached_build_history_stats(
     switching windows never evicts another window's result; the fingerprint is still
     computed on the FULL data, so all variants invalidate together when inputs change.
     """
+    # Warmers/history routes supply raw history; mobile packages and prep supply its corrected
+    # view. Normalize before fingerprinting so an added/deleted shot does not make these readers
+    # evict one another's otherwise identical projection on every request.
+    from ai_caddie.history.corrected_history import corrected_history_data
+
+    data = corrected_history_data(data, player_id=player_id, annotations_root=annotations_root)
     roots = {
         "annotations_root": annotations_root,
         "weather_root": weather_root,
@@ -515,10 +549,12 @@ def cached_build_history_stats(
     )
     while True:
         fingerprint = _fingerprint(data, roots, player_id)
+        mark("stats_revision")
         persistent_path = _persistent_cache_path(key)
         with _lock:
             hit = _cache.get(key)
             if hit is not None and hit[0] == fingerprint:
+                mark("stats_hit")
                 return hit[1]
             event = _inflight.get(key)
             if event is None:
@@ -529,6 +565,7 @@ def cached_build_history_stats(
                 leader = False
         if not leader:
             event.wait()
+            mark("stats_wait")
             continue
 
         error: BaseException | None = None
@@ -537,6 +574,7 @@ def cached_build_history_stats(
             # Distinct cache keys (player/window/root) still build independently. Only identical
             # consumers share this leader, which is the common phone + watch live-start case.
             value = _read_persistent_value(persistent_path, fingerprint)
+            mark("stats_disk")
             if value is None:
                 value = _build_history_stats(
                     _windowed_history_data(data, window),
@@ -545,6 +583,7 @@ def cached_build_history_stats(
                     **roots,
                 )
                 _enqueue_persistent_value(persistent_path, fingerprint, value)
+                mark("stats_build")
         except BaseException as exc:  # never strand waiters after a failed stats build
             error = exc
         with _lock:

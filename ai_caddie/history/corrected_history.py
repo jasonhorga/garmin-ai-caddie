@@ -21,8 +21,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 from dataclasses import replace
+from collections import OrderedDict
+from concurrent.futures import Future
+import threading
 
 from ai_caddie.core.data import OWNER_ID
+from ai_caddie.core.request_timing import mark
 from ai_caddie.history.history import HistoryData, history_data_fingerprint, round_source_shots
 from ai_caddie.reports.annotations import list_annotation_records
 from ai_caddie.rounds import round_corrections
@@ -32,6 +36,13 @@ SHOT_ANNOTATION_KINDS = {"club_correction": "club", "lie_correction": "surface"}
 HOLE_ANNOTATION_FIELDS = {"score_correction": "total", "putt_correction": "putts", "penalty_correction": "penalty"}
 PENALTY_EVENT_OPS = {"setHolePenalty", "replaceHoleShots", "replaceHoleFacts"}
 ALL_HOLE_FIELDS = ("total", "putts", "penalty")
+
+# Loaded histories and their projections are read-only snapshots, as in stats_cache. Keep only
+# eight versions/players: a sync or edit must not retain arbitrarily many full shot lists.
+_PROJECTION_LOCK = threading.Lock()
+_PROJECTIONS: OrderedDict[tuple, HistoryData] = OrderedDict()
+_PROJECTION_INFLIGHT: dict[tuple, Future] = {}
+_RETRY_PROJECTION = object()
 
 
 def _int(value: Any) -> int | None:
@@ -291,6 +302,82 @@ def _corrected_shots(
 
 
 def corrected_history_data(
+    data: HistoryData,
+    *,
+    player_id: str = OWNER_ID,
+    annotations_root: Path | str | None = None,
+    corrections_root: Path | str | None = None,
+    round_refs: set[str] | None = None,
+    holes_by_round: dict[str, set[int]] | None = None,
+) -> HistoryData:
+    """Share the complete corrected snapshot by source, player and both edit-store revisions.
+
+    Targeted readers retain their existing replay scope. File signatures include ctime, so even
+    same-size rewrites invalidate. Unversioned in-memory inputs use a content digest; loaded
+    histories already carry that digest and need no full-history serialization on a cache hit.
+    """
+    if data.corrected:
+        return data
+    kwargs = dict(player_id=player_id, annotations_root=annotations_root,
+                  corrections_root=corrections_root, round_refs=round_refs,
+                  holes_by_round=holes_by_round)
+    if round_refs is not None or holes_by_round is not None:
+        return _build_corrected_history_data(data, **kwargs)
+    # Lazy import: stats_cache imports the stats builder, which imports this module.
+    from ai_caddie.history.stats_cache import correction_projection_inputs
+
+    while True:
+        # Pixel edits are replayed through the historical course's frame. A new mesh/hazard
+        # file must invalidate this projection before any stats/profile reader receives it.
+        inputs = correction_projection_inputs(
+            player_id, annotations_root=annotations_root, corrections_root=corrections_root, data=data,
+        )
+        key = (player_id, data.source_fingerprint or history_data_fingerprint(data),
+               inputs)
+        mark("history_correction_revision")
+        with _PROJECTION_LOCK:
+            cached = _PROJECTIONS.get(key)
+            if cached is not None:
+                _PROJECTIONS.move_to_end(key)
+                mark("history_corrected_hit")
+                return cached
+            future = _PROJECTION_INFLIGHT.get(key)
+            leader = future is None
+            if leader:
+                future = Future()
+                _PROJECTION_INFLIGHT[key] = future
+        if not leader:
+            result = future.result()
+            mark("history_corrected_wait")
+            if result is _RETRY_PROJECTION:
+                continue
+            return result
+        try:
+            result = _build_corrected_history_data(data, **kwargs)
+            with _PROJECTION_LOCK:
+                _PROJECTIONS[key] = result
+                _PROJECTIONS.move_to_end(key)
+                while len(_PROJECTIONS) > 8:
+                    _PROJECTIONS.popitem(last=False)
+            future.set_result(result)
+            mark("history_corrected_build")
+            return result
+        except BaseException:
+            # Only the leader owns its failure/cancellation. Detach it BEFORE waking followers
+            # so one of them can become a new leader rather than inherit PrepCancelled (or spin
+            # on the same failed future). Recheck store/geometry versions on every retry.
+            with _PROJECTION_LOCK:
+                if _PROJECTION_INFLIGHT.get(key) is future:
+                    _PROJECTION_INFLIGHT.pop(key)
+            future.set_result(_RETRY_PROJECTION)
+            raise
+        finally:
+            with _PROJECTION_LOCK:
+                if _PROJECTION_INFLIGHT.get(key) is future:
+                    _PROJECTION_INFLIGHT.pop(key)
+
+
+def _build_corrected_history_data(
     data: HistoryData,
     *,
     player_id: str = OWNER_ID,

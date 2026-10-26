@@ -1358,7 +1358,8 @@ def history_prepare_recent(
 
 
 @app.get("/api/v2/courses/{global_id}/prep")
-def course_prep_nine(
+async def course_prep_nine(
+    request: Request,
     global_id: int,
     holes: list[int] | None = Query(default=None, max_length=36),  # codex MEDIUM #6: bound item count
     render: bool = True,
@@ -1366,6 +1367,14 @@ def course_prep_nine(
     tee: str | None = Query(default=None, max_length=32),
     player_id: str = Depends(current_player_id),
 ) -> dict:
+    from .prep_work import run_prep
+
+    return await run_prep(request, lambda: _build_course_prep_nine(
+        global_id, holes, render, include_shots, tee, player_id,
+    ))
+
+
+def _build_course_prep_nine(global_id, holes, render, include_shots, tee, player_id) -> dict:
     """Pre-round prep for a course: per-hole par (labelled source) + route + hazard carries +
     strategy from the player's club ladder + (when render=true) a styled map image + overlay.
     Without an explicit ``holes`` filter every hole with cached geometry is served (18-hole
@@ -1382,7 +1391,9 @@ def course_prep_nine(
     read solely the threaded player's tree)."""
     from ai_caddie.courses import course_prep, prep_cache
     from ai_caddie.courses.course_reference import courseview_release_info
+    from ai_caddie.courses.prep_work import checkpoint
 
+    checkpoint()
     # `/prep` is also a direct product entry (Web 备战 and iOS/Watch per-hole refresh), not only a
     # follow-up to a mobile package. Refresh the small release document before the prep-cache
     # fingerprint and authority checks so this path cannot indefinitely bless an old Garmin map.
@@ -1391,6 +1402,8 @@ def course_prep_nine(
     except Exception:
         # Provider failure keeps the last complete cached release/offline geometry usable.
         pass
+    mark_request_stage("prep_release")
+    checkpoint()
 
     requested = holes or course_prep.available_prep_holes(global_id)
     # ``tee`` is the player's Tee choice (e.g. "white"). Playing facts follow that Tee; without it
@@ -1411,11 +1424,17 @@ def course_prep_nine(
         # ladder blended from their own logged shots + manual bag — no player's distances leak to
         # another (effective_club_ladder + the player-scoped loaders are isolated per player_id).
         ladder = course_prep.effective_club_ladder(player_id)
+        mark_request_stage("prep_ladder")
+        checkpoint()
         club_rows = course_prep.club_ladder_with_provenance(player_id, ladder=ladder)
+        mark_request_stage("prep_provenance")
+        checkpoint()
         # Shot scatter is the player's OWN past end positions only: prep_nine reads solely the
         # threaded player_id's tree, so a member sees their own shots and never the owner's.
         nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
                                      include_shots=include_shots, player_id=player_id, tee_set=tee_set)
+        mark_request_stage("prep_holes")
+        checkpoint()
         payload = {
             "schema": "ai-caddie-course-prep-v1",
             "globalId": int(global_id),
