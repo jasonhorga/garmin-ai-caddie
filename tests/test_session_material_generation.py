@@ -126,6 +126,32 @@ class SessionMaterialGenerationTests(unittest.TestCase):
             self.assertEqual((generation / "web_cookie.txt").read_text(), "JWT_WEB=migrated\n")
             self.assertEqual((generation / "csrf.txt").read_text(), "csrf-migrated\n")
 
+    def test_automatic_refresh_uses_the_same_generation_writer(self) -> None:
+        with TemporaryDirectory() as tmp:
+            token_dir = Path(tmp) / ".garmin_tokens"
+            auth = garmin_auth.GarminWebAuth(
+                "JWT_WEB=refresh", "csrf-refresh", "browser", 1
+            )
+            with patch.object(garmin_auth, "TOKEN_DIR", token_dir):
+                garmin_auth.save_web_auth(auth)
+
+            current = (token_dir / session_material.CURRENT_FILE).read_text().strip()
+            generation = token_dir / session_material.GENERATIONS_DIR / current
+            self.assertEqual((generation / "web_cookie.txt").read_text(), "JWT_WEB=refresh\n")
+            self.assertEqual((generation / "csrf.txt").read_text(), "csrf-refresh\n")
+
+    def test_incomplete_current_generation_never_mixes_with_legacy_files(self) -> None:
+        with TemporaryDirectory() as tmp:
+            token_dir = Path(tmp) / ".garmin_tokens"
+            generation = token_dir / session_material.GENERATIONS_DIR / "generation-broken"
+            generation.mkdir(parents=True)
+            (generation / "web_cookie.txt").write_text("JWT_WEB=current\n")
+            (token_dir / "current").write_text("generation-broken\n")
+            (token_dir / "web_cookie.txt").write_text("JWT_WEB=legacy\n")
+            (token_dir / "csrf.txt").write_text("csrf-legacy\n")
+
+            self.assertIsNone(session_material.read_session_material(token_dir))
+
 
 if __name__ == "__main__":
     unittest.main()

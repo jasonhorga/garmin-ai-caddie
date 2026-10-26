@@ -34,6 +34,11 @@ def _save_replacement(root: Path) -> dict:
     )
 
 
+def _current_generation(token_dir: Path) -> Path:
+    name = (token_dir / session_material.CURRENT_FILE).read_text(encoding="ascii").strip()
+    return token_dir / session_material.GENERATIONS_DIR / name
+
+
 class GarminSessionImportTests(unittest.TestCase):
     def test_saves_manual_web_session_material_without_echoing_values(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -46,8 +51,9 @@ class GarminSessionImportTests(unittest.TestCase):
             )
 
             session_dir = root / ".garmin_tokens"
-            web_session_file = session_dir / "web_cookie.txt"
-            anti_forgery_file = session_dir / "csrf.txt"
+            generation = _current_generation(session_dir)
+            web_session_file = generation / "web_cookie.txt"
+            anti_forgery_file = generation / "csrf.txt"
             status_file = root / "data" / "sync" / "garmin_cn_status.json"
 
             self.assertEqual(result["schema"], "ai-caddie-garmin-session-import-v1")
@@ -119,23 +125,22 @@ class GarminSessionImportTests(unittest.TestCase):
             root = Path(tmp)
             token_dir, cookie, csrf = _existing_session(root)
             before = (cookie.read_bytes(), csrf.read_bytes())
-            real_replace = os.replace
             failed: list[Path] = []
+            real_write = session_material._write_generation_file
 
-            def replace(src, dst):
-                # The CSRF file is written second; its first install fails like a full disk would.
-                if Path(dst) == csrf and not failed:
-                    failed.append(Path(dst))
+            def write(path, content):
+                if path.name == "csrf.txt" and not failed:
+                    failed.append(Path(path))
                     raise OSError(errno.ENOSPC, "No space left on device")
-                return real_replace(src, dst)
+                return real_write(path, content)
 
-            with mock.patch("os.replace", side_effect=replace):
+            with mock.patch.object(session_material, "_write_generation_file", side_effect=write):
                 with self.assertRaises(OSError):
                     _save_replacement(root)
 
-            self.assertEqual(failed, [csrf])
+            self.assertEqual([path.name for path in failed], ["csrf.txt"])
             self.assertEqual((cookie.read_bytes(), csrf.read_bytes()), before)
-            self.assertEqual(sorted(path.name for path in token_dir.iterdir()), ["csrf.txt", "web_cookie.txt"])
+            self.assertFalse((token_dir / session_material.CURRENT_FILE).exists())
 
     def test_rollback_failure_on_one_file_still_restores_the_other_and_raises_original(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -157,7 +162,8 @@ class GarminSessionImportTests(unittest.TestCase):
             self.assertEqual(str(caught.exception), "status store unavailable")
             self.assertTrue(cookie.is_dir())
             self.assertEqual(csrf.read_bytes(), csrf_before)
-            self.assertEqual(sorted(path.name for path in token_dir.iterdir()), ["csrf.txt", "web_cookie.txt"])
+            self.assertFalse((token_dir / session_material.CURRENT_FILE).exists())
+            self.assertFalse((token_dir / session_material.GENERATIONS_DIR).exists())
 
     def test_status_failure_removes_files_that_did_not_exist_before(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -179,30 +185,23 @@ class GarminSessionImportTests(unittest.TestCase):
             cookie.chmod(0o644)
             csrf.chmod(0o644)
             real_open = os.open
-            real_replace = os.replace
             created_modes: list[int] = []
             installed: dict[str, int] = {}
 
             def open_(path, flags, mode=0o777, *args, **kwargs):
-                if Path(path).parent == token_dir and flags & os.O_CREAT:
+                if flags & os.O_CREAT:
                     created_modes.append(mode)
                 return real_open(path, flags, mode, *args, **kwargs)
 
-            def replace(src, dst):
-                if Path(dst).parent == token_dir:
-                    installed[Path(dst).name] = stat.S_IMODE(os.stat(src).st_mode)
-                return real_replace(src, dst)
-
-            with mock.patch("os.open", side_effect=open_), mock.patch("os.replace", side_effect=replace):
+            with mock.patch("os.open", side_effect=open_):
                 _save_replacement(root)
 
-            self.assertEqual(created_modes, [0o600, 0o600])
-            self.assertEqual(installed, {"web_cookie.txt": 0o600, "csrf.txt": 0o600})
-            self.assertEqual(stat.S_IMODE(cookie.stat().st_mode), 0o600)
-            self.assertEqual(stat.S_IMODE(csrf.stat().st_mode), 0o600)
-            self.assertEqual(cookie.read_text(encoding="utf-8"), "JWT_WEB=replacement\n")
-            self.assertEqual(csrf.read_text(encoding="utf-8"), "replacement-csrf\n")
-            self.assertEqual(sorted(path.name for path in token_dir.iterdir()), ["csrf.txt", "web_cookie.txt"])
+            self.assertGreaterEqual(created_modes.count(0o600), 3)
+            generation = _current_generation(token_dir)
+            self.assertEqual(stat.S_IMODE((generation / "web_cookie.txt").stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE((generation / "csrf.txt").stat().st_mode), 0o600)
+            self.assertEqual((generation / "web_cookie.txt").read_text(encoding="utf-8"), "JWT_WEB=replacement\n")
+            self.assertEqual((generation / "csrf.txt").read_text(encoding="utf-8"), "replacement-csrf\n")
 
 
 if __name__ == "__main__":

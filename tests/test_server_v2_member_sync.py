@@ -24,6 +24,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from ai_caddie.core.config import get_settings
+from ai_caddie.connectors import session_material
 from ai_caddie.garmin import fetch as fetch_module
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players
@@ -110,6 +111,11 @@ class MemberSyncRoutesTests(unittest.TestCase):
     def _member_token_dir(self, player_id: str) -> Path:
         return self.root / "data" / "players" / player_id / ".garmin_tokens"
 
+    @staticmethod
+    def _current_generation(token_dir: Path) -> Path:
+        name = (token_dir / session_material.CURRENT_FILE).read_text(encoding="ascii").strip()
+        return token_dir / session_material.GENERATIONS_DIR / name
+
     def _wait_for_terminal(self, response, *, timeout: float = 5.0) -> dict:
         self.assertEqual(response.status_code, 202, response.text)
         payload = response.json()
@@ -130,7 +136,7 @@ class MemberSyncRoutesTests(unittest.TestCase):
             headers=self._auth(self.alice["token"]),
         )
         self.assertEqual(resp.status_code, 200, resp.text)
-        cookie = self._member_token_dir(self.alice["id"]) / "web_cookie.txt"
+        cookie = self._current_generation(self._member_token_dir(self.alice["id"])) / "web_cookie.txt"
         self.assertTrue(cookie.exists())
         self.assertEqual(cookie.stat().st_mode & 0o777, 0o600)
         self.assertEqual(cookie.read_text(encoding="utf-8").strip(), "JWT_WEB=alice-secret")
@@ -157,7 +163,8 @@ class MemberSyncRoutesTests(unittest.TestCase):
             headers=ADMIN_HEADER,
         )
         self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertTrue((self._member_token_dir(self.alice["id"]) / "web_cookie.txt").exists())
+        token_dir = self._member_token_dir(self.alice["id"])
+        self.assertTrue((token_dir / session_material.CURRENT_FILE).exists())
 
     # --- sync ---------------------------------------------------------------------
     def _bind_alice(self) -> None:
