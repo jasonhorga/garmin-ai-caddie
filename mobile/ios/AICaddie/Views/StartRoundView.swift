@@ -302,7 +302,9 @@ public struct StartRoundView: View {
                 Text(selectedVenueName)
                     .font(.title2.weight(.bold))
                     .padding(.top, 2)
-                loopSection
+                    .accessibilityIdentifier("start-round-selected-course")
+                    .accessibilityValue("已选择")
+                if showsLoopSelection { loopSection }
                 teeSection
             }
             .padding(.horizontal, 16)
@@ -1023,6 +1025,14 @@ public struct StartRoundView: View {
             candidates: [selectedSegment] + selectedAuthorityOptions
         )
         return loops.isEmpty ? [selectedSegment] : loops
+    }
+
+    /// C99 removes the front/back choice for a normal 18-hole course.  Nine-hole combinations
+    /// remain selectable because their physical loop order is still part of the round contract.
+    private var showsLoopSelection: Bool {
+        let loops = selectedVenueLoops
+        guard loops.count > 1 else { return false }
+        return loops.contains { $0.resolvedHoles == 9 }
     }
 
     /// Every startable course of the selected venue: its 9-hole loops and any 18-hole course beside

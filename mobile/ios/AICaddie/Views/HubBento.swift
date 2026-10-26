@@ -69,6 +69,81 @@ struct HubBentoPrimaryButtonLabel: View {
     }
 }
 
+/// C99's single home entry: course discovery starts here, then the selected course opens its tee page.
+struct HubStartPlayCard: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "figure.golf")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(HubBentoStyle.lightGreen)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("打一场球")
+                    .font(.title2.weight(.heavy))
+                Text("找球场，选发球台后开始")
+                    .font(.subheadline)
+                    .foregroundStyle(HubBentoStyle.onGreenSecondary)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.headline.weight(.bold))
+                .foregroundStyle(HubBentoStyle.onGreenSecondary)
+        }
+        .foregroundStyle(.white)
+        .padding(18)
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+        .background(HubBentoStyle.deepGreen)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+}
+
+struct HubQuickCourseChip: View {
+    let title: String
+    let isNearby: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if isNearby { Image(systemName: "location.fill").font(.caption2) }
+            Text(title).lineLimit(1)
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(HubBentoStyle.deepGreen)
+        .padding(.horizontal, 13)
+        .frame(minHeight: 38)
+        .background(Color.white)
+        .clipShape(Capsule())
+    }
+}
+
+struct HubRecentTrendRow: View {
+    let scores: [Int]
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("最近走势").font(.subheadline.weight(.bold))
+                Text("最近 \(scores.count) 场 · 平均 \(average)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            HubSparkline(values: scores.map(Double.init))
+                .stroke(HubBentoStyle.clay, style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+                .frame(width: 92, height: 34)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, minHeight: 72)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var average: Int {
+        Int((Double(scores.reduce(0, +)) / Double(scores.count)).rounded())
+    }
+}
+
 /// The outlined secondary button on a green card ("结束").
 struct HubBentoOutlineButtonLabel: View {
     let title: String

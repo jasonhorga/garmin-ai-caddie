@@ -236,3 +236,73 @@ enum HubHeroState: Equatable {
         return Array(newest.scoreStrip.prefix(18))
     }
 }
+
+/// The small course shortcuts shown below the home play entry.
+///
+/// This is deliberately a pure ordering function.  The home view supplies the facts it already
+/// has (a nearby venue, archived rounds and offline package timestamps); no UI state or location
+/// service is consulted here, which keeps the ranking deterministic and testable.
+struct HubQuickCourseOrdering {
+    struct Candidate: Equatable {
+        let option: MobileCourseOption
+        let isNearby: Bool
+        let lastPlayedAt: Date?
+        let lastViewedAt: Date?
+        let downloadedAt: Date?
+        let playCount: Int
+
+        init(
+            option: MobileCourseOption,
+            isNearby: Bool = false,
+            lastPlayedAt: Date? = nil,
+            lastViewedAt: Date? = nil,
+            downloadedAt: Date? = nil,
+            playCount: Int = 0
+        ) {
+            self.option = option
+            self.isNearby = isNearby
+            self.lastPlayedAt = lastPlayedAt
+            self.lastViewedAt = lastViewedAt
+            self.downloadedAt = downloadedAt
+            self.playCount = playCount
+        }
+    }
+
+    static func ordered(_ candidates: [Candidate], limit: Int = 4) -> [Candidate] {
+        var unique: [Int: Candidate] = [:]
+        for candidate in candidates {
+            guard candidate.option.globalId > 0 else { continue }
+            if let existing = unique[candidate.option.globalId] {
+                unique[candidate.option.globalId] = merge(existing, candidate)
+            } else {
+                unique[candidate.option.globalId] = candidate
+            }
+        }
+        return unique.values.sorted { lhs, rhs in
+            if lhs.isNearby != rhs.isNearby { return lhs.isNearby }
+            let lhsDate = maxDate(lhs.lastPlayedAt, lhs.lastViewedAt, lhs.downloadedAt)
+            let rhsDate = maxDate(rhs.lastPlayedAt, rhs.lastViewedAt, rhs.downloadedAt)
+            if lhsDate != rhsDate { return lhsDate > rhsDate }
+            if lhs.playCount != rhs.playCount { return lhs.playCount > rhs.playCount }
+            if lhs.option.venueDisplayName != rhs.option.venueDisplayName {
+                return lhs.option.venueDisplayName.localizedStandardCompare(rhs.option.venueDisplayName) == .orderedAscending
+            }
+            return lhs.option.globalId < rhs.option.globalId
+        }.prefix(max(0, limit)).map { $0 }
+    }
+
+    private static func merge(_ lhs: Candidate, _ rhs: Candidate) -> Candidate {
+        Candidate(
+            option: lhs.option,
+            isNearby: lhs.isNearby || rhs.isNearby,
+            lastPlayedAt: maxDate(lhs.lastPlayedAt, rhs.lastPlayedAt),
+            lastViewedAt: maxDate(lhs.lastViewedAt, rhs.lastViewedAt),
+            downloadedAt: maxDate(lhs.downloadedAt, rhs.downloadedAt),
+            playCount: max(lhs.playCount, rhs.playCount)
+        )
+    }
+
+    private static func maxDate(_ dates: Date?...) -> Date {
+        dates.compactMap { $0 }.max() ?? .distantPast
+    }
+}
