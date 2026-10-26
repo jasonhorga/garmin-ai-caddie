@@ -15,6 +15,7 @@ from contextlib import nullcontext
 import os
 import hashlib
 import logging
+import math
 import threading
 import time
 from collections import Counter, defaultdict
@@ -169,15 +170,36 @@ def _release_cache_is_localized(global_id: int, pb: bytes, *, root: Path = ROOT)
     )
 
 
+def _release_fetched_at(global_id: int, pb: bytes, *, root: Path = ROOT) -> float | None:
+    """Return the fetch clock for a matching release sidecar, or ``None`` for legacy caches."""
+    payload = safe_read_json(_release_language_meta_path(global_id, root=root), default={})
+    if not isinstance(payload, dict):
+        return None
+    if (
+        payload.get("globalId") != int(global_id)
+        or payload.get("sha256") != hashlib.sha256(pb).hexdigest()
+    ):
+        return None
+    fetched_at = payload.get("fetchedAt")
+    if isinstance(fetched_at, bool) or not isinstance(fetched_at, (int, float)):
+        return None
+    try:
+        fetched_at = float(fetched_at)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return fetched_at if math.isfinite(fetched_at) else None
+
+
 def record_release_language(global_id: int, pb: bytes, *, root: Path = ROOT) -> None:
     try:
-        atomic_write_json(
+        atomic_write_json_if_changed(
             _release_language_meta_path(global_id, root=root),
             {
                 "schema": "garmin-courseview-release-cache-v1",
                 "globalId": int(global_id),
                 "languageCode": COURSEVIEW_RELEASE_LANGUAGE_CODE,
                 "sha256": hashlib.sha256(pb).hexdigest(),
+                "fetchedAt": time.time(),
             },
         )
     except (OSError, TypeError, ValueError):
@@ -408,8 +430,10 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
                 cached_info = inspect_valid_release(pb, expected_course_id=gid)
                 localized = _release_cache_is_localized(gid, pb, root=root)
                 cached_info["_localized"] = localized
+                fetched_at = _release_fetched_at(gid, pb, root=root)
+                freshness_clock = fetched_at if fetched_at is not None else path.stat().st_mtime
                 stale = (
-                    time.time() - path.stat().st_mtime > COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S
+                    time.time() - freshness_clock > COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S
                     or not localized
                 )
             except (OSError, ValueError):
@@ -448,7 +472,12 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
                 return cached_info  # offline: the last complete release remains usable
             _RELEASE_FETCH_FAILED_AT.pop(failure_key, None)
             _RELEASE_UNCACHED_FAILURES.pop(failure_key, None)
-            _atomic_write_bytes(path, candidate)
+            try:
+                current_pb = path.read_bytes()
+            except OSError:
+                current_pb = None
+            if current_pb != candidate:
+                _atomic_write_bytes(path, candidate)
             record_release_language(gid, candidate, root=root)
             info["_localized"] = True
             return info
