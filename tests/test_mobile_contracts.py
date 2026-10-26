@@ -17,7 +17,11 @@ from ai_caddie.history import stats_cache
 from ai_caddie.reports.annotations import add_annotation
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.history.history import HistoryData
-from ai_caddie.caddie.mobile_live import apply_past_round_loop_identity, build_live_round_package
+from ai_caddie.caddie.mobile_live import (
+    _venue_loops_for_package,
+    apply_past_round_loop_identity,
+    build_live_round_package,
+)
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from tests.round_loop_authority import fixture_course_authority
 
@@ -88,6 +92,22 @@ def _assert_json_schema_rejects(testcase: unittest.TestCase, schema: dict[str, o
 
 
 class MobileContractTests(unittest.TestCase):
+    def test_package_venue_loop_directory_includes_current_and_sibling_nines(self) -> None:
+        # C96: package discovery must provide factual same-venue nines even when history/options
+        # are empty.  The expected rows come from CourseView nearby records, not client synthesis.
+        rows = _venue_loops_for_package(
+            31905,
+            venue_name="愉景灣",
+            segment_label="A",
+            holes=[{"par": 4} for _ in range(9)],
+            latitude=22.29,
+            longitude=114.27,
+        )
+        self.assertEqual(
+            [(row["globalId"], row["segmentLabel"], row["holeCount"], row["par"]) for row in rows],
+            [(31905, "A", 9, 36), (31906, "B", 9, 35)],
+        )
+
     def test_live_hazard_mapping_request_belongs_to_the_view_task(self) -> None:
         # C95 lifecycle contract: changing holes/leaving the view must cancel hazard work.
         source = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")

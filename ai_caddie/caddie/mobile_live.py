@@ -4204,6 +4204,23 @@ def build_live_round_package_for_course(
 
 
 LIVE_ROUND_PACKAGE_SCHEMA = "ai-caddie-live-round-package-v2"
+
+
+def _venue_loops_for_package(
+    global_id: int,
+    *,
+    venue_name: str | None,
+    segment_label: str | None,
+    holes: list[dict[str, Any]],
+    latitude: float | None = None,
+    longitude: float | None = None,
+) -> list[dict[str, Any]]:
+    """Return the CourseView nine-hole directory for a package's physical venue."""
+    # Interface stub for the first red behavior test; the implementation follows in the product
+    # commit.  The current loop is deliberately not synthesized here yet.
+    return []
+
+
 def _course_holes_with_identity(package: dict[str, Any], global_id: int) -> dict[str, Any]:
     """The course's holes with explicit physical identity on ``global_id``. A playable hole whose
     identity is missing is never filled from its round number: the course is then unresolved."""
