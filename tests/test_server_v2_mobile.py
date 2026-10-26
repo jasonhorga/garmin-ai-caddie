@@ -858,12 +858,26 @@ class ServerV2MobileTests(unittest.TestCase):
 
         with Sandbox() as sandbox:
             sandbox.seed()
-            response = sandbox.request('POST', 'annotations', json={
+            # Prime the product cache before the durable edits. The package reader must key the
+            # second read by the correction fingerprint, rather than serving the pre-edit round.
+            from server_v2 import mobile as mobile_service
+            with patch.object(
+                mobile_service,
+                'load_history_data_for_mode',
+                side_effect=lambda *, player_id='me': (stats_cache.cached_load_history_data(player_id), 'local'),
+            ), patch.object(mobile_service, 'MOBILE_ROOT', sandbox.root), \
+                 patch.object(mobile_service, 'ANNOTATION_ROOT', sandbox.root):
+                mobile_service.build_mobile_round_package_response(
+                    '101', captured_at='2026-05-25T08:00:00Z',
+                )
+            response = sandbox.correct({'op': 'setHolePenalty', 'hole': 1, 'value': 1,
+                                        'clientMutationId': 'mobile-penalty-1'})
+            self.assertEqual(response.status_code, 201, response.text)
+            score_response = sandbox.request('POST', 'annotations', json={
                 'targetType': 'hole', 'targetId': '101:1', 'kind': 'score_correction',
                 'payload': {'to': 6}, 'clientMutationId': 'mobile-score-6',
             })
-            self.assertEqual(response.status_code, 200, response.text)
-            from server_v2 import mobile as mobile_service
+            self.assertEqual(score_response.status_code, 200, score_response.text)
             with patch.object(
                 mobile_service,
                 'load_history_data_for_mode',

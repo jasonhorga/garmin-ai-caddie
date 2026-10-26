@@ -2294,12 +2294,12 @@ describe('App navigation', () => {
     expect(await screen.findByRole('heading', { name: '数据健康' })).toBeInTheDocument()
   })
 
-  it('publishes a completed signal refresh even when the next signal refresh is cancelled', async () => {
+  it('publishes the initial stats refresh when a later signal refresh is cancelled', async () => {
     let syncCalls = 0
     let statsCalls = 0
-    let resolveFirstRefresh!: (value: Response) => void
-    let secondRefreshSignal: AbortSignal | undefined
-    const firstRefresh = new Promise<Response>((resolve) => { resolveFirstRefresh = resolve })
+    let resolveInitial!: (value: Response) => void
+    let signalRefresh: AbortSignal | undefined
+    const initialRefresh = new Promise<Response>((resolve) => { resolveInitial = resolve })
     const published = {
       ...statsPayload(),
       dataQuality: [{ label: 'shots', state: 'ready', ready: 11, total: 11, refs: [] }],
@@ -2308,19 +2308,16 @@ describe('App navigation', () => {
       if (path === '/api/v2/readiness') return Promise.resolve({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) })
       if (String(path).startsWith('/api/v2/sync/garmin?') && init?.method === 'POST') {
         syncCalls += 1
-        if (syncCalls === 3) return Promise.reject(new DOMException('aborted', 'AbortError'))
+        if (syncCalls === 2) return Promise.reject(new Error('sync POST failed'))
         return Promise.resolve({ ok: true, json: async () => syncRunPayload() })
       }
       if (path === '/api/v2/history/stats') {
         statsCalls += 1
-        if (statsCalls === 2) return firstRefresh
-        if (statsCalls === 3) {
-          return new Promise<Response>((_resolve, reject) => {
-            secondRefreshSignal = init?.signal ?? undefined
-            init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
-          })
-        }
-        return Promise.resolve({ ok: true, json: async () => statsPayload() })
+        if (statsCalls === 1) return initialRefresh
+        return new Promise<Response>((_resolve, reject) => {
+          signalRefresh = init?.signal
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+        })
       }
       return Promise.resolve({
         ok: true,
@@ -2343,45 +2340,46 @@ describe('App navigation', () => {
 
     await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
     await waitFor(() => expect(statsCalls).toBe(2))
-    await act(async () => resolveFirstRefresh({ ok: true, json: async () => published } as Response))
+    await act(async () => resolveInitial({ ok: true, json: async () => published } as Response))
     expect(await screen.findByText('11/11')).toBeInTheDocument()
 
-    // The next refresh is the one that gets cancelled. The third sync POST is aborted before
-    // it can start another refresh, so the completed first response must remain visible.
+    // The second sync fails before it can start a successor refresh, but it still cancels #2.
     await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
-    await waitFor(() => expect(statsCalls).toBe(3))
-    await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
-    await waitFor(() => expect(syncCalls).toBe(3))
-    await waitFor(() => expect(secondRefreshSignal?.aborted).toBe(true))
+    await waitFor(() => expect(syncCalls).toBe(2))
+    await waitFor(() => expect(signalRefresh?.aborted).toBe(true))
     expect(screen.getByText('11/11')).toBeInTheDocument()
   })
 
-  it('publishes the latest completed signal refresh after two cancelled refreshes', async () => {
+  it('publishes the initial stats refresh after two different refresh controllers are cancelled', async () => {
     let syncCalls = 0
+    let sessionSaves = 0
     let statsCalls = 0
-    const refreshRequests: Array<{ signal?: AbortSignal; resolve: (value: Response) => void }> = []
-    const latest = {
+    let resolveInitial!: (value: Response) => void
+    const initialRefresh = new Promise<Response>((resolve) => { resolveInitial = resolve })
+    const refreshRequests: Array<{ signal?: AbortSignal }> = []
+    const published = {
       ...statsPayload(),
       dataQuality: [{ label: 'shots', state: 'ready', ready: 22, total: 22, refs: [] }],
     }
     const fetchMock = vi.fn((path: string, init?: RequestInit) => {
       if (path === '/api/v2/readiness') return Promise.resolve({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) })
+      if (path === '/api/v2/sync/garmin/session' && init?.method === 'POST') {
+        sessionSaves += 1
+        if (sessionSaves === 2) return Promise.reject(new Error('session save failed'))
+        return Promise.resolve({ ok: true, json: async () => ({}) })
+      }
       if (String(path).startsWith('/api/v2/sync/garmin?') && init?.method === 'POST') {
         syncCalls += 1
         return Promise.resolve({ ok: true, json: async () => syncRunPayload() })
       }
       if (path === '/api/v2/history/stats') {
         statsCalls += 1
-        if (statsCalls === 1) return Promise.resolve({ ok: true, json: async () => statsPayload() })
-        if (statsCalls < 4) {
-          return new Promise<Response>((resolve, reject) => {
-            const signal = init?.signal ?? undefined
-            const onAbort = () => reject(new DOMException('aborted', 'AbortError'))
-            signal?.addEventListener('abort', onAbort, { once: true })
-            refreshRequests.push({ signal, resolve })
-          })
-        }
-        return Promise.resolve({ ok: true, json: async () => latest })
+        if (statsCalls === 1) return initialRefresh
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal
+          signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
+          refreshRequests.push({ signal })
+        })
       }
       return Promise.resolve({
         ok: true,
@@ -2402,16 +2400,23 @@ describe('App navigation', () => {
     await userEvent.click(screen.getByRole('button', { name: '设置' }))
     expect(await screen.findByRole('heading', { name: '同步与数据健康' })).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
+    await userEvent.type(screen.getByLabelText('网页会话头'), 'Cookie: JWT_WEB=abc123')
+    await userEvent.type(screen.getByLabelText('防伪令牌'), 'connect-csrf-token: csrf-secret-value')
+    await userEvent.click(screen.getByRole('button', { name: '保存会话' }))
     await waitFor(() => expect(statsCalls).toBe(2))
+
     await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
     await waitFor(() => expect(statsCalls).toBe(3))
-    await userEvent.click(screen.getByRole('button', { name: '立即同步' }))
-    await waitFor(() => expect(statsCalls).toBe(4))
+
+    // Saving again aborts both the session-save refresh (#2) and sync refresh (#3); the failed
+    // POST means no #4 successor exists. The first, uncancelled request must still publish.
+    await userEvent.click(screen.getByRole('button', { name: '保存会话' }))
+    await waitFor(() => expect(sessionSaves).toBe(2))
     await waitFor(() => expect(refreshRequests[0]?.signal?.aborted).toBe(true))
     await waitFor(() => expect(refreshRequests[1]?.signal?.aborted).toBe(true))
+    await act(async () => resolveInitial({ ok: true, json: async () => published } as Response))
     expect(await screen.findByText('22/22')).toBeInTheDocument()
-    expect(syncCalls).toBe(3)
+    expect(syncCalls).toBe(1)
   })
 
   // The 报告 console was removed from the consumer history nav (de-engineer pass); the workspace is

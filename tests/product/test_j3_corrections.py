@@ -318,23 +318,20 @@ class CorrectionProductTests(unittest.TestCase):
         with Sandbox() as s:
             s.seed()
             response = s.request('POST', 'annotations', json={
-                'targetType': 'shot', 'targetId': '101:1:1', 'kind': 'club_correction',
-                'payload': {'from': '7I', 'to': '6I'}, 'clientMutationId': 'caddie-club-6i',
+                'targetType': 'shot', 'targetId': '101:1:1', 'kind': 'lie_correction',
+                'payload': {'from': 'Fairway', 'to': 'Bunker'}, 'clientMutationId': 'caddie-lie-bunker',
             })
             self.assertEqual(response.status_code, 200, response.text)
-            context = s.get('caddie/context?source_ref=101:1&shot_type=approach&distance_to_pin_m=100')
-            profiles = context['context']['clubProfiles']
-            self.assertIn('6I', profiles)
-            self.assertNotIn('7I', profiles)
-            self.assertEqual(profiles['6I']['median'], 100)
+            context = s.get('caddie/context?source_ref=101:1:1&shot_type=approach')
+            self.assertEqual(context['context']['lie'], 'Bunker')
 
-    def test_c53_caddie_context_reads_added_shot_from_raw_history(self):
+    def test_c53_caddie_context_reads_corrected_distance_from_raw_history(self):
         with Sandbox() as s:
             prepare(s, snapshot=False)
-            self.assertEqual(s.correct({'op': 'addShot', 'hole': 1, 'px': [280, 440],
-                                        'club': 'SW', 'lie': 'Bunker'}).status_code, 201)
-            context = s.get('caddie/context?source_ref=101:1&shot_type=approach&distance_to_pin_m=100')
-            self.assertEqual(context['context']['clubProfiles']['SW']['sampleSize'], 1)
+            self.assertEqual(s.correct({'op': 'editField', 'shotId': 's:101:2',
+                                        'field': 'position', 'value': [280, 440]}).status_code, 201)
+            context = s.get('caddie/context?source_ref=101:1:1&shot_type=approach')
+            self.assertEqual(context['context']['distanceToPin_m'], 93.0)
 
     def test_c53_course_prep_ladder_reads_one_annotation_over_raw_history(self):
         with Sandbox() as s:
