@@ -30,6 +30,7 @@ final class ProductPhoneUITests: XCTestCase {
         if reset {
             app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
             app.launchEnvironment["UITEST_RESET_COURSE_LIBRARY"] = "1"
+            app.launchEnvironment["UITEST_RESET_RESULTS_CACHE"] = "1"
         }
         if let latitude {
             app.launchEnvironment["UITEST_GPS_LAT"] = latitude

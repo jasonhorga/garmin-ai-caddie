@@ -103,9 +103,19 @@ final class RealFlowUITests: XCTestCase {
             map.swipeLeft()
         }
         XCTAssertTrue(app.staticTexts["第 10 洞"].waitForExistence(timeout: 30))
+        let backNineReady = app.staticTexts.matching(
+            NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "live-round-banner", "记第一杆即开打")
+        ).firstMatch
+        XCTAssertTrue(
+            backNineReady.waitForExistence(timeout: 20),
+            "the follow-hole simulator must move GPS to hole 10's tee before recording the first stroke"
+        )
         let record = app.buttons["live-record-shot"]
         XCTAssertTrue(record.waitForExistence(timeout: 10) && record.isHittable)
         record.tap()
+        let skipClub = app.buttons["跳过球杆（位置已记录）"]
+        XCTAssertTrue(skipClub.waitForExistence(timeout: 8), "the first-stroke club sheet must be dismissed before undo")
+        skipClub.tap()
         let undo = app.buttons["live-undo-round-start"]
         XCTAssertTrue(undo.waitForExistence(timeout: 15))
         undo.tap()
@@ -151,6 +161,9 @@ final class RealFlowUITests: XCTestCase {
         let record = app.buttons["live-record-shot"]
         XCTAssertTrue(record.waitForExistence(timeout: 10) && record.isHittable)
         record.tap()
+        let skipClub = app.buttons["跳过球杆（位置已记录）"]
+        XCTAssertTrue(skipClub.waitForExistence(timeout: 8), "the first-stroke club sheet must be dismissed before undo")
+        skipClub.tap()
         let undo = app.buttons["live-undo-round-start"]
         XCTAssertTrue(undo.waitForExistence(timeout: 15), "first stroke must promote the same hole screen")
         settle(1); save("c30-prep-after-start"); dump("c30-prep-after-start")
