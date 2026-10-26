@@ -8,9 +8,10 @@ an HTTP 200 unavailable response so the client keeps its existing map fallback.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from io import BytesIO
 import logging
+import os
 import threading
 from typing import Any
 
@@ -40,11 +41,8 @@ def _register_lock(global_id: int, hole: int, version: str) -> threading.RLock:
         return _REGISTER_LOCKS.setdefault(key, threading.RLock())
 
 
-def _path(global_id: int, hole: int) -> str:
-    return f"/api/v2/courses/{int(global_id)}/holes/{int(hole)}/garmin-raster.jpg"
-
-
 def _versioned_path(global_id: int, hole: int, version: str) -> str:
+    # The round package names this same URL (mobile_live), so a prefetched image is a cache hit.
     return garmin_raster.raster_image_path(global_id, hole, version)
 
 
@@ -66,7 +64,11 @@ def _asset_version(global_id: int, hole: int) -> str | None:
 
 
 def _projection_result(global_id: int, hole: int, version: str) -> dict[str, Any] | None:
-    return garmin_raster.load_projection_cache(global_id, hole, version)
+    result = garmin_raster.load_projection_cache(global_id, hole, version)
+    if result is not None and result.get("imageUrl"):
+        # A result cached before the PNG named the JPEG; the projection is the same pixel frame.
+        result["imageUrl"] = _versioned_path(global_id, hole, version)
+    return result
 
 
 def _authority_ready(global_id: int, hole: int) -> bool:
@@ -155,21 +157,79 @@ def course_hole_garmin_raster_png(
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     try:
-        image = garmin_raster.fetch_raster(global_id, hole)
+        image = garmin_raster.fetch_matted_raster(global_id, hole, asset)
     except Exception as exc:
-        logger.warning("garmin raster fetch failed: %s", type(exc).__name__)
+        logger.warning("garmin raster matte failed: %s", type(exc).__name__)
         image = None
     if not image:
         raise HTTPException(status_code=404, detail="garmin raster unavailable")
-    return Response(content=image, media_type="image/jpeg", headers=headers)
+    return Response(content=image, media_type="image/png", headers=headers)
 
 
+# Install-time warm-up: a small pool so a course's 18 Garmin downloads never crowd the API, and
+# a remembered key per asset version so repeated install passes queue each hole once.
+_PREFETCH_WORKERS = 2
+_PREFETCH_POOL: ThreadPoolExecutor | None = None
+_PREFETCH_GUARD = threading.Lock()
 _PREFETCHED: set[tuple[int, int, str]] = set()
 
 
+def _prefetch_pool() -> ThreadPoolExecutor:
+    global _PREFETCH_POOL
+    with _PREFETCH_GUARD:
+        if _PREFETCH_POOL is None:
+            _PREFETCH_POOL = ThreadPoolExecutor(
+                max_workers=_PREFETCH_WORKERS, thread_name_prefix="garmin-raster-prefetch"
+            )
+        return _PREFETCH_POOL
+
+
+def _warm_hole(global_id: int, hole: int, key: tuple[int, int, str]) -> bool:
+    """Bring one hole's PNG (and so its JPEG) and its projection into the server cache."""
+    try:
+        warmed = garmin_raster.fetch_matted_raster(global_id, hole) is not None
+        if warmed:
+            course_hole_garmin_raster(global_id, hole)
+    except Exception as exc:  # noqa: BLE001 - a warm-up failure is retried by a later pass
+        logger.warning("garmin raster prefetch failed: %s", type(exc).__name__)
+        warmed = False
+    if not warmed:
+        with _PREFETCH_GUARD:
+            _PREFETCHED.discard(key)
+    return warmed
+
+
 def prefetch_holes(holes: Iterable[tuple[int, int]]) -> list[Future]:
-    """Queue Garmin raster warm-up for ``(globalId, localHole)`` pairs in the given order."""
-    return []
+    """Queue Garmin raster warm-up for ``(globalId, localHole)`` pairs in the given (play) order.
+
+    Queuing runs inside an install pass, so it reads only the cached release (holes without one
+    wait for a later pass), never contacts Garmin and never raises.  Returns the futures of newly
+    queued holes.
+    """
+    if os.environ.get("AI_CADDIE_GARMIN_RASTER_PREFETCH", "1") == "0":
+        return []
+    futures: list[Future] = []
+    for global_id, hole in holes:
+        try:
+            if int(global_id) <= 0 or int(hole) <= 0:
+                continue
+            version = garmin_raster.raster_asset_version(int(global_id), int(hole), allow_fetch=False)
+            if not version:
+                continue
+            key = (int(global_id), int(hole), str(version))
+            with _PREFETCH_GUARD:
+                if key in _PREFETCHED:
+                    continue
+                _PREFETCHED.add(key)
+            try:
+                futures.append(_prefetch_pool().submit(_warm_hole, int(global_id), int(hole), key))
+            except RuntimeError:  # the pool is shutting down with the process
+                with _PREFETCH_GUARD:
+                    _PREFETCHED.discard(key)
+                break
+        except Exception as exc:  # noqa: BLE001 - warm-up is optional; the install must proceed
+            logger.warning("garmin raster prefetch skipped: %s", type(exc).__name__)
+    return futures
 
 
 @ROUTER.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster")

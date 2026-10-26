@@ -40,6 +40,14 @@ logger = logging.getLogger(__name__)
 _CACHE_LOCKS: dict[tuple[int, int, str], threading.RLock] = {}
 _CACHE_LOCKS_GUARD = threading.Lock()
 PROJECTION_CACHE_SCHEMA = "garmin-raster-projection-v2"
+# The transparent-sky PNG's own version, appended to Garmin's asset version in its URL, so a
+# changed matte never reuses a phone's older bytes.
+RASTER_MATTE_VERSION = "sky1"
+# Garmin bakes a flat sky colour around the course.  Pixels within this per-channel distance of the
+# sky measured on the image's border are sky; JPEG ringing next to it is within the wider fringe.
+SKY_TOLERANCE = 40
+SKY_FRINGE_TOLERANCE = 80
+SKY_FRINGE_PIXELS = 2
 _SAFE_PART = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
@@ -133,22 +141,28 @@ def raster_asset_version(global_id: int, hole: object, *, allow_fetch: bool = Tr
     ``allow_fetch=False`` reads only the cached release, for callers (the round package) that
     must describe the raster without contacting Garmin.
     """
-    url, version = _raster_url(int(global_id), hole, allow_fetch=allow_fetch)
+    try:
+        url, version = _raster_url(int(global_id), hole, allow_fetch=allow_fetch)
+    except (TypeError, ValueError, OverflowError):
+        return None
     return version if url else None
 
 
 def raster_image_version(asset: str) -> str:
     """The PNG's version: Garmin's asset version plus the sky matte that produced the pixels."""
-    return str(asset)
+    return f"{asset}-{RASTER_MATTE_VERSION}"
 
 
 def raster_image_path(global_id: int, hole: int, asset: str | None) -> str:
     """The one image URL both the round package and the metadata endpoint give the phone.
 
-    Without a known asset version this is the legacy unversioned JPEG route.
+    The phone caches by the whole URL, so both must be this exact string.  Without a known asset
+    version this is the legacy unversioned JPEG route (an old package's shape).
     """
-    base = f"/api/v2/courses/{int(global_id)}/holes/{int(hole)}/garmin-raster.jpg"
-    return f"{base}?v={asset}" if asset else base
+    base = f"/api/v2/courses/{int(global_id)}/holes/{int(hole)}"
+    if not asset:
+        return f"{base}/garmin-raster.jpg"
+    return f"{base}/garmin-raster.png?v={raster_image_version(asset)}"
 
 
 def _raster_url(global_id: int, hole: object, *, allow_fetch: bool = True) -> tuple[str | None, str | None]:
@@ -218,16 +232,60 @@ def fetch_raster(global_id: int, hole: object) -> bytes | None:
     return data
 
 
+def _sky_mask(array: np.ndarray) -> np.ndarray:
+    """Sky connected to the image border: what lies outside the course, never water inside it.
+
+    Candidates use the registration's sky threshold (``_land_mask``); the sky colour itself is
+    measured on the border rather than assumed.  Only candidates flooded from the border are sky,
+    so a pond (however blue) enclosed by land stays.  The flood then grows a couple of pixels into
+    near-sky colours to take the JPEG ringing along the course edge.
+    """
+    height, width = array.shape[:2]
+    land = _land_mask(array)
+    if land is None:
+        return np.zeros((height, width), dtype=bool)
+    candidate = ~land
+    border = np.zeros((height, width), dtype=bool)
+    border[0, :] = border[-1, :] = border[:, 0] = border[:, -1] = True
+    seeds = candidate & border
+    if not seeds.any():
+        return np.zeros((height, width), dtype=bool)
+    rgb = array[..., :3].astype(np.int16)
+    sky = np.median(rgb[seeds], axis=0)
+    distance = np.abs(rgb - sky).max(axis=2)
+    labels = _component_labels(candidate & (distance <= SKY_TOLERANCE))
+    edge = np.unique(np.concatenate((labels[0], labels[-1], labels[:, 0], labels[:, -1])))
+    outside = np.isin(labels, edge[edge > 0])
+    fringe = distance <= SKY_FRINGE_TOLERANCE
+    for _ in range(SKY_FRINGE_PIXELS):
+        grown = outside.copy()
+        grown[1:] |= outside[:-1]
+        grown[:-1] |= outside[1:]
+        grown[:, 1:] |= outside[:, :-1]
+        grown[:, :-1] |= outside[:, 1:]
+        outside |= grown & fringe
+    return outside
+
+
 def matte_sky(image: object) -> Image.Image | None:
-    """Garmin's raster as RGBA."""
+    """Garmin's raster as RGBA with the sky around the course made transparent.
+
+    The pixel frame is unchanged, so the registration projection of the JPEG applies as is.
+    """
     array = _image_array(image)
-    if array is None:
+    if array is None or array.ndim != 3 or array.shape[0] < 3 or array.shape[1] < 3:
         return None
-    return Image.fromarray(np.ascontiguousarray(array, dtype=np.uint8), "RGB").convert("RGBA")
+    rgba = np.empty((*array.shape[:2], 4), dtype=np.uint8)
+    rgba[..., :3] = array[..., :3]
+    rgba[..., 3] = 255
+    sky = _sky_mask(array)
+    # Clear the colour too: a transparent pixel carries no sky into resampled edges.
+    rgba[sky] = 0
+    return Image.fromarray(rgba, "RGBA")
 
 
 def matte_sky_png(data: bytes) -> bytes | None:
-    """Encode ``matte_sky`` of JPEG bytes as PNG."""
+    """Encode ``matte_sky`` of Garmin's JPEG bytes as PNG."""
     matted = matte_sky(data)
     if matted is None:
         return None
@@ -236,10 +294,54 @@ def matte_sky_png(data: bytes) -> bytes | None:
     return buffer.getvalue()
 
 
-def fetch_matted_raster(global_id: int, hole: object) -> bytes | None:
-    """The hole's raster as a PNG."""
-    data = fetch_raster(global_id, hole)
-    return matte_sky_png(data) if data else None
+def _matte_path(global_id: int, hole: object, version: str) -> Path:
+    return Path(RASTER_CACHE_DIR) / (
+        f"gid{int(global_id)}_h{_hole_number(hole):02d}_{_safe_part(version)}.{RASTER_MATTE_VERSION}.png"
+    )
+
+
+def fetch_matted_raster(global_id: int, hole: object, version: str | None = None) -> bytes | None:
+    """The hole's transparent-sky PNG, derived once from the cached JPEG and kept beside it.
+
+    ``version`` is the asset version a caller has already resolved; otherwise the release is read.
+    """
+    if not version:
+        url, version = _raster_url(int(global_id), hole)
+        if not url or not version:
+            return None
+    path = _matte_path(int(global_id), hole, version)
+    lock = _cache_lock(int(global_id), _hole_number(hole), f"{version}.{RASTER_MATTE_VERSION}")
+    with lock:
+        try:
+            if path.is_file():
+                data = path.read_bytes()
+                if data:
+                    with Image.open(BytesIO(data)) as decoded:
+                        decoded.verify()
+                    return data
+        except Exception:
+            pass
+        source = fetch_raster(int(global_id), hole)
+        if not source:
+            return None
+        try:
+            data = matte_sky_png(source)
+        except Exception as exc:
+            logger.warning("garmin raster matte failed: %s", type(exc).__name__)
+            return None
+        if not data:
+            return None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+            temporary.write_bytes(data)
+            os.replace(temporary, path)
+        except OSError:
+            try:
+                temporary.unlink(missing_ok=True)
+            except (NameError, OSError):
+                pass
+        return data
 
 
 def _image_array(image: object) -> np.ndarray | None:
@@ -271,43 +373,21 @@ def _land_mask(image: object) -> np.ndarray | None:
     return ~background
 
 
-def _main_component(mask: np.ndarray) -> np.ndarray | None:
-    """Return the largest foreground component touching the centre search window.
+def _component_labels(mask: np.ndarray) -> np.ndarray:
+    """Label the 4-connected components of ``mask``: one shared positive id each, 0 elsewhere.
 
-    A small run-length connected-component pass avoids a dependency on cv2 in
-    the pure registration function while preserving exact pixel bounds.
+    A small run-length union-find pass avoids a dependency on cv2 in the pure registration and
+    matte functions while preserving exact pixels.
     """
     height, width = mask.shape
     labels = np.zeros((height, width), dtype=np.int32)
     parent = [0]
-    area = [0]
-    bounds: list[list[int]] = [[height, -1, width, -1]]
-
-    def new_label() -> int:
-        parent.append(len(parent))
-        area.append(0)
-        bounds.append([height, -1, width, -1])
-        return len(parent) - 1
 
     def find(value: int) -> int:
         while parent[value] != value:
             parent[value] = parent[parent[value]]
             value = parent[value]
         return value
-
-    def union(left: int, right: int) -> int:
-        left, right = find(left), find(right)
-        if left == right:
-            return left
-        if area[left] < area[right]:
-            left, right = right, left
-        parent[right] = left
-        area[left] += area[right]
-        bounds[left][0] = min(bounds[left][0], bounds[right][0])
-        bounds[left][1] = max(bounds[left][1], bounds[right][1])
-        bounds[left][2] = min(bounds[left][2], bounds[right][2])
-        bounds[left][3] = max(bounds[left][3], bounds[right][3])
-        return left
 
     previous: list[tuple[int, int, int]] = []
     for y in range(height):
@@ -320,30 +400,30 @@ def _main_component(mask: np.ndarray) -> np.ndarray | None:
         current: list[tuple[int, int, int]] = []
         previous_index = 0
         for start, end in zip(starts.tolist(), ends.tolist()):
-            label = new_label()
+            label = len(parent)
+            parent.append(label)
             while previous_index < len(previous) and previous[previous_index][1] < start:
                 previous_index += 1
             index = previous_index
-            overlaps: list[int] = []
             while index < len(previous) and previous[index][0] <= end:
-                overlaps.append(previous[index][2])
+                root, other = find(label), find(previous[index][2])
+                if root != other:
+                    parent[max(root, other)] = min(root, other)
                 index += 1
-            for other in overlaps:
-                label = union(label, other)
-            run_length = int(end - start + 1)
-            root = find(label)
-            area[root] += run_length
-            bounds[root][0] = min(bounds[root][0], y)
-            bounds[root][1] = max(bounds[root][1], y)
-            bounds[root][2] = min(bounds[root][2], int(start))
-            bounds[root][3] = max(bounds[root][3], int(end))
             labels[y, start : end + 1] = label
             current.append((int(start), int(end), label))
         previous = current
 
-    roots = [index for index in range(1, len(parent)) if find(index) == index and area[index] > 0]
-    if not roots:
-        return None
+    roots_by_label = np.arange(len(parent), dtype=np.int32)
+    for label in range(1, len(parent)):
+        roots_by_label[label] = find(label)
+    return roots_by_label[labels]
+
+
+def _main_component(mask: np.ndarray) -> np.ndarray | None:
+    """Return the foreground component holding the centre search window's median land pixel."""
+    height, width = mask.shape
+    labels = _component_labels(mask)
     # closed3 seeds the component from the median land pixel in this exact central window.  The
     # seed is deliberately a geometric statistic rather than "largest nearby blob", which lets a
     # narrow fairway win even when a distant rough polygon has more pixels.
@@ -354,18 +434,14 @@ def _main_component(mask: np.ndarray) -> np.ndarray | None:
         return None
     seed_y = int(round(float(np.median(ys + window_y0))))
     seed_x = int(round(float(np.median(xs + window_x0))))
-    seed_label = int(labels[seed_y, seed_x])
-    if seed_label == 0:
+    selected = int(labels[seed_y, seed_x])
+    if selected == 0:
         distances = (ys + window_y0 - seed_y) ** 2 + (xs + window_x0 - seed_x) ** 2
         index = int(np.argmin(distances))
-        seed_label = int(labels[int(ys[index] + window_y0), int(xs[index] + window_x0)])
-    selected = find(seed_label) if seed_label else 0
-    if selected == 0 or selected not in roots:
+        selected = int(labels[int(ys[index] + window_y0), int(xs[index] + window_x0)])
+    if selected == 0:
         return None
-    roots_by_label = np.arange(len(parent), dtype=np.int32)
-    for label in range(1, len(parent)):
-        roots_by_label[label] = find(label)
-    return roots_by_label[labels] == selected
+    return labels == selected
 
 
 def _mesh_rows(meshes: object) -> dict[str, tuple[np.ndarray, np.ndarray]]:

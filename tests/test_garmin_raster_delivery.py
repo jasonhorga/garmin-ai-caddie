@@ -18,6 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from fastapi import HTTPException
+import numpy as np
 from PIL import Image, ImageDraw
 from starlette.requests import Request
 
@@ -139,6 +140,10 @@ class SkyMatteTests(unittest.TestCase):
         red, green, blue, alpha = image.getpixel((620, 960))
         self.assertEqual(alpha, 255)
         self.assertLessEqual(max(abs(red - LAND[0]), abs(green - LAND[1]), abs(blue - LAND[2])), 8)
+        # No blue halo: no opaque pixel anywhere is still within the sky's colour tolerance.
+        pixels = np.asarray(image).astype(np.int16)
+        skyish = np.abs(pixels[..., :3] - np.array(SKY)).max(axis=2) <= 40
+        self.assertEqual(int((skyish & (pixels[..., 3] > 0)).sum()), 0)
 
     def test_ponds_inside_the_course_stay_opaque(self) -> None:
         # Worst case: one pond painted exactly the sky colour, one a typical water blue. Only land
@@ -242,6 +247,16 @@ class PrefetchTests(unittest.TestCase):
             for future in raster_api.prefetch_holes([(7, 3)]):
                 future.result(timeout=30)
         self.assertEqual(fetch.call_count, 2)
+
+    def test_prefetch_is_off_when_disabled(self) -> None:
+        with (
+            patch.dict(os.environ, {"AI_CADDIE_GARMIN_RASTER_PREFETCH": "0"}),
+            patch.object(raster_api, "_PREFETCHED", set()),
+            patch.object(garmin_raster, "raster_asset_version", return_value="777"),
+            patch.object(garmin_raster, "fetch_matted_raster") as fetch,
+        ):
+            self.assertEqual(raster_api.prefetch_holes([(7, 3)]), [])
+        fetch.assert_not_called()
 
     def test_selected_course_install_prefetches_rasters_from_the_current_hole(self) -> None:
         from server_v2 import course_install, main as server_main

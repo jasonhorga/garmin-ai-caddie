@@ -2214,6 +2214,13 @@ def run_course_install_job(identifier: str) -> None:
         ),
     )
     ordered_rows = play_order(ordered_rows, current_hole)
+    if priority < NEARBY:
+        # Garmin's hole images need only the release, not geometry: warm the whole course in play
+        # order on the raster's own small pool, so a hole the player pages to before its precise
+        # map exists is already local. Repeated passes queue each hole once.
+        prefetch_garmin_rasters([
+            (int(row.get("globalId") or 0), int(row.get("localHole") or 0)) for row in ordered_rows
+        ])
     pending_rows = [
         row for row in ordered_rows
         if row.get("geometry") in {"queued", "running"}
