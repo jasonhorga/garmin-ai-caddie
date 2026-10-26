@@ -575,6 +575,74 @@ class CourseSearchEndpointTests(unittest.TestCase):
         self.assertIn((31794, False), lookups)
         self.assertNotIn(True, [allow_fetch for _gid, allow_fetch in lookups])
 
+    def test_nearby_endpoint_carries_tee_options_only_for_the_nearest_three(self) -> None:
+        # C87 rework: Tee rows cost a release decode and a per-hole geometry pass, so only the three
+        # nearest courses (the same three the release prefetch warms) carry them; every other row
+        # stays metadata-only and asks GET /tees when selected.
+        from ai_caddie.courses import course_search
+        from server_v2 import main as server_main
+
+        # Provider order is not distance order: the nearest three are gids 2 (0.1 km), 4 and 5.
+        distances = {1: 0.5, 2: 0.1, 3: 0.4, 4: 0.2, 5: 0.3}
+        canned = [
+            course_search.CourseMatch(gid, f"Venue ~ {gid}", 9, "北京", "北京", 0.0, 40.0, 116.5, km)
+            for gid, km in distances.items()
+        ]
+        with (
+            patch.object(server_main.course_search, "courseview_nearby", return_value=canned),
+            patch.object(server_main, "_reconcile_player_course_matches", return_value=canned),
+            patch("server_v2.map_startup.enqueue_nearby"),
+            patch("server_v2.map_startup.prefetch_nearby_releases"),
+            patch(
+                "ai_caddie.courses.course_reference.courseview_tees",
+                return_value=[{"name": "Blue", "gender": "MEN", "index": 1}],
+            ) as release_tees,
+            patch("ai_caddie.caddie.analysis.available_prep_holes", return_value=[]),
+        ):
+            response = self._client().get(
+                "/api/v2/courses/nearby",
+                params={"latitude": 40.0, "longitude": 116.5, "radius_km": 50},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        rows = response.json()["matches"]
+        self.assertEqual(len(rows), 5)
+        self.assertEqual(sorted(row["globalId"] for row in rows if "teeOptions" in row), [2, 4, 5])
+        self.assertEqual(sorted(c.args[0] for c in release_tees.call_args_list), [2, 4, 5])
+
+    def test_nearby_tee_options_are_reused_while_the_release_file_is_unchanged(self) -> None:
+        # C87 rework: repeated phone/Watch discoveries over an unchanged cached release must not
+        # decode the release or walk the course's geometry again.
+        from ai_caddie.courses import course_search
+        from server_v2 import main as server_main
+
+        canned = [course_search.CourseMatch(41087, "Venue ~ A", 9, "北京", "北京", 0.0, 40.0, 116.5, 0.1)]
+        with (
+            patch.object(server_main.course_search, "courseview_nearby", return_value=canned),
+            patch.object(server_main, "_reconcile_player_course_matches", return_value=canned),
+            patch("server_v2.map_startup.enqueue_nearby"),
+            patch("server_v2.map_startup.prefetch_nearby_releases"),
+            # The cached release file's (mtime_ns, size, inode); unchanged between both requests.
+            patch(
+                "ai_caddie.courses.course_reference.courseview_release_signature",
+                return_value=(1_700_000_000_000_000_000, 2048, 87),
+                create=True,
+            ),
+            patch(
+                "ai_caddie.courses.course_reference.courseview_tees",
+                return_value=[{"name": "Blue", "gender": "MEN", "index": 1}],
+            ) as release_tees,
+            patch("ai_caddie.caddie.analysis.available_prep_holes", return_value=[]) as holes,
+        ):
+            params = {"latitude": 40.0, "longitude": 116.5, "radius_km": 50}
+            first = self._client().get("/api/v2/courses/nearby", params=params)
+            second = self._client().get("/api/v2/courses/nearby", params=params)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.json()["matches"][0]["teeOptions"], first.json()["matches"][0]["teeOptions"])
+        self.assertEqual(release_tees.call_count, 1)
+        self.assertEqual(holes.call_count, 1)
+
     def test_nearby_endpoint_prefetches_tee_releases_after_responding(self) -> None:
         from ai_caddie.courses import course_search
         from server_v2 import main as server_main
