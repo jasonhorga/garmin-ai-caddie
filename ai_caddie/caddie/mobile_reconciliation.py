@@ -101,13 +101,30 @@ def _reconciliation_hole_map(
     for hole, display, physical, side in hole_sides(round_row):
         gid = _safe_int(hole.get("sourceGlobalId")) or (back_gid if side == "back" and back_gid else front_gid)
         local = _safe_int(hole.get("sourceLocalHole") or hole.get("localHole")) or physical
-        if not round_row.get("merged") and not (hole.get("sourceLocalHole") or hole.get("localHole")):
+        if not (hole.get("sourceLocalHole") or hole.get("localHole")):
+            if round_row.get("merged") and side == "back":
+                # The merge renumbers the second card 10..18 and hole_sides exposes its
+                # ordinal 1..9. Its physical half comes from the saved loop, not that ordinal.
+                # The first card's physical numbering and explicit localHole stay authoritative.
+                loops = identity["roundLoops"]
+                index = 1 if side == "back" else 0
+                loop = loops[index] if index < len(loops) and loops[index]["globalId"] == gid else None
+                if loop is None:
+                    candidates = [row for row in loops if row["globalId"] == gid]
+                    loop = candidates[0] if len(candidates) == 1 else None
+                if loop is not None:
+                    local = loop["sourceStartHole"] + (display - 1) % 9
             # Distinct second courses and nine-hole A+A loops restart physical holes at 1.
             # A single 18-hole course retains physical 10..18, regardless of its start hole.
-            if display > 9 and (gid in nine_gids or (back_gid and back_gid != front_gid)):
+            elif (not round_row.get("merged") and display > 9
+                  and (gid in nine_gids or (back_gid and back_gid != front_gid))):
                 local = display - 9
         if gid is not None:
             garmin_visits.setdefault((gid, local), []).append(display)
+
+    if not garmin_visits:
+        # A card without any course identity has only the legacy display axis to compare.
+        return None
 
     visits: dict[tuple[int, int], int] = {}
     mapping: dict[int, int] = {}
@@ -435,10 +452,12 @@ def reconcile_mobile_round_events(
             local_hole = _safe_int(event.get("hole")) or 0
             if local_hole > 0:
                 if local_hole not in hole_map:
-                    # An authoritative table must never silently fall back to a different
-                    # physical hole with the same display number and suggest a wrong correction.
-                    raise MobileRoundIdentityError("mobile_round_hole_identity_unresolved")
-                event = {**event, "hole": hole_map[local_hole]}
+                    # Garmin may have uploaded only part of the round. Keep missing holes
+                    # local-only; reject a fallback only if it would use another physical hole.
+                    if local_hole in scores or any(shot["hole"] == local_hole for shot in shots):
+                        raise MobileRoundIdentityError("mobile_round_hole_identity_unresolved")
+                else:
+                    event = {**event, "hole": hole_map[local_hole]}
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         kind = str(event.get("kind") or "")
         hole = _safe_int(event.get("hole")) or 0

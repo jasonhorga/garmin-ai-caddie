@@ -65,6 +65,25 @@ class MobileReconciliationTests(unittest.TestCase):
     def test_saved_identity_matches_merged_two_back_nines_of_eighteen_hole_course(self) -> None:
         self._assert_merged_eighteen_hole_halves_match("back")
 
+    def test_single_back_loop_matches_second_merged_card_without_rebinding_first_card(self) -> None:
+        # The first card still proves physical 1..9. A phone back-nine-only round must consume
+        # the second card's display refs 10..18, even though the phone has just one loop row.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "back-only", [(55555, "back")])
+            append_event_batch("back-only", [{
+                "eventId": f"score-{n}", "roundId": "back-only", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 10)], idempotency_key="back-only", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "back-only", "globalId": 55555, "merged": True,
+                "holes": [{"number": n, "strokes": 4 if n <= 9 else 5} for n in range(1, 19)],
+            }], shots=[])
+            result = reconcile_mobile_round_events("back-only", data, root=root)
+            self.assertEqual([r["ref"] for r in result["matched"]],
+                             [f"back-only:{n}" for n in range(10, 19)])
+            self.assertEqual(result["annotationSuggestions"], [])
+
     def _assert_merged_eighteen_hole_halves_match(self, first_half: str) -> None:
         from ai_caddie.history.history import merge_same_day_halves
 
@@ -137,6 +156,39 @@ class MobileReconciliationTests(unittest.TestCase):
             self.assertEqual([r["ref"] for r in result["matched"]],
                              [f"expand:{n}" for n in range(1, 19)])
             self.assertEqual(result["annotationSuggestions"], [])
+
+    def test_first_nine_events_can_gain_identity_without_changing_physical_holes(self) -> None:
+        # Offline first-nine front/all events retain physical 1..9 when validation arrives late.
+        for loops in ([(55555, "front"), (55555, "back")], [(31796, "all"), (31796, "all")]):
+            with self.subTest(loops=loops), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                append_event_batch("offline", [{
+                    "eventId": f"score-{n}", "roundId": "offline", "hole": n,
+                    "kind": "score", "payload": {"strokes": 5},
+                } for n in range(1, 10)], idempotency_key="offline", root=root)
+                _save_identity(root, "offline", loops)
+                self.assertEqual(load_mobile_round_identity("offline", root=root)["loopKey"],
+                                 "55555:front+55555:back" if loops[0][0] == 55555
+                                 else "31796:all+31796:all")
+
+    def test_corrupt_identity_logs_and_reconciles_on_legacy_display_axis(self) -> None:
+        for content in (b"{broken", b"{}", b"[]", b"\xff"):
+            with self.subTest(content=content), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                _save_identity(root, "corrupt", [(55555, "back")])
+                path = next(root.rglob("round_identity/*.json"))
+                path.write_bytes(content)
+                append_event_batch("corrupt", [{
+                    "eventId": "legacy", "roundId": "corrupt", "hole": 1,
+                    "startHole": 1, "kind": "score", "payload": {"strokes": 5},
+                }], idempotency_key="corrupt", root=root)
+                data = HistoryData(raw_rounds=[], rounds=[{
+                    "id": "corrupt", "globalId": 55555, "holes": [{"number": 1, "strokes": 5}],
+                }], shots=[])
+                with self.assertLogs("ai_caddie.caddie.mobile_round_identity", level="WARNING"):
+                    result = reconcile_mobile_round_events("corrupt", data, root=root)
+                self.assertEqual([r["ref"] for r in result["matched"]], ["corrupt:1"])
+                self.assertEqual(result["annotationSuggestions"], [])
 
     def test_mapped_suggestion_applies_to_original_garmin_ref_and_reconciles_all_facts(self) -> None:
         data = HistoryData(raw_rounds=[], rounds=[{
@@ -397,8 +449,8 @@ class MobileReconciliationTests(unittest.TestCase):
         self.assertEqual(result["localOnly"], [])
         self.assertEqual(result["annotationSuggestions"], [])
 
-    def test_package_display_holes_reconcile_three_garmin_round_shapes(self) -> None:
-        """Phone events use package display holes for back starts, mixed nines, and A+A laps.
+    def test_legacy_display_holes_reconcile_three_garmin_round_shapes(self) -> None:
+        """Legacy streams without saved identities use display holes for all three shapes.
 
         The first shape is Garmin's legacy merged representation when the player started on the
         physical back nine: both scorecards are stored as 10..18, while the package presents the

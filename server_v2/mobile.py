@@ -568,6 +568,7 @@ def build_mobile_round_package_response(
         return LiveRoundPackageResponse(**package)
 
     package = _package_singleflight(key, build, fallback=lambda: build(cache_only=True))
+    _persist_mobile_package_identity(package, player_id=player_id)
     mark_request_stage("serialization")
     return _bind_package_event_cursor(
         package,
@@ -692,18 +693,9 @@ def build_mobile_course_package_response(
         captured_at=captured_at,
         player_id=player_id,
     )
-    # Persist only the proven per-round physical identity, after the shared package is rebound.
     # Course downloads without a caller round id are templates, not live round starts.
-    if round_id and package.roundLoops:
-        try:
-            with _mobile_materialization_lock(player_id):
-                save_mobile_round_identity(
-                    str(package.roundId),
-                    [row.model_dump() for row in package.roundLoops], package.loopKey,
-                    package.holes, root=MOBILE_ROOT, player_id=player_id,
-                )
-        except MobileRoundIdentityError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if round_id:
+        _persist_mobile_package_identity(package, player_id=player_id)
     mark_request_stage("serialization")
     return _bind_package_event_cursor(
         package,
@@ -712,6 +704,19 @@ def build_mobile_course_package_response(
         player_id=player_id,
         include_event_cursor=include_event_cursor,
     )
+
+
+def _persist_mobile_package_identity(package: LiveRoundPackageResponse, *, player_id: str) -> None:
+    if not package.roundLoops:
+        return
+    try:
+        save_mobile_round_identity(
+            str(package.roundId), [row.model_dump() for row in package.roundLoops],
+            package.loopKey, package.holes, root=MOBILE_ROOT, player_id=player_id,
+            event_lock=lambda: _mobile_materialization_lock(player_id),
+        )
+    except MobileRoundIdentityError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def build_mobile_course_options_response(player_id: str = OWNER_ID) -> MobileCourseOptionsResponse:
