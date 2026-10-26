@@ -216,19 +216,25 @@ env -i PATH="$PATH" HOME="$HOME" LANG=C.UTF-8 bash -c \
 
 ### C62 会话存储回滚注意
 
-C62 已删除旧的 flat 会话文件，回滚到 C62 之前的镜像前，先把当前代的两个文件拷回旧路径：
+C62 已删除旧的 flat 会话文件（owner 和每个家庭成员各一份）。回滚到 C62 之前的镜像前，先停同步，再把 owner 和**所有成员**当前代的两个文件拷回旧路径（漏了成员 = 成员会话全丢、要重新绑定）：
 
 ```bash
-TOKEN_DIR="<private-root>/.garmin_tokens"
-GENERATION="$(cat "$TOKEN_DIR/current")"
-install -m 600 "$TOKEN_DIR/generations/$GENERATION/web_cookie.txt" "$TOKEN_DIR/web_cookie.txt"
-install -m 600 "$TOKEN_DIR/generations/$GENERATION/csrf.txt" "$TOKEN_DIR/csrf.txt"
+ROOT="<private-root>"
+for TOKEN_DIR in "$ROOT/.garmin_tokens" "$ROOT"/data/players/*/.garmin_tokens; do
+  [ -f "$TOKEN_DIR/current" ] || continue
+  GENERATION="$(cat "$TOKEN_DIR/current")"
+  install -m 600 "$TOKEN_DIR/generations/$GENERATION/web_cookie.txt" "$TOKEN_DIR/web_cookie.txt"
+  install -m 600 "$TOKEN_DIR/generations/$GENERATION/csrf.txt" "$TOKEN_DIR/csrf.txt"
+done
 ```
 
 旧镜像恢复后、再次部署 C62 或更新版本前，删除指针文件，让新代码按旧布局读取并在首次写入时重新迁移：
 
 ```bash
-rm -f "<private-root>/.garmin_tokens/current"
+ROOT="<private-root>"
+for TOKEN_DIR in "$ROOT/.garmin_tokens" "$ROOT"/data/players/*/.garmin_tokens; do
+  rm -f "$TOKEN_DIR/current"
+done
 ```
 
 **冻结**：
