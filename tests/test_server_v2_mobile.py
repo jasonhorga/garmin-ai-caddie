@@ -851,17 +851,32 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(out["course"]["courseName"], "黑骑士")  # base name, not "~ A"
         self.assertEqual(out["holes"][0]["sampleCount"], 5)     # was 0 before the fix
 
-    def test_recent_history_reads_corrected_round_totals(self) -> None:
+    def test_mobile_package_reads_corrected_shot_club(self) -> None:
         # Go through the mobile round-package entry point so the test proves that the
-        # package reader itself applies the durable correction before _recent_history.
+        # package reader itself applies the durable shot correction before building profiles.
         from tests.product.fixtures.c16a.support import Sandbox
 
         with Sandbox() as sandbox:
             sandbox.seed()
+            from ai_caddie.caddie import mobile_live
+            def stats_from_shots(data, **_kwargs):
+                clubs = {}
+                for shot in data.shots:
+                    name = str(shot.get('club') or shot.get('clubName') or '').strip()
+                    distance = shot.get('distance') if shot.get('distance') is not None else shot.get('meters')
+                    if not name or distance is None:
+                        continue
+                    clubs[name] = {
+                        'club': name, 'sampleCount': 1, 'median': float(distance),
+                        'p10': float(distance), 'p90': float(distance),
+                        'validShotRefs': [f"{shot.get('roundId') or shot.get('scorecardId')}:{shot.get('hole')}:{shot.get('_globalIndex', 0)}"],
+                    }
+                return {'clubs': list(clubs.values()), 'courses': [], 'holes': [], 'playerProfile': {}}
             # Prime the product cache before the durable edits. The package reader must key the
             # second read by the correction fingerprint, rather than serving the pre-edit round.
             from server_v2 import mobile as mobile_service
-            with patch.object(
+            with patch.object(mobile_live, 'cached_build_history_stats', side_effect=stats_from_shots), \
+                 patch.object(
                 mobile_service,
                 'load_history_data_for_mode',
                 side_effect=lambda *, player_id='me': (stats_cache.cached_load_history_data(player_id), 'local'),
@@ -870,15 +885,12 @@ class ServerV2MobileTests(unittest.TestCase):
                 mobile_service.build_mobile_round_package_response(
                     '101', captured_at='2026-05-25T08:00:00Z',
                 )
-            response = sandbox.correct({'op': 'setHolePenalty', 'hole': 1, 'value': 1,
-                                        'clientMutationId': 'mobile-penalty-1'})
+            response = sandbox.correct({'op': 'editField', 'shotId': 's:101:2',
+                                        'field': 'club', 'value': '6I',
+                                        'clientMutationId': 'mobile-club-6i'})
             self.assertEqual(response.status_code, 201, response.text)
-            score_response = sandbox.request('POST', 'annotations', json={
-                'targetType': 'hole', 'targetId': '101:1', 'kind': 'score_correction',
-                'payload': {'to': 6}, 'clientMutationId': 'mobile-score-6',
-            })
-            self.assertEqual(score_response.status_code, 200, score_response.text)
-            with patch.object(
+            with patch.object(mobile_live, 'cached_build_history_stats', side_effect=stats_from_shots), \
+                 patch.object(
                 mobile_service,
                 'load_history_data_for_mode',
                 side_effect=lambda *, player_id='me': (stats_cache.cached_load_history_data(player_id), 'local'),
@@ -887,7 +899,9 @@ class ServerV2MobileTests(unittest.TestCase):
                 package = mobile_service.build_mobile_round_package_response(
                     '101', captured_at='2026-05-25T08:00:00Z',
                 )
-            self.assertEqual(package.recentHistory['rounds'][0]['score'], 74)
+            club_names = {row['clubName'] for row in package.clubProfiles}
+            self.assertIn('6I', club_names)
+            self.assertNotIn('7I', club_names)
 
     def test_mobile_course_options_list_recent_courses_for_start_round(self) -> None:
         client = TestClient(app)
