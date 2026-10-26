@@ -89,7 +89,7 @@ def _authority_ready(global_id: int, hole: int) -> bool:
 
 
 def _register_one(global_id: int, hole: int, version: str, fetched: bytes | None) -> dict[str, Any]:
-    """Register bytes under the per-hole/version lock, shared with timeout-bounded provider IO."""
+    """Register bytes under the per-hole/version lock; provider IO happens outside it."""
     image_url = _versioned_path(global_id, hole, version)
     if not fetched:
         return _unavailable("raster_fetch_failed", image_url=None, version=version)
@@ -306,6 +306,14 @@ def course_hole_garmin_raster(
         mark("raster_inflight_wait")
         return future.result()
     try:
+        # A previous leader may have settled the projection between our cache miss and taking
+        # leadership; re-check so that window does not cost a second fetch and registration.
+        with lock:
+            cached = _projection_result(global_id, hole, version)
+        if cached is not None:
+            mark("raster_projection_hit")
+            future.set_result(cached)
+            return cached
         # Share only requests that overlap in time. Completed unavailable results are deliberately
         # not retained; a later request must retry the provider/authority check.
         try:
