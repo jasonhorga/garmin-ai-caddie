@@ -80,50 +80,120 @@ struct LiveHoleNavigationLock: Equatable {
     }
 }
 
+/// A selected hole can temporarily own a direct-manipulation map gesture.  The preference is
+/// reduced by the pager so a target drag or a zoomed pan cannot be interpreted as a page swipe.
+struct LiveHolePagerGestureStateKey: PreferenceKey {
+    static let defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
+    }
+}
+
 /// Model-layer data that survives a page being unloaded by SwiftUI.  The network tasks remain
 /// owned by the round model; this cache only retains their published result and request identity.
-public final class LiveHoleSessionCache: ObservableObject {
+public final class LiveHoleSessionCache {
+    struct Key: Hashable {
+        let roundId: String
+        let hole: Int
+        let sourceGlobalId: Int
+        let sourceLocalHole: Int
+        let teeBox: String
+        let geometryRevision: String
+    }
+
     struct Entry {
         var holePrep: CoursePrepHole?
         var garminRaster: GarminRasterResponse?
         var garminRevision: String?
         var caddieDecision: CaddieDecisionResponse?
         var caddieDecisionInputSignature: String?
+        var caddieDecisionIsOnline = false
         var caddieRoutes: [CaddiePlanSequence] = []
+        var localTopoURL: URL?
         var prepRequestStarted = false
         var prepRequestCompleted = false
         var preciseProbeStarted = false
         var garminRequestStarted = false
     }
 
-    private var entries: [String: Entry] = [:]
-    @Published private(set) var generation = 0
+    private var entries: [Key: Entry] = [:]
 
     public init() {}
 
-    func entry(roundId: String, hole: Int) -> Entry {
-        entries[key(roundId: roundId, hole: hole)] ?? Entry()
+    func entry(
+        roundId: String,
+        hole: Int,
+        sourceGlobalId: Int = 0,
+        sourceLocalHole: Int = 0,
+        teeBox: String = "",
+        geometryRevision: String? = nil
+    ) -> Entry {
+        entries[key(
+            roundId: roundId,
+            hole: hole,
+            sourceGlobalId: sourceGlobalId,
+            sourceLocalHole: sourceLocalHole,
+            teeBox: teeBox,
+            geometryRevision: geometryRevision
+        )] ?? Entry()
     }
 
-    func update(roundId: String, hole: Int, _ update: (inout Entry) -> Void) {
-        let key = key(roundId: roundId, hole: hole)
+    func update(
+        roundId: String,
+        hole: Int,
+        sourceGlobalId: Int = 0,
+        sourceLocalHole: Int = 0,
+        teeBox: String = "",
+        geometryRevision: String? = nil,
+        _ update: (inout Entry) -> Void
+    ) {
+        let key = key(
+            roundId: roundId,
+            hole: hole,
+            sourceGlobalId: sourceGlobalId,
+            sourceLocalHole: sourceLocalHole,
+            teeBox: teeBox,
+            geometryRevision: geometryRevision
+        )
         var value = entries[key] ?? Entry()
         update(&value)
         entries[key] = value
-        generation &+= 1
     }
 
     func reset(roundId: String? = nil) {
         guard let roundId else {
             entries.removeAll()
-            generation &+= 1
             return
         }
-        entries = entries.filter { !$0.key.hasPrefix(roundId + "|") }
-        generation &+= 1
+        entries = entries.filter { $0.key.roundId != roundId }
     }
 
-    private func key(roundId: String, hole: Int) -> String { "\(roundId)|\(hole)" }
+    func trim(roundId: String, keeping keys: Set<Key>) {
+        entries = entries.filter { $0.key.roundId != roundId || keys.contains($0.key) }
+    }
+
+    func trim(roundId: String, keepingHoles holes: Set<Int>) {
+        entries = entries.filter { $0.key.roundId != roundId || holes.contains($0.key.hole) }
+    }
+
+    private func key(
+        roundId: String,
+        hole: Int,
+        sourceGlobalId: Int,
+        sourceLocalHole: Int,
+        teeBox: String,
+        geometryRevision: String?
+    ) -> Key {
+        Key(
+            roundId: roundId,
+            hole: hole,
+            sourceGlobalId: sourceGlobalId,
+            sourceLocalHole: sourceLocalHole,
+            teeBox: teeBox,
+            geometryRevision: geometryRevision ?? ""
+        )
+    }
 }
 
 enum LiveHoleSessionCachePolicy {
@@ -132,9 +202,11 @@ enum LiveHoleSessionCachePolicy {
     }
 
     static func shouldFetchPrep(
-        cached: CoursePrepHole?, requestStarted: Bool, requestCompleted: Bool
+        cached: CoursePrepHole?, requestStarted: Bool, requestCompleted: Bool,
+        forMapping: Bool = false
     ) -> Bool {
-        !requestStarted && !requestCompleted
+        if forMapping { return !requestStarted }
+        return !requestStarted && !requestCompleted
     }
 
     static func shouldFetchGarmin(cached: GarminRasterResponse?, requestStarted: Bool, revision: String?, cachedRevision: String?) -> Bool {
@@ -248,8 +320,9 @@ public struct RoundHomeView: View {
     /// The live route is one destination containing a paging surface. Keeping the selection here
     /// avoids rebuilding a CurrentHoleView (and its location/task state) for every swipe.
     @State private var holePagerSelection: Int?
-    @State private var holePagerTransitioning = false
-    @StateObject private var liveHoleSessions = LiveHoleSessionCache()
+    @State private var holePagerNavigationLock: LiveHoleNavigationLock?
+    @State private var holePagerScrollDisabled = false
+    @State private var liveHoleSessions = LiveHoleSessionCache()
     /// The last GPS-resolved prep hole lives above `CurrentHoleView`, so recreating a destination
     /// after a manual hole preview does not mistake the same fix for a new location.
     @State private var prepHoleFollowing = PrepHoleFollowingState()
@@ -583,6 +656,14 @@ public struct RoundHomeView: View {
             enterPendingLiveHole(hole)
         }
         .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
+            if previousRoundId != currentRoundId {
+                if let previousRoundId {
+                    liveHoleSessions.reset(roundId: previousRoundId)
+                }
+                if currentRoundId == nil {
+                    liveHoleSessions.reset()
+                }
+            }
             // The first stroke promotes the memory-only prep package to a live round while the
             // current hole destination is still visible. Drop the picker route immediately so
             // Back leaves the live hole screen instead of returning to the prep picker.
@@ -603,6 +684,9 @@ public struct RoundHomeView: View {
         .onChange(of: prepPackage?.roundId) { previousRoundID, roundId in
             if previousRoundID != roundId {
                 prepHoleFollowing.reset()
+                if let previousRoundID {
+                    liveHoleSessions.reset(roundId: previousRoundID)
+                }
             }
             guard liveRoundState == nil, roundId != nil else { return }
             path = LiveHoleRoutePath.afterPrepPackageRefresh(
@@ -615,7 +699,10 @@ public struct RoundHomeView: View {
         }
         .onChange(of: liveRoundState?.activeHole) { _, activeHole in
             if !isPrepHoleScreen, let activeHole {
-                holePagerSelection = activeHole
+                if holePagerSelection != activeHole {
+                    holePagerSelection = activeHole
+                    holePagerNavigationLock = LiveHoleNavigationLock(currentHole: activeHole)
+                }
             }
             reconcileLiveHoleRouteWithPackage()
         }
@@ -723,16 +810,24 @@ public struct RoundHomeView: View {
                 onDiscardRound: onDiscardRound,
                 sessionCache: liveHoleSessions,
                 usesExternalHolePager: true,
+                isSelected: holePagerSelection == number,
                 onAdvanceHole: { next in
-                    guard let current = holePagerSelection,
-                          LiveHoleNavigationLock.accepts(
-                              from: number,
-                              current: current,
-                              isTransitioning: holePagerTransitioning
-                          ) else { return }
-                    holePagerTransitioning = true
+                    guard var lock = holePagerNavigationLock,
+                          lock.begin(from: number, to: next) else { return }
+                    holePagerNavigationLock = lock
                     withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.92)) {
                         holePagerSelection = next
+                    }
+                    // A cancelled TabView animation may never deliver a selection change. Release
+                    // the one-shot guard after the same short window as the interactive spring so
+                    // scorecard/GPS/rapid-swipe recovery remains possible.
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 900_000_000)
+                        guard var current = holePagerNavigationLock,
+                              current.currentHole == next,
+                              current.isTransitioning else { return }
+                        current.finish(at: next)
+                        holePagerNavigationLock = current
                     }
                 },
                 onPrepLocationChanged: { locatedHole, displayedHole in
@@ -787,10 +882,29 @@ public struct RoundHomeView: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .onAppear {
                 holePagerSelection = ordered.contains(initialHole) ? initialHole : ordered.first
+                if let selected = holePagerSelection {
+                    holePagerNavigationLock = LiveHoleNavigationLock(currentHole: selected)
+                    trimLiveHoleSessions(around: selected, package: package)
+                }
             }
+            .onPreferenceChange(LiveHolePagerGestureStateKey.self) { disabled in
+                holePagerScrollDisabled = disabled
+            }
+            .scrollDisabled(holePagerScrollDisabled)
             .onChange(of: holePagerSelection) { previous, selected in
                 guard let selected, previous != selected else { return }
-                holePagerTransitioning = false
+                if var lock = holePagerNavigationLock, lock.currentHole == selected {
+                    lock.finish(at: selected)
+                    holePagerNavigationLock = lock
+                } else {
+                    holePagerNavigationLock = LiveHoleNavigationLock(currentHole: selected)
+                }
+                if let package = holeScreenPackage {
+                    trimLiveHoleSessions(around: selected, package: package)
+                }
+                if !isPrepHoleScreen, liveRoundState?.activeHole == selected {
+                    return
+                }
                 Task { @MainActor in
                     await Task.yield()
                     if isPrepHoleScreen {
@@ -800,10 +914,29 @@ public struct RoundHomeView: View {
                     }
                 }
             }
+            .onDisappear {
+                holePagerNavigationLock = nil
+                holePagerScrollDisabled = false
+            }
             .accessibilityIdentifier("live-hole-pager")
         } else {
             Color.clear
         }
+    }
+
+    private func trimLiveHoleSessions(around selected: Int, package: LiveRoundPackage) {
+        let ordered = RoundPlayOrder.holes(
+            package.holes.map(\.number),
+            startingAt: liveRoundState?.startHole,
+            loops: package.roundLoops
+        )
+        guard let index = ordered.firstIndex(of: selected), !ordered.isEmpty else { return }
+        let lower = max(0, index - 2)
+        let upper = min(ordered.count - 1, index + 2)
+        liveHoleSessions.trim(
+            roundId: package.roundId,
+            keepingHoles: Set(ordered[lower...upper])
+        )
     }
 
     /// 备战者已有目的地：直接名称搜索，不走现场 GPS 选场。The chosen course opens on the hole screen.
