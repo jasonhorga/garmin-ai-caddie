@@ -98,6 +98,12 @@ public final class RoundEditModel: ObservableObject {
         putts = value
     }
 
+    /// Adopt a refreshed scorecard without overwriting an open draft.
+    public func adoptRecordedScorecard(score: Int?, putts: Int?) {
+        // Baseline behavior: the total stays at its load-time value.
+        adoptRecordedPutts(putts)
+    }
+
     /// Compatibility name for older call sites; leaving edit mode always means discarding its draft.
     public func exitEdit() { cancelEdit() }
 
