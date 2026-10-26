@@ -18,10 +18,12 @@ from copy import deepcopy
 from datetime import date
 import json
 import math
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 from ai_caddie.core import data as disk
+from ai_caddie.geometry import hole_render
 from ai_caddie.history import hole_history_shots, stats_cache
 from ai_caddie.history.corrected_history import corrected_history_data
 from ai_caddie.rounds import players, round_shot_map
@@ -340,6 +342,29 @@ class TargetedReplayTest(PinnedToday):
             # Six edited holes exist; a hole-1 request replays exactly two, one per round.
             self.assertEqual(sorted((call.args[1], call.args[2]) for call in replay.call_args_list),
                              [('201', 1), ('202', 1)])
+
+    def test_repeated_mesh_loads_decode_the_target_file_once(self) -> None:
+        with Sandbox() as s:
+            self.prepare(s)
+            hole_render._load_mesh_cached.cache_clear()
+            self.addCleanup(hole_render._load_mesh_cached.cache_clear)
+            target_path = disk.mesh_path(900001, 1).resolve()
+            read_text = Path.read_text
+            reads = []
+
+            def read(path, *args, **kwargs):
+                if path == target_path:
+                    reads.append(path)
+                return read_text(path, *args, **kwargs)
+
+            with patch.object(Path, 'read_text', read), \
+                    patch.object(hole_render, 'load_mesh', wraps=hole_render.load_mesh) as load:
+                first = s.get(URL)
+                second = s.get(URL)
+            self.assertEqual(first, second)
+            self.assertEqual(reads, [target_path])  # cold request + warm request: one disk read
+            self.assertEqual({call.args for call in load.call_args_list}, {(900001, 1)})
+
 
 class HoleHistoryShotsScopeTest(PinnedToday):
     def test_another_players_token_never_reads_the_owners_shots(self) -> None:
