@@ -1231,6 +1231,10 @@ class LiveRoundEventRecord(BaseModel):
     # from two different clients is not collapsed. Absent → treated as "" (legacy single-client behavior).
     clientId: str | None = None
 
+    # Round display hole, not the physical/source-local hole of a selected nine. Omission/null
+    # must leave old envelopes byte-equivalent for event/request hashes and exact offline retries.
+    startHole: int | None = Field(default=None, ge=1, strict=True, exclude_if=lambda value: value is None)
+
     @field_validator("timestamp")
     @classmethod
     def timestamp_is_iso8601(cls, value: str) -> str:
@@ -1301,6 +1305,7 @@ class RoundStateResponse(BaseModel):
     roundId: str
     latestServerSequence: int
     activeHole: int
+    startHole: int | None = None
     holes: list[dict[str, Any]] = Field(default_factory=list)
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
 

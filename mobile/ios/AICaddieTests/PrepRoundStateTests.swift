@@ -68,6 +68,30 @@ final class PrepRoundStateTests: XCTestCase {
         XCTAssertFalse(try store.hasLiveRoundProgress())
     }
 
+    func testRecoveredFirstStrokeRoundStillSupportsUndoStart() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let package = try LiveRoundPackageFixture.package(dataMode: "local")
+        try store.saveRoundPackage(package)
+        // Server replay into an empty install: no saveRoundStart/local progress file.
+        _ = try store.applyReplayEvents([
+            LiveRoundEvent(eventId: "recovered-first-stroke", roundId: package.roundId,
+                           timestamp: "2026-06-20T00:00:00Z", hole: 5, kind: .score,
+                           payload: ["strokes": .number(1)], startHole: 5),
+        ])
+        XCTAssertFalse(try store.hasLiveRoundProgress())
+        let model = LiveRoundAppModel(offlineStore: store, watchBridge: nil, garminSessionStore: nil)
+        await model.bootstrap()
+        XCTAssertEqual(model.liveRoundState?.startHole, 5)
+        model.undoRoundStart()
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertEqual(model.pendingLiveHole, 5)
+        XCTAssertNotNil(model.prepPackage)
+        XCTAssertTrue(try store.loadEvents().isEmpty)
+        XCTAssertFalse(try store.hasLiveRoundProgress())
+    }
+
     func testPrepOpenAndHoleChangePassPriorityHoleThroughModel() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("c30-priority-\(UUID().uuidString)", isDirectory: true)

@@ -1705,9 +1705,22 @@ public final class OfflineStore {
                 try repairTornEventLogEOFIfNeededUnlocked(authority: authority)
             }
             let loaded = try loadEventsUnlocked(strict: true, authority: authority)
+            var authoredEvent = event
+            // Stamp new phone facts before their first durable append, never while loading or
+            // replaying an existing envelope: uploaded identities must remain exactly retryable.
+            // `startHole` uses the round display axis (1...18), just like event.hole/hole_sides.
+            if event.clientId == "ios-phone", event.kind != .syncMarker, event.startHole == nil,
+               let progress = try loadLiveRoundProgress(), progress.roundId == event.roundId,
+               let startHole = progress.startHole, startHole > 0 {
+                authoredEvent = LiveRoundEvent(
+                    schema: event.schema, eventId: event.eventId, roundId: event.roundId,
+                    clientId: event.clientId, timestamp: event.timestamp, hole: event.hole,
+                    kind: event.kind, payload: event.payload, startHole: startHole
+                )
+            }
             let writeAuthority = try requireEventLogDirectoryAuthority(&authority)
             _ = try appendEventUnlocked(
-                event,
+                authoredEvent,
                 authority: writeAuthority,
                 expectedState: loaded.state
             )
@@ -1900,6 +1913,7 @@ public final class OfflineStore {
     public func restoreLiveRoundState(roundId: String, package: LiveRoundPackage) throws -> LiveRoundStateSnapshot {
         var activeHole = package.holes.first?.number ?? 1
         let packageHoleNumbers = Set(package.holes.map(\.number))
+        var replayedStartHole: Int?
         var scoredHoles = Set<Int>()
         var holeStates = Dictionary(
             uniqueKeysWithValues: package.holes.map { hole in
@@ -1918,6 +1932,10 @@ public final class OfflineStore {
 
         let events = try loadEvents()
         for event in events where event.roundId == roundId && event.kind != .syncMarker && event.hole > 0 {
+            if replayedStartHole == nil, let startHole = event.startHole,
+               packageHoleNumbers.contains(startHole) {
+                replayedStartHole = startHole
+            }
             var state = holeStates[event.hole] ?? defaultLiveHoleState(
                 roundId: roundId,
                 hole: event.hole,
@@ -2035,7 +2053,8 @@ public final class OfflineStore {
                 lhs.hole < rhs.hole
             },
             scoredHoles: scoredHoles.sorted(),
-            startHole: progress?.startHole.flatMap { packageHoleNumbers.contains($0) ? $0 : nil }
+            startHole: replayedStartHole
+                ?? progress?.startHole.flatMap { packageHoleNumbers.contains($0) ? $0 : nil }
         )
     }
 
@@ -2785,7 +2804,8 @@ public final class OfflineStore {
             timestamp: redactedTransportText(event.timestamp),
             hole: event.hole,
             kind: event.kind,
-            payload: payload
+            payload: payload,
+            startHole: event.startHole
         )
     }
 

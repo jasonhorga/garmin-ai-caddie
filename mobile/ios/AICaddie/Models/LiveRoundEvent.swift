@@ -71,6 +71,9 @@ public struct LiveRoundEvent: Codable, Equatable, Identifiable {
     /// which the backend coalesces to the legacy empty client — so re-posting a pre-upgrade event keeps
     /// its original dedup key. Every NEW phone event now stamps "ios-phone".
     public let clientId: String?
+    /// Optional round display hole (the event's `hole` namespace, never a physical/source hole).
+    /// Older clients omit it; the first supplied value fixes this round's play-order origin.
+    public let startHole: Int?
     public let timestamp: String
     public let hole: Int
     public let kind: LiveRoundEventKind
@@ -84,7 +87,8 @@ public struct LiveRoundEvent: Codable, Equatable, Identifiable {
         timestamp: String,
         hole: Int,
         kind: LiveRoundEventKind,
-        payload: [String: JSONValue]
+        payload: [String: JSONValue],
+        startHole: Int? = nil
     ) {
         self.schema = schema
         self.eventId = eventId
@@ -94,5 +98,6 @@ public struct LiveRoundEvent: Codable, Equatable, Identifiable {
         self.hole = hole
         self.kind = kind
         self.payload = payload
+        self.startHole = startHole
     }
 }

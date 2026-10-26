@@ -1318,6 +1318,21 @@ class MobileContractTests(unittest.TestCase):
         _assert_json_schema_rejects(self, schema, {**phone_event, "clientId": 7})
         _assert_json_schema_rejects(self, schema, {**phone_event, "clientId": ""})
 
+    def test_live_round_event_contract_accepts_optional_display_start_hole(self) -> None:
+        schema = _load_schema("live_round_event.schema.json")
+        event = {
+            "schema": "ai-caddie-live-round-event-v1", "eventId": "start-hole-contract",
+            "roundId": "start-hole-contract", "timestamp": "2026-06-20T00:00:00Z",
+            "hole": 13, "kind": "score", "payload": {"strokes": 1},
+        }
+        # C63: the second nine's fourth hole is display 13; old clients can omit the origin.
+        _assert_json_schema_accepts(self, schema, {**event, "startHole": 13})
+        _assert_json_schema_accepts(self, schema, event)
+        _assert_json_schema_accepts(self, schema, {**event, "startHole": None})
+        for invalid in (0, -1, True, 5.5, "5"):
+            with self.subTest(startHole=invalid):
+                _assert_json_schema_rejects(self, schema, {**event, "startHole": invalid})
+
     def test_ios_live_round_event_and_builder_stamp_phone_client_id(self) -> None:
         event_swift = _read_required_source(self, IOS_DIR / "Models" / "LiveRoundEvent.swift")
         builder = _read_required_source(self, IOS_DIR / "Services" / "LiveRoundEventBuilder.swift")
