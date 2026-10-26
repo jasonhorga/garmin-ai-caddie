@@ -2106,7 +2106,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-10-26T12:16:24Z",
+  "generatedAt": "2026-10-26T19:55:17Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -2343,8 +2343,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-10-27T12:16:24Z",
-   "preparedAt": "2026-10-26T12:16:24Z",
+   "expiresAt": "2026-10-27T19:55:17Z",
+   "preparedAt": "2026-10-26T19:55:17Z",
    "state": "degraded"
   },
   "playerProfile": {
@@ -2517,6 +2517,7 @@
    "selectedRoundId": null,
    "state": "ready"
   },
+  "venueLoops": [],
   "weatherSnapshot": {
    "capturedAt": null,
    "condition": null,
@@ -4708,7 +4709,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-10-26T12:16:24Z",
+  "generatedAt": "2026-10-26T19:55:17Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -4945,8 +4946,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-10-27T12:16:24Z",
-   "preparedAt": "2026-10-26T12:16:24Z",
+   "expiresAt": "2026-10-27T19:55:17Z",
+   "preparedAt": "2026-10-26T19:55:17Z",
    "state": "degraded"
   },
   "playerProfile": {
@@ -5119,6 +5120,7 @@
    "selectedRoundId": null,
    "state": "ready"
   },
+  "venueLoops": [],
   "weatherSnapshot": {
    "capturedAt": null,
    "condition": null,
@@ -10911,7 +10913,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-10-26T12:16:23Z",
+  "generatedAt": "2026-10-26T19:55:17Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -11346,8 +11348,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-10-27T12:16:23Z",
-   "preparedAt": "2026-10-26T12:16:23Z",
+   "expiresAt": "2026-10-27T19:55:17Z",
+   "preparedAt": "2026-10-26T19:55:17Z",
    "state": "degraded"
   },
   "playerProfile": {
@@ -11590,6 +11592,7 @@
    "selectedRoundId": null,
    "state": "ready"
   },
+  "venueLoops": [],
   "weatherSnapshot": {
    "capturedAt": null,
    "condition": null,

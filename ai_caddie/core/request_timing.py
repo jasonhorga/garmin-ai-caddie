@@ -46,11 +46,15 @@ class RequestTiming:
         return max(0.0, (time.perf_counter() - self.started) * 1000.0)
 
     def server_timing(self) -> str:
-        values = [f"{name};dur={duration:.1f}" for name, duration in self.marks.items()]
+        # A disconnected request can finish while its worker records a final stage. Snapshot
+        # before formatting so that late additions cannot resize a dict being iterated.
+        marks = self.marks.copy()
+        values = [f"{name};dur={duration:.1f}" for name, duration in marks.items()]
         values.append(f"total;dur={self.total_ms:.1f}")
         return ", ".join(values)
 
     def finish(self, *, method: str, path: str, status: int) -> None:
+        marks = self.marks.copy()
         logger.info(
             "request_timing request_id=%s method=%s path=%s status=%s total_ms=%.1f stages=%s",
             self.request_id,
@@ -58,7 +62,7 @@ class RequestTiming:
             path,
             status,
             self.total_ms,
-            ";".join(f"{key}:{value:.1f}" for key, value in self.marks.items()),
+            ";".join(f"{key}:{value:.1f}" for key, value in marks.items()),
         )
 
 

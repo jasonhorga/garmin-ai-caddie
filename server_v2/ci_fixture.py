@@ -696,6 +696,9 @@ def _package(round_id: str, global_id: int | None, loops: list[tuple[int, str]] 
          "sourceStartHole": 10 if half == "back" else 1, "holeCount": 9}
         for index, (gid, half) in enumerate(loops)
     ]
+    # Fixture courses are independent physical venues; none has a sibling nine in the fixture
+    # catalogue, but keep the additive package field present for old-client contract coverage.
+    payload["venueLoops"] = []
     payload["loopKey"] = round_loop_key(loops)
     template_hole = payload["holes"][0]
     payload["holes"] = []

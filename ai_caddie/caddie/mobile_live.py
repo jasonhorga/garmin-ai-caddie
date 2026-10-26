@@ -45,7 +45,7 @@ from ai_caddie.caddie.round_loops import (
 )
 from ai_caddie.rounds.score_source import SCORE_EVENT_KINDS, fold_score_source
 from ai_caddie.reports.annotations import annotations_for_target, list_annotations
-from ai_caddie.core.data import hazard_path, read_json
+from ai_caddie.core.data import ROOT, hazard_path, read_json
 from ai_caddie.core.priority_work import PriorityExecutor, SELECTED_COURSE
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.geometry import garmin_raster
@@ -3733,6 +3733,18 @@ def build_live_round_package(
         caddie_context_seeds,
         package_course_name,
     )
+    venue_holes = holes
+    if preparation_mode == "course" and _authoritative_course_holes(course_global_id) == ROUND_LOOP_HOLES:
+        venue_holes = holes[:ROUND_LOOP_HOLES]
+    venue_loops = _venue_loops_for_package(
+        course_global_id,
+        venue_name=canonical_course.venue,
+        segment_label=canonical_course.segment,
+        holes=venue_holes,
+        latitude=course_latitude,
+        longitude=course_longitude,
+        root=root,
+    )
     # v2 identity is stamped by the caller: a course start from its explicit, proven loop order
     # (``build_live_round_package_for_loops``); a past round from durable proof only
     # (``apply_past_round_loop_identity``). The raw build never guesses a loop table.
@@ -3753,6 +3765,7 @@ def build_live_round_package(
             "teeBox": str(tee_box or round_row.get("teeBox") or "unknown"),
         },
         "holes": holes,
+        "venueLoops": venue_loops,
         "coursePrep": course_prep_package,
         "geometryCoverage": geometry_coverage,
         "readinessChecks": readiness_checks,
@@ -4194,6 +4207,9 @@ def build_live_round_package_for_course(
         segment_holes=provider_holes,
     )
     front_package["course"] = front_course
+    # ``build_live_round_package`` is the single venue-loop assembly point.  Keeping its
+    # cache-only directory through the nine-hole filter avoids a second lookup and preserves the
+    # current loop fallback for a cold package.
     if is_loop_cap:
         # A 9-hole loop is a complete round in itself, not "the front of an 18" — label it "all"
         # so the app offers "加打另一个9洞" (a second loop) rather than a front/back toggle.
@@ -4204,6 +4220,93 @@ def build_live_round_package_for_course(
 
 
 LIVE_ROUND_PACKAGE_SCHEMA = "ai-caddie-live-round-package-v2"
+
+
+def _venue_loops_for_package(
+    global_id: int,
+    *,
+    venue_name: str | None,
+    segment_label: str | None,
+    holes: list[dict[str, Any]],
+    latitude: float | None = None,
+    longitude: float | None = None,
+    include_current: bool = True,
+    root: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    """Return the cache-only CourseView nine-hole directory for a package's physical venue."""
+    from ai_caddie.courses.course_reference import courseview_venue_loops
+
+    indexed = courseview_venue_loops(
+        int(global_id), venue_name, root=Path(root) if root is not None else ROOT
+    )
+
+    def par_for(gid: int, fallback: int | None = None) -> int:
+        try:
+            from ai_caddie.courses.course_reference import courseview_par
+
+            pars = courseview_par(int(gid), allow_fetch=False)
+            values = [int(value) for value in pars or [] if isinstance(value, (int, float))]
+            if len(values) == ROUND_LOOP_HOLES:
+                return sum(values)
+        except Exception:
+            pass
+        return int(fallback or 0)
+
+    current_par = sum(int(row.get("par") or 0) for row in holes if isinstance(row, dict))
+    rows: dict[int, dict[str, Any]] = {}
+
+    def add(gid: int, name: str, label: str | None, hole_count: int, par: int) -> None:
+        if gid <= 0 or hole_count != ROUND_LOOP_HOLES or par <= 0:
+            return
+        rows.setdefault(
+            gid,
+            {
+                "globalId": gid,
+                "name": name,
+                "segmentLabel": label,
+                "holeCount": ROUND_LOOP_HOLES,
+                "par": par,
+            },
+        )
+
+    for match in indexed:
+        try:
+            gid = int(match.get("globalId") or 0)
+            holes_count = int(match.get("holeCount") or 0)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            continue
+        if holes_count != ROUND_LOOP_HOLES:
+            continue
+        raw_name = str(match.get("name") or "").strip()
+        label = normalize_course_text(match.get("segmentLabel")) or None
+        if gid != global_id and not label:
+            continue
+        fallback_par = current_par if gid == global_id else None
+        add(
+            gid,
+            raw_name or normalize_course_text(venue_name) or f"Course {gid}",
+            label,
+            holes_count,
+            int(match.get("par") or par_for(gid, fallback_par)),
+        )
+
+    # The package itself is the authoritative fallback, even when neither options nor nearby
+    # search has seen this venue before (the new-course path in C96).
+    current_name = normalize_course_text(venue_name) or f"Course {int(global_id)}"
+    current_label = normalize_course_text(segment_label) or None
+    if current_label is None:
+        try:
+            resolved = _courseview_segment_resolver(int(global_id))
+            if resolved:
+                current_label = _segment_label_from_courseview_name(resolved[0])
+        except Exception:
+            current_label = None
+    current_display = f"{current_name} ~ {current_label}" if current_label else current_name
+    if include_current and len(holes) == ROUND_LOOP_HOLES:
+        add(int(global_id), current_display, current_label, ROUND_LOOP_HOLES, current_par)
+    return sorted(rows.values(), key=lambda row: (row.get("segmentLabel") or "~~", row["globalId"]))
+
+
 def _course_holes_with_identity(package: dict[str, Any], global_id: int) -> dict[str, Any]:
     """The course's holes with explicit physical identity on ``global_id``. A playable hole whose
     identity is missing is never filled from its round number: the course is then unresolved."""
@@ -4725,6 +4828,17 @@ def _merge_nines(front: dict[str, Any], back: dict[str, Any]) -> dict[str, Any]:
     if "preciseGeometryState" in source_coverage:
         source_coverage["preciseGeometryState"] = merged["geometryCoverage"]["state"]
     merged["sourceCoverage"] = source_coverage
+
+    # Keep the complete same-venue directory when two selected nines are merged. The front
+    # package normally already carries it, but a cold second-loop release may be the only one with
+    # a cached nearby catalogue row.
+    venue_rows: dict[int, dict[str, Any]] = {}
+    for raw in [*(front.get("venueLoops") or []), *(back.get("venueLoops") or [])]:
+        if isinstance(raw, dict) and _safe_int(raw.get("globalId")):
+            venue_rows[int(raw["globalId"])] = dict(raw)
+    merged["venueLoops"] = sorted(
+        venue_rows.values(), key=lambda row: (str(row.get("segmentLabel") or "~~"), int(row["globalId"]))
+    )
 
     recent_history = dict(front.get("recentHistory") or {})
     back_recent = back.get("recentHistory") or {}

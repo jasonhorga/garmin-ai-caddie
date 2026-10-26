@@ -128,26 +128,39 @@ struct LiveRoundScorecardView: View {
     }
 
     /// The big "+4", then strokes and the two nines.
-    private var scoreHero: some View {
-        HStack(alignment: .bottom, spacing: 14) {
-            Text(summary.toPar.map(LiveRoundScoreSummary.toParText) ?? "—")
-                .font(.system(size: 56, weight: .bold))
-                .monospacedDigit()
-                .foregroundStyle(LivePlayStyle.ink)
-                .accessibilityLabel(summary.toPar.map { "本场 \(LiveRoundScoreSummary.toParText($0))" } ?? "本场还没有成绩")
-                .accessibilityIdentifier("live-scorecard-total-summary")
-            VStack(alignment: .leading, spacing: 1) {
-                Text(summary.holes.isEmpty ? "—" : "\(summary.strokes) 杆")
-                    .font(.system(size: 17, weight: .bold))
-                    .monospacedDigit()
+    @ViewBuilder private var scoreHero: some View {
+        if summary.holes.isEmpty {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("还没记杆")
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(LivePlayStyle.ink)
-                    .accessibilityIdentifier("live-scorecard-total-score")
-                Text(ninesText)
+                    .accessibilityIdentifier("live-scorecard-no-score")
+                Text(LiveRoundFinishSummaryView.parLine(summary: summary, holes: holes))
                     .font(.system(size: 12.5))
                     .monospacedDigit()
                     .foregroundStyle(LivePlayStyle.ink60)
             }
-            .padding(.bottom, 4)
+        } else {
+            HStack(alignment: .bottom, spacing: 14) {
+                Text(summary.toPar.map(LiveRoundScoreSummary.toParText) ?? "—")
+                    .font(.system(size: 56, weight: .bold))
+                    .monospacedDigit()
+                    .foregroundStyle(LivePlayStyle.ink)
+                    .accessibilityLabel("本场 \(LiveRoundScoreSummary.toParText(summary.toPar ?? 0))")
+                    .accessibilityIdentifier("live-scorecard-total-summary")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(summary.strokes) 杆")
+                        .font(.system(size: 17, weight: .bold))
+                        .monospacedDigit()
+                        .foregroundStyle(LivePlayStyle.ink)
+                        .accessibilityIdentifier("live-scorecard-total-score")
+                    Text(ninesText)
+                        .font(.system(size: 12.5))
+                        .monospacedDigit()
+                        .foregroundStyle(LivePlayStyle.ink60)
+                }
+                .padding(.bottom, 4)
+            }
         }
     }
 

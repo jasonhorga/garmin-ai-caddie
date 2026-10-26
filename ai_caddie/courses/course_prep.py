@@ -25,6 +25,8 @@ from ai_caddie.core.data import OWNER_ID, load_club_bag, load_manual_club_bag
 from ai_caddie.core.data import available_prep_holes as available_prep_holes  # re-export: prep's hole-list default
 from ai_caddie.caddie import club_bag as club_bag_service, club_catalog
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
+from ai_caddie.core.request_timing import mark
+from ai_caddie.courses.prep_work import checkpoint
 
 YARD = 1.09361
 MAX_SCATTER_SHOTS = 80  # newest rounds first; keeps the overlay readable and the payload small
@@ -2896,6 +2898,7 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
               include_shots=False, player_id: str = OWNER_ID, shot_rows=None,
               tee_set: int | None = None) -> HolePrep | dict | None:
     """Compose exact prep, or the cached factual CourseView fallback while geometry upgrades."""
+    checkpoint()
     ladder = ladder or effective_club_ladder(player_id)
     try:
         coverage = geometry_coverage_for_hole(
@@ -2908,6 +2911,8 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
             "coverage": "missing",
             "missingData": [{"label": "geometry", "reason": "prodgeometry geometry could not be loaded"}],
         }
+    mark("prep_authority")
+    checkpoint()
     if coverage.get("coverage") != "ready":
         topo_frame = _topo_frame_prep_hole(
             global_id,
@@ -2944,6 +2949,8 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
     # independent /topo.png bitmap. Playing facts (hazard carries, strategy, green distances,
     # plays-like) follow the player's Tee when one is requested.
     display_route, display_route_len = derive_route(md)
+    mark("prep_mesh_route")
+    checkpoint()
     resolved_tee_set = None
     tee_missing: list[dict] = []
     if tee_set is not None:
@@ -2981,6 +2988,8 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
     # vertices against the route corridor.  Hazards and the geo→pixel anchors consume the identical
     # frame, so compute it once per precise hole instead of walking all mesh vertices three times.
     frame = hole_render._frame(by, display_route)
+    mark("prep_frame")
+    checkpoint()
     frame_project, _frame_scale, _frame_width, _frame_height, _frame_margin = frame
 
     def to_px(point):
@@ -2988,6 +2997,8 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         return (x / hole_render.SS, y / hole_render.SS)
 
     hazards = route_hazards(by, route, to_px=to_px)
+    mark("prep_hazards")
+    checkpoint()
     steps, cautions, landing, tee_club = _strategy(
         par, route_len, hazards, ladder, elevation_at=_route_elevation(by, route),
     )
@@ -2997,6 +3008,8 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
     # View Green and measured distances to that ellipse instead of to the putting surface.
     green_boundary = _selected_green_boundary(by, route)
     green_outline_px = [to_px(point) for point in green_boundary]
+    mark("prep_strategy_green")
+    checkpoint()
     missing_data = [
         row
         for row in coverage.get("missingData", [])
@@ -3037,6 +3050,8 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
         },
     )
     result = prep.to_dict()
+    mark("prep_projection")
+    checkpoint()
     scatter_overlay = {
         "w": int(_frame_width // hole_render.SS),
         "h": int(_frame_height // hole_render.SS),
@@ -3052,6 +3067,8 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
             frame=frame,
         )
         result["map"] = {"image": image, "overlay": meta}
+        mark("prep_render")
+        checkpoint()
         scatter_overlay = meta
     if include_shots:
         try:
@@ -3114,11 +3131,14 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
     DTO rows instead of being skipped.
     """
     requested_holes = [int(hole) for hole in holes]
+    checkpoint()
     if ladder is None:
         ladder = effective_club_ladder(player_id)
     par_record = course_reference.load_course_par(global_id)
     if par_record is None:
         par_record = course_reference.resolve_par(global_id)
+    mark("prep_par")
+    checkpoint()
     shots_by_hole: dict[int, list[dict]] = {}
     if include_shots:
         sources = None
@@ -3156,6 +3176,7 @@ def prep_nine(global_id: int, holes=range(1, 10), *, ladder=None, render=True, i
         )
     out = []
     for hole in requested_holes:
+        checkpoint()
         if int(hole) in cached:
             # Callers own the returned rows; never hand out the shared cached object.
             prep = copy.deepcopy(cached[int(hole)])

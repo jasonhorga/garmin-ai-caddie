@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+from dataclasses import replace
 import hashlib
 import hmac
 import logging
@@ -21,7 +22,11 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
 from ai_caddie.courses import course_reconciliation, course_search
-from ai_caddie.courses.course_reference import record_courseview_catalogue_names
+from ai_caddie.courses.name_authority import is_composite_segment, split_garmin_course_name
+from ai_caddie.courses.course_reference import (
+    record_courseview_catalogue_names,
+    record_courseview_venue_loops,
+)
 from ai_caddie.history import stats_cache
 from ai_caddie.history.stats_cache import cached_load_history_data
 from ai_caddie.rounds import correction_audit, round_corrections, round_ingest, swing_candidates
@@ -1358,7 +1363,8 @@ def history_prepare_recent(
 
 
 @app.get("/api/v2/courses/{global_id}/prep")
-def course_prep_nine(
+async def course_prep_nine(
+    request: Request,
     global_id: int,
     holes: list[int] | None = Query(default=None, max_length=36),  # codex MEDIUM #6: bound item count
     render: bool = True,
@@ -1366,6 +1372,14 @@ def course_prep_nine(
     tee: str | None = Query(default=None, max_length=32),
     player_id: str = Depends(current_player_id),
 ) -> dict:
+    from .prep_work import run_prep
+
+    return await run_prep(request, lambda: _build_course_prep_nine(
+        global_id, holes, render, include_shots, tee, player_id,
+    ))
+
+
+def _build_course_prep_nine(global_id, holes, render, include_shots, tee, player_id) -> dict:
     """Pre-round prep for a course: per-hole par (labelled source) + route + hazard carries +
     strategy from the player's club ladder + (when render=true) a styled map image + overlay.
     Without an explicit ``holes`` filter every hole with cached geometry is served (18-hole
@@ -1382,7 +1396,9 @@ def course_prep_nine(
     read solely the threaded player's tree)."""
     from ai_caddie.courses import course_prep, prep_cache
     from ai_caddie.courses.course_reference import courseview_release_info
+    from ai_caddie.courses.prep_work import checkpoint
 
+    checkpoint()
     # `/prep` is also a direct product entry (Web 备战 and iOS/Watch per-hole refresh), not only a
     # follow-up to a mobile package. Refresh the small release document before the prep-cache
     # fingerprint and authority checks so this path cannot indefinitely bless an old Garmin map.
@@ -1391,6 +1407,8 @@ def course_prep_nine(
     except Exception:
         # Provider failure keeps the last complete cached release/offline geometry usable.
         pass
+    mark_request_stage("prep_release")
+    checkpoint()
 
     requested = holes or course_prep.available_prep_holes(global_id)
     # ``tee`` is the player's Tee choice (e.g. "white"). Playing facts follow that Tee; without it
@@ -1411,11 +1429,17 @@ def course_prep_nine(
         # ladder blended from their own logged shots + manual bag — no player's distances leak to
         # another (effective_club_ladder + the player-scoped loaders are isolated per player_id).
         ladder = course_prep.effective_club_ladder(player_id)
+        mark_request_stage("prep_ladder")
+        checkpoint()
         club_rows = course_prep.club_ladder_with_provenance(player_id, ladder=ladder)
+        mark_request_stage("prep_provenance")
+        checkpoint()
         # Shot scatter is the player's OWN past end positions only: prep_nine reads solely the
         # threaded player_id's tree, so a member sees their own shots and never the owner's.
         nine = course_prep.prep_nine(global_id, requested, ladder=ladder, render=render, include_missing=True,
                                      include_shots=include_shots, player_id=player_id, tee_set=tee_set)
+        mark_request_stage("prep_holes")
+        checkpoint()
         payload = {
             "schema": "ai-caddie-course-prep-v1",
             "globalId": int(global_id),
@@ -1466,6 +1490,7 @@ def course_prep_tips(global_id: int, player_id: str = Depends(current_player_id)
 
 @app.get("/api/v2/courses/search")
 def course_search_endpoint(
+    background_tasks: BackgroundTasks,
     name: str,
     city: str | None = None,
     holes: int | None = None,
@@ -1498,6 +1523,7 @@ def course_search_endpoint(
         city=city,
         append_history=True,
     )
+    background_tasks.add_task(_persist_courseview_venue_loops, _venue_loop_index_rows(matches), ROOT)
     return {
         "schema": "ai-caddie-course-search-v1",
         "query": name,
@@ -1641,6 +1667,44 @@ def _course_match_payload(match: course_search.CourseMatch) -> dict:
     return payload
 
 
+def _venue_loop_index_rows(matches: object) -> list:
+    """Give the durable loop index only rows with an unambiguous physical venue.
+
+    Provider names such as ``Venue ~ A`` have a factual decomposition; plain names without a
+    loop/venue boundary remain excluded so unrelated nine-hole courses cannot be merged.
+    """
+    rows = []
+    for match in matches or ():
+        if getattr(match, "provider_match", True) is False:
+            # A history-only alias is not a CourseView discovery fact. Indexing it would make a
+            # later provider row inherit the player's spelling instead of its physical venue.
+            continue
+        if int(getattr(match, "holes", 0) or 0) != 9:
+            continue
+        # The durable grouping key must come from the provider's physical name. A played
+        # scorecard may carry a different localized identity spelling; using that here splits
+        # siblings seen before and after the player has played one of them.
+        provider_name = getattr(match, "provider_name", None) or getattr(match, "name", "")
+        venue, provider_segment = split_garmin_course_name(provider_name)
+        venue = venue.strip()
+        segment = provider_segment or getattr(match, "segment_label", None)
+        if not venue or not segment or is_composite_segment(segment):
+            continue
+        rows.append(replace(
+            match,
+            venue_name=venue,
+            segment_label=segment,
+        ))
+    return rows
+
+
+def _persist_courseview_venue_loops(matches: object, root) -> None:
+    try:
+        record_courseview_venue_loops(matches, root=root)
+    except Exception:
+        logger.warning("courseview_venue_loops_background_failed", exc_info=True)
+
+
 @app.get("/api/v2/courses/nearby")
 def course_nearby_endpoint(
     background_tasks: BackgroundTasks,
@@ -1685,6 +1749,7 @@ def course_nearby_endpoint(
         overlay_coordinates=False,
         append_history=False,
     )
+    background_tasks.add_task(_persist_courseview_venue_loops, _venue_loop_index_rows(matches), ROOT)
     if matches:
         # Durable full map prep replaces metadata-only warming. All provider courses in 30 km
         # enter the bounded low-priority lane; this response never waits for downloads/renders.
@@ -2035,6 +2100,15 @@ def _discover_nearby_maps(latitude: float, longitude: float) -> None:
         result = course_search.courseview_nearby(latitude=latitude, longitude=longitude, radius_km=30)
         matches = result.matches if isinstance(result, course_search.NearbyCourseResult) else result
         record_courseview_catalogue_names(matches, root=ROOT)
+        reconciled = _reconcile_player_course_matches(
+            matches,
+            player_id=OWNER_ID,
+            nearby_origin=(latitude, longitude),
+            nearby_radius_km=30,
+            overlay_coordinates=False,
+            append_history=False,
+        )
+        _persist_courseview_venue_loops(_venue_loop_index_rows(reconciled), ROOT)
         enqueue_nearby(matches)
     except Exception:
         logger.exception("nearby_prewarm discovery_failed")

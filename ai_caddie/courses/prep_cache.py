@@ -27,6 +27,8 @@ import threading
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable
+from ai_caddie.core.request_timing import mark
+from ai_caddie.courses.prep_work import checkpoint
 
 from ai_caddie.core.data import (
     CLUBS_BAG_FILE, CLUBS_FILE, DATA_DIR, HAZARD_DIR, MESH_DIR, OWNER_ID, SCORECARD_DIR, SHOT_DIR,
@@ -245,6 +247,7 @@ def cached_course_prep(
     """
     key = (int(global_id), tuple(requested), bool(render), bool(include_shots), player_id, variant)
     fingerprint = _fingerprint(global_id, player_id, requested)
+    mark("prep_revision")
     return _singleflight(_cache, _MAXSIZE, key, fingerprint, build)
 
 
@@ -269,8 +272,10 @@ def cached_hole_preps(
     """
     gid = int(global_id)
     shared = _fingerprint(gid, player_id, ())
+    mark("prep_hole_revision")
     out: dict[int, Any] = {}
     for hole in holes:
+        checkpoint()
         hole = int(hole)
         key = ("hole", gid, hole, bool(render), bool(include_shots), player_id, variant)
         fingerprint = (shared, _requested_geometry_sig(gid, [hole]))
@@ -286,10 +291,12 @@ def _singleflight(
     build: Callable[[], Any],
 ) -> Any:
     while True:
+        checkpoint()
         with _lock:
             hit = cache.get(key)
             if hit is not None and hit[0] == fingerprint:
                 cache.move_to_end(key)  # mark recently used (LRU)
+                mark("prep_cache_hit")
                 return hit[1]
             event = _inflight.get(key)
             if event is None:
@@ -303,13 +310,16 @@ def _singleflight(
             # Waiter: block until the leader finishes, then re-loop to read the cache. If the
             # leader built a DIFFERENT fingerprint (a sync landed mid-build) or its result was
             # LRU-evicted, we won't find a matching entry and one waiter becomes the new leader.
-            event.wait()
+            while not event.wait(0.05):
+                checkpoint()
+            mark("prep_cache_wait")
             continue
         # Leader: build OUTSIDE the lock (so other keys keep flowing), then publish + wake waiters.
         error: BaseException | None = None
         value: Any = None
         try:
             value = build()
+            mark("prep_cache_build")
         except BaseException as exc:  # never leave waiters blocked on a failed build
             error = exc
         with _lock:
