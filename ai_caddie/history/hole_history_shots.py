@@ -128,7 +128,8 @@ def build_hole_history_shots(
 ) -> dict[str, Any]:
     target = (int(global_id), int(local_hole))
     since = _today() - timedelta(days=int(days))
-    # Only the rounds that played this hole in the window are corrected (their source shots on it).
+    # Only the rounds that played this hole in the window, and their matching display
+    # holes, replay shot corrections (a merged round may map the target to hole 10).
     rows: list[dict[str, Any]] = []
     shots: list[dict[str, Any]] = []
     displays: dict[str, set[int]] = {}
@@ -156,7 +157,9 @@ def build_hole_history_shots(
     # The hole view is a content subset; never carry the full-history fingerprints
     # into a cache key for this derived payload.
     view = replace(data, rounds=rows, shots=shots, source_fingerprint=None, correction_fingerprint=None)
-    corrected = corrected_history_data(view, player_id=player_id, annotations_root=annotations_root)
+    corrected = corrected_history_data(
+        view, player_id=player_id, annotations_root=annotations_root, holes_by_round=displays,
+    )
 
     out: list[dict[str, Any]] = []
     rounds_with_shots: set[str] = set()

@@ -254,6 +254,23 @@ class MergedNineGlobalIdTest(PinnedToday):
             self.assertEqual([shot['roundHole'] for shot in front['shots']], [1])
             self.assertEqual([shot['roundHole'] for shot in back['shots']], [10])
 
+    def test_merged_target_replays_only_its_display_hole_and_equals_full_replay(self) -> None:
+        with Sandbox() as s:
+            self.seed_split_round(s)
+            merged = 'merged_301_302'
+            for hole in (1, 10):
+                response = s.correct({'op': 'addShot', 'hole': hole, 'px': [280, 440],
+                                      'club': 'SW', 'lie': 'Bunker'}, ref=merged)
+                self.assertEqual(response.status_code, 201, response.text)
+            full = corrected_history_data(stats_cache.cached_load_history_data(), annotations_root=s.root)
+            for gid, display in ((900001, 1), (900002, 10)):
+                with self.subTest(gid=gid):
+                    expected = hole_history_shots.build_hole_history_shots(full, gid, 1, annotations_root=s.root)
+                    with patch.object(round_shot_map, '_hole_shot_map', wraps=round_shot_map._hole_shot_map) as replay:
+                        actual = s.get(f'history/courses/{gid}/holes/1/shots')
+                    self.assertEqual(actual, expected)
+                    self.assertEqual([call.args[2] for call in replay.call_args_list], [display])
+
 
 class TargetedReplayTest(PinnedToday):
     def prepare(self, s: Sandbox) -> None:

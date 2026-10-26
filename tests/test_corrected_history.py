@@ -7,10 +7,13 @@ test writes one onto the scorecard.
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 import unittest
 from unittest.mock import patch
 
 from ai_caddie.history import stats_cache
+from ai_caddie.history.corrected_history import corrected_history_data
+from ai_caddie.history.history import HistoryData
 from server_v2 import data_source, geometry as geometry_routes
 from tests.product.fixtures.c16a.support import Sandbox, write
 
@@ -152,6 +155,40 @@ class HoleEvidenceTest(unittest.TestCase):
                 self.assertEqual([r['club'] for r in s.get(url)['shotRoutes']], ['Driver', '6I', 'PW'])
                 features = _shot_route_features(s.get('geometry/hole/900001/1/map?source_ref=101:1'))
                 self.assertEqual([f['club'] for f in features], ['Driver', '6I', 'PW'])
+
+
+class HoleReplayFilterTest(unittest.TestCase):
+    def test_filter_is_per_round_and_preserves_unselected_source_shots(self) -> None:
+        data = HistoryData(
+            raw_rounds=[],
+            rounds=[{'id': ref, 'holes': [{'number': 1}, {'number': 2}]} for ref in ('a', 'b')],
+            shots=[
+                {'id': hole, 'scorecardId': ref, 'roundId': ref, 'hole': hole, 'order': 1,
+                 'clubName': '7I', 'start': {'lat': 0.0, 'lon': 0.0},
+                 'end': {'lat': 0.001, 'lon': 0.0}}
+                for ref in ('a', 'b') for hole in (1, 2)
+            ],
+        )
+        original = deepcopy(data)
+
+        def events(_player, refs, **_kwargs):
+            return [{'op': 'editField', 'shotId': f's:{refs[0]}:{hole}', 'field': 'club', 'value': '6I'}
+                    for hole in (1, 2)]
+
+        with patch('ai_caddie.history.corrected_history.list_annotation_records', return_value=[]), \
+                patch('ai_caddie.history.corrected_history.round_corrections.load_round_events', side_effect=events):
+            full = corrected_history_data(data)
+            self.assertEqual([shot['clubName'] for shot in full.shots], ['6I'] * 4)
+            partial = corrected_history_data(data, holes_by_round={'a': {2}})
+            self.assertEqual(partial.shots, [data.shots[0], full.shots[1], *data.shots[2:]])
+            self.assertEqual([shot['clubName'] for shot in partial.shots], ['7I', '6I', '7I', '7I'])
+            self.assertNotEqual(partial.correction_fingerprint, full.correction_fingerprint)
+            other = corrected_history_data(data, holes_by_round={'b': {2}})
+            self.assertNotEqual(partial.correction_fingerprint, other.correction_fingerprint)
+            for scope in ({}, {'a': set()}, {'a': {99}}):
+                with self.subTest(scope=scope):
+                    self.assertEqual(corrected_history_data(data, holes_by_round=scope).shots, data.shots)
+        self.assertEqual(data, original)  # append-only overlays never mutate source history
 
 
 def _shot_route_features(value) -> list[dict]:
