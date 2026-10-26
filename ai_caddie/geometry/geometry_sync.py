@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import datetime
 import json
-import os
 import threading
 import time
 from pathlib import Path
 from typing import Any
 
 from ai_caddie.core.data import ROOT, hazard_path, mesh_path, scorecard_files
+from ai_caddie.courses import course_reference
 from ai_caddie.geometry.batch_prodgeometry_course import (
     derivative_state as _derivative_state,
     distances_path,
@@ -119,22 +119,12 @@ def schedule_derivatives(global_id: int, local_hole: int) -> dict[str, Any]:
     return derivative_state(gid, hole_no)
 
 
-def _atomic_write_bytes(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        tmp.write_bytes(data)
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
-
-
 def _release_cache_is_fresh(course_id: int) -> bool:
-    path = COURSEVIEW / f"{int(course_id)}_releases.pb"
-    try:
-        return time.time() - path.stat().st_mtime <= RELEASE_REFRESH_MAX_AGE_S
-    except OSError:
-        return False
+    fetched_at = course_reference.release_cache_fetched_at(
+        course_id,
+        root=COURSEVIEW.parent.parent,
+    )
+    return fetched_at is not None and time.time() - fetched_at <= RELEASE_REFRESH_MAX_AGE_S
 
 
 def _player_profile_id() -> str | None:
@@ -182,14 +172,11 @@ def _release(course_id: int, *, live: bool | None = None) -> tuple[dict[str, Any
             )
             release = inspect_valid_release(pb, expected_course_id=course_id)
             if mode:
-                _atomic_write_bytes(COURSEVIEW / f"{course_id}_releases.pb", pb)
-                # Keep the shared course-reference authority aware that this
-                # release was fetched with Garmin's zh_CHS locale. Otherwise
-                # the next package request would refetch an otherwise fresh
-                # release solely because the sidecar is missing.
-                from ai_caddie.courses.course_reference import record_release_language
-
-                record_release_language(course_id, pb)
+                course_reference.save_release_pb(
+                    course_id,
+                    pb,
+                    root=COURSEVIEW.parent.parent,
+                )
             return release, "live" if mode else "cache"
         except Exception as exc:
             errors.append(f"{'live' if mode else 'cache'}: {exc}")

@@ -1240,13 +1240,15 @@ public final class WatchRoundModel: ObservableObject {
     ) {
         let unscored = hole.score == 0
         let shotCount = recordedShotCount(for: hole.hole)
-        // Opened already inside the shared rule (total ≥ putts + penalty + 1, putts ≤ 5, penalty ≤ 4).
-        let values = HoleScoreValues(
+        // Opened already inside the shared rule (total ≥ putts + penalty + 1, putts ≤ 5, penalty ≤ 4,
+        // or more when the hole already records more).
+        let values = draftScoreValues(
             score: unscored
                 ? (shotCount > 0 ? shotCount + 2 : (hole.geometryCoverage == "pending" ? 1 : hole.par))
                 : hole.score,
             putts: unscored ? 2 : hole.putts,
-            penalty: hole.penaltyCount
+            penalty: hole.penaltyCount,
+            hole: hole
         )
         draftScore = values.score
         draftPutts = values.putts
@@ -1623,12 +1625,27 @@ public final class WatchRoundModel: ObservableObject {
     }
 
     private func applyDraftValues(_ change: (inout HoleScoreValues) -> Bool) {
-        var values = HoleScoreValues(score: draftScore, putts: draftPutts, penalty: draftPenalty)
+        var values = draftScoreValues(
+            score: draftScore, putts: draftPutts, penalty: draftPenalty, hole: scoringHoleState
+        )
         guard change(&values) else { return }
         draftScore = values.score
         draftPutts = values.putts
         draftPenalty = values.penalty
         persistInteractionState()
+    }
+
+    /// The Watch range (putts 0–5, penalty 0–4), widened to what the hole already records and the
+    /// draft already holds: a hole the phone scored with 6+ putts or 5+ penalties reopens with those
+    /// values and saves them unchanged unless the player lowers them, never cut to the Watch range.
+    private func draftScoreValues(score: Int, putts: Int, penalty: Int, hole: WatchRoundState?) -> HoleScoreValues {
+        HoleScoreValues(
+            score: score,
+            putts: putts,
+            penalty: penalty,
+            puttLimit: max(HoleScoreValues.maximumPutts, hole?.putts ?? 0, putts),
+            penaltyLimit: max(HoleScoreValues.maximumPenalty, hole?.penaltyCount ?? 0, penalty)
+        )
     }
 
     /// 开球三格; tapping the selected cell clears it.
@@ -1710,7 +1727,18 @@ public final class WatchRoundModel: ObservableObject {
             : nil
         var latest = round
         let selectedFairway = hole.par == 3 ? nil : draftFairway?.rawValue
-        if draftScore != hole.score || selectedFairway != hole.fairwayResult?.uppercased() {
+        let scoreChanged = draftScore != hole.score || selectedFairway != hole.fairwayResult?.uppercased()
+        let puttsChanged = draftPutts != hole.putts
+        let penaltyChanged = draftPenalty != hole.penaltyCount
+        // C20 is checked at each event boundary: lower putts/penalty first, set the total, then
+        // raise putts/penalty. A valid final card such as 7/4/1 → 5/2/2 must never expose 5/4/1.
+        if puttsChanged, draftPutts < hole.putts {
+            latest = record(hole: hole.hole, kind: .putt, value: String(draftPutts))
+        }
+        if penaltyChanged, draftPenalty < hole.penaltyCount {
+            latest = record(hole: hole.hole, kind: .penalty, value: String(draftPenalty))
+        }
+        if scoreChanged {
             latest = record(
                 hole: hole.hole,
                 kind: .score,
@@ -1718,10 +1746,10 @@ public final class WatchRoundModel: ObservableObject {
                 fairwayResult: selectedFairway
             )
         }
-        if draftPutts != hole.putts {
+        if puttsChanged, draftPutts >= hole.putts {
             latest = record(hole: hole.hole, kind: .putt, value: String(draftPutts))
         }
-        if draftPenalty != hole.penaltyCount {
+        if penaltyChanged, draftPenalty >= hole.penaltyCount {
             latest = record(hole: hole.hole, kind: .penalty, value: String(draftPenalty))
         }
 
@@ -2246,7 +2274,23 @@ public final class WatchRoundModel: ObservableObject {
         let createdAt = now()
         var events: [WatchInputEvent] = []
 
-        if draft.score != hole.score || selectedFairway != hole.fairwayResult?.uppercased() {
+        let scoreChanged = draft.score != hole.score || selectedFairway != hole.fairwayResult?.uppercased()
+        let puttsChanged = draft.putts != hole.putts
+        let penaltyChanged = draft.penalty != hole.penaltyCount
+        // Keep finish-time materialization in the same order as the interactive save path.
+        if puttsChanged, draft.putts < hole.putts {
+            events.append(WatchInputEvent(
+                eventId: makeEventId(), roundId: current.roundId, hole: draft.hole, kind: .putt,
+                value: String(draft.putts), createdAt: createdAt
+            ))
+        }
+        if penaltyChanged, draft.penalty < hole.penaltyCount {
+            events.append(WatchInputEvent(
+                eventId: makeEventId(), roundId: current.roundId, hole: draft.hole, kind: .penalty,
+                value: String(draft.penalty), createdAt: createdAt
+            ))
+        }
+        if scoreChanged {
             events.append(WatchInputEvent(
                 eventId: makeEventId(),
                 roundId: current.roundId,
@@ -2257,7 +2301,7 @@ public final class WatchRoundModel: ObservableObject {
                 fairwayResult: selectedFairway
             ))
         }
-        if draft.putts != hole.putts {
+        if puttsChanged, draft.putts >= hole.putts {
             events.append(WatchInputEvent(
                 eventId: makeEventId(),
                 roundId: current.roundId,
@@ -2267,7 +2311,7 @@ public final class WatchRoundModel: ObservableObject {
                 createdAt: createdAt
             ))
         }
-        if draft.penalty != hole.penaltyCount {
+        if penaltyChanged, draft.penalty >= hole.penaltyCount {
             events.append(WatchInputEvent(
                 eventId: makeEventId(),
                 roundId: current.roundId,
