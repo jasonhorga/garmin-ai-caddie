@@ -501,6 +501,10 @@ public final class SyncClient {
         roundStartSessionStorage = created
         return created
     }
+    #if DEBUG
+    /// Set by `invalidateForTesting`, under `roundStartSessionLock`.
+    private var invalidatedForTesting = false
+    #endif
     private let roundStartTimeoutInterval: TimeInterval
     private let packageWorkLock = NSLock()
     private var packageWork: [UUID: (task: Task<Data, Error>, kind: PackageRequestKind)] = [:]
@@ -573,10 +577,25 @@ public final class SyncClient {
     }
 
     #if DEBUG
+    /// Test teardown. From here on every request fails with `CancellationError` before it reaches a
+    /// session (`requestData`): the test invalidates this client's sessions next, and a task created
+    /// in an invalidated session raises NSGenericException, which ends the whole test process.
     func invalidateForTesting() {
-        roundStartSession.invalidateAndCancel()
+        let roundStart = roundStartSessionLock.withLock { () -> URLSession? in
+            invalidatedForTesting = true
+            return roundStartSessionStorage
+        }
+        roundStart?.invalidateAndCancel()
     }
     #endif
+
+    /// Every request of this client goes through here.
+    private func requestData(for request: URLRequest, in urlSession: URLSession) async throws -> (Data, URLResponse) {
+        #if DEBUG
+        if roundStartSessionLock.withLock({ invalidatedForTesting }) { throw CancellationError() }
+        #endif
+        return try await urlSession.data(for: request)
+    }
 
     private func coursePackageData(_ request: URLRequest, foregroundStart: Bool, requestKind: PackageRequestKind = .background, maximumAttempts: Int = SyncClient.courseAssetMaximumAttempts) async throws -> Data {
         let id = UUID()
@@ -605,7 +624,7 @@ public final class SyncClient {
         // Race the whole operation against one wall-clock deadline; there is no start retry.
         try await withThrowingTaskGroup(of: Data.self) { group in
             group.addTask {
-                let (data, response) = try await self.roundStartSession.data(for: request)
+                let (data, response) = try await self.requestData(for: request, in: self.roundStartSession)
                 try self.validate(response: response, data: data)
                 return data
             }
@@ -782,7 +801,7 @@ public final class SyncClient {
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(CourseInstallStatus.self, from: data)
     }
@@ -790,7 +809,7 @@ public final class SyncClient {
     public func fetchCourseOptions() async throws -> MobileCourseOptionsResponse {
         var request = URLRequest(url: endpointURL("/api/v2/mobile/courses/options"))
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(MobileCourseOptionsResponse.self, from: data)
     }
@@ -822,7 +841,7 @@ public final class SyncClient {
         // hold the settings screen or a foreground lifecycle callback open.
         request.timeoutInterval = 20
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
 
         try validate(response: response, data: data)
         return try decoder.decode(GarminSyncRunResponse.self, from: data)
@@ -839,7 +858,7 @@ public final class SyncClient {
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(GarminSyncRunResponse.self, from: data)
     }
@@ -878,7 +897,7 @@ public final class SyncClient {
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(GarminSyncRunResponse.self, from: data)
     }
@@ -904,7 +923,7 @@ public final class SyncClient {
     public func fetchGarminSyncStatus() async throws -> GarminSyncStatusResponse {
         var request = URLRequest(url: endpointURL("/api/v2/sync/status"))
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(GarminSyncStatusResponse.self, from: data)
     }
@@ -1022,7 +1041,7 @@ public final class SyncClient {
         guard let url = components?.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(MobileStats.self, from: data)
     }
@@ -1050,7 +1069,7 @@ public final class SyncClient {
         guard let url = components?.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(HistoryRoundsArchive.self, from: data)
     }
@@ -1061,7 +1080,7 @@ public final class SyncClient {
     public func fetchClubBag() async throws -> ClubBagResponse {
         var request = URLRequest(url: endpointURL("/api/v2/history/clubs/bag"))
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(ClubBagResponse.self, from: data)
     }
@@ -1075,7 +1094,7 @@ public final class SyncClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(to: &request)
         request.httpBody = try encoder.encode(ManualBagBody(clubs: clubs))
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(EffectiveClubBagResponse.self, from: data)
     }
@@ -1085,7 +1104,7 @@ public final class SyncClient {
     public func fetchEffectiveClubBag(playerId: String = "me") async throws -> EffectiveClubBagResponse {
         var request = URLRequest(url: endpointURL("/api/v2/players/\(playerId)/clubs/bag"))
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(EffectiveClubBagResponse.self, from: data)
     }
@@ -1121,7 +1140,7 @@ public final class SyncClient {
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(RoundHoleShotMap.self, from: data)
     }
@@ -1137,7 +1156,7 @@ public final class SyncClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(to: &request)
         request.httpBody = try encoder.encode(op)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
     }
 
@@ -1149,7 +1168,7 @@ public final class SyncClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(to: &request)
         request.httpBody = try encoder.encode(correction)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
     }
 
@@ -1375,7 +1394,7 @@ public final class SyncClient {
         applyAuth(to: &request)
         request.httpBody = try encoder.encode(EventBatch(roundId: roundId, events: events))
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(SyncResult.self, from: data)
     }
@@ -1404,7 +1423,7 @@ public final class SyncClient {
         }
         var request = URLRequest(url: url)
         applyAuth(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(EventReplayResponse.self, from: data)
     }
@@ -1417,7 +1436,7 @@ public final class SyncClient {
         applyAuth(to: &request)
         request.httpBody = try encoder.encode(EventCursorAckRequest(clientId: clientId, serverSequence: serverSequence))
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
         return try decoder.decode(EventCursorAckResponse.self, from: data)
     }
@@ -1431,7 +1450,7 @@ public final class SyncClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(to: &request)
         request.httpBody = try encoder.encode(MobileRoundFinishRequest(meta: metadata))
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
     }
 
@@ -1560,7 +1579,7 @@ public final class SyncClient {
                 attemptRequest.timeoutInterval = min(request.timeoutInterval, remaining)
             }
             do {
-                let (data, response) = try await session.data(for: attemptRequest)
+                let (data, response) = try await requestData(for: attemptRequest, in: session)
                 try validate(response: response, data: data)
                 return data
             } catch {

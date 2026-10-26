@@ -21,16 +21,22 @@ private let c85CourseId = 31795
 final class RoundStartTwoStageTests: XCTestCase {
     /// Far below the 30 s start budget and far above a CI simulator stall.
     private let eventWait: TimeInterval = 10
+    /// Every model a test made, torn down after the test in `tearDown` — also when it threw early.
+    private var fixtures: [ModelFixture] = []
 
     override func setUp() {
         super.setUp()
         URLProtocol.registerClass(C33URLProtocol.self)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
+        for fixture in fixtures {
+            await fixture.tearDown()
+        }
+        fixtures.removeAll()
         C33URLProtocol.setHandlers(onStart: nil)
         URLProtocol.unregisterClass(C33URLProtocol.self)
-        super.tearDown()
+        try await super.tearDown()
     }
 
     func testMapOnlyPackageRequestCarriesTheWatchContract() async throws {
@@ -91,13 +97,12 @@ final class RoundStartTwoStageTests: XCTestCase {
             // The complete package is the slow one: held until the player is already on the course.
             held.hold(proto)
             if fullSentOnce.claim() { fullSent.fulfill() }
+        }, onStop: { request in
+            guard request.url?.host == host else { return }
+            held.forget(request)
         })
-        let fixture = makeModel(host: host)
+        let fixture = makeModel(host: host, held: held)
         let model = fixture.model
-        defer {
-            held.releaseAll(404)
-            fixture.tearDown()
-        }
         let entered = expectation(description: "hole 1 entered")
         let subscription = model.$pendingLiveHole.compactMap { $0 }.first().sink { _ in entered.fulfill() }
         defer { subscription.cancel() }
@@ -173,7 +178,6 @@ final class RoundStartTwoStageTests: XCTestCase {
         })
         let fixture = makeModel(host: host)
         let model = fixture.model
-        defer { fixture.tearDown() }
         model.roundEnrichmentRetryDelaysNanoseconds = [0, 0, 0, 0]
 
         await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: mapPackage.loopEntries)
@@ -212,7 +216,6 @@ final class RoundStartTwoStageTests: XCTestCase {
         })
         let fixture = makeModel(host: host)
         let model = fixture.model
-        defer { fixture.tearDown() }
         let downloads = C85DownloadLog()
         model.garminRasterDownloader = { url in
             downloads.urls.append(url)
@@ -276,12 +279,8 @@ final class RoundStartTwoStageTests: XCTestCase {
             guard request.url?.path == intentPath else { return }
             if intentStoppedOnce.claim() { intentStopped.fulfill() }
         })
-        let fixture = makeModel(host: host)
+        let fixture = makeModel(host: host, held: held)
         let model = fixture.model
-        defer {
-            held.releaseAll(404)
-            fixture.tearDown()
-        }
         let intent = MobileCourseOption(globalId: intentId, name: "Intent nine", holes: 9, teeBox: "blue")
 
         // 1.5 s after the Tee is chosen, the venue's other nine starts installing.
@@ -310,6 +309,114 @@ final class RoundStartTwoStageTests: XCTestCase {
         await model.cancelPrepCourseDownloadForTesting()
     }
 
+    /// Teardown guard (fixture run 40308301959): once the test hook has returned, nothing the round
+    /// started in the background sends another request — the session is invalidated right after.
+    func testAStoppedModelSendsNoFurtherRequest() async throws {
+        let host = "c85-stop.example.test"
+        let roundId = "c85-stop"
+        let mapPackage = try package(roundId: roundId, mapOnly: true, garminRasterVersion: "c85-stop")
+        let mapData = try JSONEncoder().encode(mapPackage)
+        let held = C85HeldRequests()
+        let requests = C85Counter()
+        let stopped = C85Counter()
+        let fullSent = expectation(description: "full package requested")
+        let lateRequest = expectation(description: "a request after the stop")
+        lateRequest.isInverted = true
+        let fullSentOnce = C33FirstMatch(), lateRequestOnce = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            // The client's requests. The hole screen's image stores (first-hole topo warm-up) go
+            // through the shared session, which is never invalidated, and ask for `Accept: image/*`.
+            if proto.request.value(forHTTPHeaderField: "Accept")?.hasPrefix("image/") != true {
+                requests.increment()
+                if stopped.value > 0, lateRequestOnce.claim() { lateRequest.fulfill() }
+            }
+            guard proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package" else {
+                proto.reply(404); return
+            }
+            if c33Query(proto.request, "map_only") == "true" {
+                proto.reply(200, mapData)
+                return
+            }
+            held.hold(proto)
+            if fullSentOnce.claim() { fullSent.fulfill() }
+        }, onStop: { request in
+            guard request.url?.host == host else { return }
+            held.forget(request)
+        })
+        let fixture = makeModel(host: host, held: held)
+        let model = fixture.model
+        // A personal package still alive after the stop would retry a failure at once.
+        model.roundEnrichmentRetryDelaysNanoseconds = [0, 0, 0, 0]
+        let rasterStarted = expectation(description: "raster pass running")
+        let rasterStartedOnce = C33FirstMatch()
+        let rasterCalls = C85Counter()
+        model.garminRasterDownloader = { _ in
+            rasterCalls.increment()
+            if rasterStartedOnce.claim() { rasterStarted.fulfill() }
+            // A raster that never arrives: only cancelling the pass ends it.
+            try? await Task.sleep(nanoseconds: 600_000_000_000)
+            return false
+        }
+
+        let start = Task {
+            await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: mapPackage.loopEntries)
+        }
+        defer { start.cancel() }
+        await fulfillment(of: [fullSent, rasterStarted], timeout: eventWait)
+        await start.value
+        XCTAssertEqual(model.pendingLiveHole, 1)
+
+        await model.stopRoundBackgroundWorkForTesting()
+        let requestsAtStop = requests.value
+        stopped.set(1)
+        // Push everything that could start work again: the held personal package fails now (a live
+        // retry loop would ask again at once) and hole 1's first load settles (the fresh-entry
+        // release would start the all-hole download and the raster pass).
+        held.releaseAll(503)
+        model.liveHoleInitialLoadDidFinish()
+        await fulfillment(of: [lateRequest], timeout: 2)
+
+        XCTAssertEqual(requests.value, requestsAtStop, "no request after the stop")
+        XCTAssertEqual(rasterCalls.value, 1, "the raster pass ended at the stop")
+        XCTAssertEqual(model.package?.clubProfiles, [], "the personal package was never merged")
+    }
+
+    /// The fallback behind the hook: once a test has invalidated the client, a request fails with
+    /// `CancellationError` instead of creating a task in the invalidated session (NSGenericException).
+    func testAnInvalidatedClientRefusesRequestsBeforeTheSession() async throws {
+        let host = "c85-invalidated.example.test"
+        let requests = C85Counter()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            if proto.request.url?.host == host { requests.increment() }
+            proto.reply(404)
+        })
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [C33URLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://\(host)")),
+            session: session,
+            retrySleep: { _ in }
+        )
+        client.invalidateForTesting()
+        session.invalidateAndCancel()
+        let loops = [RoundLoopEntry(globalId: c85CourseId, half: "front")]
+
+        for foregroundStart in [false, true] {
+            do {
+                _ = try await client.fetchCoursePackage(
+                    globalId: c85CourseId, roundId: "c85-invalidated", teeBox: "blue", loops: loops,
+                    backgroundGeometry: true, foregroundStart: foregroundStart
+                )
+                XCTFail("an invalidated client answered (foregroundStart=\(foregroundStart))")
+            } catch {
+                XCTAssertTrue(error is CancellationError, "foregroundStart=\(foregroundStart): \(error)")
+            }
+        }
+        XCTAssertEqual(requests.value, 0)
+    }
+
     // MARK: - Helpers
 
     private struct ModelFixture {
@@ -318,8 +425,15 @@ final class RoundStartTwoStageTests: XCTestCase {
         let client: SyncClient
         let session: URLSession
         let directory: URL
+        let held: C85HeldRequests?
 
-        func tearDown() {
+        /// In this order (fixture run 40308301959 crashed the test process with "Task created in a
+        /// session that has been invalidated"): stop the model's background work and wait for it;
+        /// only then answer what is still held — answered earlier, a failure would be retried — and
+        /// invalidate the sessions last.
+        func tearDown() async {
+            await model.stopRoundBackgroundWorkForTesting()
+            held?.releaseAll(404)
             client.invalidateForTesting()
             session.invalidateAndCancel()
             C33URLProtocol.setHandlers(onStart: nil)
@@ -327,7 +441,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         }
     }
 
-    private func makeModel(host: String) -> ModelFixture {
+    private func makeModel(host: String, held: C85HeldRequests? = nil) -> ModelFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("c85-\(UUID().uuidString)", isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -341,7 +455,11 @@ final class RoundStartTwoStageTests: XCTestCase {
             retrySleep: { _ in }
         )
         let model = c33Model(store, client)
-        return ModelFixture(model: model, store: store, client: client, session: session, directory: directory)
+        let fixture = ModelFixture(
+            model: model, store: store, client: client, session: session, directory: directory, held: held
+        )
+        fixtures.append(fixture)
+        return fixture
     }
 
     /// The shared front-nine fixture as the server would answer this round. `mapOnly` is the #426

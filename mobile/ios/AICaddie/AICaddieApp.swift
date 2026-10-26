@@ -545,6 +545,11 @@ public final class LiveRoundAppModel: ObservableObject {
     }
     private var garminRasterDownloadTask: Task<Void, Never>?
     private var garminRasterDownloadRoundId: String?
+    #if DEBUG
+    /// Set by `stopRoundBackgroundWorkForTesting`: the personal package and the raster pass never
+    /// start again on this model.
+    private var roundBackgroundWorkStoppedForTesting = false
+    #endif
     /// A cold course's geometry lands hole by hole over a few minutes. Probe every 15 s at most so
     /// each finished hole is picked up promptly (the old 45–60 s slots left ready holes waiting),
     /// over a window of about five minutes, a little longer than before.
@@ -1659,6 +1664,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// next attempt (`roundEnrichmentRetryDelaysNanoseconds`, then the next foreground): scoring,
     /// the map and the round identity never depend on it.
     private func beginRoundEnrichmentIfNeeded() {
+        #if DEBUG
+        if roundBackgroundWorkStoppedForTesting { return }
+        #endif
         guard let snapshot = package,
               let syncClient,
               isAwaitingRoundEnrichment(snapshot.roundId) else { return }
@@ -1750,6 +1758,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// The rasters are what a hole shows until its precise topo is ready; without them, paging ahead
     /// right after the start showed a spinner (build 96). One request at a time, behind hole 1.
     private func beginGarminRasterDownload() {
+        #if DEBUG
+        if roundBackgroundWorkStoppedForTesting { return }
+        #endif
         guard let snapshot = package,
               let baseURL = apiBaseURL ?? syncClient?.baseURL,
               liveRoundState?.roundId == snapshot.roundId else { return }
@@ -2068,6 +2079,29 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Waits for the round's Garmin raster pass (C85).
     func waitForGarminRasterDownloadForTesting() async {
         await garminRasterDownloadTask?.value
+    }
+
+    /// Test teardown (C85). Cancels the round's background work and waits until each task has ended:
+    /// the personal package with its retry waits, the Garmin raster pass, and what can start them
+    /// again or send package requests of its own — the fresh-entry fallback timer, the all-hole
+    /// download and the prep queue. The personal package and the raster pass never start again on
+    /// this model, so the test can then invalidate its sessions (a task created in an invalidated
+    /// session raises NSGenericException and takes the whole test process down).
+    func stopRoundBackgroundWorkForTesting() async {
+        roundBackgroundWorkStoppedForTesting = true
+        let running = [roundEnrichmentTask, garminRasterDownloadTask, freshEntryReleaseTask, offlineCourseDownloadTask]
+        cancelRoundEnrichment()
+        cancelGarminRasterDownload()
+        clearFreshEntryRelease()
+        offlineCourseDownloadTask?.cancel()
+        offlineCourseDownloadTask = nil
+        offlineCourseDownloadRoundId = nil
+        interruptedOfflineCourseDownloadRoundId = nil
+        for task in running {
+            await task?.value
+        }
+        // Last: a cancelled all-hole download still hands over to the prep queue as it ends.
+        await cancelPrepCourseDownloadForTesting()
     }
 
     /// Test-only synchronization point for the app-owned prep queue. Production views never await
