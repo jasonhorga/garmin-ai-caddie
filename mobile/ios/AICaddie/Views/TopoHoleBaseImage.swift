@@ -209,8 +209,10 @@ final class TopoHoleImageStore: ObservableObject {
 /// projection frame (`hole_render._frame`), so a route/shot overlay drawn on top in overlay-pixel
 /// space aligns with either bitmap pixel-perfect — the caller draws that overlay as a sibling layer.
 struct TopoHoleBaseImage: View {
-    /// The flat ground of a hole without a raster (and 备战's screen ground while a raster loads).
-    static let groundColor = Color(red: 26 / 255, green: 46 / 255, blue: 30 / 255)
+    /// The ground of a hole without a raster and around/behind Garmin's raster: the hole screen's own
+    /// black (`LivePlayStyle.base`), the same colour a topo-v11 map's transparent canvas shows, so
+    /// every hole sits on one ground and a loading map never reads as a second green image.
+    static let groundColor = LivePlayStyle.base
 
     let topoURL: URL?
     /// Garmin's fixed 1242×1920 fallback. It is selected only while `topoURL` is unavailable;
@@ -284,7 +286,7 @@ struct TopoHoleBaseImage: View {
                 if let image = garminRasterStore.image ?? GarminRasterImageStore.cachedImage(for: garminRasterURL) {
                     extended(image) { readyGarminImage(Image(uiImage: image)) }
                 } else if garminRasterStore.failedURL == garminRasterURL {
-                    Self.groundColor
+                    garminGround
                 } else {
                     loadingGarminImage
                 }
@@ -355,9 +357,19 @@ struct TopoHoleBaseImage: View {
         .accessibilityIdentifier("topo-hole-base-loading")
     }
 
+    /// Garmin's raster is not drawn yet: the hole's numbers on the screen's ground when the caller
+    /// supplies them, otherwise that ground alone.
+    @ViewBuilder private var garminGround: some View {
+        if let garminPlaceholder {
+            garminPlaceholder
+        } else {
+            Self.groundColor
+        }
+    }
+
     private var loadingGarminImage: some View {
         ZStack(alignment: .topTrailing) {
-            Self.groundColor
+            garminGround
             ProgressView()
                 .controlSize(.small)
                 .tint(.white)
