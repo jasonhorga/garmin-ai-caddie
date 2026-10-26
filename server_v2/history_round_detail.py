@@ -7,6 +7,7 @@ from ai_caddie.history.history_round_detail import build_history_round_detail
 from ai_caddie.history.hole_history_shots import build_hole_history_shots
 from ai_caddie.rounds import correction_audit, round_corrections
 from ai_caddie.rounds.round_shot_map import build_round_hole_shot_map
+from ai_caddie.reports import annotations as report_annotations
 
 from .data_source import load_history_data_for_mode
 from .models import HistoryRoundDetailResponse, HoleHistoryShotsResponse, RoundHoleShotMapResponse
@@ -33,6 +34,7 @@ def load_round_hole_shot_map_response(
     # Same canonicalization as the writer: a merged round's corrections under any of its refs.
     _canonical_ref, refs = correction_audit.round_identity(data, round_ref)
     corrections = round_corrections.load_round_events(player_id, refs)
+    annotation_rows = report_annotations.list_annotation_records(root=ANNOTATION_ROOT, player_id=player_id)
     return RoundHoleShotMapResponse(
         **build_round_hole_shot_map(
             data,
@@ -40,6 +42,7 @@ def load_round_hole_shot_map_response(
             hole,
             corrections=corrections,
             include_image=include_image,
+            annotations=annotation_rows,
         )
     )
 

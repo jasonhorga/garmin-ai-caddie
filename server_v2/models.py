@@ -526,6 +526,7 @@ class RoundHoleShotMapResponse(BaseModel):
     shots: list[dict[str, Any]] = Field(default_factory=list)
     # 这一洞手填的罚杆数(复盘修改层,默认 0)。洞分 = 记录到的杆数 + 这个数。
     manualPenalty: int = 0
+    effectivePenalty: int = 0
     missingData: list[dict[str, Any]] = Field(default_factory=list)
 
 

@@ -22,11 +22,52 @@ from tests.round_loop_authority import fixture_course_authority
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def test_reconciliation_apply_returns_409_for_mutation_key_with_different_content(self) -> None:
+        from ai_caddie.caddie.mobile_live import append_event_batch
+        from ai_caddie.reports.annotations import list_annotation_records
+
+        # C74: reusing the selected suggestion's mutation key for different content is HTTP 409.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mutation_id = "reconciliation:me:900001:conflicting-note:hole-note"
+            add_annotation("hole", "900001:1", "hole_note", {"text": "Earlier content"},
+                           root=root, client_mutation_id=mutation_id)
+            append_event_batch("900001", [{
+                "eventId": "conflicting-note", "roundId": "900001", "hole": 1,
+                "kind": "note", "payload": {"text": "Different content"},
+            }], idempotency_key="conflicting-note", root=root)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch("server_v2.mobile.ANNOTATION_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                response = TestClient(app, raise_server_exceptions=False).post(
+                    "/api/v2/mobile/rounds/900001/reconciliation/apply",
+                    json={"suggestionIds": ["conflicting-note:hole-note"]},
+                )
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertEqual(response.json(), {
+                "detail": f"clientMutationId {mutation_id!r} was already used for a different annotation",
+            })
+            self.assertEqual(len(list_annotation_records(root=root)), 1)
+
     def setUp(self) -> None:
         # Fixture history courses have no CourseView release here; stand in for it (B4b-2).
         authority = fixture_course_authority()
         authority.start()
         self.addCleanup(authority.stop)
+
+    def test_history_package_signature_uses_source_and_correction_fingerprints(self) -> None:
+        from server_v2.mobile import _history_package_signature
+
+        first = HistoryData(raw_rounds=[], rounds=[], shots=[], source_fingerprint="source-1",
+                            correction_fingerprint="correction-1")
+        same = HistoryData(raw_rounds=[], rounds=[], shots=[], source_fingerprint="source-1",
+                           correction_fingerprint="correction-1")
+        changed = HistoryData(raw_rounds=[], rounds=[], shots=[], source_fingerprint="source-1",
+                              correction_fingerprint="correction-2")
+        self.assertEqual(_history_package_signature(first), _history_package_signature(same))
+        self.assertNotEqual(_history_package_signature(first), _history_package_signature(changed))
 
     def test_course_start_defers_non_priority_caddie_enrichment_explicitly(self) -> None:
         from ai_caddie.caddie import mobile_live
@@ -838,6 +879,43 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(out["course"]["roundCount"], 5)        # was 0 before the fix
         self.assertEqual(out["course"]["courseName"], "黑骑士")  # base name, not "~ A"
         self.assertEqual(out["holes"][0]["sampleCount"], 5)     # was 0 before the fix
+
+    def test_mobile_package_reads_corrected_shot_club(self) -> None:
+        # Regression guard through the real mobile round-package entry point: a durable shot
+        # correction must reach clubProfiles. (Not red on cc2f272b — history stats already
+        # applied corrections there; mobile.py/mobile_live now also read the corrected layer.)
+        from tests.product.fixtures.c16a.support import Sandbox
+
+        with Sandbox() as sandbox:
+            sandbox.seed()
+            # Prime the product cache before the durable edits. The package reader must key the
+            # second read by the correction fingerprint, rather than serving the pre-edit round.
+            from server_v2 import mobile as mobile_service
+            with patch.object(
+                mobile_service,
+                'load_history_data_for_mode',
+                side_effect=lambda *, player_id='me': (stats_cache.cached_load_history_data(player_id), 'local'),
+            ), patch.object(mobile_service, 'MOBILE_ROOT', sandbox.root), \
+                 patch.object(mobile_service, 'ANNOTATION_ROOT', sandbox.root):
+                mobile_service.build_mobile_round_package_response(
+                    '101', captured_at='2026-05-25T08:00:00Z',
+                )
+            response = sandbox.correct({'op': 'editField', 'shotId': 's:101:2',
+                                        'field': 'club', 'value': '6I',
+                                        'clientMutationId': 'mobile-club-6i'})
+            self.assertEqual(response.status_code, 201, response.text)
+            with patch.object(
+                mobile_service,
+                'load_history_data_for_mode',
+                side_effect=lambda *, player_id='me': (stats_cache.cached_load_history_data(player_id), 'local'),
+            ), patch.object(mobile_service, 'MOBILE_ROOT', sandbox.root), \
+                 patch.object(mobile_service, 'ANNOTATION_ROOT', sandbox.root):
+                package = mobile_service.build_mobile_round_package_response(
+                    '101', captured_at='2026-05-25T08:00:00Z',
+                )
+            club_names = {row['clubName'] for row in package.clubProfiles}
+            self.assertIn('6I', club_names)
+            self.assertNotIn('7I', club_names)
 
     def test_mobile_course_options_list_recent_courses_for_start_round(self) -> None:
         client = TestClient(app)

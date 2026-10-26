@@ -49,6 +49,10 @@ def install():
         return
     _installed = True
 
+    # Lifespan workers outlive TestClient and can consume later tests' mocks. Read at
+    # startup (not import time); wiring tests explicitly opt in and fake the entry point.
+    os.environ["AI_CADDIE_BOOT_BACKGROUND_WORK"] = "0"
+
     # Guard below urlopen aliases and Session.get/post, but above actual I/O.
     # Existing tests can still fake urlopen, Session.send or an HTTP adapter.
     original_open = urllib.request.OpenerDirector.open
@@ -186,6 +190,9 @@ def install():
     from ai_caddie.rounds import players
     from server_v2 import db, reports as report_routes, sync_jobs
 
+    # Expose the disposable anchor for callers inspecting ROOT / STATUS_FILE. This assignment
+    # cannot change root=ROOT defaults already bound at definition time: the write/read status
+    # wrappers below perform the actual default-root redirection.
     snapshot.ROOT = cache_root
     players.ROOT = cache_root
     db.ROOT = cache_root

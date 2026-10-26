@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from ai_caddie.history.history import OWNER_ID
+from ai_caddie.history.corrected_history import corrected_history_data
+from . import annotations
 from ai_caddie.llm.llm_providers import build_text_provider
 from ai_caddie.reports.reports import (
     audit_report_narrative,
@@ -36,7 +38,7 @@ def _history_stats_dict(player_id: str = OWNER_ID) -> dict[str, object]:
 
 def _history_data(player_id: str = OWNER_ID):
     data, _mode = load_history_data_for_mode(player_id=player_id)
-    return data
+    return corrected_history_data(data, player_id=player_id, annotations_root=annotations.ANNOTATION_ROOT)
 
 
 def _report_response(report: dict[str, object], *, kind: str, subject_id: str) -> ReviewReportResponse:
@@ -130,6 +132,22 @@ def _generate_provider_report_or_fallback(facts: dict[str, object]) -> dict[str,
         return report
 
 
+def _stored_round_report_matches_facts(report: dict[str, object], facts: dict[str, object]) -> bool:
+    """Do not serve a persisted review whose corrected scorecard facts are stale."""
+    previous = {
+        str(item.get("label")): item.get("value")
+        for item in report.get("factsUsed", [])
+        if isinstance(item, dict) and item.get("label")
+    }
+    for item in facts.get("factsUsed", []) if isinstance(facts.get("factsUsed"), list) else []:
+        if not isinstance(item, dict) or item.get("label") not in {"round_scorecard", "round_hole_outcomes", "round_shots"}:
+            continue
+        label = str(item["label"])
+        if label in previous and previous[label] != item.get("value"):
+            return False
+    return True
+
+
 def load_report_index_response(*, player_id: str = OWNER_ID) -> ReviewReportIndexResponse:
     # The report store is now per-player partitioned (evidence_root): the owner reads the flat store,
     # a member reads ONLY their own partition. A member therefore sees the reports THEY generated and
@@ -154,11 +172,11 @@ def load_round_report_response(round_id: str, *, player_id: str = OWNER_ID) -> R
     # Per-player partitioned: a member reads back ONLY the report THEY generated (their partition);
     # the owner reads the flat store (byte-identical). No stored report → deterministic facts.
     stored = latest_report_record("round", round_id, root=REPORT_ROOT, player_id=player_id)
-    if stored and isinstance(stored.get("report"), dict):
-        return _report_response(stored["report"], kind="round", subject_id=round_id)
     facts = build_round_report_facts(
         _history_stats_dict(player_id), round_id, history_data=_history_data(player_id)
     )
+    if stored and isinstance(stored.get("report"), dict) and _stored_round_report_matches_facts(stored["report"], facts):
+        return _report_response(stored["report"], kind="round", subject_id=round_id)
     report = generate_deterministic_report(facts)
     return _report_response(report, kind="round", subject_id=round_id)
 

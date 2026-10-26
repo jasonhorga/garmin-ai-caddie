@@ -14,6 +14,7 @@ import copy
 import hashlib
 import json
 import math
+import logging
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
@@ -31,6 +32,22 @@ DEFAULT_LADDER = {  # metres; overridden by the player's real club model when av
     "1W": 200, "3W": 171, "3H": 159, "5I": 146, "6I": 132, "7I": 128,
     "8I": 122, "9I": 114, "PW": 102, "A杆": 84, "50°": 53, "54°": 52, "58°": 42,
 }
+logger = logging.getLogger(__name__)
+
+
+def _corrected_profile_history(player_id: str = OWNER_ID):
+    """Load the shared corrected history for measured club distances."""
+    try:
+        from ai_caddie.history.corrected_history import corrected_history_data
+        from ai_caddie.history.stats_cache import cached_load_history_data
+        from ai_caddie.history import history
+
+        return corrected_history_data(
+            cached_load_history_data(player_id), player_id=player_id, annotations_root=history.ROOT,
+        )
+    except Exception:
+        logger.warning("failed to load corrected profile history for %s", player_id, exc_info=True)
+        return None
 
 
 def yd(metres: float) -> int:
@@ -1006,7 +1023,10 @@ def club_ladder(path=None) -> list[tuple[str, int]]:
         if path is not None and path.exists():
             profiles = read_json(path)
         else:
-            profiles = build_club_profiles()
+            profile_history = _corrected_profile_history()
+            profiles = build_club_profiles(
+                **({"history_data": profile_history} if profile_history is not None else {})
+            )
     except Exception:
         profiles = {}
 
@@ -1072,7 +1092,11 @@ def _member_measured_by_token(player_id: str) -> dict[str, int]:
 
     shot_dirs = [shots for _sc, shots in _player_shot_sources(player_id)]
     # apply_overrides=False: the owner's clubs.json must never resolve a member's club names.
-    measured = build_club_profiles(shot_dirs=shot_dirs, apply_overrides=False)
+    profile_history = _corrected_profile_history(player_id)
+    profile_args = {"shot_dirs": shot_dirs, "apply_overrides": False}
+    if profile_history is not None:
+        profile_args["history_data"] = profile_history
+    measured = build_club_profiles(**profile_args)
     by_token: dict[str, int] = {}
     samples: dict[str, int] = {}
     for club_name, profile in measured.items():
@@ -1194,7 +1218,10 @@ def club_ladder_with_provenance(
     history_by_token: dict[str, dict] = {}
     if player_id == OWNER_ID:
         try:
-            profiles = build_club_profiles()
+            profile_history = _corrected_profile_history()
+            profiles = build_club_profiles(
+                **({"history_data": profile_history} if profile_history is not None else {})
+            )
         except Exception:
             profiles = {}
     else:
@@ -1204,7 +1231,11 @@ def club_ladder_with_provenance(
                 from ai_caddie.history.history import _player_shot_sources
 
                 shot_dirs = [shots for _sc, shots in _player_shot_sources(player_id)]
-                profiles = build_club_profiles(shot_dirs=shot_dirs, apply_overrides=False)
+                profile_history = _corrected_profile_history(player_id)
+                profile_args = {"shot_dirs": shot_dirs, "apply_overrides": False}
+                if profile_history is not None:
+                    profile_args["history_data"] = profile_history
+                profiles = build_club_profiles(**profile_args)
             except Exception:
                 profiles = {}
     for name, profile in (profiles or {}).items():

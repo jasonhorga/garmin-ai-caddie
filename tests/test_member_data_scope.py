@@ -11,6 +11,8 @@ from unittest.mock import patch
 from ai_caddie.core import data
 from ai_caddie.courses import course_prep
 from ai_caddie.geometry import shot_projection as sp
+from ai_caddie.history.history import HistoryData
+from ai_caddie.history import history
 
 
 def _shot(order, shot_type, club_id, meters, lat, lon, exclude=False):
@@ -96,6 +98,42 @@ class BuildClubProfilesPlayerScopeTests(unittest.TestCase):
         self.assertEqual(set(prof), {"Driver"})
         self.assertEqual((prof["Driver"]["sampleSize"], prof["Driver"]["median"]), (5, 220.0))
 
+    def test_history_projection_can_supply_corrected_shots(self):
+        class History:
+            shots = [
+                {"club": "6I", "distance": 100.0, "type": "APPROACH"},
+                {"club": "6I", "distance": 110.0, "type": "APPROACH"},
+                {"club": "Putter", "distance": 20.0, "type": "PUTT"},
+            ]
+
+        profiles = data.build_club_profiles(history_data=History())
+        self.assertEqual((profiles["6I"]["sampleSize"], profiles["6I"]["median"]), (2, 100.0))
+
+    def test_subset_history_does_not_hit_full_profile_cache(self):
+        full = HistoryData(
+            raw_rounds=[], rounds=[],
+            shots=[{"club": "7I", "distance": 150.0, "type": "APPROACH"}],
+            source_fingerprint="full-history",
+        )
+        subset = HistoryData(
+            raw_rounds=[], rounds=[],
+            shots=[{"club": "8I", "distance": 140.0, "type": "APPROACH"}],
+            source_fingerprint=None,
+        )
+        data._CLUB_PROFILE_CACHE.clear()
+        data.build_club_profiles(history_data=full)
+        profiles = data.build_club_profiles(history_data=subset)
+        self.assertIn("8I", profiles)
+        self.assertNotIn("7I", profiles)
+
+    def test_member_history_club_map_ignores_owner_override(self):
+        shot_data = {"clubDetails": [{"clubId": 2, "name": "7I"}]}
+        with patch.object(history, "load_club_overrides", return_value={2: {"name": "OWNER-DRIVER"}}):
+            member_map, _ = history._build_club_map(shot_data, player_id="memberA")
+            owner_map, _ = history._build_club_map(shot_data, player_id="me")
+        self.assertEqual(member_map[2], "7I")
+        self.assertEqual(owner_map[2], "OWNER-DRIVER")
+
 
 class ShotsForHoleSourcesIsolationTests(unittest.TestCase):
     """shots_for_hole(..., sources=...) projects ONLY the given player trees."""
@@ -153,7 +191,7 @@ class EffectiveClubLadderMemberTests(unittest.TestCase):
             Path("/B/shots"): {"Driver": {"clubName": "Driver", "median": 240.0, "sampleSize": 20}},
         }
 
-        def fake_profiles(*, shot_dirs, apply_overrides=True):
+        def fake_profiles(*, shot_dirs, apply_overrides=True, history_data=None):
             out = {}
             for d in shot_dirs:
                 out.update(profiles.get(d, {}))
@@ -175,6 +213,24 @@ class EffectiveClubLadderMemberTests(unittest.TestCase):
         self.assertEqual(ladder_b["iron7"], 140)
         # Same bag, different ladders -> each reflects only that member's own shots.
         self.assertNotEqual(ladder_a, ladder_b)
+
+    def test_member_ladder_uses_corrected_history_shot_distance(self):
+        corrected = HistoryData(
+            raw_rounds=[], rounds=[], shots=[
+                {"type": "TEE", "club": "7I", "distance": 175.0},
+                {"type": "PUTT", "club": "Putter", "distance": 20.0},
+            ], corrected=True, source_fingerprint="source", correction_fingerprint="annotation-1",
+        )
+        bag = {"clubs": [{"token": "iron7"}]}
+        with patch.object(course_prep, "load_manual_club_bag", return_value=bag), \
+             patch.object(course_prep, "_corrected_profile_history", return_value=corrected), \
+             patch("ai_caddie.history.history._player_shot_sources", return_value=[(Path("/sc"), Path("/shots"))]):
+            ladder = dict(course_prep.effective_club_ladder("member-corrected"))
+        self.assertEqual(ladder["iron7"], 175)
+        # PUTT is intentionally present only in the canonical ``type`` field. It must not
+        # become a measured full-shot profile or perturb the corrected 7I distance.
+        profiles = data.build_club_profiles(history_data=corrected)
+        self.assertNotIn("Putter", profiles)
 
     def test_member_zero_shots_falls_back_typed_then_default(self):
         # Manual bag but ZERO logged shots (a no-Garmin member who hasn't played) -> measured empty
@@ -214,6 +270,25 @@ class ClubNameOverrideIsolationTests(unittest.TestCase):
         prof = data.build_club_profiles(shot_dirs=[self.member_shots])
         self.assertIn("OWNER-DRIVER", prof)
         self.assertNotIn("7I", prof)
+
+    def test_member_ladder_public_entry_uses_own_clubdetails(self):
+        # Reach the externally consumed ladder through data.py's shot-file projection.  The
+        # colliding owner clubs.json entry must not rename the member's clubId=2 shot.
+        raw_rounds = [{
+            "id": 1, "date": "2026-05-01", "course": "Member course",
+            "courseCanonical": "Member course", "courseKey": "member_course",
+        }]
+        with patch.object(history, "_player_shot_sources",
+                          return_value=[(self.root / "m_scorecards", self.member_shots)]):
+            member_shots = history.load_shot_history(raw_rounds, player_id="memberA")
+        member_history = HistoryData(raw_rounds=raw_rounds, rounds=raw_rounds, shots=member_shots)
+        with patch.object(course_prep, "load_manual_club_bag", return_value={
+            "clubs": [{"token": "iron7"}],
+        }), patch.object(course_prep, "_corrected_profile_history", return_value=member_history), \
+             patch("ai_caddie.history.history._player_shot_sources",
+                   return_value=[(self.root / "m_scorecards", self.member_shots)]):
+            ladder = dict(course_prep.effective_club_ladder("memberA"))
+        self.assertEqual(ladder["iron7"], 150)
 
 
 class PrepCacheFingerprintPlayerTests(unittest.TestCase):
