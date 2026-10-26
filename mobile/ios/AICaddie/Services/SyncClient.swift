@@ -666,6 +666,11 @@ public final class SyncClient {
             URLQueryItem(name: "background_geometry", value: backgroundGeometry ? "true" : "false"),
             URLQueryItem(name: "include_event_cursor", value: includeEventCursor ? "true" : "false"),
         ]
+        // #426 client contract, as the Watch sends it: the factual map package without player
+        // history/stats/caddie enrichment. Callers fetch the ordinary package for those.
+        if mapOnly {
+            components.queryItems?.append(URLQueryItem(name: "map_only", value: "true"))
+        }
         if let priorityHole {
             components.queryItems?.append(URLQueryItem(name: "priority_hole", value: String(priorityHole)))
         }

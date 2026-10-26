@@ -536,9 +536,15 @@ public final class LiveRoundAppModel: ObservableObject {
     var roundEnrichmentRetryDelaysNanoseconds: [UInt64] = [
         0, 5_000_000_000, 15_000_000_000, 30_000_000_000, 60_000_000_000,
     ]
+    private var roundEnrichmentTask: Task<Void, Never>?
+    private var roundEnrichmentRoundId: String?
     /// Caches one hole's Garmin raster where the live map reads it; true once it is there.
     /// Tests inject a recorder.
-    var garminRasterDownloader: (URL) async -> Bool = { _ in false }
+    var garminRasterDownloader: (URL) async -> Bool = { url in
+        await LiveRoundAppModel.cacheGarminRaster(url)
+    }
+    private var garminRasterDownloadTask: Task<Void, Never>?
+    private var garminRasterDownloadRoundId: String?
     /// A cold course's geometry lands hole by hole over a few minutes. Probe every 15 s at most so
     /// each finished hole is picked up promptly (the old 45–60 s slots left ready holes waiting),
     /// over a window of about five minutes, a little longer than before.
@@ -1339,6 +1345,8 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadTask = nil
         offlineCourseDownloadRoundId = nil
         interruptedOfflineCourseDownloadRoundId = nil
+        cancelRoundEnrichment()
+        cancelGarminRasterDownload()
         abandonResultsCacheRefresh(retryLater: true)
         clearFreshEntryRelease()
         // An intent prefetch yields to the start it anticipated: the package request must not queue
@@ -1479,13 +1487,18 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
 
+            // 开局两段 (C85): a new round asks only for the map package (#426 `map_only`, 0.3–0.6 s
+            // against 5–24 s for the personal package) and enters hole 1 on it. Clubs, history and
+            // caddie seeds follow in the background (`beginRoundEnrichmentIfNeeded`). A hole-set
+            // change keeps the round's personal facts, so it asks for the ordinary package.
             let fetched = await fetchRemoteCoursePackage(
                 globalId: globalId,
                 roundId: requestedRoundId,
                 teeBox: teeBox,
                 loops: loops,
                 capturedAt: preparedAt,
-                preparationToken: preparationToken
+                preparationToken: preparationToken,
+                mapOnly: isNewRound
             )
             recordUITestLatency(
                 "course-start.fetch.end globalId=\(globalId) found=\(fetched != nil)"
@@ -1511,6 +1524,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     recordUITestLatency("course-start.signal.begin globalId=\(globalId)")
                     signalFreshRoundEntry(cacheOfflineAssets: true)
                     recordUITestLatency("course-start.signal.end globalId=\(globalId)")
+                    beginRoundEnrichmentIfNeeded()
                 } else {
                     beginOfflineCourseDownload()
                 }
@@ -1524,6 +1538,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 try activatePackage(persisted, status: "已下载离线", rememberAsRecent: true)
                 if isNewRound {
                     signalFreshRoundEntry(revalidatePackage: true)
+                    beginRoundEnrichmentIfNeeded()
                 } else {
                     beginOfflineCourseDownload(revalidatePackage: true)
                 }
@@ -1605,6 +1620,9 @@ public final class LiveRoundAppModel: ObservableObject {
         if let package {
             enqueueWholeCourseTemplates(for: package)
         }
+        // Paging ahead must not land on a spinner: the Garmin rasters are small and cached by URL,
+        // so they start with the hole screen instead of waiting for the all-hole release.
+        beginGarminRasterDownload()
     }
 
     /// Start the first-hole bitmap as soon as the complete package arrives. The package already
@@ -1619,6 +1637,192 @@ public final class LiveRoundAppModel: ObservableObject {
         TopoHoleImageStore.prefetch(LiveTopoAvailability.url(
             hole: first, prep: prep, localURL: nil, baseURL: client.baseURL
         ))
+        #endif
+    }
+
+    /// A map-only package (#426) carries the route facts but defers the player's history, clubs and
+    /// caddie seeds; the server marks it `playerStatsWindow: deferred`.
+    private static func defersPlayerEnrichment(_ snapshot: LiveRoundPackage) -> Bool {
+        snapshot.sourceCoverage.playerStatsWindow?
+            .caseInsensitiveCompare("deferred") == .orderedSame
+    }
+
+    private func isAwaitingRoundEnrichment(_ roundId: String) -> Bool {
+        guard let current = package,
+              current.roundId == roundId,
+              liveRoundState?.roundId == roundId else { return false }
+        return Self.defersPlayerEnrichment(current)
+    }
+
+    /// 开局两段, second half (C85): the round entered on the map package; fetch the ordinary
+    /// package in the background and merge it into the same round. A failure only waits for the
+    /// next attempt (`roundEnrichmentRetryDelaysNanoseconds`, then the next foreground): scoring,
+    /// the map and the round identity never depend on it.
+    private func beginRoundEnrichmentIfNeeded() {
+        guard let snapshot = package,
+              let syncClient,
+              isAwaitingRoundEnrichment(snapshot.roundId) else { return }
+        if roundEnrichmentRoundId == snapshot.roundId, roundEnrichmentTask != nil { return }
+        roundEnrichmentTask?.cancel()
+        let roundId = snapshot.roundId
+        let globalId = snapshot.course.globalId
+        let teeBox = snapshot.course.teeBox
+        let loops = snapshot.loopEntries
+        let delays = roundEnrichmentRetryDelaysNanoseconds.isEmpty ? [0] : roundEnrichmentRetryDelaysNanoseconds
+        roundEnrichmentRoundId = roundId
+        recordUITestLatency("course-start.enrichment.begin round=\(roundId)")
+        roundEnrichmentTask = Task { @MainActor [weak self, syncClient] in
+            for delay in delays {
+                if delay > 0 {
+                    do { try await Task.sleep(nanoseconds: delay) } catch { break }
+                }
+                guard !Task.isCancelled,
+                      let self,
+                      self.isAwaitingRoundEnrichment(roundId) else { break }
+                do {
+                    // The same request the start used to wait for, now behind hole 1.
+                    let full = try await syncClient.fetchCoursePackage(
+                        globalId: globalId,
+                        roundId: roundId,
+                        teeBox: teeBox,
+                        loops: loops,
+                        capturedAt: Date(),
+                        ensureGeometry: false,
+                        backgroundGeometry: true,
+                        includeEventCursor: false,
+                        requestKind: .background
+                    )
+                    guard !Task.isCancelled else { break }
+                    if self.mergeRoundEnrichment(full) { break }
+                } catch {
+                    guard !Task.isCancelled else { break }
+                    AICaddieLog.network.info(
+                        "Round personal package deferred: \(String(describing: error), privacy: .public)"
+                    )
+                }
+            }
+            guard let self, self.roundEnrichmentRoundId == roundId, !Task.isCancelled else { return }
+            self.roundEnrichmentTask = nil
+            self.roundEnrichmentRoundId = nil
+        }
+    }
+
+    private func cancelRoundEnrichment() {
+        roundEnrichmentTask?.cancel()
+        roundEnrichmentTask = nil
+        roundEnrichmentRoundId = nil
+    }
+
+    /// Fold the ordinary package into the live round the player is already on. Its personal facts
+    /// (clubs, history, caddie seeds, weather) replace the map package's empty ones; precise prep
+    /// retained since entry stays; the round id, loop table, active hole and recorded events are
+    /// untouched (`activatePackage` replays the durable events). False when it cannot apply yet.
+    private func mergeRoundEnrichment(_ full: LiveRoundPackage) -> Bool {
+        guard let current = package,
+              isAwaitingRoundEnrichment(current.roundId),
+              full.roundId == current.roundId,
+              full.loopKey == current.loopKey,
+              full.holes.map(\.number) == current.holes.map(\.number),
+              !Self.defersPlayerEnrichment(full) else { return false }
+        let merged = preservingForegroundPrecisePrep(in: carryingInstalledPrecisePrep(full))
+            .replacingCourseDisplayName(current.course.name)
+        do {
+            let persisted = try offlineStore.saveRoundPackage(merged)
+            try activatePackage(persisted, status: syncStatus, rememberAsRecent: true)
+        } catch {
+            AICaddieLog.storage.error(
+                "Round personal package merge failed: \(String(describing: error), privacy: .public)"
+            )
+            return false
+        }
+        recordUITestLatency("course-start.enrichment.merged round=\(current.roundId)")
+        // A running all-hole pass works on a map-package snapshot and writes it back batch by batch;
+        // restart it on the merged package (holes already on disk are skipped). A pending fresh entry
+        // starts it from the merged package anyway.
+        if offlineCourseDownloadRoundId == current.roundId {
+            beginOfflineCourseDownload()
+        }
+        return true
+    }
+
+    /// Cache every hole's Garmin raster, in play order from the hole being played, with the URL the
+    /// package gives (the live map resolves the same one, so `?v=` versions are kept as they are).
+    /// The rasters are what a hole shows until its precise topo is ready; without them, paging ahead
+    /// right after the start showed a spinner (build 96). One request at a time, behind hole 1.
+    private func beginGarminRasterDownload() {
+        guard let snapshot = package,
+              let baseURL = apiBaseURL ?? syncClient?.baseURL,
+              liveRoundState?.roundId == snapshot.roundId else { return }
+        if garminRasterDownloadRoundId == snapshot.roundId, garminRasterDownloadTask != nil { return }
+        let urls = Self.garminRasterURLsInPlayOrder(
+            snapshot,
+            activeHole: liveRoundState?.activeHole,
+            baseURL: baseURL
+        )
+        guard !urls.isEmpty else { return }
+        garminRasterDownloadTask?.cancel()
+        let roundId = snapshot.roundId
+        let download = garminRasterDownloader
+        garminRasterDownloadRoundId = roundId
+        recordUITestLatency("garmin-raster.pass.begin round=\(roundId) holes=\(urls.count)")
+        garminRasterDownloadTask = Task { @MainActor [weak self] in
+            var cached = 0
+            for url in urls {
+                guard !Task.isCancelled, self?.liveRoundState?.roundId == roundId else { break }
+                if await download(url) { cached += 1 }
+            }
+            guard let self, self.garminRasterDownloadRoundId == roundId, !Task.isCancelled else { return }
+            self.recordUITestLatency("garmin-raster.pass.end round=\(roundId) cached=\(cached)/\(urls.count)")
+            self.garminRasterDownloadTask = nil
+            self.garminRasterDownloadRoundId = nil
+        }
+    }
+
+    private func cancelGarminRasterDownload() {
+        garminRasterDownloadTask?.cancel()
+        garminRasterDownloadTask = nil
+        garminRasterDownloadRoundId = nil
+    }
+
+    /// Round order rotated to start at `activeHole` (`OfflineCourseDownloadOrder`), one URL per
+    /// physical hole. Holes without a usable package URL are skipped, never guessed.
+    static func garminRasterURLsInPlayOrder(
+        _ snapshot: LiveRoundPackage,
+        activeHole: Int?,
+        baseURL: URL
+    ) -> [URL] {
+        let rows: [(number: Int, url: URL)] = snapshot.holes.compactMap { hole in
+            guard let descriptor = hole.garminRaster,
+                  let url = GarminRasterResponse(
+                      available: true,
+                      imageUrl: descriptor.imageUrl,
+                      mode: "package"
+                  ).resolvedImageURL(relativeTo: baseURL) else { return nil }
+            return (number: hole.number, url: url)
+        }
+        let ranks = OfflineCourseDownloadOrder.ranks(
+            roundHoles: rows.map { OfflineCourseDownloadOrder.Hole(number: $0.number, key: $0.url.absoluteString) },
+            activeHole: activeHole
+        )
+        var seen = Set<URL>()
+        return rows
+            .sorted { (ranks[$0.url.absoluteString] ?? Int.max) < (ranks[$1.url.absoluteString] ?? Int.max) }
+            .map(\.url)
+            .filter { seen.insert($0).inserted }
+    }
+
+    /// Production `garminRasterDownloader`: one attempt through `GarminRasterImageStore`, which
+    /// writes the URL-keyed disk cache the live map reads and shares an in-flight request with it.
+    /// The store's own retry ladder stays with the hole screen (a sleep that throws ends `load`
+    /// after its first attempt); this pass simply moves on and the next pass tries again.
+    static func cacheGarminRaster(_ url: URL) async -> Bool {
+        #if canImport(UIKit)
+        if GarminRasterImageStore.cachedImage(for: url) != nil { return true }
+        let store = GarminRasterImageStore(sleep: { _ in throw CancellationError() })
+        await store.load(url)
+        return store.image != nil
+        #else
+        return false
         #endif
     }
 
@@ -1734,6 +1938,8 @@ public final class LiveRoundAppModel: ObservableObject {
         let expectedGlobalId = initial.course.globalId
         // An explicit same-round refresh supersedes any earlier fresh-entry release still pending.
         clearFreshEntryRelease()
+        // A resumed or relaunched round walks its rasters again from the hole being played.
+        beginGarminRasterDownload()
         // Queue the whole-course template(s) this round does not carry itself; the prep queue
         // starts after this round's own assets, so it never competes with the live hole.
         enqueueWholeCourseTemplates(for: initial)
@@ -1855,10 +2061,14 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// Waits for the background personal package of a map-only start (C85), merged or given up.
-    func waitForRoundEnrichmentForTesting() async {}
+    func waitForRoundEnrichmentForTesting() async {
+        await roundEnrichmentTask?.value
+    }
 
     /// Waits for the round's Garmin raster pass (C85).
-    func waitForGarminRasterDownloadForTesting() async {}
+    func waitForGarminRasterDownloadForTesting() async {
+        await garminRasterDownloadTask?.value
+    }
 
     /// Test-only synchronization point for the app-owned prep queue. Production views never await
     /// this task: they observe `prepCourseDownloads`, so navigation cannot become its owner.
@@ -4013,6 +4223,10 @@ public final class LiveRoundAppModel: ObservableObject {
         if !isPreparingRound, liveRoundState != nil, deferredOfflineCourseDownloadRevalidation == nil {
             beginOfflineCourseDownload()
         }
+        // A map-only start whose personal package gave up (or a relaunch into one) tries again.
+        if !isPreparingRound, liveRoundState != nil {
+            beginRoundEnrichmentIfNeeded()
+        }
         Task { @MainActor [weak self] in
             await self?.autoSyncGarminIfNeeded()
         }
@@ -4854,7 +5068,8 @@ public final class LiveRoundAppModel: ObservableObject {
         loops: [RoundLoopEntry],
         capturedAt: Date = Date(),
         preparationToken: UUID? = nil,
-        priorityHole: Int? = nil
+        priorityHole: Int? = nil,
+        mapOnly: Bool = false
     ) async -> LiveRoundPackage? {
         #if DEBUG
         // The course-package failure hook covers a start; a turn request (two loops) keeps
@@ -4877,7 +5092,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             // A newly generated round has no server events yet. Replay/ACK owns recovery later;
             // scanning the owner's historical event log here only delays the first-hole screen.
-            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, foregroundStart: preparationToken != nil, priorityHole: priorityHole)
+            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, mapOnly: mapOnly, includeEventCursor: false, foregroundStart: preparationToken != nil, priorityHole: priorityHole)
         } catch {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {
@@ -5357,6 +5572,9 @@ public final class LiveRoundAppModel: ObservableObject {
             .filter { $0.phase == .queued }
             .filter { !freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id) }
             .filter { foregroundCourseRequestCount == 0 || !$0.yieldsToForeground }
+            // C85: an intent (or guess) never builds a whole-course package beside a start in
+            // flight; it waits for the start's first stage, then for the fresh-entry release.
+            .filter { roundPreparationToken == nil || !$0.yieldsToForeground }
             .filter { !$0.isSpeculative || speculativeJobMayStart }
             // Every job the player or a round asked for goes before a speculative one.
             .sorted(by: { lhs, rhs in
