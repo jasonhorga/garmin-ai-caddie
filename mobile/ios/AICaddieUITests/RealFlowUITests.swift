@@ -574,8 +574,8 @@ final class RealFlowUITests: XCTestCase {
         let relaunchedBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         XCTAssertTrue(relaunchedBanner.waitForExistence(timeout: 30))
         XCTAssertTrue(
-            (relaunchedBanner.value as? String)?.contains("第 1 洞") == true
-                || relaunchedBanner.label.contains("第 1 洞"),
+            (relaunchedBanner.value as? String)?.contains("记第一杆即开打") == true
+                || relaunchedBanner.label.contains("记第一杆即开打"),
             "an on-course retained prep must be ready to start at hole 1"
         )
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 20))
