@@ -26,6 +26,38 @@ struct StartCourseListRow: Equatable, Identifiable {
 /// Pure copy and list rules for 开始一场 and the home hero, kept out of the views so they are
 /// unit-testable without a SwiftUI host.
 enum StartRoundPresentation {
+    /// The setup state a venue-row tap can change. Kept together so returning to setup can
+    /// preserve the player's choice and the Tee authority belonging to that choice.
+    struct CourseRowState: Equatable {
+        let selection: StartRoundView.CourseSelectionState
+        let startHalf: String
+        let userPickedTee: Bool
+        let fetchedTees: [CourseTee]
+        let teeLoadFailed: Bool
+    }
+
+    static func selectingCourseRow(
+        _ option: MobileCourseOption,
+        current: MobileCourseOption?,
+        state: CourseRowState,
+        lastUsedTee: String?,
+        uuid: UUID = UUID()
+    ) -> CourseRowState {
+        // 返回 → the same venue is navigation back to setup, not a new round selection.
+        // A row refreshed from another source may omit the chosen loop or rename the course.
+        if state.selection.globalIdText == String(option.globalId)
+            || current.map({ StartRoundView.samePhysicalVenue($0, option) }) == true {
+            return state
+        }
+        return CourseRowState(
+            selection: StartRoundView.selectionState(for: option, lastUsedTee: lastUsedTee, uuid: uuid),
+            startHalf: state.selection.globalIdText == String(option.globalId) ? state.startHalf : "front",
+            userPickedTee: false,
+            fetchedTees: [],
+            teeLoadFailed: false
+        )
+    }
+
     static func preselectedLoop(
         in loops: [MobileCourseOption],
         current: MobileCourseOption?,

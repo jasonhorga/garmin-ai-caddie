@@ -35,6 +35,102 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(StartRoundPresentation.preselectedTee(lastUsed: nil, offered: ["Gold", " Blue "], defaultTee: nil), " Blue ")
     }
 
+    func testReturningToSameCourseKeepsWhiteTeeAuthorityAndRoundIdentity() {
+        let course = MobileCourseOption(globalId: 401, name: "测试球场", teeBox: "Blue", tees: ["Blue", "White"])
+        let rows = [CourseTee(teeBox: "Blue", name: "Blue", isDefault: true), CourseTee(teeBox: "White", name: "White")]
+        // C82: an explicit White pick survives 返回 → the same venue row, including 后九.
+        let before = courseRowState(globalId: 401, tee: "White", rows: rows)
+        let after = StartRoundPresentation.selectingCourseRow(course, current: course, state: before, lastUsedTee: nil)
+
+        XCTAssertEqual(after.selection.teeBox, "White")
+        XCTAssertTrue(after.userPickedTee)
+        XCTAssertEqual(after.selection.roundId, "live-existing")
+        XCTAssertEqual(after.startHalf, "back")
+        XCTAssertEqual(after.fetchedTees, rows)
+        XCTAssertEqual(courseRowTeeOptions(after, course: course), ["Blue", "White"])
+        XCTAssertEqual(after, before)
+    }
+
+    func testReturningToSearchedCourseKeepsFetchedTeesAndCanStart() {
+        // A name-search result carries no bundled tee names; /tees is its only colour authority.
+        let searched = MobileCourseOption(globalId: 90_001, name: "搜索球场")
+        let rows = [CourseTee(teeBox: "Blue", name: "Blue", isDefault: true), CourseTee(teeBox: "White", name: "White")]
+        let before = courseRowState(globalId: 90_001, tee: "White", rows: rows)
+        let after = StartRoundPresentation.selectingCourseRow(searched, current: searched, state: before, lastUsedTee: nil)
+        let options = courseRowTeeOptions(after, course: searched, requiresRemoteTees: true, wasManualSearch: true)
+
+        XCTAssertEqual(after.selection.teeBox, "White")
+        XCTAssertEqual(after.fetchedTees, rows)
+        XCTAssertEqual(options, ["Blue", "White"])
+        XCTAssertTrue(StartRoundView.isStartAllowed(
+            isPreparing: false, isLoadingTees: false,
+            roundId: after.selection.roundId, courseGlobalId: Int(after.selection.globalIdText),
+            teeBox: after.selection.teeBox, selectedCourseRequiresRemoteTees: true,
+            teeOptions: options, selectedCourseWasManualSearch: true
+        ))
+    }
+
+    func testReturningToVenueKeepsChosenLoopEvenWhenRowComesFromAnotherSource() {
+        let first = blackKnight(31794, "A")
+        let chosen = blackKnight(31795, "B")
+        let before = courseRowState(globalId: 31795, tee: "White", rows: [CourseTee(teeBox: "White", name: "White")])
+        // A refreshed course-row authority may offer only A; reopening the venue must keep B.
+        let after = StartRoundPresentation.selectingCourseRow(first, current: chosen, state: before, lastUsedTee: "Blue")
+        XCTAssertEqual(after.selection.globalIdText, "31795")
+        XCTAssertEqual(after, before)
+    }
+
+    func testReturningToSameGlobalIdKeepsStateDespiteChangedVenueMetadata() {
+        let previous = MobileCourseOption(globalId: 401, name: "旧名称")
+        let refreshed = MobileCourseOption(globalId: 401, name: "新名称")
+        let before = courseRowState(globalId: 401, tee: "White", rows: [])
+        XCTAssertEqual(StartRoundPresentation.selectingCourseRow(refreshed, current: previous, state: before, lastUsedTee: nil), before)
+        XCTAssertEqual(StartRoundPresentation.selectingCourseRow(refreshed, current: nil, state: before, lastUsedTee: nil), before)
+    }
+
+    func testReturningToSameCoursePreservesFailedTeeRetry() {
+        let course = MobileCourseOption(globalId: 90_001, name: "搜索球场")
+        let before = courseRowState(globalId: 90_001, tee: "unknown", rows: [], teeLoadFailed: true)
+        let after = StartRoundPresentation.selectingCourseRow(course, current: course, state: before, lastUsedTee: nil)
+        XCTAssertTrue(after.teeLoadFailed, "the existing retry must remain reachable when no new Tee task is triggered")
+        XCTAssertEqual(after, before)
+    }
+
+    func testDifferentVenueResetsSetupUsingItsOwnLastUsedTeeOrDefault() {
+        let previous = blackKnight(31795, "B")
+        let next = MobileCourseOption(globalId: 501, name: "另一球场", teeBox: "Gold", tees: ["Gold", "Blue"])
+        let before = courseRowState(globalId: 31795, tee: "White", rows: [CourseTee(teeBox: "White", name: "White")], teeLoadFailed: true)
+        let uuid = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let after = StartRoundPresentation.selectingCourseRow(next, current: previous, state: before, lastUsedTee: nil, uuid: uuid)
+        XCTAssertEqual(after.selection.globalIdText, "501")
+        XCTAssertEqual(after.selection.roundId, "live-501-00000000-0000-0000-0000-000000000001")
+        XCTAssertEqual(after.selection.teeBox, "Gold")
+        XCTAssertEqual(after.startHalf, "front")
+        XCTAssertFalse(after.userPickedTee)
+        XCTAssertTrue(after.fetchedTees.isEmpty)
+        XCTAssertFalse(after.teeLoadFailed)
+        XCTAssertEqual(StartRoundPresentation.selectingCourseRow(next, current: previous, state: before, lastUsedTee: "Blue").selection.teeBox, "Blue")
+    }
+
+    private func courseRowState(
+        globalId: Int, tee: String, rows: [CourseTee], teeLoadFailed: Bool = false
+    ) -> StartRoundPresentation.CourseRowState {
+        .init(
+            selection: .init(globalIdText: String(globalId), roundId: "live-existing", teeBox: tee),
+            startHalf: "back", userPickedTee: true, fetchedTees: rows, teeLoadFailed: teeLoadFailed
+        )
+    }
+
+    private func courseRowTeeOptions(
+        _ state: StartRoundPresentation.CourseRowState, course: MobileCourseOption,
+        requiresRemoteTees: Bool = false, wasManualSearch: Bool = false
+    ) -> [String] {
+        StartRoundView.resolvedTeeOptions(
+            fetchedTees: state.fetchedTees, courseTees: course.tees ?? [], teeBox: state.selection.teeBox,
+            requiresRemoteTees: requiresRemoteTees, wasManualSearch: wasManualSearch
+        )
+    }
+
     func testLastUsedTeeIsTheRecentThenTheCallerTeeAtThisVenue() {
         XCTAssertEqual(StartRoundPresentation.lastUsedTee(selectedVenue: "黑骑士", recentVenue: "黑骑士", recentTee: "white", callerVenue: "黑骑士", callerTee: "blue"), "white")
         XCTAssertEqual(StartRoundPresentation.lastUsedTee(selectedVenue: "黑骑士", recentVenue: "北湖", recentTee: "white", callerVenue: "黑骑士", callerTee: "blue"), "blue")

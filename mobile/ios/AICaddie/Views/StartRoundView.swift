@@ -945,7 +945,7 @@ public struct StartRoundView: View {
         }
     }
 
-    /// Choosing a venue selects its first loop; tapping the already-selected venue keeps the loop.
+    /// A different venue uses its preferred loop/Tee; reopening the selected venue keeps setup.
     private func selectCourseRow(_ row: StartCourseListRow) {
         guard let first = StartRoundPresentation.preselectedLoop(
             in: row.segments, current: selectedSegment, recent: recentResolvedCourseOption
@@ -956,9 +956,27 @@ public struct StartRoundView: View {
             previous: selectedSegment,
             next: first
         )
-        fetchedTees = []
-        teeLoadFailed = false
-        applySelectedCourse(first)
+        let state = StartRoundPresentation.selectingCourseRow(
+            first,
+            current: selectedSegment,
+            state: .init(
+                selection: .init(globalIdText: courseGlobalIdText, roundId: roundId, teeBox: teeBox),
+                startHalf: startHalf, userPickedTee: userPickedTee,
+                fetchedTees: fetchedTees, teeLoadFailed: teeLoadFailed
+            ),
+            lastUsedTee: Self.lastUsedTeeForCourse(
+                for: first, recent: recentCourseOption,
+                caller: (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId },
+                callerTee: callerTeeBox
+            )
+        )
+        courseGlobalIdText = state.selection.globalIdText
+        roundId = state.selection.roundId
+        teeBox = state.selection.teeBox
+        startHalf = state.startHalf
+        userPickedTee = state.userPickedTee
+        fetchedTees = state.fetchedTees
+        teeLoadFailed = state.teeLoadFailed
         showSetupPage()
     }
 
@@ -1270,8 +1288,21 @@ public struct StartRoundView: View {
     /// 所选球场 Garmin CourseView 的真实 Tee 名(金/黑/蓝/白/红…);再没有才回退通用集。
     /// 内部保留原始 key(传给后端),仅显示中文。
     private var teeOptions: [String] {
+        Self.resolvedTeeOptions(
+            fetchedTees: fetchedTees, courseTees: selectedSegment?.tees ?? [], teeBox: teeBox,
+            requiresRemoteTees: selectedCourseRequiresRemoteTees,
+            wasManualSearch: selectedCourseWasManualSearch
+        )
+    }
+
+    static func resolvedTeeOptions(
+        fetchedTees: [CourseTee],
+        courseTees: [String],
+        teeBox: String,
+        requiresRemoteTees: Bool,
+        wasManualSearch: Bool
+    ) -> [String] {
         let fetched = fetchedTees.map(\.teeBox)
-        let courseTees = selectedSegment?.tees ?? []
         if !fetched.isEmpty {
             return Self.normalizedTeeOptions(fetched, currentTeeBox: teeBox)
         }
@@ -1282,7 +1313,7 @@ public struct StartRoundView: View {
         // A remotely searched course has no local Tee authority yet. Keep the explicit
         // `unknown` request available so it can start immediately, but never present a
         // fabricated colour list while the real `/tees` response is pending or unavailable.
-        if selectedCourseRequiresRemoteTees || selectedCourseWasManualSearch {
+        if requiresRemoteTees || wasManualSearch {
             let current = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
             return current.caseInsensitiveCompare("unknown") == .orderedSame ? ["unknown"] : []
         }
