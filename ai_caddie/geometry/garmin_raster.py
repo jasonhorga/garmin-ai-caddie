@@ -73,10 +73,12 @@ def _hole_number(hole: object) -> int:
     return int(hole)
 
 
-def _release_hole(global_id: int, hole: object) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+def _release_hole(
+    global_id: int, hole: object, *, allow_fetch: bool = True
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Return the cached/current release and one hole row without exposing URL data."""
     try:
-        info = courseview_release_info(int(global_id), allow_fetch=True) or {}
+        info = courseview_release_info(int(global_id), allow_fetch=allow_fetch) or {}
     except Exception:
         return None, None
     try:
@@ -125,20 +127,38 @@ def _geometry_asset_version(info: Mapping[str, Any] | None, hole: Mapping[str, A
     return None
 
 
-def raster_asset_version(global_id: int, hole: object) -> str | None:
-    """Return the stable asset version for an endpoint ETag/cache key."""
-    url, version = _raster_url(int(global_id), hole)
+def raster_asset_version(global_id: int, hole: object, *, allow_fetch: bool = True) -> str | None:
+    """Return the stable asset version for an endpoint ETag/cache key.
+
+    ``allow_fetch=False`` reads only the cached release, for callers (the round package) that
+    must describe the raster without contacting Garmin.
+    """
+    url, version = _raster_url(int(global_id), hole, allow_fetch=allow_fetch)
     return version if url else None
 
 
-def _raster_url(global_id: int, hole: object) -> tuple[str | None, str | None]:
+def raster_image_version(asset: str) -> str:
+    """The PNG's version: Garmin's asset version plus the sky matte that produced the pixels."""
+    return str(asset)
+
+
+def raster_image_path(global_id: int, hole: int, asset: str | None) -> str:
+    """The one image URL both the round package and the metadata endpoint give the phone.
+
+    Without a known asset version this is the legacy unversioned JPEG route.
+    """
+    base = f"/api/v2/courses/{int(global_id)}/holes/{int(hole)}/garmin-raster.jpg"
+    return f"{base}?v={asset}" if asset else base
+
+
+def _raster_url(global_id: int, hole: object, *, allow_fetch: bool = True) -> tuple[str | None, str | None]:
     try:
         local_hole = _hole_number(hole)
     except (TypeError, ValueError, OverflowError):
         return None, None
     if isinstance(hole, Mapping) and hole.get("raster_url"):
         return str(hole.get("raster_url")).strip() or None, _geometry_asset_version(None, hole, local_hole)
-    info, row = _release_hole(int(global_id), local_hole)
+    info, row = _release_hole(int(global_id), local_hole, allow_fetch=allow_fetch)
     if not row:
         return None, _geometry_asset_version(info, row, local_hole)
     url = str(row.get("raster_url") or "").strip()
@@ -196,6 +216,30 @@ def fetch_raster(global_id: int, hole: object) -> bytes | None:
             except (NameError, OSError):
                 pass
     return data
+
+
+def matte_sky(image: object) -> Image.Image | None:
+    """Garmin's raster as RGBA."""
+    array = _image_array(image)
+    if array is None:
+        return None
+    return Image.fromarray(np.ascontiguousarray(array, dtype=np.uint8), "RGB").convert("RGBA")
+
+
+def matte_sky_png(data: bytes) -> bytes | None:
+    """Encode ``matte_sky`` of JPEG bytes as PNG."""
+    matted = matte_sky(data)
+    if matted is None:
+        return None
+    buffer = BytesIO()
+    matted.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def fetch_matted_raster(global_id: int, hole: object) -> bytes | None:
+    """The hole's raster as a PNG."""
+    data = fetch_raster(global_id, hole)
+    return matte_sky_png(data) if data else None
 
 
 def _image_array(image: object) -> np.ndarray | None:

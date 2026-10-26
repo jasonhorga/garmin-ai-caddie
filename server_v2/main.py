@@ -63,7 +63,7 @@ from .geometry import (
     load_hole_geometry_evidence_response,
     load_hole_map_response,
 )
-from .garmin_raster import ROUTER as garmin_raster_router
+from .garmin_raster import ROUTER as garmin_raster_router, prefetch_holes as prefetch_garmin_rasters
 from .pin_sheet import read_pin_sheet_response
 from .media import (
     analyze_media_response,

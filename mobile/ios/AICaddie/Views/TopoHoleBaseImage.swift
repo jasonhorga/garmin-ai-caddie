@@ -224,6 +224,8 @@ struct TopoHoleBaseImage: View {
     let onGarminImageFailed: (() -> Void)?
     let onGarminImageRetrying: (() -> Void)?
     let onGarminImageVersionConflict: (() -> Void)?
+    /// The hole's numeric facts shown while the Garmin raster loads.
+    let garminPlaceholder: LiveMapNumericPlaceholder?
     /// 备战 only: how far (fractions of this layer's own width / height) the surround reaches past
     /// each edge: one calm fill of the bitmap's own dominant edge colour (`TopoEdgeExtension`), so a
     /// fitted map that does not cover the screen never reads as a rectangle on a foreign ground.
@@ -244,7 +246,8 @@ struct TopoHoleBaseImage: View {
         onGarminImageReady: (() -> Void)? = nil,
         onGarminImageFailed: (() -> Void)? = nil,
         onGarminImageRetrying: (() -> Void)? = nil,
-        onGarminImageVersionConflict: (() -> Void)? = nil
+        onGarminImageVersionConflict: (() -> Void)? = nil,
+        garminPlaceholder: LiveMapNumericPlaceholder? = nil
     ) {
         self.topoURL = topoURL
         self.garminRasterURL = garminRasterURL
@@ -256,6 +259,7 @@ struct TopoHoleBaseImage: View {
         self.onGarminImageFailed = onGarminImageFailed
         self.onGarminImageRetrying = onGarminImageRetrying
         self.onGarminImageVersionConflict = onGarminImageVersionConflict
+        self.garminPlaceholder = garminPlaceholder
     }
 
     /// This layer with its terrain continued past its frame (`edgeExtension`, `edgeFeather`).
@@ -419,6 +423,8 @@ struct GarminRasterStandaloneView: View {
     let onFailed: (() -> Void)?
     var onRetrying: (() -> Void)? = nil
     let onVersionConflict: (() -> Void)?
+    /// The hole's numeric facts while the raster loads (nil: the screen's black ground only).
+    var placeholder: LiveMapNumericPlaceholder? = nil
 
     var body: some View {
         TopoHoleBaseImage(
@@ -429,7 +435,8 @@ struct GarminRasterStandaloneView: View {
             onGarminImageReady: onReady,
             onGarminImageFailed: onFailed,
             onGarminImageRetrying: onRetrying,
-            onGarminImageVersionConflict: onVersionConflict
+            onGarminImageVersionConflict: onVersionConflict,
+            garminPlaceholder: placeholder
         )
         .aspectRatio(1242.0 / 1920.0, contentMode: .fit)
         .accessibilityElement(children: .contain)

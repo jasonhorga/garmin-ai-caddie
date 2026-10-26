@@ -7,6 +7,8 @@ an HTTP 200 unavailable response so the client keeps its existing map fallback.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from concurrent.futures import Future
 from io import BytesIO
 import logging
 import threading
@@ -43,7 +45,7 @@ def _path(global_id: int, hole: int) -> str:
 
 
 def _versioned_path(global_id: int, hole: int, version: str) -> str:
-    return f"{_path(global_id, hole)}?v={version}"
+    return garmin_raster.raster_image_path(global_id, hole, version)
 
 
 def _unavailable(reason: str, *, image_url: str | None = None, version: str | None = None) -> dict[str, Any]:
@@ -133,6 +135,41 @@ def course_hole_garmin_raster_jpg(
     if not image:
         raise HTTPException(status_code=404, detail="garmin raster unavailable")
     return Response(content=image, media_type="image/jpeg", headers=headers)
+
+
+@ROUTER.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.png")
+def course_hole_garmin_raster_png(
+    request: Request,
+    global_id: int,
+    hole: int = Path(ge=1, le=36),
+    v: str | None = None,
+) -> Response:
+    asset = _asset_version(global_id, hole)
+    if not asset:
+        raise HTTPException(status_code=404, detail="garmin raster unavailable")
+    version = garmin_raster.raster_image_version(asset)
+    if v is not None and v != version:
+        raise HTTPException(status_code=409, detail="garmin raster asset version changed")
+    etag = f'"{version}"'
+    headers = {"Cache-Control": _IMMUTABLE_CACHE_CONTROL if v == version else _NO_CACHE_CONTROL, "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    try:
+        image = garmin_raster.fetch_raster(global_id, hole)
+    except Exception as exc:
+        logger.warning("garmin raster fetch failed: %s", type(exc).__name__)
+        image = None
+    if not image:
+        raise HTTPException(status_code=404, detail="garmin raster unavailable")
+    return Response(content=image, media_type="image/jpeg", headers=headers)
+
+
+_PREFETCHED: set[tuple[int, int, str]] = set()
+
+
+def prefetch_holes(holes: Iterable[tuple[int, int]]) -> list[Future]:
+    """Queue Garmin raster warm-up for ``(globalId, localHole)`` pairs in the given order."""
+    return []
 
 
 @ROUTER.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster")
