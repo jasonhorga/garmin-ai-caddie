@@ -1,9 +1,9 @@
 """Pull Garmin golf scorecards from connect.garmin.cn (CN) and save as JSON.
 
 CN web API uses cookie + connect-csrf-token auth on /golf-api/ prefix.
-Cookie + CSRF must be exported from a logged-in browser session and saved at:
-  .garmin_tokens/web_cookie.txt   (one-line Cookie header value)
-  .garmin_tokens/csrf.txt         (one-line connect-csrf-token value)
+Cookie + CSRF are published as one generation under .garmin_tokens/ and selected by
+the atomic .garmin_tokens/current pointer. Legacy flat files are accepted only until
+the first successful generation write.
 """
 
 from __future__ import annotations
@@ -21,8 +21,6 @@ from ai_caddie.garmin.garmin_auth import auth_headers, ensure_web_auth
 
 ROOT = Path(__file__).resolve().parents[2]
 TOKEN_DIR = ROOT / ".garmin_tokens"
-COOKIE_FILE = TOKEN_DIR / "web_cookie.txt"
-CSRF_FILE = TOKEN_DIR / "csrf.txt"
 DATA_DIR = ROOT / "data"
 SUMMARY_FILE = DATA_DIR / "summary.json"
 SCORECARD_DIR = DATA_DIR / "scorecards"

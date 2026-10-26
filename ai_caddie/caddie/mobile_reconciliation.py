@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from ai_caddie.reports.annotations import add_annotation, list_annotations, validate_annotation
 from ai_caddie.caddie.decision import audit_decision, latest_decision_record, store_decision_audit
@@ -47,13 +48,25 @@ def _round_row(round_id: str, data: HistoryData) -> dict[str, Any]:
     )
 
 
-def _hole_scores(round_row: dict[str, Any]) -> dict[int, dict[str, Any]]:
+def _hole_scores(
+    round_row: dict[str, Any], *, root: Path | str | None = None,
+    annotations_root: Path | str | None = None, player_id: str = OWNER_ID,
+) -> dict[int, dict[str, Any]]:
+    from ai_caddie.reports.annotations import list_annotation_records
+    from ai_caddie.rounds.correction_audit import _effective_hole, _round_correction_events
+
+    annotation_records = list_annotation_records(
+        root=annotations_root if annotations_root is not None else root, player_id=player_id,
+    )
+    correction_events = _round_correction_events(player_id, round_row, root=root)
     scores: dict[int, dict[str, Any]] = {}
     for index, hole in enumerate(round_row.get("holes") or [], start=1):
         number = _safe_int(hole.get("number")) or index
+        _total, _putts, penalty = _effective_hole(round_row, number, annotation_records, correction_events)
         scores[number] = {
             "strokes": hole.get("strokes"),
             "putts": hole.get("putts"),
+            "penalties": penalty,
             "ref": f"{round_row.get('id')}:{number}",
         }
     return scores
@@ -206,6 +219,17 @@ def _annotation_suggestions(
                     reason="Local score input can correct the derived score for this hole.",
                 )
             )
+        elif kind == "penalty":
+            suggestions.append(
+                _suggestion(
+                    f"{event_id}:penalty-correction",
+                    target_type="hole",
+                    target_id=ref,
+                    kind="penalty_correction",
+                    payload={"from": garmin_value, "strokes": local_value, "sourceEventId": event_id},
+                    reason="Local penalty input differs from the synced Garmin scorecard.",
+                )
+            )
 
     garmin_shots_by_hole: dict[int, list[dict[str, Any]]] = {}
     for row in garmin_only:
@@ -341,11 +365,12 @@ def reconcile_mobile_round_events(
     data: HistoryData,
     *,
     root: Path | str | None = None,
+    annotations_root: Path | str | None = None,
     player_id: str = OWNER_ID,
 ) -> dict[str, Any]:
     events = _event_rows(round_id, root=root, player_id=player_id)
     round_row = _round_row(round_id, data)
-    scores = _hole_scores(round_row)
+    scores = _hole_scores(round_row, root=root, annotations_root=annotations_root, player_id=player_id)
     shots = _shot_facts(round_id, data)
     unmatched_shots = {shot["ref"]: shot for shot in shots}
     matched: list[dict[str, Any]] = []
@@ -423,15 +448,31 @@ def reconcile_mobile_round_events(
 
         if kind == "penalty":
             local_value = _payload_value(payload, "penalties", "count")
-            local_only.append(
-                {
-                    "eventId": event.get("eventId"),
-                    "roundId": event.get("roundId"),
-                    "kind": kind,
-                    "hole": hole,
-                    "localValue": local_value,
-                }
-            )
+            garmin = scores.get(hole)
+            garmin_value = garmin.get("penalties") if garmin else None
+            if garmin_value is None:
+                local_only.append(
+                    {
+                        "eventId": event.get("eventId"),
+                        "roundId": event.get("roundId"),
+                        "kind": kind,
+                        "hole": hole,
+                        "localValue": local_value,
+                    }
+                )
+            elif local_value == garmin_value:
+                matched.append({"eventId": event.get("eventId"), "kind": kind, "hole": hole, "ref": garmin["ref"]})
+            else:
+                conflicts.append(
+                    {
+                        "eventId": event.get("eventId"),
+                        "kind": kind,
+                        "hole": hole,
+                        "localValue": local_value,
+                        "garminValue": garmin_value,
+                        "ref": garmin["ref"],
+                    }
+                )
             continue
 
         if kind == "note":
@@ -545,7 +586,9 @@ def apply_mobile_reconciliation_suggestions(
 ) -> dict[str, Any]:
     """Write the selected suggestions as annotations. ``data_loader`` re-reads history inside each
     score annotation's audit bracket (``correction_audit.load_coherent``)."""
-    reconciliation = reconcile_mobile_round_events(round_id, data, root=root, player_id=player_id)
+    reconciliation = reconcile_mobile_round_events(
+        round_id, data, root=root, annotations_root=annotations_root, player_id=player_id,
+    )
     suggestions = {str(row.get("id")): row for row in reconciliation.get("annotationSuggestions", [])}
     requested_ids = list(suggestion_ids or suggestions.keys())
     existing_ids = _existing_source_suggestion_ids(root=annotations_root, player_id=player_id)
@@ -578,6 +621,7 @@ def apply_mobile_reconciliation_suggestions(
         data, selected, player_id=player_id, annotation_root=annotations_root,
     ):
         payload = dict(row.get("payload") or {})
+        record_id = uuid4().hex
         record = add_annotation(
             str(row["targetType"]),
             str(row["targetId"]),
@@ -585,9 +629,13 @@ def apply_mobile_reconciliation_suggestions(
             payload,
             root=annotations_root,
             player_id=player_id,
+            client_mutation_id=f"reconciliation:{player_id}:{round_id}:{row['id']}",
+            _record_id=record_id,
             data_loader=data_loader,
         )
         annotations.append(record)
+        if str(record.get("id")) != record_id:
+            continue
         audit_record = _store_caddie_feedback_audit(
             row,
             events_by_id=events_by_id,
