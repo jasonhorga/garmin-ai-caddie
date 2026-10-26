@@ -2830,6 +2830,64 @@ def _your_shots(md: dict, by: dict, route, global_id: int, local_hole: int, over
     return out
 
 
+def _topo_frame_prep_hole(
+    global_id: int,
+    local_hole: int,
+    *,
+    coverage: dict,
+    ladder,
+    par_record=None,
+    tee_set: int | None = None,
+) -> dict | None:
+    """Factual prep in the ``/topo.png`` frame while only the obstacle export is pending.
+
+    ``topoCoverage`` ready means the release-bound mesh behind the topo bitmap is installed; full
+    coverage still waits for the hazard export.  A phone that already shows that bitmap cannot draw
+    the CourseView row's fixed 360x560 frame over it, so serve the installed mesh's own vectors.  The
+    row stays ``partial`` (clients keep upgrading it) and carries the topo revision, which is how a
+    client proves it shares the bitmap's pixel frame.
+    """
+    revision = coverage.get("topoRevision")
+    if coverage.get("topoCoverage") != "ready" or not revision:
+        return None
+    row = precise_route_seed_hole(
+        global_id,
+        local_hole,
+        par_record=par_record,
+        coverage={**coverage, "geometryRevision": revision},
+        tee_set=tee_set,
+        include_facts=True,
+    )
+    if row is None:
+        return None
+    hazards = row["hazards"]
+    # Plan on the same terrain as the ready row (the mesh read above is cached), so the chain does
+    # not change when the obstacle export lands.
+    try:
+        md, by = hole_render.load_mesh(int(global_id), int(local_hole))
+        route, _route_len = derive_route(md, row["teeSet"]) if row.get("teeSet") is not None else derive_route(md)
+        elevation_at = _route_elevation(by, route)
+    except Exception:
+        elevation_at = None
+    steps, cautions, landing, tee_club = _strategy(
+        int(row["par"]), float(row["route_len_m"]), hazards, ladder, elevation_at=elevation_at,
+    )
+    row.update(
+        candidateRoutes=_candidate_routes(ladder, hazards, par=int(row["par"])),
+        carryTargets=_carry_targets(landing, hazards),
+        steps=steps,
+        cautions=cautions,
+        landing_m=round(landing, 1) if landing else None,
+        tee_club=tee_club,
+        # The mesh route is used because the obstacle export is pending, not because the
+        # CourseView route is missing.
+        missingData=[
+            item for item in row.get("missingData") or [] if item.get("label") != "courseview_route"
+        ],
+    )
+    return row
+
+
 def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, render=True,
               include_shots=False, player_id: str = OWNER_ID, shot_rows=None,
               tee_set: int | None = None) -> HolePrep | dict | None:
@@ -2847,6 +2905,16 @@ def prep_hole(global_id: int, local_hole: int, *, ladder=None, par_record=None, 
             "missingData": [{"label": "geometry", "reason": "prodgeometry geometry could not be loaded"}],
         }
     if coverage.get("coverage") != "ready":
+        topo_frame = _topo_frame_prep_hole(
+            global_id,
+            local_hole,
+            coverage=coverage,
+            ladder=ladder,
+            par_record=par_record,
+            tee_set=tee_set,
+        )
+        if topo_frame is not None:
+            return topo_frame
         lightweight = _lightweight_prep_hole(
             global_id,
             local_hole,

@@ -14,14 +14,14 @@ from ai_caddie.courses.course_reference import CoursePar
 from ai_caddie.core.data import mesh_path
 
 
-def _rect_mesh(min_x: float, min_y: float, max_x: float, max_y: float) -> dict:
+def _rect_mesh(min_x: float, min_y: float, max_x: float, max_y: float, *, elevation: float = 0.0) -> dict:
     """Rectangle in local hole metres, encoded like decoded prodgeometry positions."""
     return {
         "positions": [
-            [-min_x, 0.0, min_y],
-            [-max_x, 0.0, min_y],
-            [-max_x, 0.0, max_y],
-            [-min_x, 0.0, max_y],
+            [-min_x, elevation, min_y],
+            [-max_x, elevation, min_y],
+            [-max_x, elevation, max_y],
+            [-min_x, elevation, max_y],
         ],
         "faces": [[0, 1, 2], [0, 2, 3]],
     }
@@ -353,6 +353,118 @@ class PureLogicTests(unittest.TestCase):
         self.assertEqual([route["club"] for route in row["candidateRoutes"]], ["1W", "7I"])
         self.assertNotIn("allowSameClubStrategies", row["candidateRoutes"][0])
         self.assertTrue(any(target["kind"] == "landing" for target in row["carryTargets"]))
+
+    def test_prep_hole_keeps_the_topo_frame_while_only_hazards_are_pending(self) -> None:
+        """C89 (build 96, hole 1): the phone already shows the installed topo bitmap, but prep
+        returned the 360x560 CourseView frame, so its route/flag was drawn as a stray green bar."""
+        md = {"hole": {
+            "RefLat": 40.0,
+            "RefLon": 116.0,
+            "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
+            "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 320.0}]}],
+        }}
+        by = {"Green.drc": _rect_mesh(-4.0, 314.0, 4.0, 326.0)}
+        # geometry_evidence: meshes installed and release-bound (topo ready), obstacle export pending.
+        coverage = {
+            "coverage": "partial",
+            "topoCoverage": "ready",
+            "fullCoverage": "partial",
+            "geometryRevision": None,
+            "topoRevision": "topo-r1",
+            "missingData": [{"label": "hazards", "reason": "prodgeometry hazard export pending"}],
+        }
+        # The CourseView lightweight row the old code returned: its fixed 360x560 display frame.
+        courseview_row = {
+            "hole": 1,
+            "geometryCoverage": "partial",
+            "holeImageProjection": {"available": True, "widthPx": 360, "heightPx": 560, "refs": []},
+        }
+        with patch.object(cp.hole_render, "load_mesh", return_value=(md, by)), \
+                patch.object(cp, "geometry_coverage_for_hole", return_value=coverage), \
+                patch.object(cp, "_lightweight_prep_hole", return_value=courseview_row):
+            prep = cp.prep_hole(
+                99999,
+                1,
+                ladder=[("1W", 200), ("7I", 128)],
+                par_record=CoursePar(global_id=99999, par=[4], par_source="courseview", confidence="high"),
+                render=False,
+            )
+
+        self.assertIsNotNone(prep)
+        row = prep if isinstance(prep, dict) else prep.to_dict()
+        # hole_render: the topo fills FRAME_H=1060 px along the hole and a narrow hole keeps the
+        # 0.64 portrait floor, so a straight 320 m hole is the 678x1060 /topo.png frame.
+        projection = row["holeImageProjection"]
+        self.assertEqual((projection["widthPx"], projection["heightPx"]), (678, 1060))
+        self.assertTrue(projection["available"])
+        overlay = row["map"]["overlay"]
+        self.assertEqual((overlay["w"], overlay["h"]), (678, 1060))
+        # Still partial (obstacles pending, keep upgrading) but bound to the topo's revision, so the
+        # phone can prove the row shares the bitmap's pixel frame.
+        self.assertEqual(row["geometryCoverage"], "partial")
+        self.assertEqual(row["geometryRevision"], "topo-r1")
+        self.assertTrue(any(item["label"] == "hazards" for item in row["missingData"]))
+        # The hole's installed plan is still offered from the player's ladder.
+        self.assertEqual(row["steps"][0]["club"], "1W")
+
+    def test_prep_hole_keeps_the_courseview_row_when_the_topo_is_not_ready(self) -> None:
+        md = {"hole": {"RefLat": 40.0, "RefLon": 116.0, "TeeLocations": [], "Doglegs": []}}
+        coverage = {
+            "coverage": "partial",
+            "topoCoverage": "partial",
+            "fullCoverage": "partial",
+            "geometryRevision": None,
+            "topoRevision": None,
+            "missingData": [{"label": "meshes", "reason": "prodgeometry mesh file missing"}],
+        }
+        courseview_row = {"hole": 1, "geometryCoverage": "partial"}
+        with patch.object(cp.hole_render, "load_mesh", return_value=(md, {})), \
+                patch.object(cp, "geometry_coverage_for_hole", return_value=coverage), \
+                patch.object(cp, "_lightweight_prep_hole", return_value=courseview_row):
+            prep = cp.prep_hole(99999, 1, ladder=[("1W", 200)], render=False)
+
+        self.assertIs(prep, courseview_row)
+
+    def test_the_topo_frame_row_plans_the_sloped_approach_like_the_ready_row(self) -> None:
+        """C89 rework: the interim topo-frame row planned flat, so a sloped hole's chain changed the
+        moment the obstacle export landed. The 2026-10-10 field case (gid 26808 hole 1): a 363 m
+        Par 4 whose green sits 25 m below the 197 m Driver landing is Driver then 5I (166 m flat
+        plays like 141 m; 5I carries 142), not the flat 3W."""
+        md = {"hole": {
+            "RefLat": 40.0,
+            "RefLon": 116.0,
+            "TeeLocations": [{"Sets": [2], "X": 0.0, "Y": 0.0}],
+            "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 363.0}]}],
+        }}
+        # Fairway terrain at 50 m up to 300 m along the route, the green at 25 m.
+        by = {
+            "Fairway.drc": _rect_mesh(-4.0, 0.0, 4.0, 300.0, elevation=50.0),
+            "Green.drc": _rect_mesh(-4.0, 357.0, 4.0, 369.0, elevation=25.0),
+        }
+        par_record = CoursePar(global_id=26808, par=[4], par_source="courseview", confidence="high")
+        interim = {
+            "coverage": "partial",
+            "topoCoverage": "ready",
+            "fullCoverage": "partial",
+            "geometryRevision": None,
+            "topoRevision": "topo-r1",
+            "missingData": [{"label": "hazards", "reason": "prodgeometry hazard export pending"}],
+        }
+        ready = {"coverage": "ready", "geometryRevision": "topo-r1", "missingData": []}
+        rows = {}
+        for name, coverage in (("interim", interim), ("ready", ready)):
+            with patch.object(cp.hole_render, "load_mesh", return_value=(md, by)), \
+                    patch.object(cp, "geometry_coverage_for_hole", return_value=coverage), \
+                    patch.object(cp, "_lightweight_prep_hole", return_value=None):
+                prep = cp.prep_hole(26808, 1, ladder=self._DOWNHILL_LADDER, par_record=par_record, render=False)
+            self.assertIsNotNone(prep, name)
+            rows[name] = prep if isinstance(prep, dict) else prep.to_dict()
+
+        self.assertEqual(rows["interim"]["geometryCoverage"], "partial", "fixture: the interim branch")
+        self.assertEqual(rows["ready"]["geometryCoverage"], "ready", "fixture: the ready branch")
+        self.assertEqual([step["club"] for step in rows["ready"]["steps"]], ["Driver", "5I"])
+        self.assertEqual([step["club"] for step in rows["interim"]["steps"]], ["Driver", "5I"])
+        self.assertEqual(rows["interim"]["tee_club"], rows["ready"]["tee_club"])
 
     def test_candidate_routes_emit_only_distinct_modes_in_safe_stock_attack_order(self) -> None:
         hazards = {"water_carry": [], "bunkers": []}

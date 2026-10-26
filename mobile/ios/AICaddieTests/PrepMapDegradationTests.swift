@@ -158,6 +158,9 @@ final class PrepMapDegradationTests: XCTestCase {
 
     /// Device review (build 77): switching 蓝 T → 白 T dropped the map. The topo is keyed by the
     /// hole's geometry revision, not the Tee, so a lightweight row still gets the downloaded bitmap.
+    /// C89 (build 96): the bitmap is shown on its own — the lightweight row's route, tee and flag
+    /// are in the CourseView frame, not the topo's, and README 地图降级契约 shows the factual route
+    /// only until the precise map arrives.
     func testLightweightRowStillShowsTheDownloadedTopo() throws {
         let package = try fixturePackage()
         let first = try XCTUnwrap(package.holes.min { $0.number < $1.number })
@@ -174,6 +177,10 @@ final class PrepMapDegradationTests: XCTestCase {
         )
         XCTAssertEqual(rows[0].state, .factual, "the row's precision is unchanged")
         XCTAssertEqual(rows[0].topoURL, topo, "but the downloaded bitmap is shown")
+        let map = HoleImageMapView(hole: try XCTUnwrap(rows[0].prep), topoURL: rows[0].topoURL)
+        XCTAssertTrue(map.hasMap, "the bitmap is the map")
+        XCTAssertFalse(map.drawsFactLayer, "without the lightweight route, tee and flag drawn over it")
+        XCTAssertFalse(map.drawsLightweightFacts)
     }
 
     /// Device review (build 77): a second start of an already-downloaded course re-waited on every
