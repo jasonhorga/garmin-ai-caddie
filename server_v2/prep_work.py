@@ -43,9 +43,12 @@ async def run_prep(request: Request, build: Callable):
         # Cancelling a thread's await cannot stop CPU work. Signal the actual builder too.
         cancelled.set()
         watcher.cancel()
-        await asyncio.gather(watcher, return_exceptions=True)
-        # Drain late errors without retaining this request or an unobserved task exception.
+        # BaseHTTPMiddleware's receive proxy can defer cancellation until its outer response has
+        # been sent. Do not wait for that proxy here: the handler must be able to return the response
+        # that closes it. The callback drains the eventual cancellation/error without retaining the
+        # request or producing an unobserved task exception.
         def consume(task):
             if not task.cancelled():
                 task.exception()
+        watcher.add_done_callback(consume)
         worker.add_done_callback(consume)
