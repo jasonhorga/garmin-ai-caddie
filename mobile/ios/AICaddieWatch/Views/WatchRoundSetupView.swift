@@ -13,7 +13,7 @@ enum WatchRoundSetupStage: Equatable {
     case tees
 }
 
-/// The last explicit gate before a real Watch round starts: choose the playable loop(s) and tee.
+/// The last explicit gate before a real Watch round starts: choose the first nine and tee.
 /// It intentionally has no synthetic score-only fallback; unavailable data stays unavailable.
 public struct WatchRoundSetupView: View {
     public let front: WatchCourseOption
@@ -28,7 +28,6 @@ public struct WatchRoundSetupView: View {
 
     @State private var selectedTee: String
     @State private var selectedPrimaryGlobalId: Int
-    @State private var selectedBackGlobalId: Int?
     /// 18-hole course: the half the round starts on (前九 preselected). B4b-2 §7.
     @State private var selectedHalf: String = "front"
     @State private var loadedTeesByCourseId: [Int: [WatchCourseTee]] = [:]
@@ -61,9 +60,7 @@ public struct WatchRoundSetupView: View {
         self.onBack = onBack
         _selectedTee = State(initialValue: Self.initialTee(for: front))
         _selectedPrimaryGlobalId = State(initialValue: front.globalId)
-        _selectedBackGlobalId = State(initialValue: nil)
-        let startsWithHoles = Self.hasCompatibleBackLoop(front: front, courses: courses)
-            || Self.playsHalves(front)
+        let startsWithHoles = front.playableHoleCount == 9 || Self.playsHalves(front)
         let initialStage: WatchRoundSetupStage = startsWithHoles ? .holes : .tees
         self.initialStage = initialStage
         _stage = State(initialValue: initialStage)
@@ -114,7 +111,7 @@ public struct WatchRoundSetupView: View {
     var holeSelectionContent: some View {
             VStack(alignment: .leading, spacing: 7) {
                 WatchInstrumentHeader(
-                    Self.playsHalves(front) ? "从哪个 9 洞开始" : "打几洞",
+                    "从哪个 9 洞开始",
                     backLabel: "返回球场",
                     onBack: handleBack
                 )
@@ -235,7 +232,7 @@ public struct WatchRoundSetupView: View {
         }
     }
 
-    /// Exactly what 开始 submits: the selected loop(s) or, for an 18-hole course, one ordered half
+    /// Exactly what 开始 submits: the first loop or, for an 18-hole course, one ordered half
     /// (`G:front` / `G:back`); the second half is chosen at the turn.
     var startSelection: WatchCourseSelection {
         selection(teeBox: selectedTee)
@@ -247,7 +244,6 @@ public struct WatchRoundSetupView: View {
             : selectedPrimary.withTees(teeOptions, selectedTee: teeBox)
         return WatchCourseSelection(
             front: selectedCourse,
-            back: Self.playsHalves(front) ? nil : selectedBack,
             teeBox: teeBox,
             ensureGeometry: ensureGeometry,
             firstHalf: Self.playsHalves(front) ? selectedHalf : nil
@@ -338,43 +334,31 @@ public struct WatchRoundSetupView: View {
         Self.loopChoices(
             front: front,
             backOptions: backOptions,
-            selectedPrimaryGlobalId: selectedPrimaryGlobalId,
-            selectedBackGlobalId: selectedBackGlobalId
+            selectedPrimaryGlobalId: selectedPrimaryGlobalId
         )
     }
 
-    /// Pure opening-option logic, extracted with the baseline behavior for C72's regression tests.
+    /// README §8: each opening tile is one factual nine; repeats and pairings belong at the turn.
     static func loopChoices(
         front: WatchCourseOption,
         backOptions: [WatchCourseOption],
-        selectedPrimaryGlobalId: Int,
-        selectedBackGlobalId: Int? = nil
+        selectedPrimaryGlobalId: Int
     ) -> [WatchRoundSetupChoicePresentation] {
-        let repeatsOnly = backOptions.count == 1 && backOptions[0].globalId == front.globalId
-        let fullChoices = backOptions.map { option in
-            WatchRoundSetupChoicePresentation(
-                id: "loop:full:\(option.globalId)",
-                title: repeatsOnly ? "全 18 洞" : "\(front.segmentDisplayTitle) + \(option.segmentDisplayTitle)",
-                detail: repeatsOnly ? "同一球场打两轮" : "18 洞",
-                isSelected: selectedPrimaryGlobalId == front.globalId
-                    && selectedBackGlobalId == option.globalId
-            )
-        }
         let frontChoice = WatchRoundSetupChoicePresentation(
             id: "loop:front:\(front.globalId)",
-            title: repeatsOnly ? "只打 9 洞" : "只打\(front.segmentDisplayTitle)",
-            detail: repeatsOnly ? front.segmentDisplayTitle : "\(front.playableHoleCount) 洞",
-            isSelected: selectedPrimaryGlobalId == front.globalId && selectedBackGlobalId == nil
+            title: front.segmentDisplayTitle,
+            detail: "\(front.playableHoleCount) 洞",
+            isSelected: selectedPrimaryGlobalId == front.globalId
         )
         let backChoices = backOptions.filter { $0.globalId != front.globalId }.map { option in
             WatchRoundSetupChoicePresentation(
                 id: "loop:back:\(option.globalId)",
-                title: "只打\(option.segmentDisplayTitle)",
+                title: option.segmentDisplayTitle,
                 detail: "\(option.playableHoleCount) 洞",
-                isSelected: selectedPrimaryGlobalId == option.globalId && selectedBackGlobalId == nil
+                isSelected: selectedPrimaryGlobalId == option.globalId
             )
         }
-        return fullChoices + [frontChoice] + backChoices
+        return [frontChoice] + backChoices
     }
 
     var orderedTeeChoices: [WatchRoundSetupChoicePresentation] {
@@ -430,11 +414,6 @@ public struct WatchRoundSetupView: View {
         return ensureGeometry ? "球场与地图后台补齐" : "球场数据后台补齐"
     }
 
-    private var selectedBack: WatchCourseOption? {
-        guard let selectedBackGlobalId else { return nil }
-        return backOptions.first { $0.globalId == selectedBackGlobalId }
-    }
-
     private var selectedPrimary: WatchCourseOption {
         ([front] + backOptions).first { $0.globalId == selectedPrimaryGlobalId } ?? front
     }
@@ -453,15 +432,6 @@ public struct WatchRoundSetupView: View {
                 let right = loopSortKey(rhs)
                 return left == right ? lhs.globalId < rhs.globalId : left < right
             }
-    }
-
-    private static func hasCompatibleBackLoop(
-        front: WatchCourseOption,
-        courses _: [WatchCourseOption]
-    ) -> Bool {
-        // Every factual 9-hole course can be played twice even when the catalogue has no sibling
-        // loop row. Additional same-venue rows merely add A+B/A+C choices.
-        return front.playableHoleCount == 9
     }
 
     private var teeOptions: [WatchCourseTee] {
@@ -494,9 +464,6 @@ public struct WatchRoundSetupView: View {
 
     private var selectionSummary: String {
         let teeSummary = teeOptions.isEmpty ? "发球台待加载" : selectedTeeSummary
-        if let selectedBack {
-            return "\(loopName(front)) + \(loopName(selectedBack)) · \(teeSummary) · 18 洞"
-        }
         return "\(teeSummary) · \(front.playableHoleCount) 洞"
     }
 
@@ -513,10 +480,6 @@ public struct WatchRoundSetupView: View {
         )
     }
 
-    private func loopName(_ option: WatchCourseOption) -> String {
-        option.segmentDisplayTitle
-    }
-
     private func loopSortKey(_ option: WatchCourseOption) -> String {
         option.resolvedSegmentLabel?.lowercased() ?? ""
     }
@@ -525,18 +488,12 @@ public struct WatchRoundSetupView: View {
         let parts = id.split(separator: ":")
         guard parts.count == 3, let globalId = Int(parts[2]) else { return }
         switch parts[1] {
-        case "full":
-            selectedPrimaryGlobalId = front.globalId
-            selectedBackGlobalId = globalId
-            selectedTee = Self.initialTee(for: front)
         case "front":
             selectedPrimaryGlobalId = front.globalId
-            selectedBackGlobalId = nil
             selectedTee = Self.initialTee(for: front)
         case "back":
             guard let option = backOptions.first(where: { $0.globalId == globalId }) else { return }
             selectedPrimaryGlobalId = option.globalId
-            selectedBackGlobalId = nil
             selectedTee = Self.initialTee(for: option)
         default:
             return

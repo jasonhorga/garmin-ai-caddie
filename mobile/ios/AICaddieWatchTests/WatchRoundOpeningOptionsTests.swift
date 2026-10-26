@@ -52,4 +52,21 @@ final class WatchRoundOpeningOptionsTests: XCTestCase {
         XCTAssertEqual(choices.map(\.isSelected), [false, true])
         XCTAssertTrue(WatchRoundSetupView.halfChoices(front: loop(301, "A"), selectedHalf: "front").isEmpty)
     }
+
+    func testEachOpeningLoopSubmitsOnlyItsOwnNine() {
+        let loops = [loop(301, "A"), loop(302, "B"), loop(303, "C")]
+        // Hand golden: one global id and nine holes, with no second-loop id in the start payload.
+        let keys = ["301:all", "302:all", "303:all"]
+        let titles = ["A 场", "B 场", "C 场"]
+        for (index, first) in loops.enumerated() {
+            let view = WatchRoundSetupView(front: first, courses: loops)
+            XCTAssertEqual(view.initialStage, .holes)
+            XCTAssertEqual(view.startSelection.front.globalId, first.globalId)
+            XCTAssertNil(view.startSelection.back)
+            XCTAssertEqual(view.startSelection.loopKey, keys[index])
+            XCTAssertEqual(view.startSelection.loopsQuery, keys[index])
+            XCTAssertEqual(view.startSelection.holeCount, 9)
+            XCTAssertEqual(view.loopChoices.filter(\.isSelected).map(\.title), [titles[index]])
+        }
+    }
 }
