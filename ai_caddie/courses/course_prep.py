@@ -2861,7 +2861,17 @@ def _topo_frame_prep_hole(
     if row is None:
         return None
     hazards = row["hazards"]
-    steps, cautions, landing, tee_club = _strategy(int(row["par"]), float(row["route_len_m"]), hazards, ladder)
+    # Plan on the same terrain as the ready row (the mesh read above is cached), so the chain does
+    # not change when the obstacle export lands.
+    try:
+        md, by = hole_render.load_mesh(int(global_id), int(local_hole))
+        route, _route_len = derive_route(md, row["teeSet"]) if row.get("teeSet") is not None else derive_route(md)
+        elevation_at = _route_elevation(by, route)
+    except Exception:
+        elevation_at = None
+    steps, cautions, landing, tee_club = _strategy(
+        int(row["par"]), float(row["route_len_m"]), hazards, ladder, elevation_at=elevation_at,
+    )
     row.update(
         candidateRoutes=_candidate_routes(ladder, hazards, par=int(row["par"])),
         carryTargets=_carry_targets(landing, hazards),
