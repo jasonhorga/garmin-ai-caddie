@@ -7,7 +7,7 @@ an HTTP 200 unavailable response so the client keeps its existing map fallback.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from concurrent.futures import Future, ThreadPoolExecutor
 from io import BytesIO
 import logging
@@ -166,12 +166,17 @@ def course_hole_garmin_raster_png(
     return Response(content=image, media_type="image/png", headers=headers)
 
 
+# Stub: the WebP route's interface, still serving the PNG.
+course_hole_garmin_raster_webp = course_hole_garmin_raster_png
+
+
 # Install-time warm-up: a small pool so a course's 18 Garmin downloads never crowd the API, and
 # a remembered key per asset version so repeated install passes queue each hole once.
 _PREFETCH_WORKERS = 2
 _PREFETCH_POOL: ThreadPoolExecutor | None = None
 _PREFETCH_GUARD = threading.Lock()
 _PREFETCHED: set[tuple[int, int, str]] = set()
+_YIELD_POLL_SECONDS = 0.25
 
 
 def _prefetch_pool() -> ThreadPoolExecutor:
@@ -199,7 +204,9 @@ def _warm_hole(global_id: int, hole: int, key: tuple[int, int, str]) -> bool:
     return warmed
 
 
-def prefetch_holes(holes: Iterable[tuple[int, int]]) -> list[Future]:
+def prefetch_holes(
+    holes: Iterable[tuple[int, int]], *, should_yield: Callable[[], bool] | None = None
+) -> list[Future]:
     """Queue Garmin raster warm-up for ``(globalId, localHole)`` pairs in the given (play) order.
 
     Queuing runs inside an install pass, so it reads only the cached release (holes without one

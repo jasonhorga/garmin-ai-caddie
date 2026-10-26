@@ -294,6 +294,11 @@ def matte_sky_png(data: bytes) -> bytes | None:
     return buffer.getvalue()
 
 
+def matte_sky_webp(data: bytes) -> bytes | None:
+    """Encode ``matte_sky`` of Garmin's JPEG bytes as WebP (stub: still the PNG)."""
+    return matte_sky_png(data)
+
+
 def _matte_path(global_id: int, hole: object, version: str) -> Path:
     return Path(RASTER_CACHE_DIR) / (
         f"gid{int(global_id)}_h{_hole_number(hole):02d}_{_safe_part(version)}.{RASTER_MATTE_VERSION}.png"

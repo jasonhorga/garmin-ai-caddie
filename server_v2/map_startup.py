@@ -117,6 +117,11 @@ def priority_hole_plan(global_id: int, local_hole: int) -> dict | None:
     return None
 
 
+def startup_in_flight() -> bool:
+    """Stub: nothing yields to a round start yet."""
+    return False
+
+
 def _register_hole_plan_provider() -> None:
     from ai_caddie.caddie.mobile_live import add_hole_plan_provider
 

@@ -1163,6 +1163,10 @@ def garmin_raster_jpg(global_id: int, hole: int, v: str | None = None, r: str | 
     )
 
 
+# Stub: the WebP route's interface, still serving the JPEG.
+garmin_raster_webp = garmin_raster_jpg
+
+
 @ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster")
 def garmin_raster(global_id: int, hole: int) -> dict[str, object]:
     requested = _course_request(global_id)

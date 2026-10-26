@@ -1856,7 +1856,7 @@ final class DesignSnapshotTests: XCTestCase {
     @MainActor
     func testCaptureGarminRasterLoading() throws {
         // A reserved .test host never answers, so the capture stays on the loading frame.
-        let url = URL(string: "https://garmin-loading.example.test/api/v2/courses/1/holes/1/garmin-raster.png?v=asset-loading-sky1")!
+        let url = URL(string: "https://garmin-loading.example.test/api/v2/courses/1/holes/1/garmin-raster.webp?v=asset-loading-sky1")!
         let png = try captureScreen(
             GarminRasterStandaloneView(
                 url: url,

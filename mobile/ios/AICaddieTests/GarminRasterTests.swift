@@ -556,11 +556,13 @@ final class GarminRasterTests: XCTestCase {
         }
     }
 
-    /// C88: the server's Garmin raster is a PNG whose sky is transparent. The store asks for PNG and
-    /// keeps the alpha both from the network and from its own disk copy.
+    /// C88: the server's Garmin raster is a WebP whose sky is transparent. The store asks for WebP
+    /// first and keeps the alpha both from the network and from its own disk copy. ImageIO cannot
+    /// encode WebP here, so the stub server answers the .webp URL with PNG bytes of the same alpha;
+    /// the store decodes whatever it is served (WebP decoding is the system's, iOS 14+).
     @MainActor
-    func testStoreLoadsTheTransparentPngRasterAndKeepsItsAlpha() async throws {
-        let url = URL(string: "https://garmin-png.example.test/api/v2/courses/1/holes/1/garmin-raster.png?v=c88-\(UUID().uuidString)-sky1")!
+    func testStoreLoadsTheTransparentWebpRasterAndKeepsItsAlpha() async throws {
+        let url = URL(string: "https://garmin-webp.example.test/api/v2/courses/1/holes/1/garmin-raster.webp?v=c88-\(UUID().uuidString)-sky1")!
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
@@ -588,7 +590,7 @@ final class GarminRasterTests: XCTestCase {
         let store = GarminRasterImageStore()
         await store.load(url)
         let loaded = try XCTUnwrap(store.image)
-        XCTAssertEqual(accept.value?.hasPrefix("image/png"), true, "requested \(accept.value ?? "nil")")
+        XCTAssertEqual(accept.value?.hasPrefix("image/webp"), true, "requested \(accept.value ?? "nil")")
         XCTAssertEqual(try alpha(of: loaded, x: 0, y: 0), 0)
         XCTAssertEqual(try alpha(of: loaded, x: 4, y: 4), 255)
 

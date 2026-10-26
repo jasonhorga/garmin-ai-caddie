@@ -255,9 +255,9 @@ class GarminRasterApiAcceptanceTests(unittest.TestCase):
             ):
                 first = raster_api.course_hole_garmin_raster(31795, 1)
                 second = raster_api.course_hole_garmin_raster(31795, 1)
-            # C88: metadata names the transparent-sky PNG (asset version + matte version), the same
+            # C88: metadata names the transparent-sky WebP (asset version + matte version), the same
             # URL the round package carries; the JPEG route stays for older descriptors.
-            result["imageUrl"] = "/api/v2/courses/31795/holes/1/garmin-raster.png?v=452-test-v1-sky1"
+            result["imageUrl"] = "/api/v2/courses/31795/holes/1/garmin-raster.webp?v=452-test-v1-sky1"
             self.assertEqual(first, result)
             self.assertEqual(second, result)
             self.assertEqual(fetch.call_count, 1)
