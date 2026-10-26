@@ -256,6 +256,9 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
     public let venueName: String?
     public let venueNameSource: String?
     public let segmentLabel: String?
+    /// The `GET /courses/{id}/tees` answer, present when the server already caches this course's
+    /// CourseView release (nearby rows). Absent → ask /tees after selection.
+    public let teeOptions: CourseTeesResponse?
 
     public init(
         globalId: Int,
@@ -269,7 +272,8 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
         distanceKm: Double? = nil,
         venueName: String? = nil,
         venueNameSource: String? = nil,
-        segmentLabel: String? = nil
+        segmentLabel: String? = nil,
+        teeOptions: CourseTeesResponse? = nil
     ) {
         self.globalId = globalId
         self.name = name
@@ -283,12 +287,15 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
         self.venueName = venueName
         self.venueNameSource = venueNameSource
         self.segmentLabel = segmentLabel
+        self.teeOptions = teeOptions
     }
 
     /// A result without a factual hole count remains visible but cannot start a round. We do not
     /// guess 9/18, because that would also guess the loop composition and package request.
+    /// Carried Tee rows become the option's Tee list and default, like a downloaded course's.
     public var courseOption: MobileCourseOption? {
         guard let holes, holes > 0 else { return nil }
+        let carriedTees = teeOptions?.tees.map(\.teeBox) ?? []
         let canonical = MobileCourseDisplayLocalization.canonicalCourseName(
             providerName: name,
             venueName: venueName,
@@ -305,13 +312,15 @@ public struct MobileCourseSearchMatch: Codable, Equatable, Identifiable {
             globalId: globalId,
             name: canonical,
             holes: holes,
+            teeBox: carriedTees.isEmpty ? nil : teeOptions?.defaultTeeBox,
             geometryCoverage: "missing",
             venueName: venue,
             venueNameSource: venueNameSource,
             segmentLabel: segment?.isEmpty == false ? segment : nil,
             segmentHoles: holes,
             latitude: latitude,
-            longitude: longitude
+            longitude: longitude,
+            tees: carriedTees.isEmpty ? nil : carriedTees
         )
     }
 

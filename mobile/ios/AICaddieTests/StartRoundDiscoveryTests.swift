@@ -489,21 +489,25 @@ final class StartRoundDiscoveryTests: XCTestCase {
     }
 
     func testManualSearchCanStartWhileTeeAuthorityIsStillLoading() {
-        let common: (Bool) -> Bool = { manualSearch in
+        let common: (String, Bool) -> Bool = { teeBox, manualSearch in
             StartRoundView.isStartAllowed(
                 isPreparing: false,
                 isLoadingTees: true,
                 roundId: "live-31670-test",
                 courseGlobalId: 31670,
-                teeBox: "unknown",
+                teeBox: teeBox,
                 selectedCourseRequiresRemoteTees: true,
                 teeOptions: [],
                 selectedCourseWasManualSearch: manualSearch
             )
         }
 
-        XCTAssertTrue(common(true))
-        XCTAssertFalse(common(false))
+        XCTAssertTrue(common("unknown", true))
+        XCTAssertTrue(common("blue", true))
+        // C87: the course default needs no Tee list, so a nearby course starts on it as well.
+        XCTAssertTrue(common("unknown", false))
+        // A concrete colour on a nearby course still waits for the Tee list that names it.
+        XCTAssertFalse(common("blue", false))
     }
 
     func testNearbyRowCarryingTeesShowsThemAtOnceWithoutATeesRequest() throws {
