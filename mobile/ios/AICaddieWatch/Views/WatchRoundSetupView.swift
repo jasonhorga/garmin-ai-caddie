@@ -261,6 +261,10 @@ public struct WatchRoundSetupView: View {
 
     /// 前九 / 后九 start tiles; `id` is the accessibility identifier.
     var halfChoices: [WatchRoundSetupChoicePresentation] {
+        Self.halfChoices(front: front, selectedHalf: selectedHalf)
+    }
+
+    static func halfChoices(front: WatchCourseOption, selectedHalf: String) -> [WatchRoundSetupChoicePresentation] {
         guard Self.playsHalves(front) else { return [] }
         return WatchCourseSelection.halves.map { half in
             WatchRoundSetupChoicePresentation(
@@ -331,11 +335,26 @@ public struct WatchRoundSetupView: View {
     }
 
     var loopChoices: [WatchRoundSetupChoicePresentation] {
+        Self.loopChoices(
+            front: front,
+            backOptions: backOptions,
+            selectedPrimaryGlobalId: selectedPrimaryGlobalId,
+            selectedBackGlobalId: selectedBackGlobalId
+        )
+    }
+
+    /// Pure opening-option logic, extracted with the baseline behavior for C72's regression tests.
+    static func loopChoices(
+        front: WatchCourseOption,
+        backOptions: [WatchCourseOption],
+        selectedPrimaryGlobalId: Int,
+        selectedBackGlobalId: Int? = nil
+    ) -> [WatchRoundSetupChoicePresentation] {
         let repeatsOnly = backOptions.count == 1 && backOptions[0].globalId == front.globalId
         let fullChoices = backOptions.map { option in
             WatchRoundSetupChoicePresentation(
                 id: "loop:full:\(option.globalId)",
-                title: repeatsOnly ? "全 18 洞" : "\(loopName(front)) + \(loopName(option))",
+                title: repeatsOnly ? "全 18 洞" : "\(front.segmentDisplayTitle) + \(option.segmentDisplayTitle)",
                 detail: repeatsOnly ? "同一球场打两轮" : "18 洞",
                 isSelected: selectedPrimaryGlobalId == front.globalId
                     && selectedBackGlobalId == option.globalId
@@ -343,14 +362,14 @@ public struct WatchRoundSetupView: View {
         }
         let frontChoice = WatchRoundSetupChoicePresentation(
             id: "loop:front:\(front.globalId)",
-            title: repeatsOnly ? "只打 9 洞" : "只打\(loopName(front))",
-            detail: repeatsOnly ? loopName(front) : "\(front.playableHoleCount) 洞",
+            title: repeatsOnly ? "只打 9 洞" : "只打\(front.segmentDisplayTitle)",
+            detail: repeatsOnly ? front.segmentDisplayTitle : "\(front.playableHoleCount) 洞",
             isSelected: selectedPrimaryGlobalId == front.globalId && selectedBackGlobalId == nil
         )
         let backChoices = backOptions.filter { $0.globalId != front.globalId }.map { option in
             WatchRoundSetupChoicePresentation(
                 id: "loop:back:\(option.globalId)",
-                title: "只打\(loopName(option))",
+                title: "只打\(option.segmentDisplayTitle)",
                 detail: "\(option.playableHoleCount) 洞",
                 isSelected: selectedPrimaryGlobalId == option.globalId && selectedBackGlobalId == nil
             )
