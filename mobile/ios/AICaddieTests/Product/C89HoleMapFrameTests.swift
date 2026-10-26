@@ -113,13 +113,10 @@ final class C89HoleMapFrameTests: XCTestCase {
         let hole = try c33Hole()
         let lightweight = try courseViewRow()
         let sameFrame = try sameFrameRow()
-        XCTAssertTrue(
-            LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: lightweight, hasCachedTopo: true),
-            "the topo bitmap is cached, but the row drawn over it is still in another frame"
-        )
-        XCTAssertTrue(LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: lightweight, hasCachedTopo: false))
+        // Whether the topo bitmap is cached or not, the row drawn over it is still in another frame.
+        XCTAssertTrue(LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: lightweight))
         let ready = try sameFrameRow(coverage: "ready")
-        XCTAssertFalse(LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: ready, hasCachedTopo: true))
+        XCTAssertFalse(LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: ready))
         // A same-frame partial row replaces the CourseView row at once; the probe goes on for ready.
         XCTAssertTrue(LiveHolePrepUpgradePolicy.adoptsInterimRow(sameFrame, current: lightweight, hole: hole))
         XCTAssertTrue(LiveHolePrepUpgradePolicy.adoptsInterimRow(sameFrame, current: nil, hole: hole))

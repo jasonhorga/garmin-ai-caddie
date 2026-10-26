@@ -89,7 +89,7 @@ enum LiveTopoAvailability {
 enum LiveHolePrepUpgradePolicy {
     /// A partial row keeps the probe running even when the topo bitmap is already cached: the row
     /// drawn over that bitmap can still be in the CourseView frame (C89, build 96 hole 1).
-    static func shouldWaitForPreciseHoleMap(prep: CoursePrepHole?, hasCachedTopo: Bool) -> Bool {
+    static func shouldWaitForPreciseHoleMap(prep: CoursePrepHole?) -> Bool {
         prep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
     }
 
@@ -3422,10 +3422,7 @@ public struct CurrentHoleView: View {
         // The structured `.task(id: hole.number)` owns this loop, so changing holes or leaving the
         // screen cancels it without leaving a detached poller behind.
         // A cached topo bitmap does not end this: the row drawn over it must reach its frame (C89).
-        if LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(
-            prep: holePrep,
-            hasCachedTopo: hasCachedTopoForCurrentHole
-        ) {
+        if LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: holePrep) {
             await waitForPreciseHoleMap(syncClub: !alreadyRecorded)
         }
     }
