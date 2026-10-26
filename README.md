@@ -60,7 +60,8 @@ uv run python -m ai_caddie.garmin.fetch --refresh-auth
 
 ```bash
 # 推荐：调用会话导入接口，由服务端写入完整的一代
-curl -X POST http://127.0.0.1:8000/api/v2/sync/garmin/session \
+# API_BASE 为本机 API 地址（见下文"本地运行"）
+curl -X POST "$API_BASE/api/v2/sync/garmin/session" \
   -H 'Content-Type: application/json' \
   -H "X-AI-Caddie-Admin-Token: <admin-token>" \
   --data '{"webSessionHeader":"Cookie: <cookie-value>","antiForgeryValue":"<csrf-value>","source":"manual_paste"}'
