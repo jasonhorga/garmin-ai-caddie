@@ -15,7 +15,19 @@ enum RoundPlayOrder {
     /// second nine-hole loop is represented by round holes 10–18, so neither case should revisit
     /// the first nine before the round is complete.
     static func holes(_ roundHoles: [Int], startingAt startHole: Int?, loops: [RoundLoop]) -> [Int] {
-        _ = loops
+        // Two `all` entries are two sequential nine-hole loops. When play starts part-way through
+        // the first loop, the holes before that start have already been played; continue into the
+        // second loop instead of rotating those completed holes back onto the end.
+        if loops.count == 2, loops.allSatisfy({ $0.half == "all" }),
+           let startHole,
+           let startIndex = loops.firstIndex(where: { $0.contains(roundHole: startHole) }) {
+            let grouped = loops.map { loop in roundHoles.filter { loop.contains(roundHole: $0) } }
+            guard grouped.flatMap({ $0 }).count == roundHoles.count,
+                  let withinLoop = grouped[startIndex].firstIndex(of: startHole) else {
+                return holes(roundHoles, startingAt: startHole)
+            }
+            return Array(grouped[startIndex][withinLoop...]) + grouped.dropFirst(startIndex + 1).flatMap { $0 }
+        }
         return holes(roundHoles, startingAt: startHole)
     }
 
