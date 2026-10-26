@@ -1257,11 +1257,12 @@ class DecisionLayerTests(unittest.TestCase):
     def test_invalid_pin_distance_uses_live_gps_for_approach_and_recovery(self) -> None:
         # C47: zero/unknown are missing, so GPS supplies the distance. A northward
         # 0.0009-degree arc on a 6,371,000 m sphere rounds to 100.1 m, bearing 0.
+        # C66: the existing 1000 m GPS/sequence ceiling also applies to client distances.
         for fixture, recommend in (
             (approach_fixture, recommend_approach),
             (recovery_fixture, recommend_recovery),
         ):
-            for distance_m in (0, "unknown", -5, None, float("nan"), float("inf")):
+            for distance_m in (0, "unknown", -5, None, float("nan"), float("inf"), 5000.0, 1000.1):
                 with self.subTest(shot_type=fixture()["shotType"], distance_m=distance_m):
                     context = fixture()
                     context["distanceToPin_m"] = distance_m
@@ -1278,12 +1279,12 @@ class DecisionLayerTests(unittest.TestCase):
                     self.assertIn("live_location", {row["kind"] for row in plan["evidence"]})
 
     def test_invalid_pin_distance_never_becomes_measured_distance_evidence(self) -> None:
-        # C47: only a finite, positive measured distance may be presented as a fact.
+        # C47/C66: only a finite, positive distance within 1000 m may be presented as a fact.
         for fixture, recommend in (
             (approach_fixture, recommend_approach),
             (recovery_fixture, recommend_recovery),
         ):
-            for distance_m in (0, "unknown", -5, None, float("nan"), float("inf")):
+            for distance_m in (0, "unknown", -5, None, float("nan"), float("inf"), 5000.0, 1000.1):
                 with self.subTest(shot_type=fixture()["shotType"], distance_m=distance_m):
                     context = fixture()
                     context["distanceToPin_m"] = distance_m
@@ -1294,22 +1295,61 @@ class DecisionLayerTests(unittest.TestCase):
                     self.assertEqual(plan["options"], [])
                     self.assertIn("distance_to_pin", {row["label"] for row in plan["missingData"]})
 
+    def test_returned_context_sanitizes_invalid_client_pin_distance(self) -> None:
+        # C69: invalid client distances must not be echoed into the returned context;
+        # GPS may replace one, while a bounded client value remains authoritative.
+        cases = (
+            (5000.0, {}, None),
+            (
+                5000.0,
+                {
+                    "currentLocation": {"latitude": 0.0, "longitude": 0.0},
+                    "targetLocation": {"latitude": 0.0009, "longitude": 0.0},
+                },
+                100.1,
+            ),
+            (
+                999.9,
+                {
+                    "currentLocation": {"latitude": 0.0, "longitude": 0.0},
+                    "targetLocation": {"latitude": 0.0009, "longitude": 0.0},
+                },
+                999.9,
+            ),
+        )
+        for distance_m, locations, expected_distance in cases:
+            with self.subTest(distance_m=distance_m, has_gps=bool(locations)):
+                context = approach_fixture()
+                context["distanceToPin_m"] = distance_m
+                context.update(locations)
+
+                plan = recommend_approach(context)
+
+                self.assertEqual(plan["context"]["distanceToPin_m"], expected_distance)
+
     def test_positive_pin_distance_keeps_priority_over_live_gps(self) -> None:
+        # C66: just below the existing 1000 m ceiling and the ceiling itself stay valid.
         for fixture, recommend in (
             (approach_fixture, recommend_approach),
             (recovery_fixture, recommend_recovery),
         ):
-            with self.subTest(shot_type=fixture()["shotType"]):
-                context = fixture()
-                context["distanceToPin_m"] = "142.0"
-                context["currentLocation"] = {"latitude": 0.0, "longitude": 0.0}
-                context["targetLocation"] = {"latitude": 0.0009, "longitude": 0.0}
+            for distance_m, evidence_text in (
+                ("142.0", "distance to pin=142.0m"),
+                (999.9, "distance to pin=999.9m"),
+                (1000.0, "distance to pin=1000.0m"),
+            ):
+                with self.subTest(shot_type=fixture()["shotType"], distance_m=distance_m):
+                    context = fixture()
+                    context["distanceToPin_m"] = distance_m
+                    context["currentLocation"] = {"latitude": 0.0, "longitude": 0.0}
+                    context["targetLocation"] = {"latitude": 0.0009, "longitude": 0.0}
 
-                plan = recommend(context)
+                    plan = recommend(context)
 
-                self.assertEqual(plan["context"]["distanceToPin_m"], "142.0")
-                self.assertIn("distance to pin=142.0m", {row["text"] for row in plan["evidence"]})
-                self.assertNotIn("live_location", {row["kind"] for row in plan["evidence"]})
+                    self.assertEqual(plan["context"]["distanceToPin_m"], distance_m)
+                    self.assertIn(evidence_text, {row["text"] for row in plan["evidence"]})
+                    self.assertNotIn("distance_to_pin", {row["label"] for row in plan["missingData"]})
+                    self.assertNotIn("live_location", {row["kind"] for row in plan["evidence"]})
 
     def test_live_location_derives_distance_and_protect_score_selects_safe(self) -> None:
         context = approach_fixture()

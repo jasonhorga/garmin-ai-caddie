@@ -450,14 +450,6 @@ public final class WatchSyncClient: NSObject, ObservableObject {
         return queued.reduce(state) { partial, event in partial.applying(event) }
     }
 
-    public func sendQuickInputEvent(_ event: WatchInputEvent) throws {
-        if WCSession.isSupported(), WCSession.default.isReachable {
-            try sendToPhone(event)
-        } else {
-            try queueInputEvent(event)
-        }
-    }
-
     public func queueInputEvent(_ event: WatchInputEvent) throws {
         let appended = try withQueueFileLock {
             var events = try loadQueuedEventsUnlocked()
