@@ -466,7 +466,7 @@ public struct RoundHomeView: View {
         .onChange(of: prepPackage?.roundId) { _, roundId in
             guard liveRoundState == nil, roundId != nil,
                   let hole = pendingLiveHole ?? prepPackage?.holes.first?.number else { return }
-            path = [.hole(hole)]
+            appendPrepHoleIfNeeded(hole)
         }
         .onChange(of: package?.holeSetIdentity) { _, _ in
             reconcileLiveHoleRouteWithPackage()
@@ -535,13 +535,28 @@ public struct RoundHomeView: View {
             "round-home.enter.begin hole=\(hole) course=\(package?.course.globalId ?? -1)"
         )
         #endif
-        path = [.hole(hole)]
+        if prepPackage != nil, path.last == .prep {
+            appendPrepHoleIfNeeded(hole)
+        } else {
+            path = [.hole(hole)]
+        }
         onConsumePendingLiveHole()
         #if DEBUG
         UITestEventLatencyTrace.record(
             "round-home.enter.end hole=\(hole) course=\(package?.course.globalId ?? -1)"
         )
         #endif
+    }
+
+    /// The prep hole is pushed above the picker so the live screen's back button returns to the
+    /// course selector instead of skipping back to the Hub.
+    private func appendPrepHoleIfNeeded(_ hole: Int) {
+        guard path.last != .hole(hole) else { return }
+        if path.last == .prep {
+            path.append(.hole(hole))
+        } else {
+            path = [.prep, .hole(hole)]
+        }
     }
 
     /// The hole screen's package: the live round's, else the 备战 course's, else the home package.

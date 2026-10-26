@@ -1717,7 +1717,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Keep start latency low, then make the selected course genuinely reusable without a network:
     /// retain every hole's lightweight route/hazard/F-M-B facts and its precise topo bitmap. The
     /// package identity remains the live round's; the course template and bitmap keys are static.
-    private func beginOfflineCourseDownload(revalidatePackage: Bool = false) {
+    private func beginOfflineCourseDownload(revalidatePackage: Bool = false, priorityHole: Int? = nil) {
         guard let initial = package, let syncClient else { return }
         let expectedRoundId = initial.roundId
         let expectedGlobalId = initial.course.globalId
@@ -1749,7 +1749,8 @@ public final class LiveRoundAppModel: ObservableObject {
             await self.downloadOfflineCourseAssets(
                 for: snapshot,
                 using: syncClient,
-                revalidatePackage: revalidatePackage
+                revalidatePackage: revalidatePackage,
+                priorityHole: priorityHole
             )
             self.recordUITestLatency(
                 "offline-cache.task.end globalId=\(snapshot.course.globalId) holes=\(snapshot.holes.count)"
@@ -1989,10 +1990,15 @@ public final class LiveRoundAppModel: ObservableObject {
     /// geometry arrives. Failure returns nil and leaves every last-known-good offline byte untouched.
     private func revalidatedCourseSnapshot(
         _ cached: LiveRoundPackage,
-        using syncClient: SyncClient
+        using syncClient: SyncClient,
+        priorityHole: Int? = nil
     ) async -> LiveRoundPackage? {
         // The same ordered `loops=` as the cached round: its round-hole table and `loopKey`
         // survive revalidation unchanged (B4b-2).
+        let requestedPriorityHole = priorityHole
+            ?? (liveRoundState?.roundId == cached.roundId
+                ? liveRoundState?.startHole ?? liveRoundState?.activeHole
+                : nil)
         let remote: LiveRoundPackage
         do {
             remote = try await syncClient.fetchCoursePackage(
@@ -2003,7 +2009,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 capturedAt: Date(),
                 ensureGeometry: false,
                 backgroundGeometry: true,
-                includeEventCursor: false
+                includeEventCursor: false,
+                priorityHole: requestedPriorityHole
             )
         } catch {
             AICaddieLog.network.info(
@@ -2238,6 +2245,7 @@ public final class LiveRoundAppModel: ObservableObject {
         for initialSnapshot: LiveRoundPackage,
         using syncClient: SyncClient,
         revalidatePackage: Bool = false,
+        priorityHole: Int? = nil,
         prepDownloadID: String? = nil,
         prepDownloadGeneration: UUID? = nil,
         deferTemplateReplacement: Bool = false
@@ -2255,7 +2263,7 @@ public final class LiveRoundAppModel: ObservableObject {
         defer { TopoWriterActivity.shared.end() }
         var snapshot = initialSnapshot
         if revalidatePackage,
-           let current = await revalidatedCourseSnapshot(initialSnapshot, using: syncClient) {
+           let current = await revalidatedCourseSnapshot(initialSnapshot, using: syncClient, priorityHole: priorityHole) {
             snapshot = current
             // Once the server has positively identified a newer release, do not let a force-quit
             // reopen the old precise package. Network failure never enters this branch.
@@ -3631,7 +3639,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     roundId: roundId,
                     teeBox: record.teeBox,
                     loops: loops,
-                    capturedAt: preparedAt
+                    capturedAt: preparedAt,
+                    priorityHole: hole
                 )
             }
             guard generation == self.prepOpenGeneration else { return }
@@ -3711,9 +3720,7 @@ public final class LiveRoundAppModel: ObservableObject {
 #if canImport(UIKit)
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
 #endif
-            prepCourse = nil
-            prepTeeOptions = []
-            beginOfflineCourseDownload()
+            beginOfflineCourseDownload(revalidatePackage: true, priorityHole: startHole)
             return true
         } catch {
             AICaddieLog.storage.error("First-stroke start failed: \(String(describing: error), privacy: .public)")
@@ -4775,7 +4782,8 @@ public final class LiveRoundAppModel: ObservableObject {
         teeBox: String,
         loops: [RoundLoopEntry],
         capturedAt: Date = Date(),
-        preparationToken: UUID? = nil
+        preparationToken: UUID? = nil,
+        priorityHole: Int? = nil
     ) async -> LiveRoundPackage? {
         #if DEBUG
         // The course-package failure hook covers a start; a turn request (two loops) keeps
@@ -4798,7 +4806,7 @@ public final class LiveRoundAppModel: ObservableObject {
         do {
             // A newly generated round has no server events yet. Replay/ACK owns recovery later;
             // scanning the owner's historical event log here only delays the first-hole screen.
-            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, foregroundStart: preparationToken != nil)
+            return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, foregroundStart: preparationToken != nil, priorityHole: priorityHole)
         } catch {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {

@@ -57,7 +57,7 @@ struct LivePlayTopInfo: View {
     let holeNumber: Int
     let par: Int
     let yards: Int?
-    let roundLine: String
+    let roundLine: String?
     let onBack: () -> Void
 
     var body: some View {
@@ -85,11 +85,13 @@ struct LivePlayTopInfo: View {
                         .font(.system(size: 14, weight: .medium))
                         .monospacedDigit()
                 }
-                Text(roundLine)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.78))
-                    .accessibilityIdentifier("live-round-line")
+                if let roundLine {
+                    Text(roundLine)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(.white.opacity(0.78))
+                        .accessibilityIdentifier("live-round-line")
+                }
             }
             .foregroundStyle(.white)
             .shadow(color: LivePlayChromeStyle.captionShadow, radius: 3, y: 1)

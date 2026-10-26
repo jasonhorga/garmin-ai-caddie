@@ -44,9 +44,11 @@ public struct PrepCoursePickerView: View {
         )
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
+        self.isOpeningCourse = isOpeningCourse
         self.onDownload = onDownload
         self.onRetryDownload = onRetryDownload
         self.onValidateReadyDownload = onValidateReadyDownload
+        self.onOpenCourse = onOpenCourse
     }
 
     public var body: some View {

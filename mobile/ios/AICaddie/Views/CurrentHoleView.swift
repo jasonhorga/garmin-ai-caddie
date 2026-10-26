@@ -129,8 +129,8 @@ enum LiveHoleAdvanceResolution: Equatable {
     case advance(to: Int)
     case finish
 
-    static func resolve(after acceptedHole: Int, package: LiveRoundPackage, startingAt startHole: Int? = nil) -> Self {
-        let ordered = RoundPlayOrder.holes(package.holes.map(\.number), startingAt: startHole)
+    static func resolve(after acceptedHole: Int, package: LiveRoundPackage, startingAt startHole: Int? = nil, loops: [RoundLoop]? = nil) -> Self {
+        let ordered = RoundPlayOrder.holes(package.holes.map(\.number), startingAt: startHole, loops: loops ?? package.roundLoops)
         if let index = ordered.firstIndex(of: acceptedHole), ordered.indices.contains(index + 1) {
             return .advance(to: ordered[index + 1])
         }
@@ -777,7 +777,7 @@ public struct CurrentHoleView: View {
                             holeNumber: hole.courseHoleNumber,
                             par: hole.par,
                             yards: hole.yards,
-                            roundLine: liveRoundLine,
+                            roundLine: isPrepMode ? nil : liveRoundLine,
                             onBack: { dismiss() }
                         )
                         .reportsLiveChrome()
@@ -917,15 +917,12 @@ public struct CurrentHoleView: View {
     }
 
     private var roundBannerText: String {
-        if !isPrepMode { return "第 \(hole.courseHoleNumber) 洞 · 正在记录" }
-        switch prepLocation {
-        case .onHole(let number):
-            return "第 \(package.courseHoleNumber(forRoundHole: number)) 洞 · 记第一杆即开打"
-        case .atCourse:
-            return "不在球洞范围·不记录"
-        case .awayFromCourse, .unknown:
-            return "没到场，先备战·不记录"
-        }
+        HoleScreenRoundBanner.resolve(
+            roundStarted: !isPrepMode,
+            location: prepLocation,
+            courseHoleNumber: package.courseHoleNumber(forRoundHole:),
+            currentCourseHole: hole.courseHoleNumber
+        ).text
     }
 
     private var prepLocation: CurrentHoleLocation {
@@ -935,8 +932,7 @@ public struct CurrentHoleView: View {
     private var canRecordShot: Bool {
         guard isPrepMode || liveCoordinateForCurrentHole != nil else { return false }
         guard isPrepMode else { return true }
-        guard case .onHole(let locatedHole) = prepLocation else { return false }
-        return locatedHole == hole.number
+        return locationProvider.latestFix != nil
     }
 
     /// The selected caddie route is drawn on the map; this invisible element reads it out for
@@ -1527,7 +1523,7 @@ public struct CurrentHoleView: View {
                 ) else { return }
                 guard let target = HoleSwipeNavigation.target(
                     current: hole.number,
-                    holes: RoundPlayOrder.holes(package.holes.map(\.number), startingAt: liveRoundState?.startHole),
+                    holes: RoundPlayOrder.holes(package.holes.map(\.number), startingAt: liveRoundState?.startHole, loops: package.roundLoops),
                     translation: value.translation
                 ) else { return }
                 #if canImport(UIKit)
@@ -4717,7 +4713,8 @@ public struct CurrentHoleView: View {
             switch LiveHoleAdvanceResolution.resolve(
                 after: accepted.hole,
                 package: package,
-                startingAt: liveRoundState?.startHole
+                startingAt: liveRoundState?.startHole,
+                loops: package.roundLoops
             ) {
             case .advance(let next):
                 onAdvanceHole(next)
@@ -4800,7 +4797,7 @@ public struct CurrentHoleView: View {
     }
 
     private func nextHole(after number: Int) -> Int? {
-        let ordered = RoundPlayOrder.holes(package.holes.map(\.number), startingAt: liveRoundState?.startHole)
+        let ordered = RoundPlayOrder.holes(package.holes.map(\.number), startingAt: liveRoundState?.startHole, loops: package.roundLoops)
         guard let index = ordered.firstIndex(of: number), ordered.indices.contains(index + 1) else {
             return nil
         }

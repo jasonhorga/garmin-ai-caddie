@@ -11,9 +11,39 @@ enum RoundPlayOrder {
         return Array(roundHoles[index...]) + Array(roundHoles[..<index])
     }
 
+    /// Rotate only the loop containing the starting hole. A two-nine round therefore plays
+    /// 5…9,1…4,10…18 rather than revisiting 1…4 after the second nine.
+    static func holes(_ roundHoles: [Int], startingAt startHole: Int?, loops: [RoundLoop]) -> [Int] {
+        guard !loops.isEmpty, let startHole,
+              let startLoopIndex = loops.firstIndex(where: { $0.contains(roundHole: startHole) }) else {
+            return holes(roundHoles, startingAt: startHole)
+        }
+        let grouped = loops.map { loop in
+            roundHoles.filter { loop.contains(roundHole: $0) }
+        }
+        guard grouped.flatMap({ $0 }).count == roundHoles.count else {
+            return holes(roundHoles, startingAt: startHole)
+        }
+        guard grouped[startLoopIndex].contains(startHole) else {
+            return holes(roundHoles, startingAt: startHole)
+        }
+        let rotated = holes(grouped[startLoopIndex], startingAt: startHole)
+        var ordered = rotated
+        for offset in 1..<loops.count {
+            ordered += grouped[(startLoopIndex + offset) % loops.count]
+        }
+        return ordered
+    }
+
     /// The hole after `hole` in play order; nil after the last one (the round is complete).
     static func next(after hole: Int, in roundHoles: [Int], startingAt startHole: Int?) -> Int? {
         let ordered = holes(roundHoles, startingAt: startHole)
+        guard let index = ordered.firstIndex(of: hole), ordered.indices.contains(index + 1) else { return nil }
+        return ordered[index + 1]
+    }
+
+    static func next(after hole: Int, in roundHoles: [Int], startingAt startHole: Int?, loops: [RoundLoop]) -> Int? {
+        let ordered = holes(roundHoles, startingAt: startHole, loops: loops)
         guard let index = ordered.firstIndex(of: hole), ordered.indices.contains(index + 1) else { return nil }
         return ordered[index + 1]
     }
