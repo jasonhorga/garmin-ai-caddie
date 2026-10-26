@@ -13,6 +13,7 @@ from io import BytesIO
 import logging
 import os
 import threading
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Path, Request, Response
@@ -66,7 +67,7 @@ def _asset_version(global_id: int, hole: int) -> str | None:
 def _projection_result(global_id: int, hole: int, version: str) -> dict[str, Any] | None:
     result = garmin_raster.load_projection_cache(global_id, hole, version)
     if result is not None and result.get("imageUrl"):
-        # A result cached before the PNG named the JPEG; the projection is the same pixel frame.
+        # A result cached before the WebP named the JPEG; the projection is the same pixel frame.
         result["imageUrl"] = _versioned_path(global_id, hole, version)
     return result
 
@@ -139,8 +140,8 @@ def course_hole_garmin_raster_jpg(
     return Response(content=image, media_type="image/jpeg", headers=headers)
 
 
-@ROUTER.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.png")
-def course_hole_garmin_raster_png(
+@ROUTER.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.webp")
+def course_hole_garmin_raster_webp(
     request: Request,
     global_id: int,
     hole: int = Path(ge=1, le=36),
@@ -163,11 +164,7 @@ def course_hole_garmin_raster_png(
         image = None
     if not image:
         raise HTTPException(status_code=404, detail="garmin raster unavailable")
-    return Response(content=image, media_type="image/png", headers=headers)
-
-
-# Stub: the WebP route's interface, still serving the PNG.
-course_hole_garmin_raster_webp = course_hole_garmin_raster_png
+    return Response(content=image, media_type="image/webp", headers=headers)
 
 
 # Install-time warm-up: a small pool so a course's 18 Garmin downloads never crowd the API, and
@@ -176,6 +173,7 @@ _PREFETCH_WORKERS = 2
 _PREFETCH_POOL: ThreadPoolExecutor | None = None
 _PREFETCH_GUARD = threading.Lock()
 _PREFETCHED: set[tuple[int, int, str]] = set()
+# How often a held warm-up asks again whether the work it yields to has finished.
 _YIELD_POLL_SECONDS = 0.25
 
 
@@ -189,12 +187,37 @@ def _prefetch_pool() -> ThreadPoolExecutor:
         return _PREFETCH_POOL
 
 
-def _warm_hole(global_id: int, hole: int, key: tuple[int, int, str]) -> bool:
-    """Bring one hole's PNG (and so its JPEG) and its projection into the server cache."""
+def _registration_settled(result: dict[str, Any]) -> bool:
+    """A registration worth keeping: a projection, or a reason the same bytes would give again."""
+    return bool(result.get("available")) or result.get("reason") in _DETERMINISTIC_REASONS
+
+
+def _wait_while(should_yield: Callable[[], bool] | None) -> None:
+    # The matte and registration are pure Python and hold the GIL; a player waiting on a request
+    # comes first.  A failing callback never stalls the warm-up.
+    while should_yield is not None:
+        try:
+            if not should_yield():
+                return
+        except Exception:  # noqa: BLE001
+            return
+        time.sleep(_YIELD_POLL_SECONDS)
+
+
+def _warm_hole(
+    global_id: int, hole: int, key: tuple[int, int, str], should_yield: Callable[[], bool] | None = None
+) -> bool:
+    """Bring one hole's WebP (and so its JPEG) and its projection into the server cache.
+
+    A hole is warmed only once its registration is settled: ``geometry_missing`` on a pass that
+    runs before the hole's geometry is installed leaves it for the next pass, whose WebP is then a
+    disk read.
+    """
+    _wait_while(should_yield)
     try:
         warmed = garmin_raster.fetch_matted_raster(global_id, hole) is not None
         if warmed:
-            course_hole_garmin_raster(global_id, hole)
+            warmed = _registration_settled(course_hole_garmin_raster(global_id, hole))
     except Exception as exc:  # noqa: BLE001 - a warm-up failure is retried by a later pass
         logger.warning("garmin raster prefetch failed: %s", type(exc).__name__)
         warmed = False
@@ -210,8 +233,9 @@ def prefetch_holes(
     """Queue Garmin raster warm-up for ``(globalId, localHole)`` pairs in the given (play) order.
 
     Queuing runs inside an install pass, so it reads only the cached release (holes without one
-    wait for a later pass), never contacts Garmin and never raises.  Returns the futures of newly
-    queued holes.
+    wait for a later pass), never contacts Garmin and never raises.  Before each hole a worker
+    waits while ``should_yield()`` is true (by default it never waits).  Returns the futures of
+    newly queued holes.
     """
     if os.environ.get("AI_CADDIE_GARMIN_RASTER_PREFETCH", "1") == "0":
         return []
@@ -229,7 +253,9 @@ def prefetch_holes(
                     continue
                 _PREFETCHED.add(key)
             try:
-                futures.append(_prefetch_pool().submit(_warm_hole, int(global_id), int(hole), key))
+                futures.append(
+                    _prefetch_pool().submit(_warm_hole, int(global_id), int(hole), key, should_yield)
+                )
             except RuntimeError:  # the pool is shutting down with the process
                 with _PREFETCH_GUARD:
                     _PREFETCHED.discard(key)
@@ -262,6 +288,6 @@ def course_hole_garmin_raster(
         if cached is not None:
             return cached
         result = _register_one(global_id, hole, version, fetched)
-        if result.get("available") or result.get("reason") in _DETERMINISTIC_REASONS:
+        if _registration_settled(result):
             garmin_raster.save_projection_cache(global_id, hole, version, result)
         return result

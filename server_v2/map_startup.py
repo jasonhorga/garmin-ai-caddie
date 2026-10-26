@@ -118,8 +118,9 @@ def priority_hole_plan(global_id: int, local_hole: int) -> dict | None:
 
 
 def startup_in_flight() -> bool:
-    """Stub: nothing yields to a round start yet."""
-    return False
+    """Whether a round start's playing-hole prepare is still running; optional warm-up yields to it."""
+    with _LOCK:
+        return any(not future.done() for future in _STARTING.values())
 
 
 def _register_hole_plan_provider() -> None:

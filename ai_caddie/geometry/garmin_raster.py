@@ -40,9 +40,12 @@ logger = logging.getLogger(__name__)
 _CACHE_LOCKS: dict[tuple[int, int, str], threading.RLock] = {}
 _CACHE_LOCKS_GUARD = threading.Lock()
 PROJECTION_CACHE_SCHEMA = "garmin-raster-projection-v2"
-# The transparent-sky PNG's own version, appended to Garmin's asset version in its URL, so a
+# The transparent-sky WebP's own version, appended to Garmin's asset version in its URL, so a
 # changed matte never reuses a phone's older bytes.
 RASTER_MATTE_VERSION = "sky1"
+# Lossy colour with lossless alpha: on real courses about 1/13 of the PNG (1.7 MB against 22 MB for
+# 18 holes) and half its encode time.  iOS 17 decodes it natively.
+RASTER_WEBP_QUALITY = 85
 # Garmin bakes a flat sky colour around the course.  Pixels within this per-channel distance of the
 # sky measured on the image's border are sky; JPEG ringing next to it is within the wider fringe.
 SKY_TOLERANCE = 40
@@ -149,7 +152,7 @@ def raster_asset_version(global_id: int, hole: object, *, allow_fetch: bool = Tr
 
 
 def raster_image_version(asset: str) -> str:
-    """The PNG's version: Garmin's asset version plus the sky matte that produced the pixels."""
+    """The WebP's version: Garmin's asset version plus the sky matte that produced the pixels."""
     return f"{asset}-{RASTER_MATTE_VERSION}"
 
 
@@ -157,12 +160,13 @@ def raster_image_path(global_id: int, hole: int, asset: str | None) -> str:
     """The one image URL both the round package and the metadata endpoint give the phone.
 
     The phone caches by the whole URL, so both must be this exact string.  Without a known asset
-    version this is the legacy unversioned JPEG route (an old package's shape).
+    version (no local release yet) it is the same transparent WebP route without ``?v``: the route
+    resolves the release itself and answers without the long cache lifetime.
     """
-    base = f"/api/v2/courses/{int(global_id)}/holes/{int(hole)}"
+    base = f"/api/v2/courses/{int(global_id)}/holes/{int(hole)}/garmin-raster.webp"
     if not asset:
-        return f"{base}/garmin-raster.jpg"
-    return f"{base}/garmin-raster.png?v={raster_image_version(asset)}"
+        return base
+    return f"{base}?v={raster_image_version(asset)}"
 
 
 def _raster_url(global_id: int, hole: object, *, allow_fetch: bool = True) -> tuple[str | None, str | None]:
@@ -284,29 +288,24 @@ def matte_sky(image: object) -> Image.Image | None:
     return Image.fromarray(rgba, "RGBA")
 
 
-def matte_sky_png(data: bytes) -> bytes | None:
-    """Encode ``matte_sky`` of Garmin's JPEG bytes as PNG."""
+def matte_sky_webp(data: bytes) -> bytes | None:
+    """Encode ``matte_sky`` of Garmin's JPEG bytes as WebP with alpha."""
     matted = matte_sky(data)
     if matted is None:
         return None
     buffer = BytesIO()
-    matted.save(buffer, format="PNG")
+    matted.save(buffer, format="WEBP", quality=RASTER_WEBP_QUALITY)
     return buffer.getvalue()
-
-
-def matte_sky_webp(data: bytes) -> bytes | None:
-    """Encode ``matte_sky`` of Garmin's JPEG bytes as WebP (stub: still the PNG)."""
-    return matte_sky_png(data)
 
 
 def _matte_path(global_id: int, hole: object, version: str) -> Path:
     return Path(RASTER_CACHE_DIR) / (
-        f"gid{int(global_id)}_h{_hole_number(hole):02d}_{_safe_part(version)}.{RASTER_MATTE_VERSION}.png"
+        f"gid{int(global_id)}_h{_hole_number(hole):02d}_{_safe_part(version)}.{RASTER_MATTE_VERSION}.webp"
     )
 
 
 def fetch_matted_raster(global_id: int, hole: object, version: str | None = None) -> bytes | None:
-    """The hole's transparent-sky PNG, derived once from the cached JPEG and kept beside it.
+    """The hole's transparent-sky WebP, derived once from the cached JPEG and kept beside it.
 
     ``version`` is the asset version a caller has already resolved; otherwise the release is read.
     """
@@ -330,7 +329,7 @@ def fetch_matted_raster(global_id: int, hole: object, version: str | None = None
         if not source:
             return None
         try:
-            data = matte_sky_png(source)
+            data = matte_sky_webp(source)
         except Exception as exc:
             logger.warning("garmin raster matte failed: %s", type(exc).__name__)
             return None

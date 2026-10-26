@@ -6,6 +6,7 @@ server startup. It intentionally has no database or provider access.
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from io import BytesIO
 import json
 import math
@@ -615,6 +616,7 @@ def _fixture_prep_hazards() -> dict:
 
 IMAGE = _png_data_uri()
 _GARMIN_RASTER_BYTES: bytes | None = None
+_GARMIN_RASTER_WEBP_BYTES: bytes | None = None
 MARKERS = {"dataMode": "ci_fixture", "source": "non_production", "fixtureRevision": FIXTURE_REVISION}
 ROUTE = APIRouter()
 PACKAGE_TEMPLATE = json.loads(
@@ -1108,6 +1110,23 @@ def _garmin_raster_jpeg() -> bytes:
     return _GARMIN_RASTER_BYTES
 
 
+def _garmin_raster_webp() -> bytes:
+    """The same synthetic course as production's matted shape: a transparent sky around it."""
+    global _GARMIN_RASTER_WEBP_BYTES
+    if _GARMIN_RASTER_WEBP_BYTES is None:
+        from PIL import Image, ImageDraw
+
+        image = Image.new("RGBA", (1242, 1920), (0, 0, 0, 0))
+        ImageDraw.Draw(image).polygon(
+            [(330, 170), (790, 120), (1020, 590), (920, 1420), (620, 1780), (300, 1450), (190, 700)],
+            fill=(104, 158, 92, 255),
+        )
+        buffer = BytesIO()
+        image.save(buffer, format="WEBP", quality=85)
+        _GARMIN_RASTER_WEBP_BYTES = buffer.getvalue()
+    return _GARMIN_RASTER_WEBP_BYTES
+
+
 def _fixture_garmin_projection(global_id: int) -> dict[str, object]:
     """Scale the fixture's canonical affine refs into the Garmin raster frame."""
     base = _fixture_hole_projection(global_id)
@@ -1147,8 +1166,9 @@ def green_png(global_id: int, hole: int, x: float = 0, y: float = 0, width: floa
     return _fixture_png(global_id, hole, size, size)
 
 
-@ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.jpg")
-def garmin_raster_jpg(global_id: int, hole: int, v: str | None = None, r: str | None = None) -> Response:
+def _garmin_raster_response(
+    global_id: int, hole: int, v: str | None, content: Callable[[], bytes], media_type: str
+) -> Response:
     requested = _course_request(global_id)
     if hole < 1 or hole > 18:
         raise HTTPException(status_code=404, detail="fixture image not found")
@@ -1157,14 +1177,20 @@ def garmin_raster_jpg(global_id: int, hole: int, v: str | None = None, r: str | 
     if v is not None and v != FIXTURE_REVISION:
         raise HTTPException(status_code=409, detail="fixture raster asset version changed")
     return Response(
-        content=_garmin_raster_jpeg(),
-        media_type="image/jpeg",
+        content=content(),
+        media_type=media_type,
         headers={"ETag": f'"{FIXTURE_REVISION}"', "Cache-Control": "public, max-age=31536000, immutable" if v == FIXTURE_REVISION else "public, no-cache"},
     )
 
 
-# Stub: the WebP route's interface, still serving the JPEG.
-garmin_raster_webp = garmin_raster_jpg
+@ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.jpg")
+def garmin_raster_jpg(global_id: int, hole: int, v: str | None = None, r: str | None = None) -> Response:
+    return _garmin_raster_response(global_id, hole, v, _garmin_raster_jpeg, "image/jpeg")
+
+
+@ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster.webp")
+def garmin_raster_webp(global_id: int, hole: int, v: str | None = None, r: str | None = None) -> Response:
+    return _garmin_raster_response(global_id, hole, v, _garmin_raster_webp, "image/webp")
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/garmin-raster")
@@ -1172,7 +1198,7 @@ def garmin_raster(global_id: int, hole: int) -> dict[str, object]:
     requested = _course_request(global_id)
     if hole < 1 or hole > 18:
         raise HTTPException(status_code=404, detail="fixture raster not found")
-    image_url = f"/api/v2/courses/{int(global_id)}/holes/{int(hole)}/garmin-raster.jpg?v={FIXTURE_REVISION}"
+    image_url = f"/api/v2/courses/{int(global_id)}/holes/{int(hole)}/garmin-raster.webp?v={FIXTURE_REVISION}"
     if _hole_map_state(requested, hole) != "ready":
         return _with_markers({
             "available": False,
