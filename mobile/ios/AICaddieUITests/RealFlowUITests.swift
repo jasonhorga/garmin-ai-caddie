@@ -230,7 +230,7 @@ final class RealFlowUITests: XCTestCase {
         map.swipeLeft()
         XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 20), "prep hole navigation must move to hole 2")
         XCTAssertEqual(
-            app.descendants(matching: .any)["live-hole-pager"].value as? String,
+            app.descendants(matching: .any)["live-hole-pager"].firstMatch.value as? String,
             "第 2 洞",
             "the native pager selection must follow the visible hole after a map swipe"
         )

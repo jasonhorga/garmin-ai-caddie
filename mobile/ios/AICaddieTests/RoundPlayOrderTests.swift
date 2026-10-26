@@ -106,6 +106,63 @@ final class RoundPlayOrderTests: XCTestCase {
         ).prepRequestCompleted)
     }
 
+    func testCacheRevisionAuthorityIsSharedAndUnknownPrefetchKeepsPrep() {
+        let hole = Hole(
+            number: 10, par: 4, yards: 400, geometryCoverage: .partial,
+            geometryRevision: "geometry-r1", topoAvailable: true, topoRevision: "topo-r1",
+            sourceGlobalId: 101, sourceLocalHole: 1, courseHoleNumber: 10
+        )
+        let prep = CoursePrepHole(
+            hole: 10, par: 4, parSource: "fixture", blueYards: 400, routeLenM: 366,
+            geometryCoverage: "ready", geometryRevision: "prep-r1"
+        )
+        XCTAssertEqual(LiveHoleSessionCache.cacheRevision(hole: hole, prep: prep), "topo-r1")
+        let cache = LiveHoleSessionCache()
+        cache.update(
+            roundId: "round", hole: 10, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: LiveHoleSessionCache.cacheRevision(hole: hole, prep: prep)
+        ) { entry in
+            entry.holePrep = prep
+            entry.prepRequestCompleted = true
+        }
+        // A prefetch row with no trustworthy revision is informational; it must not rebase the
+        // entry and lose the precise prep that the init/write path already retained.
+        cache.update(
+            roundId: "round", hole: 10, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: nil
+        ) { entry in
+            entry.garminRequestStarted = false
+        }
+        let retained = cache.entry(
+            roundId: "round", hole: 10, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "topo-r1"
+        )
+        XCTAssertEqual(retained.holePrep, prep)
+        XCTAssertTrue(retained.prepRequestCompleted)
+    }
+
+    func testTrimHeavyPrepMarksTheEntryForARefresh() {
+        let overlay = CoursePrepOverlay(w: 10, h: 10, ppm: 1, ln: 10, route: [])
+        let prep = CoursePrepHole(
+            hole: 1, par: 4, parSource: "fixture", blueYards: 400, routeLenM: 366,
+            geometryCoverage: "ready", geometryRevision: "r1",
+            map: CoursePrepMap(image: "data:image/png;base64,heavy", overlay: overlay)
+        )
+        let cache = LiveHoleSessionCache()
+        cache.update(roundId: "round", hole: 1, sourceGlobalId: 1, sourceLocalHole: 1,
+                     teeBox: "white", geometryRevision: "r1") { entry in
+            entry.holePrep = prep
+            entry.prepRequestCompleted = true
+            entry.preciseProbeStarted = true
+        }
+        cache.trim(roundId: "round", keepingHoles: [])
+        let retained = cache.entry(roundId: "round", hole: 1, sourceGlobalId: 1,
+                                   sourceLocalHole: 1, teeBox: "white", geometryRevision: "r1")
+        XCTAssertNil(retained.holePrep?.map?.image)
+        XCTAssertFalse(retained.prepRequestCompleted)
+        XCTAssertFalse(retained.preciseProbeStarted)
+    }
+
     func testPagerInitializationKeepsCurrentSelectionAndPrefersActiveHole() {
         XCTAssertEqual(
             LiveHolePagerInitialSelection.resolve(
@@ -127,15 +184,6 @@ final class RoundPlayOrderTests: XCTestCase {
         )
     }
 
-    func testMappingRefreshBypassesCompletedPrepGate() {
-        XCTAssertFalse(LiveHoleSessionCachePolicy.shouldFetchPrep(
-            cached: nil, requestStarted: false, requestCompleted: true
-        ))
-        XCTAssertTrue(LiveHoleSessionCachePolicy.shouldFetchPrep(
-            cached: nil, requestStarted: false, requestCompleted: true, forMapping: true
-        ))
-    }
-
     func testCaddieSignatureChangesForEveryPlanningInputButIgnoresGpsNoise() {
         let location: [String: JSONValue] = [
             "latitude": .number(40.00001),
@@ -155,8 +203,8 @@ final class RoundPlayOrderTests: XCTestCase {
             shotType: "tee",
             context: baseContext.merging([
                 "currentLocation": .object([
-                    "latitude": .number(40.00005),
-                    "longitude": .number(116.00005),
+                    "latitude": .number(40.00003),
+                    "longitude": .number(116.00003),
                     "capturedAt": .string("later"),
                     "horizontalAccuracyM": .number(20)
                 ])
@@ -166,6 +214,49 @@ final class RoundPlayOrderTests: XCTestCase {
             LiveCaddieDecisionSignaturePolicy.signature(for: base, endpoint: "/decision"),
             LiveCaddieDecisionSignaturePolicy.signature(for: sameGps, endpoint: "/decision")
         )
+        let acrossGps = CaddieDecisionRequest(
+            shotType: "tee",
+            context: baseContext.merging([
+                "currentLocation": .object([
+                    "latitude": .number(40.00007),
+                    "longitude": .number(116.00007)
+                ])
+            ]) { _, new in new }
+        )
+        XCTAssertNotEqual(
+            LiveCaddieDecisionSignaturePolicy.signature(for: base, endpoint: "/decision"),
+            LiveCaddieDecisionSignaturePolicy.signature(for: acrossGps, endpoint: "/decision"),
+            "crossing a 10 m coordinate bucket must invalidate the decision"
+        )
+        let mapInputs: [(String, JSONValue)] = [
+            ("greenPinCoordinate", .object(["latitude": .number(40.1), "longitude": .number(116.1)])),
+            ("greenPinPixel", .array([.number(101), .number(202)])),
+            ("targetPixel", .array([.number(303), .number(404)]))
+        ]
+        for (key, value) in mapInputs {
+            var changed = baseContext
+            changed[key] = value
+            XCTAssertNotEqual(
+                LiveCaddieDecisionSignaturePolicy.signature(
+                    for: CaddieDecisionRequest(shotType: "tee", context: changed),
+                    endpoint: "/decision"
+                ),
+                LiveCaddieDecisionSignaturePolicy.signature(for: base, endpoint: "/decision"),
+                "changing \(key) must invalidate the decision signature"
+            )
+        }
+        for (distance, expectedEqual) in [(150.4, true), (150.6, false)] {
+            var changed = baseContext
+            changed["distanceToPin_m"] = .number(distance)
+            let signature = LiveCaddieDecisionSignaturePolicy.signature(
+                for: CaddieDecisionRequest(shotType: "tee", context: changed), endpoint: "/decision"
+            )
+            XCTAssertEqual(
+                signature == LiveCaddieDecisionSignaturePolicy.signature(for: base, endpoint: "/decision"),
+                expectedEqual,
+                "distance is rounded to whole metres in the decision identity"
+            )
+        }
         for (key, value) in [
             ("distanceToPin_m", JSONValue.number(151)),
             ("strategyMode", JSONValue.string("safe")),
@@ -183,6 +274,30 @@ final class RoundPlayOrderTests: XCTestCase {
                 "changing \(key) must invalidate the decision"
             )
         }
+    }
+
+    func testPagerSelectionResetsAfterLeavingHoleOrChangingSession() {
+        XCTAssertTrue(
+            LiveHolePagerSelectionLifecycle.shouldReset(
+                previousPath: [.hole(6)], currentPath: [],
+                previousRoundId: "round-a", currentRoundId: "round-a",
+                previousPrepRoundId: nil, currentPrepRoundId: nil
+            )
+        )
+        XCTAssertTrue(
+            LiveHolePagerSelectionLifecycle.shouldReset(
+                previousPath: [.prep, .hole(6)], currentPath: [.prep],
+                previousRoundId: nil, currentRoundId: nil,
+                previousPrepRoundId: "prep-a", currentPrepRoundId: "prep-b"
+            )
+        )
+        XCTAssertFalse(
+            LiveHolePagerSelectionLifecycle.shouldReset(
+                previousPath: [.hole(6)], currentPath: [.hole(6)],
+                previousRoundId: "round-a", currentRoundId: "round-a",
+                previousPrepRoundId: nil, currentPrepRoundId: nil
+            )
+        )
     }
 
     func testGarminDescriptorNeedsDecodedImageBeforeRasterState() {

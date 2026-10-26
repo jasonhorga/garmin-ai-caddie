@@ -17,6 +17,11 @@ private struct PendingPhoneShot: Identifiable {
 enum LiveCaddieDecisionSignaturePolicy {
     static func signature(for request: CaddieDecisionRequest, endpoint: String) -> String? {
         var context = request.context
+        if case .number(let distance)? = context["distanceToPin_m"], distance.isFinite {
+            // GPS-derived distances are continuous doubles; cache identity is intentionally at
+            // whole-metre precision so sub-metre movement does not force another decision.
+            context["distanceToPin_m"] = .number(distance.rounded())
+        }
         if let currentLocation = context["currentLocation"],
            case .object(var location) = currentLocation {
             location.removeValue(forKey: "capturedAt")
@@ -53,14 +58,7 @@ enum LiveTopoAvailability {
     }
 
     static func revision(hole: Hole, prep: CoursePrepHole?) -> String? {
-        if hole.topoAvailable == true,
-           let topoRevision = hole.topoRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !topoRevision.isEmpty {
-            return topoRevision
-        }
-        if prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
-           let revision = prep?.geometryRevision, !revision.isEmpty { return revision }
-        return hole.geometryRevision ?? prep?.geometryRevision
+        LiveHoleSessionCache.cacheRevision(hole: hole, prep: prep)
     }
 
     static func url(hole: Hole, prep: CoursePrepHole?, localURL: URL?, baseURL: URL?) -> URL? {
@@ -548,6 +546,9 @@ public struct CurrentHoleView: View {
     /// B1c Touch Target on the main map: screen point of the finger while the target is dragged
     /// (drives the loupe), whether that drag owns the gesture, and a one-runloop tap suppressor.
     @State private var heroTargetDragLocation: CGPoint?
+    /// GestureState is reset before DragGesture.onEnded. Keep the ownership bit in State so the
+    /// final pixel is still committed when the target is released.
+    @State private var heroTargetDragGrabbed = false
     @GestureState private var heroTargetDragging = false
     @GestureState private var heroTargetDidDrag = false
     @State private var showGreenDetail = false
@@ -667,11 +668,10 @@ public struct CurrentHoleView: View {
         self.onStartRoundFromFirstStroke = onStartRoundFromFirstStroke
         self.onUndoRoundStart = onUndoRoundStart
         self.onChangePrepTee = onChangePrepTee
-        let initialGeometryRevision = hole.topoAvailable == true
-            ? (hole.topoRevision?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                ? hole.topoRevision
-                : hole.geometryRevision)
-            : hole.geometryRevision
+        let initialGeometryRevision = LiveHoleSessionCache.cacheRevision(
+            hole: hole,
+            prep: package.coursePrep?.holes.first { $0.hole == hole.number }
+        )
         let initialSession = sharedSessionCache.entry(
             roundId: package.roundId,
             hole: hole.number,
@@ -846,7 +846,7 @@ public struct CurrentHoleView: View {
     }
 
     private var sessionGeometryRevision: String? {
-        holePrep?.geometryRevision ?? hole.geometryRevision
+        LiveHoleSessionCache.cacheRevision(hole: hole, prep: holePrep)
     }
 
     private func sessionEntry() -> LiveHoleSessionCache.Entry {
@@ -907,14 +907,24 @@ public struct CurrentHoleView: View {
                 }
             } else {
                 locationProvider.stopUpdatingLocation()
+                heroTargetDragGrabbed = false
+                heroTargetDragLocation = nil
             }
         }
         .onDisappear {
             locationProvider.stopUpdatingLocation()
+            heroTargetDragGrabbed = false
             heroTargetDragLocation = nil
         }
         .onChange(of: heroTargetDragging) { _, active in
-            if !active { heroTargetDragLocation = nil }
+            if !active {
+                heroTargetDragLocation = nil
+                // A system-cancelled drag has no onEnded callback. Reset ownership on the next
+                // actor turn, after a normal onEnded has had a chance to commit its final pixel.
+                DispatchQueue.main.async {
+                    heroTargetDragGrabbed = false
+                }
+            }
         }
         .onReceive(locationProvider.$latestFix) { latestFix in
             guard isSelected else { return }
@@ -2186,18 +2196,24 @@ public struct CurrentHoleView: View {
                 }
             }
             .onChanged { value in
-                guard heroTargetDragging else { return }
+                if !heroTargetDragGrabbed {
+                    heroTargetDragGrabbed = heroTargetHit(at: value.startLocation, in: viewport)
+                }
+                guard heroTargetDragGrabbed else { return }
                 heroTargetDragLocation = value.location
                 if let pixel = heroOverlayPixel(at: value.location, in: viewport, clampToMap: true) {
                     applyHeroTarget(pixel: pixel, committed: false)
                 }
             }
             .onEnded { value in
-                guard heroTargetDragging else { return }
+                guard heroTargetDragGrabbed else { return }
                 if let pixel = heroOverlayPixel(at: value.location, in: viewport, clampToMap: true) {
                     applyHeroTarget(pixel: pixel, committed: true)
                 }
                 heroTargetDragLocation = nil
+                DispatchQueue.main.async {
+                    heroTargetDragGrabbed = false
+                }
             }
     }
 
@@ -3840,7 +3856,7 @@ public struct CurrentHoleView: View {
         )
         guard garminDescriptorLoadingKey != requestKey else { return }
         let session = sessionEntry()
-        let revision = holePrep?.geometryRevision ?? hole.geometryRevision
+        let revision = LiveHoleSessionCache.cacheRevision(hole: hole, prep: holePrep)
         if let cached = session.garminRaster,
            !LiveHoleSessionCachePolicy.shouldFetchGarmin(
                cached: cached,
@@ -3873,7 +3889,7 @@ public struct CurrentHoleView: View {
                 .map { GarminRasterImageStore.isMemoryCached($0) } ?? false
             updateSession { entry in
                 entry.garminRaster = cached
-                entry.garminRevision = revision
+                if let revision { entry.garminRevision = revision }
             }
         }
         do {
@@ -3897,7 +3913,7 @@ public struct CurrentHoleView: View {
             garminRasterImageReady = descriptorURL.map { GarminRasterImageStore.isMemoryCached($0) } ?? false
             updateSession { entry in
                 entry.garminRaster = descriptor
-                entry.garminRevision = revision
+                if let revision { entry.garminRevision = revision }
             }
             GarminRasterMetadataCache.store(
                 descriptor,
@@ -3959,7 +3975,10 @@ public struct CurrentHoleView: View {
                     globalId: neighbour.sourceGlobalId,
                     localHole: neighbour.sourceLocalHole
                 ) else { return }
-                let revision = neighbour.geometryRevision
+                let revision = LiveHoleSessionCache.cacheRevision(
+                    hole: neighbour,
+                    prep: package.coursePrep?.holes.first { $0.hole == neighbour.number }
+                )
                 liveHoleSessionsUpdate(
                     hole: neighbour,
                     revision: revision,
@@ -3994,7 +4013,7 @@ public struct CurrentHoleView: View {
             geometryRevision: revision
         ) { entry in
             entry.garminRaster = descriptor
-            entry.garminRevision = revision
+            if let revision { entry.garminRevision = revision }
         }
     }
 
@@ -5058,9 +5077,9 @@ public struct CurrentHoleView: View {
                 distanceToPinM: caddiePlanningDistanceMetres,
                 lie: selectedLie,
                 coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole,
-                // The flag's coordinate is a signature-only input in r3. Touch Target coordinates
-                // remain in the request contract; pixel-only edits never become fake WGS84 data.
-                targetCoordinate: wireTargetKind == "pin" ? nil : wireTargetCoordinate,
+                // Keep the flag coordinate in the server contract: the decision service uses it
+                // when distanceToPin_m is unavailable. Pixel-only edits remain signature-only.
+                targetCoordinate: wireTargetCoordinate,
                 targetKind: wireTargetKind,
                 horizontalAccuracyM: liveCoordinateForCurrentHole == nil ? nil : currentHorizontalAccuracyM,
                 capturedAt: liveCoordinateForCurrentHole == nil ? nil : locationProvider.latestFix?.capturedAt,

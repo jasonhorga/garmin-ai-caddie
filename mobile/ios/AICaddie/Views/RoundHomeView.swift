@@ -136,6 +136,21 @@ public final class LiveHoleSessionCache {
 
     public init() {}
 
+    /// The one revision authority used by the cache key's entry validation and every producer
+    /// that writes a hole result. A missing revision means "unknown" and must not invalidate a
+    /// previously retained entry.
+    static func cacheRevision(hole: Hole, prep: CoursePrepHole?) -> String? {
+        if hole.topoAvailable == true,
+           let topoRevision = normalizedRevision(hole.topoRevision) {
+            return topoRevision
+        }
+        if prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+           let revision = normalizedRevision(prep?.geometryRevision) {
+            return revision
+        }
+        return normalizedRevision(hole.geometryRevision) ?? normalizedRevision(prep?.geometryRevision)
+    }
+
     func entry(
         roundId: String,
         hole: Int,
@@ -172,8 +187,8 @@ public final class LiveHoleSessionCache {
         )
         var value = entries[key] ?? Entry()
         value = value.rebased(for: geometryRevision)
-        if let geometryRevision {
-            value.geometryRevision = Self.normalizedRevision(geometryRevision)
+        if let geometryRevision = Self.normalizedRevision(geometryRevision) {
+            value.geometryRevision = geometryRevision
         }
         update(&value)
         entries[key] = value
@@ -230,6 +245,8 @@ fileprivate extension LiveHoleSessionCache.Entry {
     func rebased(for revision: String?) -> Self {
         let requested = LiveHoleSessionCache.normalizedRevision(revision)
         let cached = LiveHoleSessionCache.normalizedRevision(geometryRevision)
+        // A producer that does not know the current release must not destroy a useful entry.
+        guard requested != nil else { return self }
         guard requested != cached else { return self }
         var copy = self
         copy.holePrep = nil
@@ -275,6 +292,28 @@ fileprivate extension LiveHoleSessionCache.Entry {
             )
         }
         localTopoURL = nil
+        // The embedded bitmap is gone, so the next active-hole path must be allowed to fetch it.
+        prepRequestStarted = false
+        prepRequestCompleted = false
+        preciseProbeStarted = false
+    }
+}
+
+enum LiveHolePagerSelectionLifecycle {
+    static func shouldReset(
+        previousPath: [HubRoute],
+        currentPath: [HubRoute],
+        previousRoundId: String?,
+        currentRoundId: String?,
+        previousPrepRoundId: String?,
+        currentPrepRoundId: String?
+    ) -> Bool {
+        if previousRoundId != currentRoundId || previousPrepRoundId != currentPrepRoundId {
+            return true
+        }
+        let leftHole = previousPath.contains { if case .hole = $0 { return true }; return false }
+        let stillHasHole = currentPath.contains { if case .hole = $0 { return true }; return false }
+        return leftHole && !stillHasHole
     }
 }
 
@@ -742,6 +781,8 @@ public struct RoundHomeView: View {
                 // A round id is the session boundary. Clear every entity when a new round starts
                 // or the current round ends, so a reused hole number cannot inherit another nine.
                 liveHoleSessions.reset()
+                holePagerSelection = nil
+                holePagerNavigationLock = nil
             }
             // The first stroke promotes the memory-only prep package to a live round while the
             // current hole destination is still visible. Drop the picker route immediately so
@@ -764,6 +805,8 @@ public struct RoundHomeView: View {
             if previousRoundID != roundId {
                 prepHoleFollowing.reset()
                 liveHoleSessions.reset()
+                holePagerSelection = nil
+                holePagerNavigationLock = nil
             }
             guard liveRoundState == nil, roundId != nil else { return }
             path = LiveHoleRoutePath.afterPrepPackageRefresh(
@@ -783,7 +826,20 @@ public struct RoundHomeView: View {
             }
             reconcileLiveHoleRouteWithPackage()
         }
-        .onChange(of: path) { _, routes in
+        .onChange(of: path) { previousRoutes, routes in
+            // A pager selection belongs to one hole destination. Drop it when that destination is
+            // left so a later course/round opening honors its routed initial hole.
+            if LiveHolePagerSelectionLifecycle.shouldReset(
+                previousPath: previousRoutes,
+                currentPath: routes,
+                previousRoundId: liveRoundState?.roundId,
+                currentRoundId: liveRoundState?.roundId,
+                previousPrepRoundId: prepPackage?.roundId,
+                currentPrepRoundId: prepPackage?.roundId
+            ) {
+                holePagerSelection = nil
+                holePagerNavigationLock = nil
+            }
             onLiveAppearanceChanged(Self.isLiveHoleRoute(routes.last))
             // Leaving the picker or the hole screen before the first stroke drops 备战 (and any
             // course still opening): nothing was recorded, so there is nothing to keep.
