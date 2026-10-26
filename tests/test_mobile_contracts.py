@@ -5797,8 +5797,8 @@ class RoundEditContractTests(unittest.TestCase):
         self.assertIn("RoundShotEditMap(editModel: editModel, topoURL: topoURL(for: editModel.map))", screen)
         self.assertIn("RoundHoleDraftScoreBox(hole: hole", screen)
         self.assertIn('.accessibilityIdentifier("round-shot-score-box")', screen)
-        self.assertIn(".onChange(of: scoreRow?.putts)", screen)
-        self.assertIn("editModel?.adoptRecordedPutts(putts)", screen)
+        self.assertIn(".onChange(of: scoreRow)", screen)
+        self.assertIn("editModel?.adoptRecordedScorecard(score: row?.score, putts: row?.putts)", screen)
         for removed in ["ShotEditSheet", "RoundShotPrecisionEditor", "RoundShotReorderList", "RoundShotMapLegend"]:
             self.assertNotIn(removed, screen)
 
