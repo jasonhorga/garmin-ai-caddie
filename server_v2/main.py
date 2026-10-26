@@ -26,6 +26,7 @@ from ai_caddie.history.stats_cache import cached_load_history_data
 from ai_caddie.rounds import correction_audit, round_corrections, round_ingest, swing_candidates
 from ai_caddie.rounds.players import OWNER_ID
 from ai_caddie.connectors.garmin_cn import GarminCnWebSessionConnector, sanitize_error, sanitize_safe_meta
+from ai_caddie.connectors.session_material import cleanup_session_material
 from ai_caddie.connectors.snapshot import snapshot_to_payload, write_connector_status
 from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 from ai_caddie.core.data import ROOT
@@ -184,6 +185,7 @@ from .reports import (
 from .readiness import build_readiness_response
 from .product_settings import build_product_settings_response
 from .session import save_garmin_session_response
+from . import session as session_routes
 from .sync_status import load_sync_status_response
 from .timing import RequestTiming, bind as bind_request_timing, mark as mark_request_stage, request_id as request_id_for
 from .sync_jobs import CancelledSyncJob, GarminSyncJobStore, RetrySyncJob
@@ -227,6 +229,7 @@ async def _lifespan(_app: FastAPI):
     # before serving any request — the per-request path already fail-closes, this makes it audible at boot.
     configure_request_timing_logging()
     assert_admin_security_config()
+    cleanup_session_material(session_routes.SESSION_ROOT)
     warm_stats_cache_in_background()
     _garmin_sync_jobs.start(_run_garmin_sync_job)
     threading.Thread(

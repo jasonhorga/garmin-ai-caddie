@@ -39,7 +39,7 @@ npm install
 
 推荐做法：浏览器登录 https://connect.garmin.cn 后直接运行脚本 `ai_caddie/garmin/fetch.py`
 会尝试从本机 Chrome/Safari/Firefox 读取 Garmin web session，自动更新
-`.garmin_tokens/web_cookie.txt` 和 `.garmin_tokens/csrf.txt`。不会读取或保存
+`.garmin_tokens/current` 指针及其代目录。不会读取或保存
 Garmin 密码。
 
 ```bash
@@ -47,22 +47,27 @@ uv run python -m ai_caddie.garmin.garmin_auth
 uv run python -m ai_caddie.garmin.fetch --refresh-auth
 ```
 
+认证材料由 `.garmin_tokens/current` 指向一个同时包含 cookie 和 CSRF 的代目录；不要直接编辑当前代目录。
+
 如果自动读取失败，可以继续手动导出：
 
 1. 浏览器登录 https://connect.garmin.cn ，进入"高尔夫"页
 2. 打开开发者工具 → Network 标签 → Fetch/XHR 过滤
 3. 刷新一次页面，随便点一条带 `gc-api` 或 `golf-api` 的请求
 4. 在 **Request Headers** 里找：
-   - 整行 `Cookie: ...` 的值（不带 `Cookie:` 前缀）→ 存到 `.garmin_tokens/web_cookie.txt`
-   - `connect-csrf-token: ...` 的 UUID → 存到 `.garmin_tokens/csrf.txt`
+   - 整行 `Cookie: ...` 的值（不带 `Cookie:` 前缀）
+   - `connect-csrf-token: ...` 的 UUID
 
 ```bash
-# 简便做法：在终端粘贴
-chmod 700 .garmin_tokens
-pbpaste > .garmin_tokens/web_cookie.txt   # 粘贴 cookie 值后跑这个
-pbpaste > .garmin_tokens/csrf.txt         # 粘贴 csrf 值后跑这个
-chmod 600 .garmin_tokens/*
+# 推荐：调用会话导入接口，由服务端写入完整的一代
+# API_BASE 为本机 API 地址（见下文"本地运行"）
+curl -X POST "$API_BASE/api/v2/sync/garmin/session" \
+  -H 'Content-Type: application/json' \
+  -H "X-AI-Caddie-Admin-Token: <admin-token>" \
+  --data '{"webSessionHeader":"Cookie: <cookie-value>","antiForgeryValue":"<csrf-value>","source":"manual_paste"}'
 ```
+
+如果服务不可用而必须手工维护旧布局，先停止同步并删除 `.garmin_tokens/current`，再把两行分别写入 `.garmin_tokens/web_cookie.txt` 与 `.garmin_tokens/csrf.txt`（目录 700、文件 600）；服务恢复后重新调用上面的导入接口完成迁移。
 
 ### Step 2 — 拉数据
 
@@ -76,7 +81,7 @@ uv run python -m ai_caddie.garmin.fetch --shots     # 加上每杆 GPS 点位（
 
 ### Cookie 过期后
 
-JWT_WEB cookie 有效期约 ~9 小时。同步会自动续期（见下方"已知坑 3"）；自动续期失败、状态为 `reauth_required` 时再重做 Step 1，CSRF token 通常较长期有效但顺手一起更新最稳。
+JWT_WEB cookie 有效期约 ~9 小时。owner 同步会先尝试一次自动续期（本机浏览器 cookie，必要时再用 Playwright）；家庭成员的 cookie 没有自愈凭据，过期后必须重新绑定 Garmin。续期失败时状态为 `reauth_required`，再重做 Step 1；CSRF token 通常较长期有效但顺手一起更新最稳。
 
 ## AI Caddie v2 / private trial
 
@@ -262,8 +267,8 @@ open output/dashboard.html
 ├── package.json / package-lock.json # Node / draco3d 依赖
 ├── clubs.example.json          # 杆包映射示例；本地用 clubs.json
 ├── .garmin_tokens/             # cookie + csrf / OAuth token（mode 600，禁止提交）
-│   ├── web_cookie.txt
-│   └── csrf.txt
+│   ├── current                 # 原子选择同代材料
+│   └── generations/            # 每代包含 web_cookie.txt 与 csrf.txt
 ├── data/                       # 抓下来的原始数据（禁止提交）
 │   ├── summary.json            #   所有 scorecard 的 summary 列表
 │   ├── scorecards/{id}.json    #   每场详情（每洞杆数/推杆/Fairway/GPS）
@@ -290,7 +295,7 @@ open output/dashboard.html
 
 1. **Garth 有 deprecation warning**：底层装了 garth 但实际不用它登录，可以忽略 warning。后续可以彻底移除依赖。
 2. **数据有些字段在早期场次缺失**：2024 年之前手表没记 putts，所以早期 round 没有推杆数据。Fairway 命中数据更早就有。
-3. **Cookie 过期**：同步会自动续期。`ai_caddie/pipeline.py` 的 `_ensure_auth` 先校验缓存的 cookie，无效时调 `garmin_auth.refresh_web_auth`：先试本机已登录浏览器的 cookie，不行再用 `garmin_playwright_login.py`（xvfb 下有头 Chromium + 持久 profile，账号取自 `.garmin_tokens/garmin_login.json`）重新登录拿新 cookie。都失败时本次同步不抓取，连接器状态写成 `reauth_required`；这时检查登录文件 / Playwright，或在桌面浏览器登录后手动重做 Step 1。
+3. **Cookie 过期**：owner 同步会自动续期，并以新的一代替换 `.garmin_tokens/current`。`ai_caddie/pipeline.py` 的 `_ensure_auth` 先校验缓存的 cookie，无效时调 `garmin_auth.refresh_web_auth`：先试本机已登录浏览器的 cookie，不行再用 `garmin_playwright_login.py`（xvfb 下有头 Chromium + 持久 profile，账号取自 `.garmin_tokens/garmin_login.json`）重新登录拿新 cookie。家庭成员没有 owner 的浏览器/凭据自愈路径，必须重新绑定 Garmin。续期都失败时本次同步不抓取，连接器状态写成 `reauth_required`；这时检查登录文件 / Playwright，或在桌面浏览器登录后手动重做 Step 1。
 4. **本地数据不进 GitHub**：`.garmin_tokens/`、`data/`、`downloads/`、`output/`、`logs/`、`clubs.json` 都由 `.gitignore` 排除。
 
 ## 下一步可选

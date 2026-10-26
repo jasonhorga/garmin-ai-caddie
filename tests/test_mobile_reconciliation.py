@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import threading
 import unittest
+from unittest.mock import patch
 
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.reports.annotations import list_annotations
@@ -15,9 +17,141 @@ from ai_caddie.caddie.mobile_reconciliation import (
     apply_mobile_reconciliation_suggestions,
     reconcile_mobile_round_events,
 )
+from ai_caddie.history.corrected_history import corrected_history_data
 
 
 class MobileReconciliationTests(unittest.TestCase):
+    def test_penalty_reconciliation_only_suggests_effective_value_conflicts(self) -> None:
+        data = HistoryData(
+            raw_rounds=[{"id": "penalty-round", "hasShots": False}],
+            rounds=[
+                {
+                    "id": "penalty-round",
+                    "ids": ["penalty-round"],
+                    "holes": [
+                        {"number": 1, "strokes": 6, "putts": 2, "penalties": 1},
+                        {"number": 2, "strokes": 6, "putts": 2, "penalties": 0},
+                    ],
+                }
+            ],
+            shots=[],
+        )
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "penalty-round",
+                [
+                    {
+                        "eventId": "same-penalty",
+                        "roundId": "penalty-round",
+                        "hole": 1,
+                        "kind": "penalty",
+                        "payload": {"penalties": 1},
+                    },
+                    {
+                        "eventId": "different-penalty",
+                        "roundId": "penalty-round",
+                        "hole": 2,
+                        "kind": "penalty",
+                        "payload": {"penalties": 1},
+                    },
+                ],
+                idempotency_key="penalty-reconciliation",
+                root=root,
+            )
+
+            result = reconcile_mobile_round_events("penalty-round", data, root=root)
+            applied = apply_mobile_reconciliation_suggestions(
+                "penalty-round",
+                data,
+                suggestion_ids=["different-penalty:penalty-correction"],
+                root=root,
+                annotations_root=root,
+            )
+            corrected = corrected_history_data(data, annotations_root=root, corrections_root=root)
+
+        suggestions = {row["id"]: row for row in result["annotationSuggestions"]}
+        self.assertNotIn("same-penalty:penalty-correction", suggestions)
+        self.assertEqual(suggestions["different-penalty:penalty-correction"]["payload"]["strokes"], 1)
+        self.assertEqual(applied["appliedCount"], 1)
+        self.assertEqual(corrected.rounds[0]["holes"][1]["penalties"], 1)
+
+    def test_concurrent_reconciliation_apply_dedupes_annotation_and_decision_audit(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "900001",
+                [
+                    {
+                        "eventId": "concurrent-audit",
+                        "roundId": "900001",
+                        "hole": 3,
+                        "kind": "club",
+                        "payload": {
+                            "clubName": "9I",
+                            "decisionId": "900001:3:concurrent",
+                            "decision": {
+                                "decisionId": "900001:3:concurrent",
+                                "sourceRef": "900001:3",
+                                "shotType": "tee",
+                                "phase": "tee_shot",
+                                "selectedOptionId": "stock",
+                                "selectedOption": {"id": "stock"},
+                                "options": [{"id": "safe"}, {"id": "stock"}, {"id": "attack"}],
+                                "confidence": {"level": "medium"},
+                                "evidence": [{"sourceRefs": ["900001:3"]}],
+                            },
+                            "actualShot": {
+                                "roundId": "900001",
+                                "hole": 3,
+                                "shotOrder": 1,
+                                "clubName": "9I",
+                                "meters": 146.0,
+                                "end": {"lie": "Bunker"},
+                            },
+                        },
+                    },
+                ],
+                idempotency_key="concurrent-reconciliation",
+                root=root,
+            )
+            barrier = threading.Barrier(2)
+            results: list[dict[str, object]] = []
+
+            from ai_caddie.caddie import mobile_reconciliation
+
+            original_add = mobile_reconciliation.add_annotation
+
+            def wait_then_add(*args: object, **kwargs: object) -> dict[str, object]:
+                barrier.wait(timeout=5)
+                return original_add(*args, **kwargs)
+
+            def apply_once() -> None:
+                results.append(
+                    apply_mobile_reconciliation_suggestions(
+                        "900001",
+                        fixture_history_data(),
+                        suggestion_ids=["concurrent-audit:caddie-feedback"],
+                        root=root,
+                        annotations_root=root,
+                        decision_audit_root=root,
+                    )
+                )
+
+            with patch.object(mobile_reconciliation, "add_annotation", side_effect=wait_then_add):
+                threads = [threading.Thread(target=apply_once) for _ in range(2)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+
+            annotations = list_annotations(root=root)
+            audits = list_decision_audits(root=root)
+
+        self.assertEqual(len(results), 2)
+        self.assertEqual(sorted(result["decisionAuditCount"] for result in results), [0, 1])
+        self.assertEqual(len(annotations), 1)
+        self.assertEqual(len(audits), 1)
     def test_reconciliation_skips_non_utf8_torn_bytes_and_processes_later_row(self) -> None:
         from ai_caddie.caddie.mobile_live import mobile_event_log
 

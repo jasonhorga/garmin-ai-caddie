@@ -20,7 +20,7 @@ class CIWorkflowTests(unittest.TestCase):
 
         for required in [
             "uv sync",
-            "uv run python -m unittest discover -s tests -t . -v",
+            "uv run python -m tests.check_isolation discover -s tests -t . -v",
             "uv run python -m py_compile",
             "node-version: 24",
             "npm ci",

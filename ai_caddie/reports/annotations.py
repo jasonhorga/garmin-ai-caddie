@@ -141,6 +141,7 @@ def add_annotation(
     player_id: str = OWNER_ID,
     client_mutation_id: str | None = None,
     client_time: str | None = None,
+    _record_id: str | None = None,
     data_loader: Any = None,
 ) -> dict[str, Any]:
     """The only writer of the annotation store. It takes the player's audit lock (``correction_audit``),
@@ -149,7 +150,7 @@ def add_annotation(
     validate_annotation(target_type, target_id, kind, payload)
     safe_payload = _redact_payload(payload)
     record = {
-        "id": uuid4().hex,
+        "id": str(_record_id or uuid4().hex),
         "createdAt": _created_at(),
         "targetType": target_type,
         "targetId": str(target_id),
