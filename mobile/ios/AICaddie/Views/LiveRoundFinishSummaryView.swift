@@ -34,8 +34,8 @@ struct LiveRoundFinishSummaryView: View {
     let scores: [Int: LiveHoleScore]
     let isFinishingRound: Bool
     let finishErrorMessage: String?
+    var onAddNine: (() -> Void)? = nil
     let onFinish: () -> Void
-    let onAddNine: (() -> Void)? = nil
     let onContinue: () -> Void
     let onDiscard: () -> Void
 
@@ -116,6 +116,14 @@ struct LiveRoundFinishSummaryView: View {
         return "Par \(par) · \(summary.holes.count)/\(holes.count) 洞"
     }
 
+    static func showsAddNine(canAddNine: Bool, recordedHoleCount: Int) -> Bool {
+        canAddNine && recordedHoleCount > 0
+    }
+
+    static func primaryActionTitle(recordedHoleCount: Int) -> String {
+        recordedHoleCount == 0 ? "退出 · 不保存" : "保存并结束"
+    }
+
     private var scorecard: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("记分卡")
@@ -177,7 +185,8 @@ struct LiveRoundFinishSummaryView: View {
 
     private var actions: some View {
         VStack(spacing: 10) {
-            if let onAddNine {
+            if Self.showsAddNine(canAddNine: onAddNine != nil, recordedHoleCount: summary.holes.count),
+               let onAddNine {
                 Button(action: onAddNine) {
                     Label("再打一个 9 洞", systemImage: "plus.circle")
                         .font(.system(size: 16, weight: .bold))
@@ -195,7 +204,7 @@ struct LiveRoundFinishSummaryView: View {
                     if isFinishingRound && !summary.holes.isEmpty {
                         ProgressView().tint(LiveScoreStyle.primaryInk)
                     }
-                    Text(summary.holes.isEmpty ? "退出 · 不保存" : "保存并结束")
+                    Text(Self.primaryActionTitle(recordedHoleCount: summary.holes.count))
                         .font(.system(size: 17, weight: .bold))
                 }
                 .foregroundStyle(LiveScoreStyle.primaryInk)
@@ -219,13 +228,15 @@ struct LiveRoundFinishSummaryView: View {
             .buttonStyle(.plain)
             .disabled(isFinishingRound)
 
-            Button("放弃本场", role: .destructive, action: onDiscard)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(LiveScoreStyle.bad)
-                .buttonStyle(.plain)
-                .disabled(isFinishingRound)
-                .padding(.top, 4)
-                .accessibilityIdentifier("live-finish-discard")
+            if !summary.holes.isEmpty {
+                Button("放弃本场", role: .destructive, action: onDiscard)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(LiveScoreStyle.bad)
+                    .buttonStyle(.plain)
+                    .disabled(isFinishingRound)
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("live-finish-discard")
+            }
         }
     }
 }

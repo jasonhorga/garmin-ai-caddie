@@ -160,6 +160,45 @@ final class NineLoopTurnTests: XCTestCase {
         XCTAssertEqual(NineLoopTurn.loopCatalogue(network: [unlabeled], downloaded: [installedA]).first?.resolvedSegmentLabel, "A")
     }
 
+    func testFreshNineHolePackageProvidesAPlanAndTheSameCandidatesForAAndB() throws {
+        let package = try halfRoundPackage(loops: [RoundLoopEntry(globalId: 7, half: "all")])
+        let current = MobileCourseOption(globalId: 7, name: "新球场", holes: 9, venueName: "新球场", segmentHoles: 9)
+        let catalogue = NineLoopTurn.loopCatalogue(
+            network: [], downloaded: [],
+            venueLoops: [VenueLoop(globalId: 7, name: "新球场", holeCount: 9, par: 36)],
+            venueName: "新球场"
+        ) + [current]
+        let plan = try XCTUnwrap(NineLoopTurn.planAtEndOfFirstLoop(package: package, catalogue: catalogue, remembered: [:], history: []))
+        XCTAssertFalse(plan.course.loops.isEmpty)
+        XCTAssertFalse(NineLoopTurn.candidateLoops(package: package, catalogue: catalogue).isEmpty)
+        XCTAssertEqual(
+            NineLoopTurn.candidateLoops(package: package, catalogue: catalogue).map(\.id),
+            plan.course.loops.map(\.id),
+            "turn sheet A and scorecard B share one candidate directory"
+        )
+    }
+
+    func testVenueLoopSiblingAppearsEvenWithoutDownloadedOrHistoricalOptions() throws {
+        let package = try halfRoundPackage(loops: [RoundLoopEntry(globalId: 7, half: "all")])
+        let catalogue = NineLoopTurn.loopCatalogue(
+            network: [], downloaded: [],
+            venueLoops: [
+                VenueLoop(globalId: 7, name: "球会 ~ A", segmentLabel: "A", holeCount: 9, par: 36),
+                VenueLoop(globalId: 8, name: "球会 ~ B", segmentLabel: "B", holeCount: 9, par: 36),
+            ],
+            venueName: "球会"
+        )
+        let candidates = NineLoopTurn.candidateLoops(package: package, catalogue: catalogue)
+        XCTAssertEqual(candidates.map(\.id), ["7:all", "8:all"])
+    }
+
+    func testFinishSummaryZeroHoleAndSingleNineActions() {
+        XCTAssertTrue(LiveRoundFinishSummaryView.showsAddNine(canAddNine: true, recordedHoleCount: 1))
+        XCTAssertFalse(LiveRoundFinishSummaryView.showsAddNine(canAddNine: true, recordedHoleCount: 0))
+        XCTAssertEqual(LiveRoundFinishSummaryView.primaryActionTitle(recordedHoleCount: 0), "退出 · 不保存")
+        XCTAssertEqual(LiveRoundFinishSummaryView.primaryActionTitle(recordedHoleCount: 9), "保存并结束")
+    }
+
     func testTheTurnSheetFreezesEveryControlWhileTheLoopIsBeingAdded() {
         XCTAssertTrue(LiveRoundTurnSheet.acceptsInput(isPreparing: false))
         XCTAssertFalse(

@@ -4629,13 +4629,7 @@ public struct CurrentHoleView: View {
     /// half of an 18-hole course (前九 / 后九), or the venue's labelled nine-hole loops (the
     /// current loop included). README §8: never a synthesized "9 洞组" in a selectable B4 control.
     private var selectableSecondLoops: [NineLoop] {
-        guard let first = package.roundLoops.first else { return [] }
-        if first.isCourseHalf {
-            return NineLoopTurn.halves(globalId: first.globalId)
-        }
-        guard let active = courseOptions.first(where: { $0.globalId == first.globalId }),
-              active.resolvedHoles == 9 else { return [] }
-        return NineLoopTurn.siblings(of: active, in: courseOptions).compactMap(NineLoopTurn.loop)
+        NineLoopTurn.candidateLoops(package: package, catalogue: courseOptions)
     }
 
     @ViewBuilder private var loopAddControl: some View {
