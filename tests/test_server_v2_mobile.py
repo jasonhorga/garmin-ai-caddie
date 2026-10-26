@@ -3378,6 +3378,47 @@ class ServerV2MobileTests(unittest.TestCase):
             self.assertIsNone(state.json().get("startHole"))
             self.assertNotIn("startHole", replay.json()["events"][0]["event"])
 
+    def test_mobile_start_hole_is_optional_without_changing_legacy_retry_hashes(self) -> None:
+        from ai_caddie.caddie.mobile_live import append_event_batch
+
+        # Seed exactly the pre-C63 API envelope (clientId null, startHole absent). An upgrade
+        # must accept both an omitted and an explicit-null startHole under the original key.
+        event = {
+            "schema": "ai-caddie-live-round-event-v1", "eventId": "old-offline-score",
+            "roundId": "old-start", "clientId": None,
+            "timestamp": "2026-06-20T00:00:00Z", "hole": 5,
+            "kind": "score", "payload": {"strokes": 1},
+        }
+        with TemporaryDirectory() as tmp, patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)):
+            append_event_batch("old-start", [event], idempotency_key="old-key", root=Path(tmp))
+            for envelope in (event, {**event, "startHole": None}):
+                with self.subTest(startHole=envelope.get("startHole", "omitted")):
+                    response = TestClient(app).post(
+                        "/api/v2/mobile/rounds/old-start/events",
+                        headers={"Idempotency-Key": "old-key"},
+                        json={"roundId": "old-start", "events": [envelope]},
+                    )
+                    self.assertEqual(response.status_code, 200, response.text)
+                    self.assertTrue(response.json()["duplicate"])
+                    self.assertEqual(response.json()["duplicateEventIds"], ["old-offline-score"])
+
+    def test_mobile_start_hole_rejects_non_positive_or_non_integer_values(self) -> None:
+        event = {
+            "schema": "ai-caddie-live-round-event-v1", "eventId": "bad-start",
+            "roundId": "bad-start", "timestamp": "2026-06-20T00:00:00Z", "hole": 5,
+            "kind": "score", "payload": {"strokes": 1},
+        }
+        for invalid_start in (0, -1, True, 5.5, "5"):
+            with self.subTest(startHole=invalid_start), TemporaryDirectory() as tmp:
+                with patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)):
+                    response = TestClient(app).post(
+                        "/api/v2/mobile/rounds/bad-start/events",
+                        headers={"Idempotency-Key": "bad-start"},
+                        json={"roundId": "bad-start", "events": [{**event, "startHole": invalid_start}]},
+                    )
+                    self.assertEqual(response.status_code, 422, response.text)
+                    self.assertFalse((Path(tmp) / "data" / "mobile_events" / "events.jsonl").exists())
+
     def test_mobile_round_state_projects_authoritative_per_hole_state(self) -> None:
         # round-12 sync spine: GET …/state folds the event log into per-hole state (last-write-wins by
         # serverSequence) and flags fields two distinct clients disagree on.

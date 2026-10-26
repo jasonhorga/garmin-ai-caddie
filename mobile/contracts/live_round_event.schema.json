@@ -29,6 +29,11 @@
       "type": "string",
       "minLength": 1
     },
+    "startHole": {
+      "description": "Round display hole on the event hole axis, not a physical/source-local hole. The first supplied origin determines play order; legacy clients may omit it.",
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
     "timestamp": {
       "type": "string",
       "format": "date-time",

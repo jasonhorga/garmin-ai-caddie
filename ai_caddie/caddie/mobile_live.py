@@ -5110,6 +5110,7 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
     field_clients: dict[tuple[int, str], set[str]] = {}
     latest_sequence = 0
     active_hole = 0
+    start_hole = None
 
     def mark(hole_no: int, field: str, client_id: str) -> None:
         if client_id:
@@ -5176,6 +5177,11 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
         hole_no = _safe_int(event.get("hole")) or 0
         if hole_no <= 0:
             continue
+        # The first supplied origin is a round fact, not a last-write-wins hole field. Older
+        # clients omit it; never infer it from event.hole (a resumed/edited hole may arrive first).
+        candidate_start = event.get("startHole")
+        if start_hole is None and type(candidate_start) is int and candidate_start > 0:
+            start_hole = candidate_start
         kind = str(event.get("kind") or "")
         client_id = str(event.get("clientId") or "")
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
@@ -5246,6 +5252,7 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
         "roundId": str(round_id),
         "latestServerSequence": latest_sequence,
         "activeHole": active_hole,
+        "startHole": start_hole,
         "holes": [holes[hole_no] for hole_no in sorted(holes)],
         "conflicts": sorted(conflicts, key=lambda item: (item["hole"], item["field"])),
     }

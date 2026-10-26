@@ -2655,6 +2655,46 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(local.startHole, 5)
     }
 
+    func testReplayRestoresStartHoleForRepeatedNineHoleLoops() throws {
+        let package = try courseRoundPackage(
+            globalId: 1,
+            loops: [RoundLoopEntry(globalId: 1, half: "all"), RoundLoopEntry(globalId: 1, half: "all")],
+            roundId: "server-start-repeated-nine"
+        )
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        _ = try store.applyReplayEvents([
+            LiveRoundEvent(eventId: "start", roundId: package.roundId,
+                           timestamp: "2026-06-20T00:00:00Z", hole: 5, kind: .score,
+                           payload: ["strokes": .number(1)], startHole: 5),
+        ])
+        let restored = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+        // Two nine-hole loops finish the rotated first nine, then play display holes 10...18.
+        XCTAssertEqual(
+            RoundPlayOrder.holes(package.holes.map(\.number), startingAt: restored.startHole, loops: package.roundLoops),
+            [5, 6, 7, 8, 9, 1, 2, 3, 4, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+        )
+    }
+
+    func testReplayStartHoleIsRoundScopedAndMustBelongToThePackage() throws {
+        let package = try fixturePackage()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        _ = try store.applyReplayEvents([
+            LiveRoundEvent(eventId: "other", roundId: "another-round",
+                           timestamp: "2026-06-20T00:00:00Z", hole: 5, kind: .score,
+                           payload: ["strokes": .number(1)], startHole: 5),
+            LiveRoundEvent(eventId: "removed-nine", roundId: package.roundId,
+                           timestamp: "2026-06-20T00:00:00Z", hole: 13, kind: .score,
+                           payload: ["strokes": .number(1)], startHole: 13),
+        ])
+        let restored = try store.restoreLiveRoundState(roundId: package.roundId, package: package)
+        XCTAssertNil(restored.startHole)
+        XCTAssertEqual(restored.activeHole, 1)
+    }
+
     func testRestoreLiveRoundStateLeavesClubUnselectedUntilAClubEventExists() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
