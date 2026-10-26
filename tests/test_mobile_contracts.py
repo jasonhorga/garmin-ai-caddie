@@ -1537,7 +1537,7 @@ class MobileContractTests(unittest.TestCase):
             app_swift,
         )
         self.assertIn(
-            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, foregroundStart: preparationToken != nil, priorityHole: priorityHole)",
+            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, mapOnly: mapOnly, includeEventCursor: false, foregroundStart: preparationToken != nil, priorityHole: priorityHole)",
             app_swift,
         )
         self.assertIn(
