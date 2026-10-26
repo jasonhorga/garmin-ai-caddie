@@ -3014,7 +3014,7 @@ public struct CurrentHoleView: View {
     }
 
     private var localTopoRevisionTaskKey: String {
-        "\(hole.sourceGlobalId):\(hole.sourceLocalHole):\(LiveTopoAvailability.revision(hole: hole, prep: holePrep) ?? \"\")"
+        "\(hole.sourceGlobalId):\(hole.sourceLocalHole):\(LiveTopoAvailability.revision(hole: hole, prep: holePrep) ?? "")"
     }
 
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
