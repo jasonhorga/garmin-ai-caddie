@@ -2315,7 +2315,7 @@ describe('App navigation', () => {
         statsCalls += 1
         if (statsCalls === 1) return initialRefresh
         return new Promise<Response>((_resolve, reject) => {
-          signalRefresh = init?.signal
+          signalRefresh = init?.signal ?? undefined
           init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true })
         })
       }
