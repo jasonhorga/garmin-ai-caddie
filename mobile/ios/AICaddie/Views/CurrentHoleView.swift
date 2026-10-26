@@ -690,6 +690,12 @@ public struct CurrentHoleView: View {
         self._garminRaster = State(
             initialValue: cachedSession.garminRaster ?? Self.packageGarminRaster(for: hole)
         )
+        if cachedSession.garminRaster == nil, let packageRaster = Self.packageGarminRaster(for: hole) {
+            sharedSessionCache.update(roundId: package.roundId, hole: hole.number) { entry in
+                entry.garminRaster = packageRaster
+                entry.garminRevision = hole.geometryRevision
+            }
+        }
         self._caddieDecision = State(initialValue: cachedSession.caddieDecision)
         if !cachedSession.caddieRoutes.isEmpty {
             self._caddieRoutesByHole = State(initialValue: [hole.number: cachedSession.caddieRoutes])
@@ -5054,10 +5060,12 @@ public struct CurrentHoleView: View {
     /// reuses the published decision without another POST.
     private var caddieDecisionInputSignature: String {
         let target = targetCoordinate.map { "\($0.latitude),\($0.longitude)" } ?? ""
+        let targetPixelSignature = targetPixel.map { "\($0.x),\($0.y)" } ?? ""
         let distance = distanceToPinText.trimmingCharacters(in: .whitespacesAndNewlines)
         return [
             package.roundId, "\(hole.number)", selectedShotType, selectedLie, selectedClub,
-            distance, target, holePrep?.geometryRevision ?? hole.geometryRevision ?? "",
+            distance, target, targetPixelSignature,
+            holePrep?.geometryRevision ?? hole.geometryRevision ?? "",
             recordedShotEventIds.joined(separator: ",")
         ].joined(separator: "|")
     }
