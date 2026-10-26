@@ -72,11 +72,47 @@ final class RoundPlayOrderTests: XCTestCase {
 
     func testHoleNavigationLockDropsFastSecondAdvanceAndStaleSource() {
         var lock = LiveHoleNavigationLock(currentHole: 3)
+        XCTAssertFalse(lock.begin(from: 3, to: 3), "a scorecard tap on the current hole must not lock the pager")
         XCTAssertTrue(lock.begin(from: 3, to: 2))
         XCTAssertFalse(lock.begin(from: 3, to: 1), "the first transition is still in flight")
         XCTAssertFalse(lock.begin(from: 9, to: 1), "a stale page cannot advance the current page")
         lock.finish(at: 2)
         XCTAssertTrue(lock.begin(from: 2, to: 1))
+    }
+
+    func testSessionCacheKeySeparatesPhysicalHoleAndGeometryRevision() {
+        let cache = LiveHoleSessionCache()
+        cache.update(
+            roundId: "round",
+            hole: 10,
+            sourceGlobalId: 101,
+            sourceLocalHole: 1,
+            teeBox: "white",
+            geometryRevision: "rev-a"
+        ) { entry in
+            entry.prepRequestCompleted = true
+        }
+        XCTAssertTrue(cache.entry(
+            roundId: "round", hole: 10, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "rev-a"
+        ).prepRequestCompleted)
+        XCTAssertFalse(cache.entry(
+            roundId: "round", hole: 10, sourceGlobalId: 202, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "rev-a"
+        ).prepRequestCompleted)
+        XCTAssertFalse(cache.entry(
+            roundId: "round", hole: 10, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "rev-b"
+        ).prepRequestCompleted)
+    }
+
+    func testMappingRefreshBypassesCompletedPrepGate() {
+        XCTAssertFalse(LiveHoleSessionCachePolicy.shouldFetchPrep(
+            cached: nil, requestStarted: false, requestCompleted: true
+        ))
+        XCTAssertTrue(LiveHoleSessionCachePolicy.shouldFetchPrep(
+            cached: nil, requestStarted: false, requestCompleted: true, forMapping: true
+        ))
     }
 
     func testGarminDescriptorNeedsDecodedImageBeforeRasterState() {
