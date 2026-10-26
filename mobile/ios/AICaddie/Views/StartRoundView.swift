@@ -1992,8 +1992,19 @@ public struct StartRoundView: View {
     }
 
     static func samePhysicalVenue(_ lhs: MobileCourseOption, _ rhs: MobileCourseOption) -> Bool {
-        courseVenueName(lhs).trimmingCharacters(in: .whitespacesAndNewlines)
-            .caseInsensitiveCompare(courseVenueName(rhs).trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+        let lhsVenue = courseVenueName(lhs).trimmingCharacters(in: .whitespacesAndNewlines)
+        let rhsVenue = courseVenueName(rhs).trimmingCharacters(in: .whitespacesAndNewlines)
+        if lhsVenue.caseInsensitiveCompare(rhsVenue) == .orderedSame { return true }
+
+        // `venueName` is also a physical identity supplied on downloaded/search rows. An
+        // untrusted value must not relabel the UI (the canonical name authority above still
+        // controls that), but matching it here keeps two loop rows for one venue together when
+        // their provider names differ or contain different legacy suffixes.
+        guard let lhsPhysical = lhs.venueName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let rhsPhysical = rhs.venueName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !lhsPhysical.isEmpty,
+              !rhsPhysical.isEmpty else { return false }
+        return lhsPhysical.caseInsensitiveCompare(rhsPhysical) == .orderedSame
     }
 
     static func preservesManualSearchProvenance(

@@ -266,17 +266,18 @@ struct HubQuickCourseOrdering {
     }
 
     static func ordered(_ candidates: [Candidate], limit: Int = 4) -> [Candidate] {
-        var unique: [String: Candidate] = [:]
+        var unique: [Candidate] = []
         for candidate in candidates {
             guard candidate.option.globalId > 0 else { continue }
-            let key = candidate.option.venueDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            if let existing = unique[key] {
-                unique[key] = merge(existing, candidate)
+            if let index = unique.firstIndex(where: {
+                StartRoundView.samePhysicalVenue($0.option, candidate.option)
+            }) {
+                unique[index] = merge(unique[index], candidate)
             } else {
-                unique[key] = candidate
+                unique.append(candidate)
             }
         }
-        return unique.values.sorted { lhs, rhs in
+        return unique.sorted { lhs, rhs in
             if lhs.isNearby != rhs.isNearby { return lhs.isNearby }
             let lhsDate = effectiveDate(for: lhs)
             let rhsDate = effectiveDate(for: rhs)
