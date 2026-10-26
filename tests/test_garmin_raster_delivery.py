@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
+from threading import local as thread_local
 import time
 from types import SimpleNamespace
 import unittest
@@ -373,7 +374,7 @@ class PrefetchTests(unittest.TestCase):
         # the old infinite wait. Cleanup releases it without completing the simulated prepare.
         prepare: Future = Future()
         stop = threading.Event()
-        clock = threading.local()
+        clock = thread_local()
         waited: list[float] = []
 
         def monotonic() -> float:
