@@ -396,7 +396,9 @@ class MobileReconciliationTests(unittest.TestCase):
         local_only = {row["eventId"]: row for row in result["localOnly"]}
         suggestions = {row["id"]: row for row in result["annotationSuggestions"]}
         self.assertEqual(conflicts["legacy-putt-conflict"]["localValue"], 3)
-        self.assertEqual(local_only["legacy-penalty"]["localValue"], 1)
+        # C74: absent Garmin penalty is effective 0, so local 1 is a 0 -> 1 conflict.
+        self.assertEqual(conflicts["legacy-penalty"]["localValue"], 1)
+        self.assertEqual(conflicts["legacy-penalty"]["garminValue"], 0)
         self.assertEqual(local_only["legacy-note"]["localValue"], "blocked by trees")
         self.assertEqual(suggestions["legacy-penalty:penalty-correction"]["payload"]["strokes"], 1)
         self.assertEqual(suggestions["legacy-note:hole-note"]["kind"], "hole_note")

@@ -52,6 +52,7 @@ def _hole_scores(
     round_row: dict[str, Any], *, root: Path | str | None = None,
     annotations_root: Path | str | None = None, player_id: str = OWNER_ID,
 ) -> dict[int, dict[str, Any]]:
+    from ai_caddie.history.corrected_history import hole_sides
     from ai_caddie.reports.annotations import list_annotation_records
     from ai_caddie.rounds.correction_audit import _round_correction_events, effective_hole
 
@@ -60,13 +61,15 @@ def _hole_scores(
     )
     correction_events = _round_correction_events(player_id, round_row, root=root)
     scores: dict[int, dict[str, Any]] = {}
-    for index, hole in enumerate(round_row.get("holes") or [], start=1):
-        number = _safe_int(hole.get("number")) or index
-        _total, _putts, (penalty, _winner) = effective_hole(round_row, number, annotation_records, correction_events)
+    for _hole, number, _physical, _side in hole_sides(round_row):
+        (total, _), (putts, _), (penalty, _) = effective_hole(
+            round_row, number, annotation_records, correction_events,
+        )
         scores[number] = {
-            "strokes": hole.get("strokes"),
-            "putts": hole.get("putts"),
-            "penalties": penalty,
+            "strokes": total,
+            "putts": putts,
+            # C53's effectivePenalty treats an absent scorecard penalty as zero.
+            "penalties": penalty if penalty is not None else 0,
             "ref": f"{round_row.get('id')}:{number}",
         }
     return scores
@@ -600,12 +603,14 @@ def apply_mobile_reconciliation_suggestions(
     selected: list[dict[str, Any]] = []
 
     for suggestion_id in requested_ids:
+        # Applied score fixes disappear once the local and effective values match. A retry still
+        # reports their persisted sourceSuggestionIds as skipped, even without a current suggestion.
+        if str(suggestion_id) in existing_ids:
+            skipped.append(str(suggestion_id))
+            continue
         row = suggestions.get(str(suggestion_id))
         if not row:
             missing.append(str(suggestion_id))
-            continue
-        if str(suggestion_id) in existing_ids:
-            skipped.append(str(suggestion_id))
             continue
         existing_ids.add(str(suggestion_id))
         selected.append(row)
