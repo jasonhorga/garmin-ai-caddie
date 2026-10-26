@@ -259,8 +259,12 @@ def round_identity(data: HistoryData | None, round_ref: str) -> tuple[str, list[
 
 
 def _scorecard_hole(row: dict[str, Any], hole: int) -> dict[str, Any] | None:
-    for entry in row.get("holes") or []:
-        if isinstance(entry, dict) and _int(entry.get("number")) == hole:
+    # Correction targets use display holes, including legacy merged back/front nines whose raw
+    # numbers repeat 10...18. Keep the source value aligned with corrected_history's public mapping.
+    from ai_caddie.history.corrected_history import hole_sides
+
+    for entry, display, _physical, _side in hole_sides(row):
+        if display == hole:
             return entry
     return None
 

@@ -22,6 +22,35 @@ from tests.round_loop_authority import fixture_course_authority
 
 
 class ServerV2MobileTests(unittest.TestCase):
+    def test_reconciliation_apply_returns_409_for_mutation_key_with_different_content(self) -> None:
+        from ai_caddie.caddie.mobile_live import append_event_batch
+        from ai_caddie.reports.annotations import list_annotation_records
+
+        # C74: reusing the selected suggestion's mutation key for different content is HTTP 409.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            mutation_id = "reconciliation:me:900001:conflicting-note:hole-note"
+            add_annotation("hole", "900001:1", "hole_note", {"text": "Earlier content"},
+                           root=root, client_mutation_id=mutation_id)
+            append_event_batch("900001", [{
+                "eventId": "conflicting-note", "roundId": "900001", "hole": 1,
+                "kind": "note", "payload": {"text": "Different content"},
+            }], idempotency_key="conflicting-note", root=root)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch("server_v2.mobile.ANNOTATION_ROOT", root),
+                patch.dict("os.environ", {"AI_CADDIE_DATA_MODE": "fixture"}),
+            ):
+                response = TestClient(app, raise_server_exceptions=False).post(
+                    "/api/v2/mobile/rounds/900001/reconciliation/apply",
+                    json={"suggestionIds": ["conflicting-note:hole-note"]},
+                )
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertEqual(response.json(), {
+                "detail": f"clientMutationId {mutation_id!r} was already used for a different annotation",
+            })
+            self.assertEqual(len(list_annotation_records(root=root)), 1)
+
     def setUp(self) -> None:
         # Fixture history courses have no CourseView release here; stand in for it (B4b-2).
         authority = fixture_course_authority()

@@ -34,7 +34,7 @@ from ai_caddie.caddie.round_loops import RoundLoopFactsMissingError
 from ai_caddie.history.history import OWNER_ID, HistoryData
 from ai_caddie.history.corrected_history import corrected_history_data
 from ai_caddie.rounds import round_ingest, score_invariant
-from ai_caddie.rounds.correction_audit import IdentityUnavailable
+from ai_caddie.rounds.correction_audit import CorrectionConflict, IdentityUnavailable
 from ai_caddie.caddie.mobile_reconciliation import apply_mobile_reconciliation_suggestions, reconcile_mobile_round_events
 from ai_caddie.llm.weather_context import WeatherTransport, weather_snapshot_for_time
 
@@ -841,7 +841,9 @@ def apply_mobile_round_reconciliation_response(
     # 503 if the state cannot be read); every written row kept its hole possible. A retry with the same
     # suggestionIds skips the written rows by sourceSuggestionId and orders the rest on the current
     # card, so it ends with each fix written once, or the same 422 while the card still forbids it.
-    # Two applies of one suggestion racing each other may both write it (the same value, same card).
+    # Racing applies use the same clientMutationId: the locked writer returns the stored annotation
+    # for identical content and rejects different content with 409. Only the creating writer emits
+    # a caddie decision audit.
     data, _mode = load_history_data_for_mode(player_id=player_id)
     try:
         applied = apply_mobile_reconciliation_suggestions(
@@ -855,6 +857,8 @@ def apply_mobile_round_reconciliation_response(
             player_id=player_id,
             data_loader=lambda: load_history_data_for_mode(player_id=player_id)[0],
         )
+    except CorrectionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except score_invariant.ScoreInvariantError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ValueError as exc:
