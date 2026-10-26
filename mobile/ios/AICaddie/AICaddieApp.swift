@@ -531,6 +531,14 @@ public final class LiveRoundAppModel: ObservableObject {
     /// invent a demo round: with no configured id bootstrap lands on the normal home package.
     private let preferredRoundId: String?
     private let offlineGeometryRetryDelaysNanoseconds: [UInt64]
+    /// C85 开局两段: the wait before each attempt of the background personal package after a
+    /// map-only start. The attempts end with the list; the next foreground starts them again.
+    var roundEnrichmentRetryDelaysNanoseconds: [UInt64] = [
+        0, 5_000_000_000, 15_000_000_000, 30_000_000_000, 60_000_000_000,
+    ]
+    /// Caches one hole's Garmin raster where the live map reads it; true once it is there.
+    /// Tests inject a recorder.
+    var garminRasterDownloader: (URL) async -> Bool = { _ in false }
     /// A cold course's geometry lands hole by hole over a few minutes. Probe every 15 s at most so
     /// each finished hole is picked up promptly (the old 45–60 s slots left ready holes waiting),
     /// over a window of about five minutes, a little longer than before.
@@ -1845,6 +1853,12 @@ public final class LiveRoundAppModel: ObservableObject {
     func waitForOfflineCourseDownloadForTesting() async {
         await offlineCourseDownloadTask?.value
     }
+
+    /// Waits for the background personal package of a map-only start (C85), merged or given up.
+    func waitForRoundEnrichmentForTesting() async {}
+
+    /// Waits for the round's Garmin raster pass (C85).
+    func waitForGarminRasterDownloadForTesting() async {}
 
     /// Test-only synchronization point for the app-owned prep queue. Production views never await
     /// this task: they observe `prepCourseDownloads`, so navigation cannot become its owner.

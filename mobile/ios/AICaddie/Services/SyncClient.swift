@@ -649,7 +649,7 @@ public final class SyncClient {
     }
 
     /// The round's ordered loops (`loops=`): one or two entries, the first on `globalId`.
-    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, includeEventCursor: Bool = true, foregroundStart: Bool = false, requestKind: PackageRequestKind? = nil, priorityHole: Int? = nil) async throws -> LiveRoundPackage {
+    public func fetchCoursePackage(globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date = Date(), ensureGeometry: Bool = false, backgroundGeometry: Bool = false, mapOnly: Bool = false, includeEventCursor: Bool = true, foregroundStart: Bool = false, requestKind: PackageRequestKind? = nil, priorityHole: Int? = nil) async throws -> LiveRoundPackage {
         guard var components = URLComponents(
             url: endpointURL("/api/v2/mobile/courses/\(globalId)/package"),
             resolvingAgainstBaseURL: false
