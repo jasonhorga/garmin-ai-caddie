@@ -208,6 +208,9 @@ public struct AICaddieApp: App {
                         onOpenPrepCourse: { course in
                             model.openPrepCourse(course)
                         },
+                        onPrepHoleChanged: { hole in
+                            model.prioritizePrepHole(hole)
+                        },
                         onClosePrep: {
                             model.closePrepMode()
                         },
@@ -3620,6 +3623,10 @@ public final class LiveRoundAppModel: ObservableObject {
         let roundId = StartRoundView.freshLiveRoundId(globalId: course.globalId)
         prepOpenGeneration &+= 1
         let generation = prepOpenGeneration
+        prepPriorityTask?.cancel()
+        prepPriorityTask = nil
+        prepPriorityRoundID = roundId
+        prepPriorityHole = hole ?? 1
         prepCourse = course
         prepTeeOptions = Self.prepTeeOptions(course.tees ?? [], selected: record.teeBox)
         isOpeningPrepCourse = true
@@ -3640,7 +3647,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     teeBox: record.teeBox,
                     loops: loops,
                     capturedAt: preparedAt,
-                    priorityHole: hole
+                    priorityHole: hole ?? 1
                 )
             }
             guard generation == self.prepOpenGeneration else { return }
@@ -3651,6 +3658,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 return
             }
             self.enterPrepMode(with: opened, hole: hole)
+            self.prepPriorityRoundID = opened.roundId
+            self.prepPriorityHole = hole ?? opened.holes.first?.number ?? 1
+            self.prioritizePrepHole(hole ?? opened.holes.first?.number ?? 1)
             let tees = await self.loadCourseTees(globalId: course.globalId)
             guard generation == self.prepOpenGeneration, !tees.isEmpty else { return }
             self.prepTeeOptions = Self.prepTeeOptions(tees.map(\.teeBox), selected: record.teeBox)
@@ -3658,12 +3668,53 @@ public final class LiveRoundAppModel: ObservableObject {
         return true
     }
 
+    /// Refresh the prep package with the currently viewed hole as the server's geometry priority.
+    /// Location updates repeat the same hole frequently, so each prep round/hole pair is requested
+    /// at most once while the hole screen remains open.
+    public func prioritizePrepHole(_ hole: Int) {
+        guard liveRoundState == nil,
+              let prep = prepPackage,
+              let course = prepCourse,
+              syncClient != nil,
+              prep.holes.contains(where: { $0.number == hole }) else { return }
+        guard prepPriorityRoundID != prep.roundId || prepPriorityHole != hole else { return }
+        prepPriorityRoundID = prep.roundId
+        prepPriorityHole = hole
+        let generation = prepOpenGeneration
+        let roundID = prep.roundId
+        prepPriorityTask?.cancel()
+        prepPriorityTask = Task { @MainActor [weak self] in
+            guard let self, self.syncClient != nil else { return }
+            let refreshed = await self.fetchRemoteCoursePackage(
+                globalId: course.globalId,
+                roundId: roundID,
+                teeBox: course.teeBox ?? prep.course.teeBox,
+                loops: prep.loopEntries,
+                capturedAt: Date(),
+                priorityHole: hole
+            )
+            guard !Task.isCancelled,
+                  generation == self.prepOpenGeneration,
+                  self.liveRoundState == nil,
+                  self.prepPackage?.roundId == roundID,
+                  let refreshed else { return }
+            self.prepPackage = refreshed
+            self.pendingLiveHole = hole
+        }
+    }
+
     /// The course `openPrepCourse` last opened, for the top bar's Tee change.
     private var prepCourse: MobileCourseOption?
+    private var prepPriorityTask: Task<Void, Never>?
+    private var prepPriorityRoundID: String?
+    private var prepPriorityHole: Int?
 
     /// Show `package` on the hole screen in 备战 and navigate to `hole` (else its first hole).
     func enterPrepMode(with package: LiveRoundPackage, hole: Int? = nil) {
         prepPackage = package
+        if prepTeeOptions.isEmpty {
+            prepTeeOptions = Self.prepTeeOptions([], selected: package.course.teeBox)
+        }
         let target = hole.flatMap { number in
             package.holes.contains(where: { $0.number == number }) ? number : nil
         }
@@ -3674,6 +3725,8 @@ public final class LiveRoundAppModel: ObservableObject {
     public func closePrepMode() {
         guard prepPackage != nil || prepCourse != nil || isOpeningPrepCourse else { return }
         prepOpenGeneration &+= 1
+        prepPriorityTask?.cancel()
+        prepPriorityTask = nil
         isOpeningPrepCourse = false
         prepPackage = nil
         prepCourse = nil

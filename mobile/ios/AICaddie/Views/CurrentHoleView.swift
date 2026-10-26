@@ -800,6 +800,8 @@ public struct CurrentHoleView: View {
                             onDismissMessage: { pinSheetMessage = nil }
                         )
                         .padding(.leading, 52)
+                        .padding(.top, 36)
+                        .reportsLiveChrome()
                     }
                     Spacer(minLength: 8)
                     LivePlayGreenLadder(

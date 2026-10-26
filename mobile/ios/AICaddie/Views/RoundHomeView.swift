@@ -34,6 +34,18 @@ enum LiveHoleRouteReconciliation {
     }
 }
 
+enum LiveHoleRoutePath {
+    static func afterAdvance(current: [HubRoute], nextHole: Int, isPrepMode: Bool) -> [HubRoute] {
+        guard isPrepMode, current.first == .prep else { return [.hole(nextHole)] }
+        return [.prep, .hole(nextHole)]
+    }
+
+    static func forPendingHole(current: [HubRoute], hole: Int, isPrepMode: Bool) -> [HubRoute] {
+        if isPrepMode { return [.prep, .hole(hole)] }
+        return [.hole(hole)]
+    }
+}
+
 public struct RoundHomeView: View {
     /// The active round's package, or the home package (most-played course). Nil until the first
     /// one is cached or fetched (first launch, a slow backend): the home still renders and offers
@@ -118,6 +130,7 @@ public struct RoundHomeView: View {
     public let isOpeningPrepCourse: Bool
     /// Open a 备战 course on the hole screen; false when a round is in progress.
     public let onOpenPrepCourse: (MobileCourseOption) -> Bool
+    public let onPrepHoleChanged: (Int) -> Void
     public let onClosePrep: () -> Void
     public let onChangePrepTee: (String, Int?) -> Void
     /// The first stroke inside a hole's area starts the round there; false when it could not.
@@ -207,6 +220,7 @@ public struct RoundHomeView: View {
         prepTeeOptions: [String] = [],
         isOpeningPrepCourse: Bool = false,
         onOpenPrepCourse: @escaping (MobileCourseOption) -> Bool = { _ in false },
+        onPrepHoleChanged: @escaping (Int) -> Void = { _ in },
         onClosePrep: @escaping () -> Void = {},
         onChangePrepTee: @escaping (String, Int?) -> Void = { _, _ in },
         onStartRoundFromFirstStroke: @escaping (Int) -> Bool = { _ in false },
@@ -282,6 +296,7 @@ public struct RoundHomeView: View {
         self.prepTeeOptions = prepTeeOptions
         self.isOpeningPrepCourse = isOpeningPrepCourse
         self.onOpenPrepCourse = onOpenPrepCourse
+        self.onPrepHoleChanged = onPrepHoleChanged
         self.onClosePrep = onClosePrep
         self.onChangePrepTee = onChangePrepTee
         self.onStartRoundFromFirstStroke = onStartRoundFromFirstStroke
@@ -458,6 +473,14 @@ public struct RoundHomeView: View {
             enterPendingLiveHole(hole)
         }
         .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
+            // The first stroke promotes the memory-only prep package to a live round while the
+            // current hole destination is still visible. Drop the picker route immediately so
+            // Back leaves the live hole screen instead of returning to the prep picker.
+            if previousRoundId == nil, currentRoundId != nil,
+               path.first == .prep,
+               let hole = liveRoundState?.activeHole ?? pendingLiveHole {
+                path = [.hole(hole)]
+            }
             // 撤销开打 ends the round but keeps the hole screen, back in 备战.
             if previousRoundId != nil, currentRoundId == nil, prepPackage == nil {
                 path = []
@@ -466,7 +489,7 @@ public struct RoundHomeView: View {
         .onChange(of: prepPackage?.roundId) { _, roundId in
             guard liveRoundState == nil, roundId != nil,
                   let hole = pendingLiveHole ?? prepPackage?.holes.first?.number else { return }
-            appendPrepHoleIfNeeded(hole)
+            path = LiveHoleRoutePath.forPendingHole(current: path, hole: hole, isPrepMode: true)
         }
         .onChange(of: package?.holeSetIdentity) { _, _ in
             reconcileLiveHoleRouteWithPackage()
@@ -535,28 +558,17 @@ public struct RoundHomeView: View {
             "round-home.enter.begin hole=\(hole) course=\(package?.course.globalId ?? -1)"
         )
         #endif
-        if prepPackage != nil, path.last == .prep {
-            appendPrepHoleIfNeeded(hole)
-        } else {
-            path = [.hole(hole)]
-        }
+        path = LiveHoleRoutePath.forPendingHole(
+            current: path,
+            hole: hole,
+            isPrepMode: prepPackage != nil
+        )
         onConsumePendingLiveHole()
         #if DEBUG
         UITestEventLatencyTrace.record(
             "round-home.enter.end hole=\(hole) course=\(package?.course.globalId ?? -1)"
         )
         #endif
-    }
-
-    /// The prep hole is pushed above the picker so the live screen's back button returns to the
-    /// course selector instead of skipping back to the Hub.
-    private func appendPrepHoleIfNeeded(_ hole: Int) {
-        guard path.last != .hole(hole) else { return }
-        if path.last == .prep {
-            path.append(.hole(hole))
-        } else {
-            path = [.prep, .hole(hole)]
-        }
     }
 
     /// The hole screen's package: the live round's, else the 备战 course's, else the home package.
@@ -590,8 +602,14 @@ public struct RoundHomeView: View {
                 onAdvanceHole: { next in
                     if !isPrepHoleScreen {
                         onSetActiveHole(next)
+                    } else {
+                        onPrepHoleChanged(next)
                     }
-                    path = [.hole(next)]
+                    path = LiveHoleRoutePath.afterAdvance(
+                        current: path,
+                        nextHole: next,
+                        isPrepMode: isPrepHoleScreen
+                    )
                 },
                 onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish,
                 onRetainReadyHolePrep: onRetainReadyHolePrep,

@@ -11,28 +11,12 @@ enum RoundPlayOrder {
         return Array(roundHoles[index...]) + Array(roundHoles[..<index])
     }
 
-    /// Rotate only the loop containing the starting hole. A two-nine round therefore plays
-    /// 5…9,1…4,10…18 rather than revisiting 1…4 after the second nine.
+    /// Rotate the complete round table. Physical front/back loops are one 18-hole round, and a
+    /// second nine-hole loop is represented by round holes 10–18, so neither case should revisit
+    /// the first nine before the round is complete.
     static func holes(_ roundHoles: [Int], startingAt startHole: Int?, loops: [RoundLoop]) -> [Int] {
-        guard !loops.isEmpty, let startHole,
-              let startLoopIndex = loops.firstIndex(where: { $0.contains(roundHole: startHole) }) else {
-            return holes(roundHoles, startingAt: startHole)
-        }
-        let grouped = loops.map { loop in
-            roundHoles.filter { loop.contains(roundHole: $0) }
-        }
-        guard grouped.flatMap({ $0 }).count == roundHoles.count else {
-            return holes(roundHoles, startingAt: startHole)
-        }
-        guard grouped[startLoopIndex].contains(startHole) else {
-            return holes(roundHoles, startingAt: startHole)
-        }
-        let rotated = holes(grouped[startLoopIndex], startingAt: startHole)
-        var ordered = rotated
-        for offset in 1..<loops.count {
-            ordered += grouped[(startLoopIndex + offset) % loops.count]
-        }
-        return ordered
+        _ = loops
+        return holes(roundHoles, startingAt: startHole)
     }
 
     /// The hole after `hole` in play order; nil after the last one (the round is complete).

@@ -1536,7 +1536,7 @@ public final class OfflineStore {
         try saveLiveRoundProgress(progress)
     }
 
-    private func loadLiveRoundProgress() throws -> LiveRoundProgress? {
+    func loadLiveRoundProgress() throws -> LiveRoundProgress? {
         guard FileManager.default.fileExists(atPath: liveProgressURL.path) else {
             return nil
         }
