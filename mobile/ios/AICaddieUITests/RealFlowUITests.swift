@@ -1180,7 +1180,6 @@ final class RealFlowUITests: XCTestCase {
         )
         // README §8: standing at the course (the journey's GPS fix), the main card offers this
         // course's last first loop + tee and "开始" starts it directly — not the setup form.
-        let courseHereOffered = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "home-quick-course-")).firstMatch.exists
         XCTAssertFalse(app.navigationBars["开始一场"].exists, "finish must not strand the player in the setup form")
         XCTAssertFalse(app.staticTexts["进行中"].exists, "the explicitly finished round must no longer be active")
         settle(1); save("journey-finished-home"); dump("journey-finished-home")
