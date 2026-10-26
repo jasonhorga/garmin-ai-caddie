@@ -340,6 +340,7 @@ class ServerV2CaddieTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200)
                 labels = {row["label"] for row in response.json()["missingData"]}
                 self.assertEqual("distance_to_pin" in labels, expected_missing)
+                self.assertEqual("distanceToPin_m" in response.json()["context"], not expected_missing)
 
     def test_context_endpoint_includes_history_patterns_for_decision_risk(self) -> None:
         client = TestClient(app)
