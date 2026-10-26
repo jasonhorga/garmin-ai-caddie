@@ -328,44 +328,25 @@ final class DesignSnapshotTests: XCTestCase {
         let strip: [HistoryScoreCell] = deltas.enumerated().map { index, delta in
             HistoryScoreCell(hole: index + 1, par: 4, score: 4 + delta, toPar: delta, className: nil)
         }
-        // 首页 C (2026-10-04): green course cards, then the bento tiles.
+        // C99 首页：单一「打一场球」入口、快捷球场、上一场与最近走势。
         let playedToPar: [Int] = [0, 1, 0, -1, 1, 1]
         var dots: [HubHoleDot] = []
         for hole in 1...9 {
             let toPar: Int? = hole <= playedToPar.count ? playedToPar[hole - 1] : nil
             dots.append(HubHoleDot(hole: hole, toPar: toPar, isCurrent: hole == 7))
         }
-        let weather = HomeWeather(
-            temperatureC: 19.4, windSpeedMps: 5.2, windDirectionDeg: 90, condition: "rain",
-            precipitationProbabilityPct: 70
-        ).presentation
-        let carries: [(club: String, yards: Int)] = [
-            (club: "一号木", yards: 230), (club: "三号木", yards: 205), (club: "五号铁", yards: 172),
-            (club: "七号铁", yards: 150), (club: "九号铁", yards: 128), (club: "P杆", yards: 110),
-            (club: "S杆", yards: 85),
-        ]
         let scores: [Int] = [92, 89, 91, 88, 90, 86, 87, 85]
         let topoURL = SyncClient.topoImageURL(
             baseURL: URL(string: "https://caddie.example")!, globalId: 3881, localHole: 1)
         let heroes = VStack(spacing: 10) {
             HubInProgressCard(courseName: "北京丽宫", activeHole: 7, recorded: 6, toPar: 2, dots: dots)
-            HubSuggestedCourseCard(courseName: "北京天竺黑骑士球员俱乐部", startTitle: "从 B 场 开始 · 蓝 T") {
-                HubBentoPrimaryButtonLabel(title: "开球")
-                HubSecondaryLinkLabel(title: "换球场或组合", onDark: true)
-            }
-            HubSearchHeroCard()
-            HubReplayLastCard(courseName: "北京天竺黑骑士球员俱乐部", startTitle: "从 B 场 开始 · 蓝 T")
-        }
-        let tiles = VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                HubScoresTile(scores: scores)
-                HubPrepTile(downloadedCount: 3)
-            }
-            HStack(spacing: 10) {
-                HubBagTile(carries: carries)
-                HubWeatherTile(weather: weather)
+            HubStartPlayCard()
+            HStack(spacing: 8) {
+                HubQuickCourseChip(title: "北京天竺黑骑士", isNearby: true)
+                HubQuickCourseChip(title: "丽宫", isNearby: false)
             }
         }
+        let tiles = HubRecentTrendRow(scores: scores)
         let lastRound = VStack(alignment: .leading, spacing: 9) {
             HubSectionLabel("上一场")
             HubLastRoundCard(courseName: "Cypress Point Club", date: "2026-07-30", score: 82, toPar: 10,
@@ -955,7 +936,6 @@ final class DesignSnapshotTests: XCTestCase {
             },
             named: "full-start-nearby-failed"
         )
-        try captureScreen(NavigationStack { PrepCoursePickerView(courseOptions: courses, apiBaseURL: apiBaseURL, adminToken: nil) }, named: "full-prep-picker")
         // 开始一场's catalogue sheet: no positioning / download status copy (README §8).
         try captureScreen(
             NavigationStack {
@@ -968,19 +948,6 @@ final class DesignSnapshotTests: XCTestCase {
                 )
             },
             named: "full-course-search"
-        )
-        // 备战's catalogue sheet keeps its positioning progress and download state.
-        try captureScreen(
-            NavigationStack {
-                MobileCourseSearchView(
-                    locationProvider: LocationProvider(),
-                    presentation: .prep,
-                    onSearch: { _, _ in [] },
-                    onNearby: { _, _, _ in [] },
-                    onSelect: { _, _ in }
-                )
-            },
-            named: "full-prep-course-search"
         )
         if let hole = package.holes.first {
             try captureScreen(NavigationStack { CurrentHoleView(package: package, hole: hole) }, named: "full-hole")

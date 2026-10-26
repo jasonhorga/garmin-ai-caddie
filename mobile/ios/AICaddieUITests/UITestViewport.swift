@@ -5,8 +5,8 @@ import XCTest
 /// (a `safeAreaInset`, padding included).
 ///
 /// Live Native 37534118109: the white Tee (y 730.7–787.0) was judged fully visible while the pinned
-/// 开始一场 action (759.7–810.0) covered it; the tap landed on "从 前九 开始 · 蓝 T" and started a
-/// Blue round. Shared by every UI test that scrolls an element into view, so the occlusion rule
+/// 开始一场 action (759.7–810.0) covered it; the tap landed on the old half-labelled action and
+/// started a Blue round. Shared by every UI test that scrolls an element into view, so the occlusion rule
 /// lives in one place.
 enum UITestViewport {
     /// Accessibility identifiers of fixed bottom areas the app draws over scrolling content.

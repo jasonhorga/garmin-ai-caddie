@@ -154,7 +154,7 @@ final class TeeSelectionUITests: XCTestCase {
             waitUntilEnabled(startAction, timeout: 90),
             "the selected course must load its Tee authority and become startable"
         )
-        let becameSelected = waitForValue("已选择", on: palace, timeout: 8)
+        let becameSelected = waitForCourseSelection(palace, globalId: 31793, name: "北京丽宫")
         save("02b-start-round-selected"); dump("02b-start-round-selected")
         XCTAssertTrue(
             becameSelected,
@@ -697,7 +697,7 @@ final class TeeSelectionUITests: XCTestCase {
             app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8),
             "tapping the downloaded venue opens the loop and tee setup page"
         )
-        XCTAssertTrue(waitForValue("已选择", on: courseTile(31793), timeout: 5))
+        XCTAssertTrue(waitForCourseSelection(courseTile(31793), globalId: 31793, name: "北京丽宫"))
         let pendingStart = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
             waitUntilEnabled(pendingStart, timeout: 20),
@@ -709,7 +709,7 @@ final class TeeSelectionUITests: XCTestCase {
         // default Tee and hide a late nearby response overwriting the player's actual choice.
         settle(46)
         XCTAssertTrue(app.descendants(matching: .any)["start-round-page-setup"].exists)
-        XCTAssertTrue(waitForValue("已选择", on: courseTile(31793), timeout: 8))
+        XCTAssertTrue(waitForCourseSelection(courseTile(31793), globalId: 31793, name: "北京丽宫"))
         XCTAssertEqual(pendingStart.label, pickedAction, "nearby's arrival must keep the picked loop and tee without re-selection")
         XCTAssertTrue(pendingStart.isEnabled)
         save("nearby-pending-03-answered-pick-kept"); dump("nearby-pending-03-answered-pick-kept")
@@ -771,13 +771,12 @@ final class TeeSelectionUITests: XCTestCase {
             downloaded.tap()
         }
         XCTAssertTrue(app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8))
-        XCTAssertTrue(waitForValue("已选择", on: courseTile(31793), timeout: 8))
+        XCTAssertTrue(waitForCourseSelection(courseTile(31793), globalId: 31793, name: "北京丽宫"))
         XCTAssertTrue(
             app.buttons.matching(
                 NSPredicate(
-                    format: "identifier BEGINSWITH %@ OR identifier BEGINSWITH %@",
-                    "start-round-course-segment-",
-                    "start-round-course-half-"
+                    format: "identifier BEGINSWITH %@",
+                    "start-round-course-segment-"
                 )
             ).firstMatch.waitForExistence(timeout: 5),
             "the selected downloaded venue must show its loop tile"
@@ -923,20 +922,26 @@ final class TeeSelectionUITests: XCTestCase {
         let selected = courseTile(31793)
         XCTAssertTrue(selected.waitForExistence(timeout: 12))
         XCTAssertTrue(
-            waitForValue("已选择", on: selected, timeout: 8),
+            waitForCourseSelection(selected, globalId: 31793, name: "北京丽宫"),
             "the manually found course must become the explicit start-round selection"
         )
     }
 
-    /// B4b-2: a nine-hole loop is one tile (`start-round-course-segment-G`); an 18-hole course
-    /// shows 前九 / 后九 tiles (`start-round-course-half-G-front|back`) with 前九 preselected.
+    /// C99: every selected course uses one venue tile; the first stroke chooses the opening hole.
     private func courseTile(_ globalId: Int) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier == %@ OR identifier == %@ OR identifier == %@",
+            format: "identifier == %@ OR identifier == %@",
             "start-round-course-segment-\(globalId)",
-            "start-round-course-half-\(globalId)-front",
-            "start-round-selected-course"
+            "start-round-selected-course-\(globalId)"
         )).firstMatch
+    }
+
+    private func waitForCourseSelection(_ tile: XCUIElement, globalId: Int, name: String) -> Bool {
+        guard tile.waitForExistence(timeout: 8) else { return false }
+        if tile.identifier == "start-round-selected-course-\(globalId)" {
+            return (tile.value as? String) == name
+        }
+        return waitForValue("已选择", on: tile, timeout: 8)
     }
 
     private func bringIntoView(_ element: XCUIElement, maxSwipes: Int) -> Bool {
@@ -1026,7 +1031,9 @@ final class TeeSelectionUITests: XCTestCase {
     @discardableResult
     private func selectCourse(_ globalId: Int, timeout: TimeInterval) -> XCUIElement {
         let tile = courseTile(globalId)
-        if tile.exists, tile.value as? String == "已选择" { return tile }
+        if tile.exists, tile.identifier == "start-round-selected-course-\(globalId)" {
+            return tile
+        }
         showCoursePage()
         let row = app.buttons["start-round-venue-\(globalId)"]
         XCTAssertTrue(row.waitForExistence(timeout: timeout))
@@ -1036,17 +1043,16 @@ final class TeeSelectionUITests: XCTestCase {
             app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8),
             "tapping a venue opens the loop and tee setup page"
         )
-        if tile.waitForExistence(timeout: 8), tile.value as? String != "已选择", tile.isHittable {
+        if tile.waitForExistence(timeout: 8), tile.identifier != "start-round-selected-course-\(globalId)", tile.isHittable {
             tile.tap()
         }
         return tile
     }
 
-    /// B4b home main card: "换球场或组合" (the course-here card) opens 开始一场 with that course
-    /// preselected; the search card opens it with nothing selected. The card's "开始" skips 开始一场.
+    /// The single home play entry opens the course finder; shortcut chips use the course page directly.
     @discardableResult
     private func openStartRound() -> Bool {
-        let change = app.buttons["home-change-course"]
+        let change = app.buttons["home-new-round"]
         if change.waitForExistence(timeout: 4), change.isHittable {
             change.tap()
             return true

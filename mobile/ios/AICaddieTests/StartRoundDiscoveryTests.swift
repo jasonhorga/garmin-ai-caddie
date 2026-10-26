@@ -38,14 +38,13 @@ final class StartRoundDiscoveryTests: XCTestCase {
     func testReturningToSameCourseKeepsWhiteTeeAuthorityAndRoundIdentity() {
         let course = MobileCourseOption(globalId: 401, name: "测试球场", teeBox: "Blue", tees: ["Blue", "White"])
         let rows = [CourseTee(teeBox: "Blue", name: "Blue", isDefault: true), CourseTee(teeBox: "White", name: "White")]
-        // C82: an explicit White pick survives 返回 → the same venue row, including 后九.
+        // An explicit White pick survives 返回 → the same venue row.
         let before = courseRowState(globalId: 401, tee: "White", rows: rows)
         let after = StartRoundPresentation.selectingCourseRow(course, current: course, state: before, lastUsedTee: nil)
 
         XCTAssertEqual(after.selection.teeBox, "White")
         XCTAssertTrue(after.userPickedTee)
         XCTAssertEqual(after.selection.roundId, "live-existing")
-        XCTAssertEqual(after.startHalf, "back")
         XCTAssertEqual(after.fetchedTees, rows)
         XCTAssertEqual(courseRowTeeOptions(after, course: course), ["Blue", "White"])
         XCTAssertEqual(after, before)
@@ -105,7 +104,6 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(after.selection.globalIdText, "501")
         XCTAssertEqual(after.selection.roundId, "live-501-00000000-0000-0000-0000-000000000001")
         XCTAssertEqual(after.selection.teeBox, "Gold")
-        XCTAssertEqual(after.startHalf, "front")
         XCTAssertFalse(after.userPickedTee)
         XCTAssertTrue(after.fetchedTees.isEmpty)
         XCTAssertFalse(after.teeLoadFailed)
@@ -117,7 +115,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
     ) -> StartRoundPresentation.CourseRowState {
         .init(
             selection: .init(globalIdText: String(globalId), roundId: "live-existing", teeBox: tee),
-            startHalf: "back", userPickedTee: true, fetchedTees: rows, teeLoadFailed: teeLoadFailed
+            userPickedTee: true, fetchedTees: rows, teeLoadFailed: teeLoadFailed
         )
     }
 

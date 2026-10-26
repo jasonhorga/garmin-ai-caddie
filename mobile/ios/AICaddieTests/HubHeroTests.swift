@@ -54,6 +54,21 @@ final class HubHeroTests: XCTestCase {
         ])
         XCTAssertEqual(ordered.map { $0.option.globalId }, [1, 3, 2])
         XCTAssertEqual(HubQuickCourseOrdering.ordered(ordered, limit: 2).count, 2)
+        let weighted = HubQuickCourseOrdering.Candidate(option: frequent, lastPlayedAt: now, playCount: 4)
+        XCTAssertEqual(
+            HubQuickCourseOrdering.effectiveDate(for: weighted),
+            now.addingTimeInterval(Double(4 * 7 * 24 * 60 * 60)),
+            "常打次数按每次七天折算进有效时间"
+        )
+
+        let downloaded = MobileCourseOption(globalId: 4, name: "下载环", holes: 9, venueName: "下载场")
+        let downloadedLater = MobileCourseOption(globalId: 5, name: "下载另一环", holes: 9, venueName: "下载场")
+        let byDownload = HubQuickCourseOrdering.ordered([
+            .init(option: downloaded, downloadedAt: now.addingTimeInterval(10)),
+            .init(option: downloadedLater, downloadedAt: now.addingTimeInterval(20)),
+        ])
+        XCTAssertEqual(byDownload.count, 1, "one shortcut per physical venue")
+        XCTAssertEqual(byDownload.first?.option.globalId, 5, "the venue's latest download wins")
     }
 
     private func loop(_ id: Int, _ venue: String, _ label: String, lat: Double, lon: Double) -> MobileCourseOption {
