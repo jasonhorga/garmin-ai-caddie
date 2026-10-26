@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import QueryParams
 
 from ai_caddie.courses import course_reconciliation, course_search
-from ai_caddie.courses.name_authority import split_garmin_course_name
+from ai_caddie.courses.name_authority import is_composite_segment, split_garmin_course_name
 from ai_caddie.courses.course_reference import (
     record_courseview_catalogue_names,
     record_courseview_venue_loops,
@@ -1656,6 +1656,10 @@ def _venue_loop_index_rows(matches: object) -> list:
     """
     rows = []
     for match in matches or ():
+        if getattr(match, "provider_match", True) is False:
+            # A history-only alias is not a CourseView discovery fact. Indexing it would make a
+            # later provider row inherit the player's spelling instead of its physical venue.
+            continue
         if int(getattr(match, "holes", 0) or 0) != 9:
             continue
         # The durable grouping key must come from the provider's physical name. A played
@@ -1665,7 +1669,7 @@ def _venue_loop_index_rows(matches: object) -> list:
         venue, provider_segment = split_garmin_course_name(provider_name)
         venue = venue.strip()
         segment = provider_segment or getattr(match, "segment_label", None)
-        if not venue or not segment:
+        if not venue or not segment or is_composite_segment(segment):
             continue
         rows.append(replace(
             match,

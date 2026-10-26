@@ -268,9 +268,15 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
             "loops": [row for row in group.get("loops", []) if isinstance(row, dict)],
             "lastSeenAt": float(group.get("lastSeenAt") or 0),
         }
-    changed = False
     now = time.time()
     seen_venue_keys: set[str] = set()
+    seen_venue_order: list[str] = []
+
+    def mark_seen(key: str) -> None:
+        if key not in seen_venue_keys:
+            seen_venue_keys.add(key)
+            seen_venue_order.append(key)
+
     for match in matches or ():
         try:
             gid = int(match.global_id)
@@ -289,33 +295,38 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
                 isinstance(item, dict) and str(item.get("globalId") or "").isdigit()
                 and int(item["globalId"]) == gid for item in group["loops"]
             )]
-            if containing:
-                group_key = containing[0]
-                group = venues[group_key]
-                seen_venue_keys.add(group_key)
-                for duplicate_key in containing[1:]:
-                    duplicate = venues.pop(duplicate_key)
-                    for item in duplicate["loops"]:
-                        if not any(int(existing.get("globalId") or 0) == int(item.get("globalId") or 0)
-                                   and existing.get("segmentLabel") == item.get("segmentLabel")
-                                   for existing in group["loops"]):
-                            group["loops"].append(item)
-                    group["lastSeenAt"] = max(group["lastSeenAt"], duplicate.get("lastSeenAt", 0))
-                    changed = True
-            else:
-                group = venues.setdefault(key, {
-                    "venueKey": key,
-                    "venueName": venue,
-                    "loops": [],
-                    "lastSeenAt": 0,
-                })
-                seen_venue_keys.add(key)
+            group = venues.setdefault(key, {
+                "venueKey": key,
+                "venueName": venue,
+                "loops": [],
+                "lastSeenAt": 0,
+            })
+            # Provider discovery is authoritative for the physical grouping. If an earlier
+            # history-only row put this gid under a different spelling, move that gid into the
+            # provider group while leaving unrelated siblings in their old group.
+            for old_key in containing:
+                if old_key == key:
+                    continue
+                old_group = venues.get(old_key)
+                if old_group is None:
+                    continue
+                moved = [item for item in old_group["loops"] if int(item.get("globalId") or 0) == gid]
+                old_group["loops"] = [item for item in old_group["loops"] if int(item.get("globalId") or 0) != gid]
+                for item in moved:
+                    if not any(
+                        int(existing.get("globalId") or 0) == gid
+                        and existing.get("segmentLabel") == item.get("segmentLabel")
+                        for existing in group["loops"]
+                    ):
+                        group["loops"].append(item)
+                if not old_group["loops"]:
+                    venues.pop(old_key, None)
+            mark_seen(key)
             # A discovery hit is evidence that this venue is still active even when its
             # particular loop row was already indexed. Refresh at most daily to avoid rewriting
             # the shared file on every nearby request.
             if now - float(group.get("lastSeenAt") or 0) >= _VENUE_LOOPS_REFRESH_INTERVAL_SECONDS:
                 group["lastSeenAt"] = now
-                changed = True
             prior = next((item for item in group["loops"]
                           if int(item.get("globalId") or 0) == gid
                           and item.get("segmentLabel") == label), None)
@@ -333,25 +344,25 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
                 group["loops"] = [item for item in group["loops"] if int(item.get("globalId") or 0) != gid]
                 group["loops"].append(row)
                 group["lastSeenAt"] = now
-                changed = True
         except (AttributeError, TypeError, ValueError, OverflowError, OSError):
             continue
-    if len(venues) > _VENUE_LOOPS_MAX_VENUES:
-        changed = True
-    if changed:
-        # Keep one bounded index file. The package reads it once per assembly, while discovery
-        # remains bounded even after a long sequence of nearby searches.
-        retained = sorted(
-            venues.values(),
-            key=lambda item: (
-                _venue_key(item.get("venueName")) in seen_venue_keys,
-                item.get("lastSeenAt", 0),
-            ),
-            reverse=True,
-        )
+    # Keep one bounded index file. Current-batch groups are ordered by first appearance, so a
+    # single search with more than 64 venues is stable and does not churn on every retry.
+    seen_rank = {key: index for index, key in enumerate(seen_venue_order)}
+    retained = sorted(
+        venues.items(),
+        key=lambda pair: (
+            0 if pair[0] in seen_rank else 1,
+            seen_rank.get(pair[0], 0),
+            -float(pair[1].get("lastSeenAt") or 0),
+        ),
+    )
+    retained_venues = [group for _, group in retained[:_VENUE_LOOPS_MAX_VENUES]]
+    original_venues = payload.get("venues", []) if isinstance(payload, dict) else []
+    if retained_venues != original_venues:
         _atomic_write_venue_loops(_venue_loops_path(root=root), {
             "schema": "garmin-courseview-venue-loops-v1",
-            "venues": retained[:_VENUE_LOOPS_MAX_VENUES],
+            "venues": retained_venues,
         })
 
 

@@ -3,6 +3,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from ai_caddie.courses import course_search as cs
@@ -569,6 +570,98 @@ class CourseSearchEndpointTests(unittest.TestCase):
             },
             {31794, 31795},
         )
+
+    def test_venue_loop_index_skips_history_rows_and_composite_labels(self) -> None:
+        from ai_caddie.courses import course_search
+        from server_v2 import main as server_main
+
+        rows = [
+            course_search.CourseMatch(
+                31790, "黑骑士 ~ A", 9, None, None, 0.0,
+                provider_match=False, venue_name="黑骑士", segment_label="A",
+            ),
+            course_search.CourseMatch(31791, "北京天竺黑骑士球员俱乐部 B/C", 9, None, None, 0.0),
+            course_search.CourseMatch(31792, "北京天竺黑骑士球员俱乐部 ~ C", 9, None, None, 0.0),
+        ]
+        indexed = server_main._venue_loop_index_rows(rows)
+        self.assertEqual([row.global_id for row in indexed], [31792])
+
+    def test_search_history_alias_then_nearby_provider_rows_share_package_venue_loops(self) -> None:
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.history.history import HistoryData
+        from server_v2 import main as server_main
+
+        provider_venue = "北京天竺黑骑士球员俱乐部"
+        history_row = {
+            "id": "history-31794", "date": "2026-06-10", "course": "黑骑士 ~ A",
+            "courseCanonical": "黑骑士", "courseKey": "gid_31794", "globalId": 31794,
+            "holesCompleted": 9, "par": 36, "holePars": "444444444", "source": "garmin",
+            "garminSnapshotName": "黑骑士 ~ A", "lat": 40.0451, "lon": 116.5466,
+            "city": "北京", "holes": [{"number": n, "par": 4, "strokes": 4, "putts": 2} for n in range(1, 10)],
+            "hasShots": False,
+        }
+
+        def varint(value: int) -> bytes:
+            out = bytearray()
+            while value >= 0x80:
+                out.append((value & 0x7F) | 0x80)
+                value >>= 7
+            out.append(value)
+            return bytes(out)
+
+        def field(number: int, wire: int, value: bytes | int) -> bytes:
+            key = varint((number << 3) | wire)
+            if wire == 0:
+                return key + varint(int(value))
+            raw = value if isinstance(value, bytes) else bytes(value)
+            return key + varint(len(raw)) + raw
+
+        def page_record(global_id: int, name: str) -> bytes:
+            record = b"".join((field(7, 0, global_id), field(12, 2, name.encode()), field(13, 0, 9)))
+            return field(4, 2, record)
+
+        raw_page = b"".join((
+            page_record(31794, f"{provider_venue} ~ A"),
+            page_record(31796, f"{provider_venue} ~ C"),
+        ))
+        data = HistoryData(raw_rounds=[], rounds=[history_row], shots=[])
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch.object(server_main, "ROOT", root),
+                patch.object(server_main, "cached_load_history_data",
+                             return_value=SimpleNamespace(rounds=[history_row])),
+                patch.object(server_main.course_search, "courseview_search", return_value=[]),
+                patch.object(server_main.course_search, "_fetch_nearby_page", return_value=raw_page),
+                patch("server_v2.map_startup.enqueue_nearby"),
+                patch("server_v2.map_startup.prefetch_nearby_releases"),
+                patch("ai_caddie.courses.course_reference.courseview_par", return_value=[4] * 9),
+                patch.object(server_main.course_reconciliation, "load_cached_geometry_locations", return_value={}),
+            ):
+                search = self._client().get(
+                    "/api/v2/courses/search", params={"name": "黑骑士", "city": "北京"}
+                )
+                self.assertEqual(search.status_code, 200)
+                self.assertEqual(search.json()["matches"][0]["globalId"], 31794)
+                self.assertFalse(search.json()["matches"][0]["providerMatch"])
+                nearby = self._client().get(
+                    "/api/v2/courses/nearby",
+                    params={"latitude": 40.045, "longitude": 116.5466, "radius_km": 50},
+                )
+                self.assertEqual(nearby.status_code, 200)
+                package = mobile_live.build_live_round_package_for_course(
+                    31794,
+                    round_id="package-history-alias",
+                    data=data,
+                    data_mode="fixture",
+                    root=root,
+                    include_course_prep=False,
+                    map_only=True,
+                )
+            self.assertEqual(
+                [row["globalId"] for row in package["venueLoops"]],
+                [31794, 31796],
+            )
 
     def test_nearby_http_persists_venue_index_used_by_cache_only_package(self) -> None:
         from ai_caddie.caddie import mobile_live
