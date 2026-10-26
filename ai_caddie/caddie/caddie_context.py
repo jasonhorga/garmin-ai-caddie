@@ -6,7 +6,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from ai_caddie.reports.annotations import annotations_for_target
+from ai_caddie.caddie.decision import _has_pin_distance
 from ai_caddie.caddie.decision_api import ShotType, validate_shot_type
 from ai_caddie.geometry.geometry_evidence import build_hole_map_dto, build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.history.history import HistoryData, OWNER_ID
@@ -15,6 +15,7 @@ from ai_caddie.history.history_stats import DataModeName
 from ai_caddie.history.stats_cache import cached_build_history_stats
 from ai_caddie.llm.vision_context import list_findings_for_target
 from ai_caddie.llm.weather_context import weather_snapshot_for_time
+from ai_caddie.reports.annotations import annotations_for_target
 
 
 def build_caddie_context(
@@ -94,8 +95,9 @@ def build_caddie_context(
     effective_distance = _as_float(distance_to_pin_m)
     if effective_distance is None and shot_row.get("distance") is not None:
         effective_distance = _as_float(shot_row.get("distance"))
+    has_valid_distance = _has_pin_distance({"distanceToPin_m": effective_distance})
     has_live_target = isinstance(current_location, dict) and isinstance(target_location, dict)
-    if effective_distance is None and normalized_shot_type != "tee" and not has_live_target:
+    if not has_valid_distance and normalized_shot_type != "tee" and not has_live_target:
         missing_data.append({"label": "distance_to_pin", "reason": "current distance must be provided for approach/recovery"})
 
     effective_lie = str(lie or shot_row.get("surface") or "").strip() or None
@@ -179,7 +181,7 @@ def build_caddie_context(
     }
     if route_evidence:
         context["routeEvidence"] = {**route_evidence, "sourceRefs": [source_ref]}
-    if effective_distance is not None:
+    if has_valid_distance:
         context["distanceToPin_m"] = round(float(effective_distance), 1)
     if effective_lie is not None:
         context["lie"] = effective_lie

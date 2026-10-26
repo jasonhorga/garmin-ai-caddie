@@ -1295,6 +1295,38 @@ class DecisionLayerTests(unittest.TestCase):
                     self.assertEqual(plan["options"], [])
                     self.assertIn("distance_to_pin", {row["label"] for row in plan["missingData"]})
 
+    def test_returned_context_sanitizes_invalid_client_pin_distance(self) -> None:
+        # C69: invalid client distances must not be echoed into the returned context;
+        # GPS may replace one, while a bounded client value remains authoritative.
+        cases = (
+            (5000.0, {}, None),
+            (
+                5000.0,
+                {
+                    "currentLocation": {"latitude": 0.0, "longitude": 0.0},
+                    "targetLocation": {"latitude": 0.0009, "longitude": 0.0},
+                },
+                100.1,
+            ),
+            (
+                999.9,
+                {
+                    "currentLocation": {"latitude": 0.0, "longitude": 0.0},
+                    "targetLocation": {"latitude": 0.0009, "longitude": 0.0},
+                },
+                999.9,
+            ),
+        )
+        for distance_m, locations, expected_distance in cases:
+            with self.subTest(distance_m=distance_m, has_gps=bool(locations)):
+                context = approach_fixture()
+                context["distanceToPin_m"] = distance_m
+                context.update(locations)
+
+                plan = recommend_approach(context)
+
+                self.assertEqual(plan["context"]["distanceToPin_m"], expected_distance)
+
     def test_positive_pin_distance_keeps_priority_over_live_gps(self) -> None:
         # C66: just below the existing 1000 m ceiling and the ceiling itself stay valid.
         for fixture, recommend in (
