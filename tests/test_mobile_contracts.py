@@ -2344,7 +2344,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("HubStartPlayCard()", round_home)
         self.assertIn("HubQuickCourseChip(", round_home)
         self.assertIn("NavigationLink(value: HubRoute.startCourse(", round_home)
-        self.assertIn('accessibilityIdentifier("home-quick-course-\(candidate.option.globalId)")', round_home)
+        self.assertIn(r'accessibilityIdentifier("home-quick-course-\(candidate.option.globalId)")', round_home)
         self.assertIn("private var quickCourseCandidates", round_home)
         self.assertIn("HubQuickCourseOrdering.ordered", round_home)
         self.assertIn("HubHeroState.resolve(", round_home)
