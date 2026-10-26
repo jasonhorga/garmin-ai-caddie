@@ -107,7 +107,7 @@ struct GarminRasterRetryCursor: Equatable {
     }
 }
 
-/// Garmin fallback images (the server's transparent-sky PNG, or a legacy JPEG) use the same durable,
+/// Garmin fallback images (the server's transparent-sky WebP, or a legacy JPEG) use the same durable,
 /// revision-bound cache contract as topo images, but keep a separate namespace so they can never
 /// collide with a rendered topo PNG. Loading uses a
 /// continuing retry cursor so a view recreation cannot restart the same display process.
@@ -276,8 +276,8 @@ final class GarminRasterImageStore: ObservableObject {
                     cachePolicy: .returnCacheDataElseLoad,
                     timeoutInterval: 30
                 )
-                // The server's raster is a transparent-sky PNG; older descriptors still name the JPEG.
-                request.setValue("image/png,image/jpeg;q=0.9,image/*;q=0.8", forHTTPHeaderField: "Accept")
+                // The server's raster is a transparent-sky WebP; older descriptors still name the JPEG.
+                request.setValue("image/webp,image/jpeg;q=0.9,image/*;q=0.8", forHTTPHeaderField: "Accept")
                 guard let (data, response) = try? await URLSession.shared.data(for: request) else {
                     return DownloadResult(data: nil, versionConflict: false)
                 }
@@ -330,8 +330,10 @@ final class GarminRasterImageStore: ObservableObject {
         let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
-        // The bytes are stored as served, so a PNG keeps its alpha; the name only records the format.
-        let fileExtension = url.pathExtension.lowercased() == "png" ? "png" : "jpg"
+        // The bytes are stored as served, so a WebP keeps its alpha; the name only records the
+        // format the URL path names.
+        let pathExtension = url.pathExtension.lowercased()
+        let fileExtension = ["webp", "png", "jpg"].contains(pathExtension) ? pathExtension : "jpg"
         return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AICaddieGarminRasterImages-v1", isDirectory: true)
             .appendingPathComponent("\(digest).\(fileExtension)")
