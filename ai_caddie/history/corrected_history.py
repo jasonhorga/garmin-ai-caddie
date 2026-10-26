@@ -26,10 +26,9 @@ from concurrent.futures import Future
 import threading
 
 from ai_caddie.core.data import OWNER_ID
-from ai_caddie.core.data import evidence_root
 from ai_caddie.core.request_timing import mark
 from ai_caddie.history.history import HistoryData, history_data_fingerprint, round_source_shots
-from ai_caddie.reports.annotations import annotation_file, list_annotation_records
+from ai_caddie.reports.annotations import list_annotation_records
 from ai_caddie.rounds import round_corrections
 from ai_caddie.rounds.correction_audit import effective_hole, is_penalty_correction
 
@@ -325,19 +324,16 @@ def corrected_history_data(
     if round_refs is not None or holes_by_round is not None:
         return _build_corrected_history_data(data, **kwargs)
     # Lazy import: stats_cache imports the stats builder, which imports this module.
-    from ai_caddie.history.stats_cache import (
-        _dir_sig, _file_sig, _GEOMETRY_DIRS, _history_geometry_dir_sig, _history_global_ids,
-    )
+    from ai_caddie.history.stats_cache import correction_projection_inputs
 
-    annotations = annotation_file(evidence_root(player_id, root=annotations_root)).resolve()
-    corrections = round_corrections.corrections_dir(player_id, root=corrections_root).resolve()
     while True:
         # Pixel edits are replayed through the historical course's frame. A new mesh/hazard
         # file must invalidate this projection before any stats/profile reader receives it.
-        global_ids = _history_global_ids(data)
-        geometry = tuple(_history_geometry_dir_sig(path, global_ids) for path in _GEOMETRY_DIRS)
+        inputs = correction_projection_inputs(
+            player_id, annotations_root=annotations_root, corrections_root=corrections_root, data=data,
+        )
         key = (player_id, data.source_fingerprint or history_data_fingerprint(data),
-               str(annotations), _file_sig(annotations), str(corrections), _dir_sig(corrections), geometry)
+               inputs)
         mark("history_correction_revision")
         with _PROJECTION_LOCK:
             cached = _PROJECTIONS.get(key)

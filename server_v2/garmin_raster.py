@@ -8,7 +8,6 @@ an HTTP 200 unavailable response so the client keeps its existing map fallback.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from io import BytesIO
 import logging
@@ -36,22 +35,8 @@ _DETERMINISTIC_REASONS = {
     "all_edges_cropped", "vertical_edges_cropped", "scale_out_of_range", "land_component_missing"
 }
 logger = logging.getLogger(__name__)
-_TRANSIENT_LOCK = threading.Lock()
-_TRANSIENT: OrderedDict[tuple, tuple[float, dict]] = OrderedDict()
-_TRANSIENT_TTL_SECONDS = 2.0
-
-
-def _transient_key(global_id: int, hole: int, version: str) -> tuple:
-    # An install or authority update must retry immediately, even within the short negative TTL.
-    mesh = garmin_raster.mesh_path(global_id, hole)
-    authority = mesh.with_name(mesh.name.replace("_meshes.json", "_authority.json"))
-    def signature(path):
-        try:
-            stat = path.stat()
-            return stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
-        except OSError:
-            return None
-    return global_id, hole, version, signature(mesh), signature(authority)
+_INFLIGHT_LOCK = threading.Lock()
+_INFLIGHT: dict[tuple[int, int, str], Future] = {}
 
 
 def _register_lock(global_id: int, hole: int, version: str) -> threading.RLock:
@@ -305,31 +290,41 @@ def course_hole_garmin_raster(
     lock = _register_lock(global_id, hole, version)
     with lock:
         cached = _projection_result(global_id, hole, version)
-        if cached is not None:
-            mark("raster_projection_hit")
-            return cached
-        key = _transient_key(global_id, hole, version)
-        with _TRANSIENT_LOCK:
-            hit = _TRANSIENT.get(key)
-            if hit is not None and time.monotonic() - hit[0] < _TRANSIENT_TTL_SECONDS:
-                _TRANSIENT.move_to_end(key)
-                mark("raster_pending_hit")
-                return dict(hit[1])
-        # Share provider IO as well as registration: four metadata callers need one attempt.
+    if cached is not None:
+        mark("raster_projection_hit")
+        return cached
+    key = (int(global_id), int(hole), str(version))
+    with _INFLIGHT_LOCK:
+        future = _INFLIGHT.get(key)
+        if future is None:
+            future = Future()
+            _INFLIGHT[key] = future
+            leader = True
+        else:
+            leader = False
+    if not leader:
+        mark("raster_inflight_wait")
+        return future.result()
+    try:
+        # Share only requests that overlap in time. Completed unavailable results are deliberately
+        # not retained; a later request must retry the provider/authority check.
         try:
             fetched = garmin_raster.fetch_raster(global_id, hole)
         except Exception as exc:
             logger.warning("garmin raster fetch failed: %s", type(exc).__name__)
             fetched = None
         mark("raster_fetch")
-        result = _register_one(global_id, hole, version, fetched)
-        mark("raster_register")
-        if _registration_settled(result):
-            garmin_raster.save_projection_cache(global_id, hole, version, result)
-        else:
-            with _TRANSIENT_LOCK:
-                _TRANSIENT[key] = (time.monotonic(), dict(result))
-                _TRANSIENT.move_to_end(key)
-                while len(_TRANSIENT) > 256:
-                    _TRANSIENT.popitem(last=False)
+        with lock:
+            result = _register_one(global_id, hole, version, fetched)
+            mark("raster_register")
+            if _registration_settled(result):
+                garmin_raster.save_projection_cache(global_id, hole, version, result)
+        future.set_result(result)
         return result
+    except BaseException as exc:
+        future.set_exception(exc)
+        raise
+    finally:
+        with _INFLIGHT_LOCK:
+            if _INFLIGHT.get(key) is future:
+                _INFLIGHT.pop(key, None)

@@ -16,7 +16,6 @@ class DescriptionCacheTests(unittest.TestCase):
         self.addCleanup(stack.close)
         self.root = Path(stack.enter_context(TemporaryDirectory()))
         stack.enter_context(patch.object(garmin_raster, "RASTER_CACHE_DIR", self.root))
-        stack.enter_context(patch.object(api, "_TRANSIENT", api.OrderedDict()))
         self.version = stack.enter_context(patch.object(api, "_asset_version", return_value="v1"))
         self.fetch = stack.enter_context(patch.object(garmin_raster, "fetch_raster", return_value=b"raster"))
         self.mesh = self.root / "gid31795_h01_meshes.json"
@@ -35,18 +34,12 @@ class DescriptionCacheTests(unittest.TestCase):
             api.course_hole_garmin_raster(31795, 1)
             self.assertEqual(register.call_count, 2)
 
-    def test_transient_results_expire_and_retry_immediately_after_install(self):
+    def test_transient_results_are_not_reused_after_completion(self):
         missing = dict(available=False, imageUrl="/image", projection=None, mode="none", reason="geometry_missing")
-        with patch.object(api, "_register_one", return_value=missing) as register, patch.object(api.time, "monotonic", return_value=10) as now:
+        with patch.object(api, "_register_one", return_value=missing) as register:
             for _ in range(4):
                 self.assertEqual(api.course_hole_garmin_raster(31795, 1), missing)
-            self.assertEqual(register.call_count, 1)
-            now.return_value = 13
-            api.course_hole_garmin_raster(31795, 1)
-            self.assertEqual(register.call_count, 2)
-            self.mesh.write_text("{}")
-            api.course_hole_garmin_raster(31795, 1)
-            self.assertEqual(register.call_count, 3)
+            self.assertEqual(register.call_count, 4)
 
     def test_concurrent_descriptions_share_fetch_and_registration(self):
         entered, release = threading.Event(), threading.Event()

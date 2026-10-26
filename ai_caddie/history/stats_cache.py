@@ -290,6 +290,28 @@ def _aux_files(
     ]
 
 
+def correction_projection_inputs(
+    player_id: str = OWNER_ID,
+    *,
+    annotations_root: Path | str | None = None,
+    corrections_root: Path | str | None = None,
+    data: Any | None = None,
+) -> tuple:
+    """Read-only revision inputs shared by corrected-history projections.
+
+    Storage path resolution stays in this cache/fingerprint module so domain readers do not
+    bypass the correction stores directly. Geometry is limited to courses represented in ``data``.
+    """
+    annotations = annotation_file(evidence_root(player_id, root=annotations_root)).resolve()
+    corrections = round_corrections.corrections_dir(player_id, root=corrections_root).resolve()
+    global_ids = _history_global_ids(data) if data is not None else ()
+    geometry = tuple(_history_geometry_dir_sig(path, global_ids) for path in _GEOMETRY_DIRS)
+    return (
+        str(annotations), _file_sig(annotations),
+        str(corrections), _dir_sig(corrections), geometry,
+    )
+
+
 def _dir_sig(directory: Path) -> tuple[int, str]:
     """Per-file manifest fingerprint: ``(file_count, digest)`` where ``digest`` hashes
     every file's ``(name, size, mtime_ns)``.
