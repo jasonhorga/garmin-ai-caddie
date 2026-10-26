@@ -909,6 +909,8 @@ def corrected_round_shots(
     data: HistoryData,
     row: dict[str, Any],
     corrections: list[dict[str, Any]],
+    *,
+    holes: set[int] | None = None,
 ) -> dict[int, tuple[list[int], list[dict[str, Any]]]]:
     """Every hole of ``row`` whose shot list a correction changes, as
     ``{display hole: (positions of its source shots in data.shots, corrected shots)}``.
@@ -917,6 +919,9 @@ def corrected_round_shots(
     ``start``/``end`` with lies, ``clubName``, ``meters`` and ``order``. Fact edits (club, lie,
     delete, reorder, fact snapshots) need no geometry; pixel edits are read back through the same
     frame the shot map draws them in, so review, statistics and the caddie see what the map shows.
+
+    ``holes`` limits replay to those display holes. Keep the complete ``corrections``
+    as context: filtering the log itself would renumber legacy ``addShot`` identities.
     """
     if not corrections:
         return {}
@@ -926,11 +931,13 @@ def corrected_round_shots(
         display_hole = _display_hole_for_shot(row, source)
         if str(source.get("scorecardId") or source.get("roundId") or "") in round_ids and display_hole is not None:
             positions.setdefault(display_hole, []).append(position)
-    holes = set(positions) | {
+    candidates = set(positions) | {
         hole for hole in (_int(event.get("hole")) for event in corrections) if hole is not None and 1 <= hole <= 36
     }
+    if holes is not None:
+        candidates.intersection_update(holes)
     out: dict[int, tuple[list[int], list[dict[str, Any]]]] = {}
-    for hole in sorted(holes):
+    for hole in sorted(candidates):
         source = _source_shots_for_hole(data, row, hole, [])
         shot_ids = {round_corrections.mint_shot_id(shot) for shot in source}
         if not any(_touches_hole(event, hole, shot_ids) for event in corrections):

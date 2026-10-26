@@ -14,6 +14,8 @@ import base64
 import io
 import math
 import random
+from functools import lru_cache
+from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
@@ -57,7 +59,19 @@ def _local(p):
 
 
 def load_mesh(global_id: int, local_hole: int):
-    md = json.loads(mesh_path(global_id, local_hole).read_text())
+    """Read-only decoded mesh, shared across readers until the file changes.
+
+    A shot replay loads the same mesh for projection and overlay; hole history
+    repeats that for each round, then reads it again for the green centre.
+    """
+    path = mesh_path(global_id, local_hole).resolve()
+    stat = path.stat()
+    return _load_mesh_cached(path, stat.st_mtime_ns, stat.st_size)
+
+
+@lru_cache(maxsize=8)
+def _load_mesh_cached(path: Path, mtime_ns: int, size: int):
+    md = json.loads(path.read_text())
     return md, {m["name"]: m for m in md["meshes"]}
 
 

@@ -18,12 +18,15 @@ from copy import deepcopy
 from datetime import date
 import json
 import math
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 from ai_caddie.core import data as disk
-from ai_caddie.history import hole_history_shots
-from ai_caddie.rounds import players
+from ai_caddie.geometry import hole_render
+from ai_caddie.history import hole_history_shots, stats_cache
+from ai_caddie.history.corrected_history import corrected_history_data
+from ai_caddie.rounds import players, round_shot_map
 from tests.product.fixtures.c16a.support import Sandbox, write
 
 TODAY = date(2026, 10, 25)
@@ -252,6 +255,115 @@ class MergedNineGlobalIdTest(PinnedToday):
             back = s.get('history/courses/900002/holes/1/shots')
             self.assertEqual([shot['roundHole'] for shot in front['shots']], [1])
             self.assertEqual([shot['roundHole'] for shot in back['shots']], [10])
+
+    def test_merged_target_replays_only_its_display_hole_and_equals_full_replay(self) -> None:
+        with Sandbox() as s:
+            self.seed_split_round(s)
+            merged = 'merged_301_302'
+            for hole in (1, 10):
+                response = s.correct({'op': 'addShot', 'hole': hole, 'px': [280, 440],
+                                      'club': 'SW', 'lie': 'Bunker'}, ref=merged)
+                self.assertEqual(response.status_code, 201, response.text)
+            full = corrected_history_data(stats_cache.cached_load_history_data(), annotations_root=s.root)
+            for gid, display in ((900001, 1), (900002, 10)):
+                with self.subTest(gid=gid):
+                    expected = hole_history_shots.build_hole_history_shots(full, gid, 1, annotations_root=s.root)
+                    with patch.object(round_shot_map, '_hole_shot_map', wraps=round_shot_map._hole_shot_map) as replay:
+                        actual = s.get(f'history/courses/{gid}/holes/1/shots')
+                    self.assertEqual(actual, expected)
+                    self.assertEqual([call.args[2] for call in replay.call_args_list], [display])
+
+
+class TargetedReplayTest(PinnedToday):
+    def prepare(self, s: Sandbox) -> None:
+        # Two rounds, three holes each. Native ids 1..3 / 11..13 / 21..23 keep
+        # the source identities disjoint. Each hole has one pixel and one club edit.
+        for sid, day in ((201, '2026-10-01'), (202, '2026-09-01')):
+            seed_round(s, sid, day, 'Fairway', 'HIT')
+            path = s.root / 'data/shots' / f'{sid}.json'
+            raw = json.loads(path.read_text())
+            base = raw['holeShots'][0]
+            raw['holeShots'] = []
+            for hole in (1, 2, 3):
+                group = deepcopy(base)
+                group['holeNumber'] = hole
+                for shot in group['shots']:
+                    shot['id'] += (hole - 1) * 10
+                raw['holeShots'].append(group)
+                s.fake.install_geometry(900001, hole)
+            write(path, raw)
+            # Add on hole 2 BEFORE hole 1: legacy manual ids use the round-wide
+            # add-event index, so dropping unrelated log context would change m1 to m0.
+            for hole in (2, 1, 3):
+                for event in (
+                    {'op': 'addShot', 'hole': hole, 'px': [280, 440], 'club': 'SW', 'lie': 'Bunker'},
+                    {'op': 'editField', 'shotId': f's:{sid}:{(hole - 1) * 10 + 2}',
+                     'field': 'club', 'value': '6I'},
+                ):
+                    response = s.correct(event, ref=str(sid))
+                    self.assertEqual(response.status_code, 201, response.text)
+
+    def test_targeted_replay_equals_full_replay_field_for_field(self) -> None:
+        with Sandbox() as s:
+            self.prepare(s)
+            data = stats_cache.cached_load_history_data()
+            full = corrected_history_data(data, annotations_root=s.root)
+            # Compare every returned field, including ids, GPS, distances, order,
+            # lies, tee results and metadata; the full replay supplies the oracle.
+            expected = hole_history_shots.build_hole_history_shots(full, 900001, 1, annotations_root=s.root)
+            projections = []
+
+            def capture(*args, **kwargs):
+                result = corrected_history_data(*args, **kwargs)
+                projections.append(result)
+                return result
+
+            with patch.object(hole_history_shots, 'corrected_history_data', side_effect=capture):
+                actual = hole_history_shots.build_hole_history_shots(data, 900001, 1, annotations_root=s.root)
+            self.assertEqual(actual, expected)
+            # The endpoint omits clubs: also compare the complete corrected source
+            # rows so a skipped club edit or altered provenance cannot pass unnoticed.
+            self.assertEqual([shot for shot in projections[0].shots if shot['hole'] == 1],
+                             [shot for shot in full.shots if shot['hole'] == 1])
+            self.assertEqual([shot['clubName'] for shot in projections[0].shots if shot.get('id') == 2],
+                             ['6I', '6I'])
+            self.assertEqual(actual['roundCount'], 2)
+            self.assertEqual(len(actual['shots']), 8)  # 2 x (3 Garmin + 1 added)
+            # Source-form snapshot ids are namespaced again by the endpoint.
+            self.assertEqual([shot['id'] for shot in actual['shots'] if shot['shotType'] == 'MANUAL'],
+                             ['s:201:s:201:m1', 's:202:s:202:m1'])
+
+    def test_only_target_hole_pixel_events_are_replayed(self) -> None:
+        with Sandbox() as s:
+            self.prepare(s)
+            with patch.object(round_shot_map, '_hole_shot_map', wraps=round_shot_map._hole_shot_map) as replay:
+                payload = s.get(URL)
+            self.assertEqual(payload['roundCount'], 2)
+            # Six edited holes exist; a hole-1 request replays exactly two, one per round.
+            self.assertEqual(sorted((call.args[1], call.args[2]) for call in replay.call_args_list),
+                             [('201', 1), ('202', 1)])
+
+    def test_repeated_mesh_loads_decode_the_target_file_once(self) -> None:
+        with Sandbox() as s:
+            self.prepare(s)
+            hole_render._load_mesh_cached.cache_clear()
+            self.addCleanup(hole_render._load_mesh_cached.cache_clear)
+            target_path = disk.mesh_path(900001, 1).resolve()
+            read_text = Path.read_text
+            reads = []
+
+            def read(path, *args, **kwargs):
+                if path == target_path:
+                    reads.append(path)
+                return read_text(path, *args, **kwargs)
+
+            with patch.object(Path, 'read_text', read), \
+                    patch.object(hole_render, 'load_mesh', wraps=hole_render.load_mesh) as load:
+                first = s.get(URL)
+                second = s.get(URL)
+            self.assertEqual(first, second)
+            self.assertEqual(reads, [target_path])  # cold request + warm request: one disk read
+            self.assertEqual({call.args for call in load.call_args_list}, {(900001, 1)})
 
 
 class HoleHistoryShotsScopeTest(PinnedToday):

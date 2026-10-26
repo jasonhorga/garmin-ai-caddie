@@ -9,6 +9,7 @@ from unittest import mock
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.core.config import get_settings
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players
 from server_v2 import mobile
@@ -130,17 +131,28 @@ class RoundIngestApiTests(unittest.TestCase):
         self.assertEqual(len(history.load_raw_rounds(player_id=self.alice["id"])), 1)
 
     def test_overview_reflects_ingested_round(self) -> None:
-        with mock.patch.dict("os.environ", ADMIN_ENV):
-            self.client.post(
+        # Use this member's temporary disk store through the real loader. Fixture
+        # mode returns shared demo rounds and cannot prove the ingested row is visible.
+        with mock.patch.dict("os.environ", ADMIN_ENV), mock.patch.object(get_settings(), "data_mode", "local"):
+            before = self.client.get("/api/v2/history/overview", headers=self._auth(self.alice["token"]))
+            self.assertEqual(before.status_code, 200, before.text)
+            self.assertEqual(before.json()["metrics"]["totalRounds"], 0)
+            self.assertEqual(before.json()["recentRounds"], [])
+            ingested = self.client.post(
                 f"/api/v2/players/{self.alice['id']}/rounds",
                 json=_body(),
                 headers={**self._auth(self.alice["token"]), "Idempotency-Key": "ov-1"},
             )
+            self.assertEqual(ingested.status_code, 201, ingested.text)
             resp = self.client.get(
                 "/api/v2/history/overview", headers=self._auth(self.alice["token"])
             )
         self.assertEqual(resp.status_code, 200, resp.text)
-        self.assertGreaterEqual(resp.json()["metrics"]["totalRounds"], 1)
+        self.assertEqual(resp.json()["metrics"]["totalRounds"], 1)
+        self.assertEqual(
+            [(row["id"], row["date"], row["score"], row["source"]) for row in resp.json()["recentRounds"]],
+            [(str(ingested.json()["id"]), "2026-06-13T08:00:00+08:00", 4, "manual")],
+        )
 
     def test_watch_event_log_finish_becomes_reviewable_history(self) -> None:
         round_id = "watch-round-review-1"

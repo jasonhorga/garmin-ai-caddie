@@ -239,7 +239,11 @@ def _annotated_shots(shots: list[dict[str, Any]], annotations: list[dict[str, An
     return out
 
 
-def _corrected_shots(data: HistoryData, events_by_round: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+def _corrected_shots(
+    data: HistoryData,
+    events_by_round: dict[str, list[dict[str, Any]]],
+    holes_by_round: dict[str, set[int]] | None = None,
+) -> list[dict[str, Any]]:
     if not events_by_round:
         return data.shots
     from ai_caddie.rounds.round_shot_map import corrected_round_shots  # geometry stack: load lazily
@@ -248,10 +252,12 @@ def _corrected_shots(data: HistoryData, events_by_round: dict[str, list[dict[str
     dropped: set[int] = set()
     appended: list[dict[str, Any]] = []
     for row in data.rounds:
-        events = events_by_round.get(str(row.get("id")))
-        if not events:
+        ref = str(row.get("id"))
+        events = events_by_round.get(ref)
+        holes = holes_by_round.get(ref, set()) if holes_by_round is not None else None
+        if not events or holes == set():
             continue
-        for _hole, (positions, shots) in corrected_round_shots(data, row, events).items():
+        for _hole, (positions, shots) in corrected_round_shots(data, row, events, holes=holes).items():
             if positions:
                 dropped.update(positions)
                 replaced[min(positions)] = shots
@@ -276,19 +282,30 @@ def corrected_history_data(
     annotations_root: Path | str | None = None,
     corrections_root: Path | str | None = None,
     round_refs: set[str] | None = None,
+    holes_by_round: dict[str, set[int]] | None = None,
 ) -> HistoryData:
     """``data`` as the player corrected it. ``corrections_root`` defaults to ``history.ROOT``, where
     ``round_corrections`` writes; ``annotations_root`` is the reader's annotation root. A reader of one
-    round passes ``round_refs`` so only that round's correction events are replayed."""
+    round passes ``round_refs`` so only that round's correction events are replayed.
+
+    ``holes_by_round`` limits shot replay to display holes keyed by canonical round id;
+    missing keys / empty sets replay no shots. Hole facts and annotations still overlay
+    normally, keeping round totals consistent. The full event log remains available as
+    context: legacy added-shot identities depend on round-wide event order.
+    """
     if data.corrected:
         return data
     annotations = list_annotation_records(root=annotations_root, player_id=player_id)
     events_by_round = round_correction_events(data, player_id=player_id, root=corrections_root, round_refs=round_refs)
     rounds = corrected_rounds(data.rounds, annotations, events_by_round)
     shot_data = HistoryData(raw_rounds=data.raw_rounds, rounds=data.rounds, shots=_annotated_shots(data.shots, annotations))
-    shots = _corrected_shots(shot_data, events_by_round)
+    shots = _corrected_shots(shot_data, events_by_round, holes_by_round)
     correction_fingerprint = history_data_fingerprint(
-        HistoryData(raw_rounds=[], rounds=events_by_round, shots=annotations)
+        HistoryData(
+            raw_rounds=([{"holesByRound": {ref: sorted(holes) for ref, holes in holes_by_round.items()}}]
+                        if holes_by_round is not None else []),
+            rounds=events_by_round, shots=annotations,
+        )
     )
     if rounds is data.rounds and shots is data.shots and data.corrected:
         return data
