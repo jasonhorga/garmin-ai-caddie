@@ -65,7 +65,7 @@ final class PrepRoundStateTests: XCTestCase {
         XCTAssertEqual(model.prepTeeOptions, [package.course.teeBox])
         XCTAssertTrue(try store.loadEvents().isEmpty)
         XCTAssertNil(try store.loadRoundPackage(roundId: package.roundId))
-        XCTAssertNil(try store.loadLiveRoundProgress())
+        XCTAssertFalse(try store.hasLiveRoundProgress())
     }
 
     func testPrepOpenAndHoleChangePassPriorityHoleThroughModel() async throws {
@@ -125,6 +125,91 @@ final class PrepRoundStateTests: XCTestCase {
             try await Task.sleep(nanoseconds: 1_000_000)
         }
         XCTAssertEqual(lock.withLock { priorities }, [5, 6])
+    }
+
+    func testDownloadedPrepDoesNotRefreshPriorityOrReplaceLocalPackage() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("c30-downloaded-priority-\(UUID().uuidString)", isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try LiveRoundPackageFixture.nineHoleLoop(dataMode: "local")
+        let prepHoles = source.holes.map { hole in
+            CoursePrepHole(
+                hole: hole.number,
+                par: hole.par,
+                parSource: "courseview",
+                blueYards: hole.yards ?? 0,
+                routeLenM: 360,
+                route: [[0, 0, 0], [0, 360, 360]],
+                geometryCoverage: "ready",
+                map: CoursePrepMap(
+                    image: "data:image/png;base64,AQID",
+                    overlay: CoursePrepOverlay(
+                        w: 720,
+                        h: 1120,
+                        ppm: 1,
+                        ln: 360,
+                        route: [[360, 1000, 0], [360, 100, 360]]
+                    )
+                )
+            )
+        }
+        let ready = source.replacingCoursePrep(CoursePrepPackage(
+            schema: "ai-caddie-course-prep-v1",
+            globalId: source.course.globalId,
+            holes: prepHoles,
+            missingData: nil
+        ))
+        try store.saveCourseTemplate(ready)
+        for hole in ready.holes {
+            XCTAssertTrue(try store.saveCourseTopoImage(
+                validOnePixelPNGData(),
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole
+            ))
+        }
+        let course = MobileCourseOption(
+            globalId: ready.course.globalId,
+            name: ready.course.name,
+            holes: ready.holes.count,
+            teeBox: ready.course.teeBox
+        )
+        let packagePath = "/api/v2/mobile/courses/\(ready.course.globalId)/package"
+        let lock = NSLock()
+        var packageRequests = 0
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path == packagePath {
+                lock.withLock { packageRequests += 1 }
+            }
+            return (
+                HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let model = LiveRoundAppModel(
+            offlineStore: store,
+            apiBaseURL: URL(string: "https://downloaded-priority.example.test"),
+            watchBridge: nil,
+            syncClient: SyncClient(
+                baseURL: URL(string: "https://downloaded-priority.example.test")!,
+                session: session
+            )
+        )
+        let key = PrepCourseDownloadRecord.key(globalId: course.globalId, teeBox: course.teeBox ?? "blue")
+        XCTAssertTrue(model.downloadedCourseKeys.contains(key))
+        XCTAssertTrue(model.openPrepCourse(course, hole: 5))
+        for _ in 0..<100 where model.prepPackage == nil {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        let openedRoundID = try XCTUnwrap(model.prepPackage?.roundId)
+        model.prioritizePrepHole(6)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(lock.withLock { packageRequests }, 0)
+        XCTAssertEqual(model.prepPackage?.roundId, openedRoundID)
     }
 }
 #endif

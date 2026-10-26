@@ -183,6 +183,66 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("b4b2-06-ready-course-opens-prep"); dump("b4b2-06-ready-course-opens-prep")
     }
 
+    /// C30 rework-3 evidence: the prep surface promotes in place, can be undone in place, and
+    /// remains on the picker when a hole-priority refresh completes after Back.
+    func testC30PrepReworkJourney() throws {
+        app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
+        app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
+        app.launchEnvironment["UITEST_RESET_COURSE_LIBRARY"] = "1"
+        launchFresh()
+        app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
+        app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
+
+        XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]))
+        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 12))
+        let query = app.textFields["course-catalog-keyword-field"]
+        XCTAssertTrue(scrollTo(query, maxSwipes: 8))
+        query.tap()
+        query.typeText("北京丽宫")
+        let search = app.buttons["course-catalog-search-action"]
+        XCTAssertTrue(waitUntilEnabled(search, timeout: 5))
+        search.tap()
+        XCTAssertTrue(waitUntilGone(app.keyboards.firstMatch, timeout: 8))
+        let result = app.buttons["course-catalog-result-\(approvedJourneyCourseGlobalId)"]
+        XCTAssertTrue(scrollTo(result, maxSwipes: 30))
+        result.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["live-round-banner"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 20))
+        settle(1); save("c30-prep-before-start"); dump("c30-prep-before-start")
+
+        let record = app.buttons["live-record-shot"]
+        XCTAssertTrue(record.waitForExistence(timeout: 10) && record.isHittable)
+        record.tap()
+        let undo = app.buttons["live-undo-round-start"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 15), "first stroke must promote the same hole screen")
+        settle(1); save("c30-prep-after-start"); dump("c30-prep-after-start")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["live-round-banner"].label.contains("正在记录")
+                || (app.descendants(matching: .any)["live-round-banner"].value as? String)?.contains("正在记录") == true
+        )
+
+        undo.tap()
+        XCTAssertTrue(app.buttons["live-prep-tee-menu"].waitForExistence(timeout: 15), "undo must restore prep Tee controls")
+        settle(1); save("c30-prep-after-undo"); dump("c30-prep-after-undo")
+
+        let map = app.descendants(matching: .any)["live-open-map-from-hero"]
+        XCTAssertTrue(map.waitForExistence(timeout: 10) && map.isHittable)
+        map.swipeLeft()
+        XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 20), "prep hole navigation must move to hole 2")
+        settle(1); save("c30-prep-hole-2"); dump("c30-prep-hole-2")
+
+        let back = app.buttons["live-back-home"]
+        XCTAssertTrue(back.waitForExistence(timeout: 8) && back.isHittable)
+        back.tap()
+        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 10))
+        settle(1); save("c30-prep-back-picker"); dump("c30-prep-back-picker")
+        // Let the asynchronous priority response settle; it must update facts only and never push
+        // the hole destination back above the picker.
+        settle(5)
+        XCTAssertTrue(app.navigationBars["备战球场"].exists, "priority refresh must not reopen the hole screen")
+        save("c30-prep-back-picker-after-priority"); dump("c30-prep-back-picker-after-priority")
+    }
+
     /// Save the preselected score of the hole on screen (shown by its course number).
     private func saveQuickScore(shownHole: Int) throws {
         let confirm = app.buttons["完成本洞"]

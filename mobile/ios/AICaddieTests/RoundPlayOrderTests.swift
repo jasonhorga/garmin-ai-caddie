@@ -16,10 +16,12 @@ final class RoundPlayOrderTests: XCTestCase {
             RoundLoopEntry(globalId: 1, half: "front"),
             RoundLoopEntry(globalId: 1, half: "back")
         ])
-        XCTAssertEqual(
-            RoundPlayOrder.holes(Array(1...18), startingAt: 5, loops: loops),
-            [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
-        )
+        let order = RoundPlayOrder.holes(Array(1...18), startingAt: 5, loops: loops)
+        XCTAssertEqual(order, [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 1, 2, 3, 4])
+        XCTAssertEqual(order.count, 18)
+        XCTAssertEqual(Set(order).count, 18)
+        XCTAssertEqual(RoundPlayOrder.next(after: 18, in: Array(1...18), startingAt: 5, loops: loops), 1)
+        XCTAssertNil(RoundPlayOrder.next(after: 4, in: Array(1...18), startingAt: 5, loops: loops))
     }
 
     func testSecondNineAfterFirstNineEndsAfterHole18() {
@@ -27,13 +29,21 @@ final class RoundPlayOrderTests: XCTestCase {
             RoundLoopEntry(globalId: 1, half: "all"),
             RoundLoopEntry(globalId: 1, half: "all")
         ])
-        XCTAssertEqual(
-            RoundPlayOrder.holes(Array(1...18), startingAt: 5, loops: loops),
-            [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 1, 2, 3, 4]
-        )
+        let order = RoundPlayOrder.holes(Array(1...18), startingAt: 5, loops: loops)
+        XCTAssertEqual(order, [5, 6, 7, 8, 9, 1, 2, 3, 4, 10, 11, 12, 13, 14, 15, 16, 17, 18])
+        XCTAssertEqual(order.count, 18)
+        XCTAssertEqual(Set(order).count, 18)
         XCTAssertNil(
             RoundPlayOrder.next(after: 18, in: Array(1...18), startingAt: 5, loops: loops),
             "the second nine completes at round hole 18 and must not revisit hole 1"
+        )
+        XCTAssertEqual(
+            RoundPlayOrder.next(after: 9, in: Array(1...18), startingAt: 5, loops: loops),
+            1
+        )
+        XCTAssertEqual(
+            RoundPlayOrder.next(after: 4, in: Array(1...18), startingAt: 5, loops: loops),
+            10
         )
     }
 
@@ -45,6 +55,10 @@ final class RoundPlayOrderTests: XCTestCase {
         XCTAssertEqual(
             LiveHoleRoutePath.afterAdvance(current: [.prep, .hole(5)], nextHole: 6, isPrepMode: false),
             [.hole(6)]
+        )
+        XCTAssertEqual(
+            LiveHoleRoutePath.afterPrepPackageRefresh(current: [.prep], pendingHole: nil),
+            [.prep]
         )
         XCTAssertEqual(
             LiveHoleRoutePath.forPendingHole(current: [.prep], hole: 5, isPrepMode: true),
