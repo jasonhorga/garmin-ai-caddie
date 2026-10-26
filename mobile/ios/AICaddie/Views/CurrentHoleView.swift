@@ -3695,14 +3695,37 @@ public struct CurrentHoleView: View {
         metres.map { Int(($0 * 1.09361).rounded()) }
     }
 
-    /// round-13 B1 LIVE 测距:当前 GPS 定位 → 前/中/后果岭实时码距(haversine,客户端计算,离线可用)。
-    /// 仅当有实时定位且该洞 prep 带果岭 F/M/B 经纬度时返回;否则 nil → 调用方回退到静态 tee→green 距离。
-    /// 读取 @Published 的 `locationProvider.latestFix`,所以定位每次更新(球员走动)都会驱动重算与刷新。
+    /// Preparation and a hole without a recorded shot use the selected Tee anchor. Once the
+    /// opening shot is recorded, retain the existing live-fix qualification and static fallback.
+    private var greenRangeOrigin: GreenRangeOrigin {
+        GreenRangeOrigin.resolve(
+            recordedShotCount: recordedNonPuttShotCount,
+            isPreparing: isPrepMode || isPreparingRound,
+            hasQualifiedFix: hasPlausibleLiveFix
+        )
+    }
+
+    private var greenRangeCoordinate: CLLocationCoordinate2D? {
+        switch greenRangeOrigin {
+        case .tee:
+            // Match the Watch seed: the package's selected Tee precedes a projected route anchor
+            // (a cold non-blue package can temporarily carry the cached blue route).
+            if let latitude = hole.teeLatitude, let longitude = hole.teeLongitude,
+               latitude.isFinite, (-90...90).contains(latitude),
+               longitude.isFinite, (-180...180).contains(longitude) {
+                return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+            }
+            return teeAnchorCoordinate
+        case .liveGPS: return locationProvider.latestFix?.coordinate
+        case .fallback: return nil
+        }
+    }
+
+    /// F/M/B yards from the Tee before the opening shot, then from qualified GPS. Missing
+    /// coordinates return nil so each readout retains its existing static tee→green fallback.
     private var liveGreenYards: (front: Int?, middle: Int?, back: Int?)? {
-        guard hasPlausibleLiveFix,
-              let fix = locationProvider.latestFix,
+        guard let here = greenRangeCoordinate,
               let gd = liveGreenDistances else { return nil }
-        let here = fix.coordinate
         let front = GeoDistance.yards(from: here.latitude, here.longitude, to: gd.frontLat, gd.frontLon)
         let middle = GeoDistance.yards(from: here.latitude, here.longitude, to: gd.middleLat, gd.middleLon)
         let back = GeoDistance.yards(from: here.latitude, here.longitude, to: gd.backLat, gd.backLon)
@@ -3710,13 +3733,10 @@ public struct CurrentHoleView: View {
         return (front, middle, back)
     }
 
-    /// watch P1d LIVE 果岭测距(米):当前 GPS → 前/中/后果岭 haversine 米距,发给手表当 F/M/B,让手表
-    /// 成为真正的测距仪(距离随走动更新)。与 `liveGreenYards` 同源,但保留米制以复用手表侧 m→码 转换。
+    /// The Watch payload uses the same Tee/GPS origin as the phone's F/M/B, in metres.
     private var liveGreenMetres: (front: Double?, middle: Double?, back: Double?)? {
-        guard hasPlausibleLiveFix,
-              let fix = locationProvider.latestFix,
+        guard let here = greenRangeCoordinate,
               let gd = liveGreenDistances else { return nil }
-        let here = fix.coordinate
         func metres(_ lat: Double?, _ lon: Double?) -> Double? {
             guard let lat, let lon else { return nil }
             return GeoDistance.haversineMetres(here.latitude, here.longitude, lat, lon)
@@ -3728,8 +3748,8 @@ public struct CurrentHoleView: View {
         return (front, middle, back)
     }
 
-    /// 实时果岭测距当前是否生效(有 GPS 定位 + 该洞带果岭经纬度)→ 头部显示「实时」标记区分实时/静态。
-    private var isGreenRangeLive: Bool { liveGreenYards != nil }
+    /// Tee-based distances must not carry the live GPS badge.
+    private var isGreenRangeLive: Bool { greenRangeOrigin == .liveGPS && liveGreenYards != nil }
 
     /// Live-round hazard ranges use the player's current GPS fix and the measured front/back boundary
     /// pixels. A non-nil empty array means every measured hazard is already behind the player; nil
@@ -4526,7 +4546,7 @@ public struct CurrentHoleView: View {
         // distances (not live-GPS recomputed); nil on holes without usable geometry.
         let green = holePrep?.greenDistances
         let greenOK = green?.available == true
-        // watch P1d: prefer LIVE-GPS green distances (from where the player stands) over static tee→green.
+        // Match the phone's F/M/B origin: selected Tee until the first shot, then qualified GPS.
         let liveGreens = liveGreenMetres
         let playsLike = holePrep?.playsLike
         let slopeM = playsLike?.available == true ? playsLike?.deltaM : nil
