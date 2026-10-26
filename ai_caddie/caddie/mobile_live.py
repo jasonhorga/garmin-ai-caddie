@@ -4300,7 +4300,8 @@ def _venue_loops_for_package(
         except Exception:
             current_label = None
     current_display = f"{current_name} ~ {current_label}" if current_label else current_name
-    add(int(global_id), current_display, current_label, ROUND_LOOP_HOLES, current_par)
+    if len(holes) == ROUND_LOOP_HOLES:
+        add(int(global_id), current_display, current_label, ROUND_LOOP_HOLES, current_par)
     return sorted(rows.values(), key=lambda row: (row.get("segmentLabel") or "~~", row["globalId"]))
 
 
