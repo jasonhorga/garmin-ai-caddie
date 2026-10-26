@@ -10,7 +10,7 @@ public enum GreenRangeOrigin: Equatable {
         isPreparing: Bool,
         hasQualifiedFix: Bool
     ) -> GreenRangeOrigin {
-        // Baseline behavior: a qualified fix always wins, including before the tee shot.
-        hasQualifiedFix ? .liveGPS : .fallback
+        if isPreparing || recordedShotCount == 0 { return .tee }
+        return hasQualifiedFix ? .liveGPS : .fallback
     }
 }

@@ -632,11 +632,30 @@ public struct AICaddieWatchApp: App {
         return fix
     }
 
-    /// watch P3: front/center/back green distances (码) recomputed from the watch's OWN qualified fix +
-    /// the hole's green coordinates. nil keeps the current-hole root in acquiring/score-only truth states.
+    /// F/M/B uses the package's selected Tee before the opening shot and the Watch's own
+    /// qualified GPS afterwards. The container retains its existing acquiring/score-only gates.
     private var watchGreenYards: (front: Int?, center: Int?, back: Int?)? {
-        guard let s = roundModel.activeHoleState, let fix = qualifiedWatchFix else { return nil }
-        let c = fix.coordinate
+        guard let s = roundModel.activeHoleState else { return nil }
+        let fix = qualifiedWatchFix
+        let origin = GreenRangeOrigin.resolve(
+            recordedShotCount: roundModel.recordedShotCount,
+            isPreparing: false,
+            hasQualifiedFix: fix != nil
+        )
+        let c: (latitude: Double, longitude: Double)
+        switch origin {
+        case .tee:
+            // These are the same package coordinates used by the existing Tee distance arc.
+            guard let latitude = s.teeLatitude, let longitude = s.teeLongitude,
+                  latitude.isFinite, (-90...90).contains(latitude),
+                  longitude.isFinite, (-180...180).contains(longitude) else { return nil }
+            c = (latitude, longitude)
+        case .liveGPS:
+            guard let fix else { return nil }
+            c = (fix.coordinate.latitude, fix.coordinate.longitude)
+        case .fallback:
+            return nil
+        }
         let front = WatchGeoMath.yards(from: c.latitude, c.longitude, toLat: s.frontGreenLat, s.frontGreenLon)
         let center = WatchGeoMath.yards(from: c.latitude, c.longitude, toLat: s.centerGreenLat, s.centerGreenLon)
         let back = WatchGeoMath.yards(from: c.latitude, c.longitude, toLat: s.backGreenLat, s.backGreenLon)
