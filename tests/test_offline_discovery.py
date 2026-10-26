@@ -8,6 +8,42 @@ import unittest
 
 
 class OfflineDiscoveryTests(unittest.TestCase):
+    def test_every_test_directory_installs_guard_before_first_test_import(self):
+        root = Path(__file__).resolve().parents[1]
+        directories = sorted({path.parent for path in (root / "tests").rglob("test*.py")})
+        for directory in directories:
+            with self.subTest(directory=str(directory.relative_to(root))):
+                first = sorted(directory.glob("test*.py"))[0]
+                # Probe the import boundary without importing/running whole suites.
+                # New directories are included automatically and fail if unguarded.
+                script = """
+from pathlib import Path
+import sys
+import types
+import unittest
+target = Path(sys.argv[1])
+seen = []
+class ProbeLoader(unittest.TestLoader):
+    def _get_module_from_name(self, name):
+        if name == target.stem:
+            guard = sys.modules.get('tests.offline')
+            assert guard is not None and guard._installed, 'offline guard missing before test import: ' + str(target)
+            seen.append(name)
+            module = types.ModuleType(name)
+            module.__file__ = str(target)
+            return module
+        return super()._get_module_from_name(name)
+suite = ProbeLoader().discover(str(target.parent), pattern=target.name)
+result = unittest.TextTestRunner().run(suite)
+assert seen == [target.stem], 'first test import was not guarded: ' + str(target)
+raise SystemExit(not result.wasSuccessful())
+"""
+                result = subprocess.run(
+                    [sys.executable, "-c", script, str(first)], cwd=root,
+                    capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_related_writes_leave_repository_artifacts_unchanged(self):
         result = subprocess.run(
             [sys.executable, "-m", "tests.check_isolation", "tests.test_offline_followups"],
