@@ -151,6 +151,7 @@ def _publish_generation(token_dir: Path, web_session: str, anti_forgery: str) ->
     generation = generations / generation_name
     generation.mkdir(mode=0o700)
     pointer_tmp: Path | None = None
+    pointer_published = False
     try:
         _write_generation_file(generation / WEB_SESSION_FILE, (web_session + "\n").encode("utf-8"))
         _write_generation_file(generation / ANTI_FORGERY_FILE, (anti_forgery + "\n").encode("utf-8"))
@@ -159,13 +160,14 @@ def _publish_generation(token_dir: Path, web_session: str, anti_forgery: str) ->
         pointer_tmp = token_dir / f".{CURRENT_FILE}.{os.getpid()}.{secrets.token_hex(8)}.tmp"
         _write_generation_file(pointer_tmp, (generation_name + "\n").encode("ascii"))
         os.replace(pointer_tmp, token_dir / CURRENT_FILE)
+        pointer_published = True
         _fsync_directory(token_dir)
         _fsync_directory(generations)
     except Exception:
         if pointer_tmp is not None:
             pointer_tmp.unlink(missing_ok=True)
-        generation_tmp = generation
-        shutil.rmtree(generation_tmp, ignore_errors=True)
+        if not pointer_published:
+            shutil.rmtree(generation, ignore_errors=True)
         raise
     return generation_name
 
