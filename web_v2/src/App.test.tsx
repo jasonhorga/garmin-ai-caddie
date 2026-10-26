@@ -2411,6 +2411,7 @@ describe('App navigation', () => {
     await waitFor(() => expect(refreshRequests[0]?.signal?.aborted).toBe(true))
     await waitFor(() => expect(refreshRequests[1]?.signal?.aborted).toBe(true))
     expect(await screen.findByText('22/22')).toBeInTheDocument()
+    expect(syncCalls).toBe(3)
   })
 
   // The 报告 console was removed from the consumer history nav (de-engineer pass); the workspace is
