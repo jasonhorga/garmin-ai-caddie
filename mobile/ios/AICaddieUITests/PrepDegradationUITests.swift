@@ -46,8 +46,8 @@ final class PrepDegradationUITests: XCTestCase {
         ] {
             app.launchEnvironment.removeValue(forKey: key)
         }
-        app.launchEnvironment["UITEST_GPS_LAT"] = cfg("UITEST_GPS_LAT") ?? "40.0454995"
-        app.launchEnvironment["UITEST_GPS_LON"] = cfg("UITEST_GPS_LON") ?? "116.5461531"
+        app.launchEnvironment["UITEST_GPS_LAT"] = "0"
+        app.launchEnvironment["UITEST_GPS_LON"] = "0"
         app.launchEnvironment["UITEST_MODE"] = "1"
         app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
@@ -137,6 +137,12 @@ final class PrepDegradationUITests: XCTestCase {
 
     private func save(_ name: String) {
         let shot = XCUIScreen.main.screenshot()
+        let base = (try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
+            ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent("real-screenshots", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? shot.pngRepresentation.write(to: dir.appendingPathComponent("\(name).png"))
+        try? app.debugDescription.data(using: .utf8)?.write(to: dir.appendingPathComponent("tree-\(name).txt"))
         let attachment = XCTAttachment(screenshot: shot)
         attachment.name = name
         attachment.lifetime = .keepAlways

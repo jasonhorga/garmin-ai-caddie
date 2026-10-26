@@ -491,6 +491,11 @@ final class RealFlowUITests: XCTestCase {
         // start) installs 北京丽宫's whole course, which would turn this "not yet prepared" path
         // into the ready-course path. Only the library is reset; the relaunch below keeps it.
         app.launchEnvironment["UITEST_RESET_COURSE_LIBRARY"] = "1"
+        // Exercise the explicit away-from-course prep state before reopening the retained course.
+        // The tee-follow debug hook would overwrite this fix, so leave it off for this section.
+        app.launchEnvironment["UITEST_GPS_LAT"] = "0"
+        app.launchEnvironment["UITEST_GPS_LON"] = "0"
+        app.launchEnvironment.removeValue(forKey: "UITEST_FOLLOW_HOLE_TEE")
         launchFresh()
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
         XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]), "home must expose pre-round prep")
@@ -549,6 +554,8 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(nonEmptyAccessibilityValue(retainedDownload))
         settle(1); save("06b-prep-download-retained"); dump("06b-prep-download-retained")
 
+        restoreDefaultGPSLaunchEnvironment()
+        app.launchEnvironment["UITEST_FOLLOW_HOLE_TEE"] = "1"
         launchFresh()
         XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]))
         XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 12))
@@ -566,7 +573,16 @@ final class RealFlowUITests: XCTestCase {
         relaunchedDownload.tap()
         let relaunchedBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         XCTAssertTrue(relaunchedBanner.waitForExistence(timeout: 30))
+        XCTAssertTrue(
+            (relaunchedBanner.value as? String)?.contains("第 1 洞") == true
+                || relaunchedBanner.label.contains("第 1 洞"),
+            "an on-course retained prep must be ready to start at hole 1"
+        )
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 20))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["live-hole-map-precise"].firstMatch.waitForExistence(timeout: 90),
+            "the retained prep course must show its precise hole map"
+        )
         settle(2); save("07-prep-hole-screen"); dump("07-prep-hole-screen")
 
         // ---- Section 4b (full only): nearby + name search → uninstalled course → lightweight/precise map ----

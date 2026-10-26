@@ -492,6 +492,7 @@ jobs:
                 -only-testing:AICaddieUITests/RealFlowUITests/testCaptureRealAppFlow
                 -only-testing:AICaddieUITests/ReviewEditUITests/testCaptureReviewEditFlow
                 -only-testing:AICaddieUITests/TeeSelectionUITests
+                -only-testing:AICaddieUITests/PrepDegradationUITests
               )
               ;;
             edit)
