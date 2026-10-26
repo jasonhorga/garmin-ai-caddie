@@ -74,8 +74,9 @@ def fetch_summary(s: requests.Session, limit: int = 10000) -> list[dict]:
     r.raise_for_status()
     raw = r.json()
     cards = raw.get("scorecardSummaries", []) or []
-    SUMMARY_FILE.write_text(json.dumps(raw, ensure_ascii=False, indent=2))
-    print(f"[ok] saved {len(cards)} summaries (totalRows={raw.get('totalRows')}) -> {SUMMARY_FILE.relative_to(ROOT)}")
+    saved = atomic_write_json_if_changed(SUMMARY_FILE, raw)
+    state = "saved" if saved else "unchanged"
+    print(f"[ok] {state} {len(cards)} summaries (totalRows={raw.get('totalRows')}) -> {SUMMARY_FILE.relative_to(ROOT)}")
     return cards
 
 
@@ -128,13 +129,14 @@ def fetch_clubs(s: requests.Session) -> dict:
         )
 
     out = {"schema": "ai-caddie-club-bag-v1", "clubs": clubs}
-    CLUBS_BAG_FILE.write_text(json.dumps(out, ensure_ascii=False, indent=2))
+    saved = atomic_write_json_if_changed(CLUBS_BAG_FILE, out)
     in_use = sum(1 for c in clubs if not c["retired"] and not c["deleted"])
     try:
         dest = CLUBS_BAG_FILE.relative_to(ROOT)
     except ValueError:
         dest = CLUBS_BAG_FILE
-    print(f"[ok] saved {len(clubs)} clubs ({in_use} in use) -> {dest}")
+    state = "saved" if saved else "unchanged"
+    print(f"[ok] {state} {len(clubs)} clubs ({in_use} in use) -> {dest}")
     return out
 
 

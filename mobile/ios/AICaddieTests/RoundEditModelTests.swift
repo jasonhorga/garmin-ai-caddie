@@ -534,19 +534,22 @@ final class RoundEditModelTests: XCTestCase {
     func testShotAndPuttSaveRetryReusesBothIdempotencyKeysAndSendsClientTime() async throws {
         var corrections: [[String: Any]] = []
         var annotations: [[String: Any]] = []
-        var failAnnotation = true
+        var failCorrection = true
+        var requestKinds: [String] = []
         let model = makeModel(putts: 2, now: { Date(timeIntervalSince1970: 1_790_000_000) }) { request in
             guard request.httpMethod == "POST" else { return Self.response(request, status: 503) }
             let body = try CapturingURLProtocol.requestBodyData(from: request)
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
             if request.url?.path == "/api/v2/annotations" {
+                requestKinds.append("putt")
                 annotations.append(json)
-                if failAnnotation {
-                    failAnnotation = false
+            } else {
+                requestKinds.append("whole-hole")
+                corrections.append(json)
+                if failCorrection {
+                    failCorrection = false
                     return Self.response(request, status: 503)
                 }
-            } else {
-                corrections.append(json)
             }
             return Self.response(request, status: 201, body: #"{"stored":{}}"#)
         }
@@ -560,6 +563,10 @@ final class RoundEditModelTests: XCTestCase {
         let retry = await model.save()
 
         XCTAssertTrue(retry)
+        // 原断言隐含“整洞先发”，在 C43 新顺序下第一次整洞 POST 才失败；新断言明确两次
+        // 都按 [推杆订正, 整洞订正] 重试，并保留两边的幂等键/时间断言。
+        XCTAssertEqual(requestKinds, ["putt", "whole-hole", "putt", "whole-hole"])
+        // 原：第一次失败后 corrections.count == 2（实际只有 1）；新：重试完成后两边各 2 条。
         XCTAssertEqual(corrections.count, 2)
         XCTAssertEqual(annotations.count, 2)
         XCTAssertEqual(corrections[0]["clientMutationId"] as? String, corrections[1]["clientMutationId"] as? String)
@@ -568,13 +575,64 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertEqual(corrections[0]["op"] as? String, "replaceHoleShots")
     }
 
+    func testSaveOrdersPuttAndWholeHoleWritesAroundTheC20Invariant() async throws {
+        // Hand-written C20 examples: a five-stroke hole must stay >= putts + penalty + 1.
+        // Every expected order first lowers a field, then applies the whole-hole/total write, then
+        // raises a field. The request order is part of the contract, rather than inferred by the test.
+        let cases: [(String, Int, Int, Int, Int, [String])] = [
+            ("putts 3→2, penalty 0→2", 3, 0, 2, 2, ["putt", "whole-hole"]),
+            ("putts 2→3, penalty 2→0", 2, 2, 3, 0, ["whole-hole", "putt"]),
+            ("putts 3→2, penalty 2→0", 3, 2, 2, 0, ["putt", "whole-hole"]),
+            ("putts 2→3, penalty 0→1", 2, 0, 3, 1, ["whole-hole", "putt"]),
+        ]
+        for (label, oldPutts, oldPenalty, newPutts, newPenalty, expected) in cases {
+            var order: [String] = []
+            let model = makeModel(score: 5, putts: oldPutts, manualPenalty: oldPenalty) { request in
+                guard request.httpMethod == "POST" else { return Self.response(request, status: 503) }
+                if request.url?.path == "/api/v2/annotations" {
+                    order.append("putt")
+                } else {
+                    order.append("whole-hole")
+                }
+                return Self.response(request, status: 201, body: #"{"stored":{}}"#)
+            }
+            model.enterEdit()
+            model.adjustPutts(by: newPutts - oldPutts)
+            model.setPenalty(newPenalty)
+
+            let saved = await model.save()
+            XCTAssertTrue(saved, label)
+            XCTAssertEqual(order, expected, label)
+        }
+    }
+
+    func testSaveRejectsAnImpossibleFinalScoreBeforeAnyWrite() async throws {
+        let unexpectedRequest = expectation(description: "an impossible final card must make no request")
+        unexpectedRequest.isInverted = true
+        let model = makeModel(score: 5, putts: 3) { request in
+            unexpectedRequest.fulfill()
+            return Self.response(request, status: 500)
+        }
+        model.enterEdit()
+        model.setPenalty(2) // 5 < 3 + 2 + 1: reject before either write is prepared/sent.
+
+        let saved = await model.save()
+        XCTAssertFalse(saved)
+        XCTAssertTrue(model.isEditing)
+        XCTAssertTrue(model.hasUnsavedChanges)
+        XCTAssertEqual(model.saveError, "总杆不得低于推杆+罚杆+1，草稿仍在；请调整后重试")
+        await fulfillment(of: [unexpectedRequest], timeout: 0.25)
+    }
+
     private func makeModel(
         shots: [RoundShot]? = nil,
         includeMap: Bool = true,
         includeEmbeddedImage: Bool = true,
         geometryRevision: String? = "geometry-r1",
         ppm: Double = 1,
+        score: Int? = nil,
         putts: Int? = nil,
+        manualPenalty: Int = 0,
         now: @escaping () -> Date = Date.init,
         handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
     ) -> RoundEditModel {
@@ -620,13 +678,15 @@ final class RoundEditModelTests: XCTestCase {
                 localHole: 4,
                 geometryRevision: geometryRevision,
                 map: includeMap ? courseMap : nil,
-                shots: shots ?? defaultShots
+                shots: shots ?? defaultShots,
+                manualPenalty: manualPenalty
             ),
             sync: SyncClient(
                 baseURL: URL(string: "https://example.test")!,
                 session: URLSession(configuration: configuration)
             ),
             roundRef: "round-1",
+            score: score,
             putts: putts,
             now: now
         )

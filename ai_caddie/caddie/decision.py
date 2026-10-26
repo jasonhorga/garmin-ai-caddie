@@ -30,6 +30,8 @@ RISK_KINDS = {"bunker", "water", "water_edge", "tree_area", "out_of_bounds", "ob
 BAD_SURFACES = {"bunker", "water", "water_edge", "tree_area", "out_of_bounds", "ob"}
 EXCLUDED_TEE_CLUBS = {"unknown", "?", "putter"}
 MIN_STRONG_CLUB_SAMPLE = 10
+# Generous whole-hole ceiling, shared by client distances, GPS and route planning.
+MAX_PIN_DISTANCE_M = 1000.0
 # Long-hole sequences used to be suppressed below this distance.  A normal Par 3 is
 # intentionally allowed through the same planner so the client receives one direct
 # scoring leg instead of a bare club card with no map route.
@@ -827,14 +829,12 @@ def _sequence_distance(context: dict[str, Any]) -> float:
     shot_type = str(context.get("shotType") or context.get("shot_type") or "tee").strip().lower()
     canonical = _float(context.get("canonicalPlanRouteLength_m"), 0.0)
     has_canonical_plan = isinstance(context.get("canonicalShotPlan") or context.get("canonicalPlan"), list)
-    if shot_type == "tee" and has_canonical_plan and math.isfinite(canonical) and 0.0 < canonical <= 1000.0:
+    if shot_type == "tee" and has_canonical_plan and math.isfinite(canonical) and 0.0 < canonical <= MAX_PIN_DISTANCE_M:
         return canonical
     # A live/manual distance is more current than the package's tee-distance fallback.
     for key in ("distanceToPin_m", "remainingToPin_m", "holeRemaining_m"):
         if _has_pin_distance({"distanceToPin_m": context.get(key)}):
-            value = _float(context.get(key))
-            if value <= 1000.0:
-                return value
+            return _float(context.get(key))
     # Sparse live seeds may have the downloaded hole yardage but no route-length field yet.
     # Use that factual tee distance as a bounded fallback; an unrelated GPS fix is never
     # accepted here because it is not one of the fields above.
@@ -4698,7 +4698,7 @@ def _apply_live_location(context: dict[str, Any]) -> dict[str, Any]:
     # Far-away coordinates are useful evidence that the player is off-course, not a golf distance.
     # Leave the packaged nominal hole distance in authority instead of generating kilometre-long
     # sequences and displaying them as a recommendation.
-    if not math.isfinite(distance_m) or distance_m <= 0.0 or distance_m > 1000.0:
+    if not math.isfinite(distance_m) or distance_m <= 0.0 or distance_m > MAX_PIN_DISTANCE_M:
         analysis["_liveDistanceRejected"] = {
             "source": "currentLocation+targetLocation",
             "distanceToPin_m": distance_m,
@@ -5210,9 +5210,9 @@ def _pin_distance(context: dict[str, Any]) -> float:
 
 
 def _has_pin_distance(context: dict[str, Any]) -> bool:
-    """Only a finite, positive distance supports measured pin-distance decisions and evidence."""
+    """Only a finite distance within golf range supports pin-distance decisions and evidence."""
     distance_m = _float(context.get("distanceToPin_m"), math.nan)
-    return math.isfinite(distance_m) and distance_m > 0
+    return math.isfinite(distance_m) and 0.0 < distance_m <= MAX_PIN_DISTANCE_M
 
 
 def _shot_option(
