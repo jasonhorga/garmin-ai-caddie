@@ -80,7 +80,7 @@ final class RoundPlayOrderTests: XCTestCase {
         XCTAssertTrue(lock.begin(from: 2, to: 1))
     }
 
-    func testSessionCacheKeySeparatesPhysicalHoleAndGeometryRevision() {
+    func testSessionCacheKeySeparatesPhysicalHoleAndRevisionInvalidatesPrep() {
         let cache = LiveHoleSessionCache()
         cache.update(
             roundId: "round",
@@ -106,6 +106,27 @@ final class RoundPlayOrderTests: XCTestCase {
         ).prepRequestCompleted)
     }
 
+    func testPagerInitializationKeepsCurrentSelectionAndPrefersActiveHole() {
+        XCTAssertEqual(
+            LiveHolePagerInitialSelection.resolve(
+                current: 2, ordered: [1, 2, 3], preferredHole: 1, fallbackHole: 3
+            ),
+            2
+        )
+        XCTAssertEqual(
+            LiveHolePagerInitialSelection.resolve(
+                current: nil, ordered: [1, 2, 3], preferredHole: 2, fallbackHole: 1
+            ),
+            2
+        )
+        XCTAssertEqual(
+            LiveHolePagerInitialSelection.resolve(
+                current: 9, ordered: [1, 2, 3], preferredHole: 2, fallbackHole: 1
+            ),
+            2
+        )
+    }
+
     func testMappingRefreshBypassesCompletedPrepGate() {
         XCTAssertFalse(LiveHoleSessionCachePolicy.shouldFetchPrep(
             cached: nil, requestStarted: false, requestCompleted: true
@@ -113,6 +134,55 @@ final class RoundPlayOrderTests: XCTestCase {
         XCTAssertTrue(LiveHoleSessionCachePolicy.shouldFetchPrep(
             cached: nil, requestStarted: false, requestCompleted: true, forMapping: true
         ))
+    }
+
+    func testCaddieSignatureChangesForEveryPlanningInputButIgnoresGpsNoise() {
+        let location: [String: JSONValue] = [
+            "latitude": .number(40.00001),
+            "longitude": .number(116.00001),
+            "capturedAt": .string("first"),
+            "horizontalAccuracyM": .number(3)
+        ]
+        let baseContext: [String: JSONValue] = [
+            "distanceToPin_m": .number(150),
+            "strategyMode": .string("stock"),
+            "requestedOptionId": .string("stock-1"),
+            "visionFindings": .array([.object(["kind": .string("water")])]),
+            "currentLocation": .object(location)
+        ]
+        let base = CaddieDecisionRequest(shotType: "tee", context: baseContext)
+        let sameGps = CaddieDecisionRequest(
+            shotType: "tee",
+            context: baseContext.merging([
+                "currentLocation": .object([
+                    "latitude": .number(40.00005),
+                    "longitude": .number(116.00005),
+                    "capturedAt": .string("later"),
+                    "horizontalAccuracyM": .number(20)
+                ])
+            ]) { _, new in new }
+        )
+        XCTAssertEqual(
+            LiveCaddieDecisionSignaturePolicy.signature(for: base, endpoint: "/decision"),
+            LiveCaddieDecisionSignaturePolicy.signature(for: sameGps, endpoint: "/decision")
+        )
+        for (key, value) in [
+            ("distanceToPin_m", JSONValue.number(151)),
+            ("strategyMode", JSONValue.string("safe")),
+            ("requestedOptionId", JSONValue.string("safe-1")),
+            ("visionFindings", JSONValue.array([.object(["kind": .string("bunker")])]))
+        ] {
+            var changed = baseContext
+            changed[key] = value
+            XCTAssertNotEqual(
+                LiveCaddieDecisionSignaturePolicy.signature(
+                    for: CaddieDecisionRequest(shotType: "tee", context: changed),
+                    endpoint: "/decision"
+                ),
+                LiveCaddieDecisionSignaturePolicy.signature(for: base, endpoint: "/decision"),
+                "changing \(key) must invalidate the decision"
+            )
+        }
     }
 
     func testGarminDescriptorNeedsDecodedImageBeforeRasterState() {
