@@ -1825,10 +1825,12 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Production `garminRasterDownloader`: one attempt through `GarminRasterImageStore`, which
     /// writes the URL-keyed disk cache the live map reads and shares an in-flight request with it.
     /// The store's own retry ladder stays with the hole screen (a sleep that throws ends `load`
-    /// after its first attempt); this pass simply moves on and the next pass tries again.
+    /// after its first attempt); this pass simply moves on and the next pass tries again. A raster
+    /// already on disk is only checked, never decoded into the memory cache: every pass walks the
+    /// whole course and would otherwise evict the hole on screen.
     static func cacheGarminRaster(_ url: URL) async -> Bool {
         #if canImport(UIKit)
-        if GarminRasterImageStore.cachedImage(for: url) != nil { return true }
+        if GarminRasterImageStore.isOnDisk(url) { return true }
         let store = GarminRasterImageStore(sleep: { _ in throw CancellationError() })
         await store.load(url)
         return store.image != nil

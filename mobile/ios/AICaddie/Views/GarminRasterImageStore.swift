@@ -241,6 +241,12 @@ final class GarminRasterImageStore: ObservableObject {
         return disk
     }
 
+    /// Whether `url`'s image is already in the disk cache. Reads neither the file nor the memory
+    /// cache, so asking never pushes a decoded bitmap (the hole on screen) out of memory.
+    static func isOnDisk(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: diskURL(for: url).path)
+    }
+
     static func preload(_ image: UIImage, for url: URL) {
         imageCache.setObject(image, forKey: url as NSURL, cost: cost(of: image))
     }
