@@ -258,7 +258,7 @@ final class TeeSelectionUITests: XCTestCase {
         // Tap the venue directly: selectCourse's loop helper must not repair the selection.
         row.tap()
         XCTAssertTrue(app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8))
-        XCTAssertTrue(waitForValue("已选择", on: palace, timeout: 8))
+        XCTAssertTrue(waitForCourseSelection(palace, globalId: 31793, name: "北京丽宫"))
         XCTAssertTrue(waitForValue("已选择", on: white, timeout: 8), "reopening the same venue must keep the manual White pick")
         XCTAssertEqual(white.label, pickedTeeLabel, "the fetched Tee's yardage must remain available")
         XCTAssertEqual(start.label, pickedAction)
@@ -373,7 +373,7 @@ final class TeeSelectionUITests: XCTestCase {
         let selectedPalace = courseTile(31793)
         XCTAssertTrue(selectedPalace.waitForExistence(timeout: 12))
         XCTAssertTrue(
-            waitForValue("已选择", on: selectedPalace, timeout: 8),
+            waitForCourseSelection(selectedPalace, globalId: 31793, name: "北京丽宫"),
             "the manual fallback result must become the explicit start-round selection"
         )
         XCTAssertTrue(
@@ -626,7 +626,7 @@ final class TeeSelectionUITests: XCTestCase {
             palace.exists,
             "the production nearby result must expose the real Beijing Palace course"
         )
-        XCTAssertTrue(waitForValue("已选择", on: palace, timeout: 8))
+        XCTAssertTrue(waitForCourseSelection(palace, globalId: 31793, name: "北京丽宫"))
         let onlineStart = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
             waitUntilEnabled(onlineStart, timeout: 90),
@@ -773,13 +773,8 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8))
         XCTAssertTrue(waitForCourseSelection(courseTile(31793), globalId: 31793, name: "北京丽宫"))
         XCTAssertTrue(
-            app.buttons.matching(
-                NSPredicate(
-                    format: "identifier BEGINSWITH %@",
-                    "start-round-course-segment-"
-                )
-            ).firstMatch.waitForExistence(timeout: 5),
-            "the selected downloaded venue must show its loop tile"
+            app.staticTexts["北京丽宫"].waitForExistence(timeout: 5),
+            "the selected downloaded venue must show its course title"
         )
 
         let start = app.buttons["start-round-primary-action"]

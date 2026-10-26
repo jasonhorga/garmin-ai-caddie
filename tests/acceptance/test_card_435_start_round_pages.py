@@ -792,7 +792,7 @@ class StartRoundPagesAcceptanceTests(unittest.TestCase):
         self.assertIn("选第一个 9 洞环（A / B / C 大块）", readme)
         self.assertIn("开始时只选**第一个环**", readme)
         self.assertIn("第二个环打到中途再选", readme)
-        self.assertIn('RoundLoopEntry(globalId: $0.globalId, half: "all")', _code(START_VIEW))
+        self.assertIn("StartRoundPresentation.combinedLoopEntries(selected: course)", _code(START_VIEW))
         watch = _code(WATCH_SETUP)
         self.assertIn('"watch-setup-half-\\(half)"', watch)
         self.assertRegex(watch, r"\bvar halfChoices\s*:")

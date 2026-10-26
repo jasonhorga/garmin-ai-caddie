@@ -96,7 +96,9 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 90))
 
         let map = app.descendants(matching: .any)["live-open-map-from-hero"]
-        for _ in 1...9 {
+        for hole in 1...9 {
+            let heading = app.staticTexts["第 \(hole) 洞"]
+            XCTAssertTrue(heading.waitForExistence(timeout: 30), "prep navigation must reach hole \(hole)")
             XCTAssertTrue(map.waitForExistence(timeout: 15) && map.isHittable)
             map.swipeLeft()
         }
@@ -104,7 +106,10 @@ final class RealFlowUITests: XCTestCase {
         let record = app.buttons["live-record-shot"]
         XCTAssertTrue(record.waitForExistence(timeout: 10) && record.isHittable)
         record.tap()
-        XCTAssertTrue(app.buttons["live-undo-round-start"].waitForExistence(timeout: 15))
+        let undo = app.buttons["live-undo-round-start"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 15))
+        undo.tap()
+        XCTAssertTrue(app.buttons["live-prep-tee-menu"].waitForExistence(timeout: 15))
         settle(1); save("c99-whole-course-prep-back-nine"); dump("c99-whole-course-prep-back-nine")
     }
 
@@ -968,8 +973,8 @@ final class RealFlowUITests: XCTestCase {
             "结束本场 must open the same non-destructive summary used after the final hole"
         )
         XCTAssertTrue(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 1/9 洞")).firstMatch.exists,
-            "the summary must count the one completed hole of the 前九 being played (B4b-2)"
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 1/18 洞")).firstMatch.exists,
+            "the whole-course summary must count the one completed hole out of 18"
         )
         XCTAssertTrue(app.buttons["保存并结束"].exists)
         XCTAssertTrue(app.buttons["live-finish-discard"].exists)
@@ -1055,23 +1060,6 @@ final class RealFlowUITests: XCTestCase {
                 didPersistAdjustedPuttsAndPenalty = true
             }
 
-            if holeNumber == 9 {
-                // B4b-2 turn: 北京丽宫 started on 前九; saving hole 9 asks which nine comes next.
-                // 后九 is preselected, 前九 again is allowed, and the round continues on hole 10.
-                let turnGo = app.buttons["turn-go"]
-                XCTAssertTrue(turnGo.waitForExistence(timeout: 15), "finishing 前九 must open the turn")
-                XCTAssertEqual(turnGo.label, "接着打 后九", "the other half is the preselected second nine")
-                XCTAssertTrue(
-                    app.buttons["turn-loop-\(approvedJourneyCourseGlobalId):front"].exists,
-                    "the same half may be played again"
-                )
-                XCTAssertTrue(
-                    app.buttons["turn-loop-\(approvedJourneyCourseGlobalId):back"].exists,
-                    "the turn offers the course's own halves"
-                )
-                settle(1); save("journey-09-turn"); dump("journey-09-turn")
-                turnGo.tap()
-            }
             if holeNumber < 18 {
                 XCTAssertTrue(
                     app.staticTexts["第 \(holeNumber + 1) 洞"].waitForExistence(timeout: 30),
@@ -1229,7 +1217,10 @@ final class RealFlowUITests: XCTestCase {
 
         let selectedSegment = courseTile(evidence.globalId)
         XCTAssertTrue(selectedSegment.waitForExistence(timeout: 12))
-        XCTAssertEqual(selectedSegment.value as? String, "已选择")
+        XCTAssertTrue(
+            waitForCourseSelection(selectedSegment, globalId: evidence.globalId, name: evidence.name),
+            "the selected course tile must expose either its selected-course title or selected state"
+        )
         let primary = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
             waitUntilEnabled(primary, timeout: 90),
@@ -1275,7 +1266,10 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("09b-new-course-name-search"); dump("09b-new-course-name-search")
         namedResult.tap()
         XCTAssertTrue(selectedSegment.waitForExistence(timeout: 12))
-        XCTAssertEqual(selectedSegment.value as? String, "已选择")
+        XCTAssertTrue(
+            waitForCourseSelection(selectedSegment, globalId: evidence.globalId, name: evidence.name),
+            "reselecting the course must retain its selected-course title or selected state"
+        )
         XCTAssertTrue(
             waitUntilEnabled(primary, timeout: 20),
             "re-selecting the same course must not clear Tees and strand the start action"
@@ -1876,6 +1870,14 @@ final class RealFlowUITests: XCTestCase {
             "start-round-course-segment-\(globalId)",
             "start-round-selected-course-\(globalId)"
         )).firstMatch
+    }
+
+    private func waitForCourseSelection(_ tile: XCUIElement, globalId: Int, name: String) -> Bool {
+        guard tile.waitForExistence(timeout: 8) else { return false }
+        if tile.identifier == "start-round-selected-course-\(globalId)" {
+            return (tile.value as? String) == name
+        }
+        return waitForValue("已选择", on: tile, timeout: 8)
     }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.
