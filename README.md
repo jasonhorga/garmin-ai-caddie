@@ -39,7 +39,7 @@ npm install
 
 推荐做法：浏览器登录 https://connect.garmin.cn 后直接运行脚本 `ai_caddie/garmin/fetch.py`
 会尝试从本机 Chrome/Safari/Firefox 读取 Garmin web session，自动更新
-`.garmin_tokens/web_cookie.txt` 和 `.garmin_tokens/csrf.txt`。不会读取或保存
+`.garmin_tokens/current` 指针及其代目录。不会读取或保存
 Garmin 密码。
 
 ```bash
@@ -266,8 +266,8 @@ open output/dashboard.html
 ├── package.json / package-lock.json # Node / draco3d 依赖
 ├── clubs.example.json          # 杆包映射示例；本地用 clubs.json
 ├── .garmin_tokens/             # cookie + csrf / OAuth token（mode 600，禁止提交）
-│   ├── web_cookie.txt
-│   └── csrf.txt
+│   ├── current                 # 原子选择同代材料
+│   └── generations/            # 每代包含 web_cookie.txt 与 csrf.txt
 ├── data/                       # 抓下来的原始数据（禁止提交）
 │   ├── summary.json            #   所有 scorecard 的 summary 列表
 │   ├── scorecards/{id}.json    #   每场详情（每洞杆数/推杆/Fairway/GPS）
