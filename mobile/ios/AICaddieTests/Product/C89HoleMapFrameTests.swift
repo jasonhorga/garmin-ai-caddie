@@ -328,8 +328,11 @@ final class C89HoleMapFrameTests: XCTestCase {
     func testInitialScenePhaseUpdatesTheProbeMirrorBeforeAnyPhaseChange() async throws {
         for phase in [ScenePhase.inactive, .background, .active] {
             var isActive = true
+            let updated = expectation(description: "initial scene phase: \(phase)")
             let root = Color.clear
-                .modifier(LiveHoleSceneActivity(isActive: Binding(get: { isActive }, set: { isActive = $0 })))
+                .modifier(LiveHoleSceneActivity(isActive: Binding(
+                    get: { isActive }, set: { isActive = $0; updated.fulfill() }
+                )))
                 .environment(\.scenePhase, phase)
             let host = UIHostingController(rootView: root)
             let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
@@ -337,8 +340,8 @@ final class C89HoleMapFrameTests: XCTestCase {
             window.makeKeyAndVisible()
             defer { window.isHidden = true; window.rootViewController = nil }
             host.view.layoutIfNeeded()
-            // Let SwiftUI commit the initial onChange callback without changing the environment.
-            try await Task.sleep(nanoseconds: 100_000_000)
+            // Observe the initial callback without changing the environment or relying on a fixed delay.
+            await fulfillment(of: [updated], timeout: 2)
             XCTAssertEqual(isActive, phase == .active, "initial phase: \(phase)")
         }
     }

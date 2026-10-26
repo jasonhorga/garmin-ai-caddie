@@ -424,8 +424,7 @@ class PureLogicTests(unittest.TestCase):
                     )
                 self.assertIsNotNone(result)
                 self.assertTrue(result["steps"])
-                self.assertIn("99999", logs.output[0])
-                self.assertIn("3", logs.output[0])
+                self.assertIn("gid=99999 hole=3", logs.output[0])
                 self.assertIn(str(error), logs.output[0])
 
     def test_prep_hole_keeps_the_courseview_row_when_the_topo_is_not_ready(self) -> None:

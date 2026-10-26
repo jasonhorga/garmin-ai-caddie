@@ -394,10 +394,14 @@ public struct StartRoundView: View {
         setLoading: (Bool) -> Void = { _ in },
         request: (Int) async -> [CourseTee]?
     ) async -> [CourseTee]? {
-        // C92 red baseline: preserve loadTees' early release before the async lookup.
+        if let rows = carried[globalId], !rows.isEmpty {
+            setLoading(false)
+            return rows
+        }
+        // Only carried authority may release the gate before the async lookup.
+        let rows = await request(globalId)
         setLoading(false)
-        if let rows = carried[globalId], !rows.isEmpty { return rows }
-        return await request(globalId)
+        return rows
     }
 
     /// GET /tees for the selected course. Nil when the answer is stale (course changed, task
@@ -418,11 +422,6 @@ public struct StartRoundView: View {
         // release. The course default (`unknown`) may start meanwhile (`isStartAllowed`). A failed
         // refresh still falls back to the known Tee list.
         isLoadingTees = !recentHasTeeAuthority
-        defer {
-            if teeRequestToken == requestToken {
-                isLoadingTees = false
-            }
-        }
         let tees = await onLoadCourseTees(globalId)
         guard !Task.isCancelled,
               teeRequestToken == requestToken,
