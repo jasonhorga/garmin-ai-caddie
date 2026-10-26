@@ -530,59 +530,98 @@ final class ReviewEditUITests: XCTestCase {
         return element.exists && element.isHittable
     }
 
-    /// Wait for a control to become actionable, tap it, and retry once within the original timeout
-    /// budget when the destination readiness marker does not appear. A SwiftUI transition can expose
-    /// a hittable source while its action is still being committed; the second tap handles that
-    /// narrow window without masking a genuinely missing destination.
+    /// Acknowledgement and readiness are different: a disappearing source or any arriving
+    /// destination proves that the tap took effect. Never tap that source again after acknowledgement.
+    /// All phases share the caller's original timeout, including source readiness and event synthesis.
     private func tapAndWaitForElements(
         _ source: XCUIElement,
         destinations: [XCUIElement],
         timeout: TimeInterval,
         diagnosticName: String
     ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        let firstDeadline = min(deadline, Date().addingTimeInterval(timeout / 2))
-        let sourceReady = max(0, firstDeadline.timeIntervalSinceNow) > 0
-            && waitUntilHittable(source, timeout: max(0, firstDeadline.timeIntervalSinceNow))
-        if sourceReady {
-            source.tap()
-            let destinationBudget = max(0, firstDeadline.timeIntervalSinceNow)
-            if destinationBudget > 0, waitForAllReady(destinations, timeout: destinationBudget) {
-                return true
+        let started = Date()
+        let deadline = started.addingTimeInterval(timeout)
+        guard waitUntilHittable(source, timeout: timeout) else {
+            diagnoseTap(source, destinations: destinations, name: diagnosticName, phase: "source-not-ready", started: started)
+            return false
+        }
+        source.tap()
+
+        // Source readiness and tap() can consume the old half-budget before the first destination
+        // check. Always inspect the transition immediately, even if that budget has already expired.
+        var transitionAcknowledged = false
+        let acknowledged: () -> Bool = {
+            if !transitionAcknowledged {
+                transitionAcknowledged = destinations.contains { $0.exists } || !source.exists
             }
-        } else {
-            print("REVIEW_EDIT_TAP source-not-ready \(diagnosticName) exists=\(source.exists) hittable=\(source.isHittable)")
+            return transitionAcknowledged
+        }
+        let acknowledgementBudget = max(0, deadline.timeIntervalSinceNow) / 2
+        if !waitForCondition(acknowledged, timeout: acknowledgementBudget) {
+            diagnoseTap(source, destinations: destinations, name: diagnosticName, phase: "retry-pending", started: started)
+            // While waiting to retry, a late destination/source disappearance wins over source
+            // hittability. Recheck after the wait too; querying accessibility itself takes time.
+            let retryBudget = max(0, deadline.timeIntervalSinceNow) / 2
+            let retryReady = waitForCondition({
+                acknowledged() || (source.exists && source.isHittable)
+            }, timeout: retryBudget)
+            if retryReady, !acknowledged(), deadline.timeIntervalSinceNow > 0 {
+                print("REVIEW_EDIT_TAP retry \(diagnosticName) elapsed=\(Date().timeIntervalSince(started))")
+                source.tap()
+            }
+        }
+        if transitionAcknowledged {
+            print("REVIEW_EDIT_TAP acknowledged \(diagnosticName) elapsed=\(Date().timeIntervalSince(started))")
         }
 
-        print(
-            "REVIEW_EDIT_TAP retry \(diagnosticName) sourceExists=\(source.exists) "
-                + "sourceHittable=\(source.isHittable) destinations="
-                + destinations.map { "\($0.identifier):\($0.exists)" }.joined(separator: ",")
-        )
-        print(source.debugDescription)
-        let retrySourceBudget = max(0, deadline.timeIntervalSinceNow) / 2
-        if retrySourceBudget > 0, waitUntilHittable(source, timeout: retrySourceBudget) {
-            source.tap()
+        // No new per-control timeout and no sequential waiter delay for Cancel followed by Save:
+        // sample all destinations together, immediately first, then poll until the shared deadline.
+        let ready = waitForAllReady(destinations, timeout: max(0, deadline.timeIntervalSinceNow))
+        if !ready {
+            diagnoseTap(source, destinations: destinations, name: diagnosticName, phase: "destination-not-ready", started: started)
+            save("tap-\(diagnosticName)-failed"); dump("tap-\(diagnosticName)-failed")
         }
-        let destinationBudget = max(0, deadline.timeIntervalSinceNow)
-        return destinationBudget > 0 && waitForAllReady(destinations, timeout: destinationBudget)
+        return ready
     }
 
     private func waitUntilHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "exists == true AND hittable == true"),
-            object: element
-        )
-        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+        waitForCondition({ element.exists && element.isHittable }, timeout: timeout)
     }
 
     private func waitForAllReady(_ elements: [XCUIElement], timeout: TimeInterval) -> Bool {
+        waitForCondition({ elements.allSatisfy { $0.exists && $0.isHittable } }, timeout: timeout)
+    }
+
+    private func waitForCondition(_ condition: @escaping () -> Bool, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
-        for element in elements {
-            let remaining = max(0, deadline.timeIntervalSinceNow)
-            guard waitUntilHittable(element, timeout: remaining) else { return false }
-        }
-        return true
+        if condition() { return true }
+        let remaining = deadline.timeIntervalSinceNow
+        guard remaining > 0 else { return false }
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in condition() },
+            object: nil
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: remaining) == .completed
+    }
+
+    private func diagnoseTap(
+        _ source: XCUIElement,
+        destinations: [XCUIElement],
+        name: String,
+        phase: String,
+        started: Date
+    ) {
+        // isHittable/debugDescription on a vanished source triggers XCUITest resolution retries.
+        let sourceExists = source.exists
+        let states = destinations.enumerated().map { index, destination -> String in
+            let exists = destination.exists
+            let identifier = exists ? destination.identifier : "destination-\(index)"
+            return "\(identifier):exists=\(exists),hittable=\(exists && destination.isHittable)"
+        }.joined(separator: ";")
+        print(
+            "REVIEW_EDIT_TAP \(phase) \(name) elapsed=\(Date().timeIntervalSince(started)) "
+                + "sourceExists=\(sourceExists) sourceHittable=\(sourceExists && source.isHittable) destinations=\(states)"
+        )
     }
 
     // MARK: - capture helpers
