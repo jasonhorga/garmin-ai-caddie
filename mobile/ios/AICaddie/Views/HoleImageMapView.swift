@@ -248,12 +248,27 @@ public struct HoleImageMapView: View {
             } else {
                 map
             }
+        } else if let topoURL = preciseTopoURL {
+            // C89: a row in another pixel frame never draws over the precise topo. The bitmap is
+            // the whole map until the same hole's row in its frame arrives.
+            let base = TopoHoleBaseImage(
+                topoURL: topoURL,
+                fallback: nil,
+                onTopoImageReady: onPreciseImageReady,
+                onTopoImageFailed: onPreciseImageFailed
+            )
+                .continuingTerrain(baseEdgeExtension, feather: baseEdgeFeather)
+            if showsCardChrome {
+                base.mapSurface()
+            } else {
+                base
+            }
         }
         #endif
     }
 
     public var hasMap: Bool {
-        displayOverlay != nil
+        displayOverlay != nil || topoURL != nil
     }
 
     /// Whether this row's route, tee, flag and plan are drawn over the base bitmap at all.
@@ -261,10 +276,20 @@ public struct HoleImageMapView: View {
         displayOverlay != nil
     }
 
-    /// The coarse CourseView fairway band and green, drawn as the factual map of a partial row.
+    /// The coarse CourseView fairway band and green stand in for a missing bitmap only (README
+    /// 地图降级契约: the factual route shows until the precise map arrives); a real map is never
+    /// overdrawn with them.
     var drawsLightweightFacts: Bool {
         hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+            && topoURL == nil
             && garminRasterURL == nil
+    }
+
+    /// Whether this row's pixels belong to the precise topo bitmap passed in `topoURL`.
+    private var factsRegisteredToTopo: Bool {
+        guard topoURL != nil,
+              hole.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame else { return true }
+        return partialOverlayMatchesTopo
     }
 
     #if canImport(UIKit)
@@ -298,7 +323,7 @@ public struct HoleImageMapView: View {
                 route: []
             )
         }
-        guard preciseTopoURL == nil else { return overlay }
+        guard preciseTopoURL == nil else { return factsRegisteredToTopo ? overlay : nil }
         guard garminRasterURL != nil else { return overlay }
         guard let projection = garminRasterProjection, projection.isUsable else {
             // An unregistered Garmin image is still useful as a visual background, but no

@@ -87,12 +87,18 @@ enum LiveTopoAvailability {
 /// publishes before the ready one.
 @MainActor
 enum LiveHolePrepUpgradePolicy {
+    /// A partial row keeps the probe running even when the topo bitmap is already cached: the row
+    /// drawn over that bitmap can still be in the CourseView frame (C89, build 96 hole 1).
     static func shouldWaitForPreciseHoleMap(prep: CoursePrepHole?, hasCachedTopo: Bool) -> Bool {
-        prep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame && !hasCachedTopo
+        prep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
     }
 
+    /// A partial row in the topo's own frame replaces a row in another frame at once; the probe
+    /// then continues for the ready row.
     static func adoptsInterimRow(_ incoming: CoursePrepHole, current: CoursePrepHole?, hole: Hole) -> Bool {
-        false
+        incoming.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame
+            && LiveTopoAvailability.overlayCompatible(hole: hole, prep: incoming)
+            && !LiveTopoAvailability.overlayCompatible(hole: hole, prep: current)
     }
 }
 
@@ -121,11 +127,98 @@ enum LiveHazardMapFrame {
         row: LiveHazardDisplayItem,
         garminProjection: CoursePrepHoleImageProjection?
     ) -> Resolution {
-        .drawable(hole: prep, row: row)
+        switch state {
+        case .precise:
+            return LiveTopoAvailability.overlayAllowed(displayState: .precise, hole: hole, prep: prep)
+                ? .drawable(hole: prep, row: row)
+                : .needsMapping(.sameFramePrep)
+        case .garminRaster:
+            guard let garminProjection, garminProjection.isUsable else {
+                return .needsMapping(.garminRegistration)
+            }
+            guard let source = prep.holeImageProjection,
+                  source.isUsable,
+                  let overlay = prep.resolvedMapOverlay,
+                  let garminOverlay = GarminRasterProjectionMath.remapOverlay(
+                      overlay, from: source, to: garminProjection
+                  ) else {
+                return .needsMapping(.sameFramePrep)
+            }
+            func remapped(_ pixel: [Double]) -> [Double]? {
+                guard pixel.count >= 2,
+                      let point = GarminRasterProjectionMath.remap(
+                          pixel: CGPoint(x: pixel[0], y: pixel[1]), from: source, to: garminProjection
+                      ),
+                      point.x.isFinite, point.y.isFinite else { return nil }
+                return [point.x, point.y]
+            }
+            let garminRow = LiveHazardDisplayItem(
+                id: row.id,
+                kind: row.kind,
+                label: row.label,
+                frontYards: row.frontYards,
+                backYards: row.backYards,
+                frontPx: remapped(row.frontPx) ?? [],
+                backPx: remapped(row.backPx) ?? [],
+                outlinePx: row.outlinePx.compactMap(remapped),
+                frontRouteM: row.frontRouteM,
+                backRouteM: row.backRouteM
+            )
+            return .drawable(
+                hole: replacingFrame(of: prep, overlay: garminOverlay, projection: garminProjection),
+                row: garminRow
+            )
+        case .waiting, .factualPending, .factual, .numericPlaceholder:
+            return .needsMapping(.noMap)
+        }
     }
 
     static func notice(for resolution: Resolution, requestInFlight: Bool) -> String? {
-        nil
+        guard case let .needsMapping(source) = resolution else { return nil }
+        if requestInFlight, source != .noMap { return "正在定位障碍…" }
+        switch source {
+        case .sameFramePrep:
+            return "障碍位置等精确数据到了再画 · 距离见下方"
+        case .garminRegistration:
+            return "这张图还没有坐标，障碍画不上 · 距离见下方"
+        case .noMap:
+            return "暂无地图 · 障碍距离见下方"
+        }
+    }
+
+    /// The same prep facts with the route overlay and projection in the displayed bitmap's frame, so
+    /// the obstacle renderer's frame and the remapped obstacle pixels agree.
+    private static func replacingFrame(
+        of prep: CoursePrepHole,
+        overlay: CoursePrepOverlay,
+        projection: CoursePrepHoleImageProjection
+    ) -> CoursePrepHole {
+        CoursePrepHole(
+            hole: prep.hole,
+            par: prep.par,
+            parSource: prep.parSource,
+            blueYards: prep.blueYards,
+            teeYards: prep.teeYards,
+            routeLenM: prep.routeLenM,
+            route: prep.route,
+            geometryCoverage: prep.geometryCoverage,
+            geometryRevision: prep.geometryRevision,
+            sourceRefs: prep.sourceRefs,
+            missingData: prep.missingData,
+            candidateRoutes: prep.candidateRoutes,
+            carryTargets: prep.carryTargets,
+            steps: prep.steps,
+            cautions: prep.cautions,
+            landingM: prep.landingM,
+            teeClub: prep.teeClub,
+            hazards: prep.hazards,
+            map: CoursePrepMap(image: nil, overlay: overlay),
+            greenDistances: prep.greenDistances,
+            playsLike: prep.playsLike,
+            holeImageProjection: projection,
+            greenOutline: prep.greenOutline,
+            fairwayOutline: prep.fairwayOutline
+        )
     }
 }
 
@@ -315,6 +408,8 @@ public struct CurrentHoleView: View {
     @State private var heroTargetDidDrag = false
     @State private var showGreenDetail = false
     @State private var selectedHazardID: String?
+    /// The hole whose obstacle-mapping request (same-frame prep / Garmin registration) is in flight.
+    @State private var hazardMappingRequestHole: Int?
     @State private var scoreDraft: LiveScoreDraft?
     @State private var showScorecard = false
     @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
@@ -1293,8 +1388,9 @@ public struct CurrentHoleView: View {
                             // ladder, the side and bottom buttons) or are omitted.
                             exclusions: liveMapExclusions,
                             // The selected obstacle is drawn in the same pass so its 前 / 后
-                            // labels share one collision layout with the route and tee labels.
-                            hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) },
+                            // labels share one collision layout with the route and tee labels,
+                            // in the frame of the bitmap on screen (LiveHazardMapFrame).
+                            hazard: selectedLiveHazardDrawable,
                             target: liveTargetGeometry
                         )
                     }
@@ -1328,6 +1424,14 @@ public struct CurrentHoleView: View {
                     }
                     .position(LiveMapTargetMagnifierLoupe<EmptyView>.position(for: focus, in: geo.size))
                     .allowsHitTesting(false)
+                }
+
+                // C89: a selected obstacle that cannot be placed on the bitmap on screen says so
+                // (its distances stay in the bar below) instead of leaving the map silently blank.
+                if let notice = selectedHazardMapNotice {
+                    LiveHazardMapNotice(text: notice)
+                        .position(x: geo.size.width * 0.5, y: geo.size.height * 0.62)
+                        .allowsHitTesting(false)
                 }
 
                 // A cached topo image is already a usable map.  Do not cover it with the old
@@ -2035,6 +2139,11 @@ public struct CurrentHoleView: View {
                              garminRasterURL: liveMapDisplayState == .garminRaster ? liveGarminRasterURL : nil,
                              garminRasterProjection: liveMapDisplayState == .garminRaster ? liveGarminRasterProjection : nil,
                              garminRasterReloadID: garminRasterImageReloadID,
+                             // C89: a CourseView row in its own 360x560 frame is not drawn over
+                             // the precise topo; the same frame check as the viewport layer.
+                             partialOverlayMatchesTopo: LiveTopoAvailability.overlayCompatible(
+                                 hole: hole, prep: holePrep
+                             ),
                              onPreciseImageReady: { preciseTopoImageReady = true },
                              onPreciseImageFailed: { preciseTopoImageReady = false },
                              onGarminImageReady: {
@@ -2391,10 +2500,58 @@ public struct CurrentHoleView: View {
 
     private func selectHazard(at index: Int) {
         guard liveHazardDisplayRows.indices.contains(index) else { return }
-        selectedHazardID = liveHazardDisplayRows[index].id
+        let row = liveHazardDisplayRows[index]
+        selectedHazardID = row.id
+        requestHazardMappingIfNeeded(for: row)
         #if canImport(UIKit)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         #endif
+    }
+
+    private var selectedLiveHazardResolution: LiveHazardMapFrame.Resolution? {
+        guard let holePrep, let selectedLiveHazard else { return nil }
+        return LiveHazardMapFrame.resolve(
+            state: liveMapDisplayState,
+            hole: hole,
+            prep: holePrep,
+            row: selectedLiveHazard,
+            garminProjection: liveGarminRasterProjection
+        )
+    }
+
+    private var selectedLiveHazardDrawable: (hole: CoursePrepHole, row: LiveHazardDisplayItem)? {
+        guard case let .drawable(prep, row)? = selectedLiveHazardResolution else { return nil }
+        return (hole: prep, row: row)
+    }
+
+    private var selectedHazardMapNotice: String? {
+        selectedLiveHazardResolution.flatMap {
+            LiveHazardMapFrame.notice(for: $0, requestInFlight: hazardMappingRequestHole == hole.number)
+        }
+    }
+
+    /// A selected obstacle the bitmap on screen cannot place yet fetches what is missing: this
+    /// hole's prep row in the topo frame, or the Garmin descriptor's registration.
+    private func requestHazardMappingIfNeeded(for row: LiveHazardDisplayItem) {
+        guard let holePrep, hazardMappingRequestHole != hole.number else { return }
+        let resolution = LiveHazardMapFrame.resolve(
+            state: liveMapDisplayState,
+            hole: hole,
+            prep: holePrep,
+            row: row,
+            garminProjection: liveGarminRasterProjection
+        )
+        guard case let .needsMapping(source) = resolution, source != .noMap else { return }
+        let requestedHole = hole.number
+        hazardMappingRequestHole = requestedHole
+        Task { @MainActor in
+            if source == .garminRegistration {
+                await loadGarminRaster()
+            } else {
+                _ = await loadHoleMap()
+            }
+            if hazardMappingRequestHole == requestedHole { hazardMappingRequestHole = nil }
+        }
     }
 
     /// Garmin raster is the current map authority until the precise CourseView image is available.
@@ -3264,8 +3421,11 @@ public struct CurrentHoleView: View {
         // vectors usable now, then replace only this hole's map facts when the precise mesh arrives.
         // The structured `.task(id: hole.number)` owns this loop, so changing holes or leaving the
         // screen cancels it without leaving a detached poller behind.
-        if holePrep?.geometryCoverage.caseInsensitiveCompare("partial") == .orderedSame,
-           !hasCachedTopoForCurrentHole {
+        // A cached topo bitmap does not end this: the row drawn over it must reach its frame (C89).
+        if LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(
+            prep: holePrep,
+            hasCachedTopo: hasCachedTopoForCurrentHole
+        ) {
             await waitForPreciseHoleMap(syncClub: !alreadyRecorded)
         }
     }
@@ -3514,6 +3674,15 @@ public struct CurrentHoleView: View {
             ) else {
                 delaySeconds = min(delaySeconds * 2, 15)
                 continue
+            }
+            if LiveHolePrepUpgradePolicy.adoptsInterimRow(refreshed, current: holePrep, hole: hole) {
+                // The topo-frame row replaces a CourseView row at once; keep probing for ready.
+                _ = await retainThenPublishHolePrep(
+                    refreshed,
+                    globalId: mapGlobalId,
+                    sourceLocalHole: mapLocalHole,
+                    watchHole: hole.number
+                )
             }
             guard refreshed.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
                 delaySeconds = min(delaySeconds * 2, 15)

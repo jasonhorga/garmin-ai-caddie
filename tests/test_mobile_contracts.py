@@ -2599,8 +2599,9 @@ class MobileContractTests(unittest.TestCase):
         # Device review (build 77): no thin centreline over the map, only the caddie's white route.
         self.assertNotIn("drawFactualRoute", hole_map_view)
         self.assertNotIn("showsRoute: showsRecommendedRoute", hole_map_view)
-        # The selected obstacle is drawn by the route renderer's shared label layout.
-        self.assertIn("hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }", current_hole)
+        # The selected obstacle is drawn by the route renderer's shared label layout, in the frame
+        # of the bitmap on screen (C89: never in the CourseView frame over the topo).
+        self.assertIn("hazard: selectedLiveHazardDrawable,", current_hole)
         # B1: obstacles stay hidden until the explicit 障碍 control (left column) selects one.
         self.assertIn("LivePlaySideControls(", current_hole)
         self.assertIn("toggleHazardDisplay", current_hole)
@@ -4300,7 +4301,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("LiveHazardDisplayItem.rows(for: holePrep", current_hole)
         self.assertIn("liveHazardDisplayRows", current_hole)
         self.assertIn("LivePlayHazardBar(", current_hole)
-        self.assertIn("hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }", current_hole)
+        self.assertIn("hazard: selectedLiveHazardDrawable,", current_hole)
         live_chrome_source = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
         self.assertIn("LiveHazardOverlayRenderer.draw(", live_chrome_source)
         self.assertIn("labelRects: placed.hazard", live_chrome_source)
