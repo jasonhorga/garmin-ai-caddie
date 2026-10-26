@@ -686,6 +686,15 @@ public final class LiveRoundAppModel: ObservableObject {
                 )
             }
         }
+        if ProcessInfo.processInfo.environment["UITEST_RESET_RESULTS_CACHE"] == "1" {
+            do {
+                try offlineStore.resetResultsCacheForUITesting()
+            } catch {
+                AICaddieLog.storage.error(
+                    "UI-test results cache reset failed: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
         #endif
         restorePrepCourseDownloadsFromDisk()
         restoreCachedCourseOptions()
