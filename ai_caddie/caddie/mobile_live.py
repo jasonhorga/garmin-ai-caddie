@@ -10,6 +10,7 @@ from functools import lru_cache
 import json
 import logging
 import math
+from dataclasses import replace
 from pathlib import Path
 import threading
 import time
@@ -4098,11 +4099,7 @@ def build_live_round_package_for_course(
         if ensure_geometry:
             geometry_ensure = _ensure_geometry_for_course(int(global_id))
         if template_round is not None:
-            package_source = HistoryData(
-                raw_rounds=source.raw_rounds,
-                rounds=[*source.rounds, template_round],
-                shots=source.shots,
-            )
+            package_source = replace(source, rounds=[*source.rounds, template_round])
     package = build_live_round_package(
         live_round_id,
         data=package_source,

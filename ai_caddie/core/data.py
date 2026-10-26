@@ -759,7 +759,11 @@ def build_club_profiles(
     # each caller how to replay the append-only stores.  The file-backed path below remains the
     # import/source path for Garmin ingestion and callers that deliberately inspect raw files.
     if history_data is not None:
-        source_fp = getattr(history_data, "source_fingerprint", None) or repr(getattr(history_data, "shots", []))
+        source_fp = getattr(history_data, "source_fingerprint", None)
+        if not source_fp:
+            return _aggregate_club_profiles(
+                min_distance_m, getattr(history_data, "shots", []) or [], history=True,
+            )
         correction_fp = getattr(history_data, "correction_fingerprint", None) or ""
         key = ("history", float(min_distance_m), bool(apply_overrides), source_fp, correction_fp)
         fingerprint = f"{source_fp}:{correction_fp}"
@@ -770,6 +774,8 @@ def build_club_profiles(
         profiles = _aggregate_club_profiles(min_distance_m, getattr(history_data, "shots", []) or [], history=True)
         with _club_profile_cache_lock:
             _CLUB_PROFILE_CACHE[key] = (fingerprint, copy.deepcopy(profiles))
+            while len(_CLUB_PROFILE_CACHE) > _CLUB_PROFILE_CACHE_MAX:
+                _CLUB_PROFILE_CACHE.pop(next(iter(_CLUB_PROFILE_CACHE)))
         return profiles
     dirs = [SHOT_DIR] if shot_dirs is None else list(shot_dirs)
     # A test double for an input reader would not show in the file fingerprint: compute directly.

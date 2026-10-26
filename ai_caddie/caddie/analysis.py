@@ -35,8 +35,9 @@ from ai_caddie.core.data import (
     wgs84_to_local,
     write_json,
 )
-logger = logging.getLogger(__name__)
 from ai_caddie.caddie.decision import build_decision_plan, judge_decision_outcome
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[2]
 ANALYSIS_OUT = ROOT / "output" / "ai_caddie"

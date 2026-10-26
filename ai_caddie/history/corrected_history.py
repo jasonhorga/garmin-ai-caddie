@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from dataclasses import replace
 
 from ai_caddie.core.data import OWNER_ID
 from ai_caddie.history.history import HistoryData, history_data_fingerprint, round_source_shots
@@ -279,6 +280,8 @@ def corrected_history_data(
     """``data`` as the player corrected it. ``corrections_root`` defaults to ``history.ROOT``, where
     ``round_corrections`` writes; ``annotations_root`` is the reader's annotation root. A reader of one
     round passes ``round_refs`` so only that round's correction events are replayed."""
+    if data.corrected:
+        return data
     annotations = list_annotation_records(root=annotations_root, player_id=player_id)
     events_by_round = round_correction_events(data, player_id=player_id, root=corrections_root, round_refs=round_refs)
     rounds = corrected_rounds(data.rounds, annotations, events_by_round)
@@ -310,8 +313,10 @@ def corrected_round(
     Same rules as ``corrected_history_data``, without correcting every other round for one review.
     Shots keep their ``_globalIndex``, so refs equal the full-history refs.
     """
-    view = HistoryData(
-        raw_rounds=data.raw_rounds,
+    if data.corrected:
+        return data, row
+    view = replace(
+        data,
         rounds=[row],
         shots=[data.shots[position] for position, _shot in round_source_shots(data, row)],
     )

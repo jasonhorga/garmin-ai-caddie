@@ -390,10 +390,11 @@ def _hole_shot_map(
     par = _par_for(row, hole)
     corr = corrections or []
     manual_penalty = round_corrections.hole_penalty(corr, hole)
+    effective_penalty = manual_penalty
     if annotations is not None:
         from ai_caddie.rounds.correction_audit import effective_hole
         _total, _putts, (effective_penalty, _winner) = effective_hole(row, hole, annotations, corr)
-        manual_penalty = int(effective_penalty or 0)
+        effective_penalty = int(effective_penalty or 0)
     shots = _source_shots_for_hole(data, row, hole, corr)
     geometry_revision: str | None = None
     map_kind: str | None = None
@@ -510,6 +511,7 @@ def _hole_shot_map(
                 "map": None,
                 "shots": available,
                 "manualPenalty": manual_penalty,
+                "effectivePenalty": effective_penalty,
                 "missingData": [{"label": "geometry", "reason": reason}],
             }, None, None
         overlay, project, unproject = lightweight
@@ -755,6 +757,7 @@ def _hole_shot_map(
         "map": {"image": image, "overlay": overlay},
         "shots": plotted,
         "manualPenalty": manual_penalty,
+        "effectivePenalty": effective_penalty,
         "missingData": missing_data,
     }, project, unproject
 

@@ -848,8 +848,8 @@ def remap_shots_to_merged_rounds(
     return remapped
 
 
-def _build_club_map(shot_data: dict[str, Any]) -> tuple[dict[int, str], set[int]]:
-    overrides = load_club_overrides()
+def _build_club_map(shot_data: dict[str, Any], *, player_id: str = OWNER_ID) -> tuple[dict[int, str], set[int]]:
+    overrides = load_club_overrides() if player_id == OWNER_ID else {}
     club_map: dict[int, str] = {}
     retired: set[int] = set()
     for club in shot_data.get("clubDetails", []) or []:
@@ -920,7 +920,7 @@ def load_shot_history(
                 continue
             if shot_data.get("_no_data"):
                 continue
-            club_map, retired = _build_club_map(shot_data)
+            club_map, retired = _build_club_map(shot_data, player_id=player_id)
             # Parse the scorecard once per round, not once per hole: it is only needed for the
             # front/back layout ids that map an absolute hole onto its CourseView hole.
             try:
@@ -948,7 +948,9 @@ def load_shot_history(
                         "localHole": ref.local_hole if ref else None,
                         "order": shot.get("shotOrder"),
                         "clubId": cid,
-                        "clubName": club_map.get(cid) or club_name_from_details(cid, shot_data),
+                        "clubName": club_map.get(cid) or club_name_from_details(
+                            cid, shot_data, apply_overrides=player_id == OWNER_ID,
+                        ),
                         "clubRetired": cid in retired if cid is not None else False,
                         "type": shot.get("shotType"),
                         "auto": shot.get("autoShotType"),

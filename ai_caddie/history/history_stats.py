@@ -6,6 +6,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any, Literal
 import math
+from dataclasses import replace
 
 from ai_caddie.reports.annotations import list_annotations
 from ai_caddie.caddie.decision import list_decision_audits
@@ -3988,7 +3989,7 @@ def windowed_history_data(data: HistoryData, window: str) -> HistoryData:
         keep_ids.add(_round_id(row))
         for member in row.get("ids") or []:
             keep_ids.add(str(member))
-    return HistoryData(
+    return replace(data,
         raw_rounds=[row for row in data.raw_rounds if _round_id(row) in keep_ids],
         rounds=rounds,
         shots=[shot for shot in data.shots if _shot_round_id(shot) in keep_ids],
