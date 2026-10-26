@@ -1031,7 +1031,7 @@ public struct CurrentHoleView: View {
             Task { await loadCaddieDecision(syncClub: true) }
         }
         .task(id: localTopoRevisionTaskKey) {
-            let revision = cacheRevisionForCurrentHole
+            let revision = LiveTopoAvailability.revision(hole: hole, prep: holePrep)
             let store = offlineStore
             let localURL = await Task.detached(priority: .utility) {
                 store?.loadCourseTopoImageURL(
@@ -3086,7 +3086,7 @@ public struct CurrentHoleView: View {
     }
 
     private var localTopoRevisionTaskKey: String {
-        "\(hole.sourceGlobalId):\(hole.sourceLocalHole):\(cacheRevisionForCurrentHole ?? "")"
+        "\(hole.sourceGlobalId):\(hole.sourceLocalHole):\(LiveTopoAvailability.revision(hole: hole, prep: holePrep) ?? "")"
     }
 
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
@@ -3098,7 +3098,7 @@ public struct CurrentHoleView: View {
         }
         #endif
         return LiveTopoAvailability.url(
-            hole: hole, prep: cachePrepForCurrentHole, localURL: localTopoURL, baseURL: caddieBaseURL
+            hole: hole, prep: holePrep, localURL: localTopoURL, baseURL: caddieBaseURL
         )
     }
 
@@ -4031,7 +4031,7 @@ public struct CurrentHoleView: View {
                     globalId: neighbour.sourceGlobalId,
                     localHole: neighbour.sourceLocalHole
                 ) else { return }
-                let cachedPrep = liveHoleSessions.entry(
+                let cachedPrep = sessionCache.entry(
                     roundId: package.roundId,
                     hole: neighbour.number,
                     sourceGlobalId: neighbour.sourceGlobalId,
@@ -4265,9 +4265,12 @@ public struct CurrentHoleView: View {
     private func setHolePrep(_ prep: CoursePrepHole?) {
         holePrep = prep
         hasEmbeddedTopoImage = CoursePrepHole.hasDecodableEmbeddedTopo(prep?.map?.image)
-        updateSession { entry in
-            entry.holePrep = prep
-        }
+        sessionCache.updatePrep(
+            roundId: package.roundId,
+            hole: hole,
+            teeBox: package.course.teeBox,
+            prep: prep
+        )
     }
 
     /// A ready prep and its bitmap are one user-visible fact. Make both durable before assigning

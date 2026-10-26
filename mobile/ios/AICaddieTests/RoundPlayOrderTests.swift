@@ -149,6 +149,41 @@ final class RoundPlayOrderTests: XCTestCase {
         XCTAssertTrue(retained.prepRequestCompleted)
     }
 
+    func testPrepRevisionAdvancesWithoutFlippingBackToPackageRevision() {
+        let hole = Hole(
+            number: 1, par: 4, yards: 400, geometryCoverage: .partial,
+            geometryRevision: nil, topoAvailable: false, topoRevision: nil,
+            sourceGlobalId: 101, sourceLocalHole: 1, courseHoleNumber: 1
+        )
+        let partial = CoursePrepHole(
+            hole: 1, par: 4, parSource: "fixture", blueYards: 400, routeLenM: 366,
+            geometryCoverage: "partial", geometryRevision: "partial-r1"
+        )
+        let precise = CoursePrepHole(
+            hole: 1, par: 4, parSource: "fixture", blueYards: 400, routeLenM: 366,
+            geometryCoverage: "ready", geometryRevision: "precise-r2"
+        )
+        let cache = LiveHoleSessionCache()
+        cache.updatePrep(roundId: "round", hole: hole, teeBox: "white", prep: partial)
+        cache.updatePrep(roundId: "round", hole: hole, teeBox: "white", prep: precise)
+        for _ in 0..<3 {
+            cache.update(
+                roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
+                teeBox: "white", geometryRevision: nil
+            ) { entry in
+                entry.prepRequestCompleted = true
+                entry.preciseProbeStarted = true
+            }
+        }
+        let retained = cache.entry(
+            roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "precise-r2"
+        )
+        XCTAssertEqual(retained.holePrep, precise)
+        XCTAssertTrue(retained.prepRequestCompleted)
+        XCTAssertTrue(retained.preciseProbeStarted)
+    }
+
     func testTrimHeavyPrepMarksTheEntryForARefresh() {
         let overlay = CoursePrepOverlay(w: 10, h: 10, ppm: 1, ln: 10, route: [])
         let prep = CoursePrepHole(

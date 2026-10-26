@@ -194,6 +194,26 @@ public final class LiveHoleSessionCache {
         entries[key] = value
     }
 
+    /// Replace the factual prep and advance the entry revision atomically. The revision must be
+    /// derived from the prep being written, never from the entry's previous prep.
+    func updatePrep(
+        roundId: String,
+        hole: Hole,
+        teeBox: String,
+        prep: CoursePrepHole?
+    ) {
+        update(
+            roundId: roundId,
+            hole: hole.number,
+            sourceGlobalId: hole.sourceGlobalId,
+            sourceLocalHole: hole.sourceLocalHole,
+            teeBox: teeBox,
+            geometryRevision: Self.cacheRevision(hole: hole, prep: prep)
+        ) { entry in
+            entry.holePrep = prep
+        }
+    }
+
     func reset(roundId: String? = nil) {
         guard let roundId else {
             entries.removeAll()
