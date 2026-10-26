@@ -1,6 +1,7 @@
 import CoreGraphics
 import CoreLocation
 import Foundation
+import UIKit
 import XCTest
 @testable import AICaddie
 
@@ -553,5 +554,73 @@ final class GarminRasterTests: XCTestCase {
                 XCTAssertFalse(error is DecodingError)
             }
         }
+    }
+
+    /// C88: the server's Garmin raster is a WebP whose sky is transparent. The store asks for WebP
+    /// first and keeps the alpha both from the network and from its own disk copy. ImageIO cannot
+    /// encode WebP here, so the stub server answers the .webp URL with PNG bytes of the same alpha;
+    /// the store decodes whatever it is served (WebP decoding is the system's, iOS 14+).
+    @MainActor
+    func testStoreLoadsTheTransparentWebpRasterAndKeepsItsAlpha() async throws {
+        let url = URL(string: "https://garmin-webp.example.test/api/v2/courses/1/holes/1/garmin-raster.webp?v=c88-\(UUID().uuidString)-sky1")!
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let png = try XCTUnwrap(
+            UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8), format: format).image { context in
+                UIColor(red: 0.41, green: 0.62, blue: 0.36, alpha: 1).setFill()
+                context.fill(CGRect(x: 2, y: 2, width: 4, height: 4))
+            }.pngData()
+        )
+        let accept = AcceptHeader()
+        CapturingURLProtocol.requestHandler = { request in
+            accept.value = request.value(forHTTPHeaderField: "Accept")
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200, httpVersion: nil,
+                headerFields: ["Content-Type": "image/png"]
+            )!
+            return (response, png)
+        }
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+        defer {
+            URLProtocol.unregisterClass(CapturingURLProtocol.self)
+            CapturingURLProtocol.requestHandler = nil
+        }
+
+        let store = GarminRasterImageStore()
+        await store.load(url)
+        let loaded = try XCTUnwrap(store.image)
+        XCTAssertEqual(accept.value?.hasPrefix("image/webp"), true, "requested \(accept.value ?? "nil")")
+        XCTAssertEqual(try alpha(of: loaded, x: 0, y: 0), 0)
+        XCTAssertEqual(try alpha(of: loaded, x: 4, y: 4), 255)
+
+        GarminRasterImageStore.evict(url)
+        let disk = try XCTUnwrap(GarminRasterImageStore.cachedImage(for: url))
+        XCTAssertEqual(try alpha(of: disk, x: 0, y: 0), 0)
+        XCTAssertEqual(try alpha(of: disk, x: 4, y: 4), 255)
+        GarminRasterImageStore.evict(url)
+    }
+
+    private final class AcceptHeader {
+        var value: String?
+    }
+
+    private func alpha(of image: UIImage, x: Int, y: Int) throws -> Int {
+        let cgImage = try XCTUnwrap(image.cgImage)
+        var bytes = [UInt8](repeating: 0, count: 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(cgImage, in: CGRect(
+                x: -CGFloat(x), y: -CGFloat(cgImage.height - 1 - y),
+                width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)
+            ))
+            return true
+        }
+        XCTAssertTrue(drawn)
+        return Int(bytes[3])
     }
 }

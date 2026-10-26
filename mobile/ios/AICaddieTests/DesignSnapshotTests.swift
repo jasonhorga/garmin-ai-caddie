@@ -1850,16 +1850,80 @@ final class DesignSnapshotTests: XCTestCase {
         )
     }
 
+    /// C88: while Garmin's raster loads, the frame is the hole screen's own black ground
+    /// (`LivePlayStyle.base`) carrying the hole's number and yards. Formerly this standard snapshot
+    /// was the dark-green ground (26, 46, 30) with only a corner spinner, and asserted nothing.
     @MainActor
     func testCaptureGarminRasterLoading() throws {
-        let url = URL(string: "http://127.0.0.1:9/api/v2/courses/1/holes/1/garmin-raster.jpg?v=asset-loading")!
-        try captureScreen(
-            GarminRasterStandaloneView(url: url, onReady: nil, onFailed: nil, onVersionConflict: nil)
-                .frame(width: 390, height: 600)
-                .background(LivePlayStyle.base),
+        // A reserved .test host never answers, so the capture stays on the loading frame.
+        let url = URL(string: "https://garmin-loading.example.test/api/v2/courses/1/holes/1/garmin-raster.webp?v=asset-loading-sky1")!
+        let png = try captureScreen(
+            GarminRasterStandaloneView(
+                url: url,
+                onReady: nil,
+                onFailed: nil,
+                onVersionConflict: nil,
+                placeholder: LiveMapNumericPlaceholder(
+                    holeNumber: 6,
+                    par: 4,
+                    yards: 402,
+                    frontYards: nil,
+                    middleYards: nil,
+                    backYards: nil
+                )
+            )
+            .frame(width: 390, height: 600)
+            .background(LivePlayStyle.base),
             named: "live-garmin-raster-loading",
             dark: true
         )
+        let pixels = try Self.screenPixels(png)
+        // The 390×600 frame is centred in the 844-pt screen (y 122…722). This ground point lies inside
+        // the raster's frame, clear of the centred facts and the top-trailing spinner.
+        let ground = pixels.rgb(at: CGPoint(x: 40, y: 200))
+        XCTAssertLessThanOrEqual(
+            abs(ground[0] - 5) + abs(ground[1] - 7) + abs(ground[2] - 12), 6,
+            "loading ground \(ground) must be LivePlayStyle.base #05070c, not the green 26/46/30"
+        )
+        // The placeholder's white figures sit in the middle of the frame (the spinner is not there).
+        var brightPixels = 0
+        for y in stride(from: 300, to: 560, by: 1) {
+            for x in stride(from: 40, to: 350, by: 1) {
+                let rgb = pixels.rgb(at: CGPoint(x: x, y: y))
+                if rgb.allSatisfy({ $0 > 200 }) { brightPixels += 1 }
+            }
+        }
+        XCTAssertGreaterThan(brightPixels, 50, "the loading frame shows the hole's number and yards")
+    }
+
+    private struct ScreenPixels {
+        let width: Int
+        let scale: CGFloat
+        let bytes: [UInt8]
+
+        /// The 0-255 RGB at a point in the 390-pt screen's coordinates.
+        func rgb(at point: CGPoint) -> [Int] {
+            let index = (Int(point.y * scale) * width + Int(point.x * scale)) * 4
+            return [Int(bytes[index]), Int(bytes[index + 1]), Int(bytes[index + 2])]
+        }
+    }
+
+    private static func screenPixels(_ png: Data) throws -> ScreenPixels {
+        let cgImage = try XCTUnwrap(UIImage(data: png)?.cgImage)
+        let width = cgImage.width
+        let height = cgImage.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        XCTAssertTrue(drawn)
+        return ScreenPixels(width: width, scale: CGFloat(width) / 390, bytes: bytes)
     }
 
     /// A production-shaped 256 x 256 hole raster: an irregular rough footprint with a fairway from

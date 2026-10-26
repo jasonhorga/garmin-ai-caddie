@@ -1,9 +1,10 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import os
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from ai_caddie.core.priority_work import FOREGROUND, NEARBY, SELECTED_COURSE, PriorityExecutor
 from ai_caddie.courses.course_search import CourseMatch
@@ -78,6 +79,128 @@ class NearbyWarmTests(unittest.TestCase):
         with patch.dict(ms._REGION_ENQUEUED, {}, clear=True), patch.object(ms.course_install, "enqueue", side_effect=[OSError("disk"), {}]):
             self.assertEqual(ms.enqueue_nearby([distant, near]), 0)
             self.assertEqual(ms.enqueue_nearby([near]), 1)
+
+    def test_nearby_prefetches_the_nearest_three_tee_releases(self):
+        # C87: discovery fetches the small CourseView release (Tee names) of the nearest three courses
+        # so a tap on one of them finds its Tee rows already cached.
+        from server_v2 import map_startup as ms
+        matches = [CourseMatch(i, f"Golf {i}", 9, None, None, 1, distance_km=i) for i in range(5, 0, -1)]
+        matches.append(CourseMatch(99, "Far", 9, None, None, 1, distance_km=0, provider_distance_km=45))
+        with (patch.object(ms, "_RELEASE_PREFETCHED", {}, create=True),
+              patch.object(ms, "courseview_release_info", return_value={"tees": []}) as release):
+            self.assertEqual(ms.prefetch_nearby_releases(matches), 3)
+        self.assertEqual(
+            release.call_args_list,
+            [call(1, allow_fetch=True), call(2, allow_fetch=True), call(3, allow_fetch=True)],
+        )
+
+    def test_failed_release_prefetch_backs_off_per_course(self):
+        # C87 rework: an uncached course whose release fetch fails (Garmin 404 or outage) is not
+        # fetched again by every following phone/Watch discovery; it is retried after 10 minutes.
+        from server_v2 import map_startup as ms
+        near = CourseMatch(7, "Golf", 9, None, None, 1, distance_km=1)
+        clock = [1000.0]
+        with (patch.object(ms, "_RELEASE_PREFETCHED", {}, create=True),
+              patch.object(ms, "time", SimpleNamespace(monotonic=lambda: clock[0])),
+              patch.object(ms, "courseview_release_info", side_effect=[OSError("garmin down"), None, None]) as release):
+            self.assertEqual(ms.prefetch_nearby_releases([near]), 0)
+            clock[0] += 60  # the next discovery a minute later (position changed, Watch asked)
+            self.assertEqual(ms.prefetch_nearby_releases([near]), 0)
+            self.assertEqual(release.call_count, 1)
+            clock[0] += 541  # 601 s after the failure: past the 10-minute backoff
+            self.assertEqual(ms.prefetch_nearby_releases([near]), 0)
+            self.assertEqual(release.call_count, 2)
+            clock[0] += 60  # a 404 (fetch returns None) backs off the same way
+            self.assertEqual(ms.prefetch_nearby_releases([near]), 0)
+        self.assertEqual(release.call_count, 2)
+
+    def test_prefetched_release_is_not_fetched_again_until_its_cache_expires(self):
+        # C87 rework: a cached release is refreshed hourly (COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S =
+        # 3600 s); discovery does not re-enter the release lock for it before then.
+        from server_v2 import map_startup as ms
+        near = CourseMatch(8, "Golf", 9, None, None, 1, distance_km=1)
+        clock = [1000.0]
+        with (patch.object(ms, "_RELEASE_PREFETCHED", {}, create=True),
+              patch.object(ms, "time", SimpleNamespace(monotonic=lambda: clock[0])),
+              patch.object(ms, "courseview_release_info", return_value={"tees": []}) as release):
+            self.assertEqual(ms.prefetch_nearby_releases([near]), 1)
+            clock[0] += 1800
+            self.assertEqual(ms.prefetch_nearby_releases([near]), 0)
+            self.assertEqual(release.call_count, 1)
+            clock[0] += 1801  # 3601 s after the fetch
+            self.assertEqual(ms.prefetch_nearby_releases([near]), 1)
+        self.assertEqual(release.call_count, 2)
+
+    def test_release_prefetch_skips_while_a_tee_request_is_in_flight(self):
+        # C87 rework: a player waiting on GET /tees outranks the prefetch; a pass that starts
+        # meanwhile fetches nothing (and records nothing, so the next discovery still fetches).
+        from fastapi.testclient import TestClient
+        from server_v2 import main
+        from server_v2 import map_startup as ms
+        near = CourseMatch(9, "Golf", 9, None, None, 1, distance_km=1)
+        entered, release_request = threading.Event(), threading.Event()
+
+        def slow_release_tees(global_id, *, allow_fetch=True, **_kwargs):
+            if allow_fetch:
+                entered.set()
+                release_request.wait(5)
+            return []
+
+        responses = []
+        with (patch.object(ms, "_RELEASE_PREFETCHED", {}, create=True),
+              patch("ai_caddie.courses.course_reference.courseview_tees", side_effect=slow_release_tees),
+              patch("ai_caddie.caddie.analysis.course_tee_options", return_value={"defaultTeeBox": "black", "tees": []}),
+              patch.object(ms, "courseview_release_info", return_value={"tees": []}) as prefetch_fetch):
+            client = TestClient(main.app)
+            request = threading.Thread(
+                target=lambda: responses.append(client.get("/api/v2/courses/9/tees?ensure_release=true"))
+            )
+            request.start()
+            try:
+                self.assertTrue(entered.wait(5))
+                self.assertEqual(ms.prefetch_nearby_releases([near]), 0)
+                prefetch_fetch.assert_not_called()
+            finally:
+                release_request.set()
+                request.join(10)
+            self.assertEqual(ms.prefetch_nearby_releases([near]), 1)
+        self.assertEqual([response.status_code for response in responses], [200])
+        prefetch_fetch.assert_called_once_with(9, allow_fetch=True)
+
+    def test_nearby_install_pass_yields_while_a_tee_request_is_in_flight(self):
+        # C87: a player waiting on GET /tees outranks regional warming. A nearby pass that starts
+        # meanwhile defers instead of competing for the release lock and the CPU.
+        from fastapi.testclient import TestClient
+        from server_v2 import main
+        state = {"globalId": 123, "loopKey": "123:nearby-assets", "priority": NEARBY}
+        entered, release = threading.Event(), threading.Event()
+
+        def slow_release_tees(global_id, *, allow_fetch=True, **_kwargs):
+            if allow_fetch:
+                entered.set()
+                release.wait(5)
+            return []
+
+        responses = []
+        with (patch("ai_caddie.courses.course_reference.courseview_tees", side_effect=slow_release_tees),
+              patch("ai_caddie.caddie.analysis.course_tee_options", return_value={"defaultTeeBox": "black", "tees": []}),
+              patch.object(main.course_install, "state_for_worker", return_value=state),
+              patch("ai_caddie.courses.course_reference.courseview_release_info", return_value=None) as fetch,
+              patch.object(main.course_install, "update") as update):
+            client = TestClient(main.app)
+            request = threading.Thread(
+                target=lambda: responses.append(client.get("/api/v2/courses/123/tees?ensure_release=true"))
+            )
+            request.start()
+            try:
+                self.assertTrue(entered.wait(5))
+                main.run_course_install_job("nearby")
+            finally:
+                release.set()
+                request.join(10)
+        self.assertEqual([response.status_code for response in responses], [200])
+        fetch.assert_not_called()
+        update.assert_called_once_with("nearby", phase="queued", stage="deferred", clear_error=True)
 
 
 def rectangle(x0, y0, x1, y1):

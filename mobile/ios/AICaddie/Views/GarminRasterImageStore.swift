@@ -107,8 +107,9 @@ struct GarminRasterRetryCursor: Equatable {
     }
 }
 
-/// Garmin fallback images use the same durable, revision-bound cache contract as topo images, but
-/// keep a separate namespace so a JPEG can never collide with a rendered topo PNG. Loading uses a
+/// Garmin fallback images (the server's transparent-sky WebP, or a legacy JPEG) use the same durable,
+/// revision-bound cache contract as topo images, but keep a separate namespace so they can never
+/// collide with a rendered topo PNG. Loading uses a
 /// continuing retry cursor so a view recreation cannot restart the same display process.
 @MainActor
 final class GarminRasterImageStore: ObservableObject {
@@ -241,6 +242,12 @@ final class GarminRasterImageStore: ObservableObject {
         return disk
     }
 
+    /// Whether `url`'s image is already in the disk cache. Reads neither the file nor the memory
+    /// cache, so asking never pushes a decoded bitmap (the hole on screen) out of memory.
+    static func isOnDisk(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: diskURL(for: url).path)
+    }
+
     static func preload(_ image: UIImage, for url: URL) {
         imageCache.setObject(image, forKey: url as NSURL, cost: cost(of: image))
     }
@@ -275,7 +282,8 @@ final class GarminRasterImageStore: ObservableObject {
                     cachePolicy: .returnCacheDataElseLoad,
                     timeoutInterval: 30
                 )
-                request.setValue("image/jpeg,image/*;q=0.9", forHTTPHeaderField: "Accept")
+                // The server's raster is a transparent-sky WebP; older descriptors still name the JPEG.
+                request.setValue("image/webp,image/jpeg;q=0.9,image/*;q=0.8", forHTTPHeaderField: "Accept")
                 guard let (data, response) = try? await URLSession.shared.data(for: request) else {
                     return DownloadResult(data: nil, versionConflict: false)
                 }
@@ -328,9 +336,13 @@ final class GarminRasterImageStore: ObservableObject {
         let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
+        // The bytes are stored as served, so a WebP keeps its alpha; the name only records the
+        // format the URL path names.
+        let pathExtension = url.pathExtension.lowercased()
+        let fileExtension = ["webp", "png", "jpg"].contains(pathExtension) ? pathExtension : "jpg"
         return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("AICaddieGarminRasterImages-v1", isDirectory: true)
-            .appendingPathComponent("\(digest).jpg")
+            .appendingPathComponent("\(digest).\(fileExtension)")
     }
 }
 #endif

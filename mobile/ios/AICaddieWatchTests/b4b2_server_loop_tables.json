@@ -2106,7 +2106,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-10-24T09:13:25Z",
+  "generatedAt": "2026-10-26T12:16:24Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -2116,7 +2116,7 @@
    {
     "courseHoleNumber": 10,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/10/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/10/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/10/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -2137,7 +2137,7 @@
    {
     "courseHoleNumber": 11,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/11/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/11/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/11/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -2158,7 +2158,7 @@
    {
     "courseHoleNumber": 12,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/12/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/12/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/12/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -2179,7 +2179,7 @@
    {
     "courseHoleNumber": 13,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/13/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/13/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/13/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -2200,7 +2200,7 @@
    {
     "courseHoleNumber": 14,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/14/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/14/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/14/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -2221,7 +2221,7 @@
    {
     "courseHoleNumber": 15,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/15/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/15/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/15/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -2242,7 +2242,7 @@
    {
     "courseHoleNumber": 16,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/16/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/16/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/16/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -2263,7 +2263,7 @@
    {
     "courseHoleNumber": 17,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/17/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/17/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/17/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -2284,7 +2284,7 @@
    {
     "courseHoleNumber": 18,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/18/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/18/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/18/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -2343,8 +2343,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-10-25T09:13:25Z",
-   "preparedAt": "2026-10-24T09:13:25Z",
+   "expiresAt": "2026-10-27T12:16:24Z",
+   "preparedAt": "2026-10-26T12:16:24Z",
    "state": "degraded"
   },
   "playerProfile": {
@@ -4708,7 +4708,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-10-24T09:13:25Z",
+  "generatedAt": "2026-10-26T12:16:24Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -4718,7 +4718,7 @@
    {
     "courseHoleNumber": 1,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/1/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/1/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/1/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -4739,7 +4739,7 @@
    {
     "courseHoleNumber": 2,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/2/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/2/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/2/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -4760,7 +4760,7 @@
    {
     "courseHoleNumber": 3,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/3/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/3/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/3/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -4781,7 +4781,7 @@
    {
     "courseHoleNumber": 4,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/4/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/4/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/4/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -4802,7 +4802,7 @@
    {
     "courseHoleNumber": 5,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/5/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/5/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/5/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -4823,7 +4823,7 @@
    {
     "courseHoleNumber": 6,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/6/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/6/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/6/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -4844,7 +4844,7 @@
    {
     "courseHoleNumber": 7,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/7/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/7/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/7/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -4865,7 +4865,7 @@
    {
     "courseHoleNumber": 8,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/8/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/8/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/8/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -4886,7 +4886,7 @@
    {
     "courseHoleNumber": 9,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/9/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/9/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/9/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -4945,8 +4945,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-10-25T09:13:25Z",
-   "preparedAt": "2026-10-24T09:13:25Z",
+   "expiresAt": "2026-10-27T12:16:24Z",
+   "preparedAt": "2026-10-26T12:16:24Z",
    "state": "degraded"
   },
   "playerProfile": {
@@ -10911,7 +10911,7 @@
    "pendingEventCount": 0,
    "serverSequence": 0
   },
-  "generatedAt": "2026-10-24T09:13:25Z",
+  "generatedAt": "2026-10-26T12:16:23Z",
   "geometryCoverage": {
    "readyHoles": 0,
    "state": "missing",
@@ -10921,7 +10921,7 @@
    {
     "courseHoleNumber": 1,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/1/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/1/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/1/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -10942,7 +10942,7 @@
    {
     "courseHoleNumber": 2,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/2/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/2/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/2/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -10963,7 +10963,7 @@
    {
     "courseHoleNumber": 3,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/3/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/3/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/3/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -10984,7 +10984,7 @@
    {
     "courseHoleNumber": 4,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/4/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/4/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/4/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11005,7 +11005,7 @@
    {
     "courseHoleNumber": 5,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/5/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/5/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/5/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11026,7 +11026,7 @@
    {
     "courseHoleNumber": 6,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/6/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/6/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/6/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11047,7 +11047,7 @@
    {
     "courseHoleNumber": 7,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/7/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/7/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/7/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11068,7 +11068,7 @@
    {
     "courseHoleNumber": 8,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/8/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/8/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/8/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11089,7 +11089,7 @@
    {
     "courseHoleNumber": 9,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/9/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/9/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/9/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11110,7 +11110,7 @@
    {
     "courseHoleNumber": 10,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/10/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/10/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/10/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11131,7 +11131,7 @@
    {
     "courseHoleNumber": 11,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/11/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/11/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/11/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11152,7 +11152,7 @@
    {
     "courseHoleNumber": 12,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/12/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/12/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/12/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11173,7 +11173,7 @@
    {
     "courseHoleNumber": 13,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/13/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/13/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/13/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11194,7 +11194,7 @@
    {
     "courseHoleNumber": 14,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/14/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/14/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/14/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11215,7 +11215,7 @@
    {
     "courseHoleNumber": 15,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/15/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/15/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/15/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11236,7 +11236,7 @@
    {
     "courseHoleNumber": 16,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/16/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/16/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/16/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11257,7 +11257,7 @@
    {
     "courseHoleNumber": 17,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/17/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/17/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/17/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11278,7 +11278,7 @@
    {
     "courseHoleNumber": 18,
     "garminRaster": {
-     "imageUrl": "/api/v2/courses/55555/holes/18/garmin-raster.jpg",
+     "imageUrl": "/api/v2/courses/55555/holes/18/garmin-raster.webp",
      "metadataUrl": "/api/v2/courses/55555/holes/18/garmin-raster"
     },
     "geometryAuthorityObservation": "unknown",
@@ -11346,8 +11346,8 @@
     "expiresAfterHours": 24,
     "staleAfterHours": 6
    },
-   "expiresAt": "2026-10-25T09:13:25Z",
-   "preparedAt": "2026-10-24T09:13:25Z",
+   "expiresAt": "2026-10-27T12:16:23Z",
+   "preparedAt": "2026-10-26T12:16:23Z",
    "state": "degraded"
   },
   "playerProfile": {

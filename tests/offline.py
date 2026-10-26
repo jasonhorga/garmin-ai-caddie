@@ -52,6 +52,8 @@ def install():
     # Lifespan workers outlive TestClient and can consume later tests' mocks. Read at
     # startup (not import time); wiring tests explicitly opt in and fake the entry point.
     os.environ["AI_CADDIE_BOOT_BACKGROUND_WORK"] = "0"
+    # Install passes warm Garmin rasters on a background pool; tests that cover it opt in.
+    os.environ["AI_CADDIE_GARMIN_RASTER_PREFETCH"] = "0"
 
     # Guard below urlopen aliases and Session.get/post, but above actual I/O.
     # Existing tests can still fake urlopen, Session.send or an HTTP adapter.

@@ -48,6 +48,7 @@ from ai_caddie.reports.annotations import annotations_for_target, list_annotatio
 from ai_caddie.core.data import hazard_path, read_json
 from ai_caddie.core.priority_work import PriorityExecutor, SELECTED_COURSE
 from ai_caddie.core.fixtures import fixture_history_data
+from ai_caddie.geometry import garmin_raster
 from ai_caddie.geometry.geometry_evidence import build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.geometry.shot_projection import local_to_world
 from ai_caddie.history.history import HistoryData, OWNER_ID
@@ -1072,10 +1073,19 @@ def _startup_hole_assets(global_id: int | None, local_hole: int | None, evidence
     topo = evidence.get("topoCoverage", evidence.get("coverage")) == "ready"
     revision = evidence.get("topoRevision") or evidence.get("geometryRevision")
     drawable = evidence.get("coverage") == "ready" or bool(topo and revision)
+    # The metadata endpoint names this same versioned URL (one cache entry on the phone); only the
+    # cached release is read here, so describing the raster never contacts Garmin.
+    raster_version = (
+        garmin_raster.raster_asset_version(int(global_id), int(local_hole), allow_fetch=False)
+        if global_id and local_hole else None
+    )
     assets: dict[str, Any] = {
         "geometryState": "ready" if drawable else "pending",
         "retryAfterEpoch": None,
-        "garminRaster": {"imageUrl": base + "/garmin-raster.jpg", "metadataUrl": base + "/garmin-raster"},
+        "garminRaster": {
+            "imageUrl": garmin_raster.raster_image_path(int(global_id or 0), int(local_hole or 0), raster_version),
+            "metadataUrl": base + "/garmin-raster",
+        },
         "topoAvailable": bool(topo and revision), "topoRevision": revision if topo else None,
     }
     if drawable:

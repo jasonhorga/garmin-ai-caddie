@@ -5,6 +5,7 @@ import unittest
 import json
 import os
 import subprocess
+import sys
 import base64
 import math
 import struct
@@ -50,6 +51,46 @@ class CIFixtureContractTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as context:
             garmin_raster_jpg(31795, 1, v="old-version")
         self.assertEqual(context.exception.status_code, 409)
+
+    def test_fixture_garmin_raster_webp_is_the_metadata_url_with_a_transparent_sky(self) -> None:
+        # C88 rework 1: the iOS UI journeys download the same transparent WebP shape production serves.
+        from fastapi import HTTPException
+        from server_v2.ci_fixture import FIXTURE_REVISION, garmin_raster, garmin_raster_webp
+        image_url = garmin_raster(31795, 1)["imageUrl"]
+        self.assertEqual(
+            image_url, f"/api/v2/courses/31795/holes/1/garmin-raster.webp?v={FIXTURE_REVISION}"
+        )
+        response = garmin_raster_webp(31795, 1, v=FIXTURE_REVISION)
+        self.assertEqual(response.media_type, "image/webp")
+        self.assertEqual(response.headers.get("etag"), f'"{FIXTURE_REVISION}"')
+        self.assertIn("immutable", response.headers.get("cache-control", ""))
+        with Image.open(BytesIO(response.body)) as decoded:
+            self.assertEqual(decoded.format, "WEBP")
+            self.assertEqual(decoded.size, (1242, 1920))
+            rgba = decoded.convert("RGBA")
+        for corner in ((0, 0), (1241, 0), (0, 1919), (1241, 1919)):
+            self.assertEqual(rgba.getpixel(corner)[3], 0, corner)
+        self.assertEqual(rgba.getpixel((620, 960))[3], 255)
+        with self.assertRaises(HTTPException) as context:
+            garmin_raster_webp(31795, 1, v="old-version")
+        self.assertEqual(context.exception.status_code, 409)
+
+    def test_fixture_server_admits_the_garmin_raster_webp_route(self) -> None:
+        # The fixture process rejects every unlisted /api/v2 path, so the route must be on its list.
+        script = (
+            "from fastapi.testclient import TestClient\n"
+            "from server_v2.ci_fixture import FIXTURE_REVISION\n"
+            "from server_v2.main import app\n"
+            "r = TestClient(app).get('/api/v2/courses/31795/holes/1/garmin-raster.webp', params={'v': FIXTURE_REVISION})\n"
+            "print(r.status_code, r.headers.get('content-type'))\n"
+        )
+        env = {**os.environ, "AI_CADDIE_FIXTURE_MODE": "1", "AI_CADDIE_BOOT_BACKGROUND_WORK": "0"}
+        result = subprocess.run(
+            [sys.executable, "-c", script], env=env, capture_output=True, text=True, timeout=120, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        self.assertEqual(result.stdout.strip().splitlines()[-1], "200 image/webp")
+
     def test_fixture_images_are_real_decodable_rasters_above_native_gate(self) -> None:
         try:
             from server_v2.ci_fixture import _png_data_uri, prep, shotmap

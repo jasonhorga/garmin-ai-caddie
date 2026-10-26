@@ -1537,7 +1537,7 @@ class MobileContractTests(unittest.TestCase):
             app_swift,
         )
         self.assertIn(
-            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, includeEventCursor: false, foregroundStart: preparationToken != nil, priorityHole: priorityHole)",
+            "fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, mapOnly: mapOnly, includeEventCursor: false, foregroundStart: preparationToken != nil, priorityHole: priorityHole)",
             app_swift,
         )
         self.assertIn(
@@ -1825,8 +1825,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let selectedLiveHazard", current_hole)
         # B1: the one selected obstacle is browsed from the bottom-centre bar on the map.
         self.assertIn("LivePlayHazardBar(", current_hole)
-        self.assertIn("var delaySeconds: UInt64 = 2", current_hole)
-        self.assertIn("min(delaySeconds * 2, 15)", current_hole)
+        # C89 rework: the first probe stays at 2 s; the back-off now reaches once a minute.
+        self.assertIn("static let firstDelaySeconds: UInt64 = 2", current_hole)
+        self.assertIn("min(seconds * 2, maxDelaySeconds)", current_hole)
         self.assertNotIn(":\\(package.holes.count):", round_home)
 
         # B4b-2: a round is ordered loops (holes 1–9, then 10–18). Wired front→model→SyncClient→backend
@@ -2599,8 +2600,9 @@ class MobileContractTests(unittest.TestCase):
         # Device review (build 77): no thin centreline over the map, only the caddie's white route.
         self.assertNotIn("drawFactualRoute", hole_map_view)
         self.assertNotIn("showsRoute: showsRecommendedRoute", hole_map_view)
-        # The selected obstacle is drawn by the route renderer's shared label layout.
-        self.assertIn("hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }", current_hole)
+        # The selected obstacle is drawn by the route renderer's shared label layout, in the frame
+        # of the bitmap on screen (C89: never in the CourseView frame over the topo).
+        self.assertIn("hazard: selectedLiveHazardDrawable,", current_hole)
         # B1: obstacles stay hidden until the explicit 障碍 control (left column) selects one.
         self.assertIn("LivePlaySideControls(", current_hole)
         self.assertIn("toggleHazardDisplay", current_hole)
@@ -4300,7 +4302,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("LiveHazardDisplayItem.rows(for: holePrep", current_hole)
         self.assertIn("liveHazardDisplayRows", current_hole)
         self.assertIn("LivePlayHazardBar(", current_hole)
-        self.assertIn("hazard: selectedLiveHazard.map { (hole: holePrep, row: $0) }", current_hole)
+        self.assertIn("hazard: selectedLiveHazardDrawable,", current_hole)
         live_chrome_source = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")
         self.assertIn("LiveHazardOverlayRenderer.draw(", live_chrome_source)
         self.assertIn("labelRects: placed.hazard", live_chrome_source)
@@ -4598,7 +4600,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("resumeInterruptedOfflineCourseDownload()", body(app_swift, "func liveHoleInitialLoadDidFinish() {"))
 
         wait = body(current_hole, "private func waitForPreciseHoleMap(syncClub: Bool) async {")
-        deadline = wait.split("Date() >= deadline", 1)[1].split("do {", 1)[0]
+        deadline = wait.split("Date() >= deadline", 1)[1].split("}", 1)[0]
         self.assertIn("preciseMapTimedOut = true", deadline)
         self.assertNotIn("return", deadline)
 

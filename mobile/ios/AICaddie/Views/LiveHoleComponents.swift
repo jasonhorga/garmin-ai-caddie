@@ -2034,6 +2034,24 @@ struct LiveMapPreparingPill: View {
     }
 }
 
+/// A selected obstacle the bitmap on screen cannot place (yet). Its distances remain in the hazard
+/// bar; this explains the empty map instead of leaving it silently blank.
+struct LiveHazardMapNotice: View {
+    let text: String
+
+    var body: some View {
+        Label(text, systemImage: "mappin.slash")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(.white.opacity(0.9))
+            .padding(.vertical, 5)
+            .padding(.horizontal, 10)
+            .background(Color.black.opacity(0.74), in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.24)))
+            .shadow(color: .black.opacity(0.4), radius: 5, y: 3)
+            .accessibilityIdentifier("live-hazard-map-notice")
+    }
+}
+
 /// Live play's waiting surface for a hole with no drawable route yet (a hole that has one draws its
 /// factual route at once instead). It is the shared `HoleMapWaitingPage`.
 struct LiveMapPreparingSurface: View {

@@ -7,11 +7,15 @@ runs `unittest discover`.
 
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import call, patch
 
 from fastapi.testclient import TestClient
 
+from ai_caddie.caddie import analysis
 from ai_caddie.caddie.analysis import _normalize_tee_color, _selected_tee, course_tee_options
 from server_v2.main import app
 
@@ -248,6 +252,45 @@ class CourseTeeOptionsTests(unittest.TestCase):
 
 
 class CourseTeesEndpointTests(unittest.TestCase):
+    def test_repeated_tee_list_does_not_reread_hole_meshes(self) -> None:
+        # C87: Tee yards come from each hole's compact hazard export; the large mesh is read only to
+        # rebind older exports. A second request over unchanged files must not parse any mesh again.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for hole in (1, 2):
+                (root / f"h{hole:02d}_hazards.json").write_text(json.dumps({
+                    "tees": [{"tee_index": 1, "sets": [1], "position": [0.0, 0.0], "target_distance_m": 300.0}],
+                }))
+                (root / f"h{hole:02d}_meshes.json").write_text(json.dumps({"meshes": []}))
+            reads: list[str] = []
+            real_read_json = analysis.read_json
+
+            def counting_read_json(path):
+                reads.append(Path(path).name)
+                return real_read_json(path)
+
+            with (
+                patch.object(analysis, "hazard_path", side_effect=lambda gid, hole: root / f"h{hole:02d}_hazards.json"),
+                patch.object(analysis, "mesh_path", side_effect=lambda gid, hole: root / f"h{hole:02d}_meshes.json"),
+                patch.object(analysis, "available_prep_holes", return_value=[1, 2]),
+                patch.object(analysis, "read_json", side_effect=counting_read_json),
+                patch(
+                    "ai_caddie.courses.course_reference.courseview_tees",
+                    return_value=[{"name": "Blue", "gender": "MEN", "index": 1}],
+                ),
+            ):
+                first = TestClient(app).get("/api/v2/courses/880087/tees")
+                first_mesh_reads = [name for name in reads if name.endswith("_meshes.json")]
+                reads.clear()
+                second = TestClient(app).get("/api/v2/courses/880087/tees")
+
+        self.assertEqual(first.status_code, 200)
+        # Two holes × 300 m from the Blue (set 1) Tee → yards.
+        self.assertEqual(first.json()["tees"][0]["yards"], round(600.0 * 1.09361))
+        self.assertEqual(second.json(), first.json())
+        self.assertEqual(len(first_mesh_reads), 2)
+        self.assertEqual([name for name in reads if name.endswith("_meshes.json")], [])
+
     def test_endpoint_is_public_and_well_formed(self) -> None:
         client = TestClient(app)
         # No token → public course knowledge (like /topo.png). Never 401/403.

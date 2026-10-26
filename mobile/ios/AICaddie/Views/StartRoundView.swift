@@ -65,6 +65,8 @@ public struct StartRoundView: View {
     @State private var startHalf: String
     /// 所选球场的发球台列表(含码数/默认),来自 GET /courses/{id}/tees;为空则用球场自带 Tee 名。
     @State private var fetchedTees: [CourseTee] = []
+    /// Tee rows nearby/search rows carried (the server's cached /tees answer), by global id.
+    @State private var carriedCourseTees: [Int: [CourseTee]] = [:]
     @State private var nearbyCourseOptions: [MobileCourseOption] = []
     @State private var remoteCourseOptions: [MobileCourseOption] = []
     /// Downloaded packages are an explicit offline source. They must never be mixed into the
@@ -205,8 +207,9 @@ public struct StartRoundView: View {
     }
 
     /// The primary action is independent of GPS. A manually searched course has explicit player
-    /// intent and may enter the map with the server's `unknown` Tee while Tee authority continues in
-    /// the background; nearby discovery keeps the stricter loading gate.
+    /// intent and may enter the map with any chosen Tee while Tee authority continues in the
+    /// background. Any course may start on the server's course default (`unknown`) while `/tees`
+    /// loads (C87); a concrete colour still waits for the Tee list that names it.
     static func isStartAllowed(
         isPreparing: Bool,
         isLoadingTees: Bool,
@@ -217,14 +220,15 @@ public struct StartRoundView: View {
         teeOptions: [String],
         selectedCourseWasManualSearch: Bool
     ) -> Bool {
-        let hasManualSearchFallback = selectedCourseWasManualSearch
-            && !teeBox.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
+        let startsWithoutTeeList = (selectedCourseWasManualSearch && !tee.isEmpty)
+            || tee.caseInsensitiveCompare("unknown") == .orderedSame
         return !isPreparing
-            && (hasManualSearchFallback || !isLoadingTees)
+            && (startsWithoutTeeList || !isLoadingTees)
             && !roundId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && courseGlobalId != nil
-            && !teeBox.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (!selectedCourseRequiresRemoteTees || !teeOptions.isEmpty || hasManualSearchFallback)
+            && !tee.isEmpty
+            && (!selectedCourseRequiresRemoteTees || !teeOptions.isEmpty || startsWithoutTeeList)
     }
 
     private static let surface = Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255)
@@ -356,34 +360,14 @@ public struct StartRoundView: View {
             teeLoadFailed = false
             return
         }
-        let requiresRemoteTees = selectedCourseRequiresRemoteTees
-        let hasCatalogueTeeAuthority = selectedSegment?.tees?.isEmpty == false
-        // A recent row was produced from a successfully activated package and already carries
-        // the accepted Tee authority. Do not make the recovery action wait behind a second Tee
-        // request; still fetch the course's full tee list (colours + yards) in the background so
-        // the player can change tee on the recent course.
-        let recentHasTeeAuthority = recentResolvedCourseOption?.globalId == globalId
-            && recentResolvedCourseOption?.tees?.isEmpty == false
-        fetchedTees = []
         teeLoadFailed = false
-        // A cached/history course may already have factual Tee names, but this request still
-        // enriches them with Garmin yardage/default authority. Do not let Start race that request:
-        // URLSession can otherwise queue the course-package behind a cold CourseView release and
-        // silently hit its 60 s timeout. A failed refresh still falls back to the known Tee list.
-        isLoadingTees = !recentHasTeeAuthority
-        defer {
-            if teeRequestToken == requestToken {
-                isLoadingTees = false
-            }
-        }
-        let tees = await onLoadCourseTees(globalId)
-        guard !Task.isCancelled,
-              teeRequestToken == requestToken,
-              courseGlobalId == globalId else { return }
-        guard !tees.isEmpty else {
-            if requiresRemoteTees && !hasCatalogueTeeAuthority && !recentHasTeeAuthority { teeLoadFailed = true }
-            return
-        }
+        // Carried rows need no request; `requestTees` raises the loading gate itself.
+        isLoadingTees = false
+        guard let tees = await Self.courseTeeRows(
+            globalId: globalId,
+            carried: carriedCourseTees,
+            request: { await requestTees(globalId: $0, requestToken: requestToken) }
+        ) else { return }
         fetchedTees = tees
         let pickedTee = userPickedTee ? teeBox : nil
         teeBox = Self.teeAfterRefresh(
@@ -399,6 +383,51 @@ public struct StartRoundView: View {
                     .caseInsensitiveCompare(picked.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
             }
         } ?? false
+    }
+
+    /// The selected course's Tee rows: those its nearby/search row carried (the server's cached
+    /// `/tees` answer) at once with no request (C87); otherwise `request` (GET /tees), nil when unusable.
+    static func courseTeeRows(
+        globalId: Int,
+        carried: [Int: [CourseTee]],
+        request: (Int) async -> [CourseTee]?
+    ) async -> [CourseTee]? {
+        if let rows = carried[globalId], !rows.isEmpty { return rows }
+        return await request(globalId)
+    }
+
+    /// GET /tees for the selected course. Nil when the answer is stale (course changed, task
+    /// cancelled) or empty; an empty answer for a course with no other Tee authority is a failure.
+    private func requestTees(globalId: Int, requestToken: UUID) async -> [CourseTee]? {
+        let requiresRemoteTees = selectedCourseRequiresRemoteTees
+        let hasCatalogueTeeAuthority = selectedSegment?.tees?.isEmpty == false
+        // A recent row was produced from a successfully activated package and already carries
+        // the accepted Tee authority. Do not make the recovery action wait behind a second Tee
+        // request; still fetch the course's full tee list (colours + yards) in the background so
+        // the player can change tee on the recent course.
+        let recentHasTeeAuthority = recentResolvedCourseOption?.globalId == globalId
+            && recentResolvedCourseOption?.tees?.isEmpty == false
+        fetchedTees = []
+        // A cached/history course may already have factual Tee names, but this request still
+        // enriches them with Garmin yardage/default authority. A concrete colour does not race that
+        // request: URLSession can otherwise queue the course-package behind a cold CourseView
+        // release. The course default (`unknown`) may start meanwhile (`isStartAllowed`). A failed
+        // refresh still falls back to the known Tee list.
+        isLoadingTees = !recentHasTeeAuthority
+        defer {
+            if teeRequestToken == requestToken {
+                isLoadingTees = false
+            }
+        }
+        let tees = await onLoadCourseTees(globalId)
+        guard !Task.isCancelled,
+              teeRequestToken == requestToken,
+              courseGlobalId == globalId else { return nil }
+        guard !tees.isEmpty else {
+            if requiresRemoteTees && !hasCatalogueTeeAuthority && !recentHasTeeAuthority { teeLoadFailed = true }
+            return nil
+        }
+        return tees
     }
 
     /// The venue of the currently selected segment — the single source of truth (no separate state
@@ -945,7 +974,7 @@ public struct StartRoundView: View {
         }
     }
 
-    /// Choosing a venue selects its first loop; tapping the already-selected venue keeps the loop.
+    /// A different venue uses its preferred loop/Tee; reopening the selected venue keeps setup.
     private func selectCourseRow(_ row: StartCourseListRow) {
         guard let first = StartRoundPresentation.preselectedLoop(
             in: row.segments, current: selectedSegment, recent: recentResolvedCourseOption
@@ -956,9 +985,27 @@ public struct StartRoundView: View {
             previous: selectedSegment,
             next: first
         )
-        fetchedTees = []
-        teeLoadFailed = false
-        applySelectedCourse(first)
+        let state = StartRoundPresentation.selectingCourseRow(
+            first,
+            current: selectedSegment,
+            state: .init(
+                selection: .init(globalIdText: courseGlobalIdText, roundId: roundId, teeBox: teeBox),
+                startHalf: startHalf, userPickedTee: userPickedTee,
+                fetchedTees: fetchedTees, teeLoadFailed: teeLoadFailed
+            ),
+            lastUsedTee: Self.lastUsedTeeForCourse(
+                for: first, recent: recentCourseOption,
+                caller: (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId },
+                callerTee: callerTeeBox
+            )
+        )
+        courseGlobalIdText = state.selection.globalIdText
+        roundId = state.selection.roundId
+        teeBox = state.selection.teeBox
+        startHalf = state.startHalf
+        userPickedTee = state.userPickedTee
+        fetchedTees = state.fetchedTees
+        teeLoadFailed = state.teeLoadFailed
         showSetupPage()
     }
 
@@ -1181,14 +1228,18 @@ public struct StartRoundView: View {
             Text("发球台")
                 .font(.footnote.weight(.bold))
                 .foregroundStyle(.secondary)
-            if selectedCourseRequiresRemoteTees, teeLoadFailed, teeOptions.isEmpty {
+            if Self.showsTeeRetry(
+                requiresRemoteTees: selectedCourseRequiresRemoteTees,
+                teeLoadFailed: teeLoadFailed,
+                fetchedTees: fetchedTees,
+                courseTees: selectedSegment?.tees ?? []
+            ) {
                 // Tee authority failed: the course default still starts; retry is an icon.
                 HStack(spacing: 12) {
                     Button {
                         teeBox = "unknown"
-                        teeLoadFailed = false
                     } label: {
-                        teeChipLabel("unknown", selected: false)
+                        teeChipLabel("unknown", selected: teeBox.caseInsensitiveCompare("unknown") == .orderedSame)
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("start-round-use-course-default-tee")
@@ -1221,6 +1272,18 @@ public struct StartRoundView: View {
                 }
             }
         }
+    }
+
+    /// `/tees` failed and the course has no Tee rows from anywhere else (fetched, carried by its
+    /// nearby row, or bundled): offer a retry next to the course default, which still starts. The
+    /// Tee list itself is not the gate, because the course default (`unknown`) is always in it.
+    static func showsTeeRetry(
+        requiresRemoteTees: Bool,
+        teeLoadFailed: Bool,
+        fetchedTees: [CourseTee],
+        courseTees: [String]
+    ) -> Bool {
+        requiresRemoteTees && teeLoadFailed && fetchedTees.isEmpty && courseTees.isEmpty
     }
 
     private func teeChip(_ tee: String) -> some View {
@@ -1270,8 +1333,21 @@ public struct StartRoundView: View {
     /// 所选球场 Garmin CourseView 的真实 Tee 名(金/黑/蓝/白/红…);再没有才回退通用集。
     /// 内部保留原始 key(传给后端),仅显示中文。
     private var teeOptions: [String] {
+        Self.resolvedTeeOptions(
+            fetchedTees: fetchedTees, courseTees: selectedSegment?.tees ?? [], teeBox: teeBox,
+            requiresRemoteTees: selectedCourseRequiresRemoteTees,
+            wasManualSearch: selectedCourseWasManualSearch
+        )
+    }
+
+    static func resolvedTeeOptions(
+        fetchedTees: [CourseTee],
+        courseTees: [String],
+        teeBox: String,
+        requiresRemoteTees: Bool,
+        wasManualSearch: Bool
+    ) -> [String] {
         let fetched = fetchedTees.map(\.teeBox)
-        let courseTees = selectedSegment?.tees ?? []
         if !fetched.isEmpty {
             return Self.normalizedTeeOptions(fetched, currentTeeBox: teeBox)
         }
@@ -1282,7 +1358,7 @@ public struct StartRoundView: View {
         // A remotely searched course has no local Tee authority yet. Keep the explicit
         // `unknown` request available so it can start immediately, but never present a
         // fabricated colour list while the real `/tees` response is pending or unavailable.
-        if selectedCourseRequiresRemoteTees || selectedCourseWasManualSearch {
+        if requiresRemoteTees || wasManualSearch {
             let current = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
             return current.caseInsensitiveCompare("unknown") == .orderedSame ? ["unknown"] : []
         }
@@ -1442,7 +1518,9 @@ public struct StartRoundView: View {
         return CourseSelectionState(
             globalIdText: String(option.globalId),
             roundId: Self.freshLiveRoundId(globalId: option.globalId, uuid: uuid),
-            teeBox: selectedTee
+            // No Tee known yet → the server's course default, so Start need not wait for /tees;
+            // the Tee list replaces it once it arrives (C87).
+            teeBox: selectedTee.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "unknown" : selectedTee
         )
     }
 
@@ -1781,6 +1859,7 @@ public struct StartRoundView: View {
         nearbyStatusText = nil
         nearbyDiscoveryFailed = false
         offlineCourseOptions = []
+        carriedCourseTees.merge(StartRoundPresentation.carriedTees(in: matches)) { _, latest in latest }
         remoteCourseOptions = Self.sameVenueSearchOptions(
             selected: option,
             candidates: matches.compactMap { resolvedOption(for: $0) }
@@ -1999,6 +2078,7 @@ public struct StartRoundView: View {
                 requestKey: requestKey,
                 currentRequestKey: locationDiscoveryKey
             ) else { return }
+            carriedCourseTees.merge(StartRoundPresentation.carriedTees(in: matches)) { _, latest in latest }
             var seen = Set<Int>()
             let providerNearby = matches.compactMap { resolvedOption(for: $0) }
             nearbyCourseOptions = providerNearby.filter {

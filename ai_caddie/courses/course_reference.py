@@ -517,6 +517,18 @@ def courseview_release_info(
     return _release_info(global_id, allow_fetch=allow_fetch, root=root)
 
 
+def courseview_release_signature(global_id: int, *, root: Path = ROOT) -> tuple[int, int, int] | None:
+    """The cached release file's ``(mtime_ns, size, inode)``, or None when none is cached.
+
+    A replaced release changes it, so callers may reuse anything derived from the release under it.
+    """
+    try:
+        stat = (_courseview_dir(root) / f"{int(global_id)}_releases.pb").stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+
+
 def courseview_release_fetch_failed(global_id: int, *, root: Path = ROOT) -> bool:
     """Whether the last fetch of this uncached release hit a provider outage, not a 404."""
     return (str(root.resolve()), int(global_id)) in _RELEASE_UNCACHED_FAILURES

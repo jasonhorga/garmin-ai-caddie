@@ -69,7 +69,9 @@ class StartFastTests(unittest.TestCase):
         first = package.holes[0]
         self.assertEqual(first["geometryState"], "pending")
         self.assertGreater(first["retryAfterEpoch"], time.time())
-        self.assertEqual(first["garminRaster"]["imageUrl"], "/api/v2/courses/123/holes/1/garmin-raster.jpg")
+        # C88 rework 1: with no local release the fallback is the unversioned transparent WebP, not
+        # the JPEG with Garmin's sky.
+        self.assertEqual(first["garminRaster"]["imageUrl"], "/api/v2/courses/123/holes/1/garmin-raster.webp")
 
     def test_package_under_release_vector_locks_and_slow_geometry(self):
         with cold_package() as mobile:

@@ -9,7 +9,7 @@ import time
 
 from ai_caddie.core.priority_work import FOREGROUND, NEARBY
 from ai_caddie.caddie.round_loops import resolve_round_loops, source_start_hole
-from ai_caddie.courses.course_reference import courseview_release_info
+from ai_caddie.courses.course_reference import COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S, courseview_release_info
 from server_v2 import course_install
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,10 @@ _LOCK = threading.Lock()
 _STARTING: dict[tuple, Future] = {}
 _REGION_ENQUEUED: dict[int, float] = {}
 _REGION_PLAYER = "__nearby_public_assets__"
+# Release prefetch attempts by gid: (monotonic time, release obtained). An obtained release is not
+# prefetched again before its hourly refresh is due; a failed one (404, Garmin outage) backs off.
+_RELEASE_PREFETCHED: dict[int, tuple[float, bool]] = {}
+RELEASE_PREFETCH_RETRY_S = 600.0
 _COURSE_DATA_LOOKUPS: dict[tuple[int, int], tuple[float, Future]] = {}
 # The physical (gid, local hole) each in-flight priority-hole prepare is fetching.
 _STARTING_HOLES: dict[tuple, tuple[int, int]] = {}
@@ -26,6 +30,7 @@ _STARTING_HOLES: dict[tuple, tuple[int, int]] = {}
 
 # The application injects its admission policy after construction; standalone workers are idle.
 nearby_work_blocked = lambda: False
+tee_requests_in_flight = lambda: False
 
 
 def ensure_startup_course_data(global_id: int) -> dict | None:
@@ -64,6 +69,55 @@ def ensure_startup_course_data(global_id: int) -> dict | None:
     return future.result()
 
 
+def _nearest_three(matches) -> list:
+    """The physical nearest three provider courses within the warming radius."""
+    def distance(match):
+        value = match.provider_distance_km if match.provider_distance_km is not None else match.distance_km
+        return float(value) if value is not None else float("inf")
+
+    eligible = {int(m.global_id): m for m in matches
+                if int(m.global_id) > 0 and 0 <= distance(m) <= RADIUS_KM and 1 <= int(m.holes or 0) <= 36}
+    return sorted(eligible.values(), key=distance)[:3]
+
+
+def prefetch_nearby_releases(matches) -> int:
+    """Cache the nearest three courses' small CourseView release (Tee names) after discovery.
+
+    A tap on one of them then finds its Tee rows cached and /tees answers without a Garmin round
+    trip. Fresh caches are not refetched; a cold or hourly-stale one is fetched under the same
+    per-course release lock /tees uses, so a concurrent /tees waits for this fetch, not a second one.
+
+    Every phone/Watch discovery lands here, so each course is attempted at most once per refresh
+    period (or per backoff after a failure), and a pass yields while a player waits on /tees.
+    """
+    if nearby_work_blocked() or tee_requests_in_flight():
+        return 0
+    count = 0
+    for match in _nearest_three(matches):
+        if tee_requests_in_flight():
+            break
+        gid = int(match.global_id)
+        with _LOCK:
+            previous = _RELEASE_PREFETCHED.get(gid)
+            if previous is not None:
+                attempted_at, obtained = previous
+                wait = COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S if obtained else RELEASE_PREFETCH_RETRY_S
+                if time.monotonic() - attempted_at < wait:
+                    continue
+            # Claimed before the fetch, so a concurrent discovery skips this course meanwhile.
+            _RELEASE_PREFETCHED[gid] = (time.monotonic(), False)
+        try:
+            obtained = bool(courseview_release_info(gid, allow_fetch=True))
+        except Exception:
+            obtained = False
+            logger.warning("nearby_release_prefetch failed gid=%s", gid, exc_info=True)
+        with _LOCK:
+            _RELEASE_PREFETCHED[gid] = (time.monotonic(), obtained)
+        count += int(obtained)
+    logger.log(logging.INFO if count else logging.DEBUG, "nearby_release_prefetch cached=%s", count)
+    return count
+
+
 def enqueue_nearby(matches) -> int:
     """The nearest three provider courses, without personal prep or a synchronous download.
 
@@ -74,14 +128,8 @@ def enqueue_nearby(matches) -> int:
         return 0
     # Choose the physical nearest three before dedup/backoff: repeated discovery must not
     # gradually enqueue the fourth through thirtieth courses while the first three are busy.
-    def distance(match):
-        value = match.provider_distance_km if match.provider_distance_km is not None else match.distance_km
-        return float(value) if value is not None else float("inf")
-
-    eligible = {int(m.global_id): m for m in matches
-                if int(m.global_id) > 0 and 0 <= distance(m) <= RADIUS_KM and 1 <= int(m.holes or 0) <= 36}
     count = 0
-    for match in sorted(eligible.values(), key=distance)[:3]:
+    for match in _nearest_three(matches):
         gid = int(match.global_id)
         holes = int(match.holes)
         with _LOCK:
@@ -115,6 +163,12 @@ def priority_hole_plan(global_id: int, local_hole: int) -> dict | None:
             if hole == target and future is not None and not future.done():
                 return {"state": "in_flight", "retryAfterEpoch": None}
     return None
+
+
+def startup_in_flight() -> bool:
+    """Whether a round start's playing-hole prepare is still running; optional warm-up yields to it."""
+    with _LOCK:
+        return any(not future.done() for future in _STARTING.values())
 
 
 def _register_hole_plan_provider() -> None:
