@@ -5,6 +5,7 @@ import hashlib
 import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -73,6 +74,55 @@ class PersistenceTests(unittest.TestCase):
                 [40001],
             )
             self.assertEqual(cr.courseview_venue_loops(49999, None, root=root), [])
+
+    def test_venue_loop_index_is_thread_safe_bounded_and_keeps_null_par(self) -> None:
+        from ai_caddie.courses.course_search import CourseMatch
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows = [
+                CourseMatch(50000 + index, f"球会{index} ~ A", 9, None, None, 0.0,
+                            venue_name=f"球会{index}", segment_label="A")
+                for index in range(70)
+            ]
+            with patch.object(cr, "courseview_par", return_value=[4] * 9):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    list(pool.map(
+                        lambda row: cr.record_courseview_venue_loops([row], root=root),
+                        rows[:2],
+                    ))
+            initial = json.loads((root / "data" / "courseview" / "venue_loops.json").read_text())
+            self.assertEqual(
+                {row["globalId"] for group in initial["venues"] for row in group["loops"]},
+                {50000, 50001},
+            )
+            with patch.object(cr, "courseview_par", return_value=None):
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    list(pool.map(
+                        lambda row: cr.record_courseview_venue_loops([row], root=root),
+                        rows,
+                    ))
+            payload = json.loads((root / "data" / "courseview" / "venue_loops.json").read_text())
+            self.assertLessEqual(len(payload["venues"]), 64)
+            self.assertTrue(all(row["par"] is None for group in payload["venues"] for row in group["loops"]))
+
+    def test_venue_loop_index_merges_spelling_variants_by_global_id(self) -> None:
+        from ai_caddie.courses.course_search import CourseMatch
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(cr, "courseview_par", return_value=[4] * 9):
+                cr.record_courseview_venue_loops([
+                    CourseMatch(60001, "旧名 ~ A", 9, None, None, 0.0, venue_name="旧名", segment_label="A"),
+                    CourseMatch(60002, "旧名 ~ B", 9, None, None, 0.0, venue_name="旧名", segment_label="B"),
+                ], root=root)
+                cr.record_courseview_venue_loops([
+                    CourseMatch(60001, "新名 ~ A", 9, None, None, 0.0, venue_name="新名", segment_label="A"),
+                ], root=root)
+            payload = json.loads((root / "data" / "courseview" / "venue_loops.json").read_text())
+            groups = [group for group in payload["venues"] if any(row["globalId"] == 60001 for row in group["loops"])]
+            self.assertEqual(len(groups), 1)
+            self.assertEqual({row["globalId"] for row in groups[0]["loops"]}, {60001, 60002})
 
     def test_catalogue_name_cache_accepts_only_native_garmin_cjk_rows(self) -> None:
         from ai_caddie.courses.course_search import CourseMatch

@@ -1470,6 +1470,7 @@ def course_prep_tips(global_id: int, player_id: str = Depends(current_player_id)
 
 @app.get("/api/v2/courses/search")
 def course_search_endpoint(
+    background_tasks: BackgroundTasks,
     name: str,
     city: str | None = None,
     holes: int | None = None,
@@ -1502,7 +1503,7 @@ def course_search_endpoint(
         city=city,
         append_history=True,
     )
-    record_courseview_venue_loops(_venue_loop_index_rows(matches), root=ROOT)
+    background_tasks.add_task(_persist_courseview_venue_loops, _venue_loop_index_rows(matches), ROOT)
     return {
         "schema": "ai-caddie-course-search-v1",
         "query": name,
@@ -1676,6 +1677,13 @@ def _venue_loop_index_rows(matches: object) -> list:
     return rows
 
 
+def _persist_courseview_venue_loops(matches: object, root) -> None:
+    try:
+        record_courseview_venue_loops(matches, root=root)
+    except Exception:
+        logger.warning("courseview_venue_loops_background_failed", exc_info=True)
+
+
 @app.get("/api/v2/courses/nearby")
 def course_nearby_endpoint(
     background_tasks: BackgroundTasks,
@@ -1720,7 +1728,7 @@ def course_nearby_endpoint(
         overlay_coordinates=False,
         append_history=False,
     )
-    record_courseview_venue_loops(_venue_loop_index_rows(matches), root=ROOT)
+    background_tasks.add_task(_persist_courseview_venue_loops, _venue_loop_index_rows(matches), ROOT)
     if matches:
         # Durable full map prep replaces metadata-only warming. All provider courses in 30 km
         # enter the bounded low-priority lane; this response never waits for downloads/renders.
@@ -2079,7 +2087,7 @@ def _discover_nearby_maps(latitude: float, longitude: float) -> None:
             overlay_coordinates=False,
             append_history=False,
         )
-        record_courseview_venue_loops(_venue_loop_index_rows(reconciled), root=ROOT)
+        _persist_courseview_venue_loops(_venue_loop_index_rows(reconciled), ROOT)
         enqueue_nearby(matches)
     except Exception:
         logger.exception("nearby_prewarm discovery_failed")

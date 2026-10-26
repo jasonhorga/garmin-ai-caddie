@@ -4281,7 +4281,14 @@ def _venue_loops_for_package(
         label = normalize_course_text(match.get("segmentLabel")) or None
         if gid != global_id and not label:
             continue
-        add(gid, raw_name or normalize_course_text(venue_name) or f"Course {gid}", label, holes_count, int(match.get("par") or par_for(gid)))
+        fallback_par = current_par if gid == global_id else None
+        add(
+            gid,
+            raw_name or normalize_course_text(venue_name) or f"Course {gid}",
+            label,
+            holes_count,
+            int(match.get("par") or par_for(gid, fallback_par)),
+        )
 
     # The package itself is the authoritative fallback, even when neither options nor nearby
     # search has seen this venue before (the new-course path in C96).

@@ -13,6 +13,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 
 import os
+import json
 import hashlib
 import logging
 import math
@@ -230,7 +231,25 @@ def _venue_key(value: object) -> str:
     return normalize_course_text(value).casefold()
 
 
-def record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> None:
+_VENUE_LOOPS_LOCK = threading.Lock()
+_VENUE_LOOPS_MAX_VENUES = 64
+
+
+def _atomic_write_venue_loops(path: Path, data: dict) -> None:
+    """Write the shared index with a thread-unique temp file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> None:
     """Persist explicit, reconciled nine-hole venue rows from nearby discovery.
 
     ``venue_name`` is deliberately required.  A provider name is not a safe fallback here:
@@ -246,6 +265,7 @@ def record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> None
             "venueKey": key,
             "venueName": str(group["venueName"]).strip(),
             "loops": [row for row in group.get("loops", []) if isinstance(row, dict)],
+            "lastSeenAt": float(group.get("lastSeenAt") or 0),
         }
     changed = False
     for match in matches or ():
@@ -258,29 +278,72 @@ def record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> None
             key = _venue_key(venue)
             if not key:
                 continue
-            group = venues.setdefault(key, {"venueKey": key, "venueName": venue, "loops": []})
             label = normalize_course_text(getattr(match, "segment_label", None)) or None
             name = normalize_course_text(getattr(match, "name", None)) or venue
+            # A later discovery may spell the venue differently. Stable globalId wins, and all
+            # groups that already contain it are folded into the first one before updating it.
+            containing = [group_key for group_key, group in venues.items() if any(
+                isinstance(item, dict) and str(item.get("globalId") or "").isdigit()
+                and int(item["globalId"]) == gid for item in group["loops"]
+            )]
+            if containing:
+                group_key = containing[0]
+                group = venues[group_key]
+                for duplicate_key in containing[1:]:
+                    duplicate = venues.pop(duplicate_key)
+                    for item in duplicate["loops"]:
+                        if not any(int(existing.get("globalId") or 0) == int(item.get("globalId") or 0)
+                                   and existing.get("segmentLabel") == item.get("segmentLabel")
+                                   for existing in group["loops"]):
+                            group["loops"].append(item)
+                    group["lastSeenAt"] = max(group["lastSeenAt"], duplicate.get("lastSeenAt", 0))
+                    changed = True
+            else:
+                group = venues.setdefault(key, {
+                    "venueKey": key,
+                    "venueName": venue,
+                    "loops": [],
+                    "lastSeenAt": 0,
+                })
+            prior = next((item for item in group["loops"]
+                          if int(item.get("globalId") or 0) == gid
+                          and item.get("segmentLabel") == label), None)
+            if prior is not None:
+                continue
             try:
                 pars = courseview_par(gid, allow_fetch=False) or []
             except Exception:
                 # Nearby discovery is metadata-only; a missing local par cache must not discard
                 # an otherwise explicit venue row from the durable index.
                 pars = []
-            par = sum(int(value) for value in pars if isinstance(value, (int, float))) if len(pars) == 9 else 36
-            row = {"globalId": gid, "name": name, "segmentLabel": label, "holeCount": 9, "par": max(1, int(par))}
-            prior = next((item for item in group["loops"] if int(item.get("globalId") or 0) == gid), None)
+            par = sum(int(value) for value in pars if isinstance(value, (int, float))) if len(pars) == 9 else None
+            row = {"globalId": gid, "name": name, "segmentLabel": label, "holeCount": 9, "par": par}
             if prior != row:
                 group["loops"] = [item for item in group["loops"] if int(item.get("globalId") or 0) != gid]
                 group["loops"].append(row)
+                group["lastSeenAt"] = time.time()
                 changed = True
         except (AttributeError, TypeError, ValueError, OverflowError, OSError):
             continue
+    if len(venues) > _VENUE_LOOPS_MAX_VENUES:
+        changed = True
     if changed:
-        atomic_write_json(_venue_loops_path(root=root), {
+        # Keep one bounded index file. The package reads it once per assembly, while discovery
+        # remains bounded even after a long sequence of nearby searches.
+        retained = sorted(venues.values(), key=lambda item: item.get("lastSeenAt", 0), reverse=True)
+        _atomic_write_venue_loops(_venue_loops_path(root=root), {
             "schema": "garmin-courseview-venue-loops-v1",
-            "venues": sorted(venues.values(), key=lambda item: item["venueKey"]),
+            "venues": retained[:_VENUE_LOOPS_MAX_VENUES],
         })
+
+
+def record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> None:
+    """Persist venue rows without allowing concurrent discovery to break the request path."""
+    try:
+        with _VENUE_LOOPS_LOCK:
+            _record_courseview_venue_loops(matches, root=root)
+    except Exception:
+        logger.warning("courseview_venue_loops_persist_failed", exc_info=True)
 
 
 def courseview_venue_loops(global_id: int, venue_name: str | None = None, *, root: Path = ROOT) -> list[dict]:
@@ -290,13 +353,26 @@ def courseview_venue_loops(global_id: int, venue_name: str | None = None, *, roo
     payload = safe_read_json(_venue_loops_path(root=root), default={})
     groups = payload.get("venues", []) if isinstance(payload, dict) else []
     groups = [group for group in groups if isinstance(group, dict) and isinstance(group.get("loops"), list)]
-    for group in groups:
+    matching_groups = [
+        group for group in groups
         if any(
             isinstance(row, dict) and str(row.get("globalId") or "").isdigit()
             and int(row["globalId"]) == int(global_id)
             for row in group["loops"]
-        ):
-            return [dict(row) for row in group["loops"] if isinstance(row, dict)]
+        )
+    ]
+    if matching_groups:
+        merged: dict[tuple[int, str | None], dict] = {}
+        for group in matching_groups:
+            for row in group["loops"]:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    row_key = (int(row.get("globalId") or 0), row.get("segmentLabel"))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                merged[row_key] = dict(row)
+        return list(merged.values())
     key = _venue_key(venue_name)
     if not key:
         return []
