@@ -33,10 +33,20 @@ final class C89HoleMapFrameTests: XCTestCase {
 
     /// The captured C33 hole 1 row: partial but in the topo's 678x1060 frame and revision (the shape
     /// `/prep` now returns while only the obstacle export is pending), plus one mapped bunker.
-    private func sameFrameRow(coverage: String = "partial") throws -> CoursePrepHole {
+    /// `hazardExport` adds the `/prep` obstacle-export row in its geometry_evidence.py shape:
+    /// `{"label": "hazards", "reason": "prodgeometry hazard export <state>", "state": <state>}`,
+    /// where the state is "pending" or "failed" (derivatives status `failed`).
+    private func sameFrameRow(coverage: String = "partial", hazardExport: String? = nil) throws -> CoursePrepHole {
         let prep = try XCTUnwrap(c33Package().coursePrep?.holes.first)
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(prep)) as? [String: Any])
         json["geometryCoverage"] = coverage
+        if let hazardExport {
+            json["missingData"] = [[
+                "label": "hazards",
+                "reason": "prodgeometry hazard export \(hazardExport)",
+                "state": hazardExport,
+            ]]
+        }
         let bunker: [String: Any] = [
             "kind": "bunker", "frontM": 200.0, "backM": 215.0, "frontRouteM": 200.0, "backRouteM": 215.0,
             "sideM": 8.0, "frontPx": [360.0, 510.0], "backPx": [362.0, 480.0], "outlinePx": [] as [Any],
@@ -190,6 +200,160 @@ final class C89HoleMapFrameTests: XCTestCase {
         )
         XCTAssertEqual(mapless, .needsMapping(.noMap))
         XCTAssertNotNil(LiveHazardMapFrame.notice(for: mapless, requestInFlight: false))
+    }
+
+    /// While the Garmin descriptor is already loading (`loadGarminRaster` returns at once for a
+    /// second request), the obstacle is still being placed: no premature "no registration" verdict.
+    func testTheNoticeStaysPendingWhileTheGarminDescriptorIsStillLoading() {
+        let unregistered = LiveHazardMapFrame.Resolution.needsMapping(.garminRegistration)
+        XCTAssertEqual(
+            LiveHazardMapFrame.notice(for: unregistered, requestInFlight: false, descriptorLoading: true),
+            "正在定位障碍…"
+        )
+        XCTAssertEqual(
+            LiveHazardMapFrame.notice(for: unregistered, requestInFlight: false, descriptorLoading: false),
+            "这张图还没有坐标，障碍画不上 · 距离见下方",
+            "the descriptor arrived without a registration"
+        )
+        // The descriptor cannot place an obstacle on the precise topo.
+        XCTAssertEqual(
+            LiveHazardMapFrame.notice(
+                for: .needsMapping(.sameFramePrep), requestInFlight: false, descriptorLoading: true
+            ),
+            "障碍位置等精确数据到了再画 · 距离见下方"
+        )
+    }
+
+    // MARK: - A request outlived by its hole publishes nothing
+
+    private final class Held {
+        private var continuation: CheckedContinuation<Void, Never>?
+        var isWaiting: Bool { continuation != nil }
+        func wait() async { await withCheckedContinuation { continuation = $0 } }
+        func release() { continuation?.resume(); continuation = nil }
+    }
+
+    private func waitUntilHeld(_ held: Held) async throws {
+        for _ in 0..<2_000 where !held.isWaiting { try await Task.sleep(nanoseconds: 5_000_000) }
+        XCTAssertTrue(held.isWaiting)
+    }
+
+    private final class Counts {
+        var published = 0
+        var watchPushes = 0
+    }
+
+    /// Tapping 障碍 requests the topo-frame row; the player turns to the next hole before it lands.
+    /// The old hole's task is cancelled, so the row is not published and the watch is not sent the
+    /// old hole's state.
+    func testARowLandingAfterItsHoleTaskWasCancelledIsNeitherShownNorSentToTheWatch() async throws {
+        let row = try sameFrameRow()
+        let live = Counts()
+        let delivered = await LiveHolePrepPublication.run(
+            fetch: { row },
+            publish: { _ in live.published += 1; return true },
+            pushWatch: { live.watchPushes += 1 }
+        )
+        XCTAssertTrue(delivered, "control: a live request publishes and re-pushes the watch")
+        XCTAssertEqual(live.published, 1)
+        XCTAssertEqual(live.watchPushes, 1)
+
+        let held = Held()
+        let stale = Counts()
+        let request = Task { @MainActor () -> Bool in
+            await LiveHolePrepPublication.run(
+                fetch: { await held.wait(); return row },
+                publish: { _ in stale.published += 1; return true },
+                pushWatch: { stale.watchPushes += 1 }
+            )
+        }
+        try await waitUntilHeld(held)
+        request.cancel()
+        held.release()
+        let staleDelivered = await request.value
+        XCTAssertFalse(staleDelivered)
+        XCTAssertEqual(stale.published, 0, "the next hole's screen keeps its own row")
+        XCTAssertEqual(stale.watchPushes, 0, "the watch is not sent the previous hole's state")
+    }
+
+    // MARK: - The partial-row probe: stops on a failed export, backs off, pauses in the background
+
+    func testAFailedObstacleExportStopsTheProbe() async throws {
+        let pending = try sameFrameRow(hazardExport: "pending")
+        let failed = try sameFrameRow(hazardExport: "failed")
+        XCTAssertTrue(LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: pending))
+        XCTAssertFalse(
+            LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: failed),
+            "a hole whose export already failed starts no probe"
+        )
+
+        var fetches = 0
+        var interim = 0
+        var waits = 0
+        let ready = await LiveHolePrepProbe.run(
+            fetch: { fetches += 1; return failed },
+            publishInterim: { _ in interim += 1 },
+            wait: { _ in
+                waits += 1
+                if waits > 20 { throw CancellationError() }
+            }
+        )
+        XCTAssertNil(ready)
+        XCTAssertEqual(fetches, 1, "the failed export is final: no further /prep requests")
+        XCTAssertEqual(interim, 1, "the row it returned is still offered to the screen")
+    }
+
+    func testAPendingExportBacksOffToOnceAMinute() async throws {
+        let pending = try sameFrameRow(hazardExport: "pending")
+        let ready = try sameFrameRow(coverage: "ready")
+        var delays: [UInt64] = []
+        var fetches = 0
+        let result = await LiveHolePrepProbe.run(
+            fetch: {
+                fetches += 1
+                return fetches < 8 ? pending : ready
+            },
+            publishInterim: { _ in },
+            wait: { delays.append($0) }
+        )
+        XCTAssertEqual(result, ready)
+        // Card C89 rework 2: the first probe stays at 2 s and doubles, now up to 60 s instead of
+        // staying at 15 s: 2, 4, 8, 16, 32, then 60 (64 capped).
+        XCTAssertEqual(delays, [2, 4, 8, 16, 32, 60, 60, 60])
+    }
+
+    func testTheProbeWaitPausesInTheBackgroundAndEndsOnReturn() async throws {
+        // 1 s in the foreground, three background checks, then the app is active again: the wait
+        // ends at once (probe now) instead of running out its remaining 59 s.
+        var phases = [true, false, false, false, true]
+        var slept: [UInt64] = []
+        try await LiveHolePrepProbe.foregroundWait(
+            seconds: 60,
+            isActive: { phases.isEmpty ? true : phases.removeFirst() },
+            sleep: { slept.append($0) }
+        )
+        XCTAssertEqual(slept, [1, 1, 1, 1])
+        XCTAssertTrue(phases.isEmpty)
+
+        // Never in the background: a 2 s wait does not end while the app stays inactive.
+        var backgroundSlices = 0
+        do {
+            try await LiveHolePrepProbe.foregroundWait(
+                seconds: 2,
+                isActive: { false },
+                sleep: { _ in
+                    backgroundSlices += 1
+                    if backgroundSlices == 300 { throw CancellationError() }
+                }
+            )
+            XCTFail("the probe wait ended while the app was in the background")
+        } catch {}
+        XCTAssertEqual(backgroundSlices, 300)
+
+        // In the foreground it waits the whole delay.
+        var foreground: [UInt64] = []
+        try await LiveHolePrepProbe.foregroundWait(seconds: 3, isActive: { true }, sleep: { foreground.append($0) })
+        XCTAssertEqual(foreground.reduce(0, +), 3)
     }
 }
 #endif

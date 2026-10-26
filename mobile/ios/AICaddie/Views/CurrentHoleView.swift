@@ -102,6 +102,63 @@ enum LiveHolePrepUpgradePolicy {
     }
 }
 
+/// A fetched `/prep` row reaches the screen and the watch.
+@MainActor
+enum LiveHolePrepPublication {
+    static func run(
+        fetch: () async -> CoursePrepHole?,
+        publish: (CoursePrepHole) async -> Bool,
+        pushWatch: () -> Void
+    ) async -> Bool {
+        guard let row = await fetch() else { return false }
+        guard await publish(row) else { return false }
+        pushWatch()
+        return true
+    }
+}
+
+/// The active hole's `/prep` probe while its row is partial.
+@MainActor
+enum LiveHolePrepProbe {
+    static let firstDelaySeconds: UInt64 = 2
+
+    static func nextDelay(after seconds: UInt64) -> UInt64 {
+        min(seconds * 2, 15)
+    }
+
+    /// Probes until the ready row arrives (returned) or the owning task is cancelled (nil).
+    static func run(
+        fetch: () async -> CoursePrepHole?,
+        publishInterim: (CoursePrepHole) async -> Void,
+        wait: (UInt64) async throws -> Void
+    ) async -> CoursePrepHole? {
+        var delaySeconds = firstDelaySeconds
+        while !Task.isCancelled {
+            do { try await wait(delaySeconds) } catch { return nil }
+            guard !Task.isCancelled else { return nil }
+            guard let refreshed = await fetch() else {
+                delaySeconds = nextDelay(after: delaySeconds)
+                continue
+            }
+            guard refreshed.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
+                await publishInterim(refreshed)
+                delaySeconds = nextDelay(after: delaySeconds)
+                continue
+            }
+            return refreshed
+        }
+        return nil
+    }
+
+    static func foregroundWait(
+        seconds: UInt64,
+        isActive: () -> Bool,
+        sleep: (UInt64) async throws -> Void
+    ) async throws {
+        try await sleep(seconds)
+    }
+}
+
 /// The selected obstacle in the pixel frame of the bitmap on screen, or what is still missing to
 /// draw it there.
 @MainActor
@@ -173,7 +230,7 @@ enum LiveHazardMapFrame {
         }
     }
 
-    static func notice(for resolution: Resolution, requestInFlight: Bool) -> String? {
+    static func notice(for resolution: Resolution, requestInFlight: Bool, descriptorLoading: Bool = false) -> String? {
         guard case let .needsMapping(source) = resolution else { return nil }
         if requestInFlight, source != .noMap { return "正在定位障碍…" }
         switch source {
