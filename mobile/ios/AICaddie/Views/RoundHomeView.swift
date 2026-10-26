@@ -90,6 +90,21 @@ struct LiveHolePagerGestureStateKey: PreferenceKey {
     }
 }
 
+enum LiveHolePagerInitialSelection {
+    static func resolve(
+        current: Int?,
+        ordered: [Int],
+        preferredHole: Int?,
+        fallbackHole: Int?
+    ) -> Int? {
+        guard !ordered.isEmpty else { return nil }
+        if let current, ordered.contains(current) { return current }
+        if let preferredHole, ordered.contains(preferredHole) { return preferredHole }
+        if let fallbackHole, ordered.contains(fallbackHole) { return fallbackHole }
+        return ordered.first
+    }
+}
+
 /// Model-layer data that survives a page being unloaded by SwiftUI.  The network tasks remain
 /// owned by the round model; this cache only retains their published result and request identity.
 public final class LiveHoleSessionCache {
@@ -99,10 +114,10 @@ public final class LiveHoleSessionCache {
         let sourceGlobalId: Int
         let sourceLocalHole: Int
         let teeBox: String
-        let geometryRevision: String
     }
 
     struct Entry {
+        var geometryRevision: String?
         var holePrep: CoursePrepHole?
         var garminRaster: GarminRasterResponse?
         var garminRevision: String?
@@ -129,14 +144,14 @@ public final class LiveHoleSessionCache {
         teeBox: String = "",
         geometryRevision: String? = nil
     ) -> Entry {
-        entries[key(
+        let value = entries[key(
             roundId: roundId,
             hole: hole,
             sourceGlobalId: sourceGlobalId,
             sourceLocalHole: sourceLocalHole,
-            teeBox: teeBox,
-            geometryRevision: geometryRevision
+            teeBox: teeBox
         )] ?? Entry()
+        return value.rebased(for: geometryRevision)
     }
 
     func update(
@@ -153,10 +168,13 @@ public final class LiveHoleSessionCache {
             hole: hole,
             sourceGlobalId: sourceGlobalId,
             sourceLocalHole: sourceLocalHole,
-            teeBox: teeBox,
-            geometryRevision: geometryRevision
+            teeBox: teeBox
         )
         var value = entries[key] ?? Entry()
+        value = value.rebased(for: geometryRevision)
+        if let geometryRevision {
+            value.geometryRevision = Self.normalizedRevision(geometryRevision)
+        }
         update(&value)
         entries[key] = value
     }
@@ -170,11 +188,19 @@ public final class LiveHoleSessionCache {
     }
 
     func trim(roundId: String, keeping keys: Set<Key>) {
-        entries = entries.filter { $0.key.roundId != roundId || keys.contains($0.key) }
+        for key in entries.keys where key.roundId == roundId && !keys.contains(key) {
+            guard var entry = entries[key] else { continue }
+            entry.dropHeavyFields()
+            entries[key] = entry
+        }
     }
 
     func trim(roundId: String, keepingHoles holes: Set<Int>) {
-        entries = entries.filter { $0.key.roundId != roundId || holes.contains($0.key.hole) }
+        for key in entries.keys where key.roundId == roundId && !holes.contains(key.hole) {
+            guard var entry = entries[key] else { continue }
+            entry.dropHeavyFields()
+            entries[key] = entry
+        }
     }
 
     private func key(
@@ -182,17 +208,73 @@ public final class LiveHoleSessionCache {
         hole: Int,
         sourceGlobalId: Int,
         sourceLocalHole: Int,
-        teeBox: String,
-        geometryRevision: String?
+        teeBox: String
     ) -> Key {
         Key(
             roundId: roundId,
             hole: hole,
             sourceGlobalId: sourceGlobalId,
             sourceLocalHole: sourceLocalHole,
-            teeBox: teeBox,
-            geometryRevision: geometryRevision ?? ""
+            teeBox: teeBox
         )
+    }
+
+    fileprivate static func normalizedRevision(_ revision: String?) -> String? {
+        guard let revision = revision?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !revision.isEmpty else { return nil }
+        return revision
+    }
+}
+
+fileprivate extension LiveHoleSessionCache.Entry {
+    func rebased(for revision: String?) -> Self {
+        let requested = LiveHoleSessionCache.normalizedRevision(revision)
+        let cached = LiveHoleSessionCache.normalizedRevision(geometryRevision)
+        guard requested != cached else { return self }
+        var copy = self
+        copy.holePrep = nil
+        copy.localTopoURL = nil
+        copy.prepRequestStarted = false
+        copy.prepRequestCompleted = false
+        copy.preciseProbeStarted = false
+        copy.caddieRoutes = []
+        if LiveHoleSessionCache.normalizedRevision(copy.garminRevision) != requested {
+            copy.garminRaster = nil
+            copy.garminRevision = nil
+        }
+        return copy
+    }
+
+    mutating func dropHeavyFields() {
+        if let prep = holePrep, let map = prep.map, map.image != nil {
+            holePrep = CoursePrepHole(
+                hole: prep.hole,
+                par: prep.par,
+                parSource: prep.parSource,
+                blueYards: prep.blueYards,
+                teeYards: prep.teeYards,
+                routeLenM: prep.routeLenM,
+                route: prep.route,
+                geometryCoverage: prep.geometryCoverage,
+                geometryRevision: prep.geometryRevision,
+                sourceRefs: prep.sourceRefs,
+                missingData: prep.missingData,
+                candidateRoutes: prep.candidateRoutes,
+                carryTargets: prep.carryTargets,
+                steps: prep.steps,
+                cautions: prep.cautions,
+                landingM: prep.landingM,
+                teeClub: prep.teeClub,
+                hazards: prep.hazards,
+                map: CoursePrepMap(image: nil, overlay: map.overlay),
+                greenDistances: prep.greenDistances,
+                playsLike: prep.playsLike,
+                holeImageProjection: prep.holeImageProjection,
+                greenOutline: prep.greenOutline,
+                fairwayOutline: prep.fairwayOutline
+            )
+        }
+        localTopoURL = nil
     }
 }
 
@@ -876,7 +958,12 @@ public struct RoundHomeView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
             .onAppear {
-                holePagerSelection = ordered.contains(initialHole) ? initialHole : ordered.first
+                holePagerSelection = LiveHolePagerInitialSelection.resolve(
+                    current: holePagerSelection,
+                    ordered: ordered,
+                    preferredHole: isPrepHoleScreen ? initialHole : liveRoundState?.activeHole,
+                    fallbackHole: initialHole
+                )
                 if let selected = holePagerSelection {
                     holePagerNavigationLock = LiveHoleNavigationLock(currentHole: selected)
                     trimLiveHoleSessions(around: selected, package: package)

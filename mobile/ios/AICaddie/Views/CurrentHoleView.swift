@@ -14,6 +14,33 @@ private struct PendingPhoneShot: Identifiable {
     var id: String { locationEvent.eventId }
 }
 
+enum LiveCaddieDecisionSignaturePolicy {
+    static func signature(for request: CaddieDecisionRequest, endpoint: String) -> String? {
+        var context = request.context
+        if let currentLocation = context["currentLocation"],
+           case .object(var location) = currentLocation {
+            location.removeValue(forKey: "capturedAt")
+            location.removeValue(forKey: "horizontalAccuracyM")
+            if case .number(let latitude)? = location["latitude"], latitude.isFinite {
+                location["latitude"] = .number((latitude / 0.0001).rounded() * 0.0001)
+            }
+            if case .number(let longitude)? = location["longitude"], longitude.isFinite {
+                location["longitude"] = .number((longitude / 0.0001).rounded() * 0.0001)
+            }
+            context["currentLocation"] = .object(location)
+        }
+        let stable = CaddieDecisionRequest(
+            shotType: request.shotType,
+            context: context,
+            includeExplanation: request.includeExplanation
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(stable) else { return nil }
+        return endpoint + "|" + data.base64EncodedString()
+    }
+}
+
 /// Package facts and cached pixels can precede the heavyweight per-hole prep refresh.
 @MainActor
 enum LiveTopoAvailability {
@@ -521,8 +548,8 @@ public struct CurrentHoleView: View {
     /// B1c Touch Target on the main map: screen point of the finger while the target is dragged
     /// (drives the loupe), whether that drag owns the gesture, and a one-runloop tap suppressor.
     @State private var heroTargetDragLocation: CGPoint?
-    @State private var heroTargetDragging = false
-    @State private var heroTargetDidDrag = false
+    @GestureState private var heroTargetDragging = false
+    @GestureState private var heroTargetDidDrag = false
     @State private var showGreenDetail = false
     @State private var selectedHazardID: String?
     /// The obstacle-mapping request (same-frame prep / Garmin registration) in flight. Its
@@ -875,12 +902,19 @@ public struct CurrentHoleView: View {
             if selected {
                 locationProvider.requestAuthorization()
                 locationProvider.startUpdatingLocation()
+                if holePrep != nil {
+                    sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+                }
             } else {
                 locationProvider.stopUpdatingLocation()
             }
         }
         .onDisappear {
             locationProvider.stopUpdatingLocation()
+            heroTargetDragLocation = nil
+        }
+        .onChange(of: heroTargetDragging) { _, active in
+            if !active { heroTargetDragLocation = nil }
         }
         .onReceive(locationProvider.$latestFix) { latestFix in
             guard isSelected else { return }
@@ -2141,12 +2175,18 @@ public struct CurrentHoleView: View {
     /// the loupe follows the finger. Any other drag keeps its pan / hole-swipe meaning.
     private func heroTargetDragGesture(in viewport: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 4)
-            .onChanged { value in
-                if !heroTargetDragging {
-                    guard heroTargetHit(at: value.startLocation, in: viewport) else { return }
-                    heroTargetDragging = true
+            .updating($heroTargetDragging) { value, state, _ in
+                if !state {
+                    state = heroTargetHit(at: value.startLocation, in: viewport)
                 }
-                heroTargetDidDrag = true
+            }
+            .updating($heroTargetDidDrag) { value, state, _ in
+                if heroTargetHit(at: value.startLocation, in: viewport) {
+                    state = true
+                }
+            }
+            .onChanged { value in
+                guard heroTargetDragging else { return }
                 heroTargetDragLocation = value.location
                 if let pixel = heroOverlayPixel(at: value.location, in: viewport, clampToMap: true) {
                     applyHeroTarget(pixel: pixel, committed: false)
@@ -2158,12 +2198,6 @@ public struct CurrentHoleView: View {
                     applyHeroTarget(pixel: pixel, committed: true)
                 }
                 heroTargetDragLocation = nil
-                // The tap and hole-swipe recognizers may deliver in this same run loop; keep them
-                // suppressed for that delivery so the drag neither re-places the target nor pages.
-                DispatchQueue.main.async {
-                    heroTargetDragging = false
-                    heroTargetDidDrag = false
-                }
             }
     }
 
@@ -5024,7 +5058,9 @@ public struct CurrentHoleView: View {
                 distanceToPinM: caddiePlanningDistanceMetres,
                 lie: selectedLie,
                 coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole,
-                targetCoordinate: wireTargetCoordinate,
+                // The flag's coordinate is a signature-only input in r3. Touch Target coordinates
+                // remain in the request contract; pixel-only edits never become fake WGS84 data.
+                targetCoordinate: wireTargetKind == "pin" ? nil : wireTargetCoordinate,
                 targetKind: wireTargetKind,
                 horizontalAccuracyM: liveCoordinateForCurrentHole == nil ? nil : currentHorizontalAccuracyM,
                 capturedAt: liveCoordinateForCurrentHole == nil ? nil : locationProvider.latestFix?.capturedAt,
@@ -5037,10 +5073,16 @@ public struct CurrentHoleView: View {
         // in its caddie seed. Fill that one missing transport fact locally so an offline/older
         // package cannot resurrect the independent ``3H -> 3H`` planner on the first tee request.
         let canonicalRequest = CaddieDecisionRequestBuilder.addingCanonicalPlan(to: baseRequest, prep: holePrep)
-        // Include both instruments in the canonical identity. The legacy wire target contains only
-        // the most recently edited coordinate, while a pixel-only flag/target still changes the
-        // player's request when a course has no geo anchors.
-        var context = canonicalRequest.context
+        return canonicalRequest
+    }
+
+    /// Coordinates for the flag and pixel-only map edits affect the cache identity, but are kept
+    /// out of the POST body. This keeps the server request contract stable while ensuring a changed
+    /// green position never reuses an older recommendation.
+    private func caddieDecisionSignatureRequest(
+        from request: CaddieDecisionRequest
+    ) -> CaddieDecisionRequest {
+        var context = request.context
         if let pin = validTargetCoordinate(greenPinCoordinate) {
             context["greenPinCoordinate"] = .object([
                 "latitude": .number(pin.latitude),
@@ -5053,12 +5095,11 @@ public struct CurrentHoleView: View {
         if let target = targetPixel, target.x.isFinite, target.y.isFinite {
             context["targetPixel"] = .array([.number(Double(target.x)), .number(Double(target.y))])
         }
-        let requestWithMapInstruments = CaddieDecisionRequest(
-            shotType: canonicalRequest.shotType,
+        return CaddieDecisionRequest(
+            shotType: request.shotType,
             context: context,
-            includeExplanation: canonicalRequest.includeExplanation
+            includeExplanation: request.includeExplanation
         )
-        return requestWithMapInstruments
     }
 
     /// Adopt the route the decision engine actually selected. The request's strategy/option is a
@@ -5089,7 +5130,8 @@ public struct CurrentHoleView: View {
         // The shot this decision is for, fixed now, before any await.
         let originShot = recordedShotEventIds
         let initialRequest = makeCaddieDecisionRequest()
-        let inputSignature = initialRequest.flatMap {
+        let signatureRequest = initialRequest.map(caddieDecisionSignatureRequest(from:))
+        let inputSignature = signatureRequest.flatMap {
             caddieDecisionInputSignature(for: $0, endpoint: package.caddieDecisionEndpoint)
         }
         if allowCachedDecision,
@@ -5160,7 +5202,8 @@ public struct CurrentHoleView: View {
             // bootstrap will launch the context-complete request next. Never let the stale answer
             // overwrite it.
             guard !(requestedBeforePrep && holePrep != nil) else { return }
-            if let inputSignature {
+            if let inputSignature,
+               LiveCaddieDecisionUsability.hasRecommendation(response) {
                 updateSession { entry in
                     entry.caddieDecision = response
                     entry.caddieDecisionInputSignature = inputSignature
@@ -5222,22 +5265,7 @@ public struct CurrentHoleView: View {
         for request: CaddieDecisionRequest,
         endpoint: String
     ) -> String? {
-        var context = request.context
-        if let currentLocation = context["currentLocation"],
-           case .object(var location) = currentLocation {
-            location.removeValue(forKey: "capturedAt")
-            location.removeValue(forKey: "horizontalAccuracyM")
-            context["currentLocation"] = .object(location)
-        }
-        let stable = CaddieDecisionRequest(
-            shotType: request.shotType,
-            context: context,
-            includeExplanation: request.includeExplanation
-        )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(stable) else { return nil }
-        return endpoint + "|" + data.base64EncodedString()
+        LiveCaddieDecisionSignaturePolicy.signature(for: request, endpoint: endpoint)
     }
 
     /// An offline decision that recommends nothing must not claim a saved plan.
