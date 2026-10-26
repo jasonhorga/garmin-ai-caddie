@@ -19,6 +19,7 @@ round must recompute at once — so this returns the raw shots of the hole and t
 from __future__ import annotations
 
 from datetime import date, timedelta
+from dataclasses import replace
 from typing import Any
 
 from ai_caddie.core.data import OWNER_ID
@@ -152,7 +153,9 @@ def build_hole_history_shots(
         displays[str(row.get("id"))] = {
             _int(shot.get("hole")) for _position, shot in selected
         } | displays_for_target
-    view = HistoryData(raw_rounds=data.raw_rounds, rounds=rows, shots=shots)
+    # The hole view is a content subset; never carry the full-history fingerprints
+    # into a cache key for this derived payload.
+    view = replace(data, rounds=rows, shots=shots, source_fingerprint=None, correction_fingerprint=None)
     corrected = corrected_history_data(view, player_id=player_id, annotations_root=annotations_root)
 
     out: list[dict[str, Any]] = []

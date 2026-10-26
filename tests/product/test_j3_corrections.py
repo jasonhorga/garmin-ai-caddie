@@ -7,8 +7,12 @@ import unittest
 from unittest.mock import patch
 
 from ai_caddie.history import history
+from ai_caddie.history import stats_cache
+from ai_caddie.history.corrected_history import corrected_history_data
+from ai_caddie.history.history_stats import build_history_stats, windowed_history_data
 from ai_caddie.rounds import correction_audit as audit, round_corrections as corrections
 from server_v2 import main
+from server_v2 import reports as reports_routes
 from tests.product.fixtures.c16a.support import Sandbox, fixture, write
 
 BASE = [
@@ -289,6 +293,18 @@ class CorrectionProductTests(unittest.TestCase):
             clubs = s.get('history/stats')['clubs']
             self.assertEqual(sorted((c['club'],c['median']) for c in clubs), [('6I',100),('Driver',200),('PW',20)])
 
+    def test_c53_last20_stats_apply_added_shot_once_after_prior_correction(self):
+        with Sandbox() as s:
+            prepare(s, snapshot=False)
+            self.assertEqual(s.correct({'op': 'addShot', 'hole': 1, 'px': [280, 440],
+                                        'club': 'SW', 'lie': 'Bunker'}).status_code, 201)
+            # Exercise the real corrected-history -> windowed-stats path. The HTTP route's
+            # uncorrected loader would make this regression pass on the old implementation.
+            source = stats_cache.cached_load_history_data('me')
+            corrected = corrected_history_data(source, player_id='me', annotations_root=s.root)
+            stats = build_history_stats(windowed_history_data(corrected, 'last20'), data_mode='local')
+            self.assertEqual(stats['summary']['shotCount'], 4)
+
     def test_j3_1_bag_model_consumes_corrected_club(self):
         with Sandbox() as s:
             prepare(s, snapshot=False)
@@ -297,6 +313,47 @@ class CorrectionProductTests(unittest.TestCase):
             self.assertIn('6I', profiles)
             self.assertNotIn('7I', profiles)
             self.assertEqual(profiles['6I']['median'],100)
+
+    def test_c53_caddie_context_reads_one_annotation_over_raw_history(self):
+        with Sandbox() as s:
+            s.seed()
+            response = s.request('POST', 'annotations', json={
+                'targetType': 'shot', 'targetId': '101:1:1', 'kind': 'lie_correction',
+                'payload': {'from': 'Rough', 'to': 'Bunker'}, 'clientMutationId': 'caddie-lie-bunker',
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+            context = s.get('caddie/context?source_ref=101:1:1&shot_type=approach')
+            self.assertEqual(context['context']['lie'], 'Bunker')
+
+    def test_c53_caddie_context_reads_corrected_distance_from_raw_history(self):
+        with Sandbox() as s:
+            prepare(s, snapshot=False)
+            self.assertEqual(s.correct({'op': 'editField', 'shotId': 's:101:2',
+                                        'field': 'position', 'value': [280, 440]}).status_code, 201)
+            context = s.get('caddie/context?source_ref=101:1:1&shot_type=approach')
+            self.assertEqual(context['context']['distanceToPin_m'], 93.0)
+
+    def test_c53_course_prep_ladder_reads_one_annotation_over_raw_history(self):
+        with Sandbox() as s:
+            s.seed()
+            response = s.request('POST', 'annotations', json={
+                'targetType': 'shot', 'targetId': '101:1:1', 'kind': 'club_correction',
+                'payload': {'from': '7I', 'to': '6I'}, 'clientMutationId': 'prep-club-6i',
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+            from ai_caddie.courses import course_prep
+            captured = {}
+            def fake_prep_nine(*_args, **kwargs):
+                captured['ladder'] = kwargs['ladder']
+                return []
+            with patch.object(course_prep, 'available_prep_holes', return_value=[1]), \
+                 patch.object(course_prep, 'prep_nine', side_effect=fake_prep_nine):
+                prep = s.get('courses/900001/prep?holes=1&render=false')
+            ladder_names = [name for name, _distance in captured['ladder']]
+            self.assertIn('6I', ladder_names)
+            self.assertNotIn('7I', ladder_names)
+            self.assertIn('6I', [row['name'] for row in prep['clubs']])
+            self.assertNotIn('7I', [row['name'] for row in prep['clubs']])
 
     def test_j3_1_review_consumes_deleted_shot(self):
         with Sandbox() as s:
@@ -365,6 +422,74 @@ class CorrectionProductTests(unittest.TestCase):
             # Seventeen zero-penalty holes plus this hole's one penalty = 1.
             self.assertEqual(s.get('history/stats')['scoring']['penalties']['total'],1)
             self.assertEqual(s.get('history/rounds/101')['scorecard'][0]['penalties'],1)
+
+    def test_c53_overview_round_list_and_report_consume_corrected_total(self):
+        with Sandbox() as s:
+            s.seed()
+            # The fixture has hole 1 at four strokes.  The authored score correction makes it six;
+            # every reader must show the resulting round total of 74 immediately.
+            self.assertEqual(annotation(s, 'score_correction', 6).status_code, 200)
+            self.assertEqual(s.get('history/overview')['recentRounds'][0]['score'], 74)
+            self.assertEqual(s.get('history/rounds')['groups'][0]['rounds'][0]['score'], 74)
+            with (
+                patch.object(reports_routes, 'load_history_data_for_mode',
+                             lambda *, player_id='me': (stats_cache.cached_load_history_data(player_id), 'local')),
+                patch.object(reports_routes, 'REPORT_ROOT', s.root),
+                patch.object(reports_routes, 'MEDIA_ROOT', s.root),
+            ):
+                facts = {row['label']: row for row in s.get('reports/round/101')['factsUsed']}
+            self.assertEqual(facts['round_scorecard']['value']['score'], 74)
+
+    def test_c53_set_hole_penalty_audit_uses_effective_garmin_penalty(self):
+        with Sandbox() as s:
+            s.seed()
+            # The Garmin fixture has one penalty after the source card is loaded.  Setting the
+            # effective value to zero must describe the visible 1 -> 0 transition in the audit.
+            raw = s.fake.input['scorecards']['101']
+            raw['scorecardDetails'][0]['scorecard']['holes'][0]['penalties'] = 1
+            from tests.product.fixtures.c16a.support import write
+            write(s.root / 'data/scorecards/101.json', raw)
+            response = s.correct({'op': 'setHolePenalty', 'hole': 1, 'value': 0,
+                                  'clientMutationId': 'garmin-penalty-clear'})
+            self.assertEqual(response.status_code, 201, response.text)
+            entries = [entry for entry in response.json()['stored']['audit']['entries'] if entry['op'] == 'penalty']
+            self.assertEqual([(entry['before'], entry['after']) for entry in entries], [(1, 0)])
+
+    def test_c53_shotmap_exposes_manual_and_effective_penalties(self):
+        with Sandbox() as s:
+            s.seed()
+            raw = s.fake.input['scorecards']['101']
+            raw['scorecardDetails'][0]['scorecard']['holes'][0]['penalties'] = 1
+            write(s.root / 'data/scorecards/101.json', raw)
+            manual = s.correct({'op': 'setHolePenalty', 'hole': 1, 'value': 1,
+                                'clientMutationId': 'effective-penalty-manual'})
+            self.assertEqual(manual.status_code, 201, manual.text)
+            response = s.request('POST', 'annotations', json={
+                'targetType': 'hole', 'targetId': '101:1', 'kind': 'penalty_correction',
+                'payload': {'strokes': 0}, 'clientMutationId': 'effective-penalty-zero',
+            })
+            self.assertEqual(response.status_code, 200, response.text)
+            view = shotmap(s)
+            self.assertEqual(view['manualPenalty'], 1)
+            self.assertEqual(view['effectivePenalty'], 0)
+
+    def test_c53_set_hole_penalty_audit_follows_annotation_then_correction(self):
+        with Sandbox() as s:
+            s.seed()
+            raw = s.fake.input['scorecards']['101']
+            raw['scorecardDetails'][0]['scorecard']['holes'][0]['penalties'] = 1
+            write(s.root / 'data/scorecards/101.json', raw)
+            annotation_response = s.request('POST', 'annotations', json={
+                'targetType': 'hole', 'targetId': '101:1', 'kind': 'penalty_correction',
+                'payload': {'strokes': 0}, 'clientMutationId': 'annotation-clear',
+            })
+            self.assertEqual(annotation_response.status_code, 200, annotation_response.text)
+            response = s.correct({'op': 'setHolePenalty', 'hole': 1, 'value': 1,
+                                  'clientMutationId': 'annotation-then-set'})
+            self.assertEqual(response.status_code, 201, response.text)
+            entries = [entry for entry in response.json()['stored']['audit']['entries'] if entry['op'] == 'penalty']
+            self.assertEqual([(entry['before'], entry['after']) for entry in entries], [(0, 1)])
+
 
     def test_j3_4_unreadable_history_rejects_score_annotations(self):
         with Sandbox() as s:

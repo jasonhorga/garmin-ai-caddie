@@ -10,6 +10,7 @@ from functools import lru_cache
 import json
 import logging
 import math
+from dataclasses import replace
 from pathlib import Path
 import threading
 import time
@@ -50,6 +51,7 @@ from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.geometry.geometry_evidence import build_route_geometry_evidence, geometry_coverage_for_hole
 from ai_caddie.geometry.shot_projection import local_to_world
 from ai_caddie.history.history import HistoryData, OWNER_ID
+from ai_caddie.history.corrected_history import corrected_history_data
 from ai_caddie.history.history_stats import _effective_score_data
 from ai_caddie.reports.report_labels_zh import issue_label_zh
 from ai_caddie.history.stats_cache import cached_build_history_stats
@@ -3424,6 +3426,8 @@ def build_live_round_package(
 ) -> dict[str, Any]:
     source = data or fixture_history_data()
     annotation_lookup_root = annotations_root or Path("/nonexistent-ai-caddie-annotations")
+    if isinstance(source, HistoryData) and not source.corrected and not map_only:
+        source = corrected_history_data(source, player_id=player_id, annotations_root=annotation_lookup_root)
     annotations = [] if map_only else list_annotations(root=annotation_lookup_root, player_id=player_id)
     scored_source = _effective_score_data(source, annotations)
     # History stats are about the player's PAST rounds — independent of which course is being
@@ -4095,10 +4099,14 @@ def build_live_round_package_for_course(
         if ensure_geometry:
             geometry_ensure = _ensure_geometry_for_course(int(global_id))
         if template_round is not None:
-            package_source = HistoryData(
-                raw_rounds=source.raw_rounds,
+            # A template round changes the history payload.  Clear full-history
+            # fingerprints so profile caches cannot mistake this derived view for
+            # the original source data.
+            package_source = replace(
+                source,
                 rounds=[*source.rounds, template_round],
-                shots=source.shots,
+                source_fingerprint=None,
+                correction_fingerprint=None,
             )
     package = build_live_round_package(
         live_round_id,

@@ -28,6 +28,18 @@ class ServerV2MobileTests(unittest.TestCase):
         authority.start()
         self.addCleanup(authority.stop)
 
+    def test_history_package_signature_uses_source_and_correction_fingerprints(self) -> None:
+        from server_v2.mobile import _history_package_signature
+
+        first = HistoryData(raw_rounds=[], rounds=[], shots=[], source_fingerprint="source-1",
+                            correction_fingerprint="correction-1")
+        same = HistoryData(raw_rounds=[], rounds=[], shots=[], source_fingerprint="source-1",
+                           correction_fingerprint="correction-1")
+        changed = HistoryData(raw_rounds=[], rounds=[], shots=[], source_fingerprint="source-1",
+                              correction_fingerprint="correction-2")
+        self.assertEqual(_history_package_signature(first), _history_package_signature(same))
+        self.assertNotEqual(_history_package_signature(first), _history_package_signature(changed))
+
     def test_course_start_defers_non_priority_caddie_enrichment_explicitly(self) -> None:
         from ai_caddie.caddie import mobile_live
         from ai_caddie.core.fixtures import fixture_history_data
@@ -838,6 +850,43 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(out["course"]["roundCount"], 5)        # was 0 before the fix
         self.assertEqual(out["course"]["courseName"], "黑骑士")  # base name, not "~ A"
         self.assertEqual(out["holes"][0]["sampleCount"], 5)     # was 0 before the fix
+
+    def test_mobile_package_reads_corrected_shot_club(self) -> None:
+        # Regression guard through the real mobile round-package entry point: a durable shot
+        # correction must reach clubProfiles. (Not red on cc2f272b — history stats already
+        # applied corrections there; mobile.py/mobile_live now also read the corrected layer.)
+        from tests.product.fixtures.c16a.support import Sandbox
+
+        with Sandbox() as sandbox:
+            sandbox.seed()
+            # Prime the product cache before the durable edits. The package reader must key the
+            # second read by the correction fingerprint, rather than serving the pre-edit round.
+            from server_v2 import mobile as mobile_service
+            with patch.object(
+                mobile_service,
+                'load_history_data_for_mode',
+                side_effect=lambda *, player_id='me': (stats_cache.cached_load_history_data(player_id), 'local'),
+            ), patch.object(mobile_service, 'MOBILE_ROOT', sandbox.root), \
+                 patch.object(mobile_service, 'ANNOTATION_ROOT', sandbox.root):
+                mobile_service.build_mobile_round_package_response(
+                    '101', captured_at='2026-05-25T08:00:00Z',
+                )
+            response = sandbox.correct({'op': 'editField', 'shotId': 's:101:2',
+                                        'field': 'club', 'value': '6I',
+                                        'clientMutationId': 'mobile-club-6i'})
+            self.assertEqual(response.status_code, 201, response.text)
+            with patch.object(
+                mobile_service,
+                'load_history_data_for_mode',
+                side_effect=lambda *, player_id='me': (stats_cache.cached_load_history_data(player_id), 'local'),
+            ), patch.object(mobile_service, 'MOBILE_ROOT', sandbox.root), \
+                 patch.object(mobile_service, 'ANNOTATION_ROOT', sandbox.root):
+                package = mobile_service.build_mobile_round_package_response(
+                    '101', captured_at='2026-05-25T08:00:00Z',
+                )
+            club_names = {row['clubName'] for row in package.clubProfiles}
+            self.assertIn('6I', club_names)
+            self.assertNotIn('7I', club_names)
 
     def test_mobile_course_options_list_recent_courses_for_start_round(self) -> None:
         client = TestClient(app)

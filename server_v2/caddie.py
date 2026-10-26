@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from ai_caddie.caddie.caddie_context import build_caddie_context
 from ai_caddie.caddie.mobile_live import hydrate_live_caddie_geometry_context
 from ai_caddie.history.history import OWNER_ID
+from ai_caddie.history.corrected_history import corrected_history_data
 from ai_caddie.caddie.decision import (
     audit_decision,
     latest_decision_audit,
@@ -74,6 +75,7 @@ def build_caddie_context_response(
     player_id: str = OWNER_ID,
 ) -> CaddieContextResponse:
     data, mode = load_history_data_for_mode(player_id=player_id)
+    data = corrected_history_data(data, player_id=player_id, annotations_root=ANNOTATION_ROOT)
     return CaddieContextResponse(
         **build_caddie_context(
             data,

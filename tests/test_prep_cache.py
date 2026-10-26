@@ -117,6 +117,31 @@ class PrepCacheTests(unittest.TestCase):
             prep_cache.cached_course_prep(**member_kwargs)
             self.assertEqual(calls["n"], 4, "member manual bag edits must invalidate the cached prep")
 
+    def test_correction_and_annotation_write_invalidates_prep_immediately(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            original_data = prep_cache.DATA_DIR
+            prep_cache.DATA_DIR = Path(tmp)
+            self.addCleanup(setattr, prep_cache, "DATA_DIR", original_data)
+            calls = {"n": 0}
+
+            def build() -> dict:
+                calls["n"] += 1
+                return {"build": calls["n"]}
+
+            kwargs = dict(global_id=31794, requested=[1], render=False,
+                          include_shots=False, player_id="me", build=build)
+            prep_cache.cached_course_prep(**kwargs)
+            correction_dir = prep_cache.DATA_DIR / "players" / "me" / "corrections"
+            correction_dir.mkdir(parents=True)
+            (correction_dir / "101.jsonl").write_text('{"op":"addShot"}\n')
+            prep_cache.cached_course_prep(**kwargs)
+            self.assertEqual(calls["n"], 2)
+            annotation_dir = prep_cache.DATA_DIR / "annotations"
+            annotation_dir.mkdir(parents=True)
+            (annotation_dir / "annotations.jsonl").write_text('{"kind":"club_correction"}\n')
+            prep_cache.cached_course_prep(**kwargs)
+            self.assertEqual(calls["n"], 3)
+
     def test_course_data_sig_tracks_only_the_selected_course_authority(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)

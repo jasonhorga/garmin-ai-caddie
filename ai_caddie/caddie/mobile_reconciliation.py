@@ -53,7 +53,7 @@ def _hole_scores(
     annotations_root: Path | str | None = None, player_id: str = OWNER_ID,
 ) -> dict[int, dict[str, Any]]:
     from ai_caddie.reports.annotations import list_annotation_records
-    from ai_caddie.rounds.correction_audit import _effective_hole, _round_correction_events
+    from ai_caddie.rounds.correction_audit import _round_correction_events, effective_hole
 
     annotation_records = list_annotation_records(
         root=annotations_root if annotations_root is not None else root, player_id=player_id,
@@ -62,7 +62,7 @@ def _hole_scores(
     scores: dict[int, dict[str, Any]] = {}
     for index, hole in enumerate(round_row.get("holes") or [], start=1):
         number = _safe_int(hole.get("number")) or index
-        _total, _putts, penalty = _effective_hole(round_row, number, annotation_records, correction_events)
+        _total, _putts, (penalty, _winner) = effective_hole(round_row, number, annotation_records, correction_events)
         scores[number] = {
             "strokes": hole.get("strokes"),
             "putts": hole.get("putts"),
