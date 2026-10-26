@@ -2078,6 +2078,10 @@ public final class LiveRoundAppModel: ObservableObject {
         await roundEnrichmentTask?.value
     }
 
+    func mergeRoundEnrichmentForTesting(_ full: LiveRoundPackage) -> Bool {
+        mergeRoundEnrichment(full)
+    }
+
     /// Waits for the round's Garmin raster pass (C85).
     func waitForGarminRasterDownloadForTesting() async {
         await garminRasterDownloadTask?.value

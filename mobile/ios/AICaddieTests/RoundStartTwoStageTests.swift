@@ -73,6 +73,77 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertNil(requests.last.flatMap { c33Query($0, "map_only") }, "the ordinary package is unchanged")
     }
 
+    func testPersonalRequestWaitsForInitialHoleLoadAndRecentHistoryWaitsForMerge() async throws {
+        let host = "c91-gate.example.test"
+        let roundId = "c91-gate"
+        let map = try package(roundId: roundId, mapOnly: true)
+        let full = try package(roundId: roundId, mapOnly: false)
+        let mapData = try JSONEncoder().encode(map)
+        let fullData = try JSONEncoder().encode(full)
+        let held = C85HeldRequests()
+        let sentBeforeReady = expectation(description: "personal package sent before initial hole load")
+        sentBeforeReady.isInverted = true
+        let sentAfterReady = expectation(description: "personal package sent after initial hole load")
+        let ready = C85Counter()
+        let earlyOnce = C33FirstMatch(), afterOnce = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package" else {
+                proto.reply(404); return
+            }
+            if c33Query(proto.request, "map_only") == "true" { proto.reply(200, mapData); return }
+            held.hold(proto)
+            if ready.value == 0 {
+                if earlyOnce.claim() { sentBeforeReady.fulfill() }
+            } else if afterOnce.claim() { sentAfterReady.fulfill() }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held)
+        let model = fixture.model
+        // The shared fixture documents three previous rounds, latest round-a on May 20.
+        let previous = MobileCourseOption(globalId: c85CourseId, name: "Fixture Links", roundCount: 3,
+                                          latestRoundId: "round-a", latestRoundDate: "2026-05-20T08:00:00", holes: 9, teeBox: "blue")
+        try fixture.store.saveRecentCourseSelection(previous)
+        await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: map.loopEntries)
+        await fulfillment(of: [sentBeforeReady], timeout: 0.2)
+        XCTAssertEqual(try fixture.store.loadRecentCourseSelection()?.roundCount, 3)
+        XCTAssertEqual(try fixture.store.loadRecentCourseSelection()?.latestRoundId, "round-a")
+        ready.set(1)
+        model.liveHoleInitialLoadDidFinish()
+        await fulfillment(of: [sentAfterReady], timeout: eventWait)
+        held.releaseAll(200, fullData)
+        await model.waitForRoundEnrichmentForTesting()
+        XCTAssertEqual(model.recentCourseOption?.roundCount, 3)
+        XCTAssertEqual(model.recentCourseOption?.latestRoundId, "round-a")
+        XCTAssertEqual(try fixture.store.loadRecentCourseSelection()?.roundCount, 3)
+        XCTAssertEqual(try fixture.store.loadRecentCourseSelection()?.latestRoundDate, "2026-05-20T08:00:00")
+    }
+
+    func testLatePersonalPackageCannotRecreateADiscardedRoundOrReplaceANewRound() async throws {
+        let host = "c91-stale.example.test"
+        let oldMap = try package(roundId: "c91-old", mapOnly: true)
+        let oldFull = try package(roundId: "c91-old", mapOnly: false)
+        let newMap = try package(roundId: "c91-new", mapOnly: true)
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host, c33Query(proto.request, "map_only") == "true" else {
+                proto.reply(404); return
+            }
+            let snapshot = c33Query(proto.request, "round_id") == "c91-old" ? oldMap : newMap
+            proto.reply(200, try! JSONEncoder().encode(snapshot))
+        })
+        let fixture = makeModel(host: host)
+        let model = fixture.model
+        await model.prepareCourseRound(roundId: oldMap.roundId, teeBox: "blue", loops: oldMap.loopEntries)
+        model.discardActiveRound()
+        XCTAssertFalse(model.mergeRoundEnrichmentForTesting(oldFull))
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertNil(try fixture.store.loadCurrentRoundPackage())
+        await model.prepareCourseRound(roundId: newMap.roundId, teeBox: "blue", loops: newMap.loopEntries)
+        XCTAssertFalse(model.mergeRoundEnrichmentForTesting(oldFull))
+        XCTAssertEqual(model.package?.roundId, "c91-new")
+        XCTAssertEqual(try fixture.store.loadCurrentRoundPackage()?.roundId, "c91-new")
+        XCTAssertEqual(model.package?.clubProfiles, [])
+    }
+
     func testStartEntersOnTheMapPackageAndMergesTheFullPackageIntoTheSameRound() async throws {
         let host = "c85-two-stage.example.test"
         let roundId = "c85-two-stage"
@@ -480,6 +551,9 @@ final class RoundStartTwoStageTests: XCTestCase {
             coverage["playerStatsWindow"] = "deferred"
             root["clubProfiles"] = [] as [Any]
             root["caddieContextSeeds"] = [] as [Any]
+            // #426's map-only answer has no personal history projection.
+            root["recentHistory"] = ["course": ["courseKey": "fixture-links", "roundCount": 0,
+                                               "recentScores": [], "roundIds": []], "rounds": [], "holes": []]
         }
         root["sourceCoverage"] = coverage
         if let garminRasterVersion {
