@@ -215,9 +215,12 @@ public final class LiveHoleSessionCache {
         // A precise prep response is the producer that advances the geometry revision. Keep the
         // request gates and resolved local topo from the request that produced it, otherwise the
         // same hole immediately starts a duplicate lightweight prep request after the write.
+        let prepRevision = Self.normalizedRevision(prep?.geometryRevision)
+        let cacheRevision = Self.normalizedRevision(revision)
         let precisePrepArrived = prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
-            && Self.normalizedRevision(prep?.geometryRevision) != nil
-            && Self.normalizedRevision(prep?.geometryRevision) != Self.normalizedRevision(previous.geometryRevision)
+            && prepRevision != nil
+            && cacheRevision == prepRevision
+            && prepRevision != Self.normalizedRevision(previous.geometryRevision)
         if precisePrepArrived {
             value.prepRequestCompleted = previous.prepRequestCompleted
             value.preciseProbeStarted = previous.preciseProbeStarted
