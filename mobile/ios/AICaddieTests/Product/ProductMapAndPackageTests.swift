@@ -172,10 +172,8 @@ final class ProductMapAndPackageTests: XCTestCase {
                 XCTAssertEqual(restored.latitude, 0.001, id)
                 XCTAssertEqual(restored.longitude, 0.002, id)
             } else {
-                XCTExpectFailure("C16e J5.5: poor precision restores a known landing rather than unknown") {
-                    XCTAssertNil(restored.latitude, id + " location must be unknown")
-                    XCTAssertNil(restored.longitude, id + " location must be unknown")
-                }
+                XCTAssertNil(restored.latitude, id + " location must be unknown")
+                XCTAssertNil(restored.longitude, id + " location must be unknown")
             }
         }
         // Scoring without a location still writes the same three score facts, and no invented GPS.
