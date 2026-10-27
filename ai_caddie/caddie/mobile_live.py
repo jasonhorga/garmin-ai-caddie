@@ -84,6 +84,8 @@ DECISION_CLUB_SURFACE_LIMIT = 8
 CADDIE_OWNED_CLUB_SOURCE = "ios_caddie_auto"
 MOBILE_CADDIE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area", "out_of_bounds", "ob"}
 CADDIE_ALTERNATIVE_CARRY_GAP_M = 45.0
+# Keep location landing acceptance aligned with iOS ``LiveHoleGPSResolver.maximumHorizontalAccuracyM``.
+MAXIMUM_HORIZONTAL_ACCURACY_M = 35.0
 
 # A cold 18-hole course performs independent network/download/Draco jobs per hole.  Keep a little
 # overlap so the precise upgrade completes in the background, but leave half of a four-core shared
@@ -5355,14 +5357,23 @@ def build_round_state(round_id: str, *, root: Path | str | None = None, player_i
                 state["distanceToPinM"] = _safe_float(raw) if raw is not None else None
             apply_target_payload(hole_no, state, payload, client_id)
         elif kind == "location":
-            for key in ("latitude", "longitude"):
-                value = _safe_float(payload.get(key))
-                if value is not None:
-                    state[key] = value
+            raw_accuracy = payload.get("horizontalAccuracyM") if "horizontalAccuracyM" in payload else None
+            accuracy = _safe_float(raw_accuracy)
+            accepts_coordinate = accuracy is None or (
+                math.isfinite(accuracy) and 0 <= accuracy <= MAXIMUM_HORIZONTAL_ACCURACY_M
+            )
+            if accepts_coordinate:
+                for key in ("latitude", "longitude"):
+                    value = _safe_float(payload.get(key))
+                    if value is not None:
+                        state[key] = value
             apply_target_payload(hole_no, state, payload, client_id)
-            if "horizontalAccuracyM" in payload:
-                raw = payload.get("horizontalAccuracyM")
-                state["horizontalAccuracyM"] = _safe_float(raw) if raw is not None else None
+            # Accuracy describes the stored coordinates. A rejected follow-up fix remains
+            # telemetry, but must not replace the precision paired with an earlier good position;
+            # a rejected first fix may still expose its accuracy while its coordinates stay absent.
+            if accepts_coordinate or (state.get("latitude") is None and state.get("longitude") is None):
+                if "horizontalAccuracyM" in payload:
+                    state["horizontalAccuracyM"] = accuracy
         if event.get("timestamp"):
             state["updatedAt"] = event.get("timestamp")
 
