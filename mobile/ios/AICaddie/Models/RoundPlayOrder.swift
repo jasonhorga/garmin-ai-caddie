@@ -84,10 +84,18 @@ enum HoleScreenRoundBanner: Equatable {
     }
 
     /// The one-line notice for a stroke recorded before the round started in no hole's area.
-    static func notStartedNotice(_ location: CurrentHoleLocation) -> String {
+    static func notStartedNotice(
+        _ location: CurrentHoleLocation,
+        courseHoleNumber: (Int) -> Int = { $0 },
+        targetCourseHole: Int? = nil
+    ) -> String {
         switch location {
         case .atCourse: return "练习场、会所里记杆不算开打，这一杆没有记录"
-        case .awayFromCourse, .unknown, .onHole: return "没到场，备战不记录"
+        case .awayFromCourse, .unknown: return "没到场，备战不记录"
+        case .onHole(let hole):
+            let target = targetCourseHole ?? courseHoleNumber(hole)
+            return "你在第 \(courseHoleNumber(hole)) 洞，到第 \(target) 洞发球台再记"
         }
     }
+
 }

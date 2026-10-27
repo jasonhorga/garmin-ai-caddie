@@ -259,12 +259,20 @@ final class GarminRasterTests: XCTestCase {
 
     func testGarminWithoutProjectionGestureFrameClampsToFallbackRaster() throws {
         let overlay = try XCTUnwrap(
+            LiveMapDisplaySelection.mapFrameOverlay(
+                for: .garminRaster,
+                overlay: nil,
+                garminProjection: nil
+            )
+        )
+        let gestureOverlay = try XCTUnwrap(
             LiveMapDisplaySelection.gestureFrameOverlay(
                 for: .garminRaster,
                 overlay: nil,
                 garminProjection: nil
             )
         )
+        XCTAssertEqual(overlay, gestureOverlay)
         XCTAssertEqual(overlay.w, 1242)
         XCTAssertEqual(overlay.h, 1920)
         let viewport = CGSize(width: 390, height: 844)
@@ -293,6 +301,44 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(clamped.height, viewport.height - transformedMaxY)
         XCTAssertLessThanOrEqual(clamped.height, -transformedMinY)
         XCTAssertNotEqual(clamped, proposed)
+    }
+
+    func testGarminWithoutOverlayUsesSameFramedRasterForGestures() throws {
+        let overlay = try XCTUnwrap(
+            LiveMapDisplaySelection.mapFrameOverlay(
+                for: .garminRaster,
+                overlay: nil,
+                garminProjection: nil
+            )
+        )
+        let gestureOverlay = try XCTUnwrap(
+            LiveMapDisplaySelection.gestureFrameOverlay(
+                for: .garminRaster,
+                overlay: nil,
+                garminProjection: nil
+            )
+        )
+        XCTAssertEqual(overlay, gestureOverlay)
+        let viewport = CGSize(width: 390, height: 844)
+        let rasterFrame = try XCTUnwrap(
+            LivePlayMapOverlayLayout.lightweightFittedFrame(
+                overlay: overlay,
+                viewport: viewport,
+                chrome: []
+            )
+        )
+        let gestureFrame = try XCTUnwrap(
+            LivePlayMapOverlayLayout.mapFrame(
+                overlayWidth: overlay.w,
+                overlayHeight: overlay.h,
+                in: viewport,
+                topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+                fittedFrame: rasterFrame
+            )
+        )
+
+        XCTAssertGreaterThan(rasterFrame.width, 0)
+        XCTAssertGreaterThan(rasterFrame.height, 0)
     }
 
     func testUnavailableRasterFallsBackToNumericPlaceholderState() throws {
