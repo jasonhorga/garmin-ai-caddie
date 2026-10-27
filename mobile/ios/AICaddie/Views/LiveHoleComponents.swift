@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import SwiftUI
 
 // Presentational building blocks for the redesigned 实战/记分 (live hole) screen.
