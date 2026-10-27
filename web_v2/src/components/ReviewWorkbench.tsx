@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import type { RoundCard, RoundCorrectionRequest, RoundHoleShot, RoundHoleShotMapResponse, ScoreStripCell } from '../types'
+import type { RoundCard, RoundCorrectionRequest, RoundHoleShot, RoundHoleShotMapResponse, RoundShareResponse, ScoreStripCell } from '../types'
 import { prefetchTopoImage, topoImageUrl } from '../api'
 import { physicalCourseName } from '../courseName'
 import { shortRoundDate } from '../units'
 import { ReviewHoleCanvas, type ReviewShotMapState } from './ReviewHoleCanvas'
 import { ReviewInspector } from './ReviewInspector'
+import { ShareRoundControl } from './ShareRoundControl'
 import { buildTimeline, chipShape, chipShapeZh, type ChipShape } from './reviewShotMapLogic'
 import {
   invalidateReviewShotMapCache,
@@ -19,6 +20,8 @@ interface ReviewWorkbenchProps {
   saveCorrection?: (roundRef: string, correction: RoundCorrectionRequest) => Promise<unknown>
   /** Stable player id used to isolate the optional browser shot-map cache. */
   playerNamespace?: string | null
+  onShare?: () => Promise<RoundShareResponse>
+  onRevokeShare?: () => Promise<unknown>
 }
 
 interface ReviewDraft {
@@ -134,7 +137,7 @@ type ShotMapFailure = { key: string; message: string }
 // and the 杆序 timeline on the right. Selection lives here so the three panes stay
 // in sync; the shot map is fetched lazily per hole and kept per round+hole so
 // stepping back to a visited hole paints its first frame without a refetch.
-export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection, playerNamespace }: ReviewWorkbenchProps): React.ReactElement {
+export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection, playerNamespace, onShare, onRevokeShare }: ReviewWorkbenchProps): React.ReactElement {
   const cacheNamespace = playerNamespace?.trim() || null
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(() => rounds[0]?.id ?? null)
   const [selectedHole, setSelectedHole] = useState<number | null>(null)
@@ -434,6 +437,7 @@ export function ReviewWorkbench({ rounds, fetchShotMap, saveCorrection, playerNa
             <span className={`review-total-topar ${toParTone(roundToPar)}`}> · {formatToPar(roundToPar)}</span>
           ) : null}
         </div>
+        {onShare ? <ShareRoundControl onShare={onShare} onRevoke={onRevokeShare} /> : null}
       </div>
 
       <div className="review-work review-work--map-first">

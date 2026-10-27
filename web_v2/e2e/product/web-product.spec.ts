@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test'
 import {
-  ADMIN, COURSE, CSRF, PLAYER_LINK, ROUND, SESSION_HEADER,
-  correctedShots, expect, test,
+  ADMIN, COURSE, CSRF, PLAYER_LINK, ROUND, SESSION_HEADER, SHARE_TOKEN,
+  correctedShots, expect, productApi, test,
 } from './fixtures'
 
 async function openReview(page: Page, path = '/') {
@@ -227,14 +227,28 @@ for (const row of [
   })
 }
 
-test('j9_5_review_has_single_round_share_entry', async ({ page }) => {
+test('j9_5_review_has_single_round_share_entry', async ({ page, browser }) => {
   await openReview(page)
-  // Share is a round capability, not the legacy /p/<player-token> link. The
-  // contract stops at this missing consumer affordance until its API exists.
-  const share = page.getByRole('button', { name: '分享', exact: true })
-  test.fail(true, 'C16g/9.5: read-only sharing is unimplemented (no Web entry or single-round backend token/API; App ShareLink sends text only)')
-  await expect(share).toBeVisible()
-  // Do not guess a share endpoint/URL or fake a successful anonymous view.
-  // Once implemented, capture the actual UI-issued link in a fresh context and
-  // validate its read-only round projection (see README for remaining boundary).
+  await page.getByRole('button', { name: '分享', exact: true }).click()
+  const pageUrl = await page.getByLabel('分享链接').locator('input').inputValue()
+  expect(pageUrl).toMatch(new RegExp(`/s/${SHARE_TOKEN}$`))
+
+  // A separate browser context has no session or admin localStorage. It must use only the
+  // token-resolved projection and must not be able to reach the authenticated review surface.
+  const sharedContext = await browser.newContext()
+  const sharedPage = await sharedContext.newPage()
+  const sharedApi = await productApi(sharedPage)
+  await sharedPage.goto(pageUrl)
+  await expect(sharedPage.getByRole('heading', { name: COURSE, exact: true })).toBeVisible()
+  await expect(sharedPage.locator('.shared-round-summary')).toContainText(['72', '72', 'E', '18'])
+  await expect(sharedPage.getByRole('heading', { name: '记分卡', exact: true })).toBeVisible()
+  await expect(sharedPage.getByLabel('前九记分卡')).toBeVisible()
+  await expect(sharedPage.getByLabel('后九记分卡')).toBeVisible()
+  await expect(sharedPage.getByText('相关来源', { exact: true })).toHaveCount(0)
+  await expect(sharedPage.getByRole('button', { name: /编辑落点|保存全部修改|添加订正|取消分享/ })).toHaveCount(0)
+  await expect(sharedPage.locator('body')).not.toContainText('90')
+  const read = sharedApi.calls.find((call) => call.path === `/api/v2/share/${SHARE_TOKEN}`)
+  expect(read?.auth).toBeUndefined()
+  expect(read?.admin).toBeUndefined()
+  await sharedContext.close()
 })

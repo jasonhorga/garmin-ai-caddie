@@ -54,6 +54,8 @@ import {
   redactMedia,
   runGarminSync,
   saveGarminSession,
+  createRoundShare,
+  revokeRoundShare,
 } from './api'
 import type { MediaContextState } from './components/CaddiePage'
 import { CorrectionsPage, type CorrectionTarget } from './components/CorrectionsPage'
@@ -1681,6 +1683,8 @@ export default function App() {
             playerNamespace={overviewState.status === 'ready' ? overviewState.data.currentPlayer?.id ?? null : session?.playerId ?? null}
             fetchShotMap={(roundRef, hole) => fetchRoundHoleShotMap(roundRef, hole, currentAdminToken())}
             saveCorrection={handleSaveRoundCorrection}
+            onShare={() => createRoundShare(round.id, currentAdminToken())}
+            onRevokeShare={() => revokeRoundShare(round.id, currentAdminToken())}
           />
           <HistoryRoundDetailPanel
             state={reviewRoundDetailState}

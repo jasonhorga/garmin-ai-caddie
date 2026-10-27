@@ -57,6 +57,7 @@ import type {
   ReviewReportResponse,
   RoundHoleShotMapResponse,
   RoundCorrectionRequest,
+  RoundShareResponse,
   StatsWindow,
   SyncRunResponse,
   SyncStatusResponse,
@@ -403,6 +404,21 @@ export function postRoundCorrection(
   return postJson<{ schema: string; stored: Record<string, unknown> }>(
     `/api/v2/history/rounds/${encodeURIComponent(roundRef)}/corrections`,
     correction,
+    adminToken,
+  )
+}
+
+export function createRoundShare(roundRef: string, adminToken?: string): Promise<RoundShareResponse> {
+  return postJson<RoundShareResponse>(
+    `/api/v2/history/rounds/${encodeURIComponent(roundRef)}/share`,
+    {},
+    adminToken,
+  )
+}
+
+export function revokeRoundShare(roundRef: string, adminToken?: string): Promise<{ revoked: number }> {
+  return deleteJson<{ revoked: number }>(
+    `/api/v2/history/rounds/${encodeURIComponent(roundRef)}/share`,
     adminToken,
   )
 }
