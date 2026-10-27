@@ -12,6 +12,7 @@ from ai_caddie.core.data import atomic_write_json
 from ai_caddie.core import revisions
 from ai_caddie.history import stats_cache
 from ai_caddie.history.history import HistoryData
+from ai_caddie.rounds import correction_audit
 from server_v2 import mobile
 
 
@@ -58,6 +59,16 @@ class HotPathRevisionTests(unittest.TestCase):
                 atomic_write_json(root / "new.json", {})
                 after = stats_cache._fingerprint(HistoryData(raw_rounds=[], rounds=[], shots=[]), {})
                 self.assertNotEqual(before, after)
+
+    def test_official_correction_append_bumps_revision_immediately(self) -> None:
+        with TemporaryDirectory() as tmp:
+            corrections = Path(tmp) / "corrections"
+            corrections.mkdir()
+            path = corrections / "round.jsonl"
+            first = revisions.cached_signature(corrections, "corrections", lambda: stats_cache._dir_sig(corrections))
+            correction_audit.append_record(path, {"recordType": "correction", "op": "addShot"})
+            second = revisions.cached_signature(corrections, "corrections", lambda: stats_cache._dir_sig(corrections))
+            self.assertNotEqual(first, second)
 
     def test_external_in_place_edit_is_seen_after_background_scan(self) -> None:
         with TemporaryDirectory() as tmp:
