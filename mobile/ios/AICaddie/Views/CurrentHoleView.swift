@@ -46,6 +46,20 @@ final class LiveEventLogSnapshot {
     }
 }
 
+struct LiveHoleEventDerivedValues {
+    let markedShots: [LiveRoundEvent]
+    let secondShotCoordinate: (latitude: Double, longitude: Double)?
+    let newestShotCoordinate: (latitude: Double, longitude: Double, capturedAt: String)?
+}
+
+struct LiveWatchShotPayload {
+    let phoneShotEventIds: [String]
+    let lastShotLatitude: Double?
+    let lastShotLongitude: Double?
+    let lastShotCapturedAt: String?
+    let teeShotLanding: (latitude: Double, longitude: Double)?
+}
+
 enum LiveCaddieDecisionSignaturePolicy {
     /// Build the cache-only additions from the same inputs used by the live view. The POST body
     /// remains unchanged; this request is passed directly to `signature` for cache identity.
@@ -5638,8 +5652,9 @@ public struct CurrentHoleView: View {
             )
         }
         // One event-log read per send (this runs on every GPS fix).
-        let markedShots = markedShotsOnHole
-        let lastShot = Self.newestShotCoordinate(in: markedShots)
+        let shotPayload = Self.liveWatchShotPayload(
+            from: eventSnapshot, roundId: package.roundId, hole: hole.number
+        )
         let state = watchBridge?.makeWatchRoundStatePayload(
             package: package,
             hole: hole,
@@ -5677,11 +5692,11 @@ public struct CurrentHoleView: View {
             decisionOriginShotEventIds: decision.flatMap { $0 == caddieDecision ? caddieDecisionOriginShot : nil },
             // The phone's current shots on this hole, so a shot recorded only here after the
             // decision still retires it on the Watch.
-            phoneShotEventIds: markedShots.map(\.eventId),
-            lastShotLatitude: lastShot?.latitude,
-            lastShotLongitude: lastShot?.longitude,
-            lastShotCapturedAt: lastShot?.capturedAt,
-            teeShotLanding: Self.secondShotCoordinate(in: markedShots)
+            phoneShotEventIds: shotPayload.phoneShotEventIds,
+            lastShotLatitude: shotPayload.lastShotLatitude,
+            lastShotLongitude: shotPayload.lastShotLongitude,
+            lastShotCapturedAt: shotPayload.lastShotCapturedAt,
+            teeShotLanding: shotPayload.teeShotLanding
         )
         if let state {
             try? watchBridge?.sendStateToWatch(state)
@@ -5900,8 +5915,9 @@ public struct CurrentHoleView: View {
         guard hole.par != 3,
               let prep = holePrep,
               let outline = prep.fairwayOutline else { return nil }
-        let events = eventSnapshot.events()
-        let shots = LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number)
+        let shots = Self.liveHoleEventDerivedValues(
+            from: eventSnapshot, roundId: package.roundId, hole: hole.number
+        ).markedShots
         guard shots.count >= 2,
               case .number(let latitude)? = shots[1].payload["latitude"],
               case .number(let longitude)? = shots[1].payload["longitude"] else { return nil }
@@ -5939,10 +5955,46 @@ public struct CurrentHoleView: View {
         return (latitude, longitude)
     }
 
-    private var markedShotsOnHole: [LiveRoundEvent] {
-        LiveMarkedShots.locations(
-            in: eventSnapshot.events(), roundId: package.roundId, hole: hole.number
+    static func liveHoleEventDerivedValues(
+        from events: [LiveRoundEvent],
+        roundId: String,
+        hole: Int
+    ) -> LiveHoleEventDerivedValues {
+        let markedShots = LiveMarkedShots.locations(in: events, roundId: roundId, hole: hole)
+        return LiveHoleEventDerivedValues(
+            markedShots: markedShots,
+            secondShotCoordinate: secondShotCoordinate(in: markedShots),
+            newestShotCoordinate: newestShotCoordinate(in: markedShots)
         )
+    }
+
+    static func liveHoleEventDerivedValues(
+        from snapshot: LiveEventLogSnapshot,
+        roundId: String,
+        hole: Int
+    ) -> LiveHoleEventDerivedValues {
+        liveHoleEventDerivedValues(from: snapshot.events(), roundId: roundId, hole: hole)
+    }
+
+    static func liveWatchShotPayload(
+        from snapshot: LiveEventLogSnapshot,
+        roundId: String,
+        hole: Int
+    ) -> LiveWatchShotPayload {
+        let values = liveHoleEventDerivedValues(from: snapshot, roundId: roundId, hole: hole)
+        return LiveWatchShotPayload(
+            phoneShotEventIds: values.markedShots.map(\.eventId),
+            lastShotLatitude: values.newestShotCoordinate?.latitude,
+            lastShotLongitude: values.newestShotCoordinate?.longitude,
+            lastShotCapturedAt: values.newestShotCoordinate?.capturedAt,
+            teeShotLanding: values.secondShotCoordinate
+        )
+    }
+
+    private var markedShotsOnHole: [LiveRoundEvent] {
+        Self.liveHoleEventDerivedValues(
+            from: eventSnapshot, roundId: package.roundId, hole: hole.number
+        ).markedShots
     }
 
     /// Where the newest shot was marked, by its own timestamp: a Watch mark relayed late lands in
