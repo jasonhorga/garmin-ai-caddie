@@ -5796,6 +5796,12 @@ class WatchHolePagesContractTests(unittest.TestCase):
         self.assertNotIn("eventSnapshot.events()", send)
         self.assertIn("load: eventSnapshot.events", send)
         self.assertGreaterEqual(current.count("load: eventSnapshot.events"), 3)
+        # Shot derivations live only in the builder; a derived property reading events itself, or a
+        # fresh snapshot per read, bypasses the one-read-per-redraw contract.
+        self.assertEqual(current.count("LiveMarkedShots.locations("), 1)
+        self.assertEqual(current.count("secondShotCoordinate(in: markedShots)"), 1)
+        self.assertEqual(current.count("newestShotCoordinate(in: markedShots)"), 1)
+        self.assertEqual(current.count("LiveEventLogSnapshot("), 1)
 
     def test_a_real_recommendation_drives_the_club_tag_and_the_caddie_detail_draws_every_leg(self) -> None:
         container = self.read("Views/WatchRoundContainerView.swift")
