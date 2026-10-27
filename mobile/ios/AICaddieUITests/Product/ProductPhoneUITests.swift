@@ -137,8 +137,6 @@ final class ProductPhoneUITests: XCTestCase {
         var populated = ProductFixtureServer.State(); populated.roundCount = 3
         server.configure(populated)
         launch()
-        let cachedTrend = element("home-recent-trend")
-        XCTAssertTrue(cachedTrend.waitForExistence(timeout: 2), "reset:false must first show the cached trend")
         scores()
         XCTAssertTrue(element("results-all-rounds").waitForExistence(timeout: 10), "populated cache seed")
         app.terminate()
@@ -146,6 +144,8 @@ final class ProductPhoneUITests: XCTestCase {
         var emptyServer = ProductFixtureServer.State(); emptyServer.roundCount = 0
         server.configure(emptyServer)
         launch(reset: false)
+        let cachedTrend = element("home-recent-trend")
+        XCTAssertTrue(cachedTrend.waitForExistence(timeout: 2), "reset:false must first show the cached trend")
         let statsRequest = XCTNSPredicateExpectation(predicate: NSPredicate { [server] _, _ in
             server?.requestedPaths().contains { $0.hasPrefix("/api/v2/history/stats/mobile") } == true
         }, object: nil)
