@@ -64,6 +64,18 @@ class NativeResultWriterTests(unittest.TestCase):
         self.assertEqual(result["stage"], "tested")
         self.assertEqual(result["ui"], [])
 
+    def test_missing_ui_result_fails_when_ui_is_the_only_required_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            patch_file = Path(directory) / "patch"
+            patch_file.write_bytes(b"patch")
+            result = writer.agenthub_result(
+                "request", "a" * 40, patch_file, "tested", [],
+                Path(directory) / "missing-ui.xcresult", skipped=["ios", "watch"],
+            )
+        self.assertEqual(result["stage"], "build_failed")
+        self.assertEqual(result["tests"], [])
+        self.assertEqual(result["ui"], [])
+
     def test_explicitly_skipped_native_scheme_is_recorded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             patch_file = Path(directory) / "patch"

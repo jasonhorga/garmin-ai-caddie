@@ -110,7 +110,7 @@
       "id": "tests-product-faults-C16e-j5-10",
       "patch": "tests/product/faults/C16e/j5_10.patch",
       "kind": "native-unit",
-      "target": "AICaddieUITests/ProductPhoneUITests/test_j5_10_nine_hole_finish_uses_par_thirty_six_and_fits",
+      "target": "AICaddieTests/ProductPhoneStateTests/test_j5_10_summary_uses_recorded_holes_and_updates_edits",
       "promise": "j5.10"
     },
     {
@@ -124,7 +124,7 @@
       "id": "tests-product-faults-C16e-j5-2",
       "patch": "tests/product/faults/C16e/j5_2.patch",
       "kind": "native-unit",
-      "target": "AICaddieUITests/ProductPhoneUITests/test_j5_2_home_active_card_replaces_new_round_and_can_resume",
+      "target": "AICaddieTests/ProductPhoneStateTests/test_j5_2_home_hero_priorities_with_and_without_downloads",
       "promise": "j5.2"
     },
     {
@@ -369,175 +369,175 @@
       "id": "tests-product-faults-C33i-01-start-does-not-cancel",
       "patch": "tests/product/faults/C33i/01-start-does-not-cancel.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33StartTests/testStartCancelsPreviousCourseAndSendsWithoutWaitingForIt",
+      "target": "AICaddieTests/C33StartTests/testStartCancelsPreviousCourseAndSendsWithoutWaitingForIt",
       "promise": "C33i-01"
     },
     {
       "id": "tests-product-faults-C33i-02-start-ignores-deadline",
       "patch": "tests/product/faults/C33i/02-start-ignores-deadline.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33StartTests/testForegroundRoundPackageFailsWithinTheStartBudget",
+      "target": "AICaddieTests/C33StartTests/testForegroundRoundPackageFailsWithinTheStartBudget",
       "promise": "C33i-02"
     },
     {
       "id": "tests-product-faults-C33i-03-topo-waits-for-prep",
       "patch": "tests/product/faults/C33i/03-topo-waits-for-prep.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33DrawingTests/testPackageReadyTopoDoesNotWaitForPartialPrep",
+      "target": "AICaddieTests/C33DrawingTests/testPackageReadyTopoDoesNotWaitForPartialPrep",
       "promise": "C33i-03"
     },
     {
       "id": "tests-product-faults-C33i-04-garmin-stops-after-three",
       "patch": "tests/product/faults/C33i/04-garmin-stops-after-three.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33DrawingTests/testFourthGarminAttemptDisplaysImageAndBackoffStaysCapped",
+      "target": "AICaddieTests/C33DrawingTests/testFourthGarminAttemptDisplaysImageAndBackoffStaysCapped",
       "promise": "C33i-04"
     },
     {
       "id": "tests-product-faults-C33i-05-green-skips-cached-topo",
       "patch": "tests/product/faults/C33i/05-green-skips-cached-topo.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33DrawingTests/testGreenFailureUsesCachedTopoBeforeGarmin",
+      "target": "AICaddieTests/C33DrawingTests/testGreenFailureUsesCachedTopoBeforeGarmin",
       "promise": "C33i-05"
     },
     {
       "id": "tests-product-faults-C33i-06-green-skips-garmin",
       "patch": "tests/product/faults/C33i/06-green-skips-garmin.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33DrawingTests/testGreenFailureWithoutTopoUsesGarminThenSchematic",
+      "target": "AICaddieTests/C33DrawingTests/testGreenFailureWithoutTopoUsesGarminThenSchematic",
       "promise": "C33i-06"
     },
     {
       "id": "tests-product-faults-C33i-07-strategy-passes-unknown-route",
       "patch": "tests/product/faults/C33i/07-strategy-passes-unknown-route.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33EventTests/testEveryRouteTokenProducesOnlyServerStrategyEnumsOrOmission",
+      "target": "AICaddieTests/C33EventTests/testEveryRouteTokenProducesOnlyServerStrategyEnumsOrOmission",
       "promise": "C33i-07"
     },
     {
       "id": "tests-product-faults-C33i-08-422-poisons-batch",
       "patch": "tests/product/faults/C33i/08-422-poisons-batch.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33EventTests/testOne422IsQuarantinedAndOtherFourEventsUpload",
+      "target": "AICaddieTests/C33EventTests/testOne422IsQuarantinedAndOtherFourEventsUpload",
       "promise": "C33i-08"
     },
     {
       "id": "tests-product-faults-C33i-09-idempotency-ignores-body",
       "patch": "tests/product/faults/C33i/09-idempotency-ignores-body.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33EventTests/testIdempotencyKeyBindsBodyAndIsStableAcrossTransportRetry",
+      "target": "AICaddieTests/C33EventTests/testIdempotencyKeyBindsBodyAndIsStableAcrossTransportRetry",
       "promise": "C33i-09"
     },
     {
       "id": "tests-product-faults-C33i-10-marker-guard-regresses",
       "patch": "tests/product/faults/C33i/10-marker-guard-regresses.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33EventTests/testOne422IsQuarantinedAndOtherFourEventsUpload",
+      "target": "AICaddieTests/C33EventTests/testOne422IsQuarantinedAndOtherFourEventsUpload",
       "promise": "C33i-10"
     },
     {
       "id": "tests-product-faults-C33i-11-422-classifies-storage-as-singleton",
       "patch": "tests/product/faults/C33i/11-422-classifies-storage-as-singleton.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33EventTests/testStoreOrIdempotency422KeepsWholeBatchRetryable",
+      "target": "AICaddieTests/C33EventTests/testStoreOrIdempotency422KeepsWholeBatchRetryable",
       "promise": "C33i-11"
     },
     {
       "id": "tests-product-faults-C33i-12-start-cancels-user-download",
       "patch": "tests/product/faults/C33i/12-start-cancels-user-download.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33StartTests/testUserDownloadAndWatchStartSurviveForegroundStartCancellation",
+      "target": "AICaddieTests/C33StartTests/testUserDownloadAndWatchStartSurviveForegroundStartCancellation",
       "promise": "C33i-12"
     },
     {
       "id": "tests-product-faults-C33i-13-partial-mismatched-overlays",
       "patch": "tests/product/faults/C33i/13-partial-mismatched-overlays.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33DrawingTests/testPartialPrepDrawsOverlayOnlyWhenTopoPixelFrameMatches",
+      "target": "AICaddieTests/C33DrawingTests/testPartialPrepDrawsOverlayOnlyWhenTopoPixelFrameMatches",
       "promise": "C33i-13"
     },
     {
       "id": "tests-product-faults-C33i-14-green-body-recrops",
       "patch": "tests/product/faults/C33i/14-green-body-recrops.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33DrawingTests/testGreenCropRequiresProjectionAndAvailableOutline",
+      "target": "AICaddieTests/C33DrawingTests/testGreenCropRequiresProjectionAndAvailableOutline",
       "promise": "C33i-14"
     },
     {
       "id": "tests-product-faults-C33i-15-discard-keeps-quarantine",
       "patch": "tests/product/faults/C33i/15-discard-keeps-quarantine.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33EventTests/testDiscardActiveRoundRemovesItsQuarantineDiagnostics",
+      "target": "AICaddieTests/C33EventTests/testDiscardActiveRoundRemovesItsQuarantineDiagnostics",
       "promise": "C33i-15"
     },
     {
       "id": "tests-product-faults-C33i-16-package-fields-not-decoded",
       "patch": "tests/product/faults/C33i/16-package-fields-not-decoded.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33PackageTests/testOfflinePackageStatusDecodesOptionalFieldsWhenPresentAndMissing",
+      "target": "AICaddieTests/C33PackageTests/testOfflinePackageStatusDecodesOptionalFieldsWhenPresentAndMissing",
       "promise": "C33i-16"
     },
     {
       "id": "tests-product-faults-C33i-17-topo-available-still-waits",
       "patch": "tests/product/faults/C33i/17-topo-available-still-waits.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33PackageTests/testTopoAvailableRevisionCanDrawWithoutPrepReady",
+      "target": "AICaddieTests/C33PackageTests/testTopoAvailableRevisionCanDrawWithoutPrepReady",
       "promise": "C33i-17"
     },
     {
       "id": "tests-product-faults-C33i-18-pending-retry-ignores-round",
       "patch": "tests/product/faults/C33i/18-pending-retry-ignores-round.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33PackageTests/testPendingGeometryRetriesOnlyAfterServerDeadlineAndSameRound",
+      "target": "AICaddieTests/C33PackageTests/testPendingGeometryRetriesOnlyAfterServerDeadlineAndSameRound",
       "promise": "C33i-18"
     },
     {
       "id": "tests-product-faults-C33i-19-degraded-package-overwrites-cache",
       "patch": "tests/product/faults/C33i/19-degraded-package-overwrites-cache.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33PackageTests/testDegradedSingleflightPackageNeverReplacesCachedCompletePackage",
+      "target": "AICaddieTests/C33PackageTests/testDegradedSingleflightPackageNeverReplacesCachedCompletePackage",
       "promise": "C33i-19"
     },
     {
       "id": "tests-product-faults-C33i-20-codable-default-skips-degraded-fields",
       "patch": "tests/product/faults/C33i/20-codable-default-skips-degraded-fields.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33PackageTests/testOfflinePackageStatusDecodesOptionalFieldsWhenPresentAndMissing",
+      "target": "AICaddieTests/C33PackageTests/testOfflinePackageStatusDecodesOptionalFieldsWhenPresentAndMissing",
       "promise": "C33i-20"
     },
     {
       "id": "tests-product-faults-C33i-21-deferred-finish-ignores-quarantine",
       "patch": "tests/product/faults/C33i/21-deferred-finish-ignores-quarantine.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
+      "target": "AICaddieTests/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
       "promise": "C33i-21"
     },
     {
       "id": "tests-product-faults-C33i-22-garmin-retry-stops-at-image",
       "patch": "tests/product/faults/C33i/22-garmin-retry-stops-at-image.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33DrawingTests/testGarminMetadataRetryRequiresUsableProjection",
+      "target": "AICaddieTests/C33DrawingTests/testGarminMetadataRetryRequiresUsableProjection",
       "promise": "C33i-22"
     },
     {
       "id": "tests-product-faults-C33i-23-green-crop-ignores-projection",
       "patch": "tests/product/faults/C33i/23-green-crop-ignores-projection.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33DrawingTests/testGreenCropRequiresProjectionAndAvailableOutline",
+      "target": "AICaddieTests/C33DrawingTests/testGreenCropRequiresProjectionAndAvailableOutline",
       "promise": "C33i-23"
     },
     {
       "id": "tests-product-faults-C33i-24-geometry-retry-does-not-reschedule",
       "patch": "tests/product/faults/C33i/24-geometry-retry-does-not-reschedule.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33PackageTests/testPendingGeometryFailureReschedulesWithBackoff",
+      "target": "AICaddieTests/C33PackageTests/testPendingGeometryFailureReschedulesWithBackoff",
       "promise": "C33i-24"
     },
     {
       "id": "tests-product-faults-C33i-25-degraded-package-never-persists",
       "patch": "tests/product/faults/C33i/25-degraded-package-never-persists.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33PackageTests/testDegradedSingleflightPackageNeverReplacesCachedCompletePackage",
+      "target": "AICaddieTests/C33PackageTests/testDegradedSingleflightPackageNeverReplacesCachedCompletePackage",
       "promise": "C33i-25"
     },
     {
@@ -551,28 +551,28 @@
       "id": "tests-product-faults-C33i-27-score-quarantine-not-replaced",
       "patch": "tests/product/faults/C33i/27-score-quarantine-not-replaced.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33EventTests/testReplacementScoreClearsQuarantineAndAllowsFinish",
+      "target": "AICaddieTests/C33EventTests/testReplacementScoreClearsQuarantineAndAllowsFinish",
       "promise": "C33i-27"
     },
     {
       "id": "tests-product-faults-C33i-28-array-422-not-structured",
       "patch": "tests/product/faults/C33i/28-array-422-not-structured.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33EventTests/testStoreOrIdempotency422KeepsWholeBatchRetryable",
+      "target": "AICaddieTests/C33EventTests/testStoreOrIdempotency422KeepsWholeBatchRetryable",
       "promise": "C33i-28"
     },
     {
       "id": "tests-product-faults-C33i-29-new-start-keeps-previous-foreground-start",
       "patch": "tests/product/faults/C33i/29-new-start-keeps-previous-foreground-start.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33StartTests/testNewRoundStartCancelsAPreviousForegroundStart",
+      "target": "AICaddieTests/C33StartTests/testNewRoundStartCancelsAPreviousForegroundStart",
       "promise": "C33i-29"
     },
     {
       "id": "tests-product-faults-C33i-30-event-builder-writes-raw-route",
       "patch": "tests/product/faults/C33i/30-event-builder-writes-raw-route.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/Product/C33EventTests/testEveryRouteTokenProducesOnlyServerStrategyEnumsOrOmission",
+      "target": "AICaddieTests/C33EventTests/testEveryRouteTokenProducesOnlyServerStrategyEnumsOrOmission",
       "promise": "C33i-30"
     },
     {

@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
@@ -32,6 +33,24 @@ class FaultRunnerTests(unittest.TestCase):
             self.assertTrue((runner.ROOT / record["patch"]).is_file(), record["id"])
             self.assertIn(record["kind"], VALID_KINDS, record["id"])
             self.assertTrue(record["target"].strip(), record["id"])
+
+    def test_native_targets_are_real_three_part_xcode_tests(self):
+        records = runner.load_manifest()
+        for record in records:
+            if record["kind"] not in {"native-unit", "native-ui"}:
+                continue
+            parts = record["target"].split("/")
+            self.assertEqual(len(parts), 3, record["target"])
+            target, class_name, method = parts
+            source_root = runner.ROOT / "mobile/ios" / target
+            sources = list(source_root.rglob("*.swift"))
+            self.assertTrue(sources, record["target"])
+            text = "\n".join(path.read_text(encoding="utf-8") for path in sources)
+            self.assertRegex(text, rf"\bclass\s+{re.escape(class_name)}\b", record["target"])
+            self.assertRegex(text, rf"\bfunc\s+{re.escape(method)}\s*\(", record["target"])
+            if target == "AICaddieUITests":
+                self.assertEqual(record["kind"], "native-ui", record["id"])
+            self.assertEqual(runner.native_include_ui(record), target == "AICaddieUITests")
 
     def test_check_applies_every_enabled_fault(self):
         result = runner.check(runner.load_manifest())

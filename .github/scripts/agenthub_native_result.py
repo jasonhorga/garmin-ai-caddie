@@ -129,10 +129,15 @@ def agenthub_result(
         except UnusableResult:
             unusable = True
     ui_cases: list[dict[str, str]] = []
-    if ui_result is not None and ui_result.exists():
-        try:
-            ui_cases = read_bundle(ui_result)
-        except UnusableResult:
+    if ui_result is not None:
+        if ui_result.exists():
+            try:
+                ui_cases = read_bundle(ui_result)
+            except UnusableResult:
+                unusable = True
+        elif not bundles:
+            # A UI-only dispatch skipped both unit schemes, so its UI bundle is the required
+            # evidence.  Missing it means the application test process never produced a verdict.
             unusable = True
     ids = [case["id"] for case in cases]
     ids.extend(case["id"] for case in ui_cases)

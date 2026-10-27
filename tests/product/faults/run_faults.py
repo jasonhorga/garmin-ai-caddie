@@ -113,6 +113,11 @@ def apply_patch(record: dict[str, Any], repo: Path) -> tuple[bool, str]:
     return True, ""
 
 
+def native_include_ui(record: dict[str, Any]) -> bool:
+    """Whether a native dispatch must run the application-test scheme."""
+    return record["target"].startswith("AICaddieUITests/")
+
+
 def run_target(record: dict[str, Any], repo: Path) -> tuple[str, str, list[str]]:
     """Return (status, detail, command) for an already patched worktree."""
     kind = record["kind"]
@@ -202,7 +207,7 @@ def dispatch_native(records: list[dict[str, Any]]) -> dict[str, Any]:
         if record.get("disabled") or record["kind"] not in {"native-unit", "native-ui"}:
             continue
         patch_b64 = base64.b64encode((ROOT / record["patch"]).read_bytes()).decode("ascii")
-        include_ui = "true" if record["kind"] == "native-ui" else "false"
+        include_ui = "true" if native_include_ui(record) else "false"
         command = (
             "gh workflow run agenthub-native-mutant.yml "
             f"-f request_id=c58c-{record['id']} "
