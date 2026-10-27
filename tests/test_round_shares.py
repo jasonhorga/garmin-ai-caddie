@@ -15,6 +15,7 @@ from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players, round_ingest, round_shares
 from ai_caddie.core import request_timing
 from ai_caddie.core.config import get_settings
+import server_v2.main as main_api
 from server_v2.main import app
 from server_v2 import share_api
 
@@ -60,6 +61,9 @@ class RoundShareTests(unittest.TestCase):
             mock.patch.object(history, "ROOT", self.root),
             mock.patch.object(stats_cache, "_PLAYERS_DIR", self.root / "data" / "players"),
             mock.patch.dict(os.environ, {"AI_CADDIE_ADMIN_TOKEN": ADMIN, "AI_CADDIE_DATA_MODE": "local"}),
+            # HTTP ingest starts a daemon prewarm thread that outlives the test and calls
+            # hole_render.load_mesh while later modules patch it (test_round_shot_map).
+            mock.patch.object(main_api, "_prepare_recent_bg"),
         ]
         for patch in patches:
             patch.start()
