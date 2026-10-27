@@ -299,6 +299,7 @@ def is_player_scoped_route(method: str, path: str) -> bool:
             or (path.startswith("/api/v2/mobile/rounds/") and path.endswith("/swing-candidates"))
             # A pin sheet is read and returned; nothing is stored for anyone else.
             or path == "/api/v2/mobile/pin-sheet"
+            or path == "/api/v2/mobile/client-timing"
             # Media WRITES — the media store is per-player partitioned, so a member writes ONLY to
             # their own media (the handlers thread current_player_id).
             or path == "/api/v2/media"

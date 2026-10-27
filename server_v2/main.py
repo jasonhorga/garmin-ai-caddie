@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import replace
+from datetime import datetime
 import hashlib
 import hmac
 import logging
@@ -14,7 +15,7 @@ from collections.abc import Callable
 from functools import lru_cache
 from typing import Any, Annotated, Literal
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
+from fastapi import BackgroundTasks, Body, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
@@ -194,6 +195,8 @@ from .session import save_garmin_session_response
 from . import session as session_routes
 from .sync_status import load_sync_status_response
 from .timing import RequestTiming, bind as bind_request_timing, mark as mark_request_stage, request_id as request_id_for
+from . import timing_api
+from ai_caddie.core import request_timing
 from .sync_jobs import CancelledSyncJob, GarminSyncJobStore, RetrySyncJob
 
 
@@ -253,6 +256,7 @@ async def _lifespan(_app: FastAPI):
     # Fail fast (require-admin profile with no admin token) / warn loudly (open-dev owner-grant active)
     # before serving any request — the per-request path already fail-closes, this makes it audible at boot.
     configure_request_timing_logging()
+    request_timing.initialize_timing_storage()
     assert_admin_security_config()
     cleanup_session_material(session_routes.SESSION_ROOT)
     # Offline tests opt out at runtime, so importing main before the guard is also safe.
@@ -302,6 +306,8 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
             "/api/v2/courses/search", "/api/v2/courses/nearby",
             "/api/v2/mobile/courses/options", "/api/v2/caddie/context",
             "/api/v2/caddie/decision",
+            "/api/v2/admin/timing",
+            "/api/v2/mobile/client-timing",
         }
         parameterized = (
             r"/api/v2/history/rounds/[^/]+",
@@ -487,6 +493,7 @@ def _requires_admin_token(method: str, path: str, query_params: QueryParams) -> 
         "/api/v2/auth/apple/link",
         # Reads a photographed pin sheet with the configured vision model (may cost a model call).
         "/api/v2/mobile/pin-sheet",
+        "/api/v2/mobile/client-timing",
     }
     if path in exact_paths:
         return True
@@ -551,6 +558,7 @@ async def add_security_headers(request: Request, call_next):
 # Comfortably exceeds the largest legitimate body — a base64 video upload (~80 MB raw ≈ 107 MB
 # encoded) — while still rejecting absurd/GB-scale payloads before any handler buffers them.
 MAX_REQUEST_BODY_BYTES = 160 * 1024 * 1024
+MAX_CLIENT_TIMING_BODY_BYTES = 64 * 1024
 
 
 @app.middleware("http")
@@ -564,6 +572,12 @@ async def reject_oversized_request_body(request: Request, call_next):
             declared = int(raw_length)
         except ValueError:
             declared = -1
+        if (
+            request.method.upper() == "POST"
+            and request.url.path == "/api/v2/mobile/client-timing"
+            and declared > MAX_CLIENT_TIMING_BODY_BYTES
+        ):
+            return JSONResponse({"detail": "client timing body too large"}, status_code=413)
         if declared > MAX_REQUEST_BODY_BYTES:
             return JSONResponse({"detail": "request body too large"}, status_code=413)
     return await call_next(request)
@@ -578,6 +592,7 @@ def service_index() -> dict[str, object]:
         "ui": "http://127.0.0.1:5173",
         "endpoints": {
             "health": "/api/v2/health",
+            "adminTiming": "/api/v2/admin/timing",
             "readiness": "/api/v2/readiness",
             "productSettings": "/api/v2/settings/product",
             "historyOverview": "/api/v2/history/overview",
@@ -609,6 +624,7 @@ def service_index() -> dict[str, object]:
             "mobileCourseOptions": "/api/v2/mobile/courses/options",
             "mobileCoursePackage": "/api/v2/mobile/courses/{global_id}/package",
             "mobileRoundEvents": "/api/v2/mobile/rounds/{round_id}/events",
+            "mobileClientTiming": "/api/v2/mobile/client-timing",
             "mobileRoundEventsReplay": "/api/v2/mobile/rounds/{round_id}/events/replay",
             "mobileRoundEventsAck": "/api/v2/mobile/rounds/{round_id}/events/ack",
             "mobileRoundReconciliation": "/api/v2/mobile/rounds/{round_id}/reconciliation",
@@ -640,6 +656,25 @@ def health() -> dict[str, str]:
         "service": "server_v2",
         "revision": os.getenv("AI_CADDIE_BUILD_REVISION", "unknown").strip() or "unknown",
     }
+
+
+@app.get("/api/v2/admin/timing")
+def admin_timing(
+    since: datetime | None = Query(default=None),
+    path: str | None = Query(default=None, max_length=512),
+    min_ms: float | None = Query(default=None, ge=0, le=86_400_000),
+    request_id: str | None = Query(default=None, max_length=96),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[dict[str, Any]]:
+    if since is not None and since.tzinfo is None:
+        raise HTTPException(status_code=422, detail="since must include a timezone")
+    return timing_api.query_server_records(
+        since=since,
+        path_prefix=path,
+        min_ms=min_ms,
+        request_id=request_id,
+        limit=limit,
+    )
 
 
 @app.get("/api/v2/readiness")
@@ -2957,6 +2992,17 @@ def mobile_round_events(
     )
     _record_round_activity(acting_player_id, round_id, has_events=bool(getattr(request, "events", [])))
     return result
+
+
+@app.post("/api/v2/mobile/client-timing")
+def mobile_client_timing(
+    entries: list[Any] = Body(...),
+    _acting_player_id: str = Depends(current_player_id),
+) -> dict[str, int]:
+    if len(entries) > timing_api._MAX_BATCH:
+        raise HTTPException(status_code=413, detail="at most 50 timing records are accepted")
+    accepted, rejected = timing_api.append_client_records(entries)
+    return {"accepted": accepted, "rejected": rejected}
 
 
 @app.post(
