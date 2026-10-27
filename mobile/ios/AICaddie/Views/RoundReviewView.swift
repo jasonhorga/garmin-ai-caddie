@@ -31,7 +31,7 @@ func roundReviewFairwayLabel(_ raw: String?) -> String {
 }
 
 /// 单场复盘 (B3, `review.html` screen 1): the saved round summary in the same layout as 本场汇总 —
-/// the big to-par, the OUT / IN scorecard (tap a score to open that hole's
+/// the big to-par, the physical front/back scorecard (tap a score to open that hole's
 /// shots), the four tiles, then 分享. Missing data is not called out: a tile without data is simply
 /// not shown. Data comes from /api/v2/history/rounds/{ref}.
 public struct RoundReviewView: View {
@@ -339,7 +339,7 @@ struct RoundReviewContent: View {
             }
             .padding(.horizontal, 4)
             LiveNineCard(
-                label: card.holes.count > 9 ? "OUT" : "合计",
+                label: RoundReviewScorecard.nineLabel(for: card.holes, fallback: "合计"),
                 holes: Array(card.holes.prefix(9)),
                 scores: card.scores,
                 onSelect: onSelectHole,
@@ -348,7 +348,7 @@ struct RoundReviewContent: View {
             )
             if card.holes.count > 9 {
                 LiveNineCard(
-                    label: "IN",
+                    label: RoundReviewScorecard.nineLabel(for: Array(card.holes.dropFirst(9).prefix(9)), fallback: "合计"),
                     holes: Array(card.holes.dropFirst(9).prefix(9)),
                     scores: card.scores,
                     onSelect: onSelectHole,
@@ -455,7 +455,7 @@ struct RoundReviewContent: View {
         .accessibilityIdentifier("round-review-share")
     }
 
-    /// "黑骑士 · 9月21日\n86 杆（+14）· OUT 43 · IN 43".
+    /// "黑骑士 · 9月21日\n86 杆（+14）· 前九 43 · 后九 43".
     static func shareText(course: String, round: RoundDetailSummary?, card: RoundReviewScorecard) -> String {
         var title = course
         if let date = round?.date, !date.isEmpty { title += " · " + aiCaddieShortDate(date) }
@@ -466,8 +466,14 @@ struct RoundReviewContent: View {
             parts.append(toPar.map { "\(strokes) 杆（\(LiveRoundScoreSummary.toParText($0))）" } ?? "\(strokes) 杆")
         }
         if card.holes.count > 9 {
-            if let out = card.nineTotal(card.holes.prefix(9)) { parts.append("OUT \(out)") }
-            if let back = card.nineTotal(card.holes.dropFirst(9)) { parts.append("IN \(back)") }
+            let front = Array(card.holes.prefix(9))
+            let back = Array(card.holes.dropFirst(9))
+            if let total = card.nineTotal(front) {
+                parts.append("\(RoundReviewScorecard.nineLabel(for: front, fallback: "前九")) \(total)")
+            }
+            if let total = card.nineTotal(back) {
+                parts.append("\(RoundReviewScorecard.nineLabel(for: back, fallback: "后九")) \(total)")
+            }
         }
         return parts.isEmpty ? title : title + "\n" + parts.joined(separator: " · ")
     }
@@ -541,7 +547,9 @@ struct RoundReviewScorecard: Equatable {
         for row in RoundReviewHoles.courseRows(scorecard) {
             let derivedPar = row.score.flatMap { score in row.toPar.map { score - $0 } }
             guard let par = row.par ?? derivedPar else { continue }
-            holes.append(ScorecardHole(number: row.hole, par: par))
+            // `hole` is the round-play key.  `localHole` is the course's physical number and is
+            // what the player sees when a round starts on the back nine or combines loops.
+            holes.append(ScorecardHole(number: row.hole, par: par, displayNumber: row.localHole ?? row.hole))
             if let score = row.score {
                 scores[row.hole] = LiveHoleScore(
                     hole: row.hole, par: par, score: score,
@@ -555,6 +563,13 @@ struct RoundReviewScorecard: Equatable {
     }
 
     func canOpen(_ hole: Int) -> Bool { reviewHoles.canOpen(hole) }
+
+    static func nineLabel(for holes: [ScorecardHole], fallback: String) -> String {
+        guard let number = holes.first?.displayNumber else { return fallback }
+        if number >= 10 { return "后九" }
+        if number > 0 { return "前九" }
+        return fallback
+    }
 
     var strokes: Int { scores.values.reduce(0) { $0 + $1.score } }
 

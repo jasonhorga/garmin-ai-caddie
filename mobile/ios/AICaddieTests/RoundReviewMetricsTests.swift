@@ -25,8 +25,8 @@ final class RoundReviewMetricsTests: XCTestCase {
     private func nineOfEighteen() throws -> [RoundDetailHole] {
         let rows = (1...18).map { hole -> String in
             hole <= 9
-                ? #"{"hole":\#(hole),"par":4,"score":5,"putts":2}"#
-                : #"{"hole":\#(hole),"par":4}"#
+                ? #"{"hole":\#(hole),"localHole":\#(hole + 9),"par":4,"score":5,"putts":2}"#
+                : #"{"hole":\#(hole),"localHole":\#(hole - 9),"par":4}"#
         }
         return try JSONDecoder().decode([RoundDetailHole].self, from: Data("[\(rows.joined(separator: ","))]".utf8))
     }
@@ -42,7 +42,9 @@ final class RoundReviewMetricsTests: XCTestCase {
         XCTAssertFalse(holes.canOpen(18))
 
         let card = RoundReviewScorecard(scorecard)
-        XCTAssertEqual(card.holes.map(\.number), Array(1...18), "the IN card keeps holes 10–18")
+        XCTAssertEqual(card.holes.map(\.number), Array(1...18), "round-hole keys stay in play order")
+        XCTAssertEqual(card.holes.compactMap(\.displayNumber), Array(10...18) + Array(1...9),
+                       "the card displays the physical back/front holes")
         XCTAssertEqual(Set(card.scores.keys), Set(1...9))
         XCTAssertTrue(card.canOpen(9))
         XCTAssertFalse(card.canOpen(10))

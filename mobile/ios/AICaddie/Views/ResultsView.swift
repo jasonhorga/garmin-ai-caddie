@@ -662,6 +662,9 @@ public struct ResultsTrendView: View {
     let apiBaseURL: URL?
     let adminToken: String?
     @State private var grain: ResultsTimePresentation.Grain = .quarter
+    /// The time page has its own server-backed range.  Keep it independent from the chart grain so
+    /// changing a chart presentation never silently changes the sample being displayed.
+    @State private var window = "all"
     /// Seeded with 成绩's own all-window payload (the same request), so the page opens at once and
     /// the request below only refreshes it.
     @State private var stats: MobileStats?
@@ -680,7 +683,7 @@ public struct ResultsTrendView: View {
     public var body: some View {
         ScrollView {
             if let stats {
-                ResultsTimeContent(stats: stats, grain: $grain) { destination = $0 }
+                ResultsTimeContent(stats: stats, window: $window, grain: $grain) { destination = $0 }
             } else if isLoading {
                 ProgressView("载入时间与频率…").frame(maxWidth: .infinity).padding(.top, 40)
             } else {
@@ -692,6 +695,9 @@ public struct ResultsTrendView: View {
         .background(HubStyle.grouped).navigationTitle("时间与频率")
         .navigationDestination(item: $destination) { destination in destinationView(destination) }
         .task { await load() }
+        .onChange(of: window) { _, value in
+            Task { await load(window: value) }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
             Task { await load() }
         }
@@ -708,12 +714,13 @@ public struct ResultsTrendView: View {
         }
     }
 
-    @MainActor private func load() async {
+    @MainActor private func load(window requestedWindow: String? = nil) async {
         generation += 1
         let current = generation
         guard let apiBaseURL else { isLoading = false; failed = true; return }
         isLoading = true
-        let loaded = try? await SyncClient(baseURL: apiBaseURL, adminToken: adminToken).fetchMobileStats(window: "all")
+        let loaded = try? await SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
+            .fetchMobileStats(window: requestedWindow ?? window)
         guard current == generation, !Task.isCancelled else { return }
         if let loaded { stats = loaded }
         failed = loaded == nil
@@ -724,6 +731,7 @@ public struct ResultsTrendView: View {
 /// The 时间与频率 page body for one stats payload; pure, so the design snapshots render it.
 struct ResultsTimeContent: View {
     let stats: MobileStats
+    @Binding var window: String
     @Binding var grain: ResultsTimePresentation.Grain
     var onOpen: (ResultsTrendDestination) -> Void = { _ in }
 
@@ -731,6 +739,13 @@ struct ResultsTimeContent: View {
         let rows = ResultsTimePresentation.chartRows(stats, grain: grain)
         let cards = ResultsTimePresentation.periodCards(stats.time, grain: grain)
         VStack(alignment: .leading, spacing: 16) {
+            Picker("统计范围", selection: $window) {
+                ForEach(AnalysisLoadState.windows) { option in
+                    Text(option.title).tag(option.id)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("time-range")
             Picker("粒度", selection: $grain) {
                 ForEach(ResultsTimePresentation.Grain.allCases) { option in
                     Text(option.title).tag(option)

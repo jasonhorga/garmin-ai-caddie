@@ -142,9 +142,7 @@ final class ProductPhoneUITests: XCTestCase {
         let identifiedRange = element("time-range")
         let legacyRange = app.segmentedControls.containing(.button, identifier: "近10场").firstMatch
         let range = identifiedRange.exists ? identifiedRange : legacyRange
-        knownRed("C16e J2.2: time page has no independent range control") {
-            XCTAssertTrue(range.exists, "range must be selectable independently of grain")
-        }
+        XCTAssertTrue(range.exists, "range must be selectable independently of grain")
         guard range.exists else { return }
         XCTAssertEqual(range.buttons.count, 4)
         XCTAssertEqual(grain.buttons.count, 4)
@@ -225,10 +223,8 @@ final class ProductPhoneUITests: XCTestCase {
                 let firstIndex = element("live-scorecard-hole-index-1")
                 let tenthIndex = element("live-scorecard-hole-index-10")
                 XCTAssertTrue(firstIndex.exists && tenthIndex.exists, name + " both loop cards exist")
-                knownRed("C16e J2.8: review loses the physical back/front identity") {
-                    XCTAssertEqual(Int(firstIndex.label), 10, name + " first physical hole")
-                    XCTAssertEqual(Int(tenthIndex.label), 1, name + " second loop physical hole")
-                }
+                XCTAssertEqual(Int(firstIndex.label), 10, name + " first physical hole")
+                XCTAssertEqual(Int(tenthIndex.label), 1, name + " second loop physical hole")
             }
             app.terminate()
         }
