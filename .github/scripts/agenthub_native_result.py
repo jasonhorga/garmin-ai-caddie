@@ -92,8 +92,13 @@ def agenthub_result(
     patch: Path,
     stage: str,
     bundles: list[Path],
+    ui_result: Path | None = None,
+    skipped: list[str] | None = None,
 ) -> dict:
-    """Build the five-key result object consumed by agenthub's native reader."""
+    """Build the result object consumed by agenthub's native reader.
+
+    Without optional UI or skipped-scheme inputs this remains the original five-key object.
+    """
     try:
         patch_bytes = patch.read_bytes()
     except OSError as exc:
@@ -108,6 +113,12 @@ def agenthub_result(
         "stage": stage,
         "tests": [],
     }
+    # Keep the original five-key result when no UI scheme was requested.  A UI dispatch gets
+    # a separate list so its application tests cannot be mistaken for unit-test coverage.
+    if ui_result is not None:
+        result["ui"] = []
+    if skipped:
+        result["skipped"] = list(skipped)
     if stage != "tested":
         return result
     cases: list[dict[str, str]] = []
@@ -117,13 +128,22 @@ def agenthub_result(
             cases.extend(read_bundle(bundle))
         except UnusableResult:
             unusable = True
+    ui_cases: list[dict[str, str]] = []
+    if ui_result is not None and ui_result.exists():
+        try:
+            ui_cases = read_bundle(ui_result)
+        except UnusableResult:
+            unusable = True
     ids = [case["id"] for case in cases]
+    ids.extend(case["id"] for case in ui_cases)
     if len(ids) != len(set(ids)):
         raise InvalidTestResult("Duplicate Test Case identifiers")
     if unusable:
         result["stage"] = "build_failed"
         return result
     result["tests"] = cases
+    if ui_result is not None:
+        result["ui"] = ui_cases
     return result
 
 
@@ -135,14 +155,26 @@ def main() -> int:
     parser.add_argument("--stage", required=True, choices=("tested", "apply_failed", "build_failed"))
     parser.add_argument("--ios-result", required=True, type=Path)
     parser.add_argument("--watch-result", required=True, type=Path)
+    parser.add_argument("--ui-result", type=Path)
+    parser.add_argument("--skip-ios", action="store_true")
+    parser.add_argument("--skip-watch", action="store_true")
     parser.add_argument("--out", "--output", dest="output", required=True, type=Path)
     args = parser.parse_args()
-    bundles = [args.ios_result, args.watch_result]
+    bundles = []
+    skipped = []
+    if args.skip_ios:
+        skipped.append("ios")
+    else:
+        bundles.append(args.ios_result)
+    if args.skip_watch:
+        skipped.append("watch")
+    else:
+        bundles.append(args.watch_result)
 
     # A failed invocation must never leave a previous verdict available to upload.
     args.output.unlink(missing_ok=True)
     try:
-        result = agenthub_result(args.request_id, args.head, args.patch, args.stage, bundles)
+        result = agenthub_result(args.request_id, args.head, args.patch, args.stage, bundles, args.ui_result, skipped)
     except InvalidTestResult as exc:
         print(f"Cannot judge native tests: {exc}", file=sys.stderr)
         return 1

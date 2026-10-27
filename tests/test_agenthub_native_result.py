@@ -16,6 +16,67 @@ SPEC.loader.exec_module(writer)
 
 
 class NativeResultWriterTests(unittest.TestCase):
+    def test_default_result_shape_is_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            patch_file = Path(directory) / "patch"
+            patch_file.write_bytes(b"patch")
+            with patch.object(writer, "read_bundle", side_effect=[
+                [{"id": "iOS/Suite/test()", "status": "passed"}],
+                [{"id": "Watch/Suite/test()", "status": "passed"}],
+            ]):
+                result = writer.agenthub_result(
+                    "request", "a" * 40, patch_file, "tested", [Path("ios"), Path("watch")]
+                )
+        self.assertEqual(set(result), {"request_id", "head", "patch_sha256", "stage", "tests"})
+
+    def test_ui_result_is_kept_in_a_separate_list(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            patch_file = root / "patch"
+            patch_file.write_bytes(b"patch")
+            ui_bundle = root / "ui.xcresult"
+            ui_bundle.mkdir()
+            with patch.object(writer, "read_bundle", side_effect=[
+                [{"id": "iOS/Suite/test()", "status": "passed"}],
+                [{"id": "Watch/Suite/test()", "status": "passed"}],
+                [{"id": "UI/Suite/test()", "status": "failed"}],
+            ]):
+                result = writer.agenthub_result(
+                    "request", "a" * 40, patch_file, "tested", [Path("ios"), Path("watch")], ui_bundle
+                )
+        self.assertEqual(result["stage"], "tested")
+        self.assertEqual(result["tests"], [{"id": "iOS/Suite/test()", "status": "passed"},
+                                            {"id": "Watch/Suite/test()", "status": "passed"}])
+        self.assertEqual(result["ui"], [{"id": "UI/Suite/test()", "status": "failed"}])
+
+    def test_missing_ui_result_is_unrun_and_does_not_fail_verdict(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            patch_file = Path(directory) / "patch"
+            patch_file.write_bytes(b"patch")
+            with patch.object(writer, "read_bundle", side_effect=[
+                [{"id": "iOS/Suite/test()", "status": "passed"}],
+                [{"id": "Watch/Suite/test()", "status": "passed"}],
+            ]):
+                result = writer.agenthub_result(
+                    "request", "a" * 40, patch_file, "tested", [Path("ios"), Path("watch")],
+                    Path(directory) / "missing-ui.xcresult",
+                )
+        self.assertEqual(result["stage"], "tested")
+        self.assertEqual(result["ui"], [])
+
+    def test_explicitly_skipped_native_scheme_is_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            patch_file = Path(directory) / "patch"
+            patch_file.write_bytes(b"patch")
+            with patch.object(writer, "read_bundle", return_value=[
+                {"id": "Watch/Suite/test()", "status": "passed"},
+            ]):
+                result = writer.agenthub_result(
+                    "request", "a" * 40, patch_file, "tested", [Path("watch")], skipped=["ios"]
+                )
+        self.assertEqual(result["stage"], "tested")
+        self.assertEqual(result["skipped"], ["ios"])
+
     def test_missing_identifier_uses_suite_and_nearest_bundle(self) -> None:
         tree = {
             "testNodes": [{
