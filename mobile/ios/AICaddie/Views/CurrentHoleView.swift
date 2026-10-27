@@ -261,7 +261,8 @@ enum LiveHolePrepProbe {
     static func run(
         fetch: () async -> CoursePrepHole?,
         publishInterim: (CoursePrepHole) async -> Void,
-        wait: (UInt64) async throws -> Void
+        wait: (UInt64) async throws -> Void,
+        nowEpoch: () -> Double = { Date().timeIntervalSince1970 }
     ) async -> CoursePrepHole? {
         var delaySeconds = firstDelaySeconds
         while !Task.isCancelled {
@@ -274,6 +275,14 @@ enum LiveHolePrepProbe {
             guard !Task.isCancelled else { return nil }
             guard refreshed.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame else {
                 await publishInterim(refreshed)
+                let now = nowEpoch()
+                if let retryAfter = LiveHolePrepUpgradePolicy.retryAfterEpoch(refreshed),
+                   retryAfter > now {
+                    // A failed derivative is server-scheduled. Sleep until that exact retry
+                    // instead of polling every minute and consuming another request early.
+                    delaySeconds = UInt64(ceil(retryAfter - now))
+                    continue
+                }
                 if LiveHolePrepUpgradePolicy.hazardExportFailed(refreshed) { return nil }
                 delaySeconds = nextDelay(after: delaySeconds)
                 continue

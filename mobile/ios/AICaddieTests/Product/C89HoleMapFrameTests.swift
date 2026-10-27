@@ -384,6 +384,29 @@ final class C89HoleMapFrameTests: XCTestCase {
         XCTAssertTrue(LiveHolePrepUpgradePolicy.hazardExportFailed(future, nowEpoch: now + 3601))
     }
 
+    func testProbeSleepsUntilScheduledRetryBeforeFetchingAgain() async throws {
+        var now = 100.0
+        let future = try sameFrameRow(hazardExport: "failed", retryAfterEpoch: 200)
+        let ready = try sameFrameRow(coverage: "ready")
+        var fetches = 0
+        var waits: [UInt64] = []
+        let result = await LiveHolePrepProbe.run(
+            fetch: {
+                fetches += 1
+                return fetches == 1 ? future : ready
+            },
+            publishInterim: { _ in },
+            wait: { seconds in
+                waits.append(seconds)
+                now += Double(seconds)
+            },
+            nowEpoch: { now }
+        )
+        XCTAssertEqual(result?.geometryCoverage, "ready")
+        XCTAssertEqual(fetches, 2)
+        XCTAssertEqual(waits, [2, 98], "the second request is held until retryAfterEpoch")
+    }
+
     func testAPendingExportBacksOffToOnceAMinute() async throws {
         let pending = try sameFrameRow(hazardExport: "pending")
         let ready = try sameFrameRow(coverage: "ready")
