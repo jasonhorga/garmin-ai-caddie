@@ -202,16 +202,35 @@ public final class LiveHoleSessionCache {
         teeBox: String,
         prep: CoursePrepHole?
     ) {
-        update(
+        let key = key(
             roundId: roundId,
             hole: hole.number,
             sourceGlobalId: hole.sourceGlobalId,
             sourceLocalHole: hole.sourceLocalHole,
-            teeBox: teeBox,
-            geometryRevision: Self.cacheRevision(hole: hole, prep: prep)
-        ) { entry in
-            entry.holePrep = prep
+            teeBox: teeBox
+        )
+        let revision = Self.cacheRevision(hole: hole, prep: prep)
+        let previous = entries[key] ?? Entry()
+        var value = previous.rebased(for: revision)
+        // A precise prep response is the producer that advances the geometry revision. Keep the
+        // request gates and resolved local topo from the request that produced it, otherwise the
+        // same hole immediately starts a duplicate lightweight prep request after the write.
+        let prepRevision = Self.normalizedRevision(prep?.geometryRevision)
+        let cacheRevision = Self.normalizedRevision(revision)
+        let precisePrepArrived = prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+            && prepRevision != nil
+            && cacheRevision == prepRevision
+            && prepRevision != Self.normalizedRevision(previous.geometryRevision)
+        if precisePrepArrived {
+            value.prepRequestCompleted = previous.prepRequestCompleted
+            value.preciseProbeStarted = previous.preciseProbeStarted
+            value.localTopoURL = previous.localTopoURL
         }
+        if let revision = Self.normalizedRevision(revision) {
+            value.geometryRevision = revision
+        }
+        value.holePrep = prep
+        entries[key] = value
     }
 
     func reset(roundId: String? = nil) {
@@ -1267,12 +1286,12 @@ public struct RoundHomeView: View {
         // UIViewRepresentable update and leave the correction request stuck forever. If the page
         // set has only two usable values, jump directly to the target instead.
         let currentSelection = holePager.selection
-        let bounce = reported.flatMap {
-            holePager.ordered.contains($0) && $0 != target && $0 != currentSelection ? $0 : nil
-        } ?? holePager.ordered.first {
-            $0 != target && $0 != currentSelection
-        }
-        guard bounce != nil || currentSelection != target else { return }
+        guard let bounce = LiveHolePagerState.correctionBindingTarget(
+            target: target,
+            ordered: holePager.ordered,
+            currentSelection: currentSelection,
+            reported: reported
+        ) else { return }
         pagerCorrectionTarget = target
         pagerCorrectionID = UUID()
         pagerCorrectionApplying = false
@@ -1282,10 +1301,10 @@ public struct RoundHomeView: View {
             defer { UITestPagerTrace.shared.taskFinished(.correctionTask) }
             #endif
             guard await waitForPagerCorrection(target: target) else { return }
-            tracePager("correction binding bounce=\(bounce ?? target) target=\(target)")
+            tracePager("correction binding bounce=\(bounce) target=\(target)")
             var transaction = Transaction()
             transaction.disablesAnimations = true
-            withTransaction(transaction) { pagerNativeSelectionOverride = bounce ?? target }
+            withTransaction(transaction) { pagerNativeSelectionOverride = bounce }
             // The probe acknowledges this distinct binding value after SwiftUI's update pass.
             // Only then can completePagerDisplayUpdate deliver the target in a later runloop.
         }

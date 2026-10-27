@@ -385,6 +385,7 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertNil(try store.loadCurrentRoundPackage())
         XCTAssertNil(try store.loadResumablePackage())
         XCTAssertEqual(try store.loadEvents(), [accountAEvent])
+        XCTAssertEqual(try store.cachedEvents(), [accountAEvent])
         XCTAssertFalse(try store.loadCourseTemplates().isEmpty)
         XCTAssertEqual(try store.loadPrepCourseDownloads(), [prepDownload])
         XCTAssertTrue(try store.isRoundPendingFinish(package.roundId))
@@ -394,6 +395,7 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertNil(try store.loadCurrentRoundPackage())
         XCTAssertNil(try store.loadHomePackage())
         XCTAssertTrue(try store.loadEvents().isEmpty)
+        XCTAssertTrue(try store.cachedEvents().isEmpty)
         XCTAssertTrue(try store.loadCourseTemplates().isEmpty)
         XCTAssertTrue(try store.loadPrepCourseDownloads().isEmpty)
         XCTAssertTrue(try store.loadPendingRoundFinishes().isEmpty)
@@ -437,13 +439,81 @@ final class OfflineStoreTests: XCTestCase {
         try store.saveRoundPackage(accountBPackage)
         try store.appendEvent(accountBEvent)
         XCTAssertEqual(try store.loadEvents(), [accountBEvent])
+        XCTAssertEqual(try store.cachedEvents(), [accountBEvent])
 
         store.bindAccount(playerId: "player-a", migrateLegacyData: false)
         XCTAssertEqual(try store.loadEvents(), [accountAEvent])
+        XCTAssertEqual(try store.cachedEvents(), [accountAEvent])
         XCTAssertNil(try store.loadCurrentRoundPackage())
         XCTAssertNil(try store.loadResumablePackage())
         XCTAssertEqual(try store.loadPrepCourseDownloads(), [prepDownload])
         XCTAssertTrue(try store.isRoundPendingFinish(package.roundId))
+    }
+
+    func testCachedEventsInvalidatesAfterAppendingAnEvent() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let first = LiveRoundEvent(
+            eventId: "cached-first", roundId: "cached-round", timestamp: "2026-08-07T00:00:00Z",
+            hole: 1, kind: .score, payload: ["strokes": .number(4)]
+        )
+        let second = LiveRoundEvent(
+            eventId: "cached-second", roundId: "cached-round", timestamp: "2026-08-07T00:01:00Z",
+            hole: 1, kind: .putt, payload: ["putts": .number(2)]
+        )
+
+        try store.appendEvent(first)
+        XCTAssertEqual(try store.cachedEvents(), [first])
+        try store.appendEvent(second)
+        XCTAssertEqual(try store.cachedEvents(), [first, second])
+    }
+
+    func testCachedEventsInvalidatesAfterDiscardAndReplay() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let first = LiveRoundEvent(
+            eventId: "discarded-cache-event", roundId: "cache-round", timestamp: "2026-08-07T00:00:00Z",
+            hole: 1, kind: .score, payload: ["strokes": .number(4)]
+        )
+        try store.appendEvent(first)
+        XCTAssertEqual(try store.cachedEvents(), [first])
+
+        try store.discardRound(roundId: "cache-round")
+        XCTAssertTrue(try store.cachedEvents().isEmpty)
+
+        let replay = LiveRoundEvent(
+            eventId: "replayed-cache-event", roundId: "cache-round", timestamp: "2026-08-07T00:01:00Z",
+            hole: 1, kind: .score, payload: ["strokes": .number(5)]
+        )
+        XCTAssertTrue(try store.applyReplayEvents([replay]))
+        XCTAssertEqual(try store.cachedEvents(), [replay])
+    }
+
+    func testAccountSwitchNeverExposesOldCachedEventsDuringTheSwitchWindow() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        let event = LiveRoundEvent(
+            eventId: "switch-window", roundId: "switch-round", timestamp: "2026-08-07T00:00:00Z",
+            hole: 1, kind: .score, payload: ["strokes": .number(4)]
+        )
+        try store.appendEvent(event)
+        XCTAssertEqual(try store.cachedEvents(), [event])
+
+        var observed: [[LiveRoundEvent]] = []
+        OfflineStore.accountSwitchEventLogHook = {
+            observed.append((try? store.cachedEvents()) ?? [])
+        }
+        defer { OfflineStore.accountSwitchEventLogHook = nil }
+        store.bindAccount(playerId: "player-b", migrateLegacyData: false)
+
+        XCTAssertEqual(observed, [[]], "the hook runs after the new directory and cache are installed")
     }
 
     func testCourseTemplateSurvivesRoundDiscardAndRebasesWithoutOldIdentityOrCursor() throws {

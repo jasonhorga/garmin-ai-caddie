@@ -623,6 +623,10 @@ private let REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
 private let REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
 
 public final class OfflineStore {
+#if DEBUG
+    /// Test seam for the account-switch window; production builds do not retain a callback.
+    static var accountSwitchEventLogHook: (() -> Void)?
+#endif
     private let trustedDirectoryAnchor: URL
     private let baseDirectoryURL: URL
     private var directoryURL: URL
@@ -642,11 +646,14 @@ public final class OfflineStore {
     private var pendingRoundFinishesBackupURL: URL
     private var pendingMediaDirectoryURL: URL
     private var pendingMediaIndexURL: URL
+    private var liveRoundProgressCache: LiveRoundProgress?
+    private var liveRoundProgressCacheLoaded = false
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let syncEventLogFile: (URL) throws -> Void
     private let syncEventLogDirectory: (URL) throws -> Void
     private let eventLogLock = NSLock()
+    private let liveRoundProgressLock = NSLock()
     private let resultsCommitLock = NSLock()
     /// Per bound account: start order of the request whose 成绩 answer was last committed.
     private var resultsCommittedRequestStarts: [String: UInt64] = [:]
@@ -795,10 +802,18 @@ public final class OfflineStore {
         accountScope += 1
         resultsCommittedRequestStarts = [:]
         eventLogLock.lock()
-        eventLogCache = nil
-        eventLogLock.unlock()
         directoryURL = directory
         logURL = directory.appendingPathComponent("events.jsonl")
+        eventLogCache = nil
+        liveRoundProgressLock.lock()
+        liveProgressURL = directory.appendingPathComponent("live_progress.json")
+        liveRoundProgressCache = nil
+        liveRoundProgressCacheLoaded = false
+        liveRoundProgressLock.unlock()
+        eventLogLock.unlock()
+#if DEBUG
+        Self.accountSwitchEventLogHook?()
+#endif
         packagesDirectoryURL = directory.appendingPathComponent("packages", isDirectory: true)
         courseTemplatesDirectoryURL = directory.appendingPathComponent(
             "course_templates",
@@ -807,7 +822,6 @@ public final class OfflineStore {
         currentPackageURL = directory.appendingPathComponent("current_package.json")
         homePackageURL = directory.appendingPathComponent("home_package.json")
         recentCourseSelectionURL = directory.appendingPathComponent("recent_course_selection.json")
-        liveProgressURL = directory.appendingPathComponent("live_progress.json")
         prepCourseDownloadsURL = directory.appendingPathComponent("prep_course_downloads.json")
         historyRoundsURL = directory.appendingPathComponent("history_rounds.json")
         courseOptionsURL = directory.appendingPathComponent("course_options_v1.json")
@@ -1496,6 +1510,28 @@ public final class OfflineStore {
             guard case .string(let label)? = row["label"] else { return false }
             return personalChecks.contains(label)
         }
+        func normalizedRevision(_ revision: String?) -> String? {
+            guard let revision = revision?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !revision.isEmpty else { return nil }
+            return revision
+        }
+        func geometryRevision(of package: LiveRoundPackage, hole: Hole) -> String? {
+            normalizedRevision(
+                hole.geometryRevision
+                    ?? package.coursePrep?.holes.first(where: { $0.hole == hole.number })?.geometryRevision
+            )
+        }
+        let retainedSeeds = existing.caddieContextSeeds.filter { seed in
+            guard let oldHole = existing.holes.first(where: { $0.number == seed.hole }),
+                  let newHole = maps.holes.first(where: { $0.number == seed.hole }) else {
+                return false
+            }
+            let oldRevision = geometryRevision(of: existing, hole: oldHole)
+            let newRevision = geometryRevision(of: maps, hole: newHole)
+            return oldHole.sourceGlobalId == newHole.sourceGlobalId
+                && oldHole.sourceLocalHole == newHole.sourceLocalHole
+                && oldRevision == newRevision
+        }
         return LiveRoundPackage(
             schema: maps.schema,
             roundId: maps.roundId,
@@ -1523,7 +1559,7 @@ public final class OfflineStore {
             geometryCoverage: maps.geometryCoverage,
             readinessChecks: maps.readinessChecks.filter { !personalChecks.contains($0.label) }
                 + existing.readinessChecks.filter { personalChecks.contains($0.label) },
-            caddieContextSeeds: existing.caddieContextSeeds,
+            caddieContextSeeds: retainedSeeds,
             weatherSnapshot: existing.weatherSnapshot,
             clubProfiles: existing.clubProfiles,
             caddieDecisionEndpoint: existing.caddieDecisionEndpoint,
@@ -1563,7 +1599,13 @@ public final class OfflineStore {
         if candidatePrepCount != existingPrepCount {
             return candidatePrepCount > existingPrepCount
         }
-        if candidate.geometryCoverage.readyHoles != existing.geometryCoverage.readyHoles {
+        let candidateComplete = candidate.hasCompleteOfflineCoursePrep
+        let existingComplete = existing.hasCompleteOfflineCoursePrep
+        if candidateComplete != existingComplete {
+            return candidateComplete
+        }
+        if !candidateComplete && !existingComplete,
+           candidate.geometryCoverage.readyHoles != existing.geometryCoverage.readyHoles {
             return candidate.geometryCoverage.readyHoles > existing.geometryCoverage.readyHoles
         }
         func geometryRank(_ state: GeometryCoverageState) -> Int {
@@ -1631,10 +1673,20 @@ public final class OfflineStore {
     }
 
     private func loadLiveRoundProgress() throws -> LiveRoundProgress? {
+        liveRoundProgressLock.lock()
+        defer { liveRoundProgressLock.unlock() }
+        if liveRoundProgressCacheLoaded {
+            return liveRoundProgressCache
+        }
         guard FileManager.default.fileExists(atPath: liveProgressURL.path) else {
+            liveRoundProgressCache = nil
+            liveRoundProgressCacheLoaded = true
             return nil
         }
-        return try decoder.decode(LiveRoundProgress.self, from: Data(contentsOf: liveProgressURL))
+        let progress = try decoder.decode(LiveRoundProgress.self, from: Data(contentsOf: liveProgressURL))
+        liveRoundProgressCache = progress
+        liveRoundProgressCacheLoaded = true
+        return progress
     }
 
     /// Test-visible presence check that does not expose the private progress-file representation.
@@ -1643,8 +1695,12 @@ public final class OfflineStore {
     }
 
     private func saveLiveRoundProgress(_ progress: LiveRoundProgress) throws {
+        liveRoundProgressLock.lock()
+        defer { liveRoundProgressLock.unlock() }
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         try encoder.encode(progress).write(to: liveProgressURL, options: [.atomic])
+        liveRoundProgressCache = progress
+        liveRoundProgressCacheLoaded = true
     }
 
     public func loadPendingRoundFinishes() throws -> [PendingRoundFinish] {
@@ -1714,6 +1770,10 @@ public final class OfflineStore {
         removeCurrentRoundPointerIfMatching(package.roundId)
         if let progress = try? loadLiveRoundProgress(), progress.roundId == package.roundId {
             try? FileManager.default.removeItem(at: liveProgressURL)
+            liveRoundProgressLock.lock()
+            liveRoundProgressCache = nil
+            liveRoundProgressCacheLoaded = true
+            liveRoundProgressLock.unlock()
         }
     }
 
@@ -1782,6 +1842,10 @@ public final class OfflineStore {
         try? FileManager.default.removeItem(at: packageURL(roundId: roundId))
         if let progress = try? loadLiveRoundProgress(), progress.roundId == roundId {
             try? FileManager.default.removeItem(at: liveProgressURL)
+            liveRoundProgressLock.lock()
+            liveRoundProgressCache = nil
+            liveRoundProgressCacheLoaded = true
+            liveRoundProgressLock.unlock()
         }
         let mediaIds = Set(try loadPendingMedia(roundId: roundId).map(\.id))
         try removePendingMedia(ids: mediaIds)
@@ -2181,20 +2245,34 @@ public final class OfflineStore {
                 // requiring a synthetic GPS/location event. Explicit nulls clear the whole tuple.
                 applyTargetPayload(event.payload, to: &state)
             case .location:
-                if let latitude = numberPayload("latitude", in: event.payload) {
-                    state.latitude = latitude
-                }
-                if let longitude = numberPayload("longitude", in: event.payload) {
-                    state.longitude = longitude
+                let accuracy = numberPayload("horizontalAccuracyM", in: event.payload)
+                let acceptsCoordinate = accuracy.map {
+                    $0.isFinite && (0...LiveHoleGPSResolver.maximumHorizontalAccuracyM).contains($0)
+                } ?? true
+                if acceptsCoordinate {
+                    if let latitude = numberPayload("latitude", in: event.payload) {
+                        state.latitude = latitude
+                    }
+                    if let longitude = numberPayload("longitude", in: event.payload) {
+                        state.longitude = longitude
+                    }
+                } else {
+                    // A poor follow-up fix remains telemetry, but it must not overwrite a known
+                    // position already established by a better fix. A poor first fix leaves both
+                    // coordinates nil because the state starts without a landing.
                 }
                 applyTargetPayload(event.payload, to: &state)
-                switch optionalNumberPayload("horizontalAccuracyM", in: event.payload) {
-                case .number(let horizontalAccuracyM):
-                    state.horizontalAccuracyM = horizontalAccuracyM
-                case .null:
-                    state.horizontalAccuracyM = nil
-                case .missing:
-                    break
+                // Accuracy describes the stored coordinates: a rejected fix may only report its
+                // precision while no known position exists (J5.5 keeps it visible to the view).
+                if acceptsCoordinate || (state.latitude == nil && state.longitude == nil) {
+                    switch optionalNumberPayload("horizontalAccuracyM", in: event.payload) {
+                    case .number(let horizontalAccuracyM):
+                        state.horizontalAccuracyM = horizontalAccuracyM
+                    case .null:
+                        state.horizontalAccuracyM = nil
+                    case .missing:
+                        break
+                    }
                 }
             case .note, .photo, .video, .syncMarker:
                 break
