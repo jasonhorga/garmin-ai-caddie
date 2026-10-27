@@ -26,7 +26,7 @@ The rich topo texturing is ported from the standalone prototype
     shallow->deep gradient + ripple + bright shoreline
   - green: the factual putting surface only; the live pole-foot flag is a client overlay so it can
     be moved without baking a second marker into the shared bitmap
-  - clean super-sampled material edges (no Gaussian blur softening)
+  - clean super-sampled material edges (mask coverage is rasterized at 4x and box-reduced)
 
 NOT baked into the base (they are dynamic per-shot overlays, drawn by the client): the playing
 line, yardage pills, tee dot, and the hole/par title card.
@@ -65,9 +65,10 @@ from ai_caddie.geometry.geometry_authority import authority_path, cache_token
 # topo-v2: fill-the-frame projection (#233) — the hole now fills the height (FRAME_H=1060, variable
 # width) instead of floating small in a fixed 720x1120 letterbox. Bump so the pre-#233 cached PNGs
 # are superseded and every hole re-renders with the tighter framing.
-# v11: factual course surfaces only; decorative turf/checker/sand grain is intentionally omitted so
+# v12: factual course surfaces only; decorative turf/checker/sand grain is intentionally omitted so
 # green and bunker geometry stays legible when the phone zooms and render work is cheaper.
-STYLE_VERSION = "topo-v11"
+STYLE_VERSION = "topo-v12"
+SUPPORTED_STYLE_VERSIONS = frozenset(("topo-v11", STYLE_VERSION))
 # The focused asset is a separate cache contract from the whole-hole bitmap.  Bump this when its
 # crop/compositing treatment changes; otherwise an installed Watch can keep the old, green-only
 # tile forever even though the server has learned to render a sharp surrounding apron.
@@ -83,13 +84,17 @@ GREEN_DETAIL_MAX_SIZE = 1280
 # material layers, it is a continuous terrain authority and therefore cannot add TreeArea spikes.
 HOLE_MASK_ROUTE_RADIUS_M = hole_render.FRAME_ROUTE_CORRIDOR_M
 
-SS = hole_render.SS  # supersample factor — MUST match hole_render so the frame downsamples identically
+# ``hole_render.SS`` remains 1: the shared projection and output dimensions are unchanged.  Topo
+# material masks use their own high-resolution raster so a triangle edge contributes coverage to
+# the final pixel instead of becoming a binary staircase.
+SS = hole_render.SS
+MASK_SS = 4
 AZ = math.radians(135)  # sun FROM the south-east (Garmin-matched: light in the lower-right)
 ALT = math.radians(48)
 
 PAL = {  # Garmin-matched realistic palette (the locked "realistic" panel of the prototype)
     "bg": (145, 196, 253),
-    "Rough": (110, 168, 66), "TreeArea": (92, 148, 58),
+    "Rough": (110, 168, 66), "TreeArea": (110, 168, 66),
     "Fairway": (160, 216, 88), "Fringe": (172, 220, 104), "Green": (158, 216, 78),
     "Bunker": (232, 224, 178), "Teebox": (128, 186, 90),
     "Beach": (226, 211, 164), "Cliff": (139, 130, 108), "CliffUV2": (139, 130, 108),
@@ -177,7 +182,7 @@ def _clip_to_transparent_canvas(img: Image.Image, course_mask: Image.Image) -> I
 
 
 def _route_corridor_mask(size, route_px, sc, radius_m):
-    """Binary route corridor in the same supersampled projection as the renderer."""
+    """Rasterize the route corridor; callers reduce this mask to display coverage."""
     mask = Image.new("L", size, 0)
     draw = ImageDraw.Draw(mask)
     radius = max(1, int(round(float(radius_m) * sc)))
@@ -189,6 +194,20 @@ def _route_corridor_mask(size, route_px, sc, radius_m):
     for x, y in route_px:
         draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=255)
     return mask
+
+
+def _reduce_mask(mask: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """Return a coverage mask after reducing a high-resolution geometry raster.
+
+    ``Image.reduce`` averages the source samples, retaining partial coverage in the boundary
+    pixels. Keeping this conversion in one helper makes it difficult for a later
+    geometry operation to accidentally reintroduce a binary ``point(lambda ...)`` edge.
+    """
+    if mask.size == size:
+        return mask
+    if mask.width == size[0] * MASK_SS and mask.height == size[1] * MASK_SS:
+        return mask.reduce(MASK_SS)
+    return mask.resize(size, Image.Resampling.BOX)
 
 
 def _ground_envelope(mask_for, fallback: Image.Image) -> Image.Image:
@@ -362,27 +381,68 @@ def _fbm(w, h, seed, octaves=5, base_cells=6, persistence=0.55):
 
 
 def _build(md, by, route, project, sc, w, h, gid, hole):
-    """The rich topo texture pass. Returns an RGBA image at SS resolution."""
+    """The rich topo texture pass. Returns an RGBA image at the display frame size."""
     _mcache: dict[str, Image.Image | None] = {}
+    display_size = (w, h)
+
+    def _rasterize_hi(name):
+        m = by.get(name + ".drc")
+        if not m:
+            return None
+        projected = [project(_local(p)) for p in m["positions"]]
+        if not projected:
+            return None
+        # Rasterize a material in its projected bounding box.  The reduced display mask is pasted
+        # into the frame by the caller, so a small green/bunker/tree layer never allocates a 4x
+        # canvas for the entire hole.
+        left = max(0, int(math.floor(min(x for x, _y in projected))) - 1)
+        top = max(0, int(math.floor(min(y for _x, y in projected))) - 1)
+        right = min(w, int(math.ceil(max(x for x, _y in projected))) + 2)
+        bottom = min(h, int(math.ceil(max(y for _x, y in projected))) + 2)
+        if right <= left or bottom <= top:
+            return None
+        mk = Image.new("L", ((right - left) * MASK_SS, (bottom - top) * MASK_SS), 0)
+        dd = ImageDraw.Draw(mk)
+        pj = [((x - left) * MASK_SS, (y - top) * MASK_SS) for x, y in projected]
+        for a, b, c in m["faces"]:
+            dd.polygon([pj[a], pj[b], pj[c]], fill=255)
+        return mk, (left, top, right, bottom)
 
     def mask_L(name):
         if name in _mcache:
             return _mcache[name]
-        m = by.get(name + ".drc")
-        if not m:
-            _mcache[name] = None
-            return None
-        mk = Image.new("L", (w, h), 0)
-        dd = ImageDraw.Draw(mk)
-        pj = [project(_local(p)) for p in m["positions"]]
-        for a, b, c in m["faces"]:
-            dd.polygon([pj[a], pj[b], pj[c]], fill=255)
+        # A high-resolution raster is deliberately short-lived.  Keeping every decoded material
+        # at 4x until the envelope pass made one coastal hole retain ten or more full-frame L
+        # images at once; rasterize one layer, reduce it, and let Pillow release the source.
+        raster = _rasterize_hi(name)
+        if raster is not None:
+            hi, (left, top, right, bottom) = raster
+            reduced = _reduce_mask(hi, (right - left, bottom - top))
+            mk = Image.new("L", display_size, 0)
+            mk.paste(reduced, (left, top))
+            del hi, reduced
+        else:
+            mk = None
         _mcache[name] = mk
         return mk
 
     def alpha(name):
         mk = mask_L(name)
         return None if mk is None else np.asarray(mk, np.float32) / 255.0
+
+    # Build the continuous terrain edge before the material and hillshade arrays are live.  The
+    # 4x PhysicsMesh tile is the largest single mask on a normal hole; reducing it here keeps its
+    # peak separate from the display-resolution material cache.
+    physics_raster = _rasterize_hi("PhysicsMesh")
+    if physics_raster is not None:
+        physics_hi, (physics_left, physics_top, physics_right, physics_bottom) = physics_raster
+        physics_display = _reduce_mask(
+            physics_hi,
+            (physics_right - physics_left, physics_bottom - physics_top),
+        )
+        del physics_hi
+    else:
+        physics_display = None
 
     # ---- height raster + LIGHT hillshade (real elevation, luminance only, NO AO) ----
     light = np.ones((h, w, 1), np.float32)
@@ -415,15 +475,17 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     # ---- flat base fills ----
     img = Image.new("RGB", (w, h), PAL["bg"])
     land_L = Image.new("L", (w, h), 0)
-    support_L = Image.new("L", (w, h), 0)
+    # Material fills use display-resolution coverage.  PhysicsMesh is rasterized separately below
+    # for the final soft hole edge, so it is never retained beside all other 4x layers.
     for name in ORDER:
         mk = mask_L(name)
         if mk is None:
             continue
-        img.paste(Image.new("RGB", (w, h), PAL[name]), (0, 0), mk)
+        # TreeArea is a foliage placement hint, not a separate turf material.  Keeping it on the
+        # rough colour prevents coarse source triangles from becoming dark wedges in the bitmap.
+        fill_name = "Rough" if name == "TreeArea" else name
+        img.paste(Image.new("RGB", (w, h), PAL[fill_name]), (0, 0), mk)
         land_L = ImageChops.lighter(land_L, mk)
-        if name in ENVELOPE_SUPPORT_LAYERS:
-            support_L = ImageChops.lighter(support_L, mk)
     base = np.asarray(img, dtype=np.float32)
 
     def blend(mask, color):
@@ -454,7 +516,7 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         if (material_mask := mask_L(material)) is not None:
             mown_L = ImageChops.lighter(mown_L, material_mask)
     mown = (np.asarray(mown_L, np.float32) / 255.0)[..., None]
-    del mown_L, material_mask
+    del mown_L
     light_eff = 1.0 + (light - 1.0) * (1 - 0.92 * mown)
     land_np = (np.asarray(land_L, np.float32) / 255.0)[..., None]
     np.copyto(base, base * (1 - land_np) + np.clip(base * light_eff, 0, 255) * land_np)
@@ -489,49 +551,84 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
     img = Image.fromarray(np.clip(base, 0, 255).astype(np.uint8))
     del base
 
-    # ---- corridor + hard clip to continuous terrain ∪ kept water (drops neighbour holes) ----
+    # ---- corridor + coverage clip to continuous terrain ∪ kept water (drops neighbour holes) ----
     rpx = [project(tuple(p)) for p in route]
+    corr = _route_corridor_mask(display_size, rpx, sc, HOLE_MASK_ROUTE_RADIUS_M)
+    # PhysicsMesh is the continuous terrain authority.  Rasterize only this one 4x layer for the
+    # edge clip, then immediately reduce it; material support is already available at display size.
+    if physics_display is not None:
+        ground = Image.new("L", display_size, 0)
+        ground.paste(physics_display, (physics_left, physics_top))
+        hole_mask = ImageChops.multiply(ground, corr)
+        del ground
+    else:
+        hole_mask = ImageChops.multiply(land_L, corr)
 
-    def corridor(radius_m):
-        return _route_corridor_mask((w, h), rpx, sc, radius_m)
-
-    corr = corridor(HOLE_MASK_ROUTE_RADIUS_M)
-    # PhysicsMesh is the continuous terrain authority.  Rough/TreeArea/paths are material layers
-    # with holes and neighbouring polygons; unioning them for alpha caused the reported spikes.
-    # Older/partial packages retain the legacy all-land union instead of using Rough alone (Rough
-    # has intentional fairway/green cut-outs and is therefore not a complete fallback envelope).
-    ground_envelope = _ground_envelope(mask_L, land_L)
-    hole_mask = ImageChops.multiply(ground_envelope, corr).point(lambda v: 255 if v >= 128 else 0)
-    if water_keep is not None:
-        visible_water = ImageChops.multiply(water_keep, corr).point(lambda v: 255 if v >= 128 else 0)
+    # Support components are used only to remove disconnected mesh/ocean fragments.  Union them
+    # after each individual layer has already been reduced, avoiding a second collection of 4x
+    # images in the working set.
+    support_L = Image.new("L", display_size, 0)
+    for material in ENVELOPE_SUPPORT_LAYERS:
+        if (support_mask := mask_L(material)) is not None:
+            support_L = ImageChops.lighter(support_L, support_mask)
+    if (water_keep := _combined_water_mask(mask_L)) is not None:
+        visible_water = ImageChops.multiply(water_keep, corr)
         hole_mask = ImageChops.lighter(hole_mask, visible_water)
-        del visible_water
-    hole_mask = _bounded_route_envelope(hole_mask, support_L, rpx, sc)
-    del corr, ground_envelope, support_L, land_L, water_keep
+        del visible_water, water_keep
+    del corr, physics_display
+    hole_mask = _bounded_route_envelope(
+        hole_mask,
+        support_L,
+        rpx,
+        sc,
+        supersample=1,
+    )
+    del support_L, land_L
     img = _clip_to_transparent_canvas(img, hole_mask)
-    outline = ImageChops.difference(hole_mask, hole_mask.filter(ImageFilter.MinFilter(3)))
+    outline = ImageChops.difference(hole_mask, hole_mask.filter(ImageFilter.MinFilter(5)))
     stroke = Image.new("RGBA", (w, h), PAL["edge"] + (0,))
-    stroke.putalpha(outline.point(lambda v: int(v * 0.55)))
+    stroke.putalpha(outline.point(lambda v: int(v * 0.32)))
     img = Image.alpha_composite(img, stroke)
     del outline, stroke
 
-    # ---- crisp material boundary strokes (clean edges; no blur) ----
-    def add_stroke(name, rgb, wpx, a):
+    # ---- soft material boundary shading (coverage-derived; no binary threshold) ----
+    def add_stroke(name, rgb, wpx, a, *, outside=False):
         mk = mask_L(name)
         if mk is None:
             return None
-        er = mk.filter(ImageFilter.MinFilter(wpx * 2 + 1))
-        edge = ImageChops.multiply(ImageChops.subtract(mk, er), hole_mask)
+        if outside:
+            expanded = mk.filter(ImageFilter.MaxFilter(wpx * 2 + 1))
+            edge = ImageChops.subtract(expanded, mk)
+        else:
+            eroded = mk.filter(ImageFilter.MinFilter(wpx * 2 + 1))
+            edge = ImageChops.subtract(mk, eroded)
+        edge = ImageChops.multiply(edge, hole_mask)
         ov = Image.new("RGBA", (w, h), rgb + (0,))
-        ov.putalpha(edge.point(lambda v: a if v > 60 else 0))
+        ov.putalpha(edge.point(lambda v: int(round(float(v) * a / 255.0))))
         return ov
-    for _nm, _rgb, _wp, _a in [("Fairway", (92, 146, 54), 1, 130),
-                               ("Bunker", (150, 132, 86), 1, 160),
-                               ("Green", (70, 146, 52), 1, 205)]:
-        _ov = add_stroke(_nm, _rgb, _wp, _a)
+    for _nm, _rgb, _wp, _a, _outside in [("Fairway", (82, 138, 52), 2, 42, True),
+                                         ("Bunker", (150, 132, 86), 1, 42, True),
+                                         ("Green", (70, 146, 52), 1, 150, False)]:
+        _ov = add_stroke(_nm, _rgb, _wp, _a, outside=_outside)
         if _ov is not None:
             img = Image.alpha_composite(img, _ov)
     del _ov
+
+    # A bunker lip is an inner, directional shadow: stronger toward the image's upper-left where
+    # the sun-facing cut reads deepest, while the outer edge remains only the fine antialiased line.
+    bunker = mask_L("Bunker")
+    if bunker is not None:
+        bunker_edge = ImageChops.multiply(
+            ImageChops.subtract(bunker, bunker.filter(ImageFilter.MinFilter(5))),
+            hole_mask,
+        )
+        byy, bxx = np.mgrid[0:h, 0:w].astype(np.float32)
+        direction = np.clip(1.0 - 0.45 * (bxx / max(1, w - 1) + byy / max(1, h - 1)), 0.55, 1.0)
+        lip_alpha = np.asarray(bunker_edge, np.float32) * direction * (105.0 / 255.0)
+        lip = Image.new("RGBA", (w, h), (150, 132, 86, 0))
+        lip.putalpha(Image.fromarray(np.clip(lip_alpha, 0, 255).astype(np.uint8)))
+        img = Image.alpha_composite(img, lip)
+        del bunker_edge, byy, bxx, direction, lip_alpha, lip
 
     # ---- trees: species-differentiated canopies (treeline in rough; none on the fairway) ----
     fmask = mask_L("Fairway")
@@ -560,7 +657,7 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         spec = SPECIES.get(int(it.get("id", 4)), SPECIES[4])
         s = float(it.get("s", 0.7))
         r = (6.8 + s * 8.4) * SS * spec["rad"] * (0.92 + 0.16 * rnd.random())
-        r = max(7.0 * SS, min(19.5 * SS, r))
+        r = max(7.0 * SS, min(26.0 * SS, r))
         placed.append((px, py, r, spec, rnd.randint(0, 1 << 30)))
     placed.sort(key=lambda t: t[1])   # far (top) first so near trees overlap
 
@@ -572,52 +669,75 @@ def _build(md, by, route, project, sc, w, h, gid, hole):
         ds.ellipse((px + sdx * so - r * 1.15, py + sdy * so - r * 0.70,
                     px + sdx * so + r * 1.15, py + sdy * so + r * 0.70), fill=(32, 54, 32, 92))
     shp = shp.filter(ImageFilter.GaussianBlur(3.4 * SS))
-    sa = np.asarray(shp.split()[3], np.float32) * (1 - 0.92 * mown[..., 0])  # keep shadows off mown turf
+    sa = (
+        np.asarray(shp.split()[3], np.float32)
+        * (1 - 0.92 * mown[..., 0])
+        * (hole_np / 255.0)
+    )  # keep shadows off mown turf and outside the factual hole mask
     shp.putalpha(Image.fromarray(np.clip(sa, 0, 255).astype(np.uint8)))
     img = Image.alpha_composite(img, shp)
     del sa, mown, shp
 
     # (2) canopies on a dedicated layer, composited once at the end
     canopy = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(canopy, "RGBA")
+
+    def composite_tile_at(destination, tile, left, top):
+        """Alpha-composite a tile, including a tile whose origin is outside the canvas."""
+        x0 = max(0, left)
+        y0 = max(0, top)
+        x1 = min(destination.width, left + tile.width)
+        y1 = min(destination.height, top + tile.height)
+        if x0 >= x1 or y0 >= y1:
+            return
+        source = tile.crop((x0 - left, y0 - top, x1 - left, y1 - top))
+        target = destination.crop((x0, y0, x1, y1))
+        destination.paste(Image.alpha_composite(target, source), (x0, y0))
 
     def draw_broadleaf(px, py, r, spec, rng):
         base_c = spec["base"]
-        R = max(3, int(round(r)))
-        pad = int(R * 0.30) + 6
-        T = R * 2 + pad * 2
-        c = R + pad
+        # Canopy geometry is drawn in a small local 4x tile and box-reduced once.  This gives the
+        # silhouette antialiasing without the out-of-focus halo caused by blurring the canopy
+        # itself.  Only the grounded shadow layer above is Gaussian-blurred.
+        Rhi = max(MASK_SS * 3, int(round(r * MASK_SS)))
+        pad_hi = int(Rhi * 0.30) + MASK_SS * 2
+        T = ((Rhi * 2 + pad_hi * 2 + MASK_SS - 1) // MASK_SS) * MASK_SS
+        c_hi = T // 2
         tile = Image.new("RGBA", (T, T), (0, 0, 0, 0))
         td = ImageDraw.Draw(tile, "RGBA")
 
         def te(cx, cy, rr, fill):
             td.ellipse((cx - rr, cy - rr, cx + rr, cy + rr), fill=fill)
 
-        te(c, c, R * 0.74, base_c + (255,))
+        te(c_hi, c_hi, Rhi * 0.74, base_c + (255,))
         nl = rng.randint(8, 11)
         a0 = rng.uniform(0, 2 * math.pi)
         for k in range(nl):
             ang = a0 + 2 * math.pi * k / nl + rng.uniform(-0.16, 0.16)
-            rad = R * rng.uniform(0.36, 0.52)
-            te(c + math.cos(ang) * rad, c + math.sin(ang) * rad,
-               R * rng.uniform(0.38, 0.50), base_c + (255,))
+            rad = Rhi * rng.uniform(0.36, 0.52)
+            te(c_hi + math.cos(ang) * rad, c_hi + math.sin(ang) * rad,
+               Rhi * rng.uniform(0.38, 0.50), base_c + (255,))
         nrng = np.random.default_rng(rng.randint(0, 2 ** 31 - 1))
         low = (nrng.random((max(3, T // 7), max(3, T // 7))) * 255).astype(np.uint8)
         grain = np.asarray(Image.fromarray(low).resize((T, T), Image.BICUBIC), np.float32) / 255.0
         arr = np.asarray(tile, np.float32)
         yy2, xx2 = np.mgrid[0:T, 0:T].astype(np.float32)
-        dsh = np.clip(((xx2 - c) * sdx + (yy2 - c) * sdy) / (R + 1e-3), -1.15, 1.15)
+        dsh = np.clip(((xx2 - c_hi) * sdx + (yy2 - c_hi) * sdy) / (Rhi + 1e-3), -1.15, 1.15)
         fac = 1.0 - dsh * 0.16                       # NW (shadow) darker, SE (sun) brighter
         grainf = 1.0 + (grain - 0.5) * 0.12          # subtle broccoli grain
         rgb = np.clip(arr[..., :3] * (fac * grainf)[..., None], 0, 255)
-        tile = Image.fromarray(np.concatenate([rgb, arr[..., 3:4]], -1).astype(np.uint8))
-        tile = tile.filter(ImageFilter.GaussianBlur(max(0.6, R * 0.05)))
+        # Keep the raster's coverage edge, but do not smooth the canopy RGB/alpha after reducing.
+        tile = Image.fromarray(
+            np.concatenate([rgb, arr[..., 3:4]], -1).astype(np.uint8),
+            mode="RGBA",
+        ).reduce(MASK_SS)
         cw, ch = tile.width, tile.height
-        canopy.paste(tile, (int(round(px)) - cw // 2, int(round(py)) - ch // 2), tile)
+        composite_tile_at(canopy, tile, int(round(px)) - cw // 2, int(round(py)) - ch // 2)
 
     for px, py, r, spec, sd in placed:
         draw_broadleaf(px, py, r, spec, random.Random(sd))
 
+    canopy_alpha = np.asarray(canopy.getchannel("A"), dtype=np.float32) * (hole_np / 255.0)
+    canopy.putalpha(Image.fromarray(np.clip(canopy_alpha, 0, 255).astype(np.uint8)))
     img = Image.alpha_composite(img, canopy)
     return img
 

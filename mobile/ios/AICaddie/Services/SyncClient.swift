@@ -463,7 +463,7 @@ public final class SyncClient {
     }
     /// Renderer contract shared with the phone's on-disk topo cache and Watch transfer metadata.
     /// Bump this whenever existing rendered pixels must be invalidated on installed devices.
-    public static let topoStyleVersion = "topo-v11"
+    public static let topoStyleVersion = "topo-v12"
     /// Version of the Garmin fallback asset. It is part of the URL/cache key so a changed server
     /// crop or projection never reuses an older 1242×1920 image.
     public static let garminRasterStyleVersion = "garmin-raster-v1"

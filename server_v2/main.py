@@ -1019,7 +1019,7 @@ def course_hole_topo_png(
     from ai_caddie.geometry import topo_render
     from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
 
-    if v is not None and v != topo_render.STYLE_VERSION:
+    if v is not None and v not in topo_render.SUPPORTED_STYLE_VERSIONS:
         raise HTTPException(status_code=409, detail="topo renderer version changed")
 
     # Do not combine a freshly refreshed course package with pixels decoded from an older
@@ -1094,7 +1094,7 @@ def course_hole_green_detail_png(
     # ``g`` is a URL/cache-busting contract for installed clients.  Older apps omitted it and are
     # still allowed to receive the current renderer; a newer app naming an unknown style must not
     # cache today's pixels under a future contract it assumes the server already understands.
-    if v is not None and v != topo_render.STYLE_VERSION:
+    if v is not None and v not in topo_render.SUPPORTED_STYLE_VERSIONS:
         raise HTTPException(status_code=409, detail="topo renderer version changed")
     if g is not None and g != topo_render.GREEN_DETAIL_STYLE_VERSION:
         raise HTTPException(status_code=409, detail="green detail renderer version changed")
