@@ -86,40 +86,95 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
 
-        XCTAssertTrue(openStartRound())
-        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        assertAndCapture(openStartRound(), "home must expose a new-round entry", "c99-back-nine-home")
+        assertAndCapture(
+            app.navigationBars["开始一场"].waitForExistence(timeout: 12),
+            "new-round entry must navigate to the course finder",
+            "c99-back-nine-start-page"
+        )
         let course = selectStartCourse(approvedJourneyCourseGlobalId)
-        XCTAssertTrue(course.waitForExistence(timeout: 8))
+        assertAndCapture(course.waitForExistence(timeout: 8), "course selection must remain visible", "c99-back-nine-course-missing")
         let start = app.buttons["start-round-primary-action"]
-        XCTAssertTrue(waitUntilEnabled(start, timeout: 90))
+        assertAndCapture(waitUntilEnabled(start, timeout: 90), "selected course must become startable", "c99-back-nine-start-disabled")
         start.tap()
-        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 90))
+        assertAndCapture(
+            app.staticTexts["第 1 洞"].waitForExistence(timeout: 90),
+            "whole-course prep must open at hole 1",
+            "c99-back-nine-hole-one-missing"
+        )
 
         let map = app.descendants(matching: .any)["live-open-map-from-hero"]
         for hole in 1...9 {
             let heading = app.staticTexts["第 \(hole) 洞"]
-            XCTAssertTrue(heading.waitForExistence(timeout: 30), "prep navigation must reach hole \(hole)")
-            XCTAssertTrue(map.waitForExistence(timeout: 15) && map.isHittable)
+            assertAndCapture(
+                heading.waitForExistence(timeout: 30),
+                "prep navigation must reach hole \(hole)",
+                "c99-back-nine-hole-\(hole)-missing"
+            )
+            assertAndCapture(
+                map.waitForExistence(timeout: 15) && map.isHittable,
+                "hole \(hole) must expose its map navigation control",
+                "c99-back-nine-hole-\(hole)-map-missing"
+            )
             map.swipeLeft()
         }
-        XCTAssertTrue(app.staticTexts["第 10 洞"].waitForExistence(timeout: 30))
+        assertAndCapture(
+            app.staticTexts["第 10 洞"].waitForExistence(timeout: 30),
+            "prep navigation must reach hole 10",
+            "c99-back-nine-hole-ten-missing"
+        )
         let backNineReady = app.staticTexts.matching(
             NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "live-round-banner", "记第一杆即开打")
         ).firstMatch
-        XCTAssertTrue(
+        assertAndCapture(
             backNineReady.waitForExistence(timeout: 20),
-            "the follow-hole simulator must move GPS to hole 10's tee before recording the first stroke"
+            "the follow-hole simulator must move GPS to hole 10's tee before recording the first stroke",
+            "c99-back-nine-first-stroke-not-ready"
+        )
+        assertAndCapture(
+            backNineReady.label.contains("第 10 洞") || (backNineReady.value as? String)?.contains("第 10 洞") == true,
+            "the first-stroke banner must name hole 10",
+            "c99-back-nine-first-stroke-banner-hole"
         )
         let record = app.buttons["live-record-shot"]
-        XCTAssertTrue(record.waitForExistence(timeout: 10) && record.isHittable)
+        assertAndCapture(
+            record.waitForExistence(timeout: 10) && record.isHittable,
+            "hole 10 must expose a tappable record control",
+            "c99-back-nine-record-missing"
+        )
         record.tap()
         let skipClub = app.buttons["跳过球杆（位置已记录）"]
-        XCTAssertTrue(skipClub.waitForExistence(timeout: 8), "the first-stroke club sheet must be dismissed before undo")
+        assertAndCapture(
+            skipClub.waitForExistence(timeout: 8),
+            "the first-stroke club sheet must be dismissed before undo",
+            "c99-back-nine-club-sheet-missing"
+        )
+        let liveBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
+        assertAndCapture(
+            liveBanner.waitForExistence(timeout: 5)
+                && liveBanner.label.contains("第 10 洞")
+                && liveBanner.label.contains("正在记录"),
+            "the first stroke must show hole 10 as recording",
+            "c99-back-nine-after-first-stroke-banner"
+        )
         skipClub.tap()
         let undo = app.buttons["live-undo-round-start"]
-        XCTAssertTrue(undo.waitForExistence(timeout: 15))
+        assertAndCapture(
+            undo.waitForExistence(timeout: 15),
+            "the live hole must expose undo after the club sheet is dismissed",
+            "c99-back-nine-undo-missing"
+        )
         undo.tap()
-        XCTAssertTrue(app.buttons["live-prep-tee-menu"].waitForExistence(timeout: 15))
+        assertAndCapture(
+            app.buttons["live-prep-tee-menu"].waitForExistence(timeout: 15),
+            "undo must restore the prep tee controls",
+            "c99-back-nine-prep-controls-missing"
+        )
+        assertAndCapture(
+            app.staticTexts["第 10 洞"].waitForExistence(timeout: 8),
+            "undo must keep the player on hole 10",
+            "c99-back-nine-after-undo-hole"
+        )
         settle(1); save("c99-whole-course-prep-back-nine"); dump("c99-whole-course-prep-back-nine")
     }
 
@@ -1972,6 +2027,21 @@ final class RealFlowUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         print("WROTE_REAL_SCREENSHOT \(name)")
+    }
+
+    private func assertAndCapture(
+        _ condition: @autoclosure () -> Bool,
+        _ message: String,
+        _ evidence: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let ok = condition()
+        if !ok {
+            save(evidence)
+            dump(evidence)
+        }
+        XCTAssertTrue(ok, message, file: file, line: line)
     }
 
     private func dump(_ name: String) {
