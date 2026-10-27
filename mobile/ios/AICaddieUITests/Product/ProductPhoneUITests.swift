@@ -310,8 +310,13 @@ final class ProductPhoneUITests: XCTestCase {
         if launchedWithFix {
             // C99 routes every new round through the shared course finder. A nearby course is
             // already the first row, then its tee page is shown before Start.
-            tap("home-new-round")
             let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-")).firstMatch
+            XCTAssertTrue(UITapHelpers.tapAndWaitForElements(
+                element("home-new-round"),
+                destinations: [app.navigationBars["开始一场"], row],
+                timeout: 30,
+                diagnosticName: "home-new-round"
+            ))
             XCTAssertTrue(row.waitForExistence(timeout: 30), "nearby course row")
             row.tap()
             let start = element("start-round-primary-action")
@@ -321,7 +326,12 @@ final class ProductPhoneUITests: XCTestCase {
             return
         }
         // Without a location the home offers search and 开始一场 lists no course: search by name.
-        tap("home-new-round")
+        XCTAssertTrue(UITapHelpers.tapAndWaitForElements(
+            element("home-new-round"),
+            destinations: [app.navigationBars["开始一场"], element("start-round-search-all-courses")],
+            timeout: 30,
+            diagnosticName: "home-new-round"
+        ))
         tap("start-round-search-all-courses")
         let keyword = app.textFields["course-catalog-keyword-field"]
         XCTAssertTrue(keyword.waitForExistence(timeout: 10))
