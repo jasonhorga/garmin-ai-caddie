@@ -259,12 +259,13 @@ test('j9_5_review_has_single_round_share_entry', async ({ page, browser }) => {
   await expect(sharedPage.getByText('相关来源', { exact: true })).toHaveCount(0)
   await expect(sharedPage.getByRole('button', { name: /编辑落点|保存全部修改|添加订正|取消分享/ })).toHaveCount(0)
   await expect(sharedPage.locator('body')).not.toContainText('90')
-  expect(sharedApi.calls.map((call) => call.path)).toEqual([`/api/v2/share/${SHARE_TOKEN}`])
+  // The dev server runs React StrictMode, which mounts effects twice; dedupe paths but check every call.
+  expect([...new Set(sharedApi.calls.map((call) => call.path))]).toEqual([`/api/v2/share/${SHARE_TOKEN}`])
   expect(sharedApi.unexpected).toEqual([])
   expect(pageErrors).toEqual([])
-  const read = sharedApi.calls.find((call) => call.path === `/api/v2/share/${SHARE_TOKEN}`)
-  expect(read).toBeDefined()
-  expect(read?.auth).toBeUndefined()
-  expect(read?.admin).toBeUndefined()
+  for (const read of sharedApi.calls) {
+    expect(read.auth).toBeUndefined()
+    expect(read.admin).toBeUndefined()
+  }
   await sharedContext.close()
 })
