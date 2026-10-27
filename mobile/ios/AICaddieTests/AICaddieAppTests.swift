@@ -82,9 +82,9 @@ final class AICaddieAppTests: XCTestCase {
             PrepCourseDownloadRecord(course: a, teeBox: "blue"),
             PrepCourseDownloadRecord(course: sameDisplayDifferentCourse, teeBox: "red"),
         ]
-        let rows = MobileCourseSearchView.recentRows(newestFirst)
+        let rows = StartRoundPresentation.recentRows(newestFirst)
         XCTAssertEqual(rows.map(\.id), [newestFirst[0].id, newestFirst[1].id, newestFirst[3].id])
-        XCTAssertEqual(MobileCourseSearchView.recentRowSubtitle(rows[0]), "A 场 · 白 T")
+        XCTAssertEqual(StartRoundPresentation.recentRowSubtitle(rows[0]), "A 场 · 白 T")
     }
 
     func testCourseSearchDoesNotShowEmptyStateWhileRequestIsStillRunning() {

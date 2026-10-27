@@ -427,6 +427,9 @@ public struct CurrentHoleView: View {
     private let isPrepMode: Bool
     private let prepTeeOptions: [String]
     private let onStartRoundFromFirstStroke: (Int) -> Bool
+    /// The prep destination stays mounted while the first-stroke club sheet is up. The parent
+    /// drops the prep picker route only after that sheet has dismissed.
+    private let onFirstStrokeClubPromptDismissed: () -> Void
     private let onUndoRoundStart: () -> Void
     private let onChangePrepTee: (String, Int?) -> Void
 
@@ -598,6 +601,7 @@ public struct CurrentHoleView: View {
         isPrepMode: Bool = false,
         prepTeeOptions: [String] = [],
         onStartRoundFromFirstStroke: @escaping (Int) -> Bool = { _ in false },
+        onFirstStrokeClubPromptDismissed: @escaping () -> Void = {},
         onUndoRoundStart: @escaping () -> Void = {},
         onChangePrepTee: @escaping (String, Int?) -> Void = { _, _ in },
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in }
@@ -647,6 +651,7 @@ public struct CurrentHoleView: View {
         self.isPrepMode = isPrepMode
         self.prepTeeOptions = prepTeeOptions
         self.onStartRoundFromFirstStroke = onStartRoundFromFirstStroke
+        self.onFirstStrokeClubPromptDismissed = onFirstStrokeClubPromptDismissed
         self.onUndoRoundStart = onUndoRoundStart
         self.onChangePrepTee = onChangePrepTee
         let seed = package.caddieContextSeeds.first { $0.hole == hole.number }
@@ -820,7 +825,11 @@ public struct CurrentHoleView: View {
                 horizontalAccuracyM: latestFix.horizontalAccuracyM
             )
             if isPrepMode {
-                let locatedHole = CurrentHoleLocator.locate(fix: latestFix, package: package).hole
+                let locatedHole = CurrentHoleLocator.locate(
+                    fix: latestFix,
+                    package: package,
+                    preferredHole: hole.number
+                ).hole
                 if let target = onPrepLocationChanged(locatedHole, hole.number),
                    package.holes.contains(where: { $0.number == target }) {
                     onAdvanceHole(target)
@@ -974,7 +983,7 @@ public struct CurrentHoleView: View {
         .sheet(item: $scoreDraft) { presentedDraft in
             scoreConfirmationSurface(for: presentedDraft)
         }
-        .sheet(item: $pendingPhoneShot) { pendingShot in
+        .sheet(item: $pendingPhoneShot, onDismiss: onFirstStrokeClubPromptDismissed) { pendingShot in
             actualClubPromptSurface(for: pendingShot)
         }
         .sheet(isPresented: $showScorecard, onDismiss: handleScorecardDismissed) {
@@ -1222,7 +1231,11 @@ public struct CurrentHoleView: View {
     }
 
     private var prepLocation: CurrentHoleLocation {
-        CurrentHoleLocator.locate(fix: locationProvider.latestFix, package: package)
+        CurrentHoleLocator.locate(
+            fix: locationProvider.latestFix,
+            package: package,
+            preferredHole: hole.number
+        )
     }
 
     private var canRecordShot: Bool {

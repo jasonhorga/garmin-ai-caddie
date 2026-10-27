@@ -116,7 +116,7 @@ final class ProductPhoneStateTests: XCTestCase {
     }
 
     func test_j5_3_home_weather_and_latest_round_strip_are_factual() throws {
-        // Missing, failed or non-finite temperatures cannot produce a weather tile.
+        // Missing, failed or non-finite temperatures omit the compact weather line.
         for (id, state, temperature) in [("missing", "missing", Optional(23.0)), ("no-temperature", "ready", nil), ("invalid", "ready", Double.nan)] {
             XCTAssertNil(HomeWeather(state: state, temperatureC: temperature, windSpeedMps: nil,
                 windDirectionDeg: nil, condition: nil, precipitationProbabilityPct: nil).presentation, id)
@@ -132,12 +132,7 @@ final class ProductPhoneStateTests: XCTestCase {
             try ProductSharedVectors.decode(["id": "r\(score)", "courseName": "Example", "holesCompleted": 18, "score": score])
         }
         // Input newest-first 80...88; take eight, then draw oldest-first, excluding the ninth.
-        XCTAssertEqual(HubScoresTile.recentScores(history: recent), [87, 86, 85, 84, 83, 82, 81, 80])
-        let carries = HubBagTile.carries(from: [
-            ClubProfile(clubName: "7I", sampleSize: 20, medianM: 137.16, p10M: 128.016, p90M: 146.304),
-            ClubProfile(clubName: "3W", sampleSize: 20, medianM: 182.88, p10M: 173.736, p90M: 192.024),
-        ])
-        XCTAssertEqual(carries.map { $0.yards }, [200, 150], "longest club leads the home tile")
+        XCTAssertEqual(HubRecentTrendRow.recentScores(history: recent, limit: 5), [84, 83, 82, 81, 80])
         let latest = try ProductInputs.card("newest")
         XCTAssertEqual(HubHeroState.lastRoundStrip(lastRoundId: "newest", newest: latest).map(\.score), [5])
         XCTAssertTrue(HubHeroState.lastRoundStrip(lastRoundId: "older", newest: latest).isEmpty)

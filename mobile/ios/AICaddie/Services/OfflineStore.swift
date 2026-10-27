@@ -1327,6 +1327,22 @@ public final class OfflineStore {
             try FileManager.default.removeItem(at: url)
         }
     }
+
+    /// UI-test only: discard cached history/stats so a fixture response with zero rounds cannot
+    /// inherit a previous journey's archive. Production keeps these account-scoped caches until a
+    /// successful refresh replaces them.
+    public func resetResultsCacheForUITesting() throws {
+        let urls = [
+            historyRoundsURL,
+            mobileStatsURL,
+            directoryURL.appendingPathComponent("mobile_stats_last10.json"),
+            directoryURL.appendingPathComponent("mobile_stats_last20.json"),
+            directoryURL.appendingPathComponent("mobile_stats_12m.json"),
+        ]
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+    }
     #endif
 
     public func loadPrepCourseDownloads() throws -> [PrepCourseDownloadRecord] {
