@@ -445,6 +445,12 @@ final class ProductPhoneUITests: XCTestCase {
             tap("turn-go")
             attachPagerEvidence("j5_10-after-turn-go")
         }
+        // Per-hole checks cover each save; this one also covers the ninth hole's turn sheet.
+        let finalTrace = element("debug-pager-trace")
+        if finalTrace.exists {
+            XCTAssertFalse(finalTrace.label.contains("correction binding bounce"),
+                           "the turn must not record a correction binding bounce")
+        }
         let finished = element("live-finish-to-par").waitForExistence(timeout: 10)
         attachPagerEvidence(finished ? "j5_10-summary-visible" : "j5_10-summary-missing")
         XCTAssertTrue(finished)
@@ -481,7 +487,7 @@ final class ProductPhoneUITests: XCTestCase {
         skip.tap()
         let title = element("live-hole-title")
         XCTAssertTrue(title.waitForExistence(timeout: 8))
-        XCTAssertTrue(title.label.contains("1"), "skipping the club must remain on the first hole")
+        XCTAssertEqual(title.label, "第 1 洞", "skipping the club must remain on the first hole")
     }
 
     func test_j5_2_home_active_card_replaces_new_round_and_can_resume() {

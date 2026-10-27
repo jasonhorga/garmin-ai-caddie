@@ -31,7 +31,10 @@ enum UITapHelpers {
             let elapsed = Date().timeIntervalSince(started)
             print("重试点击 \(diagnosticName) elapsed=\(elapsed)")
             XCTContext.runActivity(named: "retry tap \(diagnosticName)") { activity in
-                activity.add(XCTAttachment(string: "retry tap \(diagnosticName), elapsed=\(elapsed)s"))
+                let attachment = XCTAttachment(string: "retry tap \(diagnosticName), elapsed=\(elapsed)s")
+                // Keep retry evidence on passing runs too: a swallowed tap is the C113 symptom.
+                attachment.lifetime = .keepAlways
+                activity.add(attachment)
             }
             if source.exists && source.isHittable, deadline.timeIntervalSinceNow > 0 {
                 source.tap()
