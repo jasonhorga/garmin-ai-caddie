@@ -263,4 +263,3 @@ for _method in ("post", "put", "patch", "delete"):
     router.add_api_route(
         "/share/{token}/{rest:path}", _reject_share_write, methods=[_method.upper()], include_in_schema=False,
     )
-

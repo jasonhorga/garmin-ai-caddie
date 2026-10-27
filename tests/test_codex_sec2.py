@@ -49,10 +49,22 @@ _KNOWN_PUBLIC = {
     # server-side render cache. Public exactly like /topo.png + /prep; a geometry-less gid queues 0.
     ("POST", "/api/v2/courses/{global_id}/topo/prewarm"),
     ("POST", "/api/v2/auth/apple"),
+    ("GET", "/api/v2/share/{token}"),
+    ("GET", "/api/v2/share/{token}/{rest:path}"),
+    ("POST", "/api/v2/share/{token}"),
+    ("POST", "/api/v2/share/{token}/{rest:path}"),
+    ("PUT", "/api/v2/share/{token}"),
+    ("PUT", "/api/v2/share/{token}/{rest:path}"),
+    ("PATCH", "/api/v2/share/{token}"),
+    ("PATCH", "/api/v2/share/{token}/{rest:path}"),
+    ("DELETE", "/api/v2/share/{token}"),
+    ("DELETE", "/api/v2/share/{token}/{rest:path}"),
 }
 # Authed inside the handler via Depends(current_player_id) + an explicit owner/own-player check,
 # or (for auth routes) via _resolve_session() which enforces a Bearer session token.
 _HANDLER_AUTHED = {
+    ("POST", "/api/v2/history/rounds/{round_ref}/share"),
+    ("DELETE", "/api/v2/history/rounds/{round_ref}/share"),
     ("POST", "/api/v2/players/{target_player_id}/rounds"),
     # Garmin self-binding (Phase B): both authed via Depends(current_player_id) + an explicit
     # owner/own-player 403 check, exactly like /players/{id}/rounds. NOT in the admin exact_paths
