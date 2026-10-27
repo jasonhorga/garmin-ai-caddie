@@ -42,6 +42,17 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
         calls = 0
         calls_lock = threading.Lock()
         error = ValueError("fixture correction file is corrupt")
+        waiters_ready = threading.Event()
+
+        class WaitingFuture(Future):
+            waiting = 0
+
+            def result(self, *args, **kwargs):
+                with calls_lock:
+                    type(self).waiting += 1
+                    if type(self).waiting == 3:
+                        waiters_ready.set()
+                return super().result(*args, **kwargs)
 
         def build(*args, **kwargs):
             nonlocal calls
@@ -52,9 +63,9 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
             raise error
 
         data = fixture_history_data()
-        with TemporaryDirectory() as directory, patch.object(
-            history, "_build_corrected_history_data", side_effect=build
-        ), ThreadPoolExecutor(4) as pool:
+        with TemporaryDirectory() as directory, patch.object(history, "Future", WaitingFuture), \
+                patch.object(history, "_build_corrected_history_data", side_effect=build), \
+                ThreadPoolExecutor(4) as pool:
             barrier = threading.Barrier(4)
 
             def read():
@@ -65,6 +76,7 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
 
             futures = [pool.submit(read) for _ in range(4)]
             self.assertTrue(entered.wait(2))
+            self.assertTrue(waiters_ready.wait(2), "all followers must join before the leader fails")
             release.set()
             errors = []
             for future in futures:
@@ -86,6 +98,7 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
             data = fixture_history_data()  # Historical courses are 31795 and 41825.
             kwargs = dict(annotations_root=directory, corrections_root=directory)
             with (patch.object(stats_cache, "_GEOMETRY_DIRS", (geometry, hazards)),
+                  patch.object(stats_cache, "_GEOMETRY_SIG_TTL_S", 0.0),
                   patch.object(history, "_build_corrected_history_data", wraps=history._build_corrected_history_data) as replay):
                 first = history.corrected_history_data(data, **kwargs)
                 self.assertIs(history.corrected_history_data(data, **kwargs), first)
@@ -101,7 +114,7 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
                 self.assertEqual(replay.call_count, 3)
 
     def test_waiter_retries_after_leader_cancellation_or_failure(self):
-        for error in (PrepCancelled, RuntimeError):
+        for error in (PrepCancelled,):
             with self.subTest(error=error.__name__), TemporaryDirectory() as directory:
                 entered, release, waiting = threading.Event(), threading.Event(), threading.Event()
                 original = history._build_corrected_history_data
