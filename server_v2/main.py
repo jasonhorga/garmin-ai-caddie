@@ -196,6 +196,7 @@ from . import session as session_routes
 from .sync_status import load_sync_status_response
 from .timing import RequestTiming, bind as bind_request_timing, mark as mark_request_stage, request_id as request_id_for
 from . import timing_api
+from .share_api import router as share_router
 from ai_caddie.core import request_timing
 from .sync_jobs import CancelledSyncJob, GarminSyncJobStore, RetrySyncJob
 
@@ -222,6 +223,9 @@ def configure_request_timing_logging() -> None:
         if not service_log.handlers:
             service_log.handlers.extend(logging.getLogger("uvicorn.error").handlers or [logging.StreamHandler()])
         service_log.propagate = False
+    access_log = logging.getLogger("uvicorn.access")
+    if not any(isinstance(item, request_timing.URLRedactionFilter) for item in access_log.filters):
+        access_log.addFilter(request_timing.URLRedactionFilter())
 
 
 def _start_boot_background_work() -> None:
@@ -334,6 +338,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
 app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(garmin_raster_router)
+app.include_router(share_router)
 
 logger = logging.getLogger(__name__)
 
