@@ -29,7 +29,7 @@ _CURRENT: ContextVar["RequestTiming | None"] = ContextVar("ai_caddie_request_tim
 logger = logging.getLogger("server_v2.timing")
 
 _SENSITIVE_QUERY_UNQUOTED = re.compile(
-    r"([?&](?:key|token|access_token|refresh_token|admin_token|authorization)=)[^&#]*",
+    r"([?&](?:key|token|access_token|refresh_token|admin_token|authorization|api_key|member_token|share_token|secret)=)[^&#]*",
     re.IGNORECASE,
 )
 _SHARE_PATH = re.compile(r"(/api/v2/share/)[A-Za-z0-9_-]+(?=($|[/?&#]))")
