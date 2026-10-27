@@ -2119,9 +2119,9 @@ public struct CurrentHoleView: View {
         // Even without a factual CourseView overlay, the Garmin descriptor has a fixed image
         // frame. Use that same gesture frame for placement so the standalone raster does not fall
         // back to the legacy top-inset layout and slide under the bottom controls.
-        let overlay = liveMapOverlay ?? LiveMapDisplaySelection.gestureFrameOverlay(
+        let overlay = LiveMapDisplaySelection.mapFrameOverlay(
             for: .garminRaster,
-            overlay: nil,
+            overlay: liveMapOverlay,
             garminProjection: liveGarminRasterProjection
         )
         guard let overlay else { return nil }
@@ -2157,7 +2157,7 @@ public struct CurrentHoleView: View {
             height: heroMapOffset.height + heroMapTransientDragOffset.height
         )
         let state = liveMapDisplayState
-        guard let overlay = LiveMapDisplaySelection.gestureFrameOverlay(
+        guard let overlay = LiveMapDisplaySelection.mapFrameOverlay(
                   for: state,
                   overlay: liveMapOverlay,
                   garminProjection: liveGarminRasterProjection
@@ -2660,7 +2660,7 @@ public struct CurrentHoleView: View {
 
     private func heroMapClampedOffset(_ proposed: CGSize, scale: CGFloat, viewport: CGSize) -> CGSize {
         let state = liveMapDisplayState
-        guard let overlay = LiveMapDisplaySelection.gestureFrameOverlay(
+        guard let overlay = LiveMapDisplaySelection.mapFrameOverlay(
                   for: state,
                   overlay: liveMapOverlay,
                   garminProjection: liveGarminRasterProjection

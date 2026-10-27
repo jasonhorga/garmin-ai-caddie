@@ -259,7 +259,7 @@ final class GarminRasterTests: XCTestCase {
 
     func testGarminWithoutProjectionGestureFrameClampsToFallbackRaster() throws {
         let overlay = try XCTUnwrap(
-            LiveMapDisplaySelection.gestureFrameOverlay(
+            LiveMapDisplaySelection.mapFrameOverlay(
                 for: .garminRaster,
                 overlay: nil,
                 garminProjection: nil
@@ -297,7 +297,7 @@ final class GarminRasterTests: XCTestCase {
 
     func testGarminWithoutOverlayUsesSameFramedRasterForGestures() throws {
         let overlay = try XCTUnwrap(
-            LiveMapDisplaySelection.gestureFrameOverlay(
+            LiveMapDisplaySelection.mapFrameOverlay(
                 for: .garminRaster,
                 overlay: nil,
                 garminProjection: nil
