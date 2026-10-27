@@ -171,6 +171,8 @@ def find_share(token: str, *, root: Path | str | None = None) -> dict[str, Any] 
     if not token_format_ok(token):
         return None
     path = _path(root)
+    if not path.exists():
+        return None
     # Reads intentionally take the same lock as writers so a replacement cannot be observed
     # halfway through a JSON read, while still re-reading on every request for instant revoke.
     with _file_lock(path):
