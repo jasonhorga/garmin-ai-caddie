@@ -1745,11 +1745,20 @@ enum LivePlayMapOverlayLayout {
             return .zero
         }
 
+        // The bitmap is clipped by the hero viewport after it is transformed. Clamp against the
+        // portion that can actually be seen (`mapFrame ∩ viewport`), rather than the un-clipped
+        // fitted frame. Otherwise a frame overhanging one edge can be dragged until the opposite
+        // edge exposes the hero's black ground.
+        let viewportRect = CGRect(origin: .zero, size: viewportSize)
+        let visibleFrame = mapFrame.intersection(viewportRect)
+        guard !visibleFrame.isNull, visibleFrame.width > 0, visibleFrame.height > 0 else {
+            return .zero
+        }
         let center = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
-        let transformedMinX = center.x + (mapFrame.minX - center.x) * scale
-        let transformedMaxX = center.x + (mapFrame.maxX - center.x) * scale
-        let transformedMinY = center.y + (mapFrame.minY - center.y) * scale
-        let transformedMaxY = center.y + (mapFrame.maxY - center.y) * scale
+        let transformedMinX = center.x + (visibleFrame.minX - center.x) * scale
+        let transformedMaxX = center.x + (visibleFrame.maxX - center.x) * scale
+        let transformedMinY = center.y + (visibleFrame.minY - center.y) * scale
+        let transformedMaxY = center.y + (visibleFrame.maxY - center.y) * scale
 
         func bounds(minimum: CGFloat, maximum: CGFloat, viewport: CGFloat) -> (CGFloat, CGFloat) {
             let span = maximum - minimum
@@ -2334,6 +2343,10 @@ enum LiveMapDisplayState: Equatable {
     struct LiveInputs: Equatable {
         let coverage: String?
         let preciseTopoImageReady: Bool
+        /// The precise bitmap is installed or otherwise known to exist, but may not have been
+        /// decoded by this page yet. This is deliberately separate from readiness so a freshly
+        /// selected page never falls back to Garmin for one frame.
+        let preciseTopoAvailable: Bool
         let garminRaster: GarminRasterResponse?
         /// A descriptor URL is metadata only. The bitmap must be decoded into memory (or report
         /// ready through the image store) before the raster state can replace numeric facts.
@@ -2343,10 +2356,12 @@ enum LiveMapDisplayState: Equatable {
 
         init(
             coverage: String?, preciseTopoImageReady: Bool, garminRaster: GarminRasterResponse?,
-            garminImageReady: Bool = true, garminImageFailed: Bool, hasCachedPreciseTopo: Bool
+            garminImageReady: Bool = true, garminImageFailed: Bool, hasCachedPreciseTopo: Bool,
+            preciseTopoAvailable: Bool = false
         ) {
             self.coverage = coverage
             self.preciseTopoImageReady = preciseTopoImageReady
+            self.preciseTopoAvailable = preciseTopoAvailable
             self.garminRaster = garminRaster
             self.garminImageReady = garminImageReady
             self.garminImageFailed = garminImageFailed
@@ -2363,6 +2378,12 @@ enum LiveMapDisplayState: Equatable {
     /// but its projection is intentionally absent and the caller draws no geo overlays.
     static func resolveLive(_ inputs: LiveInputs) -> LiveMapDisplayState {
         if inputs.preciseTopoImageReady && inputs.preciseGeometryReady { return .precise }
+        if inputs.preciseTopoAvailable || inputs.hasCachedPreciseTopo {
+            // Keep the screen on its neutral ground until the exact bitmap is decoded. The
+            // Garmin descriptor can be ready at this point, but it is not the authority for a
+            // hole whose exact local image is already known.
+            return .factualPending
+        }
         if !inputs.garminImageFailed,
            inputs.garminImageReady,
            inputs.garminRaster?.hasDisplayableImage == true {
