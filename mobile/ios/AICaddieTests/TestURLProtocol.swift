@@ -16,7 +16,21 @@ func validOnePixelPNGData() -> Data {
 /// set `requestHandler` to inspect the outgoing request + return a canned response. Used by
 /// `SyncClientTests` and `AppleAuthClientTests` (so it must not be `private` to one file).
 final class CapturingURLProtocol: URLProtocol {
-    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    private static let handlerLock = NSLock()
+    private static var storedRequestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    /// Keep the existing assignment API while making handler capture atomic across URL sessions.
+    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))? {
+        get {
+            handlerLock.lock()
+            defer { handlerLock.unlock() }
+            return storedRequestHandler
+        }
+        set {
+            handlerLock.lock()
+            storedRequestHandler = newValue
+            handlerLock.unlock()
+        }
+    }
 
     /// URLSession may hand a custom URLProtocol the encoded request body either as `httpBody` or
     /// as `httpBodyStream` (the latter is what the GitHub Xcode runner does). Tests that inspect the
