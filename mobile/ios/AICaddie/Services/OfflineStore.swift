@@ -626,6 +626,9 @@ public final class OfflineStore {
 #if DEBUG
     /// Test seam for the account-switch window; production builds do not retain a callback.
     static var accountSwitchEventLogHook: (() -> Void)?
+    /// Runs after matching the progress round, before deletion. Tests schedule a competing save
+    /// on another queue; the callback must never synchronously reenter the progress APIs.
+    var liveRoundProgressRemovalHook: (() -> Void)?
 #endif
     private let trustedDirectoryAnchor: URL
     private let baseDirectoryURL: URL
@@ -1675,6 +1678,11 @@ public final class OfflineStore {
     private func loadLiveRoundProgress() throws -> LiveRoundProgress? {
         liveRoundProgressLock.lock()
         defer { liveRoundProgressLock.unlock() }
+        return try loadLiveRoundProgressLocked()
+    }
+
+    /// Caller must hold liveRoundProgressLock. Never acquire eventLogLock from this helper.
+    private func loadLiveRoundProgressLocked() throws -> LiveRoundProgress? {
         if liveRoundProgressCacheLoaded {
             return liveRoundProgressCache
         }
@@ -1700,6 +1708,20 @@ public final class OfflineStore {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         try encoder.encode(progress).write(to: liveProgressURL, options: [.atomic])
         liveRoundProgressCache = progress
+        liveRoundProgressCacheLoaded = true
+    }
+
+    private func removeLiveRoundProgressIfMatching(_ roundId: String) {
+        liveRoundProgressLock.lock()
+        defer { liveRoundProgressLock.unlock() }
+        guard let progress = try? loadLiveRoundProgressLocked(), progress.roundId == roundId else {
+            return
+        }
+#if DEBUG
+        liveRoundProgressRemovalHook?()
+#endif
+        try? FileManager.default.removeItem(at: liveProgressURL)
+        liveRoundProgressCache = nil
         liveRoundProgressCacheLoaded = true
     }
 
@@ -1768,13 +1790,7 @@ public final class OfflineStore {
         }
         try savePendingRoundFinishes(records)
         removeCurrentRoundPointerIfMatching(package.roundId)
-        if let progress = try? loadLiveRoundProgress(), progress.roundId == package.roundId {
-            try? FileManager.default.removeItem(at: liveProgressURL)
-            liveRoundProgressLock.lock()
-            liveRoundProgressCache = nil
-            liveRoundProgressCacheLoaded = true
-            liveRoundProgressLock.unlock()
-        }
+        removeLiveRoundProgressIfMatching(package.roundId)
     }
 
     private func savePendingRoundFinishes(_ records: [PendingRoundFinish]) throws {
@@ -1840,13 +1856,7 @@ public final class OfflineStore {
         // let cleanup of the old round erase the new round's active pointer.
         removeCurrentRoundPointerIfMatching(roundId)
         try? FileManager.default.removeItem(at: packageURL(roundId: roundId))
-        if let progress = try? loadLiveRoundProgress(), progress.roundId == roundId {
-            try? FileManager.default.removeItem(at: liveProgressURL)
-            liveRoundProgressLock.lock()
-            liveRoundProgressCache = nil
-            liveRoundProgressCacheLoaded = true
-            liveRoundProgressLock.unlock()
-        }
+        removeLiveRoundProgressIfMatching(roundId)
         let mediaIds = Set(try loadPendingMedia(roundId: roundId).map(\.id))
         try removePendingMedia(ids: mediaIds)
         let mediaDirectory = pendingMediaDirectoryURL.appendingPathComponent(
