@@ -32,6 +32,24 @@ def _body(course: str = "Share Course") -> dict[str, object]:
     }
 
 
+def _nine_body(start_hole: int, tee_time: str, course: str = "Share Course") -> dict[str, object]:
+    events: list[dict[str, object]] = []
+    for hole in range(start_hole, start_hole + 9):
+        events.extend([
+            {"hole": hole, "kind": "score", "payload": {"strokes": 4}},
+            {"hole": hole, "kind": "putt", "payload": {"putts": 2}},
+        ])
+    return {
+        "events": events,
+        "meta": {
+            "courseGlobalId": 41825,
+            "courseName": course,
+            "holePars": "4" * 18,
+            "teeTime": tee_time,
+        },
+    }
+
+
 class RoundShareTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -68,6 +86,34 @@ class RoundShareTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 201, response.text)
         return str(response.json()["id"])
+
+    def _ingest_nine(self, player: dict[str, str], start_hole: int, tee_time: str) -> str:
+        response = self.client.post(
+            f"/api/v2/players/{player['id']}/rounds",
+            headers=self._auth(player["token"]),
+            json=_nine_body(start_hole, tee_time),
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        return str(response.json()["id"])
+
+    def _merged_share_fixture(self, *, share_before_merge: bool = True) -> tuple[str, str, str, str | None]:
+        front_id = self._ingest_nine(self.alice, 1, "2026-10-20T08:00:00")
+        url: str | None = None
+        if share_before_merge:
+            created = self._share(self.alice, front_id)
+            self.assertEqual(created.status_code, 201, created.text)
+            url = str(created.json()["url"])
+        back_id = self._ingest_nine(self.alice, 10, "2026-10-20T10:30:00")
+        rounds = self.client.get(
+            "/api/v2/history/rounds", headers=self._auth(self.alice["token"]),
+        )
+        self.assertEqual(rounds.status_code, 200, rounds.text)
+        cards = [card for group in rounds.json()["groups"] for card in group["rounds"]]
+        merged_id = f"merged_{front_id}_{back_id}"
+        self.assertIn(merged_id, {str(card["id"]) for card in cards})
+        if url is not None:
+            self.assertEqual(self.client.get(url).status_code, 200)
+        return merged_id, front_id, back_id, url
 
     def _share(self, player: dict[str, str], round_id: str):
         return self.client.post(
@@ -179,15 +225,58 @@ class RoundShareTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json(), {"detail": "share link not found"})
 
-    def test_revoke_matches_all_current_aliases_after_merge(self) -> None:
+    def test_registry_removed_player_makes_existing_share_404_with_data_intact(self) -> None:
         round_id = self._ingest(self.alice)
         created = self._share(self.alice, round_id).json()
-        revoked = round_shares.revoke_round(
-            self.alice["id"], "merged_front_back", round_refs=("merged_front_back", round_id, "back-card"),
-            root=self.root,
+        registry_path = self.root / "data" / "players" / "registry.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        registry["players"] = [
+            row for row in registry["players"] if row.get("id") != self.alice["id"]
+        ]
+        registry_path.write_text(json.dumps(registry), encoding="utf-8")
+        self.assertTrue((self.root / "data" / "players" / self.alice["id"]).exists())
+        response = self.client.get(created["url"])
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "share link not found"})
+
+    def test_revoke_matches_all_current_aliases_after_merge(self) -> None:
+        merged_id, _front_id, _back_id, url = self._merged_share_fixture()
+        response = self.client.delete(
+            f"/api/v2/history/rounds/{merged_id}/share",
+            headers=self._auth(self.alice["token"]),
         )
-        self.assertEqual(revoked, 1)
-        self.assertEqual(self.client.get(created["url"]).status_code, 404)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"revoked": 1})
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_revoke_matches_front_alias_after_merge(self) -> None:
+        _merged_id, front_id, _back_id, url = self._merged_share_fixture()
+        response = self.client.delete(
+            f"/api/v2/history/rounds/{front_id}/share",
+            headers=self._auth(self.alice["token"]),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"revoked": 1})
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_revoke_matches_back_alias_after_merge(self) -> None:
+        _merged_id, _front_id, back_id, url = self._merged_share_fixture()
+        response = self.client.delete(
+            f"/api/v2/history/rounds/{back_id}/share",
+            headers=self._auth(self.alice["token"]),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"revoked": 1})
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_per_round_cap_matches_all_merged_aliases(self) -> None:
+        merged_id, front_id, back_id, _url = self._merged_share_fixture(share_before_merge=False)
+        aliases = (merged_id, front_id, back_id)
+        for index in range(round_shares.MAX_ACTIVE_PER_ROUND):
+            response = self._share(self.alice, aliases[index % len(aliases)])
+            self.assertEqual(response.status_code, 201, response.text)
+        response = self._share(self.alice, aliases[round_shares.MAX_ACTIVE_PER_ROUND % len(aliases)])
+        self.assertEqual(response.status_code, 429, response.text)
 
     def test_redaction_covers_access_info_and_timing_jsonl_trailing_text(self) -> None:
         token = "T" * 43
