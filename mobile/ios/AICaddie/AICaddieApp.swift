@@ -2046,15 +2046,20 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             let isCourseHalf = loop.half == "front" || loop.half == "back"
             let holes = isCourseHalf ? RoundLoopEntry.holesPerLoop * 2 : RoundLoopEntry.holesPerLoop
+            let option = courseOptions.first(where: { $0.globalId == loop.globalId })
             let candidate = PrepCourseDownloadRecord(
                 course: MobileCourseOption(
                     globalId: loop.globalId,
-                    name: snapshot.course.venueDisplayName,
+                    name: option?.name ?? snapshot.course.venueDisplayName,
                     holes: holes,
                     teeBox: snapshot.course.teeBox,
-                    venueName: snapshot.course.venueName,
-                    venueNameSource: snapshot.course.venueNameSource,
-                    segmentHoles: holes
+                    venueName: option?.venueName ?? snapshot.course.venueName,
+                    venueNameSource: option?.venueNameSource ?? snapshot.course.venueNameSource,
+                    segmentLabel: option?.segmentLabel ?? (
+                        loop.half == "front" ? "前九" :
+                        loop.half == "back" ? "后九" : snapshot.course.segmentLabel
+                    ),
+                    segmentHoles: option?.segmentHoles ?? holes
                 ),
                 teeBox: snapshot.course.teeBox,
                 totalHoles: holes
@@ -2122,14 +2127,20 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// Test teardown (C85). Cancels the round's background work and waits until each task has ended:
-    /// the personal package with its retry waits, the Garmin raster pass, and what can start them
-    /// again or send package requests of its own — the fresh-entry fallback timer, the all-hole
-    /// download and the prep queue. The personal package and the raster pass never start again on
-    /// this model, so the test can then invalidate its sessions (a task created in an invalidated
-    /// session raises NSGenericException and takes the whole test process down).
+    /// the personal package with its retry waits, the Garmin raster pass, pending package geometry,
+    /// and what can start them again or send package requests of its own — the fresh-entry fallback
+    /// timer, the all-hole download and the prep queue. The personal package and the raster pass
+    /// never start again on this model, so the test can then invalidate its sessions (a task created
+    /// in an invalidated session raises NSGenericException and takes the whole test process down).
     func stopRoundBackgroundWorkForTesting() async {
         roundBackgroundWorkStoppedForTesting = true
-        let running = [roundEnrichmentTask, garminRasterDownloadTask, freshEntryReleaseTask, offlineCourseDownloadTask]
+        let running = [
+            roundEnrichmentTask,
+            garminRasterDownloadTask,
+            freshEntryReleaseTask,
+            offlineCourseDownloadTask,
+            pendingGeometryRefreshTask,
+        ]
         cancelRoundEnrichment()
         cancelGarminRasterDownload()
         clearFreshEntryRelease()
@@ -2137,9 +2148,12 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadTask = nil
         offlineCourseDownloadRoundId = nil
         interruptedOfflineCourseDownloadRoundId = nil
+        pendingGeometryRefreshTask?.cancel()
+        pendingGeometryRefreshTask = nil
         for task in running {
             await task?.value
         }
+        pendingGeometryRefreshExecuting = false
         // Last: a cancelled all-hole download still hands over to the prep queue as it ends.
         await cancelPrepCourseDownloadForTesting()
     }
@@ -6303,6 +6317,9 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func schedulePendingGeometryRefresh(for snapshot: LiveRoundPackage) {
+        #if DEBUG
+        guard !roundBackgroundWorkStoppedForTesting else { return }
+        #endif
         if !pendingGeometryRefreshExecuting {
             pendingGeometryRefreshTask?.cancel()
             pendingGeometryRefreshTask = nil
@@ -6338,6 +6355,9 @@ public final class LiveRoundAppModel: ObservableObject {
                   self.package?.roundId == roundId,
                   self.liveRoundState?.roundId == roundId,
                   self.package?.course.globalId == globalId else { return }
+            #if DEBUG
+            guard !self.roundBackgroundWorkStoppedForTesting else { return }
+            #endif
             self.pendingGeometryLastAttemptEpoch = retryAfter
             self.pendingGeometryRefreshExecuting = true
             defer { self.pendingGeometryRefreshExecuting = false }
@@ -6351,6 +6371,9 @@ public final class LiveRoundAppModel: ObservableObject {
                       self.liveRoundState?.roundId == roundId,
                       refreshed.roundId == roundId,
                       refreshed.course.globalId == globalId else { return }
+                #if DEBUG
+                guard !self.roundBackgroundWorkStoppedForTesting else { return }
+                #endif
                 let persisted = try self.offlineStore.saveRoundPackage(refreshed)
                 let remainsPending = persisted.holes.contains {
                     $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame
