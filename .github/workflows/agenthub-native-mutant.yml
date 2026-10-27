@@ -17,6 +17,16 @@ on:
         required: false
         default: ''
         type: string
+      only_testing:
+        description: Optional xcodebuild -only-testing value (or comma-separated values)
+        required: false
+        default: ''
+        type: string
+      include_ui:
+        description: Also run the AICaddieUITests application-test scheme
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -126,23 +136,55 @@ jobs:
         if: ${{ steps.validate.outcome == 'success' && steps.generate.outcome == 'success' }}
         continue-on-error: true
         working-directory: native-head
+        env:
+          ONLY_TESTING: ${{ inputs.only_testing }}
         run: |
-          xcodebuild test \
+          args=(test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddie \
             -destination "platform=iOS Simulator,id=$IOS_UDID" \
-            -resultBundlePath "$RUNNER_TEMP/native-ios.xcresult"
+            -resultBundlePath "$RUNNER_TEMP/native-ios.xcresult")
+          if [[ -n "$ONLY_TESTING" && "$ONLY_TESTING" != AICaddieWatchTests/* && "$ONLY_TESTING" != AICaddieUITests/* ]]; then
+            IFS=',' read -ra tests <<< "$ONLY_TESTING"
+            for test in "${tests[@]}"; do args+=("-only-testing:$test"); done
+          fi
+          xcodebuild "${args[@]}"
       - name: Test Watch scheme
         id: watch
         if: ${{ steps.validate.outcome == 'success' && steps.generate.outcome == 'success' }}
         continue-on-error: true
         working-directory: native-head
+        env:
+          ONLY_TESTING: ${{ inputs.only_testing }}
         run: |
-          xcodebuild test \
+          args=(test \
             -project mobile/ios/AICaddieNative.xcodeproj \
             -scheme AICaddieWatch \
             -destination "platform=watchOS Simulator,id=$WATCH_UDID" \
-            -resultBundlePath "$RUNNER_TEMP/native-watch.xcresult"
+            -resultBundlePath "$RUNNER_TEMP/native-watch.xcresult")
+          if [[ -n "$ONLY_TESTING" && "$ONLY_TESTING" == AICaddieWatchTests/* ]]; then
+            IFS=',' read -ra tests <<< "$ONLY_TESTING"
+            for test in "${tests[@]}"; do args+=("-only-testing:$test"); done
+          fi
+          xcodebuild "${args[@]}"
+      - name: Test iPhone UI scheme
+        id: ui
+        if: ${{ inputs.include_ui && steps.validate.outcome == 'success' && steps.generate.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: native-head
+        env:
+          ONLY_TESTING: ${{ inputs.only_testing }}
+        run: |
+          args=(test \
+            -project mobile/ios/AICaddieNative.xcodeproj \
+            -scheme AICaddieUITests \
+            -destination "platform=iOS Simulator,id=$IOS_UDID" \
+            -resultBundlePath "$RUNNER_TEMP/native-ui.xcresult")
+          if [[ -n "$ONLY_TESTING" && "$ONLY_TESTING" == AICaddieUITests/* ]]; then
+            IFS=',' read -ra tests <<< "$ONLY_TESTING"
+            for test in "${tests[@]}"; do args+=("-only-testing:$test"); done
+          fi
+          xcodebuild "${args[@]}"
       - name: Write native result
         id: write_result
         if: ${{ !cancelled() && steps.validate.outcome == 'success' && (steps.apply.outcome == 'failure' || (steps.simulators.outcome == 'success' && steps.install.outcome == 'success' && (steps.generate.outcome == 'success' || steps.generate.outcome == 'failure'))) }}
