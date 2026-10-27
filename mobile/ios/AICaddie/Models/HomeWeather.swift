@@ -1,6 +1,6 @@
 import Foundation
 
-/// 首页「今天」天气磁贴: the current conditions at the player (or the course), from
+/// 首页天气行: the current conditions at the player (or the course), from
 /// `GET /api/v2/weather/snapshot?source=open_meteo` (a read; nothing is stored).
 public struct HomeWeather: Decodable, Equatable {
     public let state: String
@@ -34,6 +34,7 @@ public struct HomeWeather: Decodable, Equatable {
             conditionText: Self.conditionText(condition),
             symbolName: Self.symbolName(condition),
             windText: Self.windText(speedMps: windSpeedMps, directionDeg: windDirectionDeg),
+            windForceText: Self.compactWindText(speedMps: windSpeedMps, directionDeg: windDirectionDeg),
             rainText: Self.rainText(precipitationProbabilityPct)
         )
     }
@@ -75,6 +76,13 @@ public struct HomeWeather: Decodable, Equatable {
         return "\(windDirectionName(directionDeg))风 \(speed) · \(force) 级"
     }
 
+    static func compactWindText(speedMps: Double?, directionDeg: Int?) -> String? {
+        guard let speedMps, speedMps.isFinite, speedMps >= 0 else { return nil }
+        let force = beaufortForce(speedMps)
+        guard force >= 2, let directionDeg else { return "微风" }
+        return "\(windDirectionName(directionDeg))风 \(force) 级"
+    }
+
     /// Meteorological direction (where the wind blows FROM), eight points.
     static func windDirectionName(_ degrees: Int) -> String {
         let names = ["北", "东北", "东", "东南", "南", "西南", "西", "西北"]
@@ -100,11 +108,13 @@ public struct HomeWeatherPresentation: Equatable {
     public let conditionText: String?
     public let symbolName: String
     public let windText: String?
+    public let windForceText: String?
     public let rainText: String?
+
 }
 
 enum HomeWeatherClient {
-    /// One best-effort read; any failure leaves the tile in its quiet "暂无天气" state.
+    /// One best-effort read; any failure leaves the home weather line hidden.
     static func fetch(
         baseURL: URL,
         adminToken: String?,

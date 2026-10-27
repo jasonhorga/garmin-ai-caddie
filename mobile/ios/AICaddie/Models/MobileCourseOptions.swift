@@ -769,7 +769,7 @@ public struct OfflineCourseDownloadRow: Equatable, Identifiable {
             rows.append(OfflineCourseDownloadRow(
                 id: "prep:\(download.id)",
                 title: download.course.localizedName,
-                subtitle: MobileCourseSearchView.recentRowSubtitle(download),
+                subtitle: StartRoundPresentation.recentRowSubtitle(download),
                 status: status,
                 fraction: fraction
             ))

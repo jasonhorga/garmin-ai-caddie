@@ -30,6 +30,7 @@ final class ProductPhoneUITests: XCTestCase {
         if reset {
             app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
             app.launchEnvironment["UITEST_RESET_COURSE_LIBRARY"] = "1"
+            app.launchEnvironment["UITEST_RESET_RESULTS_CACHE"] = "1"
         }
         if let latitude {
             app.launchEnvironment["UITEST_GPS_LAT"] = latitude
@@ -37,7 +38,11 @@ final class ProductPhoneUITests: XCTestCase {
         } else { app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "denied" }
         launchedWithFix = latitude != nil
         app.launch()
-        XCTAssertTrue(element("home-tile-scores").waitForExistence(timeout: 15), "synthetic home bootstrapped")
+        XCTAssertTrue(
+            element("home-new-round").waitForExistence(timeout: 15)
+                || element("home-in-progress-round").waitForExistence(timeout: 15),
+            "synthetic home bootstrapped"
+        )
     }
 
     private func reveal(_ target: XCUIElement) {
@@ -66,7 +71,7 @@ final class ProductPhoneUITests: XCTestCase {
         XCTExpectFailure(reason, failingBlock: block)
     }
 
-    private func scores() { tap("home-tile-scores"); XCTAssertTrue(element("results-handicap").waitForExistence(timeout: 10)) }
+    private func scores() { tap("home-recent-trend"); XCTAssertTrue(element("results-handicap").waitForExistence(timeout: 10)) }
     private func review() {
         scores()
         tap("results-all-rounds")
@@ -110,6 +115,11 @@ final class ProductPhoneUITests: XCTestCase {
             var state = ProductFixtureServer.State(); state.roundCount = count
             server.configure(state)
             launch()
+            if count == 0 {
+                XCTAssertFalse(element("home-recent-trend").exists, "empty history hides the trend entry")
+                app.terminate()
+                continue
+            }
             scores()
             for id in ["results-entry-analysis", "results-entry-time", "results-entry-distribution", "results-entry-courses", "results-all-rounds"] {
                 let entry = element(id)
@@ -270,6 +280,7 @@ final class ProductPhoneUITests: XCTestCase {
     func test_j5_4_live_tee_and_post_shot_ranges_recompute_after_position_change() {
         launch(latitude: "0")
         startRound()
+        recordFirstShot()
         assertRanges([243, 365, 486], row: "tee")
         XCTAssertFalse(element("selected-hazard-1").exists, "hazards hidden by default")
         let toggle = element("live-hazard-toggle")
@@ -301,16 +312,15 @@ final class ProductPhoneUITests: XCTestCase {
 
     private func startRound() {
         if launchedWithFix {
-            // The fix is hole 1's tee. Nearby discovery installs Example, whose tee anchor puts the
-            // player on the course, so the home offers it directly (spec 5.2 附近) and 开球 enters
-            // the first hole without the start-round page.
-            let start = element("home-start-nearby")
-            XCTAssertTrue(start.waitForExistence(timeout: 30), "on-course home card")
-            let offer = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Example", "开始")).firstMatch
-            XCTAssertTrue(offer.exists, "the on-course card offers Example")
-            let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: start)
-            XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 15), .completed)
-            start.tap()
+            // C99 routes every new round through the shared course finder. A nearby course is
+            // already the first row, then its tee page is shown before Start.
+            tap("home-new-round")
+            let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-")).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 30), "nearby course row")
+            row.tap()
+            let start = element("start-round-primary-action")
+            XCTAssertTrue(start.waitForExistence(timeout: 15))
+            reveal(start); start.tap()
             XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 15))
             return
         }
@@ -330,6 +340,14 @@ final class ProductPhoneUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 15), .completed)
         start.tap()
         XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 15))
+    }
+
+    private func recordFirstShot() {
+        tap("live-record-shot")
+        let skip = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "跳过球杆")).firstMatch
+        XCTAssertTrue(skip.waitForExistence(timeout: 5), "the first stroke must open the actual-club choice")
+        skip.tap()
+        XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 10))
     }
 
     func test_j4_5_phone_three_map_states_have_visible_content() {
@@ -353,24 +371,32 @@ final class ProductPhoneUITests: XCTestCase {
     func test_j5_5_phone_score_remains_saveable_with_and_without_gps() {
         for (name, latitude) in [("no-fix", Optional<String>.none), ("accurate-fix", "0")] {
             launch(latitude: latitude); startRound()
-            XCTAssertEqual(element("live-record-shot").isEnabled, latitude != nil, name)
-            tap("live-score-hole")
-            let save = element("score-save")
-            insideWindow(save, name)
-            XCTAssertTrue(save.isEnabled, name)
-            reveal(save) // a control: it must also be hittable before the tap
-            save.tap()
-            XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 10))
+            let record = element("live-record-shot")
+            XCTAssertEqual(record.isEnabled, latitude != nil, name)
+            if latitude == nil {
+                XCTAssertFalse(element("live-score-hole").exists, "prep mode has no score action without a first stroke")
+                XCTAssertFalse(element("score-save").exists, "prep mode cannot save a hole score without a first stroke")
+            } else {
+                recordFirstShot()
+                tap("live-score-hole")
+                let save = element("score-save")
+                insideWindow(save, name)
+                XCTAssertTrue(save.isEnabled, name)
+                reveal(save) // a control: it must also be hittable before the tap
+                save.tap()
+                XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 10))
+            }
             app.terminate()
         }
     }
 
     func test_j5_10_nine_hole_finish_uses_par_thirty_six_and_fits() {
-        launch(); startRound()
+        launch(latitude: "0"); startRound()
         for hole in 1...9 {
             let title = element("live-hole-title")
             let advanced = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in title.label.contains(String(hole)) }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [advanced], timeout: 10), .completed, "play order \(hole)")
+            if hole == 1 { recordFirstShot() }
             tap("live-score-hole")
             tap("score-save")
         }
@@ -387,11 +413,12 @@ final class ProductPhoneUITests: XCTestCase {
     }
 
     func test_j5_2_home_active_card_replaces_new_round_and_can_resume() {
-        launch(); startRound()
+        launch(latitude: "0"); startRound()
+        recordFirstShot()
         tap("live-back-home") // 返回 goes straight home and keeps the round (CurrentHoleView).
         insideWindow(element("home-in-progress-round"), "active round hero")
         XCTAssertFalse(element("home-new-round").exists)
-        XCTAssertTrue(element("home-end-round").isEnabled)
+        XCTAssertFalse(element("home-end-round").exists, "ending is available from the hole screen only")
         tap("home-in-progress-round")
         XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 10))
     }
@@ -399,10 +426,11 @@ final class ProductPhoneUITests: XCTestCase {
     func test_j5_3_home_secondary_tiles_fit_without_weather_or_archive_strip() {
         var state = ProductFixtureServer.State(); state.roundCount = 0
         server.configure(state); launch()
-        for id in ["home-tile-scores", "home-tile-prep", "home-tile-bag", "home-tile-weather"] {
-            insideWindow(element(id), id)
-        }
-        XCTAssertTrue(integers(in: element("home-tile-weather").label).isEmpty, "missing weather has no numeric temperature")
+        insideWindow(element("home-new-round"), "home-new-round")
+        XCTAssertFalse(element("home-tile-prep").exists)
+        XCTAssertFalse(element("home-tile-bag").exists)
+        XCTAssertFalse(element("home-tile-weather").exists)
+        XCTAssertFalse(element("home-weather-line").exists, "missing weather omits the line")
         XCTAssertFalse(element("home-last-round-strip").exists, "no archived round to attach the strip to")
     }
 

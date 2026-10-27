@@ -17,7 +17,7 @@ green row also checks structured `shotsToGreen` in the offline response.
 
 UI 测试自带 9000 假后端，运行时不要再起 Python fixture。它也提供附近 / 名称搜索（不带坐标的 82001 行）
 和只在 ready 覆盖下返回的 topo 图。没有定位的测试按产品路径搜 "Example" 开局；有定位（第 1 洞发球台）时
-附近发现会装好 Example，首页给出「从 Example 开始」，测试点 `home-start-nearby` 直接进第 1 洞。
+附近发现会显示 Example 快捷球场，测试点 `home-quick-course-82001` 进入球场页，再由「开始」进入备战洞屏。
 
 The UI class shares one lazily initialized loopback HTTP server for the test process. Its listener
 binds port 9000 with `allowLocalEndpointReuse = true`; each test resets only input state and request

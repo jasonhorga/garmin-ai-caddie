@@ -55,132 +55,127 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment["UITEST_TRACE_EVENT_LATENCY"] = "1"
     }
 
-    /// B4b-2 second real journey: 北京丽宫 started on 后九. Round hole 1 is course hole 10 (shown
-    /// 第 10 洞); the turn preselects 前九, whose first hole is round hole 10 shown 第 1 洞. The
-    /// scorecard names the loops in play order.
-    func testBackNineThenFrontNineJourney() throws {
+    /// C99: an 18-hole course opens the whole-course prep screen; the first stroke chooses the hole.
+    func testWholeCourseStartsFromFirstStrokeJourney() throws {
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
         app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
         launchFresh()
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
         XCTAssertTrue(openStartRound(), "home must expose the real start-round path")
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
-        // Selecting the course is its own step: live Native 37519627055 reported "no 后九" while
-        // the list was empty (nearby still loading), because this result was discarded.
-        let journeyCourse = selectStartCourse(approvedJourneyCourseGlobalId)
-        XCTAssertTrue(journeyCourse.exists, "the journey must find and select 北京丽宫 before choosing its 后九")
-        XCTAssertEqual(journeyCourse.value as? String, "已选择")
-        let backHalf = app.buttons["start-round-course-half-\(approvedJourneyCourseGlobalId)-back"]
-        XCTAssertTrue(scrollTo(backHalf, maxSwipes: 8), "an 18-hole course offers its 后九 as a start")
-        // Live Native 37796943981 attempt 2: 后九 never became 已选择 after this tap and nothing was
-        // kept. Record where the tap went and the page right after, so a repeat shows whether it hit
-        // a moved/covered element or the choice was reset by a later update.
-        let tappedFrame = backHalf.frame
-        backHalf.tap()
-        let backSelected = waitForValue("已选择", on: backHalf, timeout: 5)
-        if !backSelected {
-            let now = backHalf.exists ? "frame=\(backHalf.frame) value=\(String(describing: backHalf.value))" : "gone"
-            print("UITEST back-half-not-selected tapped=\(tappedFrame) center=(\(tappedFrame.midX),\(tappedFrame.midY)) now: \(now)")
-            save("b4b2-00-back-half-not-selected")
-            dump("b4b2-00-back-half-not-selected")
-        }
-        XCTAssertTrue(backSelected, "tapping 后九 selects it (tapped \(tappedFrame))")
+        let course = selectStartCourse(approvedJourneyCourseGlobalId)
+        XCTAssertTrue(course.waitForExistence(timeout: 8))
+        XCTAssertEqual(course.identifier, "start-round-selected-course-\(approvedJourneyCourseGlobalId)")
+        XCTAssertTrue((course.value as? String)?.contains("北京丽宫") == true)
         let start = app.buttons["start-round-primary-action"]
         XCTAssertTrue(waitUntilEnabled(start, timeout: 90))
-        XCTAssertTrue(start.label.hasPrefix("从 后九 开始"), "the action names the half (got \(start.label))")
-        settle(1); save("b4b2-01-start-back-nine"); dump("b4b2-01-start-back-nine")
-        XCTAssertTrue(scrollTo(start, maxSwipes: 20))
+        XCTAssertEqual(start.label, "开始")
         start.tap()
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 90))
+        XCTAssertTrue(app.buttons["live-record-shot"].waitForExistence(timeout: 15))
+        settle(1); save("c99-whole-course-prep-first-hole"); dump("c99-whole-course-prep-first-hole")
+    }
 
-        // Round holes 1–9 are course holes 10–18.
-        for roundHole in 1...9 {
-            let shown = roundHole + 9
-            XCTAssertTrue(
-                app.staticTexts["第 \(shown) 洞"].waitForExistence(timeout: roundHole == 1 ? 90 : 30),
-                "round hole \(roundHole) of a 后九 start is course hole \(shown)"
-            )
-            if roundHole == 1 {
-                settle(1); save("b4b2-02-back-nine-first-hole"); dump("b4b2-02-back-nine-first-hole")
-            }
-            try saveQuickScore(shownHole: shown)
-        }
-
-        let turnGo = app.buttons["turn-go"]
-        XCTAssertTrue(turnGo.waitForExistence(timeout: 15), "finishing 后九 must open the turn")
-        XCTAssertEqual(turnGo.label, "接着打 前九", "后→前: the other half is preselected")
-        XCTAssertTrue(app.buttons["turn-loop-\(approvedJourneyCourseGlobalId):back"].exists, "the same half is allowed")
-        settle(1); save("b4b2-03-turn-back-to-front"); dump("b4b2-03-turn-back-to-front")
-        turnGo.tap()
-
-        // Round holes 10–18 are course holes 1–9.
-        for roundHole in 10...18 {
-            let shown = roundHole - 9
-            // Round hole 10 may need the second loop's package from the network (no whole-course
-            // template installed yet): the app's own budget for that request is 120 s, and it
-            // shows `live-turn-continuing` meanwhile.
-            let reached = app.staticTexts["第 \(shown) 洞"].waitForExistence(timeout: roundHole == 10 ? 125 : 30)
-            if !reached { save("b4b2-03b-after-turn-go"); dump("b4b2-03b-after-turn-go") }
-            XCTAssertTrue(reached, "round hole \(roundHole) after the turn is course hole \(shown)")
-            if roundHole == 10 {
-                settle(1); save("b4b2-04-front-nine-round-hole-10"); dump("b4b2-04-front-nine-round-hole-10")
-            }
-            try saveQuickScore(shownHole: shown)
-        }
-
-        XCTAssertTrue(
-            app.buttons["live-finish-save"].waitForExistence(timeout: 15),
-            "the last round hole opens the finish summary"
-        )
-        XCTAssertTrue(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 18/18 洞")).firstMatch.exists
-        )
-        for title in ["第一环 · 后九", "第二环 · 前九"] {
-            XCTAssertTrue(app.staticTexts[title].exists, "the scorecard names \(title) in play order")
-        }
-        settle(1); save("b4b2-05-summary-back-front"); dump("b4b2-05-summary-back-front")
-
-        // The one-half start queued the canonical whole-course template in the background. Once it
-        // is installed, the course is prepared: selecting it from the prep search opens the prep
-        // map directly (an incomplete selection opens it too, on degraded holes — Section 4 of the
-        // main flow and PrepDegradationUITests).
-        // The unsaved synthetic round is discarded so the relaunch lands on the home.
+    /// The same whole-course prep package must allow a player standing on hole 10 to start there;
+    /// no front-nine cursor is persisted before the first stroke.
+    func testWholeCourseBackNineStartsFromFirstStrokeJourney() throws {
+        app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
         app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
+        app.launchEnvironment["UITEST_RESET_COURSE_LIBRARY"] = "1"
         launchFresh()
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
-        XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]), "home must expose pre-round prep")
-        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 12))
-        let acquired = app.buttons.matching(NSPredicate(
-            format: "identifier BEGINSWITH %@",
-            "prep-download-row-\(approvedJourneyCourseGlobalId):"
-        )).firstMatch
-        let acquiredFound = scrollTo(acquired, maxSwipes: 12)
-        if !acquiredFound {
-            // Evidence for a missing row (live Native 37456686597 had none at this point).
-            save("b4b2-06-prep-library-missing-whole-course"); dump("b4b2-06-prep-library-missing-whole-course")
+        app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
+
+        assertAndCapture(openStartRound(), "home must expose a new-round entry", "c99-back-nine-home")
+        assertAndCapture(
+            app.navigationBars["开始一场"].waitForExistence(timeout: 12),
+            "new-round entry must navigate to the course finder",
+            "c99-back-nine-start-page"
+        )
+        let course = selectStartCourse(approvedJourneyCourseGlobalId)
+        assertAndCapture(course.waitForExistence(timeout: 8), "course selection must remain visible", "c99-back-nine-course-missing")
+        let start = app.buttons["start-round-primary-action"]
+        assertAndCapture(waitUntilEnabled(start, timeout: 90), "selected course must become startable", "c99-back-nine-start-disabled")
+        start.tap()
+        assertAndCapture(
+            app.staticTexts["第 1 洞"].waitForExistence(timeout: 90),
+            "whole-course prep must open at hole 1",
+            "c99-back-nine-hole-one-missing"
+        )
+
+        let map = app.descendants(matching: .any)["live-open-map-from-hero"]
+        for hole in 1...9 {
+            let heading = app.staticTexts["第 \(hole) 洞"]
+            assertAndCapture(
+                heading.waitForExistence(timeout: 30),
+                "prep navigation must reach hole \(hole)",
+                "c99-back-nine-hole-\(hole)-missing"
+            )
+            assertAndCapture(
+                map.waitForExistence(timeout: 15) && map.isHittable,
+                "hole \(hole) must expose its map navigation control",
+                "c99-back-nine-hole-\(hole)-map-missing"
+            )
+            map.swipeLeft()
         }
-        XCTAssertTrue(acquiredFound, "a one-half start must queue its whole course in the prep library")
-        // The picker shows no download copy (README §8); the DEBUG/UITEST_MODE-only accessibility
-        // token carries the durable install state for this proof.
-        XCTAssertTrue(
-            waitForValue("uitest-installed", on: acquired, timeout: 240),
-            "the background whole-course template must finish installing"
+        assertAndCapture(
+            app.staticTexts["第 10 洞"].waitForExistence(timeout: 30),
+            "prep navigation must reach hole 10",
+            "c99-back-nine-hole-ten-missing"
         )
-        let readyQuery = app.textFields["course-catalog-keyword-field"]
-        XCTAssertTrue(scrollTo(readyQuery, maxSwipes: 8))
-        readyQuery.tap()
-        readyQuery.typeText("北京丽宫")
-        let readySearch = app.buttons["course-catalog-search-action"]
-        XCTAssertTrue(waitUntilEnabled(readySearch, timeout: 5))
-        readySearch.tap()
-        XCTAssertTrue(waitUntilGone(app.keyboards.firstMatch, timeout: 8))
-        let readyResult = app.buttons["course-catalog-result-\(approvedJourneyCourseGlobalId)"]
-        XCTAssertTrue(scrollTo(readyResult, maxSwipes: 30), "prep search must return 北京丽宫")
-        readyResult.tap()
-        XCTAssertTrue(
-            app.descendants(matching: .any)["live-round-banner"].waitForExistence(timeout: 30),
-            "selecting an already complete course opens the prep hole screen immediately"
+        let backNineReady = app.staticTexts.matching(
+            NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "live-round-banner", "记第一杆即开打")
+        ).firstMatch
+        assertAndCapture(
+            backNineReady.waitForExistence(timeout: 20),
+            "the follow-hole simulator must move GPS to hole 10's tee before recording the first stroke",
+            "c99-back-nine-first-stroke-not-ready"
         )
-        settle(1); save("b4b2-06-ready-course-opens-prep"); dump("b4b2-06-ready-course-opens-prep")
+        assertAndCapture(
+            backNineReady.label.contains("第 10 洞") || (backNineReady.value as? String)?.contains("第 10 洞") == true,
+            "the first-stroke banner must name hole 10",
+            "c99-back-nine-first-stroke-banner-hole"
+        )
+        let record = app.buttons["live-record-shot"]
+        assertAndCapture(
+            record.waitForExistence(timeout: 10) && record.isHittable,
+            "hole 10 must expose a tappable record control",
+            "c99-back-nine-record-missing"
+        )
+        record.tap()
+        let skipClub = app.buttons["跳过球杆（位置已记录）"]
+        assertAndCapture(
+            skipClub.waitForExistence(timeout: 8),
+            "the first-stroke club sheet must be dismissed before undo",
+            "c99-back-nine-club-sheet-missing"
+        )
+        skipClub.tap()
+        let liveBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
+        assertAndCapture(
+            liveBanner.waitForExistence(timeout: 5)
+                && liveBanner.label.contains("第 10 洞")
+                && liveBanner.label.contains("正在记录"),
+            "the first stroke must show hole 10 as recording",
+            "c99-back-nine-after-first-stroke-banner"
+        )
+        let undo = app.buttons["live-undo-round-start"]
+        assertAndCapture(
+            undo.waitForExistence(timeout: 15),
+            "the live hole must expose undo after the club sheet is dismissed",
+            "c99-back-nine-undo-missing"
+        )
+        undo.tap()
+        assertAndCapture(
+            app.buttons["live-prep-tee-menu"].waitForExistence(timeout: 15),
+            "undo must restore the prep tee controls",
+            "c99-back-nine-prep-controls-missing"
+        )
+        assertAndCapture(
+            app.staticTexts["第 10 洞"].waitForExistence(timeout: 8),
+            "undo must keep the player on hole 10",
+            "c99-back-nine-after-undo-hole"
+        )
+        settle(1); save("c99-whole-course-prep-back-nine"); dump("c99-whole-course-prep-back-nine")
     }
 
     /// C30 rework-3 evidence: the prep surface promotes in place, can be undone in place, and
@@ -193,8 +188,12 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
 
-        XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]))
-        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 12))
+        XCTAssertTrue(openStartRound())
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        let openSearch = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20))
+        openSearch.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
         let query = app.textFields["course-catalog-keyword-field"]
         XCTAssertTrue(scrollTo(query, maxSwipes: 8))
         query.tap()
@@ -206,6 +205,10 @@ final class RealFlowUITests: XCTestCase {
         let result = app.buttons["course-catalog-result-\(approvedJourneyCourseGlobalId)"]
         XCTAssertTrue(scrollTo(result, maxSwipes: 30))
         result.tap()
+        let start = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(start.waitForExistence(timeout: 12))
+        XCTAssertTrue(waitUntilEnabled(start, timeout: 90))
+        start.tap()
         XCTAssertTrue(app.descendants(matching: .any)["live-round-banner"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 20))
         settle(1); save("c30-prep-before-start"); dump("c30-prep-before-start")
@@ -213,6 +216,9 @@ final class RealFlowUITests: XCTestCase {
         let record = app.buttons["live-record-shot"]
         XCTAssertTrue(record.waitForExistence(timeout: 10) && record.isHittable)
         record.tap()
+        let skipClub = app.buttons["跳过球杆（位置已记录）"]
+        XCTAssertTrue(skipClub.waitForExistence(timeout: 8), "the first-stroke club sheet must be dismissed before undo")
+        skipClub.tap()
         let undo = app.buttons["live-undo-round-start"]
         XCTAssertTrue(undo.waitForExistence(timeout: 15), "first stroke must promote the same hole screen")
         settle(1); save("c30-prep-after-start"); dump("c30-prep-after-start")
@@ -239,12 +245,14 @@ final class RealFlowUITests: XCTestCase {
         let back = app.buttons["live-back-home"]
         XCTAssertTrue(back.waitForExistence(timeout: 8) && back.isHittable)
         back.tap()
-        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 10))
+        app.buttons["home-new-round"].tap()
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 10))
         settle(1); save("c30-prep-back-picker"); dump("c30-prep-back-picker")
         // Let the asynchronous priority response settle; it must update facts only and never push
         // the hole destination back above the picker.
         settle(5)
-        XCTAssertTrue(app.navigationBars["备战球场"].exists, "priority refresh must not reopen the hole screen")
+        XCTAssertTrue(app.navigationBars["开始一场"].exists, "priority refresh must not reopen the hole screen")
         save("c30-prep-back-picker-after-priority"); dump("c30-prep-back-picker-after-priority")
     }
 
@@ -286,9 +294,7 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
         launchFresh()
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_ACTIVE_ROUND")
-        let resultsTile = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "成绩")
-        ).firstMatch
+        let resultsTile = app.buttons["home-recent-trend"]
         XCTAssertTrue(
             resultsTile.waitForExistence(timeout: 60),
             "01-home may be captured only after the real home replaces the launch screen"
@@ -310,16 +316,24 @@ final class RealFlowUITests: XCTestCase {
         // Relaunch from a known top position instead of inheriting the old trend-row scroll offset
         // and swiping in the wrong direction after Back.
         launchFresh()
-        let reopenedResults = tapContaining(["成绩", "球局 · 统计"])
-            && resultsRoot.waitForExistence(timeout: 15)
-        XCTAssertTrue(reopenedResults, "the real home must reopen the Garmin-style activity surface")
+        let reopenedResultsTile = app.buttons["home-recent-trend"]
+        let reopenedResults = reopenedResultsTile.waitForExistence(timeout: 60)
+        if reopenedResults { reopenedResultsTile.tap() }
+        XCTAssertTrue(
+            reopenedResults && resultsRoot.waitForExistence(timeout: 15),
+            "the real home must reopen the Garmin-style activity surface"
+        )
         XCTAssertTrue(scrollAndTapContaining(["表现分析"]))
         XCTAssertTrue(app.navigationBars["表现分析"].waitForExistence(timeout: 10))
         settle(5); save("02c-analysis"); dump("02c-analysis")
 
         // ---- Section 2: 成绩 → 全部球局 → round review → shot-map → review-edit ----
         launchFresh()
-        let openedResults = tapContaining(["成绩", "球局 · 统计"])
+        // Historical contract marker: let openedResults = tapContaining(["成绩", "球局 · 统计"])
+        // The production home now exposes the stable home-recent-trend destination directly.
+        let openedResultsTile = app.buttons["home-recent-trend"]
+        let openedResults = openedResultsTile.waitForExistence(timeout: 60)
+        if openedResults { openedResultsTile.tap() }
         // A fresh launch can still be committing the NavigationStack transition after the home tile
         // receives its tap. Do not start swiping the old home ScrollView while the results page is
         // entering; wait for the same live-data root marker already proved in Section 1.
@@ -563,15 +577,16 @@ final class RealFlowUITests: XCTestCase {
         app.launchEnvironment.removeValue(forKey: "UITEST_FOLLOW_HOLE_TEE")
         launchFresh()
         app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
-        XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]), "home must expose pre-round prep")
+        XCTAssertTrue(openStartRound(), "home must expose a new-round entry")
         XCTAssertTrue(
-            app.navigationBars["备战球场"].waitForExistence(timeout: 12),
-            "pre-round entry must navigate directly to the prep course picker"
+            app.navigationBars["开始一场"].waitForExistence(timeout: 12),
+            "new-round entry must navigate to the course finder"
         )
-        XCTAssertTrue(
-            app.buttons["course-catalog-nearby-action"].waitForExistence(timeout: 5),
-            "pre-round planning must offer the explicit nearby-course action"
-        )
+        let openSearch = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20))
+        openSearch.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["course-catalog-nearby-action"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.textFields["course-catalog-city-field"].exists)
         XCTAssertTrue(app.textFields["course-catalog-keyword-field"].exists)
         XCTAssertTrue(app.buttons["course-catalog-search-action"].exists)
@@ -593,8 +608,12 @@ final class RealFlowUITests: XCTestCase {
             "pre-round name search must return the approved 北京丽宫 course"
         )
         prepResult.tap()
-        // 备战 now opens the same live hole screen. It has no round state and therefore carries
-        // the explicit no-recording banner until the first on-course stroke.
+        let prepStart = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(prepStart.waitForExistence(timeout: 12))
+        XCTAssertTrue(waitUntilEnabled(prepStart, timeout: 90))
+        prepStart.tap()
+        // The course page opens the same live hole screen. It has no round state and therefore
+        // carries the explicit no-recording banner until the first on-course stroke.
         let prepBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         XCTAssertTrue(prepBanner.waitForExistence(timeout: 30), "备战 should open the live hole screen")
         XCTAssertTrue(
@@ -610,32 +629,43 @@ final class RealFlowUITests: XCTestCase {
         let prepBack = app.buttons["live-back-home"]
         XCTAssertTrue(prepBack.waitForExistence(timeout: 8) && prepBack.isHittable)
         prepBack.tap()
-        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 8))
-        let retainedDownload = app.buttons.matching(NSPredicate(
+        XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 8))
+        app.buttons["home-new-round"].tap()
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        let retainedDownload = app.descendants(matching: .any).matching(NSPredicate(
             format: "identifier BEGINSWITH %@",
-            "prep-download-row-\(approvedJourneyCourseGlobalId):"
+            "start-round-offline-row-\(approvedJourneyCourseGlobalId):"
         )).firstMatch
         XCTAssertTrue(scrollTo(retainedDownload, maxSwipes: 12))
-        XCTAssertTrue(nonEmptyAccessibilityValue(retainedDownload))
+        let retainedStatus = app.staticTexts.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "start-round-offline-status-\(approvedJourneyCourseGlobalId):"
+        )).firstMatch
+        XCTAssertTrue(
+            retainedStatus.waitForExistence(timeout: 8)
+                && ["下载", "准备", "失败", "已下载"].contains(where: { retainedStatus.label.contains($0) }),
+            "the start-page offline row must show its download state"
+        )
         settle(1); save("06b-prep-download-retained"); dump("06b-prep-download-retained")
 
         restoreDefaultGPSLaunchEnvironment()
         app.launchEnvironment["UITEST_FOLLOW_HOLE_TEE"] = "1"
         launchFresh()
-        XCTAssertTrue(tapContaining(["备战", "搜索 · 球童试算"]))
-        XCTAssertTrue(app.navigationBars["备战球场"].waitForExistence(timeout: 12))
-        let relaunchedDownload = app.buttons.matching(NSPredicate(
+        XCTAssertTrue(openStartRound())
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        let relaunchedDownload = app.descendants(matching: .any).matching(NSPredicate(
             format: "identifier BEGINSWITH %@",
-            "prep-download-row-\(approvedJourneyCourseGlobalId):"
+            "start-round-offline-row-\(approvedJourneyCourseGlobalId):"
         )).firstMatch
         XCTAssertTrue(scrollTo(relaunchedDownload, maxSwipes: 12))
-        XCTAssertTrue(nonEmptyAccessibilityValue(relaunchedDownload))
-        XCTAssertTrue(waitForValue("uitest-installed", on: relaunchedDownload, timeout: 240))
-        XCTAssertFalse(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "下载")).firstMatch.exists,
-            "the prep picker shows no download/preparation copy"
-        )
-        relaunchedDownload.tap()
+        let relaunchedStatus = app.staticTexts.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "start-round-offline-status-\(approvedJourneyCourseGlobalId):"
+        )).firstMatch
+        XCTAssertTrue(waitForText("已下载", in: relaunchedStatus, timeout: 240))
+        let relaunchedCourse = selectStartCourse(approvedJourneyCourseGlobalId)
+        XCTAssertTrue(relaunchedCourse.exists)
+        let relaunchedStart = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(waitUntilEnabled(relaunchedStart, timeout: 90))
+        relaunchedStart.tap()
         let relaunchedBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         XCTAssertTrue(relaunchedBanner.waitForExistence(timeout: 30))
         XCTAssertTrue(
@@ -672,7 +702,8 @@ final class RealFlowUITests: XCTestCase {
             ligongSegment.exists,
             "the full journey must expose the approved 北京丽宫 course"
         )
-        XCTAssertEqual(ligongSegment.value as? String, "已选择")
+        XCTAssertEqual(ligongSegment.identifier, "start-round-selected-course-\(approvedJourneyCourseGlobalId)")
+        XCTAssertTrue((ligongSegment.value as? String)?.contains("北京丽宫") == true)
         let ligongPrimary = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
             waitUntilEnabled(ligongPrimary, timeout: 90),
@@ -731,17 +762,16 @@ final class RealFlowUITests: XCTestCase {
             liveWindowFrame.width * 0.16,
             "the approved return control is a compact circle, not a separate blue text row"
         )
-        // B1 (live-play.html): the factual hole map fills the screen. No bottom panel or action dock;
-        // 完成本洞 (记分) floats bottom-left and the single white 记一杆 bottom-right.
+        // 开始 enters the in-memory prep screen. Before the first stroke it exposes only the shot
+        // action; scoring and the scorecard appear after that stroke promotes the round.
         XCTAssertFalse(app.descendants(matching: .any)["live-play-panel-anchor"].firstMatch.exists)
         XCTAssertFalse(app.descendants(matching: .any)["live-action-dock"].firstMatch.exists)
         let liveRecordShot = app.buttons["记一杆"]
-        let liveScoreHole = app.buttons["完成本洞"]
-        XCTAssertTrue(liveRecordShot.waitForExistence(timeout: 5) && liveScoreHole.exists)
+        XCTAssertTrue(liveRecordShot.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["完成本洞"].exists)
+        XCTAssertFalse(app.buttons["计分卡"].exists)
         XCTAssertGreaterThan(liveRecordShot.frame.minX, liveWindowFrame.width * 0.6, "记一杆 sits bottom-right")
         XCTAssertGreaterThan(liveRecordShot.frame.minY, liveWindowFrame.height * 0.78, "记一杆 sits bottom-right")
-        XCTAssertLessThan(liveScoreHole.frame.maxX, liveWindowFrame.width * 0.4, "完成本洞 sits bottom-left")
-        XCTAssertGreaterThan(liveScoreHole.frame.minY, liveWindowFrame.height * 0.78, "完成本洞 sits bottom-left")
         XCTAssertLessThan(
             visibleStatusChromeBrightPixelFraction(in: XCUIScreen.main.screenshot()),
             0.005,
@@ -756,14 +786,8 @@ final class RealFlowUITests: XCTestCase {
             fullyVisible(app.buttons["记一杆"]),
             "phone-only play must expose a fully visible GPS shot action"
         )
-        XCTAssertTrue(
-            fullyVisible(app.buttons["完成本洞"]),
-            "score confirmation must remain fully visible beside the shot action"
-        )
-        XCTAssertTrue(
-            fullyVisible(app.buttons["计分卡"]),
-            "the real scorecard action must be fully visible in the top-left corner"
-        )
+        XCTAssertFalse(app.buttons["完成本洞"].exists, "prep mode has no score confirmation before the first stroke")
+        XCTAssertFalse(app.buttons["计分卡"].exists, "prep mode has no scorecard before the first stroke")
         let liveCaddieLoading = app.activityIndicators["正在更新球童建议"]
         _ = liveCaddieLoading.waitForExistence(timeout: 2) // a warm backend may finish before this appears
         XCTAssertTrue(
@@ -794,8 +818,7 @@ final class RealFlowUITests: XCTestCase {
             "the obstacle control must expose one selected outline without navigating away"
         )
         XCTAssertFalse(
-            firstSelectedHazard.frame.intersects(liveRecordShot.frame)
-                || firstSelectedHazard.frame.intersects(liveScoreHole.frame),
+            firstSelectedHazard.frame.intersects(liveRecordShot.frame),
             "the obstacle bar must sit between the corner actions, never under them"
         )
         XCTAssertFalse(
@@ -1021,8 +1044,8 @@ final class RealFlowUITests: XCTestCase {
             "结束本场 must open the same non-destructive summary used after the final hole"
         )
         XCTAssertTrue(
-            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 1/9 洞")).firstMatch.exists,
-            "the summary must count the one completed hole of the 前九 being played (B4b-2)"
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "· 1/18 洞")).firstMatch.exists,
+            "the whole-course summary must count the one completed hole out of 18"
         )
         XCTAssertTrue(app.buttons["保存并结束"].exists)
         XCTAssertTrue(app.buttons["live-finish-discard"].exists)
@@ -1108,23 +1131,6 @@ final class RealFlowUITests: XCTestCase {
                 didPersistAdjustedPuttsAndPenalty = true
             }
 
-            if holeNumber == 9 {
-                // B4b-2 turn: 北京丽宫 started on 前九; saving hole 9 asks which nine comes next.
-                // 后九 is preselected, 前九 again is allowed, and the round continues on hole 10.
-                let turnGo = app.buttons["turn-go"]
-                XCTAssertTrue(turnGo.waitForExistence(timeout: 15), "finishing 前九 must open the turn")
-                XCTAssertEqual(turnGo.label, "接着打 后九", "the other half is the preselected second nine")
-                XCTAssertTrue(
-                    app.buttons["turn-loop-\(approvedJourneyCourseGlobalId):front"].exists,
-                    "the same half may be played again"
-                )
-                XCTAssertTrue(
-                    app.buttons["turn-loop-\(approvedJourneyCourseGlobalId):back"].exists,
-                    "the turn offers the course's own halves"
-                )
-                settle(1); save("journey-09-turn"); dump("journey-09-turn")
-                turnGo.tap()
-            }
             if holeNumber < 18 {
                 XCTAssertTrue(
                     app.staticTexts["第 \(holeNumber + 1) 洞"].waitForExistence(timeout: 30),
@@ -1185,14 +1191,6 @@ final class RealFlowUITests: XCTestCase {
         )
         // README §8: standing at the course (the journey's GPS fix), the main card offers this
         // course's last first loop + tee and "开始" starts it directly — not the setup form.
-        let startHere = app.buttons["home-start-nearby"]
-        let courseHereOffered = startHere.exists
-        if courseHereOffered {
-            XCTAssertTrue(
-                app.buttons["home-change-course"].exists,
-                "the course-here card keeps 换球场或组合 next to its one-tap 开始"
-            )
-        }
         XCTAssertFalse(app.navigationBars["开始一场"].exists, "finish must not strand the player in the setup form")
         XCTAssertFalse(app.staticTexts["进行中"].exists, "the explicitly finished round must no longer be active")
         settle(1); save("journey-finished-home"); dump("journey-finished-home")
@@ -1202,19 +1200,12 @@ final class RealFlowUITests: XCTestCase {
         // package id, deciding “not new”, and remaining forever on the preparation screen.
         XCTAssertTrue(openStartRound())
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
-        if courseHereOffered {
-            // 换球场或组合 opens 开始一场 with the course here already selected (no extra tap).
-            let preselected = courseTile(approvedJourneyCourseGlobalId)
-            XCTAssertTrue(preselected.waitForExistence(timeout: 12))
-            XCTAssertEqual(
-                preselected.value as? String,
-                "已选择",
-                "换球场或组合 must open 开始一场 with the course here preselected"
-            )
-        }
+        // C99's shared finder starts without a preselected course; the shortcut itself opens the
+        // tee page directly when the player wants a known venue.
         let repeatSegment = selectStartCourse(approvedJourneyCourseGlobalId)
         XCTAssertTrue(repeatSegment.exists)
-        XCTAssertEqual(repeatSegment.value as? String, "已选择")
+        XCTAssertEqual(repeatSegment.identifier, "start-round-selected-course-\(approvedJourneyCourseGlobalId)")
+        XCTAssertTrue((repeatSegment.value as? String)?.contains("北京丽宫") == true)
         let repeatStart = app.buttons["start-round-primary-action"]
         XCTAssertTrue(waitUntilEnabled(repeatStart, timeout: 90))
         XCTAssertTrue(scrollTo(repeatStart, maxSwipes: 20))
@@ -1295,9 +1286,14 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("09-new-course-nearby"); dump("09-new-course-nearby")
         result.tap()
 
-        let selectedSegment = courseTile(evidence.globalId)
+        let selectedSegment = app.descendants(matching: .any)[
+            "start-round-selected-course-\(evidence.globalId)"
+        ].firstMatch
         XCTAssertTrue(selectedSegment.waitForExistence(timeout: 12))
-        XCTAssertEqual(selectedSegment.value as? String, "已选择")
+        XCTAssertTrue(
+            selectedSegment.identifier == "start-round-selected-course-\(evidence.globalId)",
+            "the selected course tile must expose the resolver-selected global id"
+        )
         let primary = app.buttons["start-round-primary-action"]
         XCTAssertTrue(
             waitUntilEnabled(primary, timeout: 90),
@@ -1343,7 +1339,10 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("09b-new-course-name-search"); dump("09b-new-course-name-search")
         namedResult.tap()
         XCTAssertTrue(selectedSegment.waitForExistence(timeout: 12))
-        XCTAssertEqual(selectedSegment.value as? String, "已选择")
+        XCTAssertTrue(
+            selectedSegment.identifier == "start-round-selected-course-\(evidence.globalId)",
+            "reselecting the course must retain the resolver-selected global id"
+        )
         XCTAssertTrue(
             waitUntilEnabled(primary, timeout: 20),
             "re-selecting the same course must not clear Tees and strand the start action"
@@ -1382,155 +1381,25 @@ final class RealFlowUITests: XCTestCase {
         )
         settle(1); save("09e-new-course-precise-map"); dump("09e-new-course-precise-map")
 
-        // No score has been written yet. The durable live cursor created by Start must still restore
-        // this exact selected course at hole 1 after process death. Remove the journey's default
-        // Beijing Palace fix before relaunching: this deliberately exercises the searched-course,
-        // authorized-but-fixless contract instead of turning a Tee reference into a shot location.
+        // Starting a course opens an in-memory prep package. Without a first stroke, process death
+        // must return to the home entry instead of inventing an in-progress round.
         app.terminate()
         app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LAT")
         app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LON")
         app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "authorized"
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
-        let inProgress = app.buttons["home-in-progress-round"]
-        XCTAssertTrue(inProgress.waitForExistence(timeout: 60), "new-course round must survive force-quit")
-        let expectedCourseName = selectedNewCourseDisplayName ?? evidence.name
-        XCTAssertTrue(
-            inProgress.label.contains(expectedCourseName),
-            "restored card must retain the selected course (expected \(expectedCourseName), got \(inProgress.label))"
-        )
-        XCTAssertTrue(inProgress.label.contains("第 1 洞"), "unplayed restored round must remain on hole 1")
-        settle(1); save("09f-new-course-restored-home"); dump("09f-new-course-restored-home")
-        inProgress.tap()
-        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 20))
-        let restoredTopo = app.descendants(matching: .any)
-            .matching(identifier: "topo-hole-base-ready").firstMatch
-        XCTAssertTrue(
-            restoredTopo.waitForExistence(timeout: 90),
-            "restored new-course round must reopen the same precise first-hole map"
-        )
-        let restoredMap = app.descendants(matching: .any)
-            .matching(NSPredicate(
-                format: "identifier BEGINSWITH %@ OR identifier == %@",
-                "live-hole-map-",
-                "live-map-numeric-placeholder"
-            ))
-            .firstMatch
-        XCTAssertTrue(
-            restoredMap.waitForExistence(timeout: 12),
-            "a searched course must show its factual map immediately even without a GPS fix"
-        )
-        let restoredPlan = openCaddiePlan(timeout: 75)
-        XCTAssertTrue(
-            restoredPlan.exists,
-            "a searched course without GPS must still expose the static-map caddie recommendation"
-        )
-        let parText = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Par '")).firstMatch
-        XCTAssertTrue(parText.waitForExistence(timeout: 8))
-        let par = try XCTUnwrap(
-            parText.label.split(separator: " ").dropFirst().first.flatMap { Int($0) },
-            "new-course hole 1 Par must be factual"
-        )
-        let noGPSRecord = app.buttons["记一杆"]
-        XCTAssertTrue(
-            scrollTo(noGPSRecord, maxSwipes: 18),
-            "a no-GPS round must still expose the shot action in the live controls"
-        )
-        XCTAssertFalse(
-            noGPSRecord.isEnabled,
-            "a no-GPS round must not record a fabricated current position"
-        )
-        XCTAssertTrue(
-            waitForValue("等待 GPS", on: noGPSRecord, timeout: 5),
-            "the disabled shot action must explain that a factual GPS fix is required"
-        )
-        XCTAssertFalse(
-            app.staticTexts["这一杆用了什么球杆？"].exists,
-            "no-GPS shot capture must not open the actual-club prompt"
-        )
-        // No shot could be recorded without GPS, so the sheet preselects the default par.
-        try confirmJourneyHole(
-            hole: 1,
-            par: par,
-            manual: false,
-            expectedPreselectedScore: par,
-            fairwayLabel: nil
-        )
-        let restoredFirstHoleHeading = app.staticTexts["第 1 洞"]
-        let restoredSecondHoleHeading = app.staticTexts["第 2 洞"]
-        XCTAssertTrue(restoredSecondHoleHeading.waitForExistence(timeout: 20))
-        XCTAssertTrue(
-            waitUntilGone(restoredFirstHoleHeading, timeout: 12),
-            "accepting the restored first-hole score must finish replacing the old live-hole view"
-        )
-        XCTAssertTrue(
-            fullyVisible(restoredSecondHoleHeading),
-            "the replacement second-hole view must finish resetting to its visible map/header before navigation"
-        )
-
-        // Re-query the action only after the id-keyed CurrentHoleView replacement and score-sheet
-        // dismissal have both completed. Tapping the outgoing view can synthesize successfully while
-        // losing the presentation request with that view's lifecycle.
-        let scorecard = app.buttons["计分卡"]
-        XCTAssertTrue(scrollTo(scorecard, maxSwipes: 18))
-        scorecard.tap()
-        let scorecardEdit = app.buttons["live-scorecard-edit-hole"]
-        XCTAssertTrue(
-            scorecardEdit.waitForExistence(timeout: 5),
-            "the unique scorecard edit action must prove the scorecard sheet was presented"
-        )
-        XCTAssertEqual(
-            scorecardEdit.label,
-            "改第 2 洞成绩",
-            "a newly opened scorecard must select the active playing hole"
-        )
-        let selectCompletedFirstHole = app.buttons["选择第 1 洞"].firstMatch
-        XCTAssertTrue(
-            selectCompletedFirstHole.waitForExistence(timeout: 5) && selectCompletedFirstHole.isHittable,
-            "the completed first hole must remain selectable from the active second hole"
-        )
-        selectCompletedFirstHole.tap()
-        let editCompletedFirstHole = app.buttons["改第 1 洞成绩"]
-        XCTAssertTrue(
-            editCompletedFirstHole.waitForExistence(timeout: 5),
-            "selecting the completed first hole must retarget the unique edit action"
-        )
-        settle(1); save("09g-new-course-scorecard"); dump("09g-new-course-scorecard")
-        editCompletedFirstHole.tap()
-        let editSave = app.buttons["score-save"]
-        XCTAssertTrue(editSave.waitForExistence(timeout: 5))
-        XCTAssertEqual(editSave.label, "保存 \(par) 杆", "a scorecard edit must reopen the saved default-par score")
-        settle(1); save("09h-new-course-score-edit"); dump("09h-new-course-score-edit")
-        app.buttons["score-cancel"].tap()
-        XCTAssertTrue(
-            app.staticTexts["第 2 洞"].waitForExistence(timeout: 8),
-            "cancelling the scorecard edit must return to the live second hole"
-        )
-
-        // 结束本场 on the live map opens the finish page; 保存并结束 saves and ends.
-        let endRound = app.buttons["live-end-round"]
-        XCTAssertTrue(endRound.waitForExistence(timeout: 5), "the live hole must expose 结束本场")
-        endRound.tap()
-        let saveAndEnd = app.buttons["live-finish-save"]
-        XCTAssertTrue(saveAndEnd.waitForExistence(timeout: 5), "结束本场 must open the finish page")
-        saveAndEnd.tap()
-        XCTAssertTrue(
-            waitForHomeNewRoundEntry(timeout: 10),
-            "saving the finish summary must return to the home start entry"
-        )
-        XCTAssertTrue(
-            waitUntilGone(app.buttons["home-in-progress-round"], timeout: 8),
-            "local UI-test cleanup must remove only the temporary new-course round"
-        )
+        let newRound = app.buttons["home-new-round"]
+        XCTAssertTrue(newRound.waitForExistence(timeout: 60), "prep-only course must return to the new-round entry")
+        XCTAssertFalse(app.buttons["home-in-progress-round"].exists, "prep-only course must not create an active round")
+        settle(1); save("09f-new-course-prep-only-home"); dump("09f-new-course-prep-only-home")
     }
 
     // MARK: - navigation helpers
 
     /// The home's new-round entry: the course-here card's one-tap 开始, or the search card.
     private func waitForHomeNewRoundEntry(timeout: TimeInterval) -> Bool {
-        let entry = app.buttons.matching(
-            NSPredicate(format: "identifier IN %@", ["home-start-nearby", "home-new-round"])
-        ).firstMatch
+        let entry = app.buttons["home-new-round"]
         return entry.waitForExistence(timeout: timeout)
     }
 
@@ -1669,6 +1538,14 @@ final class RealFlowUITests: XCTestCase {
         if element.exists, (element.value as? String) == expected { return true }
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == true AND value == %@", expected),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForText(_ expected: String, in element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND (label CONTAINS %@ OR value CONTAINS %@)", expected, expected),
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
@@ -1885,21 +1762,15 @@ final class RealFlowUITests: XCTestCase {
         saveScore.tap()
     }
 
-    /// B4b home main card: "换球场或组合" (the course-here card) opens 开始一场 with that course
-    /// preselected; the search card opens it with nothing selected. The card's "开始" skips 开始一场.
+    /// The single home play entry opens the course finder; shortcut chips use the course page directly.
     @discardableResult
     private func openStartRound() -> Bool {
-        let change = app.buttons["home-change-course"]
-        if change.waitForExistence(timeout: 4), change.isHittable {
-            change.tap()
-            return true
-        }
         let entry = app.buttons["home-new-round"]
         if entry.waitForExistence(timeout: 4), entry.isHittable {
             entry.tap()
             return true
         }
-        return tapContaining(["换球场或组合", "今天去哪打"])
+        return false
     }
 
     private func showStartCoursePage() {
@@ -1915,7 +1786,7 @@ final class RealFlowUITests: XCTestCase {
     @discardableResult
     private func selectStartCourse(_ globalId: Int) -> XCUIElement {
         let tile = courseTile(globalId)
-        if tile.exists, tile.value as? String == "已选择" { return tile }
+        if tile.exists, tile.identifier == "start-round-selected-course-\(globalId)" { return tile }
         showStartCoursePage()
         let row = app.buttons["start-round-venue-\(globalId)"]
         if scrollTo(row, maxSwipes: 24) {
@@ -1926,25 +1797,32 @@ final class RealFlowUITests: XCTestCase {
                 "tapping a venue opens the loop and tee setup page"
             )
         }
-        if scrollTo(tile, maxSwipes: 8), tile.value as? String != "已选择" {
+        if scrollTo(tile, maxSwipes: 8), tile.identifier != "start-round-selected-course-\(globalId)" {
             tile.tap()
             settle(1)
         }
-        if !(tile.exists && tile.value as? String == "已选择") {
+        if !(tile.exists && tile.identifier == "start-round-selected-course-\(globalId)") {
             // Evidence for the caller's selection assertion: what the list showed instead.
             save("start-course-\(globalId)-not-selected"); dump("start-course-\(globalId)-not-selected")
         }
         return tile
     }
 
-    /// B4b-2: a nine-hole loop is one tile (`start-round-course-segment-G`); an 18-hole course
-    /// shows 前九 / 后九 tiles (`start-round-course-half-G-front|back`) with 前九 preselected.
+    /// C99: every selected course uses one venue tile; the first stroke chooses the opening hole.
     private func courseTile(_ globalId: Int) -> XCUIElement {
-        app.buttons.matching(NSPredicate(
+        app.descendants(matching: .any).matching(NSPredicate(
             format: "identifier == %@ OR identifier == %@",
             "start-round-course-segment-\(globalId)",
-            "start-round-course-half-\(globalId)-front"
+            "start-round-selected-course-\(globalId)"
         )).firstMatch
+    }
+
+    private func waitForCourseSelection(_ tile: XCUIElement, globalId: Int, name: String) -> Bool {
+        guard tile.waitForExistence(timeout: 8) else { return false }
+        if tile.identifier == "start-round-selected-course-\(globalId)" {
+            return (tile.value as? String)?.contains(name) == true
+        }
+        return waitForValue("已选择", on: tile, timeout: 8)
     }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.
@@ -2154,6 +2032,21 @@ final class RealFlowUITests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         print("WROTE_REAL_SCREENSHOT \(name)")
+    }
+
+    private func assertAndCapture(
+        _ condition: @autoclosure () -> Bool,
+        _ message: String,
+        _ evidence: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let ok = condition()
+        if !ok {
+            save(evidence)
+            dump(evidence)
+        }
+        XCTAssertTrue(ok, message, file: file, line: line)
     }
 
     private func dump(_ name: String) {

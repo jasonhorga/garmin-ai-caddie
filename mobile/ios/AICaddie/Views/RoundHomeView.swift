@@ -2,20 +2,15 @@ import CoreLocation
 import Foundation
 import SwiftUI
 
-/// 球局主页(Hub)— README §8 / `pre-round.html` 第 1 屏:最大一块主卡随情况变(进行中 =
-/// “继续第 N 洞”;有上次/已知球场 = 该球场 + 上次的第一个环和发球台 + “开始”;都没有 = 搜索),
-/// 备战 · 成绩磁贴、上一场速览(18 洞记分符号条)。灰底圆角白卡(ScrollView),保留导航接线(实战逐洞、
-/// 备战洞屏、历史复盘、Garmin 账号)。Garmin 同步状态只在设置里,首页不写。
-/// 表现型卡片组件(Hub*)纯输入,供 CI 设计快照复用。
-/// Hub navigation routes driven by a path, so the app can jump straight into the live hole after
-/// 开始记分 (instead of bouncing back to the Hub). 备战/复盘 stay simple leaf links.
+/// C99 球局主页：单一「打一场球」入口、快捷球场、天气一行、上一场与最近走势。
+/// 进行中的球局只保留「继续」主卡；结束和球局调整在洞屏内完成。
+/// Hub navigation routes driven by a path, so a selected course can open its prep hole directly
+/// and the first stroke can promote it into the live round.
 public enum HubRoute: Hashable {
     case start
     /// 开始一场 with the home card's course (and its last tee) preselected.
     case startCourse(globalId: Int, teeBox: String?)
     case hole(Int)
-    /// 备战: pick a course; it opens on the hole screen (`.hole`) without a round.
-    case prep
     case history
     case roundReview(roundRef: String, courseName: String?, globalId: Int?, backGlobalId: Int?, nine: String?, teeBox: String?)
 }
@@ -36,18 +31,23 @@ enum LiveHoleRouteReconciliation {
 
 enum LiveHoleRoutePath {
     static func afterAdvance(current: [HubRoute], nextHole: Int, isPrepMode: Bool) -> [HubRoute] {
-        guard isPrepMode, current.first == .prep else { return [.hole(nextHole)] }
-        return [.prep, .hole(nextHole)]
+        guard isPrepMode, let base = current.first, isPrepBase(base) else { return [.hole(nextHole)] }
+        return [base, .hole(nextHole)]
     }
 
     static func forPendingHole(current: [HubRoute], hole: Int, isPrepMode: Bool) -> [HubRoute] {
-        if isPrepMode { return [.prep, .hole(hole)] }
+        if isPrepMode, let base = current.first, isPrepBase(base) { return [base, .hole(hole)] }
         return [.hole(hole)]
     }
 
     static func afterPrepPackageRefresh(current: [HubRoute], pendingHole: Int?) -> [HubRoute] {
         guard let pendingHole else { return current }
         return forPendingHole(current: current, hole: pendingHole, isPrepMode: true)
+    }
+
+    static func isPrepBase(_ route: HubRoute) -> Bool {
+        if case .startCourse = route { return true }
+        return false
     }
 }
 
@@ -422,6 +422,14 @@ enum LiveHoleSessionCachePolicy {
 }
 
 public struct RoundHomeView: View {
+    private static let historyISOFormatter = ISO8601DateFormatter()
+    private static let historyDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
     /// The active round's package, or the home package (most-played course). Nil until the first
     /// one is cached or fetched (first launch, a slow backend): the home still renders and offers
     /// 开始一场, instead of a separate legacy list.
@@ -513,10 +521,6 @@ public struct RoundHomeView: View {
     public let onUndoRoundStart: () -> Void
 
     @State private var showSettings = false
-    /// The in-progress card's 结束: the same finish page as the live map's 结束本场.
-    @State private var showFinishSummary = false
-    @State private var pendingHomeDiscard = false
-    @State private var showHomeDiscardConfirmation = false
     @State private var path: [HubRoute] = []
     /// The live route is one destination containing a paging surface. Keeping the selection here
     /// avoids rebuilding a CurrentHoleView (and its location/task state) for every swipe.
@@ -540,8 +544,9 @@ public struct RoundHomeView: View {
     @State private var heroNearbyOptions: [MobileCourseOption] = []
     /// Archived rounds, newest first: each venue's last first loop and tee.
     @State private var heroHistory: [HistoryRoundCard] = []
-    /// 今天 tile: current weather at the player's fix (else the round's first Tee); nil until read.
+    /// Weather is a single compact line below the greeting; nil means the line is omitted.
     @State private var homeWeather: HomeWeather?
+    @State private var homeCity: String?
 
     /// The clock the greeting reads; design snapshots pin it so the title never depends on when CI ran.
     @Environment(\.homeGreetingDate) private var greetingDate
@@ -727,9 +732,11 @@ public struct RoundHomeView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(spacing: 10) {
+                    weatherLine
                     playSection
-                    tilesGrid
+                    quickCoursesSection
                     lastRoundSection
+                    recentTrendSection
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
@@ -747,8 +754,6 @@ public struct RoundHomeView: View {
                     startRoundView(globalId: globalId, teeBox: teeBox)
                 case .hole(let number):
                     holePagerView(number)
-                case .prep:
-                    prepCoursePickerView()
                 case .history:
                     if let package {
                         RecentRoundReviewView(
@@ -801,59 +806,16 @@ public struct RoundHomeView: View {
                 loadLastRoundStrip()
             }
             .task(id: weatherKey) {
+                if weatherKey == "none" {
+                    homeWeather = nil
+                    homeCity = nil
+                }
                 await refreshHomeWeather()
             }
         }
         // The NavigationStack owns the system status bar, so the immersive hole destination cannot
         // hide it reliably from inside CurrentHoleView. Keep normal chrome on every non-live route.
         .statusBarHidden(Self.isLiveHoleRoute(path.last))
-        .sheet(isPresented: $showFinishSummary, onDismiss: {
-            // 放弃本场 asks once, after the finish page has closed (a dialog requested while the
-            // sheet is still dismissing is dropped).
-            guard pendingHomeDiscard else { return }
-            pendingHomeDiscard = false
-            showHomeDiscardConfirmation = true
-        }) {
-            if let package {
-            LiveRoundFinishSummaryView(
-                courseName: package.course.venueDisplayName,
-                holes: package.holes,
-                loopTitles: LiveScorecardLoops.titles(
-                    package: package,
-                    catalogue: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions)
-                ),
-                scores: LiveRoundFinishSummaryView.completedScores(
-                    holes: package.holes,
-                    liveRoundState: liveRoundState,
-                    recordedScoreHoles: recordedScoreHoles
-                ),
-                isFinishingRound: isFinishingRound,
-                finishErrorMessage: finishErrorMessage,
-                onFinish: {
-                    Task {
-                        if await onFinishRound() {
-                            showFinishSummary = false
-                        }
-                    }
-                },
-                onContinue: { showFinishSummary = false },
-                onDiscard: {
-                    pendingHomeDiscard = true
-                    showFinishSummary = false
-                }
-            )
-            }
-        }
-        .confirmationDialog(
-            "确定放弃本场？",
-            isPresented: $showHomeDiscardConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("放弃本场", role: .destructive) { onDiscardRound() }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("放弃后这一场不会保存，已记的成绩、落点和待上传媒体会删除。")
-        }
         .onChange(of: pendingLiveHole) { _, hole in
             #if DEBUG
             UITestEventLatencyTrace.record("round-home.pending-change hole=\(hole ?? -1)")
@@ -863,22 +825,9 @@ public struct RoundHomeView: View {
         .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
             if previousRoundId != currentRoundId {
                 holePagerGeneration &+= 1
-                // A round id is the session boundary. Clear every entity when a new round starts
-                // or the current round ends, so a reused hole number cannot inherit another nine.
                 liveHoleSessions.reset()
             }
-            // The first stroke promotes the memory-only prep package to a live round while the
-            // current hole destination is still visible. Drop the picker route immediately so
-            // Back leaves the live hole screen instead of returning to the prep picker.
-            if previousRoundId == nil, currentRoundId != nil,
-               path.first == .prep,
-               let hole = liveRoundState?.activeHole ?? pendingLiveHole {
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    path = [.hole(hole)]
-                }
-            }
+
             // 撤销开打 ends the round but keeps the hole screen, back in 备战.
             if previousRoundId != nil, currentRoundId == nil, prepPackage == nil {
                 path = []
@@ -973,7 +922,7 @@ public struct RoundHomeView: View {
 
     private static func isPrepOrHoleRoute(_ route: HubRoute) -> Bool {
         switch route {
-        case .prep, .hole: return true
+        case .startCourse, .hole: return true
         default: return false
         }
     }
@@ -1078,6 +1027,18 @@ public struct RoundHomeView: View {
                 isPrepMode: isPrepHoleScreen,
                 prepTeeOptions: prepTeeOptions,
                 onStartRoundFromFirstStroke: onStartRoundFromFirstStroke,
+                onFirstStrokeClubPromptDismissed: {
+                    // Keep the prep base route while the first-stroke sheet is presented. Once
+                    // the player has chosen or skipped a club, the live hole becomes the sole
+                    // destination and Back can no longer return to the picker.
+                    guard liveRoundState != nil,
+                          path.first.map({ LiveHoleRoutePath.isPrepBase($0) }) == true else { return }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        path = [.hole(number)]
+                    }
+                },
                 onUndoRoundStart: onUndoRoundStart,
                 onChangePrepTee: onChangePrepTee,
                 onEvent: onEvent
@@ -1237,26 +1198,6 @@ public struct RoundHomeView: View {
         trimLiveHoleSessions(around: selected, package: screenPackage)
     }
 
-    /// 备战者已有目的地：直接名称搜索，不走现场 GPS 选场。The chosen course opens on the hole screen.
-    @ViewBuilder private func prepCoursePickerView() -> some View {
-        if let apiBaseURL {
-            PrepCoursePickerView(
-                courseOptions: courseOptions,
-                downloadedCourseOptions: downloadedCourseOptions,
-                downloadedCourseKeys: downloadedCourseKeys,
-                downloads: prepCourseDownloads,
-                downloadPresentation: prepCourseDownloadPresentation,
-                apiBaseURL: apiBaseURL,
-                adminToken: adminToken,
-                isOpeningCourse: isOpeningPrepCourse,
-                onDownload: onDownloadPrepCourse,
-                onRetryDownload: onRetryPrepCourseDownload,
-                onValidateReadyDownload: onValidateReadyPrepCourse,
-                onOpenCourse: onOpenPrepCourse
-            )
-        }
-    }
-
     private func startRoundView(globalId: Int?, teeBox: String?) -> some View {
         StartRoundView(
             defaultCourseGlobalId: globalId,
@@ -1278,7 +1219,13 @@ public struct RoundHomeView: View {
             onLoadCourseTees: onLoadCourseTees,
             onSearchCourses: onSearchCourses,
             onNearbyCourses: onNearbyCourses,
-            onCourseIntent: onCourseIntent
+            onCourseIntent: onCourseIntent,
+            onOpenPrepCourse: onOpenPrepCourse,
+            prepCourseDownloads: prepCourseDownloads,
+            onDownloadPrepCourse: onDownloadPrepCourse,
+            onRetryPrepCourseDownload: onRetryPrepCourseDownload,
+            onValidateReadyPrepCourse: onValidateReadyPrepCourse,
+            isOpeningPrepCourse: isOpeningPrepCourse
         )
     }
 
@@ -1344,11 +1291,45 @@ public struct RoundHomeView: View {
         )
     }
 
-    /// "开始" / "再打上次那个": start that loop and tee directly; the Hub enters the first hole when
-    /// the round is prepared (pendingLiveHole → path).
-    private func startSuggested(_ suggestion: HubCourseSuggestion) {
-        let request = suggestion.startRequest(roundId: StartRoundView.freshLiveRoundId(globalId: suggestion.globalId))
-        onPrepareCourseRound(request.roundId, request.teeBox, request.loops)
+    private var quickCourseCandidates: [HubQuickCourseOrdering.Candidate] {
+        let downloadedByID = prepCourseDownloads.reduce(into: [Int: PrepCourseDownloadRecord]()) { result, record in
+            if (result[record.course.globalId]?.updatedAt ?? .distantPast) < record.updatedAt {
+                result[record.course.globalId] = record
+            }
+        }
+        let nearbyVenues: Set<String> = {
+            guard let fix = heroLocation.latestFix else { return [] }
+            return Set(HubNearby.currentVenue(
+                options: heroNearbyOptions,
+                latitude: fix.coordinate.latitude,
+                longitude: fix.coordinate.longitude
+            )?.map { $0.venueDisplayName.lowercased() } ?? [])
+        }()
+        var optionsByID: [Int: MobileCourseOption] = [:]
+        for option in courseOptions + downloadedCourseOptions + heroNearbyOptions {
+            optionsByID[option.globalId] = option
+        }
+        let rounds = heroHistory
+        let candidates = optionsByID.values.map { option in
+            let matching = rounds.filter { $0.globalId == option.globalId }
+            let historyTee = matching.compactMap { HubCourseSuggestion.knownTee($0.teeBox) }.first
+            let chipOption = historyTee.map { option.replacingTeeBox($0) } ?? option
+            return HubQuickCourseOrdering.Candidate(
+                option: chipOption,
+                isNearby: nearbyVenues.contains(option.venueDisplayName.lowercased()),
+                lastPlayedAt: matching.compactMap { Self.historyDate($0.date) }.max()
+                    ?? Self.historyDate(option.latestRoundDate),
+                downloadedAt: downloadedByID[option.globalId]?.updatedAt,
+                playCount: max(option.roundCount, matching.count)
+            )
+        }
+        return HubQuickCourseOrdering.ordered(Array(candidates))
+    }
+
+    private static func historyDate(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        if let date = historyISOFormatter.date(from: value) { return date }
+        return historyDateFormatter.date(from: value)
     }
 
     /// An active or Watch-created round owns this card. Starting a second round would orphan the
@@ -1371,7 +1352,6 @@ public struct RoundHomeView: View {
                         activeHole: package.courseHoleNumber(forRoundHole: activeHole),
                         recorded: scored.count,
                         toPar: liveToPar(scoredHoles: scored),
-                        reservesEndAction: true,
                         dots: HubHoleDot.loopDots(
                             roundHoles: package.holes.map(\.number),
                             activeHole: activeHole
@@ -1384,13 +1364,6 @@ public struct RoundHomeView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home-in-progress-round")
-                .overlay(alignment: .bottomTrailing) {
-                    Button { showFinishSummary = true } label: { HubEndRoundPill() }
-                        .buttonStyle(.plain)
-                        .padding(18)
-                        .accessibilityLabel("结束本场")
-                        .accessibilityIdentifier("home-end-round")
-                }
             } else if liveRoundState != nil {
                 // An active round whose package has not loaded yet (first launch, slow backend):
                 // keep the card and say so; the round's own card replaces it when the package lands.
@@ -1403,49 +1376,10 @@ public struct RoundHomeView: View {
                     activeHole: pendingWatchRoundStart.activeHole
                 )
             }
-        case .nearby(let suggestion):
-            // At this course: "开始" starts its last first loop + tee directly; "换球场或组合" opens
-            // 开始一场.
-            HubSuggestedCourseCard(
-                courseName: suggestion.courseName,
-                startTitle: suggestion.startTitle,
-                topoURL: apiBaseURL.flatMap {
-                    SyncClient.topoImageURL(baseURL: $0, globalId: suggestion.globalId, localHole: 1)
-                }
-            ) {
-                Button {
-                    startSuggested(suggestion)
-                } label: {
-                    HubBentoPrimaryButtonLabel(title: "开球")
-                }
-                .buttonStyle(.plain)
-                .disabled(isPreparingRound)
-                .accessibilityIdentifier("home-start-nearby")
-                // 开始一场 opens with the course here (its loop and tee) already selected.
-                NavigationLink(value: HubRoute.startCourse(globalId: suggestion.globalId, teeBox: suggestion.teeBox)) {
-                    HubSecondaryLinkLabel(title: "换球场或组合", onDark: true)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("home-change-course")
-            }
-        case .search(let replay):
-            VStack(spacing: 10) {
-                NavigationLink(value: HubRoute.start) {
-                    HubSearchHeroCard()
-                }
+        case .nearby, .search:
+            NavigationLink(value: HubRoute.start) { HubStartPlayCard() }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home-new-round")
-                if let replay {
-                    Button {
-                        startSuggested(replay)
-                    } label: {
-                        HubReplayLastCard(courseName: replay.courseName, startTitle: replay.startTitle)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isPreparingRound)
-                    .accessibilityIdentifier("home-replay-last")
-                }
-            }
         }
     }
 
@@ -1475,55 +1409,52 @@ public struct RoundHomeView: View {
         }
     }
 
-    // MARK: - 拼块:成绩 · 备战 · 球包 · 今天
-
-    @ViewBuilder private var tilesGrid: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                NavigationLink {
-                    // Public compatibility entry remains ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken);
-                    // the injected OfflineStore below enables stale-while-refresh without changing that API.
-                    ResultsView(
-                        apiBaseURL: apiBaseURL,
-                        adminToken: adminToken,
-                        offlineStore: offlineStore
-                    )
-                } label: {
-                    HubScoresTile(scores: HubScoresTile.recentScores(history: heroHistory))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("home-tile-scores")
-                if apiBaseURL != nil {
-                    // A path route, so choosing a course can replace the picker with the hole screen.
-                    NavigationLink(value: HubRoute.prep) {
-                        HubPrepTile(downloadedCount: downloadedCourseOptions.count)
+    @ViewBuilder private var quickCoursesSection: some View {
+        let candidates = quickCourseCandidates
+        if !candidates.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("快捷球场")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.secondary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(candidates, id: \.option.globalId) { candidate in
+                            NavigationLink(value: Self.quickCourseRoute(for: candidate.option)) {
+                                HubQuickCourseChip(
+                                    title: candidate.option.venueDisplayName,
+                                    isNearby: candidate.isNearby
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("home-quick-course-\(candidate.option.globalId)")
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("home-tile-prep")
                 }
-            }
-            HStack(spacing: 10) {
-                NavigationLink {
-                    ClubSettingsView(clubProfiles: package?.clubProfiles ?? [], apiBaseURL: apiBaseURL, adminToken: adminToken)
-                } label: {
-                    HubBagTile(carries: HubBagTile.carries(from: package?.effectiveClubProfiles ?? []))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("home-tile-bag")
-                HubWeatherTile(weather: homeWeather?.presentation)
             }
         }
     }
 
-    /// Where the 今天 tile reads the weather: the home's own fix, else the round's first Tee.
+    static func quickCourseRoute(for option: MobileCourseOption) -> HubRoute {
+        .startCourse(globalId: option.globalId, teeBox: option.teeBox)
+    }
+
+    @ViewBuilder private var recentTrendSection: some View {
+        let scores = HubRecentTrendRow.recentScores(history: heroHistory, limit: 5)
+        if !scores.isEmpty {
+            NavigationLink {
+                ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore)
+            } label: {
+                HubRecentTrendRow(scores: scores)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("home-recent-trend")
+        }
+    }
+
+    /// Weather reads the home's own fix, else the round's first Tee.
     private var weatherCoordinate: (latitude: Double, longitude: Double)? {
-        if let fix = heroLocation.latestFix {
-            return (fix.coordinate.latitude, fix.coordinate.longitude)
-        }
-        if let hole = package?.holes.first, let latitude = hole.teeLatitude, let longitude = hole.teeLongitude {
-            return (latitude, longitude)
-        }
-        return nil
+        guard let fix = heroLocation.latestFix else { return nil }
+        return (fix.coordinate.latitude, fix.coordinate.longitude)
     }
 
     /// Re-read only when the place moves ≈5 km; the hour bucket refreshes a long-open home.
@@ -1538,6 +1469,7 @@ public struct RoundHomeView: View {
     @MainActor
     private func refreshHomeWeather() async {
         guard let apiBaseURL, let place = weatherCoordinate else { return }
+        let city = await Self.cityName(for: place)
         if let weather = await HomeWeatherClient.fetch(
             baseURL: apiBaseURL,
             adminToken: adminToken,
@@ -1545,6 +1477,37 @@ public struct RoundHomeView: View {
             longitude: place.longitude
         ) {
             homeWeather = weather
+        }
+        if let city, !city.isEmpty { homeCity = city }
+    }
+
+    @ViewBuilder private var weatherLine: some View {
+        if let presentation = homeWeather?.presentation {
+            HStack(spacing: 5) {
+                if let homeCity, !homeCity.isEmpty { Text(homeCity) }
+                Text(presentation.temperatureText)
+                if let condition = presentation.conditionText { Text(condition) }
+                if let wind = presentation.windForceText {
+                    Text("·")
+                    Text(wind)
+                }
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("home-weather-line")
+        }
+    }
+
+    private static func cityName(for place: (latitude: Double, longitude: Double)) async -> String? {
+        await withCheckedContinuation { continuation in
+            let geocoder = CLGeocoder()
+            geocoder.reverseGeocodeLocation(
+                CLLocation(latitude: place.latitude, longitude: place.longitude)
+            ) { marks, _ in
+                let mark = marks?.first
+                continuation.resume(returning: mark?.locality ?? mark?.administrativeArea)
+            }
         }
     }
 
@@ -1815,7 +1778,8 @@ struct SpeculativePrefetchSettingsSection: View {
 // MARK: - 表现型卡片(纯输入 → CI 设计快照可复用)
 
 /// 主卡 · 进行中 (首页 C): deep-green card — 进行中, the course, 已打 N 洞, the big to-par (when
-/// known), this loop's holes as dots (scored = colour by result, current = ring), 继续第 N 洞.
+/// known), this loop's holes as dots (scored = colour by result, current = ring), and the C99
+/// continue action with hole and to-par in one label.
 /// Progress shows recorded holes only.
 struct HubInProgressCard: View {
     let courseName: String
@@ -1823,9 +1787,6 @@ struct HubInProgressCard: View {
     let recorded: Int
     /// Score to par over the recorded holes; nil → omitted, never guessed.
     var toPar: Int? = nil
-    /// Leaves room on the right of 继续 for the home's 结束 button, which the app lays over the
-    /// card (a button cannot live inside the card's NavigationLink).
-    var reservesEndAction = false
     /// The loop holding the active hole; empty → no dot row.
     var dots: [HubHoleDot] = []
 
@@ -1878,8 +1839,7 @@ struct HubInProgressCard: View {
                 .accessibilityIdentifier("home-in-progress-dots")
                 Spacer(minLength: 14)
             }
-            HubBentoPrimaryButtonLabel(title: "继续第 \(activeHole) 洞", fullWidth: true)
-                .padding(.trailing, reservesEndAction ? HubEndRoundPill.reservedWidth : 0)
+            HubBentoPrimaryButtonLabel(title: continueTitle, fullWidth: true)
         }
         .padding(18)
         .hubBentoHero { HubBentoStyle.deepGreen }
@@ -1889,169 +1849,10 @@ struct HubInProgressCard: View {
         if toPar == 0 { return "E" }
         return toPar > 0 ? "+\(toPar)" : "\(toPar)"
     }
-}
 
-/// 主卡 · 在球场附近 / 上次的球场 (首页 C): the course's real first-hole topo (else a drawn hole)
-/// under a scrim, the course name, "从 B 场 开始 · 蓝 T", then 开球 / 换组合. The actions are injected
-/// so the app wraps them in navigation links while the CI snapshot can render plain labels.
-struct HubSuggestedCourseCard<Actions: View>: View {
-    let courseName: String
-    let startTitle: String
-    let topoURL: URL?
-    let actions: Actions
-
-    init(courseName: String, startTitle: String, topoURL: URL? = nil, @ViewBuilder actions: () -> Actions) {
-        self.courseName = courseName
-        self.startTitle = startTitle
-        self.topoURL = topoURL
-        self.actions = actions()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(courseName)
-                .font(.title2.weight(.heavy))
-                .foregroundStyle(.white)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(startTitle)
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
-                .foregroundStyle(HubBentoStyle.onGreenSecondary)
-            Spacer(minLength: 18)
-            HStack(spacing: 16) {
-                actions
-            }
-        }
-        .padding(18)
-        .hubBentoHero {
-            ZStack {
-                HubDrawnHole()
-                if let topoURL {
-                    AsyncImage(url: topoURL) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill()
-                        }
-                    }
-                    .accessibilityHidden(true)
-                    // Keeps the white text legible over a bright topo.
-                    Color.black.opacity(0.28)
-                }
-            }
-        }
-    }
-}
-
-/// 主卡 · 不在球场 (首页 C): green card, "今天去哪打？" and a search field (the whole card opens
-/// 开始一场).
-struct HubSearchHeroCard: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("今天去哪打？")
-                .font(.title2.weight(.heavy))
-                .foregroundStyle(.white)
-            Text("搜球场名，或看附近")
-                .font(.subheadline)
-                .foregroundStyle(HubBentoStyle.onGreenSecondary)
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                Text("搜索球场或城市")
-                Spacer(minLength: 0)
-            }
-            .font(.body)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 14)
-            .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
-            .background(Color.white)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .padding(.top, 14)
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(HubBentoStyle.leaf)
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-    }
-}
-
-/// The hero's green primary action ("开始" / "继续第 N 洞").
-struct HubPrimaryPill: View {
-    let title: String
-    var fullWidth: Bool = false
-
-    var body: some View {
-        Text(title)
-            .font(.headline)
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .padding(.horizontal, 28)
-            .padding(.vertical, 12)
-            .frame(maxWidth: fullWidth ? .infinity : nil)
-            .background(LiveHoleStyle.green)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-}
-
-/// 结束 beside 继续 on the in-progress card: opens the finish page (保存并结束 / 继续打球 / 放弃本场).
-struct HubEndRoundPill: View {
-    static let width: CGFloat = 76
-    static let reservedWidth: CGFloat = width + 10
-
-    var body: some View {
-        HubBentoOutlineButtonLabel(title: "结束", width: Self.width)
-    }
-}
-
-/// "再打上次那个": the last course with its first loop + tee, one tap starts it.
-struct HubReplayLastCard: View {
-    let courseName: String
-    let startTitle: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "arrow.counterclockwise")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(LiveHoleStyle.green)
-                .frame(width: 36, height: 36)
-                .background(HubStyle.iconTint)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("再打上次那个")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(courseName)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Text(startTitle)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            Image(systemName: "play.fill")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(LiveHoleStyle.green)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .contentShape(Rectangle())
-    }
-}
-
-/// The hero's secondary text link ("换组合"); white on a green card.
-struct HubSecondaryLinkLabel: View {
-    let title: String
-    var onDark = false
-
-    var body: some View {
-        Text(title)
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(onDark ? Color.white : LiveHoleStyle.green)
-            .padding(.vertical, 14)
-            .padding(.horizontal, 4)
-            .contentShape(Rectangle())
+    private var continueTitle: String {
+        if let toPar { return "继续 · 第 \(activeHole) 洞 · \(Self.toParText(toPar))" }
+        return "继续 · 第 \(activeHole) 洞"
     }
 }
 

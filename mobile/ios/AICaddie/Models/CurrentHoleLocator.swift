@@ -95,6 +95,8 @@ struct PrepHoleFollowingState: Equatable {
 /// 2. Within `teeRadiusM` of a tee → the nearest such tee's hole. The tee wins over every other
 ///    area: where a green sits beside the next tee, the player standing on that tee is about to play
 ///    the next hole.
+///    When the displayed hole's tee is within `sharedTeeToleranceM` of that nearest tee (a shared
+///    anchor), the displayed hole wins instead of package order.
 /// 3. Inside a fairway outline → that hole. At an overlapping boundary, package order wins.
 /// 4. Within `corridorHalfWidthM` of a hole's tee→green-middle line → that hole. At the boundary of
 ///    two corridors the smaller distance to the line wins; an exact tie goes to package order.
@@ -106,13 +108,16 @@ enum CurrentHoleLocator {
     static let maximumHorizontalAccuracyM = LiveHoleGPSResolver.maximumHorizontalAccuracyM
     static let teeRadiusM = LiveHoleGPSResolver.maximumTeeDistanceM
     static let corridorHalfWidthM = 50.0
+    /// Tees this close to the nearest one count as the same start area; the displayed hole wins.
+    static let sharedTeeToleranceM = 5.0
     /// The design's "离所有发球台/果岭 1.5 km 外" boundary for having left the course.
     static let courseRadiusM = 1_500.0
 
     static func locate(
         coordinate: CLLocationCoordinate2D,
         horizontalAccuracyM: Double,
-        holes: [HoleLocatorGeometry]
+        holes: [HoleLocatorGeometry],
+        preferredHole: Int? = nil
     ) -> CurrentHoleLocation {
         guard CLLocationCoordinate2DIsValid(coordinate),
               coordinate.latitude.isFinite, coordinate.longitude.isFinite,
@@ -127,6 +132,15 @@ enum CurrentHoleLocator {
         }
         if let nearestTee = tees.min(by: { $0.distance < $1.distance }),
            nearestTee.distance <= teeRadiusM {
+            // A course package can expose one shared clubhouse/course anchor for several holes.
+            // When the player is viewing one of those holes, its tee is the intended start area;
+            // package order must not turn an equal-distance anchor into hole 1. A clearly nearer
+            // tee still wins, so standing on hole 10's tee while viewing hole 1 follows to 10.
+            if let preferredHole,
+               let preferred = tees.first(where: { $0.hole == preferredHole }),
+               preferred.distance <= nearestTee.distance + sharedTeeToleranceM {
+                return .onHole(preferredHole)
+            }
             return .onHole(nearestTee.hole)
         }
 
@@ -154,11 +168,20 @@ enum CurrentHoleLocator {
     }
 
     static func locate(fix: LocationFix?, package: LiveRoundPackage) -> CurrentHoleLocation {
+        locate(fix: fix, package: package, preferredHole: nil)
+    }
+
+    static func locate(
+        fix: LocationFix?,
+        package: LiveRoundPackage,
+        preferredHole: Int?
+    ) -> CurrentHoleLocation {
         guard let fix else { return .unknown }
         return locate(
             coordinate: fix.coordinate,
             horizontalAccuracyM: fix.horizontalAccuracyM,
-            holes: HoleLocatorGeometry.rows(for: package)
+            holes: HoleLocatorGeometry.rows(for: package),
+            preferredHole: preferredHole
         )
     }
 

@@ -48,6 +48,22 @@ final class PrepRoundStateTests: XCTestCase {
         XCTAssertEqual(restored.activeHole, 5)
     }
 
+    func testWholeCoursePrepHasAllHolesAndStartsAtTheFirstStrokeHole() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("c99-whole-course-prep-\(UUID().uuidString)", isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let model = LiveRoundAppModel(offlineStore: store, watchBridge: nil)
+        let package = try LiveRoundPackageFixture.wholeCourse(dataMode: "local")
+
+        model.enterPrepMode(with: package)
+
+        XCTAssertNil(model.liveRoundState)
+        XCTAssertEqual(Set(model.prepPackage?.holes.map(\.number) ?? []), Set(1...18))
+        XCTAssertTrue(model.startRoundFromFirstStroke(startHole: 10))
+        XCTAssertEqual(model.liveRoundState?.activeHole, 10)
+        XCTAssertEqual(model.liveRoundState?.startHole, 10)
+    }
+
     func testUndoFirstStrokeClearsLocalRoundAndReturnsToPrepHole() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("c30-undo-\(UUID().uuidString)", isDirectory: true)

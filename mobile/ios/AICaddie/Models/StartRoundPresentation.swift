@@ -26,11 +26,24 @@ struct StartCourseListRow: Equatable, Identifiable {
 /// Pure copy and list rules for 开始一场 and the home hero, kept out of the views so they are
 /// unit-testable without a SwiftUI host.
 enum StartRoundPresentation {
+    /// The download library is newest-first; show one row per course while retaining the newest
+    /// Tee/package identity for that course.
+    static func recentRows(_ downloads: [PrepCourseDownloadRecord]) -> [PrepCourseDownloadRecord] {
+        var seen = Set<Int>()
+        return downloads.filter { seen.insert($0.course.globalId).inserted }
+    }
+
+    static func recentRowSubtitle(_ download: PrepCourseDownloadRecord) -> String {
+        guard let tee = teeShortLabel(download.teeBox) else {
+            return download.course.segmentDisplayTitle
+        }
+        return "\(download.course.segmentDisplayTitle) · \(tee)"
+    }
+
     /// The setup state a venue-row tap can change. Kept together so returning to setup can
     /// preserve the player's choice and the Tee authority belonging to that choice.
     struct CourseRowState: Equatable {
         let selection: StartRoundView.CourseSelectionState
-        let startHalf: String
         let userPickedTee: Bool
         let fetchedTees: [CourseTee]
         let teeLoadFailed: Bool
@@ -51,7 +64,6 @@ enum StartRoundPresentation {
         }
         return CourseRowState(
             selection: StartRoundView.selectionState(for: option, lastUsedTee: lastUsedTee, uuid: uuid),
-            startHalf: state.selection.globalIdText == String(option.globalId) ? state.startHalf : "front",
             userPickedTee: false,
             fetchedTees: [],
             teeLoadFailed: false
@@ -271,6 +283,13 @@ enum StartRoundPresentation {
         }
         let chosen = (half == "back") ? "back" : "front"
         return [RoundLoopEntry(globalId: selected.globalId, half: chosen)]
+    }
+
+    /// A 27-hole venue's selected nine is the only loop for this start. The other nines are
+    /// offered again by NineLoopPlan after the first loop; sending all venue rows here would make
+    /// the package contain three `all` loops and the server rejects it.
+    static func combinedLoopEntries(selected: MobileCourseOption) -> [RoundLoopEntry] {
+        return [selected].map { RoundLoopEntry(globalId: $0.globalId, half: "all") }
     }
 
     /// The primary action: "从 B 场 开始 · 蓝 T" for a nine-hole loop and "从 后九 开始 · 蓝 T" for a

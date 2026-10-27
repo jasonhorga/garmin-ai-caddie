@@ -55,9 +55,7 @@ final class ReviewEditUITests: XCTestCase {
         let reviewEvidence = try resolveReviewEvidence()
         // ---- Navigate to a round review, then into one hole's 落点图 ----
         launchFresh()
-        let historyTile = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS %@", "成绩")
-        ).firstMatch
+        let historyTile = app.buttons["home-recent-trend"]
         guard historyTile.waitForExistence(timeout: 60) else {
             XCTFail("edit-00-home may be captured only after the real home replaces the launch screen")
             return

@@ -4,6 +4,14 @@ import CoreGraphics
 @testable import AICaddie
 
 final class RoundPlayOrderTests: XCTestCase {
+    func testQuickCourseShortcutUsesStartCourseRoute() {
+        let option = MobileCourseOption(globalId: 31795, name: "北京丽宫", teeBox: "White")
+        XCTAssertEqual(
+            RoundHomeView.quickCourseRoute(for: option),
+            .startCourse(globalId: 31795, teeBox: "White")
+        )
+    }
+
     func testFrontNineStartingAtFiveWrapsAtNine() {
         XCTAssertEqual(RoundPlayOrder.holes(Array(1...9), startingAt: 5), [5, 6, 7, 8, 9, 1, 2, 3, 4])
     }
@@ -51,23 +59,23 @@ final class RoundPlayOrderTests: XCTestCase {
 
     func testPrepPathKeepsPickerWhileAdvancingAndLivePathDropsItAfterStart() {
         XCTAssertEqual(
-            LiveHoleRoutePath.afterAdvance(current: [.prep, .hole(5)], nextHole: 6, isPrepMode: true),
-            [.prep, .hole(6)]
+            LiveHoleRoutePath.afterAdvance(current: [.startCourse(globalId: 1, teeBox: nil), .hole(5)], nextHole: 6, isPrepMode: true),
+            [.startCourse(globalId: 1, teeBox: nil), .hole(6)]
         )
         XCTAssertEqual(
-            LiveHoleRoutePath.afterAdvance(current: [.prep, .hole(5)], nextHole: 6, isPrepMode: false),
+            LiveHoleRoutePath.afterAdvance(current: [.startCourse(globalId: 1, teeBox: nil), .hole(5)], nextHole: 6, isPrepMode: false),
             [.hole(6)]
         )
         XCTAssertEqual(
-            LiveHoleRoutePath.afterPrepPackageRefresh(current: [.prep], pendingHole: nil),
-            [.prep]
+            LiveHoleRoutePath.afterPrepPackageRefresh(current: [.startCourse(globalId: 1, teeBox: nil)], pendingHole: nil),
+            [.startCourse(globalId: 1, teeBox: nil)]
         )
         XCTAssertEqual(
-            LiveHoleRoutePath.forPendingHole(current: [.prep], hole: 5, isPrepMode: true),
-            [.prep, .hole(5)]
+            LiveHoleRoutePath.forPendingHole(current: [.startCourse(globalId: 1, teeBox: nil)], hole: 5, isPrepMode: true),
+            [.startCourse(globalId: 1, teeBox: nil), .hole(5)]
         )
         XCTAssertEqual(
-            LiveHoleRoutePath.forPendingHole(current: [.prep, .hole(5)], hole: 5, isPrepMode: false),
+            LiveHoleRoutePath.forPendingHole(current: [.startCourse(globalId: 1, teeBox: nil), .hole(5)], hole: 5, isPrepMode: false),
             [.hole(5)]
         )
     }
