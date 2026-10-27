@@ -17,7 +17,9 @@ const scorecard = Array.from({ length: 18 }, (_, index) => ({
 }))
 
 describe('SharedRoundPage', () => {
-  beforeEach(() => fetchSharedRound.mockReset())
+  beforeEach(() => {
+    fetchSharedRound.mockReset()
+  })
 
   it('renders the fixed read-only scorecard without diagnostics or mutation controls', async () => {
     fetchSharedRound.mockResolvedValue({

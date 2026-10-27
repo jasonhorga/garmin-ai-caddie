@@ -16,11 +16,12 @@ function toParText(value: number | null): string {
 }
 
 export function SharedRoundPage({ token }: { token: string }): React.ReactElement {
+  // Keyed by token so a token change shows loading without a synchronous setState in the effect.
   const [state, setState] = useState<
-    | { status: 'loading' }
-    | { status: 'ready'; data: SharedRoundResponse }
-    | { status: 'error' }
-  >({ status: 'loading' })
+    | { token: string; status: 'ready'; data: SharedRoundResponse }
+    | { token: string; status: 'error' }
+    | null
+  >(null)
 
   useEffect(() => {
     const meta = document.querySelector('meta[name="robots"]') ?? document.createElement('meta')
@@ -34,20 +35,19 @@ export function SharedRoundPage({ token }: { token: string }): React.ReactElemen
 
   useEffect(() => {
     let cancelled = false
-    setState({ status: 'loading' })
     fetchSharedRound(token)
       .then((data) => {
-        if (!cancelled) setState({ status: 'ready', data })
+        if (!cancelled) setState({ token, status: 'ready', data })
       })
       .catch(() => {
-        if (!cancelled) setState({ status: 'error' })
+        if (!cancelled) setState({ token, status: 'error' })
       })
     return () => {
       cancelled = true
     }
   }, [token])
 
-  if (state.status === 'loading') {
+  if (state === null || state.token !== token) {
     return <main className="shared-round-page"><section className="panel empty-state"><p>正在加载分享记分卡…</p></section></main>
   }
   if (state.status === 'error') {
