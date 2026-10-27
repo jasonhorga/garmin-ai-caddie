@@ -3522,6 +3522,25 @@ class ServerV2MobileTests(unittest.TestCase):
                     self.assertEqual(response.status_code, 422, response.text)
                     self.assertFalse((Path(tmp) / "data" / "mobile_events" / "events.jsonl").exists())
 
+    def test_mobile_start_hole_uses_proven_round_hole_count(self) -> None:
+        client = TestClient(app)
+        event = {
+            "schema": "ai-caddie-live-round-event-v1", "eventId": "nine-hole-start",
+            "roundId": "nine-hole-start", "timestamp": "2026-06-20T00:00:00Z", "hole": 1,
+            "kind": "score", "payload": {"strokes": 4}, "startHole": 10,
+        }
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._identity_course_package(root, "nine-hole-start", [(55555, "front")])
+            with patch("server_v2.mobile.MOBILE_ROOT", root):
+                response = client.post(
+                    "/api/v2/mobile/rounds/nine-hole-start/events",
+                    headers={"Idempotency-Key": "nine-hole-start"},
+                    json={"roundId": "nine-hole-start", "events": [event]},
+                )
+            self.assertEqual(response.status_code, 422, response.text)
+            self.assertFalse((root / "data" / "mobile_events" / "events.jsonl").exists())
+
     def test_mobile_round_state_projects_authoritative_per_hole_state(self) -> None:
         # round-12 sync spine: GET …/state folds the event log into per-hole state (last-write-wins by
         # serverSequence) and flags fields two distinct clients disagree on.
