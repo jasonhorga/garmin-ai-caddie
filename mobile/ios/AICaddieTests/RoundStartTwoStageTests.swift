@@ -463,7 +463,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         model.liveHoleInitialLoadDidFinish()
         await fulfillment(of: [lateRequest], timeout: 2)
 
-        let paths = latePaths.all.compactMap { request in
+        let paths = latePaths.all.compactMap { request -> String? in
             guard let url = request.url else { return nil }
             return url.path + (url.query.map { "?\($0)" } ?? "")
         }
