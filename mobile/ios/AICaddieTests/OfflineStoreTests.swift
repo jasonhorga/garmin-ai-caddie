@@ -450,6 +450,26 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertTrue(try store.isRoundPendingFinish(package.roundId))
     }
 
+    func testCachedEventsInvalidatesAfterAppendingAnEvent() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let first = LiveRoundEvent(
+            eventId: "cached-first", roundId: "cached-round", timestamp: "2026-08-07T00:00:00Z",
+            hole: 1, kind: .score, payload: ["strokes": .number(4)]
+        )
+        let second = LiveRoundEvent(
+            eventId: "cached-second", roundId: "cached-round", timestamp: "2026-08-07T00:01:00Z",
+            hole: 1, kind: .putt, payload: ["putts": .number(2)]
+        )
+
+        try store.appendEvent(first)
+        XCTAssertEqual(try store.cachedEvents(), [first])
+        try store.appendEvent(second)
+        XCTAssertEqual(try store.cachedEvents(), [first, second])
+    }
+
     func testCourseTemplateSurvivesRoundDiscardAndRebasesWithoutOldIdentityOrCursor() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
