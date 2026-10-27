@@ -443,18 +443,6 @@ public struct RoundHomeView: View {
             enterPendingLiveHole(hole)
         }
         .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
-            // The first stroke promotes the memory-only prep package to a live round while the
-            // current hole destination is still visible. Drop the picker route immediately so
-            // Back leaves the live hole screen instead of returning to the prep picker.
-            if previousRoundId == nil, currentRoundId != nil,
-               (path.first.map { LiveHoleRoutePath.isPrepBase($0) } ?? false),
-               let hole = liveRoundState?.activeHole ?? pendingLiveHole {
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    path = [.hole(hole)]
-                }
-            }
             // 撤销开打 ends the round but keeps the hole screen, back in 备战.
             if previousRoundId != nil, currentRoundId == nil, prepPackage == nil {
                 path = []
@@ -602,6 +590,18 @@ public struct RoundHomeView: View {
                 isPrepMode: isPrepHoleScreen,
                 prepTeeOptions: prepTeeOptions,
                 onStartRoundFromFirstStroke: onStartRoundFromFirstStroke,
+                onFirstStrokeClubPromptDismissed: {
+                    // Keep the prep base route while the first-stroke sheet is presented. Once
+                    // the player has chosen or skipped a club, the live hole becomes the sole
+                    // destination and Back can no longer return to the picker.
+                    if let activeHole = liveRoundState?.activeHole {
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            path = [.hole(activeHole)]
+                        }
+                    }
+                },
                 onUndoRoundStart: onUndoRoundStart,
                 onChangePrepTee: onChangePrepTee,
                 onEvent: onEvent
