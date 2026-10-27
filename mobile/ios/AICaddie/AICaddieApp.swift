@@ -2030,16 +2030,22 @@ public final class LiveRoundAppModel: ObservableObject {
         var changed = false
         var seen = Set<Int>()
         var loops = snapshot.loopEntries
+        var catalogueLoopPositions: [Int: Int] = [:]
         // A nine-hole loop's second nine can come from a sibling loop at the same venue. The
         // turn planner already resolves that catalogue, so use the same candidates for the
         // background template queue instead of only retaining the loop in the live package.
         if let first = snapshot.roundLoops.first, !first.isCourseHalf {
-            for candidate in NineLoopTurn.candidateLoops(package: snapshot, catalogue: courseOptions) {
+            let candidates = NineLoopTurn.candidateLoops(package: snapshot, catalogue: courseOptions)
+            for (position, candidate) in candidates.enumerated() {
+                catalogueLoopPositions[NineLoopTurn.entry(candidate.id)?.globalId ?? -1] = position
+            }
+            for candidate in candidates {
                 guard let entry = NineLoopTurn.entry(candidate.id),
                       !loops.contains(where: { NineLoopTurn.loopId($0) == candidate.id }) else { continue }
                 loops.append(entry)
             }
         }
+        let queueGroupID = catalogueLoopPositions.count > 1 ? UUID().uuidString : nil
         for loop in loops where seen.insert(loop.globalId).inserted {
             if loop.globalId == snapshot.course.globalId, snapshot.wholeCourseTemplate() != nil {
                 continue
@@ -2047,7 +2053,7 @@ public final class LiveRoundAppModel: ObservableObject {
             let isCourseHalf = loop.half == "front" || loop.half == "back"
             let holes = isCourseHalf ? RoundLoopEntry.holesPerLoop * 2 : RoundLoopEntry.holesPerLoop
             let option = courseOptions.first(where: { $0.globalId == loop.globalId })
-            let candidate = PrepCourseDownloadRecord(
+            var candidate = PrepCourseDownloadRecord(
                 course: MobileCourseOption(
                     globalId: loop.globalId,
                     name: option?.name ?? snapshot.course.venueDisplayName,
@@ -2064,7 +2070,17 @@ public final class LiveRoundAppModel: ObservableObject {
                 teeBox: snapshot.course.teeBox,
                 totalHoles: holes
             )
+            if let queueGroupID, let queuePosition = catalogueLoopPositions[loop.globalId] {
+                candidate.queueGroupID = queueGroupID
+                candidate.queuePosition = queuePosition
+            }
             if let index = prepCourseDownloads.firstIndex(where: { $0.id == candidate.id }) {
+                if prepCourseDownloads[index].queueGroupID != candidate.queueGroupID
+                    || prepCourseDownloads[index].queuePosition != candidate.queuePosition {
+                    prepCourseDownloads[index].queueGroupID = candidate.queueGroupID
+                    prepCourseDownloads[index].queuePosition = candidate.queuePosition
+                    changed = true
+                }
                 if prepCourseDownloads[index].isSpeculative {
                     // The round needs it now: no longer a Wi-Fi-only guess held back during play.
                     prepCourseDownloads[index].isSpeculative = false
@@ -5232,7 +5248,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
     @discardableResult
     private func persistPrepCourseDownloads() -> Bool {
-        prepCourseDownloads.sort { $0.updatedAt > $1.updatedAt }
+        prepCourseDownloads = orderedPrepCourseDownloads(prepCourseDownloads)
         do {
             try offlineStore.savePrepCourseDownloads(prepCourseDownloads)
             return true
@@ -5254,6 +5270,41 @@ public final class LiveRoundAppModel: ObservableObject {
         update(&prepCourseDownloads[index])
         prepCourseDownloads[index].updatedAt = Date()
         persistPrepCourseDownloads()
+    }
+
+    /// Keep one catalogue expansion together and in its factual A/B/C order. Independent rows
+    /// retain the library's established newest-updated-first ordering. The group timestamp is the
+    /// newest row in that expansion, so a progress write moves the batch as one visible/worker
+    /// priority while its internal order remains stable.
+    private func orderedPrepCourseDownloads(
+        _ records: [PrepCourseDownloadRecord]
+    ) -> [PrepCourseDownloadRecord] {
+        let groupDates = Dictionary(grouping: records.compactMap { record -> (String, Date)? in
+            guard let group = record.queueGroupID else { return nil }
+            return (group, record.updatedAt)
+        }, by: { $0.0 }).mapValues { values in
+            values.map(\.1).max() ?? .distantPast
+        }
+        return records.sorted { lhs, rhs in
+            if let lhsGroup = lhs.queueGroupID,
+               let rhsGroup = rhs.queueGroupID,
+               lhsGroup == rhsGroup,
+               let lhsPosition = lhs.queuePosition,
+               let rhsPosition = rhs.queuePosition,
+               lhsPosition != rhsPosition {
+                return lhsPosition < rhsPosition
+            }
+            let lhsDate = lhs.queueGroupID.flatMap { groupDates[$0] } ?? lhs.updatedAt
+            let rhsDate = rhs.queueGroupID.flatMap { groupDates[$0] } ?? rhs.updatedAt
+            if lhsDate != rhsDate { return lhsDate > rhsDate }
+            if lhs.queueGroupID == rhs.queueGroupID,
+               let lhsPosition = lhs.queuePosition,
+               let rhsPosition = rhs.queuePosition,
+               lhsPosition != rhsPosition {
+                return lhsPosition < rhsPosition
+            }
+            return lhs.id < rhs.id
+        }
     }
 
     private func readyPrepTemplate(for record: PrepCourseDownloadRecord) -> LiveRoundPackage? {
@@ -5666,7 +5717,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// which restarts the worker (`beginOfflineCourseDownload` → `startPrepCourseDownloadQueueIfNeeded`).
     private func nextPrepCourseDownloadJob() -> PrepCourseDownloadRecord? {
         let freshEntryPending = deferredOfflineCourseDownloadRevalidation != nil
-        return prepCourseDownloads
+        let eligible = prepCourseDownloads
             .filter { $0.phase == .queued }
             .filter { !freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id) }
             .filter { foregroundCourseRequestCount == 0 || !$0.yieldsToForeground }
@@ -5674,12 +5725,14 @@ public final class LiveRoundAppModel: ObservableObject {
             // flight; it waits for the start's first stage, then for the fresh-entry release.
             .filter { roundPreparationToken == nil || !$0.yieldsToForeground }
             .filter { !$0.isSpeculative || speculativeJobMayStart }
-            // Every job the player or a round asked for goes before a speculative one.
-            .sorted(by: { lhs, rhs in
-                if lhs.isSpeculative != rhs.isSpeculative { return rhs.isSpeculative }
-                return lhs.updatedAt > rhs.updatedAt
-            })
-            .first
+        // Every job the player or a round asked for goes before a speculative one. The stable
+        // catalogue ordering is then applied inside that priority class.
+        let catalogueOrder = orderedPrepCourseDownloads(eligible)
+        let orderIndex = Dictionary(uniqueKeysWithValues: catalogueOrder.enumerated().map { ($1.id, $0) })
+        return eligible.sorted(by: { lhs, rhs in
+            if lhs.isSpeculative != rhs.isSpeculative { return rhs.isSpeculative }
+            return orderIndex[lhs.id, default: .max] < orderIndex[rhs.id, default: .max]
+        }).first
     }
 
     // MARK: - 可能会打 (speculative course downloads)
