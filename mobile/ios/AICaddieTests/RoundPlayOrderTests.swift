@@ -1,6 +1,7 @@
 import XCTest
 import CoreLocation
 import CoreGraphics
+import AICaddieDomain
 @testable import AICaddie
 
 final class RoundPlayOrderTests: XCTestCase {
