@@ -1,12 +1,11 @@
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -3071,7 +3071,8 @@
-         guard hasPlausibleLiveFix,
-               let fix = locationProvider.latestFix,
-               let gd = liveGreenDistances else { return nil }
--        let here = fix.coordinate
-+        let here = CLLocationCoordinate2D(latitude: hole.teeLatitude ?? 0, longitude: hole.teeLongitude ?? 0)
-+        _ = fix
-         let front = GeoDistance.yards(from: here.latitude, here.longitude, to: gd.frontLat, gd.frontLon)
-         let middle = GeoDistance.yards(from: here.latitude, here.longitude, to: gd.middleLat, gd.middleLon)
-         let back = GeoDistance.yards(from: here.latitude, here.longitude, to: gd.backLat, gd.backLon)
+@@ -4562,7 +4562,7 @@
+                 return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+             }
+             return teeAnchorCoordinate
+-        case .liveGPS: return locationProvider.latestFix?.coordinate
++        case .liveGPS: return teeAnchorCoordinate
+         case .fallback: return nil
+         }
+     }
