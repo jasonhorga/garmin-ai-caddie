@@ -399,6 +399,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         let held = C85HeldRequests()
         let requests = C85Counter()
         let stopped = C85Counter()
+        let latePaths = C85RequestLog()
         let fullSent = expectation(description: "full package requested")
         let lateRequest = expectation(description: "a request after the stop")
         lateRequest.isInverted = true
@@ -409,7 +410,10 @@ final class RoundStartTwoStageTests: XCTestCase {
             // through the shared session, which is never invalidated, and ask for `Accept: image/*`.
             if proto.request.value(forHTTPHeaderField: "Accept")?.hasPrefix("image/") != true {
                 requests.increment()
-                if stopped.value > 0, lateRequestOnce.claim() { lateRequest.fulfill() }
+                if stopped.value > 0 {
+                    latePaths.append(proto.request)
+                    if lateRequestOnce.claim() { lateRequest.fulfill() }
+                }
             }
             guard proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package" else {
                 proto.reply(404); return
@@ -459,7 +463,11 @@ final class RoundStartTwoStageTests: XCTestCase {
         model.liveHoleInitialLoadDidFinish()
         await fulfillment(of: [lateRequest], timeout: 2)
 
-        XCTAssertEqual(requests.value, requestsAtStop, "no request after the stop")
+        let paths = latePaths.all.compactMap { request in
+            guard let url = request.url else { return nil }
+            return url.path + (url.query.map { "?\($0)" } ?? "")
+        }
+        XCTAssertEqual(requests.value, requestsAtStop, "no request after the stop; paths=\(paths)")
         XCTAssertEqual(rasterCalls.value, 1, "the raster pass ended at the stop")
         XCTAssertEqual(model.package?.clubProfiles, [], "the personal package was never merged")
     }
