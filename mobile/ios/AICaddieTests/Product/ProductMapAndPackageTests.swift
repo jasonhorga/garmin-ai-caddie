@@ -211,7 +211,7 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
         XCTAssertEqual(state.latitude, 0.001)
         XCTAssertEqual(state.longitude, 0.002)
-        XCTAssertEqual(state.horizontalAccuracyM, 120)
+        XCTAssertEqual(state.horizontalAccuracyM, 5)
     }
 
     func test_j8_3_optional_sections_old_and_future_data_decode_without_losing_facts() throws {

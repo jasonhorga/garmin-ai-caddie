@@ -2262,13 +2262,17 @@ public final class OfflineStore {
                     // coordinates nil because the state starts without a landing.
                 }
                 applyTargetPayload(event.payload, to: &state)
-                switch optionalNumberPayload("horizontalAccuracyM", in: event.payload) {
-                case .number(let horizontalAccuracyM):
-                    state.horizontalAccuracyM = horizontalAccuracyM
-                case .null:
-                    state.horizontalAccuracyM = nil
-                case .missing:
-                    break
+                // Accuracy describes the stored coordinates: a rejected fix may only report its
+                // precision while no known position exists (J5.5 keeps it visible to the view).
+                if acceptsCoordinate || (state.latitude == nil && state.longitude == nil) {
+                    switch optionalNumberPayload("horizontalAccuracyM", in: event.payload) {
+                    case .number(let horizontalAccuracyM):
+                        state.horizontalAccuracyM = horizontalAccuracyM
+                    case .null:
+                        state.horizontalAccuracyM = nil
+                    case .missing:
+                        break
+                    }
                 }
             case .note, .photo, .video, .syncMarker:
                 break
