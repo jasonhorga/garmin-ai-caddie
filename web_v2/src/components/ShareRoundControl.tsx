@@ -16,8 +16,12 @@ function absolutePageUrl(pageUrl: string): string {
 
 async function copyText(value: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value)
-    return
+    try {
+      await navigator.clipboard.writeText(value)
+      return
+    } catch {
+      // Fall through to the selection-based fallback when permission is unavailable.
+    }
   }
   const input = document.createElement('textarea')
   input.value = value
