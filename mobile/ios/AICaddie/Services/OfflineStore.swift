@@ -642,6 +642,8 @@ public final class OfflineStore {
     private var pendingRoundFinishesBackupURL: URL
     private var pendingMediaDirectoryURL: URL
     private var pendingMediaIndexURL: URL
+    private var liveRoundProgressCache: LiveRoundProgress?
+    private var liveRoundProgressCacheLoaded = false
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let syncEventLogFile: (URL) throws -> Void
@@ -798,6 +800,8 @@ public final class OfflineStore {
         directoryURL = directory
         eventLogCache = nil
         eventLogLock.unlock()
+        liveRoundProgressCache = nil
+        liveRoundProgressCacheLoaded = false
         logURL = directory.appendingPathComponent("events.jsonl")
         packagesDirectoryURL = directory.appendingPathComponent("packages", isDirectory: true)
         courseTemplatesDirectoryURL = directory.appendingPathComponent(
@@ -1659,10 +1663,18 @@ public final class OfflineStore {
     }
 
     private func loadLiveRoundProgress() throws -> LiveRoundProgress? {
+        if liveRoundProgressCacheLoaded {
+            return liveRoundProgressCache
+        }
         guard FileManager.default.fileExists(atPath: liveProgressURL.path) else {
+            liveRoundProgressCache = nil
+            liveRoundProgressCacheLoaded = true
             return nil
         }
-        return try decoder.decode(LiveRoundProgress.self, from: Data(contentsOf: liveProgressURL))
+        let progress = try decoder.decode(LiveRoundProgress.self, from: Data(contentsOf: liveProgressURL))
+        liveRoundProgressCache = progress
+        liveRoundProgressCacheLoaded = true
+        return progress
     }
 
     /// Test-visible presence check that does not expose the private progress-file representation.
@@ -1673,6 +1685,8 @@ public final class OfflineStore {
     private func saveLiveRoundProgress(_ progress: LiveRoundProgress) throws {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         try encoder.encode(progress).write(to: liveProgressURL, options: [.atomic])
+        liveRoundProgressCache = progress
+        liveRoundProgressCacheLoaded = true
     }
 
     public func loadPendingRoundFinishes() throws -> [PendingRoundFinish] {
@@ -1742,6 +1756,8 @@ public final class OfflineStore {
         removeCurrentRoundPointerIfMatching(package.roundId)
         if let progress = try? loadLiveRoundProgress(), progress.roundId == package.roundId {
             try? FileManager.default.removeItem(at: liveProgressURL)
+            liveRoundProgressCache = nil
+            liveRoundProgressCacheLoaded = true
         }
     }
 
@@ -1810,6 +1826,8 @@ public final class OfflineStore {
         try? FileManager.default.removeItem(at: packageURL(roundId: roundId))
         if let progress = try? loadLiveRoundProgress(), progress.roundId == roundId {
             try? FileManager.default.removeItem(at: liveProgressURL)
+            liveRoundProgressCache = nil
+            liveRoundProgressCacheLoaded = true
         }
         let mediaIds = Set(try loadPendingMedia(roundId: roundId).map(\.id))
         try removePendingMedia(ids: mediaIds)
