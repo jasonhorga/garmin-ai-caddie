@@ -56,8 +56,9 @@ class MobileReconciliationTests(unittest.TestCase):
                              [f"partial:{n}" for n in range(1, 10)])
             self.assertEqual([r["hole"] for r in result["localOnly"]], list(range(10, 19)))
             self.assertEqual(result["conflicts"], [])
-            self.assertEqual([r["targetId"] for r in result["annotationSuggestions"]],
-                             [f"partial:{n}" for n in range(10, 19)])
+            # Missing physical mappings are evidence only; never suggest a correction against a
+            # Garmin display hole that may belong to another card.
+            self.assertEqual(result["annotationSuggestions"], [])
 
     def test_back_start_eighteen_round_with_only_first_garmin_card_is_partial(self) -> None:
         """A back-start phone round must reconcile the uploaded 10..18 card only."""
