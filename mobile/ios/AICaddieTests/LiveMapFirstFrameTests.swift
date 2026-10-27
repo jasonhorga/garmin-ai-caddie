@@ -22,15 +22,18 @@ final class LiveMapFirstFrameTests: XCTestCase {
     }
 
     func testFailedPreciseDecodeAllowsReadyGarminFallback() {
-        let state = LiveMapDisplayState.resolveLive(.init(
+        let inputs = LiveMapDisplayState.liveInputs(
             coverage: "ready",
+            decodeFailed: true,
+            resolvedLocalTopoURL: URL(fileURLWithPath: "/tmp/broken-topo.png"),
+            hasEmbeddedTopoImage: false,
             preciseTopoImageReady: false,
+            memoryCached: false,
             garminRaster: GarminRasterResponse(available: true, imageUrl: "/garmin.png"),
             garminImageReady: true,
-            garminImageFailed: false,
-            hasCachedPreciseTopo: false,
-            preciseTopoAvailable: false
-        ))
+            garminImageFailed: false
+        )
+        let state = LiveMapDisplayState.resolveLive(inputs)
         XCTAssertEqual(state, .garminRaster)
     }
 

@@ -3244,34 +3244,31 @@ public struct CurrentHoleView: View {
     }
 
     private var hasPreciseTopoImage: Bool {
-        guard !preciseTopoDecodeFailed else { return false }
-        if hasEmbeddedTopoImage { return true }
-        guard let url = liveTopoURL else { return false }
-        // A file URL means the exact PNG is available, but it is not drawable until its bytes
-        // have been decoded. Keeping that distinction prevents a Garmin flash on page entry.
-        return preciseTopoImageReady || TopoHoleImageStore.isMemoryCached(url)
+        liveMapInputs.preciseTopoImageReady
     }
 
     /// A local file, embedded image, or known decoded cache is enough to reserve the exact-map
     /// state. Decode readiness is tracked separately so the first selected frame cannot flash a
     /// Garmin bitmap while the local PNG is being promoted into memory.
     private var hasPreciseTopoAvailable: Bool {
-        guard !preciseTopoDecodeFailed else { return false }
-        return hasEmbeddedTopoImage || resolvedLocalTopoURL != nil || preciseTopoImageReady
-            || hasCachedTopoForCurrentHole
+        liveMapInputs.preciseTopoAvailable
     }
 
     private var liveMapDisplayState: LiveMapDisplayState {
-        LiveMapDisplayState.resolveLive(
-            .init(
-                coverage: LiveTopoAvailability.coverage(hole: hole, prep: holePrep),
-                preciseTopoImageReady: hasPreciseTopoImage,
-                garminRaster: garminRaster,
-                garminImageReady: garminImageReadyForDisplay,
-                garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying,
-                hasCachedPreciseTopo: hasCachedTopoForCurrentHole,
-                preciseTopoAvailable: hasPreciseTopoAvailable
-            )
+        LiveMapDisplayState.resolveLive(liveMapInputs)
+    }
+
+    private var liveMapInputs: LiveMapDisplayState.LiveInputs {
+        LiveMapDisplayState.liveInputs(
+            coverage: LiveTopoAvailability.coverage(hole: hole, prep: holePrep),
+            decodeFailed: preciseTopoDecodeFailed,
+            resolvedLocalTopoURL: resolvedLocalTopoURL,
+            hasEmbeddedTopoImage: hasEmbeddedTopoImage,
+            preciseTopoImageReady: preciseTopoImageReady,
+            memoryCached: liveTopoURL.map { TopoHoleImageStore.isMemoryCached($0) } ?? false,
+            garminRaster: garminRaster,
+            garminImageReady: garminImageReadyForDisplay,
+            garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying
         )
     }
 
@@ -3362,9 +3359,7 @@ public struct CurrentHoleView: View {
     }
 
     private var hasCachedTopoForCurrentHole: Bool {
-        guard !preciseTopoDecodeFailed else { return false }
-        if localTopoURL != nil { return true }
-        return liveTopoURL.map { TopoHoleImageStore.isMemoryCached($0) } ?? false
+        liveMapInputs.hasCachedPreciseTopo
     }
 
     /// The downloaded topo of this physical hole. The bitmap is keyed by the hole's geometry

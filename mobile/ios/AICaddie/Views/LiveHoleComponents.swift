@@ -2373,6 +2373,38 @@ enum LiveMapDisplayState: Equatable {
         }
     }
 
+    /// Combines precise-topo lifecycle flags at one boundary. A local file can be present while
+    /// its bytes are corrupt; after that decode fails it must stop reserving the exact map so a
+    /// ready Garmin bitmap can render.
+    static func liveInputs(
+        coverage: String?,
+        decodeFailed: Bool,
+        resolvedLocalTopoURL: URL?,
+        hasEmbeddedTopoImage: Bool,
+        preciseTopoImageReady: Bool,
+        memoryCached: Bool,
+        garminRaster: GarminRasterResponse?,
+        garminImageReady: Bool,
+        garminImageFailed: Bool
+    ) -> LiveInputs {
+        let preciseImageReady = !decodeFailed
+            && (hasEmbeddedTopoImage || preciseTopoImageReady || memoryCached)
+        let preciseAvailable = !decodeFailed
+            && (hasEmbeddedTopoImage || resolvedLocalTopoURL != nil
+                || preciseTopoImageReady || memoryCached)
+        let cachedPreciseTopo = !decodeFailed
+            && (resolvedLocalTopoURL != nil || memoryCached)
+        return LiveInputs(
+            coverage: coverage,
+            preciseTopoImageReady: preciseImageReady,
+            garminRaster: garminRaster,
+            garminImageReady: garminImageReady,
+            garminImageFailed: garminImageFailed,
+            hasCachedPreciseTopo: cachedPreciseTopo,
+            preciseTopoAvailable: preciseAvailable
+        )
+    }
+
     /// Phone live-play display priority: precise CourseView raster > Garmin raster image > numeric
     /// placeholder. A Garmin descriptor with `available=false` can still provide a visual image,
     /// but its projection is intentionally absent and the caller draws no geo overlays.
