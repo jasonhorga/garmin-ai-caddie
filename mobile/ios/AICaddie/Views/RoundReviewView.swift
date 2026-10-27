@@ -339,7 +339,7 @@ struct RoundReviewContent: View {
             }
             .padding(.horizontal, 4)
             LiveNineCard(
-                label: card.nineLabels?.front ?? (card.holes.count > 9 ? "OUT" : "合计"),
+                label: card.nineLabels?.front ?? "合计",
                 holes: Array(card.holes.prefix(9)),
                 scores: card.scores,
                 onSelect: onSelectHole,
@@ -348,7 +348,7 @@ struct RoundReviewContent: View {
             )
             if card.holes.count > 9 {
                 LiveNineCard(
-                    label: card.nineLabels?.back ?? "IN",
+                    label: card.nineLabels?.back ?? "合计",
                     holes: Array(card.holes.dropFirst(9).prefix(9)),
                     scores: card.scores,
                     onSelect: onSelectHole,
@@ -466,7 +466,8 @@ struct RoundReviewContent: View {
             parts.append(toPar.map { "\(strokes) 杆（\(LiveRoundScoreSummary.toParText($0))）" } ?? "\(strokes) 杆")
         }
         if card.holes.count > 9 {
-            let front = card.nineLabels?.front ?? "OUT", back = card.nineLabels?.back ?? "IN"
+            let labels = card.nineLabels ?? (front: "第一环", back: "第二环")
+            let front = labels.front, back = labels.back
             if let total = card.nineTotal(card.holes.prefix(9)) { parts.append("\(front) \(total)") }
             if let total = card.nineTotal(card.holes.dropFirst(9)) { parts.append("\(back) \(total)") }
         }
@@ -559,9 +560,8 @@ struct RoundReviewScorecard: Equatable {
 
     func canOpen(_ hole: Int) -> Bool { reviewHoles.canOpen(hole) }
 
-    /// "前九" / "后九" for the two nines of an 18-hole card, by each nine's first physical hole; nil
-    /// unless they read as one front and one back (two loops of a 27-hole course both start at 1),
-    /// so those cards keep OUT / IN.
+    /// "前九" / "后九" for a physical 18-hole card, by each nine's first physical hole. A card
+    /// whose two halves cannot be identified as front/back keeps the neutral "合计" label.
     var nineLabels: (front: String, back: String)? {
         guard holes.count > 9 else { return nil }
         func half(_ nine: ArraySlice<ScorecardHole>) -> String? {
