@@ -24,6 +24,18 @@ struct LiveHolePagerState: Equatable {
     private(set) var pendingTarget: Int? = nil
     private(set) var touchOrigin: Int? = nil
     private(set) var reportedSelection: Int? = nil
+    private(set) var presentationBlocksCorrection = false
+    private(set) var correctionAttempts = 0
+    private var correctionDeferredByPresentation = false
+
+    static func swipeStep(
+        translationX: Double, translationY: Double, predictedX: Double, scrollDisabled: Bool
+    ) -> Int {
+        guard !scrollDisabled, abs(translationX) > abs(translationY),
+              translationX * predictedX > 0,
+              abs(translationX) >= 50 || abs(predictedX) >= 100 else { return 0 }
+        return translationX < 0 ? 1 : -1
+    }
 
     @discardableResult
     mutating func send(_ event: Event) -> Effect {
@@ -31,7 +43,8 @@ struct LiveHolePagerState: Equatable {
         switch event {
         case .pageSetChanged(let holes, let active):
             ordered = holes
-            setTarget(active ?? activeHole ?? holes.first)
+            let requested = active ?? activeHole
+            setTarget(requested.flatMap { holes.contains($0) ? $0 : nil } ?? holes.first)
         case .programmaticHole(let hole):
             setTarget(hole)
         case .advance(let hole):
@@ -40,6 +53,7 @@ struct LiveHolePagerState: Equatable {
             effect.activeHoleToPersist = hole
         case .touchBegan:
             touchOrigin = activeHole
+            reportedSelection = nil // Only this touch can acknowledge its finger-up destination.
         case .touchEnded(let step):
             guard let origin = touchOrigin, let index = ordered.firstIndex(of: origin) else { return effect }
             touchOrigin = nil
@@ -47,31 +61,57 @@ struct LiveHolePagerState: Equatable {
             let next = ordered.indices.contains(nextIndex) ? ordered[nextIndex] : origin
             let displayed = reportedSelection
             setTarget(next)
-            if displayed == next { pendingTarget = nil }
-            if step == 0, let displayed, displayed != next { effect.forceScrollTo = next }
+            if displayed == next {
+                pendingTarget = nil
+                correctionAttempts = 0
+            }
+            if step == 0, let displayed, displayed != next { requestCorrection(into: &effect) }
             if next != origin { effect.activeHoleToPersist = next }
-        case .presentationChanged:
-            break // Existing behaviour: presentation does not gate display correction.
+        case .presentationChanged(let blocked):
+            let wasBlocked = presentationBlocksCorrection
+            presentationBlocksCorrection = blocked
+            if wasBlocked, !blocked, correctionDeferredByPresentation, pendingTarget != nil {
+                requestCorrection(into: &effect)
+            }
         case .bindingReported(let hole):
             reportedSelection = hole
             if hole == pendingTarget, pendingTarget != nil {
                 selection = hole
                 pendingTarget = nil
+                correctionAttempts = 0
+                correctionDeferredByPresentation = false
             } else if pendingTarget != nil {
-                effect.forceScrollTo = pendingTarget
+                requestCorrection(into: &effect)
             } else if touchOrigin != nil, let hole, ordered.contains(hole) {
                 // Native scrolling remains interactive; only touchEnded commits the round cursor.
                 selection = hole
             } else if hole != activeHole {
                 selection = activeHole
                 pendingTarget = activeHole
-                effect.forceScrollTo = activeHole
+                requestCorrection(into: &effect)
             }
         }
         return effect
     }
 
+    private mutating func requestCorrection(into effect: inout Effect) {
+        guard let target = pendingTarget else { return }
+        if presentationBlocksCorrection {
+            correctionDeferredByPresentation = true
+            return
+        }
+        guard correctionAttempts < 3 else { return }
+        correctionDeferredByPresentation = false
+        // An interactive report is rejected, but it must not spend the correction budget while
+        // the finger still owns the surface. The view defers it until finger-up.
+        if touchOrigin == nil { correctionAttempts += 1 }
+        effect.forceScrollTo = target
+    }
+
     private mutating func setTarget(_ hole: Int?) {
+        if activeHole != hole { correctionAttempts = 0 }
+        reportedSelection = nil
+        correctionDeferredByPresentation = false
         activeHole = hole
         selection = hole
         pendingTarget = hole

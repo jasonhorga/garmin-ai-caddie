@@ -586,8 +586,8 @@ public struct CurrentHoleView: View {
     /// B4 turn: after the last hole of a single first loop, ask which nine comes next.
     @State private var turnPlan: NineLoopPlan?
     /// A turn continuation is in flight. The sheet is dismissed first and the model is asked for
-    /// the second loop only from `onDismiss`: the model then replaces the package — which rebuilds
-    /// this destination for the new hole set — and moves the NavigationStack to its first hole,
+    /// the second loop only from `onDismiss`: the model then replaces the package and moves the
+    /// pager to its first hole without changing this page's identity,
     /// and SwiftUI does not complete that path replacement behind a sheet presented from inside
     /// the stack. A failed or offline preparation re-presents the choice with a retry message.
     @State private var turnContinuationPending = false
@@ -630,6 +630,7 @@ public struct CurrentHoleView: View {
     /// The finish page's nine-hole continuation opens the same turn sheet after dismissal.
     @State private var pendingSummaryTurn = false
     @State private var pendingPhoneShot: PendingPhoneShot?
+    @State private var pagerPresentedSurfaces: Set<String> = []
     @State private var prepNotice: String?
     @State private var heroMapScale: CGFloat = 1
     @State private var heroMapOffset: CGSize = .zero
@@ -1025,6 +1026,9 @@ public struct CurrentHoleView: View {
             }
         }
         .onDisappear {
+            #if DEBUG
+            UITestPagerTrace.shared.record("page disappear hole=\(hole.number) sheet=\(pagerPresentationIsActive)")
+            #endif
             locationProvider.stopUpdatingLocation()
             heroTargetDragGrabbed = false
             heroTargetDragLocation = nil
@@ -1261,36 +1265,38 @@ public struct CurrentHoleView: View {
             Task { await importPinSheet(items) }
         }
         .fullScreenCover(isPresented: $showGreenDetail) {
-            greenDetailSurface
+            trackedPagerPresentation("green") { greenDetailSurface }
         }
         .sheet(item: $scoreDraft, onDismiss: handleScoreSheetDismissed) { presentedDraft in
-            scoreConfirmationSurface(for: presentedDraft)
+            trackedPagerPresentation("score") { scoreConfirmationSurface(for: presentedDraft) }
         }
         .sheet(item: $pendingPhoneShot, onDismiss: onFirstStrokeClubPromptDismissed) { pendingShot in
-            actualClubPromptSurface(for: pendingShot)
+            trackedPagerPresentation("club") { actualClubPromptSurface(for: pendingShot) }
         }
         .sheet(isPresented: $showScorecard, onDismiss: handleScorecardDismissed) {
-            scorecardSurface
+            trackedPagerPresentation("scorecard") { scorecardSurface }
         }
         .sheet(isPresented: $showRoundSummary, onDismiss: handleRoundSummaryDismissed) {
-            roundSummarySurface
+            trackedPagerPresentation("summary") { roundSummarySurface }
         }
         .sheet(isPresented: Binding(
             get: { turnPlan != nil },
             set: { if !$0 { turnPlan = nil } }
         ), onDismiss: handleTurnSheetDismissed) {
             if let turnPlan {
-                LiveRoundTurnSheet(
-                    plan: turnPlan,
-                    isPreparing: isPreparingRound || turnContinuationPending,
-                    failureText: turnContinuationFailed ? "没能接上这个 9 洞，请重试" : nil,
-                    onContinue: continueIntoSecondLoop,
-                    onStop: {
-                        self.turnPlan = nil
-                        turnFinishPending = true
-                    },
-                    onLater: { self.turnPlan = nil }
-                )
+                trackedPagerPresentation("turn") {
+                    LiveRoundTurnSheet(
+                        plan: turnPlan,
+                        isPreparing: isPreparingRound || turnContinuationPending,
+                        failureText: turnContinuationFailed ? "没能接上这个 9 洞，请重试" : nil,
+                        onContinue: continueIntoSecondLoop,
+                        onStop: {
+                            self.turnPlan = nil
+                            turnFinishPending = true
+                        },
+                        onLater: { self.turnPlan = nil }
+                    )
+                }
             }
         }
         .onChange(of: isPreparingRound) { wasPreparing, preparing in
@@ -1323,6 +1329,38 @@ public struct CurrentHoleView: View {
         }
     }
 
+    private var pagerPresentationIsActive: Bool {
+        scoreDraft != nil || pendingPhoneShot != nil || showScorecard || showRoundSummary
+            || turnPlan != nil || showGreenDetail || showDiscardConfirmation
+            || !pagerPresentedSurfaces.isEmpty || scoreDismissalCoordinator.pending != nil
+            || turnFinishPending || pendingSummaryDiscard || pendingSummaryTurn
+    }
+
+    private func trackedPagerPresentation<Content: View>(
+        _ name: String, @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .overlay(alignment: .topLeading) { pagerTraceElement }
+            .onAppear {
+                pagerPresentedSurfaces.insert(name)
+                #if DEBUG
+                UITestPagerTrace.shared.record("sheet appear hole=\(hole.number) name=\(name)")
+                #endif
+            }
+            .onDisappear {
+                pagerPresentedSurfaces.remove(name)
+                #if DEBUG
+                UITestPagerTrace.shared.record("sheet disappear hole=\(hole.number) name=\(name)")
+                #endif
+            }
+    }
+
+    @ViewBuilder private var pagerTraceElement: some View {
+        #if DEBUG
+        UITestPagerTraceElement()
+        #endif
+    }
+
     // Keep the large live-play layout in its own opaque view boundary. Besides making the
     // hierarchy easier to read, this prevents SwiftUI's modifier chain in `body` from forcing the
     // compiler to infer every map, panel, and sheet expression as one type-checking problem.
@@ -1332,6 +1370,7 @@ public struct CurrentHoleView: View {
     /// Kept out of `body`'s modifier chain, which is already at the type checker's limit (C89).
     private var liveHoleContentWithHazardRequests: some View {
         liveHoleContent
+            .preference(key: LiveHolePagerPresentationKey.self, value: pagerPresentationIsActive)
             .task(id: hazardMappingRequest) {
                 await runHazardMappingRequest()
             }
@@ -4986,8 +5025,8 @@ public struct CurrentHoleView: View {
             return
         }
         try? offlineStore?.rememberNineLoopPairing(first: NineLoopTurn.loopId(first.entry), second: loop.id)
-        // The model adds the loop and opens its first hole: this view is rebuilt for the new hole
-        // set, so it cannot own that navigation.
+        // The model adds the loop and opens its first hole; this retained page does not own
+        // navigation into the new loop.
         onContinueIntoSecondLoop(entry, package.roundId)
         // The progress overlay must never outlive the model's request budget (120 s) when no
         // preparation is observed at all; a success clears `turnContinuationPending` first.

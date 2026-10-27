@@ -514,13 +514,17 @@ public struct RoundHomeView: View {
     /// The live route is one destination containing a paging surface. Keeping the selection here
     /// avoids rebuilding a CurrentHoleView (and its location/task state) for every swipe.
     @State private var holePager = LiveHolePagerState()
-    @State private var holePagerReloadID = 0
+    // Only the native display binding gets the two-phase correction; the authoritative selection
+    // and every page's identity remain unchanged (including the selected page's sheet/map state).
+    @State private var pagerNativeSelectionOverride: Int?
+    @State private var pagerCorrectionTarget: Int?
+    @State private var pagerCorrectionID = UUID()
+    @State private var pagerCorrectionApplying = false
+    @State private var pagerCorrectionTask: Task<Void, Never>?
+    @State private var pagerPresentationRequested = false
     @GestureState private var pagerTouchIsActive = false
     @State private var pagerGestureStarted = false
     private var holePagerSelection: Int? { holePager.selection }
-    #if DEBUG
-    @StateObject private var pagerTrace = UITestPagerTrace.shared
-    #endif
     @State private var holePagerNavigationLock: LiveHoleNavigationLock?
     @State private var holePagerScrollDisabled = false
     @State private var liveHoleSessions = LiveHoleSessionCache()
@@ -1062,9 +1066,6 @@ public struct RoundHomeView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            // Recreate the native scroll controller only when it reports the wrong page without
-            // an intent. Reassigning the same binding value cannot correct UIKit's internal index.
-            .id(holePagerReloadID)
             .onAppear {
                 if holePager.ordered != ordered || holePagerSelection == nil {
                     refreshPagerPageSet(fallback: initialHole)
@@ -1074,11 +1075,26 @@ public struct RoundHomeView: View {
                     trimLiveHoleSessions(around: selected, package: package)
                 }
             }
+            .onChange(of: ordered) { _, holes in
+                if holePager.ordered != holes { refreshPagerPageSet(fallback: initialHole) }
+            }
             .onPreferenceChange(LiveHolePagerGestureStateKey.self) { disabled in
                 holePagerScrollDisabled = disabled
                 if disabled, holePager.touchOrigin != nil {
                     sendPager(.touchEnded(step: 0), source: "map owns gesture")
                 }
+            }
+            .onPreferenceChange(LiveHolePagerPresentationKey.self) { blocked in
+                pagerPresentationRequested = blocked
+                sendPager(.presentationChanged(blocked), source: "sheet presentation")
+            }
+            .background {
+                LiveHolePagerDisplayProbe(
+                    selection: pagerSelectionBinding.wrappedValue, requestID: pagerCorrectionID
+                ) { requestID, displayed in
+                    completePagerDisplayUpdate(requestID: requestID, displayed: displayed)
+                }
+                .frame(width: 0, height: 0)
             }
             .scrollDisabled(holePagerScrollDisabled)
             .simultaneousGesture(pagerDragGesture)
@@ -1101,12 +1117,14 @@ public struct RoundHomeView: View {
                 trimLiveHoleSessions(around: selected, package: package)
             }
             .onDisappear {
+                cancelPagerCorrection()
                 holePagerNavigationLock = nil
                 holePagerScrollDisabled = false
             }
-            .overlay(alignment: .topLeading) { pagerTraceElement }
             .accessibilityIdentifier("live-hole-pager")
             .accessibilityValue(holePagerSelection.map { "第 \($0) 洞" } ?? "")
+            // Keep the marker outside the pager's AX modifier so its identifier is not replaced.
+            .overlay(alignment: .topLeading) { pagerTraceElement }
         } else {
             Color.clear
         }
@@ -1114,7 +1132,7 @@ public struct RoundHomeView: View {
 
     private var pagerSelectionBinding: Binding<Int?> {
         Binding(
-            get: { holePagerSelection },
+            get: { pagerNativeSelectionOverride ?? holePagerSelection },
             set: { sendPager(.bindingReported($0), source: "binding set") }
         )
     }
@@ -1132,11 +1150,12 @@ public struct RoundHomeView: View {
             .onEnded { value in
                 pagerGestureStarted = false
                 guard holePager.touchOrigin != nil else { return }
-                let horizontal = abs(value.translation.width) > abs(value.translation.height)
-                let committed = !holePagerScrollDisabled && horizontal
-                    && (abs(value.translation.width) >= 50
-                        || abs(value.predictedEndTranslation.width) >= 100)
-                let step = committed ? (value.translation.width < 0 ? 1 : -1) : 0
+                let step = LiveHolePagerState.swipeStep(
+                    translationX: Double(value.translation.width),
+                    translationY: Double(value.translation.height),
+                    predictedX: Double(value.predictedEndTranslation.width),
+                    scrollDisabled: holePagerScrollDisabled
+                )
                 sendPager(.touchEnded(step: step), source: "user gesture end")
             }
     }
@@ -1155,13 +1174,21 @@ public struct RoundHomeView: View {
     private func sendPager(_ event: LiveHolePagerState.Event, source: String) {
         let oldSelection = holePager.selection
         let oldPending = holePager.pendingTarget
+        let oldActive = holePager.activeHole
+        let oldOrdered = holePager.ordered
+        let lastReport = holePager.reportedSelection
         let effect = holePager.send(event)
         tracePager("\(source) \(event) selection \(oldSelection ?? -1)->\(holePager.selection ?? -1) pending \(oldPending ?? -1)->\(holePager.pendingTarget ?? -1)")
+        if oldActive != holePager.activeHole || oldOrdered != holePager.ordered || event == .touchBegan {
+            cancelPagerCorrection()
+        }
         if let target = effect.forceScrollTo {
-            tracePager("discard report; force scroll=\(target)")
-            // Do not destroy UIKit's controller under the user's finger. The explicit end intent
-            // chooses a new target, or a cancelled touch forces the previous target back into view.
-            if holePager.touchOrigin == nil { holePagerReloadID &+= 1 }
+            tracePager("discard report; request correction=\(target) attempt=\(holePager.correctionAttempts)")
+            if holePager.touchOrigin == nil {
+                schedulePagerCorrection(target: target, reported: holePager.reportedSelection ?? lastReport)
+            }
+        } else if holePager.correctionAttempts >= 3, holePager.pendingTarget != nil {
+            tracePager("correction limit reached target=\(holePager.pendingTarget ?? -1); stop")
         }
         if let selected = effect.activeHoleToPersist {
             // Explicit gesture/save intent only. Never called from a selection observer or binding.
@@ -1178,24 +1205,81 @@ public struct RoundHomeView: View {
         }
     }
 
+    private func cancelPagerCorrection() {
+        pagerCorrectionTask?.cancel()
+        pagerCorrectionTask = nil
+        pagerCorrectionTarget = nil
+        pagerCorrectionID = UUID()
+        pagerCorrectionApplying = false
+        pagerNativeSelectionOverride = nil
+    }
+
+    private func schedulePagerCorrection(target: Int, reported: Int?) {
+        guard pagerCorrectionTarget == nil, holePager.ordered.contains(target),
+              let bounce = reported.flatMap({ holePager.ordered.contains($0) && $0 != target ? $0 : nil })
+                ?? holePager.ordered.first(where: { $0 != target }) else { return }
+        pagerCorrectionTarget = target
+        pagerCorrectionID = UUID()
+        pagerCorrectionApplying = false
+        pagerCorrectionTask = Task { @MainActor in
+            guard await waitForPagerCorrection(target: target) else { return }
+            tracePager("correction binding bounce=\(bounce) target=\(target)")
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { pagerNativeSelectionOverride = bounce }
+            // The probe acknowledges this distinct binding value after SwiftUI's update pass.
+            // Only then can completePagerDisplayUpdate deliver the target in a later runloop.
+        }
+    }
+
+    private func completePagerDisplayUpdate(requestID: UUID, displayed: Int?) {
+        guard pagerCorrectionID == requestID, let target = pagerCorrectionTarget,
+              let override = pagerNativeSelectionOverride, displayed == override else { return }
+        if displayed == target {
+            tracePager("correction binding target delivered=\(target)")
+            pagerNativeSelectionOverride = nil
+            pagerCorrectionTarget = nil
+            pagerCorrectionApplying = false
+            pagerCorrectionTask = nil
+            return
+        }
+        guard !pagerCorrectionApplying else { return }
+        pagerCorrectionApplying = true
+        pagerCorrectionTask?.cancel()
+        pagerCorrectionTask = Task { @MainActor in
+            guard await waitForPagerCorrection(target: target) else { return }
+            tracePager("correction binding apply=\(target)")
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { pagerNativeSelectionOverride = target }
+        }
+    }
+
+    @MainActor private func waitForPagerCorrection(target: Int) async -> Bool {
+        // Preference values include requested and still-mounted sheets. UIKit covers the closing
+        // animation as well, including the gap before onDismiss presents the turn/finish sheet.
+        var deferred = false
+        await Task.yield()
+        while !Task.isCancelled, pagerCorrectionTarget == target, holePager.activeHole == target {
+            if !pagerPresentationRequested, !LiveHolePagerDisplayProbe.presentationIsActive,
+               holePager.touchOrigin == nil, !pagerTouchIsActive, !holePagerScrollDisabled {
+                return true
+            }
+            if !deferred { tracePager("correction deferred target=\(target) sheet/touch"); deferred = true }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return false
+    }
+
     private func tracePager(_ message: @autoclosure () -> String) {
         #if DEBUG
-        pagerTrace.record(message())
+        UITestPagerTrace.shared.record(message())
         #endif
     }
 
     @ViewBuilder private var pagerTraceElement: some View {
         #if DEBUG
-        if pagerTrace.enabled {
-            Text("pager trace")
-                .font(.system(size: 1))
-                .foregroundStyle(Color.white.opacity(0.02))
-                .frame(width: 1, height: 1)
-                .accessibilityElement(children: .ignore)
-                .accessibilityIdentifier("debug-pager-trace")
-                .accessibilityLabel(pagerTrace.label)
-                .allowsHitTesting(false)
-        }
+        UITestPagerTraceElement()
         #endif
     }
 

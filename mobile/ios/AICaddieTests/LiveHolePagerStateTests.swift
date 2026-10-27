@@ -173,4 +173,27 @@ final class LiveHolePagerStateTests: XCTestCase {
         XCTAssertNil(pager.send(.presentationChanged(false)).forceScrollTo, "one dismissal, one retry")
     }
 
+    func testReversedPredictionCancelsEvenALongDragAndMapOwnershipAlwaysWins() {
+        XCTAssertEqual(LiveHolePagerState.swipeStep(
+            translationX: -80, translationY: 5, predictedX: 120, scrollDisabled: false
+        ), 0)
+        XCTAssertEqual(LiveHolePagerState.swipeStep(
+            translationX: -20, translationY: 5, predictedX: -120, scrollDisabled: false
+        ), 1)
+        XCTAssertEqual(LiveHolePagerState.swipeStep(
+            translationX: 80, translationY: 5, predictedX: 120, scrollDisabled: false
+        ), -1)
+        XCTAssertEqual(LiveHolePagerState.swipeStep(
+            translationX: -80, translationY: 5, predictedX: -120, scrollDisabled: true
+        ), 0)
+    }
+
+    func testClosingASheetWithoutAMismatchingReportDoesNotBounceTheDisplay() {
+        var pager = LiveHolePagerState()
+        pager.send(.pageSetChanged(ordered: Array(1...18), activeHole: 10))
+        pager.send(.presentationChanged(true))
+        XCTAssertNil(pager.send(.presentationChanged(false)).forceScrollTo)
+        XCTAssertEqual(pager.correctionAttempts, 0)
+    }
+
 }
