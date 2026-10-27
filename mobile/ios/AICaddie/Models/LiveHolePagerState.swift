@@ -90,7 +90,7 @@ struct LiveHolePagerState: Equatable {
                 // follow that cursor even when no page-set rotation was deferred. The selection
                 // value itself changes here, so the binding drives the native scroll; a forced
                 // bounce without a native report would flash an unrelated page first.
-                if deferredOrdered == nil, let target = activeHole, selection != target {
+                if let target = activeHole, selection != target {
                     selection = target
                     pendingTarget = target
                 }
