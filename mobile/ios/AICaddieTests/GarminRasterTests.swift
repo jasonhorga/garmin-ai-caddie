@@ -265,6 +265,14 @@ final class GarminRasterTests: XCTestCase {
                 garminProjection: nil
             )
         )
+        let gestureOverlay = try XCTUnwrap(
+            LiveMapDisplaySelection.gestureFrameOverlay(
+                for: .garminRaster,
+                overlay: nil,
+                garminProjection: nil
+            )
+        )
+        XCTAssertEqual(overlay, gestureOverlay)
         XCTAssertEqual(overlay.w, 1242)
         XCTAssertEqual(overlay.h, 1920)
         let viewport = CGSize(width: 390, height: 844)
@@ -303,6 +311,14 @@ final class GarminRasterTests: XCTestCase {
                 garminProjection: nil
             )
         )
+        let gestureOverlay = try XCTUnwrap(
+            LiveMapDisplaySelection.gestureFrameOverlay(
+                for: .garminRaster,
+                overlay: nil,
+                garminProjection: nil
+            )
+        )
+        XCTAssertEqual(overlay, gestureOverlay)
         let viewport = CGSize(width: 390, height: 844)
         let rasterFrame = try XCTUnwrap(
             LivePlayMapOverlayLayout.lightweightFittedFrame(
@@ -321,7 +337,6 @@ final class GarminRasterTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(gestureFrame, rasterFrame)
         XCTAssertGreaterThan(rasterFrame.width, 0)
         XCTAssertGreaterThan(rasterFrame.height, 0)
     }
