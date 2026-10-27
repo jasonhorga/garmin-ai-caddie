@@ -367,6 +367,30 @@ final class RoundPlayOrderTests: XCTestCase {
         )
     }
 
+    func testPagerRouteChangePrefersTheNewRouteOverTheOldPageSelection() {
+        // The second loop is appended while the route changes from round hole 9 to 10. The
+        // route is the navigation authority for that handoff; retaining page 9 leaves the new
+        // package showing the completed first loop forever.
+        XCTAssertEqual(
+            LiveHolePagerInitialSelection.resolve(
+                current: 9,
+                ordered: Array(1...18),
+                preferredHole: 10,
+                fallbackHole: 10
+            ),
+            10
+        )
+    }
+
+    func testLastHoleOfNineHoleLoopResolvesToFinish() throws {
+        let package = try LiveRoundPackageFixture.nineHoleLoop()
+        XCTAssertEqual(
+            LiveHoleAdvanceResolution.resolve(after: 9, package: package),
+            .finish,
+            "saving the final hole must open the finish summary"
+        )
+    }
+
     func testGarminDescriptorNeedsDecodedImageBeforeRasterState() {
         let descriptor = GarminRasterResponse(available: true, imageUrl: "/raster.webp")
         XCTAssertEqual(
