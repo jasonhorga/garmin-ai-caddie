@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import tempfile
 import threading
 import time
 from typing import Callable, Hashable, Any
@@ -68,9 +69,15 @@ def bump_revision(directory: Path | str) -> None:
         current = int(marker.read_text(encoding="ascii").strip())
     except (FileNotFoundError, OSError, ValueError):
         current = 0
-    temporary = marker.with_name(f".{marker.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=directory, prefix=f".{marker.name}.", suffix=".tmp"
+    )
+    temporary = Path(temporary_name)
     try:
-        temporary.write_text(str(current + 1), encoding="ascii")
+        with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+            handle.write(str(current + 1))
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(temporary, marker)
     finally:
         temporary.unlink(missing_ok=True)
