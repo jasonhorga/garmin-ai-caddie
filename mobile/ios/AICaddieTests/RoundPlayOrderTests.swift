@@ -192,6 +192,35 @@ final class RoundPlayOrderTests: XCTestCase {
         XCTAssertEqual(retained.localTopoURL, URL(fileURLWithPath: "/tmp/precise-r1.png"))
     }
 
+    func testPrecisePrepWriteUsesTheSessionRevisionAfterFlagsAreSet() {
+        let hole = Hole(
+            number: 1, par: 4, yards: 400, geometryCoverage: .partial,
+            geometryRevision: nil, topoAvailable: false, topoRevision: nil,
+            sourceGlobalId: 101, sourceLocalHole: 1, courseHoleNumber: 1
+        )
+        let precise = CoursePrepHole(
+            hole: 1, par: 4, parSource: "fixture", blueYards: 400, routeLenM: 366,
+            geometryCoverage: "ready", geometryRevision: "precise-r2"
+        )
+        let cache = LiveHoleSessionCache()
+        cache.update(
+            roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "partial-r1"
+        ) { entry in
+            entry.prepRequestCompleted = true
+            entry.preciseProbeStarted = true
+        }
+        cache.updatePrep(roundId: "round", hole: hole, teeBox: "white", prep: precise)
+
+        let retained = cache.entry(
+            roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "precise-r2"
+        )
+        XCTAssertTrue(retained.prepRequestCompleted)
+        XCTAssertTrue(retained.preciseProbeStarted)
+        XCTAssertEqual(retained.holePrep?.geometryRevision, "precise-r2")
+    }
+
     func testTrimHeavyPrepMarksTheEntryForARefresh() {
         let overlay = CoursePrepOverlay(w: 10, h: 10, ppm: 1, ln: 10, route: [])
         let prep = CoursePrepHole(
