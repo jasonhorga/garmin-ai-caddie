@@ -41,6 +41,25 @@ class NonCancellableReceive:
 
 
 class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_disconnect_after_worker_done_is_not_reported_as_cancellation(self):
+        built = threading.Event()
+
+        class CompletedThenDisconnected:
+            async def receive(self):
+                await asyncio.to_thread(built.wait)
+                await asyncio.sleep(0)
+                return {"type": "http.disconnect"}
+
+        with patch("server_v2.prep_work.mark") as mark:
+            def build():
+                built.set()
+                return Response(status_code=200)
+
+            response = await asyncio.wait_for(run_prep(CompletedThenDisconnected(), build), 1)
+
+        self.assertEqual(response.status_code, 200)
+        mark.assert_not_called()
+
     async def test_completed_prep_does_not_wait_for_receive_proxy_cancellation(self):
         request = NonCancellableReceive()
 

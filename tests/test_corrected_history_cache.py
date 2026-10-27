@@ -14,6 +14,67 @@ from ai_caddie.courses.prep_work import PrepCancelled
 
 
 class CorrectedHistoryCacheTests(unittest.TestCase):
+    def test_geometry_signature_is_short_cached_per_directory_and_expires(self) -> None:
+        with TemporaryDirectory() as directory:
+            geometry = Path(directory) / "meshes"
+            geometry.mkdir()
+            (geometry / "gid31795_h01_meshes.json").write_text("{}")
+            clock = [100.0]
+            with patch.object(stats_cache.time, "monotonic", side_effect=lambda: clock[0]), \
+                    patch.object(stats_cache.os, "scandir", wraps=stats_cache.os.scandir) as scandir:
+                first = stats_cache._history_geometry_dir_sig(geometry, (31795,))
+                second = stats_cache._history_geometry_dir_sig(geometry, (31795,))
+                self.assertEqual(first, second)
+                self.assertEqual(scandir.call_count, 1, "a warm short-TTL read must scan once")
+
+                (geometry / "gid31795_h02_meshes.json").write_text("{}")
+                within_ttl = stats_cache._history_geometry_dir_sig(geometry, (31795,))
+                self.assertEqual(within_ttl, first)
+                clock[0] += 2.0
+                expired = stats_cache._history_geometry_dir_sig(geometry, (31795,))
+
+            self.assertNotEqual(expired, first, "an expired signature must observe directory changes")
+            self.assertEqual(scandir.call_count, 2)
+
+    def test_concurrent_deterministic_failure_is_shared_with_the_waiting_batch(self) -> None:
+        """A corrupt correction projection must fail one batch once, with one error."""
+        entered, release = threading.Event(), threading.Event()
+        calls = 0
+        calls_lock = threading.Lock()
+        error = ValueError("fixture correction file is corrupt")
+
+        def build(*args, **kwargs):
+            nonlocal calls
+            with calls_lock:
+                calls += 1
+            entered.set()
+            self.assertTrue(release.wait(2), "test did not release the projection leader")
+            raise error
+
+        data = fixture_history_data()
+        with TemporaryDirectory() as directory, patch.object(
+            history, "_build_corrected_history_data", side_effect=build
+        ), ThreadPoolExecutor(4) as pool:
+            barrier = threading.Barrier(4)
+
+            def read():
+                barrier.wait()
+                return history.corrected_history_data(
+                    data, annotations_root=directory, corrections_root=directory
+                )
+
+            futures = [pool.submit(read) for _ in range(4)]
+            self.assertTrue(entered.wait(2))
+            release.set()
+            errors = []
+            for future in futures:
+                with self.assertRaises(ValueError) as raised:
+                    future.result(2)
+                errors.append(raised.exception)
+
+        self.assertEqual(calls, 1)
+        self.assertTrue(all(item is error for item in errors))
+
     def test_historical_geometry_changes_rebuild_corrected_projection(self):
         with TemporaryDirectory() as directory:
             geometry = Path(directory) / "meshes"
