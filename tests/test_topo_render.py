@@ -30,6 +30,49 @@ def _test_png() -> bytes:
     return buffer.getvalue()
 
 
+def _synthetic_topo_image(*, tree_local_x: float | None = None):
+    """Small deterministic geometry used by the v12 image-quality contracts."""
+    from ai_caddie.geometry import topo_render
+
+    rough = {
+        "positions": [(0, 0, 0), (-10, 0, 0), (-10, 0, 10), (0, 0, 10)],
+        "faces": [(0, 1, 2), (0, 2, 3)],
+    }
+    fairway_width = min(2.0, max(0.05, (tree_local_x or 2.0) - 0.3))
+    fairway = {
+        "positions": [(0, 0, 0), (-fairway_width, 0, 0), (-fairway_width, 0, 10), (0, 0, 10)],
+        "faces": [(0, 1, 2), (0, 2, 3)],
+    }
+    tree_area = {
+        "positions": [(-2, 0, 2), (-4, 0, 2), (-4, 0, 8), (-2, 0, 8)],
+        "faces": [(0, 1, 2), (0, 2, 3)],
+    }
+    metadata = {"foliage": {"trees": []}}
+    if tree_local_x is not None:
+        metadata["foliage"]["trees"].append({"x": -tree_local_x, "z": 5, "s": 1.0, "id": 4})
+    by = {
+        "PhysicsMesh.drc": rough,
+        "Rough.drc": rough,
+        "Fairway.drc": fairway,
+        "TreeArea.drc": tree_area,
+    }
+
+    def project(point):
+        return (16 + point[0] * 3, 60 - point[1] * 5)
+
+    return topo_render._build(
+        metadata,
+        by,
+        [(0.0, 0.0), (0.0, 10.0)],
+        project,
+        5.0,
+        64,
+        64,
+        31795,
+        1,
+    )
+
+
 class TopoRenderModuleTests(unittest.TestCase):
     def test_green_v3_focuses_a_large_feathered_context_window(self) -> None:
         from PIL import Image
@@ -75,14 +118,18 @@ class TopoRenderModuleTests(unittest.TestCase):
         self.assertEqual(with_shadow.getpixel((0, 0)), (32, 54, 32, 92))
 
     def test_topo_v12_masks_keep_partial_pixel_coverage(self) -> None:
-        from PIL import Image, ImageDraw
+        from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
-        source = Image.new("L", (16, 16), 0)
-        ImageDraw.Draw(source).polygon([(0, 0), (16, 0), (0, 16)], fill=255)
-        reduced = topo_render._reduce_mask(source, (4, 4))
+        source = Image.new("L", (64, 64), 0)
+        ImageDraw.Draw(source).polygon([(0, 0), (64, 0), (0, 64)], fill=255)
+        reduced = topo_render._reduce_mask(source, (16, 16))
 
         self.assertEqual(topo_render.MASK_SS, 4)
-        self.assertTrue(any(0 < value < 255 for value in reduced.getdata()))
+        self.assertTrue(any(0 < value < 255 for value in reduced.get_flattened_data()))
+        edge = ImageChops.difference(reduced, reduced.filter(ImageFilter.MinFilter(3)))
+        edge_values = list(edge.get_flattened_data())
+        partial = sum(0 < value < 255 for value in edge_values)
+        self.assertGreaterEqual(partial / max(1, sum(value > 0 for value in edge_values)), 0.35)
 
     def test_tree_area_is_kept_on_rough_colour(self) -> None:
         self.assertEqual(topo_render.PAL["TreeArea"], topo_render.PAL["Rough"])
@@ -123,6 +170,44 @@ class TopoRenderModuleTests(unittest.TestCase):
         alpha = rendered.getchannel("A")
         self.assertIsNotNone(alpha.getbbox())
         self.assertEqual(alpha.getpixel((0, 0)), 0)
+
+    def test_quality_contracts_measure_final_pixels(self) -> None:
+        import numpy as np
+
+        rendered = _synthetic_topo_image(tree_local_x=0.1)
+        rgba = np.asarray(rendered.convert("RGBA"), dtype=np.uint8)
+        alpha = rgba[..., 3]
+        # The synthetic rough footprint occupies x=16..46, y=10..60; every outside pixel must stay
+        # transparent even when a canopy is deliberately placed against its left boundary.
+        outside = np.ones(alpha.shape, dtype=bool)
+        outside[10:61, 16:47] = False
+        self.assertTrue(np.all(alpha[outside] == 0))
+
+        # Tree centre is (16.3, 35) in the synthetic projection.  Compare the final bitmap's crown
+        # interior and its antialiased edge ring, excluding transparent pixels.
+        yy, xx = np.mgrid[0:64, 0:64]
+        distance = np.hypot(xx - 16.3, yy - 35)
+        luminance = rgba[..., :3] @ np.array([0.2126, 0.7152, 0.0722])
+        crown = (distance <= 9) & (alpha > 127)
+        edge = (distance >= 11) & (distance <= 17) & (alpha > 0) & (rgba[..., 1] >= 180)
+        self.assertTrue(np.any(crown))
+        self.assertTrue(np.any(edge))
+        self.assertGreaterEqual(float(luminance[edge].mean()), float(luminance[crown].mean()) * 0.9)
+
+        # TreeArea is measured from rendered pixels beside the same Rough footprint, rather than
+        # comparing palette constants.  The selected windows are local x=3 and x=7 respectively.
+        surface = np.asarray(_synthetic_topo_image().convert("RGBA"), dtype=np.uint8)
+        tree_area_px = surface[28:43, 23:29, :3].mean(axis=(0, 1))
+        rough_px = surface[28:43, 35:41, :3].mean(axis=(0, 1))
+        self.assertLessEqual(float(np.abs(tree_area_px - rough_px).mean()) / 255.0, 0.03)
+
+        import io
+        from PIL import Image
+
+        encoded = io.BytesIO()
+        Image.fromarray(rgba, mode="RGBA").save(encoded, "PNG", optimize=False)
+        self.assertEqual(Image.open(io.BytesIO(encoded.getvalue())).size, (64, 64))
+        self.assertLessEqual(len(encoded.getvalue()), 350 * 1024)
 
     def test_green_marker_is_a_compact_flag_without_target_rings(self) -> None:
         from PIL import Image
