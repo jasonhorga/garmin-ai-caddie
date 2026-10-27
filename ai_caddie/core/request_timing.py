@@ -151,13 +151,13 @@ def flush_timing_writes() -> None:
 
 
 def _enqueue_timing(record: dict[str, Any], *, client: bool = False) -> None:
-    root = timing_root()
-    if root is None:
-        return
-    day = _now().date()
-    _ensure_writer()
-    path = timing_path(day, client=client, root=root)
     try:
+        root = timing_root()
+        if root is None:
+            return
+        day = _now().date()
+        _ensure_writer()
+        path = timing_path(day, client=client, root=root)
         import json
 
         line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
