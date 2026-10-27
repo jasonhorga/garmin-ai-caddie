@@ -50,6 +50,7 @@ from ai_caddie.history.history_stats import windowed_history_data as _windowed_h
 from ai_caddie.reports.reports import report_store_file
 from ai_caddie.llm.weather_context import weather_snapshot_file
 from ai_caddie.rounds import round_corrections
+from ai_caddie.core import revisions
 
 # Player-data directories whose file contents feed build_history_stats for the OWNER ("me"), who
 # keeps the flat data/ layout (zero migration). Geometry is fingerprinted separately and only for
@@ -69,13 +70,9 @@ _PLAYERS_DIR: Path = DATA_DIR / "players"
 # of the owner's _FINGERPRINT_DIRS); appended to each non-owner player's fingerprint.
 _GEOMETRY_DIRS: tuple[Path, ...] = (HAZARD_DIR, MESH_DIR)
 
-# A corrected-history read can ask for both geometry directories more than once (projection and
-# its callers).  Scanning a large 18,000-file directory for every read costs tens of milliseconds,
-# while a short process-local TTL still lets an install become visible promptly.  The directory
-# path is part of the key because hazard and mesh trees can have the same selected course ids.
+# Compatibility name for callers that imported the old TTL knob. Geometry signatures now use the
+# directory signal + background scanner instead of expiring in the request path.
 _GEOMETRY_SIG_TTL_S = 1.5
-_geometry_sig_lock = threading.Lock()
-_geometry_sig_cache: dict[tuple[str, tuple[int, ...]], tuple[float, tuple]] = {}
 
 _lock = threading.Lock()
 _cache: dict[tuple, tuple[Any, Any]] = {}
@@ -316,7 +313,7 @@ def correction_projection_inputs(
     geometry = tuple(_history_geometry_dir_sig(path, global_ids) for path in _GEOMETRY_DIRS)
     return (
         str(annotations), _file_sig(annotations),
-        str(corrections), _dir_sig(corrections), geometry,
+        str(corrections), _cached_dir_sig(corrections), geometry,
     )
 
 
@@ -332,21 +329,28 @@ def _dir_sig(directory: Path) -> tuple[int, str]:
     read (too slow on the shot dir) -- size+mtime_ns is the standard cheap manifest."""
     files: list[tuple[str, int, int, int]] = []
     suffix = _DIR_FILE_SUFFIX.get(directory)
-    try:
-        with os.scandir(directory) as it:
-            for entry in it:
-                if suffix is not None and not entry.name.endswith(suffix):
-                    continue
-                if entry.is_file():
-                    st = entry.stat()
-                    files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
-    except (FileNotFoundError, NotADirectoryError):
-        return (0, "")
+    for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(directory):
+        if name == revisions.REVISION_FILENAME:
+            continue
+        if suffix is not None and not name.endswith(suffix):
+            continue
+        if is_file:
+            files.append((name, size, mtime_ns, ctime_ns))
     files.sort()  # scandir order is unspecified; sort so the digest is order-independent
     digest = hashlib.blake2b(digest_size=16)
     for name, size, mtime_ns, ctime_ns in files:
         digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
+
+
+def _cached_dir_sig(directory: Path) -> tuple[int, str]:
+    """Use the full manifest only after the directory or revision marker changes."""
+    suffix = _DIR_FILE_SUFFIX.get(directory)
+    return revisions.cached_signature(
+        directory,
+        ("dir", suffix),
+        lambda: _dir_sig(directory),
+    )
 
 
 def _history_global_ids(data: Any) -> tuple[int, ...]:
@@ -377,19 +381,11 @@ def _history_global_ids(data: Any) -> tuple[int, ...]:
 
 def _history_geometry_dir_sig(directory: Path, global_ids: tuple[int, ...]) -> tuple:
     """Fingerprint only files belonging to courses present in the player's history."""
-    selected = set(global_ids)
-    key = (str(directory.resolve()), tuple(global_ids))
-    now = time.monotonic()
-    with _geometry_sig_lock:
-        cached = _geometry_sig_cache.get(key)
-        if cached is not None and now - cached[0] < _GEOMETRY_SIG_TTL_S:
-            return cached[1]
-
-        # Keep the short scan under the cache lock so concurrent history readers do not all walk
-        # the same large directory during the same TTL window.
-        result = _scan_history_geometry_dir_sig(directory, global_ids, selected)
-        _geometry_sig_cache[key] = (now, result)
-        return result
+    return revisions.cached_signature(
+        directory,
+        ("geometry", tuple(global_ids)),
+        lambda: _scan_history_geometry_dir_sig(directory, global_ids, set(global_ids)),
+    )
 
 
 def _scan_history_geometry_dir_sig(
@@ -397,22 +393,16 @@ def _scan_history_geometry_dir_sig(
 ) -> tuple:
     """Build one uncached geometry-directory signature."""
     files: list[tuple[str, int, int, int]] = []
-    try:
-        with os.scandir(directory) as it:
-            for entry in it:
-                if not entry.is_file() or not entry.name.startswith("gid"):
-                    continue
-                prefix = entry.name[3:].split("_", 1)[0]
-                try:
-                    global_id = int(prefix)
-                except ValueError:
-                    continue
-                if global_id not in selected:
-                    continue
-                st = entry.stat()
-                files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
-    except (FileNotFoundError, NotADirectoryError):
-        pass
+    for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(directory):
+        if name == revisions.REVISION_FILENAME or not is_file or not name.startswith("gid"):
+            continue
+        prefix = name[3:].split("_", 1)[0]
+        try:
+            global_id = int(prefix)
+        except ValueError:
+            continue
+        if global_id in selected:
+            files.append((name, size, mtime_ns, ctime_ns))
     files.sort()
     digest = hashlib.blake2b(digest_size=16)
     for name, size, mtime_ns, ctime_ns in files:
@@ -451,12 +441,12 @@ def _fingerprint(data, roots: dict[str, Any], player_id: str = OWNER_ID) -> tupl
     global_ids = _history_global_ids(data)
     return (
         _data_signature(data),
-        tuple(_dir_sig(d) for d in _fingerprint_dirs(player_id)),
+        tuple(_cached_dir_sig(d) for d in _fingerprint_dirs(player_id)),
         tuple(_history_geometry_dir_sig(d, global_ids) for d in _GEOMETRY_DIRS),
         tuple(_file_sig(f) for f in _aux_files(player_id=player_id, **roots)),
         # Round correction events (append-only JSONL per round) are applied by the stats build, so an
         # appended event changes this signature and the next read rebuilds (spec 3.1).
-        _dir_sig(round_corrections.corrections_dir(player_id)),
+        _cached_dir_sig(round_corrections.corrections_dir(player_id)),
     )
 
 
@@ -467,8 +457,6 @@ def clear(player_id: str | None = None) -> None:
     is keyed by a tuple whose first element is the player id; ``_load_cache`` is keyed by
     player id directly."""
     with _lock:
-        with _geometry_sig_lock:
-            _geometry_sig_cache.clear()
         if player_id is None:
             _cache.clear()
             _load_cache.clear()
@@ -494,7 +482,7 @@ def cached_load_history_data(player_id: str = OWNER_ID):
     that player's dirs are unchanged; a new score (new file) auto-invalidates it. Each
     player has its own entry, so loading one player never evicts another."""
     while True:
-        fingerprint = tuple(_dir_sig(d) for d in _load_dirs(player_id))
+        fingerprint = tuple(_cached_dir_sig(d) for d in _load_dirs(player_id))
         mark("history_source_revision")
         with _lock:
             hit = _load_cache.get(player_id)

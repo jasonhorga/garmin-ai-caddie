@@ -31,6 +31,7 @@ from typing import Any, Callable, Iterator
 from ai_caddie.history import history as _history
 from ai_caddie.rounds import score_invariant, score_source
 from ai_caddie.core.data import deg_to_semicircle, read_json, wgs84_to_local
+from ai_caddie.core.revisions import bump_revision
 
 OWNER_ID = "me"
 
@@ -137,6 +138,7 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary_path, path)
+        bump_revision(path.parent)
         directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
             os.fsync(directory_fd)

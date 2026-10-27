@@ -36,6 +36,7 @@ from uuid import uuid4
 
 from ai_caddie.connectors.redaction import sanitize_secret_text
 from ai_caddie.core.data import clean_club_name
+from ai_caddie.core.revisions import bump_revision
 from ai_caddie.history import history as _history
 from ai_caddie.history.history import HistoryData, OWNER_ID, round_source_shots
 from ai_caddie.rounds import round_corrections as rc
@@ -166,6 +167,7 @@ def append_record(path: Path, record: dict[str, Any]) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+    bump_revision(path.parent)
 
 
 def request_digest(body: dict[str, Any]) -> str:

@@ -47,6 +47,7 @@ from ai_caddie.geometry.geometry_authority import (
     write_derivatives_status,
 )
 from ai_caddie.geometry.inspect_courseview_release import inspect_valid_release, load_release_pb
+from ai_caddie.core.revisions import bump_revision
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = Path(__file__).resolve().parent  # sibling .js/.py invoked via subprocess below
@@ -558,6 +559,7 @@ def _run_derivatives(
                         authority_descriptor=authority_descriptor,
                     ):
                         os.replace(staged_distances, distance_target)
+                        bump_revision(distance_target.parent)
             try:
                 hazard_ok, output = run(hazard_cmd)
             except Exception as exc:
@@ -576,6 +578,7 @@ def _run_derivatives(
                         authority_descriptor=authority_descriptor,
                     ):
                         os.replace(staged_hazards, hazard_target)
+                        bump_revision(hazard_target.parent)
     except _DerivativePreempted:
         preempted = True
         raise
@@ -840,6 +843,7 @@ def process_hole(
                 for staged, target in ((staged_mesh, mesh_target), (staged_stats, stats_target)):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     os.replace(staged, target)
+                    bump_revision(target.parent)
                 if derivative_release_identity:
                     installed_authority = {
                         **derivative_release_identity,
@@ -896,6 +900,7 @@ def process_hole(
                         authority_descriptor=tuple("" for _ in _DERIVATIVE_AUTHORITY_FIELDS),
                     ):
                         os.replace(staged_distances, distance_target)
+                        bump_revision(distance_target.parent)
             row["steps"]["distances"] = {"ok": ok}
             stage_started = _finish_stage(row, "distances", stage_started, course_id=course_id)
 
@@ -911,6 +916,7 @@ def process_hole(
                         authority_descriptor=tuple("" for _ in _DERIVATIVE_AUTHORITY_FIELDS),
                     ):
                         os.replace(staged_hazards, hazard_target)
+                        bump_revision(hazard_target.parent)
             row["steps"]["hazards"] = {"ok": ok, "output_tail": out.strip().splitlines()[-1:]}
             stage_started = _finish_stage(row, "hazards", stage_started, course_id=course_id)
 

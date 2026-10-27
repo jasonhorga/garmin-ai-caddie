@@ -21,6 +21,16 @@ class JsonStoreHardeningTests(unittest.TestCase):
             self.assertEqual(core_data.read_json(p), {"a": 1})
             self.assertEqual(sorted(q.name for q in Path(tmp).glob(".*")), [])
 
+    def test_atomic_write_only_marks_revision_cache_directories(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            unrelated = root / "credentials"
+            watched = root / "scorecards"
+            core_data.atomic_write_json(unrelated / "token.json", {"secret": True})
+            core_data.atomic_write_json(watched / "round.json", {"score": 4})
+            self.assertFalse((unrelated / ".revision").exists())
+            self.assertTrue((watched / ".revision").exists())
+
     def test_safe_read_json_tolerates_corruption_and_missing(self) -> None:
         with TemporaryDirectory() as tmp:
             p = Path(tmp) / "x.json"
