@@ -28,7 +28,6 @@ struct LiveHolePagerState: Equatable {
     private(set) var correctionAttempts = 0
     private var correctionDeferredByPresentation = false
     private(set) var deferredOrdered: [Int]? = nil
-    private var deferredActiveHole: Int?
 
     static func swipeStep(
         translationX: Double, translationY: Double, predictedX: Double, scrollDisabled: Bool
@@ -47,7 +46,6 @@ struct LiveHolePagerState: Equatable {
             let requested = active ?? activeHole
             if presentationBlocksCorrection {
                 deferredOrdered = holes
-                deferredActiveHole = requested.flatMap { holes.contains($0) ? $0 : nil } ?? holes.first
                 // The model cursor changes immediately; only the native page order waits for the
                 // sheet and its dismissal animation. Keep the old ordered pages mounted.
                 setTarget(requested, clearReport: false)
@@ -57,7 +55,8 @@ struct LiveHolePagerState: Equatable {
         case .programmaticHole(let hole):
             setTarget(hole)
         case .advance(let hole):
-            guard ordered.contains(hole) else { return effect }
+            // A cached page set is the model's current set (e.g. a loop added from the scorecard).
+            guard (deferredOrdered ?? ordered).contains(hole) else { return effect }
             setTarget(hole)
             effect.activeHoleToPersist = hole
         case .touchBegan:
@@ -81,9 +80,8 @@ struct LiveHolePagerState: Equatable {
             presentationBlocksCorrection = blocked
             if wasBlocked, !blocked, let holes = deferredOrdered {
                 deferredOrdered = nil
-                let active = deferredActiveHole ?? activeHole
-                deferredActiveHole = nil
-                applyPageSet(holes, active: active, clearReport: false, effect: &effect)
+                // The cursor may have moved while the order waited (scorecard jump): apply the current one.
+                applyPageSet(holes, active: activeHole, clearReport: false, effect: &effect)
             }
             if wasBlocked, !blocked, correctionDeferredByPresentation, pendingTarget != nil {
                 requestCorrection(into: &effect)

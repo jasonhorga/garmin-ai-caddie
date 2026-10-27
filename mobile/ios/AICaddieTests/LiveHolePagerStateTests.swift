@@ -216,6 +216,28 @@ final class LiveHolePagerStateTests: XCTestCase {
         XCTAssertNil(pager.deferredOrdered)
     }
 
+    func testScorecardJumpWhilePageSetIsCachedPersistsAndSurvivesDismissal() {
+        // Add a loop from the open scorecard, then jump to a hole that only exists in the new set.
+        var added = LiveHolePagerState()
+        added.send(.pageSetChanged(ordered: Array(1...9), activeHole: 6))
+        added.send(.presentationChanged(true))
+        added.send(.pageSetChanged(ordered: Array(1...18), activeHole: 6))
+        XCTAssertEqual(added.send(.advance(12)).activeHoleToPersist, 12)
+        added.send(.presentationChanged(false))
+        XCTAssertEqual(added.ordered, Array(1...18))
+        XCTAssertEqual(added.activeHole, 12)
+
+        // Remove a nine from the open scorecard, then jump back: dismissal keeps the jump.
+        var removed = LiveHolePagerState()
+        removed.send(.pageSetChanged(ordered: Array(1...18), activeHole: 6))
+        removed.send(.presentationChanged(true))
+        removed.send(.pageSetChanged(ordered: Array(1...9), activeHole: 6))
+        XCTAssertEqual(removed.send(.advance(3)).activeHoleToPersist, 3)
+        removed.send(.presentationChanged(false))
+        XCTAssertEqual(removed.ordered, Array(1...9))
+        XCTAssertEqual(removed.activeHole, 3)
+    }
+
     func testRestoredTargetAcknowledgesAReportsAfterInitialSelectionWasUnset() {
         var pager = LiveHolePagerState()
         pager.send(.programmaticHole(10))

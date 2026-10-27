@@ -1193,8 +1193,8 @@ public struct RoundHomeView: View {
         )
         let active = isPrepHoleScreen ? (holePager.activeHole ?? fallback)
             : (liveRoundState?.activeHole ?? pendingLiveHole ?? fallback)
-        guard holePager.ordered != ordered || holePager.activeHole != active
-            || holePager.deferredOrdered != ordered else { return }
+        guard (holePager.deferredOrdered ?? holePager.ordered) != ordered
+            || holePager.activeHole != active else { return }
         tracePager("package holes=\(ordered.count)")
         sendPager(.pageSetChanged(ordered: ordered, activeHole: active), source: "package")
     }
