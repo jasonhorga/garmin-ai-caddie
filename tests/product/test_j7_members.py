@@ -84,6 +84,7 @@ PLAYER_SCOPED_ROUTES = frozenset(
         ("POST", "/api/v2/mobile/rounds/{round_id}/finish"),
         ("POST", "/api/v2/mobile/rounds/{round_id}/swing-candidates"),
         ("POST", "/api/v2/mobile/pin-sheet"), ("POST", "/api/v2/media"),
+        ("POST", "/api/v2/mobile/client-timing"),
         ("POST", "/api/v2/media/{media_id}/analyze"), ("POST", "/api/v2/media/{media_id}/redact"),
         ("POST", "/api/v2/media/findings/{finding_id}/confirmation"),
         ("POST", "/api/v2/caddie/decision"),
