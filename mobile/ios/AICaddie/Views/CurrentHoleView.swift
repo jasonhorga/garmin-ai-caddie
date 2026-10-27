@@ -1,4 +1,5 @@
 import CoreLocation
+import CoreGraphics
 import Foundation
 import PhotosUI
 import SwiftUI
@@ -14,6 +15,72 @@ private struct PendingPhoneShot: Identifiable {
     var id: String { locationEvent.eventId }
 }
 
+enum LiveCaddieDecisionSignaturePolicy {
+    /// Build the cache-only additions from the same inputs used by the live view. The POST body
+    /// remains unchanged; this request is passed directly to `signature` for cache identity.
+    static func caddieDecisionSignatureRequest(
+        from request: CaddieDecisionRequest,
+        greenPinCoordinate: CLLocationCoordinate2D?,
+        greenPinPixel: CGPoint?,
+        targetPixel: CGPoint?
+    ) -> CaddieDecisionRequest {
+        var context = request.context
+        if let greenPinCoordinate,
+           greenPinCoordinate.latitude.isFinite,
+           greenPinCoordinate.longitude.isFinite {
+            context["greenPinCoordinate"] = .object([
+                "latitude": .number(greenPinCoordinate.latitude),
+                "longitude": .number(greenPinCoordinate.longitude)
+            ])
+        }
+        if let greenPinPixel, greenPinPixel.x.isFinite, greenPinPixel.y.isFinite {
+            context["greenPinPixel"] = .array([
+                .number(Double(greenPinPixel.x)), .number(Double(greenPinPixel.y))
+            ])
+        }
+        if let targetPixel, targetPixel.x.isFinite, targetPixel.y.isFinite {
+            context["targetPixel"] = .array([
+                .number(Double(targetPixel.x)), .number(Double(targetPixel.y))
+            ])
+        }
+        return CaddieDecisionRequest(
+            shotType: request.shotType,
+            context: context,
+            includeExplanation: request.includeExplanation
+        )
+    }
+
+    static func signature(for request: CaddieDecisionRequest, endpoint: String) -> String? {
+        var context = request.context
+        if case .number(let distance)? = context["distanceToPin_m"], distance.isFinite {
+            // GPS-derived distances are continuous doubles; cache identity is intentionally at
+            // whole-metre precision so sub-metre movement does not force another decision.
+            context["distanceToPin_m"] = .number(distance.rounded())
+        }
+        if let currentLocation = context["currentLocation"],
+           case .object(var location) = currentLocation {
+            location.removeValue(forKey: "capturedAt")
+            location.removeValue(forKey: "horizontalAccuracyM")
+            if case .number(let latitude)? = location["latitude"], latitude.isFinite {
+                location["latitude"] = .number((latitude / 0.0001).rounded() * 0.0001)
+            }
+            if case .number(let longitude)? = location["longitude"], longitude.isFinite {
+                location["longitude"] = .number((longitude / 0.0001).rounded() * 0.0001)
+            }
+            context["currentLocation"] = .object(location)
+        }
+        let stable = CaddieDecisionRequest(
+            shotType: request.shotType,
+            context: context,
+            includeExplanation: request.includeExplanation
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(stable) else { return nil }
+        return endpoint + "|" + data.base64EncodedString()
+    }
+}
+
 /// Package facts and cached pixels can precede the heavyweight per-hole prep refresh.
 @MainActor
 enum LiveTopoAvailability {
@@ -26,14 +93,7 @@ enum LiveTopoAvailability {
     }
 
     static func revision(hole: Hole, prep: CoursePrepHole?) -> String? {
-        if hole.topoAvailable == true,
-           let topoRevision = hole.topoRevision?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !topoRevision.isEmpty {
-            return topoRevision
-        }
-        if prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
-           let revision = prep?.geometryRevision, !revision.isEmpty { return revision }
-        return hole.geometryRevision ?? prep?.geometryRevision
+        LiveHoleSessionCache.cacheRevision(hole: hole, prep: prep)
     }
 
     static func url(hole: Hole, prep: CoursePrepHole?, localURL: URL?, baseURL: URL?) -> URL? {
@@ -391,6 +451,28 @@ enum LiveHoleAdvanceResolution: Equatable {
     }
 }
 
+enum LiveScoreDismissalAction: Equatable {
+    case turn(NineLoopPlan)
+    case finish
+}
+
+enum LiveHoleLoadLifecycle {
+    static func shouldRun(isSelected: Bool) -> Bool { isSelected }
+}
+
+struct LiveScoreDismissalCoordinator: Equatable {
+    private(set) var pending: LiveScoreDismissalAction? = nil
+
+    mutating func queue(_ action: LiveScoreDismissalAction) {
+        pending = action
+    }
+
+    mutating func consumeAfterDismissal() -> LiveScoreDismissalAction? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -421,6 +503,9 @@ public struct CurrentHoleView: View {
     private let onFinishRound: () async -> Bool
     private let onDiscardRound: () -> Void
     private let onAdvanceHole: (Int) -> Void
+    private let usesExternalHolePager: Bool
+    private let isSelected: Bool
+    private let sessionCache: LiveHoleSessionCache
     private let onPrepLocationChanged: (Int?, Int) -> Int?
     private let onLiveHoleInitialLoadDidFinish: () -> Void
     /// Before the first stroke the same screen is a memory-only prep surface.
@@ -501,8 +586,8 @@ public struct CurrentHoleView: View {
     /// B4 turn: after the last hole of a single first loop, ask which nine comes next.
     @State private var turnPlan: NineLoopPlan?
     /// A turn continuation is in flight. The sheet is dismissed first and the model is asked for
-    /// the second loop only from `onDismiss`: the model then replaces the package — which rebuilds
-    /// this destination for the new hole set — and moves the NavigationStack to its first hole,
+    /// the second loop only from `onDismiss`: the model then replaces the package and moves the
+    /// pager to its first hole without changing this page's identity,
     /// and SwiftUI does not complete that path replacement behind a sheet presented from inside
     /// the stack. A failed or offline preparation re-presents the choice with a retry message.
     @State private var turnContinuationPending = false
@@ -517,12 +602,17 @@ public struct CurrentHoleView: View {
     /// timeout.
     @State private var turnContinuationToken = UUID()
     @State private var turnRetryPlan: NineLoopPlan?
+    /// Stop-after-nine dismisses the turn sheet before presenting the finish summary; SwiftUI
+    /// drops a second sheet presentation while the first one is still closing.
+    @State private var turnFinishPending = false
     @State private var showDiscardConfirmation = false
     /// B1c Touch Target on the main map: screen point of the finger while the target is dragged
     /// (drives the loupe), whether that drag owns the gesture, and a one-runloop tap suppressor.
     @State private var heroTargetDragLocation: CGPoint?
-    @State private var heroTargetDragging = false
-    @State private var heroTargetDidDrag = false
+    /// GestureState is reset before DragGesture.onEnded. Keep the ownership bit in State so the
+    /// final pixel is still committed when the target is released.
+    @State private var heroTargetDragGrabbed = false
+    @GestureState private var heroTargetDragging = false
     @State private var showGreenDetail = false
     @State private var selectedHazardID: String?
     /// The obstacle-mapping request (same-frame prep / Garmin registration) in flight. Its
@@ -531,6 +621,7 @@ public struct CurrentHoleView: View {
     /// Mirrors `scenePhase` for the `/prep` probe, which reads it from its running task.
     @State private var liveSceneIsActive = true
     @State private var scoreDraft: LiveScoreDraft?
+    @State private var scoreDismissalCoordinator = LiveScoreDismissalCoordinator()
     @State private var showScorecard = false
     @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
     @State private var pendingHistoricalScoreHole: Int?
@@ -539,6 +630,7 @@ public struct CurrentHoleView: View {
     /// The finish page's nine-hole continuation opens the same turn sheet after dismissal.
     @State private var pendingSummaryTurn = false
     @State private var pendingPhoneShot: PendingPhoneShot?
+    @State private var pagerPresentedSurfaces: Set<String> = []
     @State private var prepNotice: String?
     @State private var heroMapScale: CGFloat = 1
     @State private var heroMapOffset: CGSize = .zero
@@ -548,7 +640,9 @@ public struct CurrentHoleView: View {
     @State private var liveHeroFrame: CGRect = .zero
     @State private var preciseTopoImageReady = false
     @State private var hasEmbeddedTopoImage = false
+    @State private var resolvedLocalTopoURL: URL?
     @State private var garminRasterImageFailed = false
+    @State private var garminRasterImageReady = false
     @State private var garminRasterImageRetrying = false
     @State private var garminRasterImageReloadID = 0
     @State private var garminVersionConflictURL: URL?
@@ -594,6 +688,9 @@ public struct CurrentHoleView: View {
         onContinueIntoSecondLoop: @escaping (RoundLoopEntry, String) -> Void = { _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
+        sessionCache: LiveHoleSessionCache? = nil,
+        usesExternalHolePager: Bool = false,
+        isSelected: Bool = true,
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
         onPrepLocationChanged: @escaping (Int?, Int) -> Int? = { _, _ in nil },
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
@@ -644,6 +741,10 @@ public struct CurrentHoleView: View {
         self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
         self.onFinishRound = onFinishRound
         self.onDiscardRound = onDiscardRound
+        let sharedSessionCache = sessionCache ?? LiveHoleSessionCache()
+        self.sessionCache = sharedSessionCache
+        self.usesExternalHolePager = usesExternalHolePager
+        self.isSelected = isSelected
         self.onAdvanceHole = onAdvanceHole
         self.onPrepLocationChanged = onPrepLocationChanged
         self.onLiveHoleInitialLoadDidFinish = onLiveHoleInitialLoadDidFinish
@@ -654,6 +755,26 @@ public struct CurrentHoleView: View {
         self.onFirstStrokeClubPromptDismissed = onFirstStrokeClubPromptDismissed
         self.onUndoRoundStart = onUndoRoundStart
         self.onChangePrepTee = onChangePrepTee
+        let packagePrepForHole = package.coursePrep?.holes.first { $0.hole == hole.number }
+        let cachedSessionSeed = sharedSessionCache.entry(
+            roundId: package.roundId,
+            hole: hole.number,
+            sourceGlobalId: hole.sourceGlobalId,
+            sourceLocalHole: hole.sourceLocalHole,
+            teeBox: package.course.teeBox
+        )
+        let initialGeometryRevision = LiveHoleSessionCache.cacheRevision(
+            hole: hole,
+            prep: cachedSessionSeed.holePrep ?? packagePrepForHole
+        )
+        let initialSession = sharedSessionCache.entry(
+            roundId: package.roundId,
+            hole: hole.number,
+            sourceGlobalId: hole.sourceGlobalId,
+            sourceLocalHole: hole.sourceLocalHole,
+            teeBox: package.course.teeBox,
+            geometryRevision: initialGeometryRevision
+        )
         let seed = package.caddieContextSeeds.first { $0.hole == hole.number }
         let restoredHoleState = liveRoundState?.holeState(for: hole.number)
         let restoredTarget = Self.restoredTarget(from: restoredHoleState)
@@ -674,8 +795,9 @@ public struct CurrentHoleView: View {
         self._selectedStrategyMode = State(initialValue: restoredHoleState?.selectedStrategyMode ?? "stock")
         self._distanceToPinText = State(initialValue: Self.validDistanceText(restoredHoleState?.distanceToPinM))
         self._selectedLie = State(initialValue: restoredHoleState?.lie ?? "fairway")
-        let initialHolePrep = package.coursePrep?.holes.first { $0.hole == hole.number }
+        let initialHolePrep = initialSession.holePrep ?? packagePrepForHole
         self._holePrep = State(initialValue: initialHolePrep)
+        // Embedded image validation and disk URL lookup happen in the hole task, away from init.
         self._hasEmbeddedTopoImage = State(
             initialValue: CoursePrepHole.hasDecodableEmbeddedTopo(initialHolePrep?.map?.image)
         )
@@ -701,6 +823,34 @@ public struct CurrentHoleView: View {
         self._dailyPinSheet = State(initialValue: offlineStore?.loadDailyPinSheet())
         self._targetKind = State(initialValue: restoredManualTarget?.kind)
         self._lastTargetEditKind = State(initialValue: restoredTarget?.kind)
+        self._resolvedLocalTopoURL = State(initialValue: initialSession.localTopoURL)
+        self._garminRaster = State(
+            initialValue: initialSession.garminRaster ?? Self.packageGarminRaster(for: hole)
+        )
+        self._caddieDecision = State(initialValue: nil)
+        if !initialSession.caddieRoutes.isEmpty {
+            self._caddieRoutesByHole = State(initialValue: [hole.number: initialSession.caddieRoutes])
+            self._retainedCaddieRouteByHole = State(initialValue: [hole.number: initialSession.caddieRoutes[0]])
+        } else if let initialHolePrep,
+                  let installed = LiveCaddieRouteAuthority.installedRoute(
+                      prep: initialHolePrep,
+                      par: hole.par,
+                      shotType: initialShotType,
+                      fallbackRouteEndM: initialHolePrep.routeLenM
+                  ),
+                  let reconciled = LiveCaddieRouteAuthority.reconciled(
+                      incoming: [installed],
+                      existing: [],
+                      installed: installed,
+                      retained: nil,
+                      explicitSelectionKey: nil,
+                      vetoInstalled: false
+                  ) {
+            // Installed course facts are the only route authority available on frame zero. This
+            // keeps a partial network response from drawing a temporary club-only arc.
+            self._caddieRoutesByHole = State(initialValue: [hole.number: reconciled.merged])
+            self._retainedCaddieRouteByHole = State(initialValue: [hole.number: reconciled.first])
+        }
     }
 
     /// Deterministic starting state for design snapshots: one selected obstacle, pre-resolved
@@ -789,7 +939,58 @@ public struct CurrentHoleView: View {
         )
     }
 
+    private var packagePrepForCurrentHole: CoursePrepHole? {
+        package.coursePrep?.holes.first { $0.hole == hole.number }
+    }
+
+    /// Revision reads use the same latest-known prep source as init and neighbour prefetch. The
+    /// cache entry is read without a revision first so an unknown package row cannot rebase it.
+    private var cachePrepForCurrentHole: CoursePrepHole? {
+        sessionCache.entry(
+            roundId: package.roundId,
+            hole: hole.number,
+            sourceGlobalId: hole.sourceGlobalId,
+            sourceLocalHole: hole.sourceLocalHole,
+            teeBox: package.course.teeBox
+        ).holePrep ?? packagePrepForCurrentHole
+    }
+
+    private var sessionGeometryRevision: String? {
+        cacheRevisionForCurrentHole
+    }
+
+    private var cacheRevisionForCurrentHole: String? {
+        LiveHoleSessionCache.cacheRevision(hole: hole, prep: cachePrepForCurrentHole)
+    }
+
+    private func sessionEntry() -> LiveHoleSessionCache.Entry {
+        sessionCache.entry(
+            roundId: package.roundId,
+            hole: hole.number,
+            sourceGlobalId: hole.sourceGlobalId,
+            sourceLocalHole: hole.sourceLocalHole,
+            teeBox: package.course.teeBox,
+            geometryRevision: sessionGeometryRevision
+        )
+    }
+
+    private func updateSession(_ update: (inout LiveHoleSessionCache.Entry) -> Void) {
+        sessionCache.update(
+            roundId: package.roundId,
+            hole: hole.number,
+            sourceGlobalId: hole.sourceGlobalId,
+            sourceLocalHole: hole.sourceLocalHole,
+            teeBox: package.course.teeBox,
+            geometryRevision: sessionGeometryRevision
+        ) { entry in
+            update(&entry)
+        }
+    }
+
     public var body: some View {
+        #if DEBUG
+        let _ = UITestPagerTrace.shared.metric(.currentHoleBody)
+        #endif
         liveHoleContentWithHazardRequests
         .overlay {
             if turnContinuationPending, queuedTurnLoop == nil, let continuingLoopName {
@@ -806,6 +1007,11 @@ public struct CurrentHoleView: View {
         .navigationBarBackButtonHidden(true)
         .onAppear {
             #if DEBUG
+            UITestPagerTrace.shared.metric(.currentHoleAppear)
+            UITestPagerTrace.shared.record("page appear hole=\(hole.number) selected=\(isSelected)")
+            #endif
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
+            #if DEBUG
             UITestEventLatencyTrace.record(
                 "live-hole.appear hole=\(hole.number) course=\(package.course.globalId)"
             )
@@ -813,7 +1019,40 @@ public struct CurrentHoleView: View {
             locationProvider.requestAuthorization()
             locationProvider.startUpdatingLocation()
         }
+        .onChange(of: isSelected) { _, selected in
+            if selected {
+                locationProvider.requestAuthorization()
+                locationProvider.startUpdatingLocation()
+                if holePrep != nil {
+                    sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
+                }
+            } else {
+                locationProvider.stopUpdatingLocation()
+                heroTargetDragGrabbed = false
+                heroTargetDragLocation = nil
+            }
+        }
+        .onDisappear {
+            #if DEBUG
+            UITestPagerTrace.shared.metric(.currentHoleDisappear)
+            UITestPagerTrace.shared.record("page disappear hole=\(hole.number) sheet=\(pagerPresentationIsActive)")
+            #endif
+            locationProvider.stopUpdatingLocation()
+            heroTargetDragGrabbed = false
+            heroTargetDragLocation = nil
+        }
+        .onChange(of: heroTargetDragging) { _, active in
+            if !active {
+                heroTargetDragLocation = nil
+                // A system-cancelled drag has no onEnded callback. Reset ownership on the next
+                // actor turn, after a normal onEnded has had a chance to commit its final pixel.
+                DispatchQueue.main.async {
+                    heroTargetDragGrabbed = false
+                }
+            }
+        }
         .onReceive(locationProvider.$latestFix) { latestFix in
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             guard let latestFix else {
                 return
             }
@@ -842,6 +1081,7 @@ public struct CurrentHoleView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: ClubBagStore.didChange)) { _ in
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             // 球包 changed (a club removed, a carry typed): the route, landing and club list on
             // screen were planned with the old bag. Drop them and ask again with the new one.
             caddieRoutesByHole[hole.number] = nil
@@ -851,9 +1091,36 @@ public struct CurrentHoleView: View {
             selectedPlanIndex = nil
             caddieDecision = nil
             caddieDecisionOriginShot = nil
+            updateSession { entry in
+                entry.caddieDecision = nil
+                entry.caddieDecisionInputSignature = nil
+                entry.caddieDecisionIsOnline = false
+                entry.caddieRoutes = []
+            }
             Task { await loadCaddieDecision(syncClub: true) }
         }
-        .task(id: hole.number) {
+        .task(id: "\(localTopoRevisionTaskKey):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
+            let revision = LiveTopoAvailability.revision(hole: hole, prep: holePrep)
+            let store = offlineStore
+            let localURL = await Task.detached(priority: .utility) {
+                store?.loadCourseTopoImageURL(
+                    globalId: hole.sourceGlobalId,
+                    localHole: hole.sourceLocalHole,
+                    geometryRevision: revision
+                )
+            }.value
+            guard !Task.isCancelled else { return }
+            resolvedLocalTopoURL = localURL
+            updateSession { entry in
+                entry.localTopoURL = localURL
+            }
+        }
+        .task(id: "\(hole.number):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
+            // Expensive file checks and base64 decoding are deliberately outside init/body. The
+            // resulting values are retained for this physical hole and reused by the pager.
+            hasEmbeddedTopoImage = CoursePrepHole.hasDecodableEmbeddedTopo(holePrep?.map?.image)
             activeRasterRequestKey = rasterRequestKey(
                 globalId: hole.sourceGlobalId,
                 localHole: hole.sourceLocalHole,
@@ -865,6 +1132,11 @@ public struct CurrentHoleView: View {
             // no line (or the wrong line) until its on-demand request completes.
             // The adoption policy compares geometry quality, so never feed it the previous
             // hole's row: a ready row for hole 1 must not block a partial-but-correct row for hole 2.
+            let cachedSessionAtEntry = sessionEntry()
+            if let cachedPrep = cachedSessionAtEntry.holePrep {
+                holePrep = cachedPrep
+                hasEmbeddedTopoImage = CoursePrepHole.hasDecodableEmbeddedTopo(cachedPrep.map?.image)
+            }
             let currentPrepForHole = holePrep?.hole == hole.number ? holePrep : nil
             if let packagePrep = package.coursePrep?.holes.first(where: { $0.hole == hole.number }) {
                 if CoursePrepHoleAdoptionPolicy.shouldAdopt(
@@ -877,6 +1149,21 @@ public struct CurrentHoleView: View {
             } else if currentPrepForHole == nil {
                 setHolePrep(nil)
             }
+            // Session data is restored only from the ordered entry path. Init stays side-effect
+            // free and therefore cannot publish an old entity's prep while SwiftUI is evaluating
+            // the parent view.
+            let cachedSession = sessionEntry()
+            if let cachedPrep = cachedSession.holePrep {
+                holePrep = cachedPrep
+                hasEmbeddedTopoImage = CoursePrepHole.hasDecodableEmbeddedTopo(cachedPrep.map?.image)
+            }
+            if let cachedGarmin = cachedSession.garminRaster {
+                garminRaster = cachedGarmin
+            }
+            if !cachedSession.caddieRoutes.isEmpty {
+                caddieRoutesByHole[hole.number] = cachedSession.caddieRoutes
+                retainedCaddieRouteByHole[hole.number] = cachedSession.caddieRoutes[0]
+            }
             // A reused CurrentHoleView must not carry a manual choice into the next hole. The
             // persisted `selectedStrategyMode` remains available for legacy event replay, while
             // this transient override always starts in automatic mode for a new hole.
@@ -886,9 +1173,14 @@ public struct CurrentHoleView: View {
             // A previous hole's obstacle-mapping request is cancelled with its `.task(id:)`.
             hazardMappingRequest = nil
             preciseMapTimedOut = false
-            garminRaster = Self.packageGarminRaster(for: hole)
+            garminRaster = sessionEntry().garminRaster
+                ?? Self.packageGarminRaster(for: hole)
             preciseTopoImageReady = false
             garminRasterImageFailed = false
+            garminRasterImageReady = false
+            if let url = liveGarminRasterURL {
+                garminRasterImageReady = GarminRasterImageStore.isMemoryCached(url)
+            }
             garminRasterImageRetrying = false
             garminRasterImageReloadID = 0
             GarminRasterImageStore.resetRetryCursors()
@@ -960,17 +1252,20 @@ public struct CurrentHoleView: View {
             }
             carryOverLiveMapViewport(from: previous, to: next)
         }
-        .task(id: liveTopoURL) {
-            guard let requestedURL = liveTopoURL else { return }
+        .task(id: "\(liveTopoURL?.absoluteString ?? ""):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected),
+                  let requestedURL = liveTopoURL else { return }
             let ready = await TopoHoleImageStore.ensureLoaded(requestedURL)
             guard !Task.isCancelled, liveTopoURL == requestedURL else { return }
             preciseTopoImageReady = ready
         }
-        .task(id: garminDescriptorRecoveryKey) {
+        .task(id: "\(garminDescriptorRecoveryKey):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             await recoverGarminDescriptor()
         }
-        .task(id: garminVersionConflictURL) {
-            guard garminVersionConflictURL != nil else { return }
+        .task(id: "\(garminVersionConflictURL?.absoluteString ?? ""):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected),
+                  garminVersionConflictURL != nil else { return }
             await loadGarminRaster()
         }
         .onChange(of: pinSheetItems) { _, items in
@@ -978,36 +1273,38 @@ public struct CurrentHoleView: View {
             Task { await importPinSheet(items) }
         }
         .fullScreenCover(isPresented: $showGreenDetail) {
-            greenDetailSurface
+            trackedPagerPresentation("green") { greenDetailSurface }
         }
-        .sheet(item: $scoreDraft) { presentedDraft in
-            scoreConfirmationSurface(for: presentedDraft)
+        .sheet(item: $scoreDraft, onDismiss: handleScoreSheetDismissed) { presentedDraft in
+            trackedPagerPresentation("score") { scoreConfirmationSurface(for: presentedDraft) }
         }
         .sheet(item: $pendingPhoneShot, onDismiss: onFirstStrokeClubPromptDismissed) { pendingShot in
-            actualClubPromptSurface(for: pendingShot)
+            trackedPagerPresentation("club") { actualClubPromptSurface(for: pendingShot) }
         }
         .sheet(isPresented: $showScorecard, onDismiss: handleScorecardDismissed) {
-            scorecardSurface
+            trackedPagerPresentation("scorecard") { scorecardSurface }
         }
         .sheet(isPresented: $showRoundSummary, onDismiss: handleRoundSummaryDismissed) {
-            roundSummarySurface
+            trackedPagerPresentation("summary") { roundSummarySurface }
         }
         .sheet(isPresented: Binding(
             get: { turnPlan != nil },
             set: { if !$0 { turnPlan = nil } }
         ), onDismiss: handleTurnSheetDismissed) {
             if let turnPlan {
-                LiveRoundTurnSheet(
-                    plan: turnPlan,
-                    isPreparing: isPreparingRound || turnContinuationPending,
-                    failureText: turnContinuationFailed ? "没能接上这个 9 洞，请重试" : nil,
-                    onContinue: continueIntoSecondLoop,
-                    onStop: {
-                        self.turnPlan = nil
-                        showRoundSummary = true
-                    },
-                    onLater: { self.turnPlan = nil }
-                )
+                trackedPagerPresentation("turn") {
+                    LiveRoundTurnSheet(
+                        plan: turnPlan,
+                        isPreparing: isPreparingRound || turnContinuationPending,
+                        failureText: turnContinuationFailed ? "没能接上这个 9 洞，请重试" : nil,
+                        onContinue: continueIntoSecondLoop,
+                        onStop: {
+                            self.turnPlan = nil
+                            turnFinishPending = true
+                        },
+                        onLater: { self.turnPlan = nil }
+                    )
+                }
             }
         }
         .onChange(of: isPreparingRound) { wasPreparing, preparing in
@@ -1040,6 +1337,39 @@ public struct CurrentHoleView: View {
         }
     }
 
+    private var pagerPresentationIsActive: Bool {
+        scoreDraft != nil || pendingPhoneShot != nil || showScorecard || showRoundSummary
+            || turnPlan != nil || showGreenDetail || showDiscardConfirmation
+            || !pagerPresentedSurfaces.isEmpty || scoreDismissalCoordinator.pending != nil
+            || turnFinishPending || pendingSummaryDiscard || pendingSummaryTurn
+    }
+
+    private func trackedPagerPresentation<Content: View>(
+        _ name: String, @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .overlay(alignment: .topLeading) { pagerTraceElement }
+            .onAppear {
+                pagerPresentedSurfaces.insert(name)
+                #if DEBUG
+                UITestPagerTrace.shared.record("sheet appear hole=\(hole.number) name=\(name)")
+                #endif
+            }
+            .onDisappear {
+                pagerPresentedSurfaces.remove(name)
+                #if DEBUG
+                UITestPagerTrace.shared.record("sheet disappear hole=\(hole.number) name=\(name)")
+                #endif
+            }
+    }
+
+    @ViewBuilder private var pagerTraceElement: some View {
+        #if DEBUG
+        UITestPagerTraceElement()
+            .frame(width: 1, height: 1)
+        #endif
+    }
+
     // Keep the large live-play layout in its own opaque view boundary. Besides making the
     // hierarchy easier to read, this prevents SwiftUI's modifier chain in `body` from forcing the
     // compiler to infer every map, panel, and sheet expression as one type-checking problem.
@@ -1049,6 +1379,7 @@ public struct CurrentHoleView: View {
     /// Kept out of `body`'s modifier chain, which is already at the type checker's limit (C89).
     private var liveHoleContentWithHazardRequests: some View {
         liveHoleContent
+            .preference(key: LiveHolePagerPresentationKey.self, value: pagerPresentationIsActive)
             .task(id: hazardMappingRequest) {
                 await runHazardMappingRequest()
             }
@@ -1310,6 +1641,16 @@ public struct CurrentHoleView: View {
 
     private func handleScorecardDismissed() {
         presentPendingHistoricalScoreEdit()
+    }
+
+    private func handleScoreSheetDismissed() {
+        guard let action = scoreDismissalCoordinator.consumeAfterDismissal() else { return }
+        switch action {
+        case .turn(let plan):
+            turnPlan = plan
+        case .finish:
+            showRoundSummary = true
+        }
     }
 
     /// The summary's 放弃本场 asks for the confirmation once the summary sheet is gone; presenting
@@ -1812,7 +2153,7 @@ public struct CurrentHoleView: View {
                 // The Touch Target works on the factual map while the precise one is pending
                 // (B4c): `carryOverMapInteraction` keeps the target on the same spot when it lands.
                 SpatialTapGesture().onEnded { value in
-                    guard !heroTargetDidDrag,
+                    guard !heroTargetDragGrabbed,
                           value.location.y >= LivePlayMapOverlayLayout.liveMapTopInset,
                           greenPath?.contains(value.location) != true else { return }
                     handleHeroMapTap(at: value.location, in: geometry.size)
@@ -1835,6 +2176,16 @@ public struct CurrentHoleView: View {
             .accessibilityLabel("球洞地图，点地图设目标点")
             .accessibilityHint("按住目标点拖动微调，左右滑动切换球洞")
             .accessibilityIdentifier("live-open-map-from-hero")
+            .preference(
+                key: LiveHolePagerGestureStateKey.self,
+                value: isSelected && (
+                    heroTargetDragging
+                        || HeroMapGesturePolicy.isZoomed(
+                            scale: heroMapScale,
+                            pinchScale: heroMapPinchScale
+                        )
+                )
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1842,13 +2193,16 @@ public struct CurrentHoleView: View {
     private func heroMapHoleSwipeGesture() -> some Gesture {
         // Once zoomed, make this recognizer inert so it cannot compete with the pan recognizer.
         DragGesture(
-            minimumDistance: HeroMapGesturePolicy.isZoomed(scale: heroMapScale)
+            minimumDistance: usesExternalHolePager
+                ? 10_000
+                : HeroMapGesturePolicy.isZoomed(scale: heroMapScale)
                 ? 10_000
                 : 24
         )
             .onEnded { value in
+                guard !usesExternalHolePager else { return }
                 // A drag that grabbed the Touch Target never pages the hole.
-                guard !heroTargetDragging else { return }
+                guard !heroTargetDragGrabbed else { return }
                 guard HeroMapGesturePolicy.acceptsHoleSwipe(
                     scale: heroMapScale,
                     pinchScale: heroMapPinchScale
@@ -2030,28 +2384,29 @@ public struct CurrentHoleView: View {
     /// the loupe follows the finger. Any other drag keeps its pan / hole-swipe meaning.
     private func heroTargetDragGesture(in viewport: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 4)
-            .onChanged { value in
-                if !heroTargetDragging {
-                    guard heroTargetHit(at: value.startLocation, in: viewport) else { return }
-                    heroTargetDragging = true
+            .updating($heroTargetDragging) { value, state, _ in
+                if !state {
+                    state = heroTargetHit(at: value.startLocation, in: viewport)
                 }
-                heroTargetDidDrag = true
+            }
+            .onChanged { value in
+                if !heroTargetDragGrabbed {
+                    heroTargetDragGrabbed = heroTargetHit(at: value.startLocation, in: viewport)
+                }
+                guard heroTargetDragGrabbed else { return }
                 heroTargetDragLocation = value.location
                 if let pixel = heroOverlayPixel(at: value.location, in: viewport, clampToMap: true) {
                     applyHeroTarget(pixel: pixel, committed: false)
                 }
             }
             .onEnded { value in
-                guard heroTargetDragging else { return }
+                guard heroTargetDragGrabbed else { return }
                 if let pixel = heroOverlayPixel(at: value.location, in: viewport, clampToMap: true) {
                     applyHeroTarget(pixel: pixel, committed: true)
                 }
                 heroTargetDragLocation = nil
-                // The tap and hole-swipe recognizers may deliver in this same run loop; keep them
-                // suppressed for that delivery so the drag neither re-places the target nor pages.
                 DispatchQueue.main.async {
-                    heroTargetDragging = false
-                    heroTargetDidDrag = false
+                    heroTargetDragGrabbed = false
                 }
             }
     }
@@ -2251,14 +2606,17 @@ public struct CurrentHoleView: View {
                         url: liveGarminRasterURL,
                         reloadID: garminRasterImageReloadID,
                         onReady: {
+                        garminRasterImageReady = true
                         garminRasterImageRetrying = false
                         garminRasterImageFailed = false
                     },
                     onFailed: {
+                        garminRasterImageReady = false
                         garminRasterImageRetrying = false
                         garminRasterImageFailed = true
                     },
                     onRetrying: {
+                        garminRasterImageReady = false
                         garminRasterImageRetrying = true
                         garminRasterImageFailed = true
                     },
@@ -2282,15 +2640,20 @@ public struct CurrentHoleView: View {
         } else {
             ZStack {
                 liveMapPlaceholder
-                if garminRasterImageRetrying, let retryURL = liveGarminRasterURL {
+                // Keep the loader mounted invisibly while facts are shown. It can promote the
+                // page immediately when a descriptor URL is already known, without flashing its
+                // dark loading surface as the visible map.
+                if let retryURL = liveGarminRasterURL {
                     GarminRasterStandaloneView(
                         url: retryURL,
                         reloadID: garminRasterImageReloadID,
                         onReady: {
+                            garminRasterImageReady = true
                             garminRasterImageRetrying = false
                             garminRasterImageFailed = false
                         },
                         onFailed: {
+                            garminRasterImageReady = false
                             garminRasterImageRetrying = false
                             garminRasterImageFailed = true
                         },
@@ -2323,14 +2686,17 @@ public struct CurrentHoleView: View {
                              onPreciseImageReady: { preciseTopoImageReady = true },
                              onPreciseImageFailed: { preciseTopoImageReady = false },
                              onGarminImageReady: {
+                                 garminRasterImageReady = true
                                  garminRasterImageRetrying = false
                                  garminRasterImageFailed = false
                              },
                              onGarminImageFailed: {
+                                 garminRasterImageReady = false
                                  garminRasterImageRetrying = false
                                  garminRasterImageFailed = true
                              },
                              onGarminImageRetrying: {
+                                 garminRasterImageReady = false
                                  garminRasterImageRetrying = true
                                  garminRasterImageFailed = true
                              },
@@ -2581,6 +2947,9 @@ public struct CurrentHoleView: View {
 
         // Routes already shown keep their pager places; new distinct alternatives are appended.
         caddieRoutesByHole[hole.number] = merged
+        updateSession { entry in
+            entry.caddieRoutes = merged
+        }
 
         let currentToken = selectedCaddieRouteByHole[hole.number]
         let fallbackToken = caddieDecision?.selectedSequence.flatMap {
@@ -2733,11 +3102,12 @@ public struct CurrentHoleView: View {
     /// Runs under `.task(id: hazardMappingRequest)`: changing holes resets the request (and leaving
     /// the screen ends the view), which cancels this task before a late row can be published.
     private func runHazardMappingRequest() async {
+        guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
         guard let request = hazardMappingRequest, request.hole == hole.number else { return }
         if request.source == .garminRegistration {
             await loadGarminRaster()
         } else {
-            _ = await loadHoleMap()
+            _ = await loadHoleMap(forMapping: true)
         }
         guard !Task.isCancelled else { return }
         if hazardMappingRequest == request { hazardMappingRequest = nil }
@@ -2765,7 +3135,7 @@ public struct CurrentHoleView: View {
         if hasEmbeddedTopoImage { return true }
         guard let url = liveTopoURL else { return false }
         if localTopoURL != nil || preciseTopoImageReady { return true }
-        return TopoHoleImageStore.cachedImage(for: url) != nil
+        return TopoHoleImageStore.isMemoryCached(url)
     }
 
     private var liveMapDisplayState: LiveMapDisplayState {
@@ -2774,10 +3144,16 @@ public struct CurrentHoleView: View {
                 coverage: LiveTopoAvailability.coverage(hole: hole, prep: holePrep),
                 preciseTopoImageReady: hasPreciseTopoImage,
                 garminRaster: garminRaster,
+                garminImageReady: garminImageReadyForDisplay,
                 garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying,
                 hasCachedPreciseTopo: hasCachedTopoForCurrentHole
             )
         )
+    }
+
+    private var garminImageReadyForDisplay: Bool {
+        guard let url = liveGarminRasterURL else { return false }
+        return garminRasterImageReady || GarminRasterImageStore.isMemoryCached(url)
     }
 
     /// The map frame used by every phone overlay and gesture. Garmin's projection remaps the
@@ -2838,19 +3214,18 @@ public struct CurrentHoleView: View {
 
     private var hasCachedTopoForCurrentHole: Bool {
         if localTopoURL != nil { return true }
-        return TopoHoleImageStore.cachedImage(for: liveTopoURL) != nil
+        return liveTopoURL.map { TopoHoleImageStore.isMemoryCached($0) } ?? false
     }
 
     /// The downloaded topo of this physical hole. The bitmap is keyed by the hole's geometry
     /// revision; a lightweight prep row may carry its own token, so the hole's revision is the
     /// fallback before treating the map as missing (and waiting on the network for it).
     private var localTopoURL: URL? {
-        guard let offlineStore else { return nil }
-        return offlineStore.loadCourseTopoImageURL(
-            globalId: hole.sourceGlobalId,
-            localHole: hole.sourceLocalHole,
-            geometryRevision: LiveTopoAvailability.revision(hole: hole, prep: holePrep)
-        )
+        resolvedLocalTopoURL
+    }
+
+    private var localTopoRevisionTaskKey: String {
+        "\(hole.sourceGlobalId):\(hole.sourceLocalHole):\(LiveTopoAvailability.revision(hole: hole, prep: holePrep) ?? "")"
     }
 
     /// 本洞真实地形底图 URL(与 `loadHoleMap` 用同一 source 球场 + 本地洞号:组合局后九在第二个环的
@@ -3588,7 +3963,7 @@ public struct CurrentHoleView: View {
             // making the player wait for a second prep GET/render request.
             async let mapResult = loadHoleMap()
             async let rasterResult = loadGarminRasterIfNeeded()
-            await loadCaddieDecision(syncClub: syncClub)
+            await loadCaddieDecision(syncClub: syncClub, allowCachedDecision: true)
             _ = await mapResult
             await rasterResult
         } else {
@@ -3596,7 +3971,7 @@ public struct CurrentHoleView: View {
             _ = await loadHoleMap()
             await rasterResult
             guard !Task.isCancelled else { return }
-            await loadCaddieDecision(syncClub: syncClub)
+            await loadCaddieDecision(syncClub: syncClub, allowCachedDecision: true)
         }
         guard !Task.isCancelled else { return }
         #if DEBUG
@@ -3604,15 +3979,32 @@ public struct CurrentHoleView: View {
             "live-hole.initial-load-finished hole=\(hole.number) course=\(package.course.globalId)"
         )
         #endif
-        onLiveHoleInitialLoadDidFinish()
+        if isSelected {
+            onLiveHoleInitialLoadDidFinish()
+        }
 
         // The package request has already queued prodgeometry in the backend. Keep the CourseView
         // vectors usable now, then replace only this hole's map facts when the precise mesh arrives.
-        // The structured `.task(id: hole.number)` owns this loop, so changing holes or leaving the
+        // The structured selection-aware task owns this loop, so changing holes or leaving the
         // screen cancels it without leaving a detached poller behind.
         // A cached topo bitmap does not end this: the row drawn over it must reach its frame (C89).
         if LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: holePrep) {
-            await waitForPreciseHoleMap(syncClub: !alreadyRecorded)
+            let session = sessionEntry()
+            if !session.preciseProbeStarted {
+                updateSession { entry in
+                    entry.preciseProbeStarted = true
+                }
+                #if DEBUG
+                UITestPagerTrace.shared.taskStarted(.preciseMapPoll)
+                defer { UITestPagerTrace.shared.taskFinished(.preciseMapPoll) }
+                #endif
+                await waitForPreciseHoleMap(syncClub: !alreadyRecorded)
+                if Task.isCancelled {
+                    updateSession { entry in
+                        entry.preciseProbeStarted = false
+                    }
+                }
+            }
         }
     }
 
@@ -3662,18 +4054,42 @@ public struct CurrentHoleView: View {
             roundHole: requestRoundHole
         )
         guard garminDescriptorLoadingKey != requestKey else { return }
+        let session = sessionEntry()
+        let revision = cacheRevisionForCurrentHole
+        if let cached = session.garminRaster,
+           !LiveHoleSessionCachePolicy.shouldFetchGarmin(
+               cached: cached,
+               requestStarted: session.garminRequestStarted,
+               revision: revision,
+               cachedRevision: session.garminRevision
+           ),
+           isCurrentRasterRequest(requestKey) {
+            garminRaster = cached
+            return
+        }
+        updateSession { entry in
+            entry.garminRequestStarted = true
+        }
         garminDescriptorLoadingKey = requestKey
         defer {
             if garminDescriptorLoadingKey == requestKey { garminDescriptorLoadingKey = nil }
+            updateSession { entry in
+                entry.garminRequestStarted = false
+            }
         }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
-        let revision = holePrep?.geometryRevision ?? hole.geometryRevision
         if let cached = GarminRasterMetadataCache.cached(
             globalId: requestGlobalId,
             localHole: requestLocalHole,
             revision: revision
         ), isCurrentRasterRequest(requestKey) {
             garminRaster = cached
+            garminRasterImageReady = cached.resolvedImageURL(relativeTo: caddieBaseURL)
+                .map { GarminRasterImageStore.isMemoryCached($0) } ?? false
+            updateSession { entry in
+                entry.garminRaster = cached
+                if let revision { entry.garminRevision = revision }
+            }
         }
         do {
             let descriptor = try await client.fetchGarminRaster(
@@ -3693,6 +4109,11 @@ public struct CurrentHoleView: View {
             }
             if repeatsConflictURL { garminRasterImageReloadID &+= 1 }
             garminRaster = descriptor
+            garminRasterImageReady = descriptorURL.map { GarminRasterImageStore.isMemoryCached($0) } ?? false
+            updateSession { entry in
+                entry.garminRaster = descriptor
+                if let revision { entry.garminRevision = revision }
+            }
             GarminRasterMetadataCache.store(
                 descriptor,
                 globalId: requestGlobalId,
@@ -3702,7 +4123,6 @@ public struct CurrentHoleView: View {
             if let url = descriptor.resolvedImageURL(relativeTo: caddieBaseURL) {
                 GarminRasterImageStore.prefetch(url)
             }
-            prefetchNextGarminRaster(after: hole.number, using: client)
         } catch {
             guard !Task.isCancelled, isCurrentRasterRequest(requestKey) else { return }
             if garminRaster?.hasDisplayableImage != true {
@@ -3730,22 +4150,11 @@ public struct CurrentHoleView: View {
         garminVersionConflictURL = url
     }
 
-    private func prefetchNextGarminRaster(after roundHole: Int, using client: SyncClient) {
-        guard let next = package.holes
-            .sorted(by: { $0.number < $1.number })
-            .first(where: { $0.number > roundHole }) else { return }
-        Task { @MainActor in
-            guard next.sourceGlobalId != 0, next.sourceLocalHole > 0 else { return }
-            guard let descriptor = try? await client.fetchGarminRaster(
-                globalId: next.sourceGlobalId,
-                localHole: next.sourceLocalHole
-            ), descriptor.hasDisplayableImage,
-            let url = descriptor.resolvedImageURL(relativeTo: client.baseURL) else { return }
-            GarminRasterImageStore.prefetch(url)
-        }
+    private func loadHoleMap() async -> Bool {
+        await loadHoleMap(forMapping: false)
     }
 
-    private func loadHoleMap() async -> Bool {
+    private func loadHoleMap(forMapping: Bool) async -> Bool {
         #if DEBUG
         if ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             return false
@@ -3771,6 +4180,23 @@ public struct CurrentHoleView: View {
         let mapLocalHole = hole.sourceLocalHole
         guard mapGlobalId != 0 else {
             return false
+        }
+        let cachedSession = sessionEntry()
+        if !forMapping {
+            guard LiveHoleSessionCachePolicy.shouldFetchPrep(
+                cached: cachedSession.holePrep,
+                requestStarted: cachedSession.prepRequestStarted,
+                requestCompleted: cachedSession.prepRequestCompleted,
+                forMapping: forMapping
+            ) else { return false }
+        }
+        updateSession { entry in
+            entry.prepRequestStarted = true
+        }
+        defer {
+            updateSession { entry in
+                entry.prepRequestStarted = false
+            }
         }
         let client = SyncClient(baseURL: caddieBaseURL, adminToken: adminToken)
         // The hole task or the 障碍 mapping task owns this request. A row landing after that task
@@ -3807,12 +4233,18 @@ public struct CurrentHoleView: View {
                 // shot capture.
                 moveSimulatedLocationToHoleTeeIfRequested(resolved)
                 #endif
-                return await retainThenPublishHolePrep(
+                let published = await retainThenPublishHolePrep(
                     resolved,
                     globalId: mapGlobalId,
                     sourceLocalHole: mapLocalHole,
                     watchHole: hole.number
                 )
+                if published {
+                    updateSession { entry in
+                        entry.prepRequestCompleted = true
+                    }
+                }
+                return published
             },
             pushWatch: {
                 // Re-push to the watch now that F/M/B + plays-like are available. The ordered
@@ -3893,13 +4325,22 @@ public struct CurrentHoleView: View {
         )
         guard didPublish else { return }
         // Rehydrate the decision from precise geometry after the durable map state is visible.
-        await loadCaddieDecision(syncClub: syncClub && !hasUserSelectedClub)
+        await loadCaddieDecision(
+            syncClub: syncClub && !hasUserSelectedClub,
+            allowCachedDecision: true
+        )
     }
 
     @MainActor
     private func setHolePrep(_ prep: CoursePrepHole?) {
         holePrep = prep
         hasEmbeddedTopoImage = CoursePrepHole.hasDecodableEmbeddedTopo(prep?.map?.image)
+        sessionCache.updatePrep(
+            roundId: package.roundId,
+            hole: hole,
+            teeBox: package.course.teeBox,
+            prep: prep
+        )
     }
 
     /// A ready prep and its bitmap are one user-visible fact. Make both durable before assigning
@@ -4585,6 +5026,10 @@ public struct CurrentHoleView: View {
     }
 
     private func handleTurnSheetDismissed() {
+        if turnFinishPending {
+            turnFinishPending = false
+            showRoundSummary = true
+        }
         guard let loop = queuedTurnLoop else { return }
         queuedTurnLoop = nil
         guard let entry = NineLoopTurn.entry(loop.id),
@@ -4593,8 +5038,8 @@ public struct CurrentHoleView: View {
             return
         }
         try? offlineStore?.rememberNineLoopPairing(first: NineLoopTurn.loopId(first.entry), second: loop.id)
-        // The model adds the loop and opens its first hole: this view is rebuilt for the new hole
-        // set, so it cannot own that navigation.
+        // The model adds the loop and opens its first hole; this retained page does not own
+        // navigation into the new loop.
         onContinueIntoSecondLoop(entry, package.roundId)
         // The progress overlay must never outlive the model's request budget (120 s) when no
         // preparation is observed at all; a success clears `turnContinuationPending` first.
@@ -4618,7 +5063,7 @@ public struct CurrentHoleView: View {
     private var secondLoopStarted: Bool {
         guard package.secondLoop != nil,
               let offlineStore,
-              let events = try? offlineStore.loadEvents() else { return false }
+              let events = try? offlineStore.cachedEvents() else { return false }
         return package.isSecondLoopLocked(by: events)
     }
 
@@ -4766,6 +5211,8 @@ public struct CurrentHoleView: View {
                 distanceToPinM: caddiePlanningDistanceMetres,
                 lie: selectedLie,
                 coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole,
+                // Keep the flag coordinate in the server contract: the decision service uses it
+                // when distanceToPin_m is unavailable. Pixel-only edits remain signature-only.
                 targetCoordinate: wireTargetCoordinate,
                 targetKind: wireTargetKind,
                 horizontalAccuracyM: liveCoordinateForCurrentHole == nil ? nil : currentHorizontalAccuracyM,
@@ -4778,7 +5225,22 @@ public struct CurrentHoleView: View {
         // A package created before PHONE-UX6 may have the prep chain in the course payload but not
         // in its caddie seed. Fill that one missing transport fact locally so an offline/older
         // package cannot resurrect the independent ``3H -> 3H`` planner on the first tee request.
-        return CaddieDecisionRequestBuilder.addingCanonicalPlan(to: baseRequest, prep: holePrep)
+        let canonicalRequest = CaddieDecisionRequestBuilder.addingCanonicalPlan(to: baseRequest, prep: holePrep)
+        return canonicalRequest
+    }
+
+    /// Coordinates for the flag and pixel-only map edits affect the cache identity, but are kept
+    /// out of the POST body. This keeps the server request contract stable while ensuring a changed
+    /// green position never reuses an older recommendation.
+    private func caddieDecisionSignatureRequest(
+        from request: CaddieDecisionRequest
+    ) -> CaddieDecisionRequest {
+        LiveCaddieDecisionSignaturePolicy.caddieDecisionSignatureRequest(
+            from: request,
+            greenPinCoordinate: validTargetCoordinate(greenPinCoordinate),
+            greenPinPixel: greenPinPixel,
+            targetPixel: targetPixel
+        )
     }
 
     /// Adopt the route the decision engine actually selected. The request's strategy/option is a
@@ -4802,9 +5264,33 @@ public struct CurrentHoleView: View {
     }
 
     @MainActor
-    private func loadCaddieDecision(syncClub: Bool = false) async {
+    private func loadCaddieDecision(
+        syncClub: Bool = false,
+        allowCachedDecision: Bool = false
+    ) async {
         // The shot this decision is for, fixed now, before any await.
         let originShot = recordedShotEventIds
+        let initialRequest = makeCaddieDecisionRequest()
+        let signatureRequest = initialRequest.map(caddieDecisionSignatureRequest(from:))
+        let inputSignature = signatureRequest.flatMap {
+            caddieDecisionInputSignature(for: $0, endpoint: package.caddieDecisionEndpoint)
+        }
+        if allowCachedDecision,
+           let inputSignature,
+           let cached = sessionEntry().caddieDecision,
+           sessionEntry().caddieDecisionIsOnline,
+           !LiveHoleSessionCachePolicy.shouldFetchDecision(
+               inputSignature: inputSignature,
+               cachedSignature: sessionEntry().caddieDecisionInputSignature,
+               hasCachedDecision: true
+           ) {
+            caddieDecision = cached
+            caddieDecisionOriginShot = originShot
+            syncStrategyModeToDecision(cached)
+            if syncClub { syncSelectedClubToRecommendation() }
+            sendWatchState(decision: cached, offlineOption: selectedOfflineOption)
+            return
+        }
         caddieRequestGeneration &+= 1
         let requestGeneration = caddieRequestGeneration
         isLoadingCaddieDecision = true
@@ -4833,7 +5319,7 @@ public struct CurrentHoleView: View {
             sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
             return
         }
-        guard let request = makeCaddieDecisionRequest() else {
+        guard let request = initialRequest ?? makeCaddieDecisionRequest() else {
             caddieErrorMessage = "这一洞暂时无法给建议。"
             sendWatchState(decision: nil, offlineOption: selectedOfflineOption)
             return
@@ -4857,6 +5343,14 @@ public struct CurrentHoleView: View {
             // bootstrap will launch the context-complete request next. Never let the stale answer
             // overwrite it.
             guard !(requestedBeforePrep && holePrep != nil) else { return }
+            if let inputSignature,
+               LiveCaddieDecisionUsability.hasRecommendation(response) {
+                updateSession { entry in
+                    entry.caddieDecision = response
+                    entry.caddieDecisionInputSignature = inputSignature
+                    entry.caddieDecisionIsOnline = true
+                }
+            }
             let offlineDecision = makeOfflineCaddieDecision()
             if LiveCaddieDecisionUsability.hasRecommendation(response) {
                 // Route authority is reconciled below. Keep the response itself so its measured
@@ -4904,6 +5398,17 @@ public struct CurrentHoleView: View {
         return Int(raw.rounded())
     }
 
+    /// Stable input identity for the per-hole decision cache. It is the canonical request payload
+    /// plus endpoint, with GPS capture time and accuracy removed because those values are transport
+    /// noise. Strategy, requested option, vision findings, target/flag and planning distance remain
+    /// in the signature, so every explicit operation can force a fresh POST.
+    private func caddieDecisionInputSignature(
+        for request: CaddieDecisionRequest,
+        endpoint: String
+    ) -> String? {
+        LiveCaddieDecisionSignaturePolicy.signature(for: request, endpoint: endpoint)
+    }
+
     /// An offline decision that recommends nothing must not claim a saved plan.
     static let localNoRouteMessage = "离线没有安全完整的路线 · 联网后再给建议。"
 
@@ -4940,6 +5445,7 @@ public struct CurrentHoleView: View {
     }
 
     private func sendWatchState(decision: CaddieDecisionResponse?, offlineOption: OfflineCaddieOption?) {
+        guard isSelected else { return }
         // round-13 LIVE: forward the per-hole 前/中/后果岭 (F/M/B) + plays-like slope the backend
         // already ships on /prep (holePrep), plus the geometry-coverage gate. Static tee→green
         // distances (not live-GPS recomputed); nil on holes without usable geometry.
@@ -5128,7 +5634,7 @@ public struct CurrentHoleView: View {
         if let offlineStore {
             try? offlineStore.clearLiveScoreDraft(roundId: package.roundId)
         }
-        scoreDraft = nil
+        var dismissalAction: LiveScoreDismissalAction?
         if accepted.hole == hole.number {
             score = accepted.score
             puttCount = accepted.putts
@@ -5145,12 +5651,16 @@ public struct CurrentHoleView: View {
                 onAdvanceHole(next)
             case .finish:
                 if let plan = turnPlanAtEndOfFirstLoop {
-                    turnPlan = plan
+                    dismissalAction = .turn(plan)
                 } else {
-                    showRoundSummary = true
+                    dismissalAction = .finish
                 }
             }
         }
+        if let dismissalAction {
+            scoreDismissalCoordinator.queue(dismissalAction)
+        }
+        scoreDraft = nil
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
     }
 
@@ -5167,7 +5677,7 @@ public struct CurrentHoleView: View {
     }
 
     private var recordedScoreHoles: Set<Int> {
-        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return [] }
+        guard let offlineStore, let events = try? offlineStore.cachedEvents() else { return [] }
         let displayedHoles = Set(package.holes.map(\.number))
         return Set(events.compactMap { event in
             guard event.roundId == package.roundId,
@@ -5236,7 +5746,7 @@ public struct CurrentHoleView: View {
               let prep = holePrep,
               let outline = prep.fairwayOutline,
               let offlineStore,
-              let events = try? offlineStore.loadEvents() else { return nil }
+              let events = try? offlineStore.cachedEvents() else { return nil }
         let shots = LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number)
         guard shots.count >= 2,
               case .number(let latitude)? = shots[1].payload["latitude"],
@@ -5276,7 +5786,7 @@ public struct CurrentHoleView: View {
     }
 
     private var markedShotsOnHole: [LiveRoundEvent] {
-        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return [] }
+        guard let offlineStore, let events = try? offlineStore.cachedEvents() else { return [] }
         return LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number)
     }
 
@@ -5299,7 +5809,7 @@ public struct CurrentHoleView: View {
     }
 
     private var recordedNonPuttShotCount: Int {
-        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return 0 }
+        guard let offlineStore, let events = try? offlineStore.cachedEvents() else { return 0 }
         return LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number).count
     }
 

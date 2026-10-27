@@ -51,6 +51,365 @@ enum LiveHoleRoutePath {
     }
 }
 
+/// Guards the one-hole-at-a-time transition owned by the live pager.  Keeping this rule pure
+/// makes a second fast swipe harmless: it cannot enqueue a transition against a page that has
+/// already started moving, and a stale page cannot advance the current page.
+struct LiveHoleNavigationLock: Equatable {
+    private(set) var currentHole: Int
+    private(set) var isTransitioning = false
+
+    init(currentHole: Int) {
+        self.currentHole = currentHole
+    }
+
+    static func accepts(from: Int, current: Int, isTransitioning: Bool) -> Bool {
+        !isTransitioning && from == current
+    }
+
+    mutating func begin(from: Int, to: Int) -> Bool {
+        guard Self.accepts(from: from, current: currentHole, isTransitioning: isTransitioning),
+              to != currentHole else { return false }
+        currentHole = to
+        isTransitioning = true
+        return true
+    }
+
+    mutating func finish(at hole: Int) {
+        guard hole == currentHole else { return }
+        isTransitioning = false
+    }
+}
+
+/// A selected hole can temporarily own a direct-manipulation map gesture.  The preference is
+/// reduced by the pager so a target drag or a zoomed pan cannot be interpreted as a page swipe.
+struct LiveHolePagerGestureStateKey: PreferenceKey {
+    static let defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
+    }
+}
+
+enum LiveHolePagerInitialSelection {
+    static func resolve(
+        current: Int?,
+        ordered: [Int],
+        preferredHole: Int?,
+        fallbackHole: Int?
+    ) -> Int? {
+        guard !ordered.isEmpty else { return nil }
+        if let current, ordered.contains(current) { return current }
+        if let preferredHole, ordered.contains(preferredHole) { return preferredHole }
+        if let fallbackHole, ordered.contains(fallbackHole) { return fallbackHole }
+        return ordered.first
+    }
+}
+
+/// Model-layer data that survives a page being unloaded by SwiftUI.  The network tasks remain
+/// owned by the round model; this cache only retains their published result and request identity.
+public final class LiveHoleSessionCache {
+    struct Key: Hashable {
+        let roundId: String
+        let hole: Int
+        let sourceGlobalId: Int
+        let sourceLocalHole: Int
+        let teeBox: String
+    }
+
+    struct Entry {
+        var geometryRevision: String?
+        var holePrep: CoursePrepHole?
+        var garminRaster: GarminRasterResponse?
+        var garminRevision: String?
+        var caddieDecision: CaddieDecisionResponse?
+        var caddieDecisionInputSignature: String?
+        var caddieDecisionIsOnline = false
+        var caddieRoutes: [CaddiePlanSequence] = []
+        var localTopoURL: URL?
+        var prepRequestStarted = false
+        var prepRequestCompleted = false
+        var preciseProbeStarted = false
+        var garminRequestStarted = false
+    }
+
+    private var entries: [Key: Entry] = [:]
+
+    public init() {}
+
+    /// The one revision authority used by the cache key's entry validation and every producer
+    /// that writes a hole result. A missing revision means "unknown" and must not invalidate a
+    /// previously retained entry.
+    static func cacheRevision(hole: Hole, prep: CoursePrepHole?) -> String? {
+        if hole.topoAvailable == true,
+           let topoRevision = normalizedRevision(hole.topoRevision) {
+            return topoRevision
+        }
+        if prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
+           let revision = normalizedRevision(prep?.geometryRevision) {
+            return revision
+        }
+        return normalizedRevision(hole.geometryRevision) ?? normalizedRevision(prep?.geometryRevision)
+    }
+
+    func entry(
+        roundId: String,
+        hole: Int,
+        sourceGlobalId: Int = 0,
+        sourceLocalHole: Int = 0,
+        teeBox: String = "",
+        geometryRevision: String? = nil
+    ) -> Entry {
+        let value = entries[key(
+            roundId: roundId,
+            hole: hole,
+            sourceGlobalId: sourceGlobalId,
+            sourceLocalHole: sourceLocalHole,
+            teeBox: teeBox
+        )] ?? Entry()
+        return value.rebased(for: geometryRevision)
+    }
+
+    func update(
+        roundId: String,
+        hole: Int,
+        sourceGlobalId: Int = 0,
+        sourceLocalHole: Int = 0,
+        teeBox: String = "",
+        geometryRevision: String? = nil,
+        _ update: (inout Entry) -> Void
+    ) {
+        let key = key(
+            roundId: roundId,
+            hole: hole,
+            sourceGlobalId: sourceGlobalId,
+            sourceLocalHole: sourceLocalHole,
+            teeBox: teeBox
+        )
+        var value = entries[key] ?? Entry()
+        value = value.rebased(for: geometryRevision)
+        if let geometryRevision = Self.normalizedRevision(geometryRevision) {
+            value.geometryRevision = geometryRevision
+        }
+        update(&value)
+        entries[key] = value
+    }
+
+    /// Replace the factual prep and advance the entry revision atomically. The revision must be
+    /// derived from the prep being written, never from the entry's previous prep.
+    func updatePrep(
+        roundId: String,
+        hole: Hole,
+        teeBox: String,
+        prep: CoursePrepHole?
+    ) {
+        update(
+            roundId: roundId,
+            hole: hole.number,
+            sourceGlobalId: hole.sourceGlobalId,
+            sourceLocalHole: hole.sourceLocalHole,
+            teeBox: teeBox,
+            geometryRevision: Self.cacheRevision(hole: hole, prep: prep)
+        ) { entry in
+            entry.holePrep = prep
+        }
+    }
+
+    func reset(roundId: String? = nil) {
+        guard let roundId else {
+            entries.removeAll()
+            return
+        }
+        entries = entries.filter { $0.key.roundId != roundId }
+    }
+
+    func trim(roundId: String, keeping keys: Set<Key>) {
+        for key in entries.keys where key.roundId == roundId && !keys.contains(key) {
+            guard var entry = entries[key] else { continue }
+            entry.dropHeavyFields()
+            entries[key] = entry
+        }
+    }
+
+    func trim(roundId: String, keepingHoles holes: Set<Int>) {
+        for key in entries.keys where key.roundId == roundId && !holes.contains(key.hole) {
+            guard var entry = entries[key] else { continue }
+            entry.dropHeavyFields()
+            entries[key] = entry
+        }
+    }
+
+    private func key(
+        roundId: String,
+        hole: Int,
+        sourceGlobalId: Int,
+        sourceLocalHole: Int,
+        teeBox: String
+    ) -> Key {
+        Key(
+            roundId: roundId,
+            hole: hole,
+            sourceGlobalId: sourceGlobalId,
+            sourceLocalHole: sourceLocalHole,
+            teeBox: teeBox
+        )
+    }
+
+    fileprivate static func normalizedRevision(_ revision: String?) -> String? {
+        guard let revision = revision?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !revision.isEmpty else { return nil }
+        return revision
+    }
+}
+
+fileprivate extension LiveHoleSessionCache.Entry {
+    func rebased(for revision: String?) -> Self {
+        let requested = LiveHoleSessionCache.normalizedRevision(revision)
+        let cached = LiveHoleSessionCache.normalizedRevision(geometryRevision)
+        // A producer that does not know the current release must not destroy a useful entry.
+        guard requested != nil else { return self }
+        guard requested != cached else { return self }
+        var copy = self
+        copy.holePrep = nil
+        copy.localTopoURL = nil
+        copy.prepRequestStarted = false
+        copy.prepRequestCompleted = false
+        copy.preciseProbeStarted = false
+        copy.caddieRoutes = []
+        if LiveHoleSessionCache.normalizedRevision(copy.garminRevision) != requested {
+            copy.garminRaster = nil
+            copy.garminRevision = nil
+        }
+        return copy
+    }
+
+    mutating func dropHeavyFields() {
+        if let prep = holePrep, let map = prep.map, map.image != nil {
+            holePrep = CoursePrepHole(
+                hole: prep.hole,
+                par: prep.par,
+                parSource: prep.parSource,
+                blueYards: prep.blueYards,
+                teeYards: prep.teeYards,
+                routeLenM: prep.routeLenM,
+                route: prep.route,
+                geometryCoverage: prep.geometryCoverage,
+                geometryRevision: prep.geometryRevision,
+                sourceRefs: prep.sourceRefs,
+                missingData: prep.missingData,
+                candidateRoutes: prep.candidateRoutes,
+                carryTargets: prep.carryTargets,
+                steps: prep.steps,
+                cautions: prep.cautions,
+                landingM: prep.landingM,
+                teeClub: prep.teeClub,
+                hazards: prep.hazards,
+                map: CoursePrepMap(image: nil, overlay: map.overlay),
+                greenDistances: prep.greenDistances,
+                playsLike: prep.playsLike,
+                holeImageProjection: prep.holeImageProjection,
+                greenOutline: prep.greenOutline,
+                fairwayOutline: prep.fairwayOutline
+            )
+            // A request already using this entry must finish; otherwise its completion can race the
+            // trim and publish a second request. Only a real bitmap eviction reopens the gate.
+            if !prepRequestStarted {
+                prepRequestCompleted = false
+                preciseProbeStarted = false
+            }
+        }
+        localTopoURL = nil
+    }
+}
+
+enum LiveHolePagerSelectionLifecycle {
+    static func shouldReset(
+        previousPath: [HubRoute],
+        currentPath: [HubRoute]
+    ) -> Bool {
+        let leftHole = previousPath.contains { if case .hole = $0 { return true }; return false }
+        let stillHasHole = currentPath.contains { if case .hole = $0 { return true }; return false }
+        return leftHole && !stillHasHole
+    }
+
+    static func selectionAfterSessionChange(
+        path: [HubRoute],
+        ordered: [Int],
+        activeHole: Int?,
+        pendingLiveHole: Int?
+    ) -> Int? {
+        guard let routedHole = path.reversed().compactMap({ route -> Int? in
+            if case let .hole(number) = route { return number }
+            return nil
+        }).first else { return nil }
+        return LiveHolePagerInitialSelection.resolve(
+            current: nil,
+            ordered: ordered,
+            preferredHole: activeHole ?? pendingLiveHole ?? routedHole,
+            fallbackHole: routedHole
+        )
+    }
+
+    /// A route change is a handoff between destinations, even though both routes contain a hole.
+    /// The new route must win over the pager's previous selection (for example, `.hole(9)` to
+    /// `.hole(10)` when a second nine is appended).
+    static func targetForRouteChange(
+        previousPath: [HubRoute],
+        currentPath: [HubRoute],
+        ordered: [Int]
+    ) -> Int? {
+        let previousHole = previousPath.reversed().compactMap { route -> Int? in
+            if case let .hole(number) = route { return number }
+            return nil
+        }.first
+        guard let currentHole = currentPath.reversed().compactMap({ route -> Int? in
+            if case let .hole(number) = route { return number }
+            return nil
+        }).first,
+        currentHole != previousHole,
+        ordered.contains(currentHole) else { return nil }
+        return currentHole
+    }
+
+    /// A rebuilt pager may still report the old visible page while the round cursor already moved
+    /// to a new routed hole. Retain a live selection only when it agrees with that cursor; prep
+    /// browsing has no persisted cursor and can retain its own page.
+    static func retainedSelectionAfterRefresh(
+        current: Int?,
+        activeHole: Int?,
+        isPrepMode: Bool
+    ) -> Int? {
+        guard isPrepMode else {
+            guard current == activeHole else { return nil }
+            return current
+        }
+        return current
+    }
+}
+
+enum LiveHoleSessionCachePolicy {
+    static func shouldFetchPrep(cached: CoursePrepHole?, requestStarted: Bool) -> Bool {
+        cached == nil && !requestStarted
+    }
+
+    static func shouldFetchPrep(
+        cached: CoursePrepHole?, requestStarted: Bool, requestCompleted: Bool,
+        forMapping: Bool = false
+    ) -> Bool {
+        if forMapping { return !requestStarted }
+        return !requestStarted && !requestCompleted
+    }
+
+    static func shouldFetchGarmin(cached: GarminRasterResponse?, requestStarted: Bool, revision: String?, cachedRevision: String?) -> Bool {
+        guard !requestStarted else { return false }
+        guard let cached else { return true }
+        return cachedRevision != revision || !cached.hasDisplayableImage
+    }
+
+    static func shouldFetchDecision(inputSignature: String, cachedSignature: String?, hasCachedDecision: Bool) -> Bool {
+        !hasCachedDecision || cachedSignature != inputSignature
+    }
+}
+
 public struct RoundHomeView: View {
     private static let historyISOFormatter = ISO8601DateFormatter()
     private static let historyDateFormatter: DateFormatter = {
@@ -152,6 +511,24 @@ public struct RoundHomeView: View {
 
     @State private var showSettings = false
     @State private var path: [HubRoute] = []
+    /// The live route is one destination containing a paging surface. Keeping the selection here
+    /// avoids rebuilding a CurrentHoleView (and its location/task state) for every swipe.
+    @State private var holePager = LiveHolePagerState()
+    // Only the native display binding gets the two-phase correction; the authoritative selection
+    // and every page's identity remain unchanged (including the selected page's sheet/map state).
+    @State private var pagerNativeSelectionOverride: Int?
+    @State private var pagerCorrectionTarget: Int?
+    @State private var pagerCorrectionID = UUID()
+    @State private var pagerCorrectionApplying = false
+    @State private var pagerCorrectionTask: Task<Void, Never>?
+    @State private var pagerPresentationEndTask: Task<Void, Never>?
+    @State private var pagerPresentationRequested = false
+    @GestureState private var pagerTouchIsActive = false
+    @State private var pagerGestureStarted = false
+    private var holePagerSelection: Int? { holePager.selection }
+    @State private var holePagerNavigationLock: LiveHoleNavigationLock?
+    @State private var holePagerScrollDisabled = false
+    @State private var liveHoleSessions = LiveHoleSessionCache()
     /// The last GPS-resolved prep hole lives above `CurrentHoleView`, so recreating a destination
     /// after a manual hole preview does not mistake the same fix for a new location.
     @State private var prepHoleFollowing = PrepHoleFollowingState()
@@ -349,6 +726,9 @@ public struct RoundHomeView: View {
     }
 
     public var body: some View {
+        #if DEBUG
+        let _ = UITestPagerTrace.shared.metric(.roundHomeBody)
+        #endif
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(spacing: 10) {
@@ -373,7 +753,7 @@ public struct RoundHomeView: View {
                 case .startCourse(let globalId, let teeBox):
                     startRoundView(globalId: globalId, teeBox: teeBox)
                 case .hole(let number):
-                    currentHoleView(number)
+                    holePagerView(number)
                 case .history:
                     if let package {
                         RecentRoundReviewView(
@@ -443,28 +823,69 @@ public struct RoundHomeView: View {
             enterPendingLiveHole(hole)
         }
         .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
+            if previousRoundId != currentRoundId {
+                liveHoleSessions.reset()
+            }
+
             // 撤销开打 ends the round but keeps the hole screen, back in 备战.
             if previousRoundId != nil, currentRoundId == nil, prepPackage == nil {
                 path = []
+            }
+            if previousRoundId != currentRoundId {
+                reconcilePagerSelectionAfterSessionChange()
             }
         }
         .onChange(of: prepPackage?.roundId) { previousRoundID, roundId in
             if previousRoundID != roundId {
                 prepHoleFollowing.reset()
+                liveHoleSessions.reset()
             }
-            guard liveRoundState == nil, roundId != nil else { return }
-            path = LiveHoleRoutePath.afterPrepPackageRefresh(
-                current: path,
-                pendingHole: pendingLiveHole ?? prepPackage?.holes.first?.number
-            )
+            if liveRoundState == nil, roundId != nil {
+                path = LiveHoleRoutePath.afterPrepPackageRefresh(
+                    current: path,
+                    pendingHole: pendingLiveHole ?? prepPackage?.holes.first?.number
+                )
+            }
+            if previousRoundID != roundId {
+                reconcilePagerSelectionAfterSessionChange()
+            }
         }
-        .onChange(of: package?.holeSetIdentity) { _, _ in
+        .onChange(of: holeScreenPackage?.holeSetIdentity) { _, _ in
+            refreshPagerPageSet()
             reconcileLiveHoleRouteWithPackage()
         }
-        .onChange(of: liveRoundState?.activeHole) { _, _ in
+        .onChange(of: liveRoundState?.activeHole) { _, activeHole in
+            if !isPrepHoleScreen, let activeHole, holePager.activeHole != activeHole {
+                sendPager(.programmaticHole(activeHole), source: "setActiveHole observer")
+            }
             reconcileLiveHoleRouteWithPackage()
         }
-        .onChange(of: path) { _, routes in
+        .onChange(of: path) { previousRoutes, routes in
+            if let screenPackage = holeScreenPackage {
+                let ordered = RoundPlayOrder.holes(
+                    screenPackage.holes.map(\.number),
+                    startingAt: liveRoundState?.startHole,
+                    loops: screenPackage.roundLoops
+                )
+                if let target = LiveHolePagerSelectionLifecycle.targetForRouteChange(
+                    previousPath: previousRoutes,
+                    currentPath: routes,
+                    ordered: ordered
+                ) {
+                    sendPager(.programmaticHole(target), source: "route")
+                    holePagerNavigationLock = LiveHoleNavigationLock(currentHole: target)
+                    trimLiveHoleSessions(around: target, package: screenPackage)
+                }
+            }
+            // A pager selection belongs to one hole destination. Drop it when that destination is
+            // left so a later course/round opening honors its routed initial hole.
+            if LiveHolePagerSelectionLifecycle.shouldReset(
+                previousPath: previousRoutes,
+                currentPath: routes
+            ) {
+                sendPager(.programmaticHole(nil), source: "leave route")
+                holePagerNavigationLock = nil
+            }
             onLiveAppearanceChanged(Self.isLiveHoleRoute(routes.last))
             // Leaving the picker or the hole screen before the first stroke drops 备战 (and any
             // course still opening): nothing was recorded, so there is nothing to keep.
@@ -566,17 +987,31 @@ public struct RoundHomeView: View {
                 onSetSecondLoop: onSetSecondLoop,
                 onContinueIntoSecondLoop: onContinueIntoSecondLoop, onFinishRound: onFinishRound,
                 onDiscardRound: onDiscardRound,
+                sessionCache: liveHoleSessions,
+                usesExternalHolePager: true,
+                // On a cold restore the pager selection is seeded after its first TabView pass.
+                // The persisted model cursor is the safe initial selection so the visible page
+                // starts location updates before the delayed native binding acknowledgement.
+                isSelected: holePagerSelection == number
+                    || (holePagerSelection == nil && liveRoundState?.activeHole == number),
                 onAdvanceHole: { next in
-                    if !isPrepHoleScreen {
-                        onSetActiveHole(next)
-                    } else {
-                        onPrepHoleChanged(next)
+                    guard var lock = holePagerNavigationLock,
+                          lock.begin(from: number, to: next) else { return }
+                    holePagerNavigationLock = lock
+                    withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.92)) {
+                        sendPager(.advance(next), source: "onAdvanceHole")
                     }
-                    path = LiveHoleRoutePath.afterAdvance(
-                        current: path,
-                        nextHole: next,
-                        isPrepMode: isPrepHoleScreen
-                    )
+                    // A cancelled TabView animation may never deliver a selection change. Release
+                    // the one-shot guard after the same short window as the interactive spring so
+                    // scorecard/GPS/rapid-swipe recovery remains possible.
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 900_000_000)
+                        guard var current = holePagerNavigationLock,
+                              current.currentHole == next,
+                              current.isTransitioning else { return }
+                        current.finish(at: next)
+                        holePagerNavigationLock = current
+                    }
                 },
                 onPrepLocationChanged: { locatedHole, displayedHole in
                     guard isPrepHoleScreen else { return nil }
@@ -621,6 +1056,339 @@ public struct RoundHomeView: View {
             // 37126990984). Changing or removing the second loop still re-identifies holes 10–18.
             .id("\(package.roundId):\(hole.number):\(hole.sourceGlobalId):\(hole.sourceLocalHole)")
         }
+    }
+
+    /// UIKit owns the interactive page animation. The simultaneous drag supplies an explicit
+    /// navigation intent at finger-up; UIKit's binding reports only acknowledge displayed pages.
+    @ViewBuilder private func holePagerView(_ initialHole: Int) -> some View {
+        if let package = holeScreenPackage {
+            let packageOrdered = RoundPlayOrder.holes(
+                package.holes.map(\.number),
+                startingAt: liveRoundState?.startHole,
+                loops: package.roundLoops
+            )
+            // The state machine owns the mounted order. A package can rotate its preferred order
+            // while a child sheet is presented; using the package value directly would reorder
+            // ForEach and tear down the sheet before the deferred update is safe.
+            let ordered = holePager.ordered.isEmpty ? packageOrdered : holePager.ordered
+            TabView(selection: pagerSelectionBinding) {
+                ForEach(ordered, id: \.self) { number in
+                    currentHoleView(number)
+                        .tag(Optional(number))
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .onAppear {
+                if holePager.ordered != ordered || holePagerSelection == nil {
+                    refreshPagerPageSet(fallback: initialHole)
+                }
+                if let selected = holePagerSelection {
+                    holePagerNavigationLock = LiveHoleNavigationLock(currentHole: selected)
+                    trimLiveHoleSessions(around: selected, package: package)
+                }
+            }
+            .onChange(of: packageOrdered) { _, _ in
+                refreshPagerPageSet(fallback: initialHole)
+            }
+            .onPreferenceChange(LiveHolePagerGestureStateKey.self) { disabled in
+                #if DEBUG
+                UITestPagerTrace.shared.metric(.preferenceCallback)
+                #endif
+                holePagerScrollDisabled = disabled
+                if disabled, holePager.touchOrigin != nil {
+                    sendPager(.touchEnded(step: 0), source: "map owns gesture")
+                }
+            }
+            .onPreferenceChange(LiveHolePagerPresentationKey.self) { blocked in
+                #if DEBUG
+                UITestPagerTrace.shared.metric(.preferenceCallback)
+                #endif
+                if blocked {
+                    pagerPresentationEndTask?.cancel()
+                    pagerPresentationRequested = true
+                    sendPager(.presentationChanged(true), source: "sheet presentation")
+                } else {
+                    // SwiftUI removes sheet content before UIKit finishes its dismissal animation.
+                    // Keep the old ForEach order mounted until the presented controller is gone.
+                    pagerPresentationEndTask?.cancel()
+                    pagerPresentationEndTask = Task { @MainActor in
+                        #if DEBUG
+                        UITestPagerTrace.shared.taskStarted(.presentationEndTask)
+                        defer { UITestPagerTrace.shared.taskFinished(.presentationEndTask) }
+                        #endif
+                        while !Task.isCancelled && LiveHolePagerDisplayProbe.presentationIsActive {
+                            try? await Task.sleep(nanoseconds: 50_000_000)
+                        }
+                        guard !Task.isCancelled else { return }
+                        pagerPresentationRequested = false
+                        sendPager(.presentationChanged(false), source: "sheet dismissal complete")
+                    }
+                }
+            }
+            .background {
+                LiveHolePagerDisplayProbe(
+                    selection: pagerSelectionBinding.wrappedValue, requestID: pagerCorrectionID
+                ) { requestID, displayed in
+                    completePagerDisplayUpdate(requestID: requestID, displayed: displayed)
+                }
+                .frame(width: 0, height: 0)
+            }
+            .scrollDisabled(holePagerScrollDisabled)
+            .simultaneousGesture(pagerDragGesture)
+            .onChange(of: pagerTouchIsActive) { _, active in
+                guard !active else { return }
+                // A system cancellation has no onEnded. Let a normal onEnded commit first.
+                Task { @MainActor in
+                    await Task.yield()
+                    guard !pagerTouchIsActive else { return }
+                    pagerGestureStarted = false
+                    if holePager.touchOrigin != nil {
+                        sendPager(.touchEnded(step: 0), source: "cancelled user gesture")
+                    }
+                }
+            }
+            .onChange(of: holePagerSelection) { previous, selected in
+                tracePager("onChange \(previous ?? -1)->\(selected ?? -1)")
+                guard let selected, previous != selected else { return }
+                holePagerNavigationLock = LiveHoleNavigationLock(currentHole: selected)
+                trimLiveHoleSessions(around: selected, package: package)
+            }
+            .onDisappear {
+                cancelPagerCorrection()
+                pagerPresentationEndTask?.cancel()
+                pagerPresentationEndTask = nil
+                holePagerNavigationLock = nil
+                holePagerScrollDisabled = false
+            }
+            .accessibilityIdentifier("live-hole-pager")
+            .accessibilityValue(holePagerSelection.map { "第 \($0) 洞" } ?? "")
+            // Keep the marker outside the pager's AX modifier so its identifier is not replaced.
+            .overlay(alignment: .topLeading) { pagerTraceElement }
+        } else {
+            Color.clear
+        }
+    }
+
+    private var pagerSelectionBinding: Binding<Int?> {
+        Binding(
+            get: { pagerNativeSelectionOverride ?? holePagerSelection },
+            set: { sendPager(.bindingReported($0), source: "binding set") }
+        )
+    }
+
+    private var pagerDragGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .updating($pagerTouchIsActive) { _, active, _ in active = true }
+            .onChanged { value in
+                guard !pagerGestureStarted else { return }
+                pagerGestureStarted = true
+                guard !holePagerScrollDisabled,
+                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                sendPager(.touchBegan, source: "user gesture begin")
+            }
+            .onEnded { value in
+                pagerGestureStarted = false
+                guard holePager.touchOrigin != nil else { return }
+                let step = LiveHolePagerState.swipeStep(
+                    translationX: Double(value.translation.width),
+                    translationY: Double(value.translation.height),
+                    predictedX: Double(value.predictedEndTranslation.width),
+                    scrollDisabled: holePagerScrollDisabled
+                )
+                sendPager(.touchEnded(step: step), source: "user gesture end")
+            }
+    }
+
+    private func refreshPagerPageSet(fallback: Int? = nil) {
+        guard let package = holeScreenPackage else { return }
+        let ordered = RoundPlayOrder.holes(
+            package.holes.map(\.number), startingAt: liveRoundState?.startHole, loops: package.roundLoops
+        )
+        let active = isPrepHoleScreen ? (holePager.activeHole ?? fallback)
+            : (liveRoundState?.activeHole ?? pendingLiveHole ?? fallback)
+        guard (holePager.deferredOrdered ?? holePager.ordered) != ordered
+            || holePager.activeHole != active else { return }
+        tracePager("package holes=\(ordered.count)")
+        sendPager(.pageSetChanged(ordered: ordered, activeHole: active), source: "package")
+    }
+
+    private func sendPager(_ event: LiveHolePagerState.Event, source: String) {
+        let oldSelection = holePager.selection
+        let oldPending = holePager.pendingTarget
+        let oldActive = holePager.activeHole
+        let oldOrdered = holePager.ordered
+        let lastReport = holePager.reportedSelection
+        let effect = holePager.send(event)
+        tracePager("\(source) \(event) selection \(oldSelection ?? -1)->\(holePager.selection ?? -1) pending \(oldPending ?? -1)->\(holePager.pendingTarget ?? -1)")
+        if let deferred = holePager.deferredOrdered {
+            tracePager("page order deferred count=\(deferred.count) active=\(holePager.activeHole ?? -1)")
+        } else if oldOrdered != holePager.ordered {
+            tracePager("page order applied count=\(holePager.ordered.count) active=\(holePager.activeHole ?? -1)")
+        }
+        if oldActive != holePager.activeHole || oldOrdered != holePager.ordered || event == .touchBegan {
+            cancelPagerCorrection()
+        }
+        if let target = effect.forceScrollTo {
+            tracePager("discard report; request correction=\(target) attempt=\(holePager.correctionAttempts)")
+            if holePager.touchOrigin == nil {
+                schedulePagerCorrection(target: target, reported: holePager.reportedSelection ?? lastReport)
+            }
+        } else if holePager.correctionAttempts >= 3, holePager.pendingTarget != nil {
+            tracePager("correction limit reached target=\(holePager.pendingTarget ?? -1); stop")
+        }
+        if let selected = effect.activeHoleToPersist {
+            // Explicit gesture/save intent only. Never called from a selection observer or binding.
+            Task { @MainActor in
+                await Task.yield()
+                guard holePager.activeHole == selected else { return }
+                if isPrepHoleScreen {
+                    onPrepHoleChanged(selected)
+                } else {
+                    tracePager("onSetActiveHole=\(selected) source=\(source)")
+                    onSetActiveHole(selected)
+                }
+            }
+        }
+    }
+
+    private func cancelPagerCorrection() {
+        pagerCorrectionTask?.cancel()
+        pagerCorrectionTask = nil
+        pagerCorrectionTarget = nil
+        pagerCorrectionID = UUID()
+        pagerCorrectionApplying = false
+        pagerNativeSelectionOverride = nil
+    }
+
+    private func schedulePagerCorrection(target: Int, reported: Int?) {
+        guard pagerCorrectionTarget == nil, holePager.ordered.contains(target) else { return }
+        // The bounce must change the binding value. During sheet dismissal the stale native
+        // report can already equal the current selection; assigning it again would produce no
+        // UIViewRepresentable update and leave the correction request stuck forever. If the page
+        // set has only two usable values, jump directly to the target instead.
+        let currentSelection = holePager.selection
+        let bounce = reported.flatMap {
+            holePager.ordered.contains($0) && $0 != target && $0 != currentSelection ? $0 : nil
+        } ?? holePager.ordered.first {
+            $0 != target && $0 != currentSelection
+        }
+        guard bounce != nil || currentSelection != target else { return }
+        pagerCorrectionTarget = target
+        pagerCorrectionID = UUID()
+        pagerCorrectionApplying = false
+        pagerCorrectionTask = Task { @MainActor in
+            #if DEBUG
+            UITestPagerTrace.shared.taskStarted(.correctionTask)
+            defer { UITestPagerTrace.shared.taskFinished(.correctionTask) }
+            #endif
+            guard await waitForPagerCorrection(target: target) else { return }
+            tracePager("correction binding bounce=\(bounce ?? target) target=\(target)")
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { pagerNativeSelectionOverride = bounce ?? target }
+            // The probe acknowledges this distinct binding value after SwiftUI's update pass.
+            // Only then can completePagerDisplayUpdate deliver the target in a later runloop.
+        }
+    }
+
+    private func completePagerDisplayUpdate(requestID: UUID, displayed: Int?) {
+        guard pagerCorrectionID == requestID, let target = pagerCorrectionTarget,
+              let override = pagerNativeSelectionOverride, displayed == override else { return }
+        if displayed == target {
+            tracePager("correction binding target delivered=\(target)")
+            pagerNativeSelectionOverride = nil
+            pagerCorrectionTarget = nil
+            pagerCorrectionApplying = false
+            pagerCorrectionTask = nil
+            return
+        }
+        guard !pagerCorrectionApplying else { return }
+        pagerCorrectionApplying = true
+        pagerCorrectionTask?.cancel()
+        pagerCorrectionTask = Task { @MainActor in
+            #if DEBUG
+            UITestPagerTrace.shared.taskStarted(.correctionTask)
+            defer { UITestPagerTrace.shared.taskFinished(.correctionTask) }
+            #endif
+            guard await waitForPagerCorrection(target: target) else { return }
+            tracePager("correction binding apply=\(target)")
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { pagerNativeSelectionOverride = target }
+        }
+    }
+
+    @MainActor private func waitForPagerCorrection(target: Int) async -> Bool {
+        // Preference values include requested and still-mounted sheets. UIKit covers the closing
+        // animation as well, including the gap before onDismiss presents the turn/finish sheet.
+        var deferred = false
+        await Task.yield()
+        while !Task.isCancelled, pagerCorrectionTarget == target, holePager.activeHole == target {
+            if !pagerPresentationRequested, !LiveHolePagerDisplayProbe.presentationIsActive,
+               holePager.touchOrigin == nil, !pagerTouchIsActive, !holePagerScrollDisabled {
+                return true
+            }
+            if !deferred { tracePager("correction deferred target=\(target) sheet/touch"); deferred = true }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return false
+    }
+
+    private func tracePager(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        UITestPagerTrace.shared.record(message())
+        #endif
+    }
+
+    @ViewBuilder private var pagerTraceElement: some View {
+        #if DEBUG
+        UITestPagerTraceElement()
+            .frame(width: 1, height: 1)
+        #endif
+    }
+
+    private func trimLiveHoleSessions(around selected: Int, package: LiveRoundPackage) {
+        let ordered = RoundPlayOrder.holes(
+            package.holes.map(\.number),
+            startingAt: liveRoundState?.startHole,
+            loops: package.roundLoops
+        )
+        guard let index = ordered.firstIndex(of: selected), !ordered.isEmpty else { return }
+        let lower = max(0, index - 2)
+        let upper = min(ordered.count - 1, index + 2)
+        liveHoleSessions.trim(
+            roundId: package.roundId,
+            keepingHoles: Set(ordered[lower...upper])
+        )
+    }
+
+    /// Session/package replacement can leave the same `.hole` route value in the path. Re-seed the
+    /// pager explicitly so clearing the old cache never leaves every retained page unselected.
+    private func reconcilePagerSelectionAfterSessionChange() {
+        guard let screenPackage = holeScreenPackage else {
+            sendPager(.programmaticHole(nil), source: "session clear")
+            holePagerNavigationLock = nil
+            return
+        }
+        let ordered = RoundPlayOrder.holes(
+            screenPackage.holes.map(\.number),
+            startingAt: liveRoundState?.startHole,
+            loops: screenPackage.roundLoops
+        )
+        guard let selected = LiveHolePagerSelectionLifecycle.selectionAfterSessionChange(
+            path: path,
+            ordered: ordered,
+            activeHole: liveRoundState?.activeHole,
+            pendingLiveHole: pendingLiveHole
+        ) else {
+            sendPager(.programmaticHole(nil), source: "session clear")
+            holePagerNavigationLock = nil
+            return
+        }
+        refreshPagerPageSet(fallback: selected)
+        sendPager(.programmaticHole(selected), source: "session")
+        holePagerNavigationLock = LiveHoleNavigationLock(currentHole: selected)
+        trimLiveHoleSessions(around: selected, package: screenPackage)
     }
 
     private func startRoundView(globalId: Int?, teeBox: String?) -> some View {
@@ -812,7 +1580,7 @@ public struct RoundHomeView: View {
     /// player has not scored. Home progress therefore comes from the durable score events, matching
     /// the in-round scorecard, rather than from `liveRoundState.holes.count`.
     private var recordedScoreHoles: Set<Int> {
-        guard let package, let offlineStore, let events = try? offlineStore.loadEvents() else {
+        guard let package, let offlineStore, let events = try? offlineStore.cachedEvents() else {
             return Set(liveRoundState?.scoredHoles ?? [])
         }
         let displayedHoles = Set(package.holes.map(\.number))

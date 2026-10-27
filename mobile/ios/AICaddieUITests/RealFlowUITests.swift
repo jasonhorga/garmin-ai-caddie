@@ -79,6 +79,7 @@ final class RealFlowUITests: XCTestCase {
     /// The same whole-course prep package must allow a player standing on hole 10 to start there;
     /// no front-nine cursor is persisted before the first stroke.
     func testWholeCourseBackNineStartsFromFirstStrokeJourney() throws {
+        app.launchEnvironment["UITEST_PAGER_TRACE"] = "1"
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
         app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
         app.launchEnvironment["UITEST_RESET_COURSE_LIBRARY"] = "1"
@@ -143,13 +144,21 @@ final class RealFlowUITests: XCTestCase {
             "c99-back-nine-record-missing"
         )
         record.tap()
+        dump("c97-back-nine-immediately-after-record")
         let skipClub = app.buttons["跳过球杆（位置已记录）"]
         assertAndCapture(
             skipClub.waitForExistence(timeout: 8),
             "the first-stroke club sheet must be dismissed before undo",
             "c99-back-nine-club-sheet-missing"
         )
+        dump("c97-back-nine-before-skip-club")
+        assertAndCapture(
+            skipClub.exists,
+            "the first-stroke club sheet must remain mounted until the player dismisses it",
+            "c97-back-nine-club-sheet-disappeared"
+        )
         skipClub.tap()
+        dump("c97-back-nine-after-skip-club")
         let liveBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         assertAndCapture(
             liveBanner.waitForExistence(timeout: 5)
@@ -235,6 +244,11 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(map.waitForExistence(timeout: 10) && map.isHittable)
         map.swipeLeft()
         XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 20), "prep hole navigation must move to hole 2")
+        XCTAssertEqual(
+            app.descendants(matching: .any)["live-hole-pager"].firstMatch.value as? String,
+            "第 2 洞",
+            "the native pager selection must follow the visible hole after a map swipe"
+        )
         settle(1); save("c30-prep-hole-2"); dump("c30-prep-hole-2")
 
         let back = app.buttons["live-back-home"]
@@ -266,6 +280,7 @@ final class RealFlowUITests: XCTestCase {
     }
 
     func testCaptureRealAppFlow() throws {
+        app.launchEnvironment["UITEST_PAGER_TRACE"] = "1"
         // Read every screen from the live backend, but keep the synthetic simulator round local.
         // This lets the score flow use real 北京丽宫 data without polluting the owner's history.
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
@@ -1127,8 +1142,13 @@ final class RealFlowUITests: XCTestCase {
             }
 
             if holeNumber < 18 {
+                let reached = app.staticTexts["第 \(holeNumber + 1) 洞"].waitForExistence(timeout: 30)
+                if !reached {
+                    save("pager-after-save-\(holeNumber)")
+                    dump("pager-after-save-\(holeNumber)")
+                }
                 XCTAssertTrue(
-                    app.staticTexts["第 \(holeNumber + 1) 洞"].waitForExistence(timeout: 30),
+                    reached,
                     "saving hole \(holeNumber) must advance the same round to hole \(holeNumber + 1)"
                 )
             }
@@ -1656,7 +1676,12 @@ final class RealFlowUITests: XCTestCase {
         let record = app.buttons["记一杆"]
         XCTAssertTrue(scrollTo(record, maxSwipes: 18), "each journey hole must expose GPS shot capture")
         record.tap()
-        XCTAssertTrue(app.staticTexts["这一杆用了什么球杆？"].waitForExistence(timeout: 5))
+        dump("journey-record-after-record")
+        assertAndCapture(
+            app.staticTexts["这一杆用了什么球杆？"].waitForExistence(timeout: 5),
+            "recording a journey shot must present the club prompt",
+            "journey-club-prompt-missing"
+        )
         XCTAssertTrue(
             app.staticTexts["第 1 杆的位置已经保存"].exists,
             "the first recorded shot order must reset to 1 on every hole"

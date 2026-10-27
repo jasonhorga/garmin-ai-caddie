@@ -53,14 +53,13 @@ final class TopoHoleImageStore: ObservableObject {
     /// instead of flashing the loading state.
     static func cachedImage(for url: URL?) -> UIImage? {
         guard let url else { return nil }
-        if let cached = imageCache.object(forKey: url as NSURL) { return cached }
-        if url.isFileURL, let image = UIImage(contentsOfFile: url.path) {
-            preload(image, for: url)
-            return image
-        }
-        guard let disk = diskImage(for: url) else { return nil }
-        preload(disk, for: url)
-        return disk
+        return imageCache.object(forKey: url as NSURL)
+    }
+
+    /// Body-time probe; disk/network decoding is performed by `load` in a task.
+    static func isMemoryCached(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        return imageCache.object(forKey: url as NSURL) != nil
     }
 
     /// Put an already-decoded image in memory for `url` (design snapshots render deterministically).

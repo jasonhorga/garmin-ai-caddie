@@ -241,10 +241,20 @@ final class GarminRasterImageStore: ObservableObject {
 
     static func cachedImage(for url: URL?) -> UIImage? {
         guard let url else { return nil }
-        if let cached = imageCache.object(forKey: url as NSURL) { return cached }
-        guard let disk = diskImage(for: url) else { return nil }
-        preload(disk, for: url)
-        return disk
+        return imageCache.object(forKey: url as NSURL)
+    }
+
+    /// Fast readiness probe used from SwiftUI body. Disk decoding belongs to `load`, so a cache
+    /// miss here never performs synchronous file IO on the main thread.
+    static func isMemoryCached(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        return imageCache.object(forKey: url as NSURL) != nil
+    }
+
+    /// Explicit disk-only inspection for maintenance/tests. UI code uses `load` asynchronously.
+    static func diskCachedImage(for url: URL?) -> UIImage? {
+        guard let url, let image = diskImage(for: url) else { return nil }
+        return image
     }
 
     /// Whether `url`'s image is already in the disk cache. Reads neither the file nor the memory

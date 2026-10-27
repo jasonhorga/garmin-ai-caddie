@@ -4194,7 +4194,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("LiveMapTargetMagnifierLoupe(", current_hole)
         self.assertIn('accessibilityIdentifier("live-map-target-marker")', current_hole)
         self.assertIn("target: liveTargetGeometry", current_hole)
-        self.assertIn("guard !heroTargetDragging else { return }", current_hole)
+        self.assertIn("guard !heroTargetDragGrabbed else { return }", current_hole)
         # B1d 地图降级契约: a background precise map keeps target, flag and obstacle selection.
         live_components_source = _read_required_source(self, IOS_DIR / "Views" / "LiveHoleComponents.swift")
         self.assertIn("enum LiveMapCarryOver", live_components_source)

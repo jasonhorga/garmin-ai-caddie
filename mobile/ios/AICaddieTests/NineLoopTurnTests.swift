@@ -272,4 +272,16 @@ final class NineLoopTurnTests: XCTestCase {
             generatedAt: source.generatedAt
         )
     }
+
+    func testScoreSheetDismissalQueuesTurnOrFinishPresentation() {
+        var coordinator = LiveScoreDismissalCoordinator()
+        let course = NineLoopCourse(id: "example", loops: [NineLoop(id: "A", name: "A")])
+        let plan = NineLoopPlan(course: course, first: "A")!
+        coordinator.queue(.turn(plan))
+        XCTAssertEqual(coordinator.consumeAfterDismissal(), .turn(plan))
+        XCTAssertNil(coordinator.consumeAfterDismissal())
+
+        coordinator.queue(.finish)
+        XCTAssertEqual(coordinator.consumeAfterDismissal(), .finish)
+    }
 }

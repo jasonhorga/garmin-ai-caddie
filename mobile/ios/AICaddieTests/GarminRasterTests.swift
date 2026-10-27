@@ -591,7 +591,8 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertEqual(try alpha(of: loaded, x: 4, y: 4), 255)
 
         GarminRasterImageStore.evict(url)
-        let disk = try XCTUnwrap(GarminRasterImageStore.cachedImage(for: url))
+        XCTAssertNil(GarminRasterImageStore.cachedImage(for: url), "a memory miss must not decode disk on the main thread")
+        let disk = try XCTUnwrap(GarminRasterImageStore.diskCachedImage(for: url))
         XCTAssertEqual(try alpha(of: disk, x: 0, y: 0), 0)
         XCTAssertEqual(try alpha(of: disk, x: 4, y: 4), 255)
         GarminRasterImageStore.evict(url)
