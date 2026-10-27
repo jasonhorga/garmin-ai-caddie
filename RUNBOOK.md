@@ -98,6 +98,8 @@ AICADDIE_DEPLOY_PUBLIC_HEALTH_URL=https://<api-host>/api/v2/health
 
 ### 3.1 每次上线（`$SHA` = 刚合并、main CI 绿的 main 提交）
 
+项目台实际跑 `bash <caddie-data>/tmp/deploy-sha.sh $SHA`（等 main CI 绿 → 下面 (a)(b) → §4 即时核对）。退出码：0=部署且 §4 即时核对全过（脚本已写 `deploy-verified` 行）；9=main CI 不绿；10=冻结；11=部署锁被占；12=日志末行不是 `result=ok` 或含 `: skipped (`（deploy.env 缺配置）；13=§4 核对不过；其他=部署脚本自己的失败码。**非 0 一律按失败处理**；BACKLOG 只在 `releases.tsv` 出现该 SHA 的 `deploy-verified` 行之后才标【已上线】。
+
 ```bash
 set -euo pipefail
 D=<caddie-data>
@@ -152,7 +154,7 @@ printf '%s\t%s\tdeploy\texit=%s\t%s\n' "$(date -u +%FT%TZ)" "$SHA" "$RC" "$(base
 
 ## 4. 确认上线成功
 
-`exit=0` 且日志末行 `result=ok action=deploy revision=$SHA`，日志里**没有** `skipped`。再核对：
+`exit=0` 且日志末行 `result=ok action=deploy revision=$SHA`，日志里**没有** `: skipped (`（`build skipped` 是镜像复用，正常）。再核对（`deploy-sha.sh` 已自动做下面四条并写 `deploy-verified`，手工跑时照做）：
 
 ```bash
 set -a; . <caddie-data>/secrets/deploy.env; set +a
