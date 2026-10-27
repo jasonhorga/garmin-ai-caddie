@@ -10,6 +10,7 @@ struct LiveHolePagerState: Equatable {
         case touchBegan
         case touchEnded(step: Int)
         case bindingReported(Int?)
+        case presentationChanged(Bool)
     }
 
     struct Effect: Equatable {
@@ -49,6 +50,8 @@ struct LiveHolePagerState: Equatable {
             if displayed == next { pendingTarget = nil }
             if step == 0, let displayed, displayed != next { effect.forceScrollTo = next }
             if next != origin { effect.activeHoleToPersist = next }
+        case .presentationChanged:
+            break // Existing behaviour: presentation does not gate display correction.
         case .bindingReported(let hole):
             reportedSelection = hole
             if hole == pendingTarget, pendingTarget != nil {

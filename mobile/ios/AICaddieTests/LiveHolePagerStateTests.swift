@@ -122,4 +122,55 @@ final class LiveHolePagerStateTests: XCTestCase {
         XCTAssertNil(pager.send(.touchEnded(step: -1)).activeHoleToPersist)
         XCTAssertEqual(pager.activeHole, 10)
     }
+    func testProgrammaticTargetCannotReuseAReportFromBeforeTheTouch() {
+        var pager = LiveHolePagerState()
+        pager.send(.pageSetChanged(ordered: Array(1...18), activeHole: 7))
+        pager.send(.bindingReported(7))
+        pager.send(.programmaticHole(6))
+        XCTAssertNil(pager.reportedSelection, "the report belongs to the previous programmatic target")
+        pager.send(.touchBegan)
+        pager.send(.touchEnded(step: 1))
+        XCTAssertEqual(pager.activeHole, 7)
+        XCTAssertEqual(pager.pendingTarget, 7, "no report from this touch acknowledged the new target")
+    }
+
+    func testPageSetRejectsAnActiveHoleThatWasRemoved() {
+        var pager = LiveHolePagerState()
+        pager.send(.pageSetChanged(ordered: Array(1...18), activeHole: 15))
+        pager.send(.pageSetChanged(ordered: Array(1...9), activeHole: 15))
+        XCTAssertEqual(pager.activeHole, 1)
+        XCTAssertEqual(pager.selection, 1)
+        XCTAssertEqual(pager.pendingTarget, 1)
+        pager.send(.pageSetChanged(ordered: [], activeHole: 1))
+        XCTAssertNil(pager.activeHole)
+        XCTAssertNil(pager.selection)
+        XCTAssertNil(pager.pendingTarget)
+    }
+
+    func testThreeCorrectionsAtTheSameTargetThenStopUntilAcknowledged() {
+        var pager = LiveHolePagerState()
+        pager.send(.pageSetChanged(ordered: Array(1...18), activeHole: 10))
+        for _ in 1...3 {
+            XCTAssertEqual(pager.send(.bindingReported(9)).forceScrollTo, 10)
+            // A repeat publication of the same target must not reset the safety budget.
+            pager.send(.pageSetChanged(ordered: Array(1...18), activeHole: 10))
+        }
+        XCTAssertNil(pager.send(.bindingReported(9)).forceScrollTo)
+        XCTAssertEqual(pager.activeHole, 10)
+        pager.send(.bindingReported(10))
+        XCTAssertEqual(pager.send(.bindingReported(9)).forceScrollTo, 10)
+    }
+
+    func testSheetDefersCorrectionsAcrossScoreTurnAndSummaryHandoffs() {
+        var pager = LiveHolePagerState()
+        pager.send(.pageSetChanged(ordered: Array(1...9), activeHole: 9))
+        pager.send(.presentationChanged(true))
+        for _ in 1...5 {
+            XCTAssertNil(pager.send(.bindingReported(8)).forceScrollTo)
+        }
+        XCTAssertEqual(pager.activeHole, 9)
+        XCTAssertEqual(pager.send(.presentationChanged(false)).forceScrollTo, 9)
+        XCTAssertNil(pager.send(.presentationChanged(false)).forceScrollTo, "one dismissal, one retry")
+    }
+
 }

@@ -25,7 +25,7 @@ final class ProductPhoneUITests: XCTestCase {
         app.launchEnvironment = [
             "UITEST_MODE": "1", "AI_CADDIE_FIXTURE_MODE": "1", "AI_CADDIE_DATA_MODE": "fixture",
             "AI_CADDIE_ADMIN_TOKEN": "synthetic-ui-only", "AI_CADDIE_API_BASE_URL": server.baseURL.absoluteString,
-            "UITEST_DISABLE_EVENT_SYNC": "1",
+            "UITEST_DISABLE_EVENT_SYNC": "1", "UITEST_PAGER_TRACE": "1",
         ]
         if reset {
             app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
@@ -391,6 +391,7 @@ final class ProductPhoneUITests: XCTestCase {
     }
 
     func test_j5_10_nine_hole_finish_uses_par_thirty_six_and_fits() {
+        defer { attachPagerEvidence("j5_10-final-or-failure") }
         launch(latitude: "0"); startRound()
         for hole in 1...9 {
             let title = element("live-hole-title")
@@ -400,10 +401,17 @@ final class ProductPhoneUITests: XCTestCase {
             tap("live-score-hole")
             tap("score-save")
         }
+        attachPagerEvidence("j5_10-after-nine-scores")
         if element("turn-stop").waitForExistence(timeout: 5) {
-            tap("turn-stop"); tap("turn-go")
+            attachPagerEvidence("j5_10-before-turn-stop")
+            tap("turn-stop")
+            attachPagerEvidence("j5_10-after-turn-stop-before-turn-go")
+            tap("turn-go")
+            attachPagerEvidence("j5_10-after-turn-go")
         }
-        XCTAssertTrue(element("live-finish-to-par").waitForExistence(timeout: 10))
+        let finished = element("live-finish-to-par").waitForExistence(timeout: 10)
+        attachPagerEvidence(finished ? "j5_10-summary-visible" : "j5_10-summary-missing")
+        XCTAssertTrue(finished)
         // There is no identifier on the par line yet: its prefix locates it, numbers carry the assertion.
         // "/" (recorded/total holes) keeps the hole screen's "Par 4 · 365 码" behind the sheet out.
         let par = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Par ", "/")).firstMatch
@@ -432,6 +440,15 @@ final class ProductPhoneUITests: XCTestCase {
         XCTAssertFalse(element("home-tile-weather").exists)
         XCTAssertFalse(element("home-weather-line").exists, "missing weather omits the line")
         XCTAssertFalse(element("home-last-round-strip").exists, "no archived round to attach the strip to")
+    }
+
+    private func attachPagerEvidence(_ name: String) {
+        let trace = element("debug-pager-trace")
+        let attachment = XCTAttachment(string: "pager trace:\n" + (trace.exists ? trace.label : "<unavailable>")
+            + "\n\nAX tree:\n" + app.debugDescription)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func integers(in text: String) -> [Int] {

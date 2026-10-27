@@ -144,13 +144,21 @@ final class RealFlowUITests: XCTestCase {
             "c99-back-nine-record-missing"
         )
         record.tap()
+        dump("c97-back-nine-immediately-after-record")
         let skipClub = app.buttons["跳过球杆（位置已记录）"]
         assertAndCapture(
             skipClub.waitForExistence(timeout: 8),
             "the first-stroke club sheet must be dismissed before undo",
             "c99-back-nine-club-sheet-missing"
         )
+        dump("c97-back-nine-before-skip-club")
+        assertAndCapture(
+            skipClub.exists,
+            "the first-stroke club sheet must remain mounted until the player dismisses it",
+            "c97-back-nine-club-sheet-disappeared"
+        )
         skipClub.tap()
+        dump("c97-back-nine-after-skip-club")
         let liveBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         assertAndCapture(
             liveBanner.waitForExistence(timeout: 5)
