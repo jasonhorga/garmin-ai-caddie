@@ -4,13 +4,15 @@ import './styles.css'
 import App from './App'
 import { SharedRoundPage } from './components/SharedRoundPage'
 
-const sharedMatch = window.location.pathname.match(/^\/s\/([^/]+)\/?$/)
+const sharedToken = window.location.pathname.startsWith('/s/')
+  ? window.location.pathname.slice('/s/'.length).split('/')[0]
+  : null
 const root = createRoot(document.getElementById('root')!)
 
-if (sharedMatch) {
+if (sharedToken !== null) {
   root.render(
     <StrictMode>
-      <SharedRoundPage token={sharedMatch[1]} />
+      <SharedRoundPage token={sharedToken} />
     </StrictMode>,
   )
 } else {
