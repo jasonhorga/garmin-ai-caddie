@@ -2995,8 +2995,11 @@ final class LiveRoundAppModelTests: XCTestCase {
         }
         let packageData: [Int: Data] = [
             activePackage.course.globalId: try JSONEncoder().encode(activePackage),
-            siblingB.course.globalId: try JSONEncoder().encode(siblingB),
-            siblingC.course.globalId: try JSONEncoder().encode(siblingC),
+            // The prep queue receives a lightweight package first. Keep the sibling package
+            // response free of precise prep so the follow-up `/prep` requests below exercise the
+            // actual whole-course acquisition path instead of being satisfied from the package.
+            siblingB.course.globalId: try JSONEncoder().encode(siblingB.replacingCoursePrep(nil)),
+            siblingC.course.globalId: try JSONEncoder().encode(siblingC.replacingCoursePrep(nil)),
         ]
         let requestLock = NSLock()
         var requestedPaths: [String] = []
