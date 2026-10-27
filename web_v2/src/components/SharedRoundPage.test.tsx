@@ -29,7 +29,7 @@ describe('SharedRoundPage', () => {
     })
     render(<SharedRoundPage token="A-token" />)
     expect(await screen.findByRole('heading', { name: 'Fixture Orchard' })).toBeInTheDocument()
-    expect(screen.getByText('72')).toBeInTheDocument()
+    expect(screen.getAllByText('72')).toHaveLength(2)
     expect(screen.getByLabelText('前九记分卡')).toBeInTheDocument()
     expect(screen.getByLabelText('后九记分卡')).toBeInTheDocument()
     expect(screen.queryByText('相关来源')).not.toBeInTheDocument()
