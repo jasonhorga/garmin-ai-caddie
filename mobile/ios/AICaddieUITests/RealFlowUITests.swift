@@ -1441,10 +1441,11 @@ final class RealFlowUITests: XCTestCase {
         let editedSave = app.buttons["score-save"]
         XCTAssertTrue(editedSave.waitForExistence(timeout: 8))
         editedSave.tap()
-        XCTAssertTrue(app.buttons["关闭计分卡"].waitForExistence(timeout: 8))
-        app.buttons["关闭计分卡"].tap()
+        // As in the historical edit above, 改成绩 swaps the scorecard for the score sheet, so saving
+        // lands back on the live hole rather than on a scorecard that still needs closing.
         let endRound = app.buttons["live-end-round"]
-        XCTAssertTrue(endRound.waitForExistence(timeout: 8))
+        XCTAssertTrue(endRound.waitForExistence(timeout: 8), "saving a scorecard edit must return to the live hole")
+        XCTAssertFalse(app.buttons["关闭计分卡"].exists, "the scorecard must not reappear after the edit is saved")
         endRound.tap()
         let finishSave = app.buttons["live-finish-save"]
         XCTAssertTrue(finishSave.waitForExistence(timeout: 8), "the edited new-course round must be finishable")
