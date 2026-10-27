@@ -38,6 +38,29 @@ struct LiveHolePagerState: Equatable {
         return translationX < 0 ? 1 : -1
     }
 
+    /// Select a distinct binding value for a correction. A stale native report is preferred;
+    /// otherwise use a page adjacent to the target. If the only adjacent page is already selected,
+    /// jump directly to the target so a two-page pager never flashes an unrelated first page.
+    static func correctionBindingTarget(
+        target: Int,
+        ordered: [Int],
+        currentSelection: Int?,
+        reported: Int?
+    ) -> Int? {
+        guard ordered.contains(target) else { return nil }
+        if let reported, ordered.contains(reported), reported != target, reported != currentSelection {
+            return reported
+        }
+        if let index = ordered.firstIndex(of: target) {
+            let adjacent = [index - 1, index + 1]
+                .filter { ordered.indices.contains($0) }
+                .map { ordered[$0] }
+                .first { $0 != currentSelection }
+            if let adjacent { return adjacent }
+        }
+        return currentSelection == target ? nil : target
+    }
+
     @discardableResult
     mutating func send(_ event: Event) -> Effect {
         var effect = Effect()
@@ -90,7 +113,7 @@ struct LiveHolePagerState: Equatable {
                 // follow that cursor even when no page-set rotation was deferred. The selection
                 // value itself changes here, so the binding drives the native scroll; a forced
                 // bounce without a native report would flash an unrelated page first.
-                if deferredOrdered == nil, let target = activeHole, selection != target {
+                if let target = activeHole, selection != target {
                     selection = target
                     pendingTarget = target
                 }

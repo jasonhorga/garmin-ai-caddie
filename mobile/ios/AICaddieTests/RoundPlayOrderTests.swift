@@ -173,16 +173,15 @@ final class RoundPlayOrderTests: XCTestCase {
         )
         let cache = LiveHoleSessionCache()
         cache.updatePrep(roundId: "round", hole: hole, teeBox: "white", prep: partial)
-        cache.updatePrep(roundId: "round", hole: hole, teeBox: "white", prep: precise)
-        for _ in 0..<3 {
-            cache.update(
-                roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
-                teeBox: "white", geometryRevision: nil
-            ) { entry in
-                entry.prepRequestCompleted = true
-                entry.preciseProbeStarted = true
-            }
+        cache.update(
+            roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "partial-r1"
+        ) { entry in
+            entry.prepRequestCompleted = true
+            entry.preciseProbeStarted = true
+            entry.localTopoURL = URL(fileURLWithPath: "/tmp/precise-r1.png")
         }
+        cache.updatePrep(roundId: "round", hole: hole, teeBox: "white", prep: precise)
         let retained = cache.entry(
             roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
             teeBox: "white", geometryRevision: "precise-r2"
@@ -190,6 +189,66 @@ final class RoundPlayOrderTests: XCTestCase {
         XCTAssertEqual(retained.holePrep, precise)
         XCTAssertTrue(retained.prepRequestCompleted)
         XCTAssertTrue(retained.preciseProbeStarted)
+        XCTAssertEqual(retained.localTopoURL, URL(fileURLWithPath: "/tmp/precise-r1.png"))
+    }
+
+    func testPrecisePrepWriteUsesTheSessionRevisionAfterFlagsAreSet() {
+        let hole = Hole(
+            number: 1, par: 4, yards: 400, geometryCoverage: .partial,
+            geometryRevision: nil, topoAvailable: false, topoRevision: nil,
+            sourceGlobalId: 101, sourceLocalHole: 1, courseHoleNumber: 1
+        )
+        let precise = CoursePrepHole(
+            hole: 1, par: 4, parSource: "fixture", blueYards: 400, routeLenM: 366,
+            geometryCoverage: "ready", geometryRevision: "precise-r2"
+        )
+        let cache = LiveHoleSessionCache()
+        cache.update(
+            roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "partial-r1"
+        ) { entry in
+            entry.prepRequestCompleted = true
+            entry.preciseProbeStarted = true
+        }
+        cache.updatePrep(roundId: "round", hole: hole, teeBox: "white", prep: precise)
+
+        let retained = cache.entry(
+            roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "precise-r2"
+        )
+        XCTAssertTrue(retained.prepRequestCompleted)
+        XCTAssertTrue(retained.preciseProbeStarted)
+        XCTAssertEqual(retained.holePrep?.geometryRevision, "precise-r2")
+    }
+
+    func testTopoRevisionChangeDoesNotRetainPrepProgressFromAnOlderFrame() {
+        let hole = Hole(
+            number: 1, par: 4, yards: 400, geometryCoverage: .partial,
+            geometryRevision: "topo-r1", topoAvailable: true, topoRevision: "topo-r2",
+            sourceGlobalId: 101, sourceLocalHole: 1, courseHoleNumber: 1
+        )
+        let precise = CoursePrepHole(
+            hole: 1, par: 4, parSource: "fixture", blueYards: 400, routeLenM: 366,
+            geometryCoverage: "ready", geometryRevision: "prep-r2"
+        )
+        let cache = LiveHoleSessionCache()
+        cache.update(
+            roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "topo-r1"
+        ) { entry in
+            entry.prepRequestCompleted = true
+            entry.preciseProbeStarted = true
+            entry.localTopoURL = URL(fileURLWithPath: "/tmp/old-topo.png")
+        }
+        cache.updatePrep(roundId: "round", hole: hole, teeBox: "white", prep: precise)
+
+        let retained = cache.entry(
+            roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "topo-r2"
+        )
+        XCTAssertFalse(retained.prepRequestCompleted)
+        XCTAssertFalse(retained.preciseProbeStarted)
+        XCTAssertNil(retained.localTopoURL)
     }
 
     func testTrimHeavyPrepMarksTheEntryForARefresh() {

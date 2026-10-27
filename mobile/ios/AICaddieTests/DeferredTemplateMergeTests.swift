@@ -70,4 +70,83 @@ final class DeferredTemplateMergeTests: XCTestCase {
         // The live map package must still ask for this round's fresh personal enrichment.
         XCTAssertEqual(try store.loadRoundPackage(roundId: full.roundId)?.sourceCoverage.playerStatsWindow, "deferred")
     }
+
+    func testDeferredMapRefreshDropsSeedsOnlyForChangedGeometry() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let full = try LiveRoundPackageFixture.nineHoleLoop(dataMode: "local")
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(full)) as? [String: Any])
+        var coverage = try XCTUnwrap(json["sourceCoverage"] as? [String: Any])
+        coverage["playerStatsWindow"] = "deferred"
+        json["sourceCoverage"] = coverage
+        json["caddieContextSeeds"] = [] as [Any]
+        let holes = try XCTUnwrap(json["holes"] as? [[String: Any]])
+        json["holes"] = holes.enumerated().map { index, row in
+            var copy = row
+            if index == 0 { copy["geometryRevision"] = "changed-r2" }
+            return copy
+        }
+        let maps = try JSONDecoder().decode(
+            LiveRoundPackage.self,
+            from: JSONSerialization.data(withJSONObject: json)
+        )
+
+        try store.saveCourseTemplate(full)
+        try store.saveCourseTemplate(maps, replacingExisting: true)
+        let saved = try XCTUnwrap(store.loadCourseTemplate(globalId: 31795, teeBox: "blue"))
+        XCTAssertNil(saved.caddieContextSeeds.first(where: { $0.hole == 1 }))
+        XCTAssertEqual(
+            Set(saved.caddieContextSeeds.map(\.hole)),
+            Set(2...9),
+            "seeds remain usable where the geometry frame did not change"
+        )
+    }
+
+    func testCompleteTemplateWinsWhenCoverageReadyCountIsStale() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let existing = try LiveRoundPackageFixture.nineHoleLoop(dataMode: "local")
+        XCTAssertFalse(existing.hasCompleteOfflineCoursePrep, "the shared fixture has no precise prep rows")
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(existing)) as? [String: Any])
+        json["generatedAt"] = "2099-01-01T00:00:00Z"
+        json["geometryCoverage"] = [
+            "state": "ready", "readyHoles": 0, "totalHoles": existing.holes.count,
+        ] as [String: Any]
+        let prepRows: [[String: Any]] = existing.holes.map { hole in
+            [
+                "hole": hole.number,
+                "par": hole.par,
+                "par_source": "fixture",
+                "blue_yards": hole.yards,
+                "route_len_m": 1.0,
+                "route": [[0.0, 0.0], [1.0, 0.0]],
+                "geometryCoverage": "ready",
+                "geometryRevision": "fixture-r1",
+                "steps": [],
+                "cautions": [],
+                "hazards": ["water_carry": [], "bunkers": []],
+                "map": ["overlay": [
+                    "w": 2, "h": 2, "ppm": 1.0, "ln": 1.0,
+                    "route": [[0.0, 0.0, 0.0], [1.0, 0.0, 1.0]],
+                ]],
+            ]
+        }
+        json["coursePrep"] = [
+            "schema": "ai-caddie-course-prep-v1",
+            "globalId": existing.course.globalId,
+            "holes": prepRows,
+        ] as [String: Any]
+        let complete = try JSONDecoder().decode(
+            LiveRoundPackage.self,
+            from: JSONSerialization.data(withJSONObject: json)
+        )
+        XCTAssertTrue(complete.hasCompleteOfflineCoursePrep)
+
+        try store.saveCourseTemplate(existing)
+        try store.saveCourseTemplate(complete)
+        let saved = try XCTUnwrap(store.loadCourseTemplate(globalId: 31795, teeBox: "blue"))
+        XCTAssertEqual(saved.generatedAt, "2099-01-01T00:00:00Z")
+    }
 }

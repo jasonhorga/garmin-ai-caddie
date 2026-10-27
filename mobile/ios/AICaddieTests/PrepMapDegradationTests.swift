@@ -710,7 +710,7 @@ final class PrepMapDegradationTests: XCTestCase {
         }
         let ground = try XCTUnwrap(TopoEdgeExtension.surround(for: speckled))
         XCTAssertLessThanOrEqual(abs(ground.red - 191) + abs(ground.green - 222) + abs(ground.blue - 240), 6)
-        // A transparent off-course canvas (topo-v11) has no surround.
+        // A transparent off-course canvas (topo-v12) has no surround.
         let transparentFormat = UIGraphicsImageRendererFormat()
         transparentFormat.scale = 1
         transparentFormat.opaque = false

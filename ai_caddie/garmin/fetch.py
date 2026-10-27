@@ -17,6 +17,7 @@ from typing import Any
 import requests
 
 from ai_caddie.core.data import atomic_write_json, atomic_write_json_if_changed
+from ai_caddie.core.revisions import bump_revision
 from ai_caddie.garmin.garmin_auth import auth_headers, ensure_web_auth
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -189,16 +190,18 @@ def _store_scorecard(out: Path, detail: dict, i: int, total: int, sid: Any) -> N
     ABANDONED round stays in-progress on Garmin forever, so removing it makes it correctly vanish
     instead of lingering as a frozen partial that pollutes the review and stats."""
     if _detail_complete(detail):
-        out.write_text(json.dumps(detail, ensure_ascii=False, indent=2))
+        atomic_write_json(out, detail)
         print(f"  [{i:>3}/{total}] {sid} saved")
         return
     dropped = ""
     if out.exists():
         out.unlink()
+        bump_revision(out.parent)
         dropped = " —— 删掉已存的半截局"
     shot_out = SHOT_DIR / f"{sid}.json"
     if shot_out.exists():
         shot_out.unlink()
+        bump_revision(shot_out.parent)
     print(f"  [{i:>3}/{total}] {sid} 进行中/已放弃(inProgress)—— 不入库{dropped}")
 
 
@@ -221,9 +224,11 @@ def _reconcile_abandoned(cards: list[dict]) -> None:
         if p.stem in listed or _local_complete(p):  # in Garmin's list, or a finished round → keep
             continue
         p.unlink()
+        bump_revision(p.parent)
         shot = SHOT_DIR / f"{p.stem}.json"
         if shot.exists():
             shot.unlink()
+            bump_revision(shot.parent)
         print(f"  reconcile: {p.stem} 已从 Garmin 消失(放弃)—— 删掉本地半截局")
 
 

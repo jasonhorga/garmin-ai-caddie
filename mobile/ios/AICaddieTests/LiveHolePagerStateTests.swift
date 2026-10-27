@@ -24,6 +24,28 @@ final class LiveHolePagerStateTests: XCTestCase {
         XCTAssertNil(later.activeHoleToPersist)
     }
 
+    func testCorrectionUsesAdjacentPageOrJumpsWhenOnlyNeighborIsCurrent() {
+        XCTAssertEqual(
+            LiveHolePagerState.correctionBindingTarget(
+                target: 3, ordered: [1, 2, 3, 4], currentSelection: 1, reported: nil
+            ),
+            2
+        )
+        XCTAssertEqual(
+            LiveHolePagerState.correctionBindingTarget(
+                target: 2, ordered: [1, 2], currentSelection: 1, reported: nil
+            ),
+            2,
+            "the only adjacent page is current, so jump directly to target"
+        )
+        XCTAssertEqual(
+            LiveHolePagerState.correctionBindingTarget(
+                target: 3, ordered: [1, 2, 3, 4], currentSelection: 1, reported: 4
+            ),
+            4
+        )
+    }
+
     func testBackNineTurnUsesRoundHoleTenWhichIsCourseHoleOne() {
         var pager = LiveHolePagerState()
         // Round holes 1...9 display course holes 10...18; after the turn 10...18 display 1...9.

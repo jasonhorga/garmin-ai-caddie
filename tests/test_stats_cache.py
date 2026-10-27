@@ -25,6 +25,8 @@ from ai_caddie.caddie.decision import decision_audit_file
 from ai_caddie.core.data import evidence_root
 from ai_caddie.history import stats_cache
 from ai_caddie.history.history import HistoryData
+from ai_caddie.core import revisions
+from ai_caddie.core.data import atomic_write_json
 from ai_caddie.llm.weather_context import weather_snapshot_file
 from ai_caddie.reports.annotations import annotation_file
 from ai_caddie.reports.reports import report_store_file
@@ -129,9 +131,9 @@ class StatsCacheTests(unittest.TestCase):
         os.utime(f, ns=(1_000_000_000, 1_000_000_000))
         self.assertNotEqual(before, stats_cache._dir_sig(d))
 
-    def test_cache_recomputes_on_in_place_edit_same_count(self) -> None:
-        # End-to-end through the public API: rewriting an existing scorecard (a manual
-        # correction) keeps the file count the same but must still force a recompute.
+    def test_cache_recomputes_on_official_atomic_rewrite_same_count(self) -> None:
+        # End-to-end through the official atomic write entry: rewriting an existing scorecard
+        # keeps the file count the same but its revision bump must force a recompute.
         calls = {"n": 0}
         with patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \
              patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)):
@@ -139,10 +141,7 @@ class StatsCacheTests(unittest.TestCase):
             stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
             self.assertEqual(calls["n"], 1)
             target = self.scorecards / "r1.json"
-            target.write_text('{"corrected": true}')  # in-place edit, count stays at 1
-            st = target.stat()
-            bump = st.st_mtime_ns + 1_000_000_000
-            os.utime(target, ns=(bump, bump))  # ensure mtime advances regardless of FS granularity
+            atomic_write_json(target, {"corrected": True})
             stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
             self.assertEqual(calls["n"], 2)
 

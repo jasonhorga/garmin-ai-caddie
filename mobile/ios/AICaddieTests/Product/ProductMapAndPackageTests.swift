@@ -172,10 +172,8 @@ final class ProductMapAndPackageTests: XCTestCase {
                 XCTAssertEqual(restored.latitude, 0.001, id)
                 XCTAssertEqual(restored.longitude, 0.002, id)
             } else {
-                XCTExpectFailure("C16e J5.5: poor precision restores a known landing rather than unknown") {
-                    XCTAssertNil(restored.latitude, id + " location must be unknown")
-                    XCTAssertNil(restored.longitude, id + " location must be unknown")
-                }
+                XCTAssertNil(restored.latitude, id + " location must be unknown")
+                XCTAssertNil(restored.longitude, id + " location must be unknown")
             }
         }
         // Scoring without a location still writes the same three score facts, and no invented GPS.
@@ -185,6 +183,35 @@ final class ProductMapAndPackageTests: XCTestCase {
             XCTAssertEqual(events.map(\.kind), [.score, .putt, .penalty], "no GPS, shots=\(phoneShots)")
             XCTAssertTrue(events.allSatisfy { $0.payload["latitude"] == nil && $0.payload["longitude"] == nil })
         }
+    }
+
+    func test_j5_5_poor_followup_location_keeps_previous_good_coordinates() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        var eventIndex = 0
+        let builder = LiveRoundEventBuilder(roundId: "synthetic", idFactory: {
+            eventIndex += 1
+            return "location-\(eventIndex)"
+        })
+        try store.appendEvent(builder.makeLocationEvent(
+            hole: 1,
+            coordinate: CLLocationCoordinate2D(latitude: 0.001, longitude: 0.002),
+            horizontalAccuracyM: 5
+        ))
+        try store.appendEvent(builder.makeLocationEvent(
+            hole: 1,
+            coordinate: CLLocationCoordinate2D(latitude: 0.009, longitude: 0.009),
+            horizontalAccuracyM: 120
+        ))
+
+        let state = try XCTUnwrap(
+            store.restoreLiveRoundState(roundId: "synthetic", package: ProductInputs.package())
+                .holeState(for: 1)
+        )
+        XCTAssertEqual(state.latitude, 0.001)
+        XCTAssertEqual(state.longitude, 0.002)
+        XCTAssertEqual(state.horizontalAccuracyM, 5)
     }
 
     func test_j8_3_optional_sections_old_and_future_data_decode_without_losing_facts() throws {
