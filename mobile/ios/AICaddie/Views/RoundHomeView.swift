@@ -328,10 +328,7 @@ enum LiveHolePagerSelectionLifecycle {
         selection: Int?,
         ordered: [Int]
     ) -> Bool {
-        // Compatibility seam for the red test commit: the old pager accepted any page from its
-        // current ordered set, regardless of which TabView generation produced the write.
-        _ = writerGeneration
-        _ = currentGeneration
+        guard writerGeneration == currentGeneration else { return false }
         guard let selection else { return true }
         return ordered.contains(selection)
     }
@@ -524,6 +521,10 @@ public struct RoundHomeView: View {
     /// The live route is one destination containing a paging surface. Keeping the selection here
     /// avoids rebuilding a CurrentHoleView (and its location/task state) for every swipe.
     @State private var holePagerSelection: Int?
+    /// Every playable hole-set replacement creates a new pager binding. UIKit can deliver a
+    /// selection from the old TabView after the replacement; that write must not become the new
+    /// round cursor.
+    @State private var holePagerGeneration = 0
     @State private var holePagerNavigationLock: LiveHoleNavigationLock?
     @State private var holePagerScrollDisabled = false
     @State private var liveHoleSessions = LiveHoleSessionCache()
@@ -861,6 +862,7 @@ public struct RoundHomeView: View {
         }
         .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
             if previousRoundId != currentRoundId {
+                holePagerGeneration &+= 1
                 // A round id is the session boundary. Clear every entity when a new round starts
                 // or the current round ends, so a reused hole number cannot inherit another nine.
                 liveHoleSessions.reset()
@@ -887,6 +889,7 @@ public struct RoundHomeView: View {
         }
         .onChange(of: prepPackage?.roundId) { previousRoundID, roundId in
             if previousRoundID != roundId {
+                holePagerGeneration &+= 1
                 prepHoleFollowing.reset()
                 liveHoleSessions.reset()
             }
@@ -901,6 +904,7 @@ public struct RoundHomeView: View {
             }
         }
         .onChange(of: package?.holeSetIdentity) { _, _ in
+            holePagerGeneration &+= 1
             reconcileLiveHoleRouteWithPackage()
         }
         .onChange(of: liveRoundState?.activeHole) { _, activeHole in
@@ -935,6 +939,7 @@ public struct RoundHomeView: View {
                 previousPath: previousRoutes,
                 currentPath: routes
             ) {
+                holePagerGeneration &+= 1
                 holePagerSelection = nil
                 holePagerNavigationLock = nil
             }
@@ -1104,7 +1109,11 @@ public struct RoundHomeView: View {
                 startingAt: liveRoundState?.startHole,
                 loops: package.roundLoops
             )
-            TabView(selection: $holePagerSelection) {
+            TabView(selection: pagerSelectionBinding(
+                generation: holePagerGeneration,
+                holeSetIdentity: package.holeSetIdentity,
+                ordered: ordered
+            )) {
                 ForEach(ordered, id: \.self) { number in
                     currentHoleView(number)
                         .tag(Optional(number))
@@ -1163,6 +1172,26 @@ public struct RoundHomeView: View {
         } else {
             Color.clear
         }
+    }
+
+    private func pagerSelectionBinding(
+        generation: Int,
+        holeSetIdentity: String,
+        ordered: [Int]
+    ) -> Binding<Int?> {
+        Binding(
+            get: { holePagerSelection },
+            set: { selection in
+                guard LiveHolePagerSelectionLifecycle.acceptsSelectionWrite(
+                    writerGeneration: generation,
+                    currentGeneration: holePagerGeneration,
+                    selection: selection,
+                    ordered: ordered
+                ) else { return }
+                guard holeScreenPackage?.holeSetIdentity == holeSetIdentity else { return }
+                holePagerSelection = selection
+            }
+        )
     }
 
     private func trimLiveHoleSessions(around selected: Int, package: LiveRoundPackage) {
