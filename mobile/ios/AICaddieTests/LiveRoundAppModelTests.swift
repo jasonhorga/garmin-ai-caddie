@@ -3035,7 +3035,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         model.enqueueWholeCourseTemplatesForTesting(snapshot)
         let row = try XCTUnwrap(model.prepCourseDownloads.first { $0.course.globalId == 31796 })
         XCTAssertNil(row.course.segmentLabel)
-        XCTAssertEqual(row.course.name, "")
+        XCTAssertEqual(row.course.name, active.course.venueDisplayName)
     }
 
     func testHalfCourseTemplateLeavesSegmentLabelNil() async throws {

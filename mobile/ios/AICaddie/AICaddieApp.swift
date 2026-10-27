@@ -2060,7 +2060,8 @@ public final class LiveRoundAppModel: ObservableObject {
             let option = courseOptions.first(where: { $0.globalId == loop.globalId })
             let venueLoop = snapshot.venueLoops?.first(where: { $0.globalId == loop.globalId })
             let isCurrentLoop = loop.globalId == snapshot.course.globalId
-            let fallbackName = venueLoop?.name ?? (isCurrentLoop ? snapshot.course.venueDisplayName : "")
+            // The venue display name is shared by every loop at the venue, so it stays a safe fallback.
+            let fallbackName = venueLoop?.name ?? snapshot.course.venueDisplayName
             let fallbackSegmentLabel: String? = isCourseHalf
                 ? nil
                 : venueLoop?.segmentLabel ?? (isCurrentLoop ? snapshot.course.segmentLabel : nil)
