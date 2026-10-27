@@ -1283,16 +1283,12 @@ public struct RoundHomeView: View {
         // UIViewRepresentable update and leave the correction request stuck forever. If the page
         // set has only two usable values, jump directly to the target instead.
         let currentSelection = holePager.selection
-        let adjacent = holePager.ordered.firstIndex(of: target).flatMap { index in
-            [index - 1, index + 1]
-                .filter { holePager.ordered.indices.contains($0) }
-                .map { holePager.ordered[$0] }
-                .first { $0 != currentSelection }
-        }
-        let bounce = reported.flatMap {
-            holePager.ordered.contains($0) && $0 != target && $0 != currentSelection ? $0 : nil
-        } ?? adjacent
-        guard bounce != nil || currentSelection != target else { return }
+        guard let bounce = LiveHolePagerState.correctionBindingTarget(
+            target: target,
+            ordered: holePager.ordered,
+            currentSelection: currentSelection,
+            reported: reported
+        ) else { return }
         pagerCorrectionTarget = target
         pagerCorrectionID = UUID()
         pagerCorrectionApplying = false
@@ -1302,10 +1298,10 @@ public struct RoundHomeView: View {
             defer { UITestPagerTrace.shared.taskFinished(.correctionTask) }
             #endif
             guard await waitForPagerCorrection(target: target) else { return }
-            tracePager("correction binding bounce=\(bounce ?? target) target=\(target)")
+            tracePager("correction binding bounce=\(bounce) target=\(target)")
             var transaction = Transaction()
             transaction.disablesAnimations = true
-            withTransaction(transaction) { pagerNativeSelectionOverride = bounce ?? target }
+            withTransaction(transaction) { pagerNativeSelectionOverride = bounce }
             // The probe acknowledges this distinct binding value after SwiftUI's update pass.
             // Only then can completePagerDisplayUpdate deliver the target in a later runloop.
         }
