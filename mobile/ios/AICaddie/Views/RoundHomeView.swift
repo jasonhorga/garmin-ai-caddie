@@ -202,16 +202,32 @@ public final class LiveHoleSessionCache {
         teeBox: String,
         prep: CoursePrepHole?
     ) {
-        update(
+        let key = key(
             roundId: roundId,
             hole: hole.number,
             sourceGlobalId: hole.sourceGlobalId,
             sourceLocalHole: hole.sourceLocalHole,
-            teeBox: teeBox,
-            geometryRevision: Self.cacheRevision(hole: hole, prep: prep)
-        ) { entry in
-            entry.holePrep = prep
+            teeBox: teeBox
+        )
+        let revision = Self.cacheRevision(hole: hole, prep: prep)
+        let previous = entries[key] ?? Entry()
+        var value = previous.rebased(for: revision)
+        // A precise prep response is the producer that advances the geometry revision. Keep the
+        // request gates and resolved local topo from the request that produced it, otherwise the
+        // same hole immediately starts a duplicate lightweight prep request after the write.
+        let precisePrepArrived = prep?.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+            && Self.normalizedRevision(prep?.geometryRevision) != nil
+            && Self.normalizedRevision(prep?.geometryRevision) != Self.normalizedRevision(previous.geometryRevision)
+        if precisePrepArrived {
+            value.prepRequestCompleted = previous.prepRequestCompleted
+            value.preciseProbeStarted = previous.preciseProbeStarted
+            value.localTopoURL = previous.localTopoURL
         }
+        if let revision = Self.normalizedRevision(revision) {
+            value.geometryRevision = revision
+        }
+        value.holePrep = prep
+        entries[key] = value
     }
 
     func reset(roundId: String? = nil) {

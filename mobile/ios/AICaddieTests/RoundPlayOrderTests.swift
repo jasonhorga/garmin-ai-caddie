@@ -173,16 +173,15 @@ final class RoundPlayOrderTests: XCTestCase {
         )
         let cache = LiveHoleSessionCache()
         cache.updatePrep(roundId: "round", hole: hole, teeBox: "white", prep: partial)
-        cache.updatePrep(roundId: "round", hole: hole, teeBox: "white", prep: precise)
-        for _ in 0..<3 {
-            cache.update(
-                roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
-                teeBox: "white", geometryRevision: nil
-            ) { entry in
-                entry.prepRequestCompleted = true
-                entry.preciseProbeStarted = true
-            }
+        cache.update(
+            roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
+            teeBox: "white", geometryRevision: "partial-r1"
+        ) { entry in
+            entry.prepRequestCompleted = true
+            entry.preciseProbeStarted = true
+            entry.localTopoURL = URL(fileURLWithPath: "/tmp/precise-r1.png")
         }
+        cache.updatePrep(roundId: "round", hole: hole, teeBox: "white", prep: precise)
         let retained = cache.entry(
             roundId: "round", hole: 1, sourceGlobalId: 101, sourceLocalHole: 1,
             teeBox: "white", geometryRevision: "precise-r2"
@@ -190,6 +189,7 @@ final class RoundPlayOrderTests: XCTestCase {
         XCTAssertEqual(retained.holePrep, precise)
         XCTAssertTrue(retained.prepRequestCompleted)
         XCTAssertTrue(retained.preciseProbeStarted)
+        XCTAssertEqual(retained.localTopoURL, URL(fileURLWithPath: "/tmp/precise-r1.png"))
     }
 
     func testTrimHeavyPrepMarksTheEntryForARefresh() {
