@@ -6,6 +6,7 @@ import { expect, test as base, type Page } from '@playwright/test'
 export const COURSE = 'Fixture Orchard'
 export const GID = 99001
 export const ROUND = 'fixture-18-par'
+export const SHARE_TOKEN = 'fixture-share-token-abcdefghijklmnopqrstuvwxyz123456789'
 export const PLAYER_LINK = 'fixture-player-capability'
 export const ADMIN = 'fixture-admin-only'
 export const SESSION_HEADER = 'fixture-session-material'
@@ -143,6 +144,13 @@ export async function productApi(page: Page, options: Options = {}) {
     if (path === '/api/v2/history/summary' && method === 'GET') return json({ schema: 'ai-caddie-history-summary-v1', summary, topIssue: null })
     if (path === '/api/v2/history/rounds' && method === 'GET') return json({ schema: 'ai-caddie-history-rounds-v2', total: 3, groups: [{ key: '2026-05', label: 'May 2026', count: 3, average18: 81, bestScore: 72, rounds }], emptyState: null, availableYears: ['2026'], availableCourses: [{ key: 'fixture_orchard', label: COURSE }] })
     if (path === `/api/v2/history/rounds/${ROUND}` && method === 'GET') return json({ schema: 'ai-caddie-history-round-detail-v1', roundRef: ROUND, requestedRef: ROUND, found: true, title: `${COURSE} - 2026-05-20`, round: { id: ROUND, score: 72, toPar: 0, holesScored: 18, shotCount: 3, confidence: 'high', coverage: { scorecard: 'full', shots: 'partial', putts: 'full' } }, scorecard: rounds[0].scoreStrip.map((hole) => ({ ...hole, putts: 2, gir: true, fairway: 'hit', holeRef: `${ROUND}:${hole.hole}`, shotRefs: [], sourceRefs: [`${ROUND}:${hole.hole}`], status: 'complete' })), phaseSummary: [], holeDetails: [], relatedRefs: { roundRefs: [ROUND], holeRefs: [`${ROUND}:1`], shotRefs: [], sourceRefs: [] }, sourceFields: {}, missingData: [] })
+    if (path === `/api/v2/history/rounds/${ROUND}/share` && method === 'POST') return json({ schema: 'ai-caddie-round-share-v1', url: `/api/v2/share/${SHARE_TOKEN}`, pageUrl: `/s/${SHARE_TOKEN}`, expiresAt: '2026-06-19T00:00:00Z', shareId: 'fixture-share-1' })
+    if (path === `/api/v2/history/rounds/${ROUND}/share` && method === 'DELETE') return json({ revoked: 1 })
+    if (path === `/api/v2/share/${SHARE_TOKEN}` && method === 'GET') return json({
+      schema: 'ai-caddie-shared-round-v1', found: true, expiresAt: '2026-06-19T00:00:00Z',
+      round: { id: ROUND, date: '2026-05-20T08:00:00Z', courseName: COURSE, score: 72, par: 72, toPar: 0, holesScored: 18 },
+      scorecard: rounds[0].scoreStrip.map((hole) => ({ hole: hole.hole, par: hole.par, score: hole.score, toPar: hole.toPar, putts: 2, penalties: 0, gir: true, fairway: 'hit' })),
+    })
     if (path === `/api/v2/history/rounds/${ROUND}/holes/1/shotmap` && method === 'GET') return json({ schema: 'ai-caddie-round-hole-shotmap-v1', found: true, roundRef: ROUND, hole: 1, par: 4, globalId: GID, localHole: 1, geometryRevision: 'fixture-v1', mapKind: 'prodgeometry', map: { overlay }, shots: corrected ? correctedShots : originalShots, missingData: [] })
     if (path === `/api/v2/history/rounds/${ROUND}/corrections` && method === 'POST' && identity !== 'player-link') {
       records.corrections.push(request.postDataJSON())

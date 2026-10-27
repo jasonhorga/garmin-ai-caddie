@@ -1,0 +1,6 @@
+--- a/web_v2/src/components/SharedRoundPage.tsx
++++ b/web_v2/src/components/SharedRoundPage.tsx
+@@ -84,2 +84,2 @@
+-          <div><span>总杆</span><b>{round.score ?? '—'}</b></div>
++          <div><span>总杆</span><b>{round.score === null ? '—' : round.score + 18}</b></div>
+           <div><span>标准杆</span><b>{round.par ?? '—'}</b></div>
