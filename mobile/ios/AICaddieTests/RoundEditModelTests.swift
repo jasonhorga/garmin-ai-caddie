@@ -727,10 +727,19 @@ final class RoundEditModelTests: XCTestCase {
 
             XCTAssertEqual(model.putts, manuallyChangedPutts ? 2 : 3)
             XCTAssertEqual(model.hasUnsavedChanges, manuallyChangedPutts)
-            // C20: both drafts require 5 (2+2+1 or 3+1+1), so adopting 4 would reject them.
+            // C79: validation uses the total that takes effect after saving (the queued 4), so
+            // drafts needing 5 (2+2+1 or 3+1+1) are rejected and stay open instead of storing an
+            // impossible row.
             model.setPenalty(manuallyChangedPutts ? 2 : 1)
+            let rejected = await model.save()
+            XCTAssertFalse(rejected, "a draft impossible under the queued total must not save")
+            XCTAssertNotNil(model.saveError)
+            XCTAssertTrue(model.isEditing, "the rejected draft stays open")
+            XCTAssertEqual(model.putts, manuallyChangedPutts ? 2 : 3)
+
+            model.setPenalty(manuallyChangedPutts ? 1 : 0)
             let saved = await model.save()
-            XCTAssertTrue(saved, "an open draft must keep its original scorecard baseline")
+            XCTAssertTrue(saved, "a draft that fits the queued total saves")
             XCTAssertNil(model.saveError)
         }
     }
