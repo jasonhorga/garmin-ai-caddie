@@ -14,11 +14,11 @@ function absolutePageUrl(pageUrl: string): string {
   }
 }
 
-async function copyText(value: string): Promise<void> {
+async function copyText(value: string): Promise<boolean> {
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(value)
-      return
+      return true
     } catch {
       // Fall through to the selection-based fallback when permission is unavailable.
     }
@@ -32,9 +32,7 @@ async function copyText(value: string): Promise<void> {
   input.select()
   const copied = typeof document.execCommand === 'function' && document.execCommand('copy')
   input.remove()
-  // Browsers without either clipboard API still get the visible read-only URL field; the user can
-  // select it manually instead of being shown a made-up link or a transport error.
-  if (!copied) return
+  return copied
 }
 
 export function ShareRoundControl({ onShare, onRevoke }: ShareRoundControlProps): React.ReactElement {
@@ -48,36 +46,44 @@ export function ShareRoundControl({ onShare, onRevoke }: ShareRoundControlProps)
   async function share(): Promise<void> {
     if (state.status === 'sharing') return
     setState({ status: 'sharing' })
+    let response: RoundShareResponse
     try {
-      const response = await onShare()
-      const pageUrl = absolutePageUrl(response.pageUrl)
-      if (typeof navigator.share === 'function') {
-        try {
-          await navigator.share({ title: 'AI Caddie 球局记分卡', url: pageUrl })
-        } catch (error: unknown) {
-          if (error instanceof DOMException && error.name === 'AbortError') {
-            setState({ status: 'ready', pageUrl, copied: false })
-            return
-          }
-          throw error
-        }
-      } else {
-        await copyText(pageUrl)
-      }
-      setState({ status: 'ready', pageUrl, copied: typeof navigator.share !== 'function' })
+      response = await onShare()
     } catch (error: unknown) {
       setState({ status: 'error', message: error instanceof Error ? error.message : '分享失败' })
+      return
     }
+
+    const pageUrl = absolutePageUrl(response.pageUrl)
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: 'AI Caddie 球局记分卡', url: pageUrl })
+      } catch {
+        // The token was created already. A dismissed share sheet and browser gesture errors
+        // both leave the user with the durable URL field as a manual fallback.
+      }
+      setState({ status: 'ready', pageUrl, copied: false })
+      return
+    }
+
+    let copied = false
+    try {
+      copied = await copyText(pageUrl)
+    } catch {
+      // The visible read-only URL field remains available for manual copying.
+    }
+    setState({ status: 'ready', pageUrl, copied })
   }
 
   async function copy(): Promise<void> {
     if (state.status !== 'ready') return
+    let copied = false
     try {
-      await copyText(state.pageUrl)
-      setState({ ...state, copied: true })
-    } catch (error: unknown) {
-      setState({ status: 'error', message: error instanceof Error ? error.message : '复制失败' })
+      copied = await copyText(state.pageUrl)
+    } catch {
+      // Keep the URL field visible when browser permissions or selection APIs fail.
     }
+    setState({ ...state, copied })
   }
 
   async function revoke(): Promise<void> {

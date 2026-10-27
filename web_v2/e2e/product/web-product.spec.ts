@@ -233,21 +233,37 @@ test('j9_5_review_has_single_round_share_entry', async ({ page, browser }) => {
   const pageUrl = await page.getByLabel('分享链接').locator('input').inputValue()
   expect(pageUrl).toMatch(new RegExp(`/s/${SHARE_TOKEN}$`))
 
-  // A separate browser context has no session or admin localStorage. It must use only the
-  // token-resolved projection and must not be able to reach the authenticated review surface.
+  // A separate browser context is deliberately preloaded with credentials. The /s/ route must
+  // still use only the token-resolved projection and must not enter the authenticated review app.
   const sharedContext = await browser.newContext()
+  await sharedContext.addInitScript(({ admin, session }) => {
+    localStorage.setItem('ai-caddie.admin-token', admin)
+    localStorage.setItem('ai-caddie.session', session)
+  }, { admin: ADMIN, session: JSON.stringify({ token: 'fixture-member-session', playerId: 'fixture-member', expiresAt: '2099-01-01T00:00:00Z' }) })
   const sharedPage = await sharedContext.newPage()
   const sharedApi = await productApi(sharedPage)
+  const pageErrors: string[] = []
+  sharedPage.on('pageerror', (error) => pageErrors.push(error.message))
   await sharedPage.goto(pageUrl)
+  const storedCredentials = await sharedPage.evaluate(() => ({
+    admin: localStorage.getItem('ai-caddie.admin-token'),
+    session: localStorage.getItem('ai-caddie.session'),
+  }))
+  expect(storedCredentials.admin).toBe(ADMIN)
+  expect(storedCredentials.session).toContain('fixture-member-session')
   await expect(sharedPage.getByRole('heading', { name: COURSE, exact: true })).toBeVisible()
-  await expect(sharedPage.locator('.shared-round-summary')).toContainText(['72', '72', 'E', '18'])
+  await expect(sharedPage.locator('.shared-round-summary b')).toHaveText(['72', '72', 'E', '18'])
   await expect(sharedPage.getByRole('heading', { name: '记分卡', exact: true })).toBeVisible()
   await expect(sharedPage.getByLabel('前九记分卡')).toBeVisible()
   await expect(sharedPage.getByLabel('后九记分卡')).toBeVisible()
   await expect(sharedPage.getByText('相关来源', { exact: true })).toHaveCount(0)
   await expect(sharedPage.getByRole('button', { name: /编辑落点|保存全部修改|添加订正|取消分享/ })).toHaveCount(0)
   await expect(sharedPage.locator('body')).not.toContainText('90')
+  expect(sharedApi.calls.map((call) => call.path)).toEqual([`/api/v2/share/${SHARE_TOKEN}`])
+  expect(sharedApi.unexpected).toEqual([])
+  expect(pageErrors).toEqual([])
   const read = sharedApi.calls.find((call) => call.path === `/api/v2/share/${SHARE_TOKEN}`)
+  expect(read).toBeDefined()
   expect(read?.auth).toBeUndefined()
   expect(read?.admin).toBeUndefined()
   await sharedContext.close()

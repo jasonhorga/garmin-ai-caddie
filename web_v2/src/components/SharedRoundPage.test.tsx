@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SharedRoundPage } from './SharedRoundPage'
 
-const fetchSharedRound = vi.fn()
+const { fetchSharedRound } = vi.hoisted(() => ({ fetchSharedRound: vi.fn() }))
 vi.mock('../shareApi', () => ({ fetchSharedRound }))
 
 const scorecard = Array.from({ length: 18 }, (_, index) => ({
@@ -42,5 +42,18 @@ describe('SharedRoundPage', () => {
     render(<SharedRoundPage token="expired-token" />)
     await waitFor(() => expect(screen.getByRole('heading', { name: '链接已失效' })).toBeInTheDocument())
     expect(screen.queryByText(/Fixture/)).not.toBeInTheDocument()
+  })
+
+  it('shows the same neutral expired-link state for a found:false response', async () => {
+    fetchSharedRound.mockResolvedValue({
+      schema: 'ai-caddie-shared-round-v1',
+      found: false,
+      expiresAt: null,
+      round: null,
+      scorecard: [],
+    })
+    render(<SharedRoundPage token="revoked-token" />)
+    expect(await screen.findByRole('heading', { name: '链接已失效' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('球局成绩')).not.toBeInTheDocument()
   })
 })
