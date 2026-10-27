@@ -686,12 +686,14 @@ final class RoundEditModelTests: XCTestCase {
         model.adoptRecordedScorecard(score: 6, putts: 4)
         model.move(shotId: "shot-1", px: [46, 49])
 
-        XCTAssertTrue(await model.save())
+        let firstSave = await model.save()
+        XCTAssertTrue(firstSave)
         XCTAssertEqual(model.putts, 3, "a landing-only save must not import an external putt change")
 
         model.enterEdit()
         model.setPenalty(2) // The refreshed total 6 permits 3 putts + 2 penalty + 1.
-        XCTAssertTrue(await model.save())
+        let secondSave = await model.save()
+        XCTAssertTrue(secondSave)
     }
 
     func testScorecardTotalThatArrivesDuringEditingStillRejectsAnImpossibleSave() async throws {
@@ -706,7 +708,8 @@ final class RoundEditModelTests: XCTestCase {
         model.adoptRecordedScorecard(score: 4, putts: 3)
         model.setPenalty(1) // 4 < 3 putts + 1 penalty + 1.
 
-        XCTAssertFalse(await model.save())
+        let saved = await model.save()
+        XCTAssertFalse(saved)
         XCTAssertEqual(model.saveError, "总杆不得低于推杆+罚杆+1，草稿仍在；请调整后重试")
         await fulfillment(of: [unexpectedRequest], timeout: 0.25)
     }
