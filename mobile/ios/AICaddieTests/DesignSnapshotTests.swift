@@ -1894,7 +1894,7 @@ final class DesignSnapshotTests: XCTestCase {
 
     /// A production-shaped 256 x 256 hole raster: an irregular rough footprint with a fairway from
     /// the tee (48, 48) to a green at (208, 208), on `ground` (the flat render) or a transparent
-    /// off-course canvas (topo-v11) when nil. Like production it keeps a margin on every side, so
+    /// off-course canvas (topo-v12) when nil. Like production it keeps a margin on every side, so
     /// no course pixel touches the raster's edge; `reachesEdge` instead runs the course out to the
     /// corners (the hard-clipped shape the clipping detector must catch). `noisyRough` makes the
     /// rough vivid 4 px noise.

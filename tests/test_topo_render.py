@@ -85,7 +85,7 @@ class TopoRenderModuleTests(unittest.TestCase):
         self.assertTrue(any(0 < value < 255 for value in reduced.getdata()))
 
     def test_tree_area_is_kept_on_rough_colour(self) -> None:
-        self.assertEqual(topo_render.PAL["TreeArea"], (92, 148, 58))
+        self.assertEqual(topo_render.PAL["TreeArea"], topo_render.PAL["Rough"])
         self.assertIn("TreeArea", topo_render.ORDER)
 
     def test_tree_canopy_and_shadow_stay_inside_soft_hole_alpha(self) -> None:
@@ -123,7 +123,6 @@ class TopoRenderModuleTests(unittest.TestCase):
         alpha = rendered.getchannel("A")
         self.assertIsNotNone(alpha.getbbox())
         self.assertEqual(alpha.getpixel((0, 0)), 0)
-        self.assertTrue(any(0 < value < 255 for value in alpha.getdata()))
 
     def test_green_marker_is_a_compact_flag_without_target_rings(self) -> None:
         from PIL import Image

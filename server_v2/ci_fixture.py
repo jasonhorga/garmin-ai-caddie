@@ -288,7 +288,7 @@ def _offset_coordinate(
     )
 
 
-# The prep row's 64 px frame: like production topo-v11 rasters (none of which paint an image edge;
+# The prep row's 64 px frame: like production topo-v12 rasters (none of which paint an image edge;
 # the smallest opaque margin is ~5% of the frame), the hole sits inside a transparent margin.
 # The tee is at (PREP_MARGIN_PX, PREP_MARGIN_PX) and the green end at the opposite corner.
 PREP_MARGIN_PX = 12.0
@@ -527,7 +527,7 @@ def _course_png(seed: int = 0, background: tuple[int, int, int] | None = None, s
     """A production-shaped hole raster: an irregular mottled rough / fairway footprint along the
     prep route (tee to green, inside the transparent margin) and a green at its end.
 
-    ``background=None`` is the topo-v11 shape (transparent off-course canvas); a colour is the
+    ``background=None`` is the topo-v12 shape (transparent off-course canvas); a colour is the
     flat ``hole_render`` fallback (a uniform ground). Like production, the course never touches the
     raster's edge: its footprint (with its irregular rough) keeps a margin on every side, and the
     only texture is inside it. The mottle keeps it a real, non-trivial raster (over 1 KiB).
@@ -1146,7 +1146,7 @@ def _fixture_garmin_projection(global_id: int) -> dict[str, object]:
 
 @ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/topo.png")
 def topo_png(global_id: int, hole: int, v: str | None = None, r: str | None = None) -> Response:
-    if v is not None and v != "topo-v11":
+    if v is not None and v not in {"topo-v11", "topo-v12"}:
         raise HTTPException(status_code=409, detail="fixture topo renderer version unsupported")
     if 1 <= hole <= 18 and _hole_map_state(_course_request(global_id), hole) != "ready":
         # No precise geometry yet: like production, there is no topo to serve.
@@ -1154,13 +1154,13 @@ def topo_png(global_id: int, hole: int, v: str | None = None, r: str | None = No
     _course_id(global_id)
     if hole < 1 or hole > 18:
         raise HTTPException(status_code=404, detail="fixture image not found")
-    # topo-v11 shape: the course on a transparent off-course canvas.
+    # topo-v12 shape: the course on a transparent off-course canvas.
     return Response(content=_course_png(hole), media_type="image/png")
 
 
 @ROUTE.get("/api/v2/courses/{global_id}/holes/{hole}/green.png")
 def green_png(global_id: int, hole: int, x: float = 0, y: float = 0, width: float = 64, height: float = 64, size: int = 64, v: str | None = None, g: str | None = None, r: str | None = None) -> Response:
-    if v is not None and v != "topo-v11":
+    if v is not None and v not in {"topo-v11", "topo-v12"}:
         raise HTTPException(status_code=409, detail="fixture topo renderer version unsupported")
     if g is not None and g != "green-v3":
         raise HTTPException(status_code=409, detail="fixture green renderer version unsupported")
