@@ -795,9 +795,9 @@ public final class OfflineStore {
         accountScope += 1
         resultsCommittedRequestStarts = [:]
         eventLogLock.lock()
+        directoryURL = directory
         eventLogCache = nil
         eventLogLock.unlock()
-        directoryURL = directory
         logURL = directory.appendingPathComponent("events.jsonl")
         packagesDirectoryURL = directory.appendingPathComponent("packages", isDirectory: true)
         courseTemplatesDirectoryURL = directory.appendingPathComponent(
