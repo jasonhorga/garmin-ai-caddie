@@ -70,4 +70,36 @@ final class DeferredTemplateMergeTests: XCTestCase {
         // The live map package must still ask for this round's fresh personal enrichment.
         XCTAssertEqual(try store.loadRoundPackage(roundId: full.roundId)?.sourceCoverage.playerStatsWindow, "deferred")
     }
+
+    func testDeferredMapRefreshDropsSeedsOnlyForChangedGeometry() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let full = try LiveRoundPackageFixture.nineHoleLoop(dataMode: "local")
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(full)) as? [String: Any])
+        var coverage = try XCTUnwrap(json["sourceCoverage"] as? [String: Any])
+        coverage["playerStatsWindow"] = "deferred"
+        json["sourceCoverage"] = coverage
+        json["caddieContextSeeds"] = [] as [Any]
+        let holes = try XCTUnwrap(json["holes"] as? [[String: Any]])
+        json["holes"] = holes.enumerated().map { index, row in
+            var copy = row
+            if index == 0 { copy["geometryRevision"] = "changed-r2" }
+            return copy
+        }
+        let maps = try JSONDecoder().decode(
+            LiveRoundPackage.self,
+            from: JSONSerialization.data(withJSONObject: json)
+        )
+
+        try store.saveCourseTemplate(full)
+        try store.saveCourseTemplate(maps, replacingExisting: true)
+        let saved = try XCTUnwrap(store.loadCourseTemplate(globalId: 31795, teeBox: "blue"))
+        XCTAssertNil(saved.caddieContextSeeds.first(where: { $0.hole == 1 }))
+        XCTAssertEqual(
+            Set(saved.caddieContextSeeds.map(\.hole)),
+            Set(2...9),
+            "seeds remain usable where the geometry frame did not change"
+        )
+    }
 }

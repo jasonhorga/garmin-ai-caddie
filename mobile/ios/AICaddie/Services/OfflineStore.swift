@@ -1496,6 +1496,28 @@ public final class OfflineStore {
             guard case .string(let label)? = row["label"] else { return false }
             return personalChecks.contains(label)
         }
+        func normalizedRevision(_ revision: String?) -> String? {
+            guard let revision = revision?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !revision.isEmpty else { return nil }
+            return revision
+        }
+        func geometryRevision(of package: LiveRoundPackage, hole: Hole) -> String? {
+            normalizedRevision(
+                hole.geometryRevision
+                    ?? package.coursePrep?.holes.first(where: { $0.hole == hole.number })?.geometryRevision
+            )
+        }
+        let retainedSeeds = existing.caddieContextSeeds.filter { seed in
+            guard let oldHole = existing.holes.first(where: { $0.number == seed.hole }),
+                  let newHole = maps.holes.first(where: { $0.number == seed.hole }) else {
+                return false
+            }
+            let oldRevision = geometryRevision(of: existing, hole: oldHole)
+            let newRevision = geometryRevision(of: maps, hole: newHole)
+            return oldHole.sourceGlobalId == newHole.sourceGlobalId
+                && oldHole.sourceLocalHole == newHole.sourceLocalHole
+                && oldRevision == newRevision
+        }
         return LiveRoundPackage(
             schema: maps.schema,
             roundId: maps.roundId,
@@ -1523,7 +1545,7 @@ public final class OfflineStore {
             geometryCoverage: maps.geometryCoverage,
             readinessChecks: maps.readinessChecks.filter { !personalChecks.contains($0.label) }
                 + existing.readinessChecks.filter { personalChecks.contains($0.label) },
-            caddieContextSeeds: existing.caddieContextSeeds,
+            caddieContextSeeds: retainedSeeds,
             weatherSnapshot: existing.weatherSnapshot,
             clubProfiles: existing.clubProfiles,
             caddieDecisionEndpoint: existing.caddieDecisionEndpoint,
