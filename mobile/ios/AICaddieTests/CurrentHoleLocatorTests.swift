@@ -103,10 +103,36 @@ final class CurrentHoleLocatorTests: XCTestCase {
 
         _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
         XCTAssertNil(following.navigationTarget(currentLocatedHole: 1, displayedHole: 2))
-        XCTAssertEqual(
-            following.navigationTarget(currentLocatedHole: 3, displayedHole: 2),
-            3
-        )
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 3, displayedHole: 2))
+        XCTAssertEqual(following.navigationTarget(currentLocatedHole: 3, displayedHole: 2), 3)
+    }
+
+    func testPrepHoleFollowingIgnoresOneFixOfBoundaryJitter() {
+        var following = PrepHoleFollowingState()
+
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 2))
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 1, displayedHole: 2))
+        XCTAssertEqual(following.lastLocatedHole, 1)
+    }
+
+    func testPrepHoleFollowingResetClearsConfirmedAndPendingHole() {
+        var following = PrepHoleFollowingState()
+
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        following.reset()
+
+        XCTAssertNil(following.lastLocatedHole)
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1))
+    }
+
+    func testPrepHoleFollowingUnknownLocationDoesNotOverwriteLastHole() {
+        var following = PrepHoleFollowingState()
+
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: nil, displayedHole: 2))
+        XCTAssertEqual(following.lastLocatedHole, 1)
     }
 
     private func coordinate(_ latitude: Double, _ longitude: Double) -> CLLocationCoordinate2D {
