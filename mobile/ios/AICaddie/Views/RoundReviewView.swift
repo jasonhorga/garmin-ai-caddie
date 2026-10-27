@@ -339,7 +339,7 @@ struct RoundReviewContent: View {
             }
             .padding(.horizontal, 4)
             LiveNineCard(
-                label: RoundReviewScorecard.nineLabel(for: card.holes, fallback: "合计"),
+                label: card.nineLabels?.front ?? (card.holes.count > 9 ? "OUT" : "合计"),
                 holes: Array(card.holes.prefix(9)),
                 scores: card.scores,
                 onSelect: onSelectHole,
@@ -348,7 +348,7 @@ struct RoundReviewContent: View {
             )
             if card.holes.count > 9 {
                 LiveNineCard(
-                    label: RoundReviewScorecard.nineLabel(for: Array(card.holes.dropFirst(9).prefix(9)), fallback: "合计"),
+                    label: card.nineLabels?.back ?? "IN",
                     holes: Array(card.holes.dropFirst(9).prefix(9)),
                     scores: card.scores,
                     onSelect: onSelectHole,
@@ -466,14 +466,9 @@ struct RoundReviewContent: View {
             parts.append(toPar.map { "\(strokes) 杆（\(LiveRoundScoreSummary.toParText($0))）" } ?? "\(strokes) 杆")
         }
         if card.holes.count > 9 {
-            let front = Array(card.holes.prefix(9))
-            let back = Array(card.holes.dropFirst(9))
-            if let total = card.nineTotal(front) {
-                parts.append("\(RoundReviewScorecard.nineLabel(for: front, fallback: "前九")) \(total)")
-            }
-            if let total = card.nineTotal(back) {
-                parts.append("\(RoundReviewScorecard.nineLabel(for: back, fallback: "后九")) \(total)")
-            }
+            let front = card.nineLabels?.front ?? "OUT", back = card.nineLabels?.back ?? "IN"
+            if let total = card.nineTotal(card.holes.prefix(9)) { parts.append("\(front) \(total)") }
+            if let total = card.nineTotal(card.holes.dropFirst(9)) { parts.append("\(back) \(total)") }
         }
         return parts.isEmpty ? title : title + "\n" + parts.joined(separator: " · ")
     }
@@ -564,11 +559,18 @@ struct RoundReviewScorecard: Equatable {
 
     func canOpen(_ hole: Int) -> Bool { reviewHoles.canOpen(hole) }
 
-    static func nineLabel(for holes: [ScorecardHole], fallback: String) -> String {
-        guard let number = holes.first?.displayNumber else { return fallback }
-        if number >= 10 { return "后九" }
-        if number > 0 { return "前九" }
-        return fallback
+    /// "前九" / "后九" for the two nines of an 18-hole card, by each nine's first physical hole; nil
+    /// unless they read as one front and one back (two loops of a 27-hole course both start at 1),
+    /// so those cards keep OUT / IN.
+    var nineLabels: (front: String, back: String)? {
+        guard holes.count > 9 else { return nil }
+        func half(_ nine: ArraySlice<ScorecardHole>) -> String? {
+            guard let number = nine.first?.displayNumber, number > 0 else { return nil }
+            return number >= 10 ? "后九" : "前九"
+        }
+        guard let first = half(holes.prefix(9)), let second = half(holes.dropFirst(9).prefix(9)),
+              first != second else { return nil }
+        return (first, second)
     }
 
     var strokes: Int { scores.values.reduce(0) { $0 + $1.score } }
