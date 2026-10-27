@@ -927,6 +927,9 @@ public struct RoundHoleShotMapScreen: View {
     private func cancelEditing() {
         guard !isSaving, let editModel else { return }
         editModel.cancelEdit()
+        // A scorecard row can have changed while the draft was open.  Its onChange was correctly
+        // ignored during editing, so adopt the current row after leaving the draft.
+        editModel.adoptRecordedScorecard(score: scoreRow?.score, putts: scoreRow?.putts)
         mapRepository.store(editModel.map, for: hole)
         isEditing = false
         onEditingChange?(false)
@@ -940,6 +943,9 @@ public struct RoundHoleShotMapScreen: View {
         let saved = await editModel.save()
         isSaving = false
         guard saved else { return }
+        // A landing-only save does not write putts.  Follow the current total while retaining the
+        // draft's putt count, even when the row itself did not change and SwiftUI emitted no event.
+        editModel.adoptRecordedScorecard(score: scoreRow?.score, putts: editModel.putts)
         mapRepository.store(editModel.map, for: hole, ticket: ticket)
         isEditing = false
         onEditingChange?(false)
