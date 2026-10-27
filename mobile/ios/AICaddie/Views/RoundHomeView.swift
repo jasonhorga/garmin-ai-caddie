@@ -1267,11 +1267,15 @@ public struct RoundHomeView: View {
         // UIViewRepresentable update and leave the correction request stuck forever. If the page
         // set has only two usable values, jump directly to the target instead.
         let currentSelection = holePager.selection
+        let adjacent = holePager.ordered.firstIndex(of: target).flatMap { index in
+            [index - 1, index + 1]
+                .filter { holePager.ordered.indices.contains($0) }
+                .map { holePager.ordered[$0] }
+                .first { $0 != currentSelection }
+        }
         let bounce = reported.flatMap {
             holePager.ordered.contains($0) && $0 != target && $0 != currentSelection ? $0 : nil
-        } ?? holePager.ordered.first {
-            $0 != target && $0 != currentSelection
-        }
+        } ?? adjacent
         guard bounce != nil || currentSelection != target else { return }
         pagerCorrectionTarget = target
         pagerCorrectionID = UUID()
