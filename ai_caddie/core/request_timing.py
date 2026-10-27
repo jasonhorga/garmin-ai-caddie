@@ -32,8 +32,8 @@ _SENSITIVE_QUERY_UNQUOTED = re.compile(
     r"([?&](?:key|token|access_token|refresh_token|admin_token|authorization|api_key|member_token|share_token|secret)=)[^&#]*",
     re.IGNORECASE,
 )
-_SHARE_PATH = re.compile(r"(/api/v2/share/)[A-Za-z0-9_-]+(?=($|[/?&#]))")
-_MEMBER_PATH = re.compile(r"(/p/)[A-Za-z0-9_-]+(?=($|[/?&#]))")
+_SHARE_PATH = re.compile(r"(/api/v2/share/)[^/?#]+")
+_MEMBER_PATH = re.compile(r"(/p/)[^/?#]+")
 
 _BEIJING = ZoneInfo("Asia/Shanghai")
 _TIMING_FILE = re.compile(r"^(?P<kind>client-)?(?P<day>\d{4}-\d{2}-\d{2})\.jsonl$")

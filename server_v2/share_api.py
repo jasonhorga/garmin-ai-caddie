@@ -136,8 +136,8 @@ def _round_for_player(player_id: str, round_ref: str):
     data, _mode = load_history_data_for_mode(player_id=player_id)
     if not correction_audit.round_exists(data, round_ref):
         raise _not_found()
-    canonical, _refs = correction_audit.round_identity(data, round_ref)
-    return data, canonical
+    canonical, refs = correction_audit.round_identity(data, round_ref)
+    return data, canonical, refs
 
 
 def _shared_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -193,11 +193,11 @@ def create_round_share(
 ) -> ShareCreatedResponse:
     if not _create_window.allow(str(player_id), limit=CREATE_LIMIT, window=CREATE_WINDOW_SECONDS):
         raise _too_many()
-    _data, canonical = _round_for_player(player_id, round_ref)
+    _data, canonical, refs = _round_for_player(player_id, round_ref)
     # Re-check the player at creation time.  The owner is implicit and need not have a registry file.
     if players.get_player(player_id) is None:
         raise _not_found()
-    created = round_shares.create_share(player_id, canonical)
+    created = round_shares.create_share(player_id, canonical, round_refs=refs)
     if created is None:
         raise _too_many()
     token = str(created["token"])
@@ -220,8 +220,8 @@ def revoke_round_share(
     response: Response,
     player_id: str = Depends(current_player_id),
 ) -> ShareRevokedResponse:
-    _data, canonical = _round_for_player(player_id, round_ref)
-    revoked = round_shares.revoke_round(player_id, canonical)
+    _data, canonical, refs = _round_for_player(player_id, round_ref)
+    revoked = round_shares.revoke_round(player_id, canonical, round_refs=refs)
     _set_headers(response)
     return ShareRevokedResponse(revoked=revoked)
 

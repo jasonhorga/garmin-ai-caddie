@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 import secrets
 import threading
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 from ai_caddie.core.data import atomic_write_json, safe_read_json
 from ai_caddie.rounds import players
@@ -122,6 +122,7 @@ def create_share(
     player_id: str,
     round_ref: str,
     *,
+    round_refs: Iterable[str] | None = None,
     root: Path | str | None = None,
     ttl: timedelta = DEFAULT_TTL,
     max_active: int = MAX_ACTIVE_PER_ROUND,
@@ -133,13 +134,15 @@ def create_share(
     """
     path = _path(root)
     now = _now()
+    ref_set = {str(value) for value in (round_refs or (round_ref,))}
+    ref_set.add(str(round_ref))
     with _file_lock(path):
         payload = _load(path)
         _prune_for_write(payload, now)
         active_for_round = [
             row for row in payload["shares"].values()
             if isinstance(row, dict) and row.get("playerId") == player_id
-            and str(row.get("roundRef")) == str(round_ref) and _active(row, now)
+            and str(row.get("roundRef")) in ref_set and _active(row, now)
         ]
         if len(active_for_round) >= max_active:
             return None
@@ -187,11 +190,14 @@ def revoke_round(
     player_id: str,
     round_ref: str,
     *,
+    round_refs: Iterable[str] | None = None,
     root: Path | str | None = None,
 ) -> int:
     """Revoke every active link for a round.  The operation is idempotent."""
     path = _path(root)
     now = _now()
+    ref_set = {str(value) for value in (round_refs or (round_ref,))}
+    ref_set.add(str(round_ref))
     count = 0
     with _file_lock(path):
         payload = _load(path)
@@ -201,7 +207,7 @@ def revoke_round(
         for row in payload["shares"].values():
             if not isinstance(row, dict) or row.get("revokedAt"):
                 continue
-            if row.get("playerId") != str(player_id) or str(row.get("roundRef")) != str(round_ref):
+            if row.get("playerId") != str(player_id) or str(row.get("roundRef")) not in ref_set:
                 continue
             if not _active(row, now):
                 continue
