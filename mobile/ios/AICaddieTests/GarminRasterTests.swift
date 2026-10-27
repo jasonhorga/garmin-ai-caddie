@@ -295,6 +295,37 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertNotEqual(clamped, proposed)
     }
 
+    func testGarminWithoutOverlayUsesSameFramedRasterForGestures() throws {
+        let overlay = try XCTUnwrap(
+            LiveMapDisplaySelection.gestureFrameOverlay(
+                for: .garminRaster,
+                overlay: nil,
+                garminProjection: nil
+            )
+        )
+        let viewport = CGSize(width: 390, height: 844)
+        let rasterFrame = try XCTUnwrap(
+            LivePlayMapOverlayLayout.lightweightFittedFrame(
+                overlay: overlay,
+                viewport: viewport,
+                chrome: []
+            )
+        )
+        let gestureFrame = try XCTUnwrap(
+            LivePlayMapOverlayLayout.mapFrame(
+                overlayWidth: overlay.w,
+                overlayHeight: overlay.h,
+                in: viewport,
+                topInset: LivePlayMapOverlayLayout.liveMapTopInset,
+                fittedFrame: rasterFrame
+            )
+        )
+
+        XCTAssertEqual(gestureFrame, rasterFrame)
+        XCTAssertGreaterThan(rasterFrame.width, 0)
+        XCTAssertGreaterThan(rasterFrame.height, 0)
+    }
+
     func testUnavailableRasterFallsBackToNumericPlaceholderState() throws {
         let hole = try prep()
         XCTAssertEqual(
