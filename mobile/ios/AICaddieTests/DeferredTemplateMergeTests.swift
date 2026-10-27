@@ -108,10 +108,35 @@ final class DeferredTemplateMergeTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = OfflineStore(directoryURL: directory)
         let existing = try LiveRoundPackageFixture.nineHoleLoop(dataMode: "local")
+        XCTAssertFalse(existing.hasCompleteOfflineCoursePrep, "the shared fixture has no precise prep rows")
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(existing)) as? [String: Any])
         json["generatedAt"] = "2099-01-01T00:00:00Z"
         json["geometryCoverage"] = [
             "state": "ready", "readyHoles": 0, "totalHoles": existing.holes.count,
+        ] as [String: Any]
+        let prepRows: [[String: Any]] = existing.holes.map { hole in
+            [
+                "hole": hole.number,
+                "par": hole.par,
+                "par_source": "fixture",
+                "blue_yards": hole.yards,
+                "route_len_m": 1.0,
+                "route": [[0.0, 0.0], [1.0, 0.0]],
+                "geometryCoverage": "ready",
+                "geometryRevision": "fixture-r1",
+                "steps": [],
+                "cautions": [],
+                "hazards": ["water_carry": [], "bunkers": []],
+                "map": ["overlay": [
+                    "w": 2, "h": 2, "ppm": 1.0, "ln": 1.0,
+                    "route": [[0.0, 0.0, 0.0], [1.0, 0.0, 1.0]],
+                ]],
+            ]
+        }
+        json["coursePrep"] = [
+            "schema": "ai-caddie-course-prep-v1",
+            "globalId": existing.course.globalId,
+            "holes": prepRows,
         ] as [String: Any]
         let complete = try JSONDecoder().decode(
             LiveRoundPackage.self,
