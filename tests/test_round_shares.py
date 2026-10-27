@@ -270,13 +270,16 @@ class RoundShareTests(unittest.TestCase):
         self.assertEqual(self.client.get(url).status_code, 404)
 
     def test_per_round_cap_matches_all_merged_aliases(self) -> None:
-        merged_id, front_id, back_id, _url = self._merged_share_fixture(share_before_merge=False)
+        # One link is created under the front-nine id before the merge; links created afterwards
+        # resolve to the merged id. The cap must count both, or a pre-merge link escapes it.
+        merged_id, front_id, back_id, _url = self._merged_share_fixture()
         aliases = (merged_id, front_id, back_id)
-        for index in range(round_shares.MAX_ACTIVE_PER_ROUND):
+        for index in range(round_shares.MAX_ACTIVE_PER_ROUND - 1):
             response = self._share(self.alice, aliases[index % len(aliases)])
             self.assertEqual(response.status_code, 201, response.text)
-        response = self._share(self.alice, aliases[round_shares.MAX_ACTIVE_PER_ROUND % len(aliases)])
-        self.assertEqual(response.status_code, 429, response.text)
+        for alias in aliases:
+            response = self._share(self.alice, alias)
+            self.assertEqual(response.status_code, 429, f"{alias}: {response.text}")
 
     def test_redaction_covers_access_info_and_timing_jsonl_trailing_text(self) -> None:
         token = "T" * 43
