@@ -13,6 +13,21 @@ final class CurrentHoleLocatorTests: XCTestCase {
         ), .onHole(5))
     }
 
+    func testPreferredDisplayedHoleWinsWhenTeeAnchorsOverlap() {
+        let sharedTee = coordinate(40, 116)
+        let holes = [
+            HoleLocatorGeometry(hole: 1, tee: sharedTee, green: coordinate(40.001, 116)),
+            HoleLocatorGeometry(hole: 10, tee: sharedTee, green: coordinate(40.001, 116.001)),
+        ]
+
+        XCTAssertEqual(CurrentHoleLocator.locate(
+            coordinate: sharedTee,
+            horizontalAccuracyM: 5,
+            holes: holes,
+            preferredHole: 10
+        ), .onHole(10))
+    }
+
     func testPracticeAreaFarFromHoleAnchorsDoesNotStartRound() {
         let holes = [
             HoleLocatorGeometry(hole: 5, tee: coordinate(40, 116), green: coordinate(40.001, 116)),
