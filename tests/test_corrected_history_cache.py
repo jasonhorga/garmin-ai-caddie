@@ -83,9 +83,11 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
                 with self.assertRaises(ValueError) as raised:
                     future.result(2)
                 errors.append(raised.exception)
-
-        self.assertEqual(calls, 1)
-        self.assertTrue(all(item is error for item in errors))
+            self.assertEqual(calls, 1)
+            self.assertTrue(all(item is error for item in errors))
+            with self.assertRaises(ValueError):
+                history.corrected_history_data(data, annotations_root=directory, corrections_root=directory)
+            self.assertEqual(calls, 2, "a later request must start a fresh attempt, not reuse the failure")
 
     def test_historical_geometry_changes_rebuild_corrected_projection(self):
         with TemporaryDirectory() as directory:
