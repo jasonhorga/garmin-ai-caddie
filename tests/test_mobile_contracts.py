@@ -2482,7 +2482,7 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("geometryRevision: String? = nil", sync_client)
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
-        self.assertIn('public static let topoStyleVersion = "topo-v11"', sync_client)
+        self.assertIn('public static let topoStyleVersion = "topo-v12"', sync_client)
         self.assertIn('URLQueryItem(name: "v", value: topoStyleVersion)', sync_client)
         self.assertIn("TopoHoleBaseImage(", hole_map_view)
         self.assertIn("garminRasterURL: garminRasterURL", hole_map_view)
@@ -2583,7 +2583,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIsNotNone(watch_version)
         assert phone_version is not None and watch_version is not None
         self.assertEqual(phone_version.group(1), watch_version.group(1))
-        self.assertEqual(phone_version.group(1), "topo-v11")
+        self.assertEqual(phone_version.group(1), "topo-v12")
 
         phone_green_version = re.search(
             r'public static let greenDetailStyleVersion = "([^"]+)"', sync_client
@@ -3192,6 +3192,26 @@ class MobileContractTests(unittest.TestCase):
         ]:
             self.assertIn(payload_key, builder)
         self.assertIn("targetCoordinate: CLLocationCoordinate2D? = nil", builder)
+
+    def test_mobile_location_accuracy_threshold_matches_ios_resolver(self) -> None:
+        mobile_live = _read_required_source(self, Path("ai_caddie") / "caddie" / "mobile_live.py")
+        resolver = _read_required_source(self, IOS_DIR / "Services" / "LiveHoleGPSResolver.swift")
+        server_match = re.search(
+            r"^MAXIMUM_HORIZONTAL_ACCURACY_M\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*(?:#.*)?$",
+            mobile_live,
+            re.MULTILINE,
+        )
+        ios_match = re.search(
+            r"^\s*static let maximumHorizontalAccuracyM\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*(?://.*)?$",
+            resolver,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(server_match, "server location accuracy threshold must be a named constant")
+        self.assertIsNotNone(ios_match, "iOS location accuracy threshold must remain a numeric literal")
+        assert server_match is not None
+        assert ios_match is not None
+        self.assertEqual(float(server_match.group(1)), float(ios_match.group(1)))
+        self.assertEqual(float(server_match.group(1)), 35.0)
 
     def test_current_hole_view_emits_canonical_scoring_payload_keys(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")

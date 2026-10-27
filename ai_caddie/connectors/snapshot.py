@@ -10,6 +10,7 @@ import shutil
 from typing import Any
 
 from ai_caddie.core.data import ROOT, atomic_write_json, safe_read_json, semicircle_to_deg
+from ai_caddie.core.revisions import bump_revision
 from ai_caddie.history.history import (
     HistoryData,
     canonical_course_name,
@@ -742,6 +743,7 @@ def write_snapshot_manifest(*, root: Path = ROOT, manifest: SnapshotManifest) ->
         "geometryDependencies": manifest.geometry_dependencies,
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    bump_revision(path.parent)
     return path
 
 
@@ -845,6 +847,7 @@ def write_durable_snapshot(*, root: Path = ROOT, manifest: SnapshotManifest) -> 
         json.dumps(build_normalized_snapshot_payload(root=root, manifest=manifest), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    bump_revision(normalized_path.parent)
     return normalized_path
 
 

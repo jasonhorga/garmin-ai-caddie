@@ -119,6 +119,7 @@ def _package_singleflight(key: tuple[Any, ...], builder: Callable[[], Any], *,
     if not leader:
         # Share the leader's result when it is available promptly. A slow leader continues
         # independently while the follower reads a cached map/pending projection.
+        mark_request_stage("singleflight_wait")
         try:
             return future.result(timeout=PACKAGE_FOLLOWER_WAIT_SECONDS)
         except TimeoutError:
@@ -687,6 +688,7 @@ def build_mobile_course_package_response(
     package = _build_course_package_with_cold_releases(
         lambda: _package_singleflight(key, build, fallback=lambda: build(cache_only=True)),
     )
+    mark_request_stage("rebind")
     package = _rebind_course_package_round_identity(
         package,
         round_id,
@@ -710,10 +712,17 @@ def _persist_mobile_package_identity(package: LiveRoundPackageResponse, *, playe
     if not package.roundLoops:
         return
     try:
+        @contextmanager
+        def _timed_lock() -> Iterator[None]:
+            mark_request_stage("persist_lock")
+            with _mobile_materialization_lock(player_id):
+                mark_request_stage("persist_write")
+                yield
+
         save_mobile_round_identity(
             str(package.roundId), [row.model_dump() for row in package.roundLoops],
             package.loopKey, package.holes, root=MOBILE_ROOT, player_id=player_id,
-            event_lock=lambda: _mobile_materialization_lock(player_id),
+            event_lock=_timed_lock,
         )
     except MobileRoundIdentityError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

@@ -16,6 +16,8 @@ import unittest
 from pathlib import Path
 
 from ai_caddie.courses import prep_cache
+from ai_caddie.core import revisions
+from ai_caddie.core.data import atomic_write_json
 
 
 class PrepCacheTests(unittest.TestCase):
@@ -180,9 +182,9 @@ class PrepCacheTests(unittest.TestCase):
             (hazard_dir / "gid45979_h01_hazards.json").write_text("{}", encoding="utf-8")
             self.assertEqual(prep_cache._fingerprint(31795), selected_before)
 
-            # Regenerating this course still invalidates it immediately.
+            # The official atomic geometry write bumps the directory revision immediately.
             selected_mesh = mesh_dir / "gid31795_h01_meshes.json"
-            selected_mesh.write_text('{"changed":true}', encoding="utf-8")
+            atomic_write_json(selected_mesh, {"changed": True})
             self.assertNotEqual(prep_cache._fingerprint(31795), selected_before)
 
     def test_geometry_fingerprint_changes_when_authority_sidecar_is_bound(self) -> None:

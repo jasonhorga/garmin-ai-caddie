@@ -209,7 +209,7 @@ final class TopoHoleImageStore: ObservableObject {
 /// space aligns with either bitmap pixel-perfect — the caller draws that overlay as a sibling layer.
 struct TopoHoleBaseImage: View {
     /// The ground of a hole without a raster and around/behind Garmin's raster: the hole screen's own
-    /// black (`LivePlayStyle.base`), the same colour a topo-v11 map's transparent canvas shows, so
+    /// black (`LivePlayStyle.base`), the same colour a topo-v12 map's transparent canvas shows, so
     /// every hole sits on one ground and a loading map never reads as a second green image.
     static let groundColor = LivePlayStyle.base
 
@@ -324,7 +324,7 @@ struct TopoHoleBaseImage: View {
         (garminRasterURL?.absoluteString ?? "none") + "#\(garminRasterReloadID)"
     }
 
-    /// topo-v11 has a transparent off-course canvas. Preserve it in every context so review/prep do
+    /// topo-v12 has a transparent off-course canvas. Preserve it in every context so review/prep do
     /// not manufacture a second rectangular terrain layer around the real hole. (Its edge extension
     /// gets no surround.)
     private func readyImage(_ image: Image) -> some View {
@@ -393,7 +393,7 @@ struct TopoHoleBaseImage: View {
     /// The bitmap over its surround (when an extension is asked for): one calm fill of the
     /// bitmap's own dominant edge colour, sized past this layer's frame by `edgeExtension`, with the
     /// sharp bitmap fading into it over `edgeFeather`. A bitmap whose edge is mostly transparent
-    /// (topo-v11's off-course canvas) gets no surround at all.
+    /// (topo-v12's off-course canvas) gets no surround at all.
     @ViewBuilder
     private func extended<Content: View>(_ source: UIImage, @ViewBuilder _ content: () -> Content) -> some View {
         if !TopoEdgeExtension.isEmpty(edgeExtension), let surround = TopoEdgeExtension.surround(for: source) {
@@ -460,7 +460,7 @@ struct GarminRasterStandaloneView: View {
 /// own opaque edge (a per-channel median of its outer ring). One calm fill, never the edge pixels
 /// stretched outward, so a noisy, high-frequency or damaged edge can never become bands, rays or
 /// blocks; it only sets the colour the map fades into. Production's flat render has a uniform
-/// ground there, which this matches exactly; a topo-v11 bitmap's edge is its transparent
+/// ground there, which this matches exactly; a topo-v12 bitmap's edge is its transparent
 /// off-course canvas, which gets no surround (the hole floats on the screen's ground). Used from
 /// view bodies (main thread).
 enum TopoEdgeExtension {

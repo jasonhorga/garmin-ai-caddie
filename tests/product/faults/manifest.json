@@ -1,0 +1,586 @@
+{
+  "schema": 1,
+  "records": [
+    {
+      "id": "tests-product-faults-C16e-j2-1",
+      "patch": "tests/product/faults/C16e/j2_1.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/ProductPhoneUITests/test_j2_1_results_entries_remain_enabled_for_zero_one_and_many_rounds",
+      "promise": "j2.1"
+    },
+    {
+      "id": "tests-product-faults-C16e-j2-11",
+      "patch": "tests/product/faults/C16e/j2_11.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/ProductPhoneUITests/test_j2_11_provider_failure_leaves_results_and_review_usable",
+      "promise": "j2.11"
+    },
+    {
+      "id": "tests-product-faults-C16e-j2-2",
+      "patch": "tests/product/faults/C16e/j2_2.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/ProductPhoneUITests/test_j2_2_range_and_grain_disable_illegal_combinations_without_changing_range",
+      "promise": "j2.2"
+    },
+    {
+      "id": "tests-product-faults-C16e-j2-3",
+      "patch": "tests/product/faults/C16e/j2_3.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/ProductPhoneUITests/test_j2_3_quarter_drilldown_opens_only_its_two_real_rounds_then_review",
+      "promise": "j2.3"
+    },
+    {
+      "id": "tests-product-faults-C16e-j2-6",
+      "patch": "tests/product/faults/C16e/j2_6.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/ProductPhoneUITests/test_j2_6_course_sections_fit_and_keep_ordered_combinations_separate",
+      "promise": "j2.6"
+    },
+    {
+      "id": "tests-product-faults-C16e-j2-7",
+      "patch": "tests/product/faults/C16e/j2_7.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductPhoneStateTests/test_j2_7_distance_ladder_flags_only_abnormal_gaps",
+      "promise": "j2.7"
+    },
+    {
+      "id": "tests-product-faults-C16e-j2-8",
+      "patch": "tests/product/faults/C16e/j2_8.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/ProductPhoneUITests/test_j2_8_review_cards_missing_metrics_and_share_fit_for_three_round_shapes",
+      "promise": "j2.8"
+    },
+    {
+      "id": "tests-product-faults-C16e-j2-9",
+      "patch": "tests/product/faults/C16e/j2_9.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/ProductPhoneUITests/test_j2_9_landing_labels_hole_switch_zoom_pan_and_visibility",
+      "promise": "j2.9"
+    },
+    {
+      "id": "tests-product-faults-C16e-j3-2",
+      "patch": "tests/product/faults/C16e/j3_2.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductPhoneStateTests/test_j3_2_insert_guess_reorder_delete_keeps_continuous_shots",
+      "promise": "j3.2"
+    },
+    {
+      "id": "tests-product-faults-C16e-j4-1",
+      "patch": "tests/product/faults/C16e/j4_1.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductPhoneStateTests/test_j4_1_course_sources_merge_into_one_list",
+      "promise": "j4.1"
+    },
+    {
+      "id": "tests-product-faults-C16e-j4-2",
+      "patch": "tests/product/faults/C16e/j4_2.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_2_cached_package_lifecycle_and_revision_adoption",
+      "promise": "j4.2"
+    },
+    {
+      "id": "tests-product-faults-C16e-j4-3",
+      "patch": "tests/product/faults/C16e/j4_3.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLoopMapTests/test_j4_3_offline_composition_matches_shared_hole_tables",
+      "promise": "j4.3"
+    },
+    {
+      "id": "tests-product-faults-C16e-j4-5",
+      "patch": "tests/product/faults/C16e/j4_5.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_map_degradation_and_upgrade_preserve_physical_points",
+      "promise": "j4.5"
+    },
+    {
+      "id": "tests-product-faults-C16e-j4-6",
+      "patch": "tests/product/faults/C16e/j4_6.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductCaddieGoldenTests/test_j4_6_prep_and_live_select_same_independent_plan_for_both_tees",
+      "promise": "j4.6"
+    },
+    {
+      "id": "tests-product-faults-C16e-j5-1",
+      "patch": "tests/product/faults/C16e/j5_1.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductPhoneStateTests/test_j5_1_phone_defaults_and_every_hole_ten_event_lock",
+      "promise": "j5.1"
+    },
+    {
+      "id": "tests-product-faults-C16e-j5-10",
+      "patch": "tests/product/faults/C16e/j5_10.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductPhoneStateTests/test_j5_10_summary_uses_recorded_holes_and_updates_edits",
+      "promise": "j5.10"
+    },
+    {
+      "id": "tests-product-faults-C16e-j5-11",
+      "patch": "tests/product/faults/C16e/j5_11.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductCaddieGoldenTests/test_j5_11_offline_plans_and_projected_landings_match_shared_golden",
+      "promise": "j5.11"
+    },
+    {
+      "id": "tests-product-faults-C16e-j5-2",
+      "patch": "tests/product/faults/C16e/j5_2.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductPhoneStateTests/test_j5_2_home_hero_priorities_with_and_without_downloads",
+      "promise": "j5.2"
+    },
+    {
+      "id": "tests-product-faults-C16e-j5-3",
+      "patch": "tests/product/faults/C16e/j5_3.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductPhoneStateTests/test_j5_3_home_weather_and_latest_round_strip_are_factual",
+      "promise": "j5.3"
+    },
+    {
+      "id": "tests-product-faults-C16e-j5-4",
+      "patch": "tests/product/faults/C16e/j5_4.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_4_green_edges_and_live_position_ranges",
+      "promise": "j5.4"
+    },
+    {
+      "id": "tests-product-faults-C16e-j5-4-realtime",
+      "patch": "tests/product/faults/C16e/j5_4_realtime.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/ProductPhoneUITests/test_j5_4_live_tee_and_post_shot_ranges_recompute_after_position_change",
+      "promise": "5.4"
+    },
+    {
+      "id": "tests-product-faults-C16e-j5-5",
+      "patch": "tests/product/faults/C16e/j5_5.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_5_saved_gps_and_accuracy_or_unknown_score_position",
+      "promise": "j5.5"
+    },
+    {
+      "id": "tests-product-faults-C16e-j5-6",
+      "patch": "tests/product/faults/C16e/j5_6.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductPhoneStateTests/test_j5_6_score_preselection_and_edit_sequence",
+      "promise": "j5.6"
+    },
+    {
+      "id": "tests-product-faults-C16e-j5-8",
+      "patch": "tests/product/faults/C16e/j5_8.patch",
+      "kind": "native-unit",
+      "target": "AICaddieDomainTests/ProductTeeResultTests/test_j5_8_tee_results_match_shared_vectors",
+      "promise": "j5.8"
+    },
+    {
+      "id": "tests-product-faults-C16e-j5-9",
+      "patch": "tests/product/faults/C16e/j5_9.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductPhoneStateTests/test_j5_9_queue_survives_restart_replay_and_round_discard",
+      "promise": "j5.9"
+    },
+    {
+      "id": "tests-product-faults-C16e-j6-2",
+      "patch": "tests/product/faults/C16e/j6_2.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductWatchHandoffTests/test_j6_2_phone_snapshots_replace_hole_ranges_and_clear_absent_advice",
+      "promise": "j6.2"
+    },
+    {
+      "id": "tests-product-faults-C16e-j8-3",
+      "patch": "tests/product/faults/C16e/j8_3.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j8_3_optional_sections_old_and_future_data_decode_without_losing_facts",
+      "promise": "j8.3"
+    },
+    {
+      "id": "tests-product-faults-C16f-4.5-map-state",
+      "patch": "tests/product/faults/C16f/4.5-map-state.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fSharedRulesTests/test_4_5_watch_map_degradation_rows",
+      "promise": "4.5"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.1-back-start",
+      "patch": "tests/product/faults/C16f/5.1-back-start.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fSharedRulesTests/test_5_1_watch_loop_identity_preserves_all_ordered_half_starts",
+      "promise": "5.1"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.1-history-default",
+      "patch": "tests/product/faults/C16f/5.1-history-default.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fTurnTests/test_5_1_watch_shared_turn_re_resolves_defaults_when_first_or_course_changes",
+      "promise": "5.1"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.1-local-default",
+      "patch": "tests/product/faults/C16f/5.1-local-default.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fTurnTests/test_5_1_watch_turn_defaults_prioritize_local_then_history_then_next",
+      "promise": "5.1"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.1-tenth-lock",
+      "patch": "tests/product/faults/C16f/5.1-tenth-lock.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fTurnTests/test_5_1_watch_any_record_on_tenth_hole_locks_second_nine",
+      "promise": "5.1"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.12-freshness",
+      "patch": "tests/product/faults/C16f/5.12-freshness.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fD02RootTests/test_5_12_watch_only_a_fresh_trusted_measured_recommendation_can_open_root",
+      "promise": "5.12"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.13-accuracy",
+      "patch": "tests/product/faults/C16f/5.13-accuracy.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fGPSAndCapabilityTests/test_5_13_watch_gps_tracks_end_only_after_a_real_green_exit",
+      "promise": "5.13"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.13-auto-save",
+      "patch": "tests/product/faults/C16f/5.13-auto-save.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fScoreFlowTests/test_5_13_watch_next_tee_shot_saves_unconfirmed_draft",
+      "promise": "5.13"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.13-green-gate",
+      "patch": "tests/product/faults/C16f/5.13-green-gate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fGPSAndCapabilityTests/test_5_13_watch_gps_tracks_end_only_after_a_real_green_exit",
+      "promise": "5.13"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.13-minimum-total",
+      "patch": "tests/product/faults/C16f/5.13-minimum-total.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fScoreFlowTests/test_5_13_watch_score_rolls_cover_all_allowed_putts_and_penalties",
+      "promise": "5.13"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.13-penalty-boundary",
+      "patch": "tests/product/faults/C16f/5.13-penalty-boundary.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fScoreFlowTests/test_5_13_watch_score_rolls_cover_all_allowed_putts_and_penalties",
+      "promise": "5.13"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.13-putts-boundary",
+      "patch": "tests/product/faults/C16f/5.13-putts-boundary.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fScoreFlowTests/test_5_13_watch_score_rolls_cover_all_allowed_putts_and_penalties",
+      "promise": "5.13"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.13-spike-left-before",
+      "patch": "tests/product/faults/C16f/5.13-spike-left-before.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fGPSAndCapabilityTests/test_5_13_watch_accurate_position_spike_does_not_finish_hole",
+      "promise": "5.13"
+    },
+    {
+      "id": "tests-product-faults-C16f-5.14-capability",
+      "patch": "tests/product/faults/C16f/5.14-capability.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fGPSAndCapabilityTests/test_5_14_watch_capability_gate_fails_closed_and_keeps_round_decision",
+      "promise": "5.14"
+    },
+    {
+      "id": "tests-product-faults-C16f-6.1-event-write",
+      "patch": "tests/product/faults/C16f/6.1-event-write.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fStandaloneSyncDecodeTests/test_6_1_watch_standalone_round_scores_offline_and_restores_after_relaunch",
+      "promise": "6.1"
+    },
+    {
+      "id": "tests-product-faults-C16f-6.1-storage-write",
+      "patch": "tests/product/faults/C16f/6.1-storage-write.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fStandaloneSyncDecodeTests/test_6_1_watch_standalone_round_scores_offline_and_restores_after_relaunch",
+      "promise": "6.1"
+    },
+    {
+      "id": "tests-product-faults-C16f-6.2-reconnect-hole",
+      "patch": "tests/product/faults/C16f/6.2-reconnect-hole.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fStandaloneSyncDecodeTests/test_6_2_watch_disconnect_uses_wrist_ranges_expires_advice_and_reconnects_same_hole",
+      "promise": "6.2"
+    },
+    {
+      "id": "tests-product-faults-C16f-6.2-revision-order",
+      "patch": "tests/product/faults/C16f/6.2-revision-order.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fStandaloneSyncDecodeTests/test_6_2_watch_phone_facts_refresh_and_stale_snapshot_is_ignored",
+      "promise": "6.2"
+    },
+    {
+      "id": "tests-product-faults-C16f-6.2-wrist-fallback",
+      "patch": "tests/product/faults/C16f/6.2-wrist-fallback.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fStandaloneSyncDecodeTests/test_6_2_watch_disconnect_uses_wrist_ranges_expires_advice_and_reconnects_same_hole",
+      "promise": "6.2"
+    },
+    {
+      "id": "tests-product-faults-C16f-8.3-legacy-defaults",
+      "patch": "tests/product/faults/C16f/8.3-legacy-defaults.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchC16fStandaloneSyncDecodeTests/test_8_3_watch_old_state_payload_ignores_unknown_fields_and_fills_optional_facts",
+      "promise": "8.3"
+    },
+    {
+      "id": "tests-product-faults-C16g-9.1-average",
+      "patch": "tests/product/faults/C16g/9.1-average.patch",
+      "kind": "web-playwright",
+      "target": "j9_1_web_numbers_match_handwritten_golden",
+      "promise": "9.1"
+    },
+    {
+      "id": "tests-product-faults-C16g-9.2-delete",
+      "patch": "tests/product/faults/C16g/9.2-delete.patch",
+      "kind": "web-playwright",
+      "target": "j9_2_corrections_use_same_fixed_projection",
+      "promise": "9.2"
+    },
+    {
+      "id": "tests-product-faults-C16g-9.3-session-refresh",
+      "patch": "tests/product/faults/C16g/9.3-session-refresh.patch",
+      "kind": "web-playwright",
+      "target": "j9_3_session_import_preserves_sync_state",
+      "promise": "9.3"
+    },
+    {
+      "id": "tests-product-faults-C16g-9.4-owner-diagnostics",
+      "patch": "tests/product/faults/C16g/9.4-owner-diagnostics.patch",
+      "kind": "web-playwright",
+      "target": "j9_4_diagnostics_are_owner_only",
+      "promise": "9.4"
+    },
+    {
+      "id": "tests-product-faults-C16g-9.5-review-entry",
+      "patch": "tests/product/faults/C16g/9.5-review-entry.patch",
+      "kind": "web-playwright",
+      "target": "j9_5_review_has_single_round_share_entry",
+      "promise": "9.5"
+    },
+    {
+      "id": "tests-product-faults-C33i-01-start-does-not-cancel",
+      "patch": "tests/product/faults/C33i/01-start-does-not-cancel.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33StartTests/testStartCancelsPreviousCourseAndSendsWithoutWaitingForIt",
+      "promise": "C33i-01"
+    },
+    {
+      "id": "tests-product-faults-C33i-02-start-ignores-deadline",
+      "patch": "tests/product/faults/C33i/02-start-ignores-deadline.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33StartTests/testForegroundRoundPackageFailsWithinTheStartBudget",
+      "promise": "C33i-02"
+    },
+    {
+      "id": "tests-product-faults-C33i-03-topo-waits-for-prep",
+      "patch": "tests/product/faults/C33i/03-topo-waits-for-prep.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33DrawingTests/testPackageReadyTopoDoesNotWaitForPartialPrep",
+      "promise": "C33i-03"
+    },
+    {
+      "id": "tests-product-faults-C33i-04-garmin-stops-after-three",
+      "patch": "tests/product/faults/C33i/04-garmin-stops-after-three.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33DrawingTests/testFourthGarminAttemptDisplaysImageAndBackoffStaysCapped",
+      "promise": "C33i-04"
+    },
+    {
+      "id": "tests-product-faults-C33i-05-green-skips-cached-topo",
+      "patch": "tests/product/faults/C33i/05-green-skips-cached-topo.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33DrawingTests/testGreenFailureUsesCachedTopoBeforeGarmin",
+      "promise": "C33i-05"
+    },
+    {
+      "id": "tests-product-faults-C33i-06-green-skips-garmin",
+      "patch": "tests/product/faults/C33i/06-green-skips-garmin.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33DrawingTests/testGreenFailureWithoutTopoUsesGarminThenSchematic",
+      "promise": "C33i-06"
+    },
+    {
+      "id": "tests-product-faults-C33i-07-strategy-passes-unknown-route",
+      "patch": "tests/product/faults/C33i/07-strategy-passes-unknown-route.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testEveryRouteTokenProducesOnlyServerStrategyEnumsOrOmission",
+      "promise": "C33i-07"
+    },
+    {
+      "id": "tests-product-faults-C33i-08-422-poisons-batch",
+      "patch": "tests/product/faults/C33i/08-422-poisons-batch.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testOne422IsQuarantinedAndOtherFourEventsUpload",
+      "promise": "C33i-08"
+    },
+    {
+      "id": "tests-product-faults-C33i-09-idempotency-ignores-body",
+      "patch": "tests/product/faults/C33i/09-idempotency-ignores-body.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testIdempotencyKeyBindsBodyAndIsStableAcrossTransportRetry",
+      "promise": "C33i-09"
+    },
+    {
+      "id": "tests-product-faults-C33i-10-marker-guard-regresses",
+      "patch": "tests/product/faults/C33i/10-marker-guard-regresses.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testOne422IsQuarantinedAndOtherFourEventsUpload",
+      "promise": "C33i-10"
+    },
+    {
+      "id": "tests-product-faults-C33i-11-422-classifies-storage-as-singleton",
+      "patch": "tests/product/faults/C33i/11-422-classifies-storage-as-singleton.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testStoreOrIdempotency422KeepsWholeBatchRetryable",
+      "promise": "C33i-11"
+    },
+    {
+      "id": "tests-product-faults-C33i-12-start-cancels-user-download",
+      "patch": "tests/product/faults/C33i/12-start-cancels-user-download.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33StartTests/testUserDownloadAndWatchStartSurviveForegroundStartCancellation",
+      "promise": "C33i-12"
+    },
+    {
+      "id": "tests-product-faults-C33i-13-partial-mismatched-overlays",
+      "patch": "tests/product/faults/C33i/13-partial-mismatched-overlays.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33DrawingTests/testPartialPrepDrawsOverlayOnlyWhenTopoPixelFrameMatches",
+      "promise": "C33i-13"
+    },
+    {
+      "id": "tests-product-faults-C33i-14-green-body-recrops",
+      "patch": "tests/product/faults/C33i/14-green-body-recrops.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33DrawingTests/testGreenCropRequiresProjectionAndAvailableOutline",
+      "promise": "C33i-14"
+    },
+    {
+      "id": "tests-product-faults-C33i-15-discard-keeps-quarantine",
+      "patch": "tests/product/faults/C33i/15-discard-keeps-quarantine.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testDiscardActiveRoundRemovesItsQuarantineDiagnostics",
+      "promise": "C33i-15"
+    },
+    {
+      "id": "tests-product-faults-C33i-16-package-fields-not-decoded",
+      "patch": "tests/product/faults/C33i/16-package-fields-not-decoded.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33PackageTests/testOfflinePackageStatusDecodesOptionalFieldsWhenPresentAndMissing",
+      "promise": "C33i-16"
+    },
+    {
+      "id": "tests-product-faults-C33i-17-topo-available-still-waits",
+      "patch": "tests/product/faults/C33i/17-topo-available-still-waits.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33PackageTests/testTopoAvailableRevisionCanDrawWithoutPrepReady",
+      "promise": "C33i-17"
+    },
+    {
+      "id": "tests-product-faults-C33i-18-pending-retry-ignores-round",
+      "patch": "tests/product/faults/C33i/18-pending-retry-ignores-round.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33PackageTests/testPendingGeometryRetriesOnlyAfterServerDeadlineAndSameRound",
+      "promise": "C33i-18"
+    },
+    {
+      "id": "tests-product-faults-C33i-19-degraded-package-overwrites-cache",
+      "patch": "tests/product/faults/C33i/19-degraded-package-overwrites-cache.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33PackageTests/testDegradedSingleflightPackageNeverReplacesCachedCompletePackage",
+      "promise": "C33i-19"
+    },
+    {
+      "id": "tests-product-faults-C33i-20-codable-default-skips-degraded-fields",
+      "patch": "tests/product/faults/C33i/20-codable-default-skips-degraded-fields.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33PackageTests/testOfflinePackageStatusDecodesOptionalFieldsWhenPresentAndMissing",
+      "promise": "C33i-20"
+    },
+    {
+      "id": "tests-product-faults-C33i-21-deferred-finish-ignores-quarantine",
+      "patch": "tests/product/faults/C33i/21-deferred-finish-ignores-quarantine.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
+      "promise": "C33i-21"
+    },
+    {
+      "id": "tests-product-faults-C33i-22-garmin-retry-stops-at-image",
+      "patch": "tests/product/faults/C33i/22-garmin-retry-stops-at-image.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33DrawingTests/testGarminMetadataRetryRequiresUsableProjection",
+      "promise": "C33i-22"
+    },
+    {
+      "id": "tests-product-faults-C33i-23-green-crop-ignores-projection",
+      "patch": "tests/product/faults/C33i/23-green-crop-ignores-projection.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33DrawingTests/testGreenCropRequiresProjectionAndAvailableOutline",
+      "promise": "C33i-23"
+    },
+    {
+      "id": "tests-product-faults-C33i-24-geometry-retry-does-not-reschedule",
+      "patch": "tests/product/faults/C33i/24-geometry-retry-does-not-reschedule.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33PackageTests/testPendingGeometryFailureReschedulesWithBackoff",
+      "promise": "C33i-24"
+    },
+    {
+      "id": "tests-product-faults-C33i-25-degraded-package-never-persists",
+      "patch": "tests/product/faults/C33i/25-degraded-package-never-persists.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33PackageTests/testDegradedSingleflightPackageNeverReplacesCachedCompletePackage",
+      "promise": "C33i-25"
+    },
+    {
+      "id": "tests-product-faults-C33i-26-watch-writes-raw-strategy",
+      "patch": "tests/product/faults/C33i/26-watch-writes-raw-strategy.patch",
+      "kind": "native-unit",
+      "target": "AICaddieWatchTests/WatchBackendClientTests/testDirectClubEventsWriteOnlyServerStrategyEnumsAndOmitUnknownRoutes",
+      "promise": "C33i-26"
+    },
+    {
+      "id": "tests-product-faults-C33i-27-score-quarantine-not-replaced",
+      "patch": "tests/product/faults/C33i/27-score-quarantine-not-replaced.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testReplacementScoreClearsQuarantineAndAllowsFinish",
+      "promise": "C33i-27"
+    },
+    {
+      "id": "tests-product-faults-C33i-28-array-422-not-structured",
+      "patch": "tests/product/faults/C33i/28-array-422-not-structured.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testStoreOrIdempotency422KeepsWholeBatchRetryable",
+      "promise": "C33i-28"
+    },
+    {
+      "id": "tests-product-faults-C33i-29-new-start-keeps-previous-foreground-start",
+      "patch": "tests/product/faults/C33i/29-new-start-keeps-previous-foreground-start.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33StartTests/testNewRoundStartCancelsAPreviousForegroundStart",
+      "promise": "C33i-29"
+    },
+    {
+      "id": "tests-product-faults-C33i-30-event-builder-writes-raw-route",
+      "patch": "tests/product/faults/C33i/30-event-builder-writes-raw-route.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testEveryRouteTokenProducesOnlyServerStrategyEnumsOrOmission",
+      "promise": "C33i-30"
+    },
+    {
+      "id": "tests-product-faults-c16c-muta",
+      "patch": "tests/product/faults/c16c_mutants.py",
+      "kind": "python-script",
+      "target": "python tests/product/faults/c16c_mutants.py",
+      "promise": "C16c"
+    }
+  ]
+}

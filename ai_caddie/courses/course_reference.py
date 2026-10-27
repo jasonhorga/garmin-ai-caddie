@@ -31,6 +31,7 @@ from ai_caddie.core.data import (
     read_json,
     safe_read_json,
 )
+from ai_caddie.core.revisions import bump_revision
 from ai_caddie.courses.name_authority import contains_cjk, normalize_course_text
 from ai_caddie.geometry.inspect_courseview_release import (
     GARMIN_OMT_SIMPLIFIED_CHINESE,
@@ -243,6 +244,7 @@ def _atomic_write_venue_loops(path: Path, data: dict) -> None:
     try:
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         os.replace(tmp, path)
+        bump_revision(path.parent)
     finally:
         try:
             tmp.unlink(missing_ok=True)
@@ -609,6 +611,7 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
     try:
         tmp.write_bytes(data)
         os.replace(tmp, path)
+        bump_revision(path.parent)
     finally:
         tmp.unlink(missing_ok=True)
 

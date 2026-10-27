@@ -30,6 +30,49 @@ def _test_png() -> bytes:
     return buffer.getvalue()
 
 
+def _synthetic_topo_image(*, tree_local_x: float | None = None):
+    """Small deterministic geometry used by the v12 image-quality contracts."""
+    from ai_caddie.geometry import topo_render
+
+    rough = {
+        "positions": [(0, 0, 0), (-10, 0, 0), (-10, 0, 10), (0, 0, 10)],
+        "faces": [(0, 1, 2), (0, 2, 3)],
+    }
+    fairway_width = min(2.0, max(0.05, (tree_local_x or 2.0) - 0.3))
+    fairway = {
+        "positions": [(0, 0, 0), (-fairway_width, 0, 0), (-fairway_width, 0, 10), (0, 0, 10)],
+        "faces": [(0, 1, 2), (0, 2, 3)],
+    }
+    tree_area = {
+        "positions": [(-2, 0, 2), (-4, 0, 2), (-4, 0, 8), (-2, 0, 8)],
+        "faces": [(0, 1, 2), (0, 2, 3)],
+    }
+    metadata = {"foliage": {"trees": []}}
+    if tree_local_x is not None:
+        metadata["foliage"]["trees"].append({"x": -tree_local_x, "z": 5, "s": 1.0, "id": 4})
+    by = {
+        "PhysicsMesh.drc": rough,
+        "Rough.drc": rough,
+        "Fairway.drc": fairway,
+        "TreeArea.drc": tree_area,
+    }
+
+    def project(point):
+        return (16 + point[0] * 3, 60 - point[1] * 5)
+
+    return topo_render._build(
+        metadata,
+        by,
+        [(0.0, 0.0), (0.0, 10.0)],
+        project,
+        5.0,
+        64,
+        64,
+        31795,
+        1,
+    )
+
+
 class TopoRenderModuleTests(unittest.TestCase):
     def test_green_v3_focuses_a_large_feathered_context_window(self) -> None:
         from PIL import Image
@@ -55,7 +98,7 @@ class TopoRenderModuleTests(unittest.TestCase):
     def test_topo_v10_starts_overlays_on_a_transparent_course_canvas(self) -> None:
         from PIL import Image
 
-        self.assertEqual(topo_render.STYLE_VERSION, "topo-v11")
+        self.assertEqual(topo_render.STYLE_VERSION, "topo-v12")
         self.assertTrue(hasattr(topo_render, "_clip_to_transparent_canvas"))
 
         source = Image.new("RGB", (2, 1), topo_render.PAL["bg"])
@@ -73,6 +116,109 @@ class TopoRenderModuleTests(unittest.TestCase):
         shadow = Image.new("RGBA", source.size, (32, 54, 32, 92))
         with_shadow = Image.alpha_composite(rendered, shadow)
         self.assertEqual(with_shadow.getpixel((0, 0)), (32, 54, 32, 92))
+
+    def test_topo_v12_masks_keep_partial_pixel_coverage(self) -> None:
+        from PIL import Image, ImageChops, ImageDraw, ImageFilter
+
+        source = Image.new("L", (64, 64), 0)
+        ImageDraw.Draw(source).polygon([(0, 0), (64, 0), (0, 64)], fill=255)
+        reduced = topo_render._reduce_mask(source, (16, 16))
+
+        self.assertEqual(topo_render.MASK_SS, 4)
+        self.assertTrue(any(0 < value < 255 for value in reduced.get_flattened_data()))
+        edge = ImageChops.difference(reduced, reduced.filter(ImageFilter.MinFilter(3)))
+        edge_values = list(edge.get_flattened_data())
+        partial = sum(0 < value < 255 for value in edge_values)
+        self.assertGreaterEqual(partial / max(1, sum(value > 0 for value in edge_values)), 0.35)
+
+    def test_tree_area_is_kept_on_rough_colour(self) -> None:
+        self.assertEqual(topo_render.PAL["TreeArea"], topo_render.PAL["Rough"])
+        self.assertIn("TreeArea", topo_render.ORDER)
+
+    def test_tree_canopy_and_shadow_stay_inside_soft_hole_alpha(self) -> None:
+        # Small in-memory geometry exercises the premultiplied canopy path without requiring the
+        # gitignored production mesh corpus.
+        square = {
+            "positions": [(0, 0, 0), (-10, 0, 0), (-10, 0, 10), (0, 0, 10)],
+            "faces": [(0, 1, 2), (0, 2, 3)],
+        }
+        by = {
+            "PhysicsMesh.drc": square,
+            "Rough.drc": square,
+            "Fairway.drc": {
+                "positions": [(0, 0, 0), (-5, 0, 0), (-5, 0, 10), (0, 0, 10)],
+                "faces": [(0, 1, 2), (0, 2, 3)],
+            },
+            "TreeArea.drc": square,
+        }
+        metadata = {"foliage": {"trees": [{"x": -8, "z": 5, "s": 1.0, "id": 4}]}}
+
+        def project(point):
+            return (16 + point[0] * 3, 60 - point[1] * 5)
+
+        rendered = topo_render._build(
+            metadata,
+            by,
+            [(0.0, 0.0), (0.0, 10.0)],
+            project,
+            5.0,
+            64,
+            64,
+            31795,
+            1,
+        )
+        alpha = rendered.getchannel("A")
+        self.assertIsNotNone(alpha.getbbox())
+        self.assertEqual(alpha.getpixel((0, 0)), 0)
+
+    def test_quality_contracts_measure_final_pixels(self) -> None:
+        import numpy as np
+
+        rendered = _synthetic_topo_image(tree_local_x=0.1)
+        rgba = np.asarray(rendered.convert("RGBA"), dtype=np.uint8)
+        alpha = rgba[..., 3]
+        # The synthetic rough footprint occupies x=16..46, y=10..60; every outside pixel must stay
+        # transparent even when a canopy is deliberately placed against its left boundary.
+        outside = np.ones(alpha.shape, dtype=bool)
+        outside[10:61, 16:47] = False
+        self.assertTrue(np.all(alpha[outside] == 0))
+
+        # Tree centre is (16.3, 35) in the synthetic projection.  Compare the final bitmap's crown
+        # interior and its antialiased edge ring, excluding transparent pixels.
+        yy, xx = np.mgrid[0:64, 0:64]
+        distance = np.hypot(xx - 16.3, yy - 35)
+        luminance = rgba[..., :3] @ np.array([0.2126, 0.7152, 0.0722])
+        crown = (distance <= 9) & (alpha > 127)
+        edge = (distance >= 11) & (distance <= 17) & (alpha > 0) & (rgba[..., 1] >= 180)
+        self.assertTrue(np.any(crown))
+        self.assertTrue(np.any(edge))
+        self.assertGreaterEqual(float(luminance[edge].mean()), float(luminance[crown].mean()) * 0.9)
+
+        # The crown edge is antialiased coverage from the 4x local tile, not a blurred crown. On a
+        # horizontal centreline its 90% -> 10% alpha transition stays within two display pixels.
+        centreline = alpha[35, :]
+        peak = int(centreline.max())
+        self.assertGreater(peak, 0)
+        right = np.flatnonzero(np.arange(64) > 16.3)
+        inner = right[centreline[right] >= peak * 0.9]
+        outer = right[centreline[right] <= peak * 0.1]
+        self.assertTrue(len(inner) and len(outer))
+        self.assertLessEqual(int(outer[0] - inner[-1]), 2)
+
+        # TreeArea is measured from rendered pixels beside the same Rough footprint, rather than
+        # comparing palette constants.  The selected windows are local x=3 and x=7 respectively.
+        surface = np.asarray(_synthetic_topo_image().convert("RGBA"), dtype=np.uint8)
+        tree_area_px = surface[28:43, 23:29, :3].mean(axis=(0, 1))
+        rough_px = surface[28:43, 35:41, :3].mean(axis=(0, 1))
+        self.assertLessEqual(float(np.abs(tree_area_px - rough_px).mean()) / 255.0, 0.03)
+
+        import io
+        from PIL import Image
+
+        encoded = io.BytesIO()
+        Image.fromarray(rgba, mode="RGBA").save(encoded, "PNG", optimize=False)
+        self.assertEqual(Image.open(io.BytesIO(encoded.getvalue())).size, (64, 64))
+        self.assertLessEqual(len(encoded.getvalue()), 350 * 1024)
 
     def test_green_marker_is_a_compact_flag_without_target_rings(self) -> None:
         from PIL import Image
@@ -370,7 +516,7 @@ class TopoRenderModuleTests(unittest.TestCase):
     def test_cache_key_includes_style_version(self) -> None:
         with patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": "/x/y"}):
             path = topo_render.cache_path(31795, 7)
-        self.assertTrue(path.name.startswith("gid31795_h07_topo-v11-"))
+        self.assertTrue(path.name.startswith("gid31795_h07_topo-v12-"))
         self.assertTrue(path.name.endswith(".png"))
         self.assertIn(topo_render.STYLE_VERSION, str(path))
 
@@ -615,6 +761,27 @@ class TopoEndpointTests(unittest.TestCase):
             refresh_release=False,
             require_hazards=False,
         )
+
+    def test_endpoint_accepts_previous_topo_style_but_rejects_unknown_style(self) -> None:
+        canned = _PNG_MAGIC + b"versioned-topo"
+        with (
+            patch.object(topo_render, "render_hole_topo_cached", return_value=canned) as render,
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
+            old_client = self.client.get(
+                "/api/v2/courses/31795/holes/1/topo.png?v=topo-v11"
+            )
+            unknown = self.client.get(
+                "/api/v2/courses/31795/holes/1/topo.png?v=topo-v99"
+            )
+
+        self.assertEqual(old_client.status_code, 200)
+        self.assertEqual(old_client.content, canned)
+        self.assertEqual(unknown.status_code, 409)
+        render.assert_called_once_with(31795, 1)
 
     def test_green_detail_endpoint_uses_v3_style_and_1280_default(self) -> None:
         canned = _PNG_MAGIC + b"green-detail"
