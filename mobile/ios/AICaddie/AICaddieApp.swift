@@ -2045,7 +2045,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 loops.append(entry)
             }
         }
-        let queueGroupID = catalogueLoopPositions.count > 1 ? UUID().uuidString : nil
+        // Stable per round, so a repeated call for the same round does not rewrite (and persist) every row.
+        let queueGroupID = catalogueLoopPositions.count > 1 ? "round:\(snapshot.roundId)" : nil
         for loop in loops where seen.insert(loop.globalId).inserted {
             if loop.globalId == snapshot.course.globalId, snapshot.wholeCourseTemplate() != nil {
                 continue
