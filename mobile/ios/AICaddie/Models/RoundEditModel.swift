@@ -418,8 +418,9 @@ public final class RoundEditModel: ObservableObject {
     }
 
     private var finalScoreIsPossible: Bool {
-        guard let recordedScore else { return true }
-        return recordedScore >= (putts ?? 0) + map.manualPenalty + 1
+        let score = pendingRecordedScorecard?.score ?? recordedScore
+        guard let score else { return true }
+        return score >= (putts ?? 0) + map.manualPenalty + 1
     }
 
     // MARK: - Helpers
