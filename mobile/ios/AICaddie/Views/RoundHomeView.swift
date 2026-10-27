@@ -348,6 +348,27 @@ enum LiveHolePagerSelectionLifecycle {
             fallbackHole: routedHole
         )
     }
+
+    /// A route change is a handoff between destinations, even though both routes contain a hole.
+    /// The new route must win over the pager's previous selection (for example, `.hole(9)` to
+    /// `.hole(10)` when a second nine is appended).
+    static func targetForRouteChange(
+        previousPath: [HubRoute],
+        currentPath: [HubRoute],
+        ordered: [Int]
+    ) -> Int? {
+        let previousHole = previousPath.reversed().compactMap { route -> Int? in
+            if case let .hole(number) = route { return number }
+            return nil
+        }.first
+        guard let currentHole = currentPath.reversed().compactMap({ route -> Int? in
+            if case let .hole(number) = route { return number }
+            return nil
+        }).first,
+        currentHole != previousHole,
+        ordered.contains(currentHole) else { return nil }
+        return currentHole
+    }
 }
 
 enum LiveHoleSessionCachePolicy {
@@ -852,6 +873,17 @@ public struct RoundHomeView: View {
         }
         .onChange(of: package?.holeSetIdentity) { _, _ in
             reconcileLiveHoleRouteWithPackage()
+            guard let screenPackage = holeScreenPackage,
+                  case let .hole(routedHole) = path.last else { return }
+            let ordered = RoundPlayOrder.holes(
+                screenPackage.holes.map(\.number),
+                startingAt: liveRoundState?.startHole,
+                loops: screenPackage.roundLoops
+            )
+            guard ordered.contains(routedHole), holePagerSelection != routedHole else { return }
+            holePagerSelection = routedHole
+            holePagerNavigationLock = LiveHoleNavigationLock(currentHole: routedHole)
+            trimLiveHoleSessions(around: routedHole, package: screenPackage)
         }
         .onChange(of: liveRoundState?.activeHole) { _, activeHole in
             if !isPrepHoleScreen, let activeHole {
@@ -863,6 +895,22 @@ public struct RoundHomeView: View {
             reconcileLiveHoleRouteWithPackage()
         }
         .onChange(of: path) { previousRoutes, routes in
+            if let screenPackage = holeScreenPackage {
+                let ordered = RoundPlayOrder.holes(
+                    screenPackage.holes.map(\.number),
+                    startingAt: liveRoundState?.startHole,
+                    loops: screenPackage.roundLoops
+                )
+                if let target = LiveHolePagerSelectionLifecycle.targetForRouteChange(
+                    previousPath: previousRoutes,
+                    currentPath: routes,
+                    ordered: ordered
+                ) {
+                    holePagerSelection = target
+                    holePagerNavigationLock = LiveHoleNavigationLock(currentHole: target)
+                    trimLiveHoleSessions(around: target, package: screenPackage)
+                }
+            }
             // A pager selection belongs to one hole destination. Drop it when that destination is
             // left so a later course/round opening honors its routed initial hole.
             if LiveHolePagerSelectionLifecycle.shouldReset(

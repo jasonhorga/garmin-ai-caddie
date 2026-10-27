@@ -372,11 +372,10 @@ final class RoundPlayOrderTests: XCTestCase {
         // route is the navigation authority for that handoff; retaining page 9 leaves the new
         // package showing the completed first loop forever.
         XCTAssertEqual(
-            LiveHolePagerInitialSelection.resolve(
-                current: 9,
-                ordered: Array(1...18),
-                preferredHole: 10,
-                fallbackHole: 10
+            LiveHolePagerSelectionLifecycle.targetForRouteChange(
+                previousPath: [.hole(9)],
+                currentPath: [.hole(10)],
+                ordered: Array(1...18)
             ),
             10
         )

@@ -577,6 +577,9 @@ public struct CurrentHoleView: View {
     /// timeout.
     @State private var turnContinuationToken = UUID()
     @State private var turnRetryPlan: NineLoopPlan?
+    /// Stop-after-nine dismisses the turn sheet before presenting the finish summary; SwiftUI
+    /// drops a second sheet presentation while the first one is still closing.
+    @State private var turnFinishPending = false
     @State private var showDiscardConfirmation = false
     /// B1c Touch Target on the main map: screen point of the finger while the target is dragged
     /// (drives the loupe), whether that drag owns the gesture, and a one-runloop tap suppressor.
@@ -1246,7 +1249,7 @@ public struct CurrentHoleView: View {
                     onContinue: continueIntoSecondLoop,
                     onStop: {
                         self.turnPlan = nil
-                        showRoundSummary = true
+                        turnFinishPending = true
                     },
                     onLater: { self.turnPlan = nil }
                 )
@@ -4991,6 +4994,10 @@ public struct CurrentHoleView: View {
     }
 
     private func handleTurnSheetDismissed() {
+        if turnFinishPending {
+            turnFinishPending = false
+            showRoundSummary = true
+        }
         guard let loop = queuedTurnLoop else { return }
         queuedTurnLoop = nil
         guard let entry = NineLoopTurn.entry(loop.id),
