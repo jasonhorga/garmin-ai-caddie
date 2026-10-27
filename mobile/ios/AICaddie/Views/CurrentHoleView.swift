@@ -1331,17 +1331,6 @@ public struct CurrentHoleView: View {
         .onChange(of: holePrep) { previous, next in
             carryOverMapInteraction(from: previous, to: next)
         }
-        .onChange(of: hole.number) { _, _ in
-            // A pager reuses destinations. The first frame of a newly visible hole must not
-            // animate from the previous hole's display state.
-            eventSnapshot.invalidate()
-            liveMapTransitionsEnabled = false
-            Task { @MainActor in
-                await Task.yield()
-                guard !Task.isCancelled else { return }
-                liveMapTransitionsEnabled = true
-            }
-        }
         .onChange(of: liveMapDisplayState) { previous, next in
             if next == .numericPlaceholder {
                 heroMapScale = 1

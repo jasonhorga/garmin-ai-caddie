@@ -98,11 +98,4 @@ enum HoleScreenRoundBanner: Equatable {
         }
     }
 
-    /// Convenience form for callers that already hold the target hole's physical number.
-    static func notStartedNotice(
-        _ location: CurrentHoleLocation,
-        courseHoleNumber: Int
-    ) -> String {
-        notStartedNotice(location, courseHoleNumber: { $0 }, targetCourseHole: courseHoleNumber)
-    }
 }
