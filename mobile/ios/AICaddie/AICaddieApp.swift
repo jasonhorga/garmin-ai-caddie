@@ -2029,7 +2029,7 @@ public final class LiveRoundAppModel: ObservableObject {
         guard snapshot.dataMode != "fixture", snapshot.course.globalId > 0 else { return }
         var changed = false
         var seen = Set<Int>()
-        var loops = snapshot.roundLoops
+        var loops = snapshot.loopEntries
         // A nine-hole loop's second nine can come from a sibling loop at the same venue. The
         // turn planner already resolves that catalogue, so use the same candidates for the
         // background template queue instead of only retaining the loop in the live package.
@@ -2044,7 +2044,8 @@ public final class LiveRoundAppModel: ObservableObject {
             if loop.globalId == snapshot.course.globalId, snapshot.wholeCourseTemplate() != nil {
                 continue
             }
-            let holes = loop.isCourseHalf ? RoundLoopEntry.holesPerLoop * 2 : RoundLoopEntry.holesPerLoop
+            let isCourseHalf = loop.half == "front" || loop.half == "back"
+            let holes = isCourseHalf ? RoundLoopEntry.holesPerLoop * 2 : RoundLoopEntry.holesPerLoop
             let candidate = PrepCourseDownloadRecord(
                 course: MobileCourseOption(
                     globalId: loop.globalId,

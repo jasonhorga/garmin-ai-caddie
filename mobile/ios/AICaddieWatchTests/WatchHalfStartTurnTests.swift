@@ -454,7 +454,7 @@ final class WatchHalfStartTurnTests: XCTestCase {
                 )
             }
         )
-        await library.refreshCourses(config: Self.config)
+        await library.refresh(config: Self.config)
 
         let selection = WatchCourseSelection(front: options[0], teeBox: "blue")
         library.enqueueWholeCourseTemplate(for: selection, config: Self.config)
