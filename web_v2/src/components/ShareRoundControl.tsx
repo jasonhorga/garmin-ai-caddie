@@ -29,10 +29,14 @@ async function copyText(value: string): Promise<boolean> {
   input.style.position = 'fixed'
   input.style.opacity = '0'
   document.body.appendChild(input)
-  input.select()
-  const copied = typeof document.execCommand === 'function' && document.execCommand('copy')
-  input.remove()
-  return copied
+  try {
+    input.select()
+    return typeof document.execCommand === 'function' && document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    input.remove()
+  }
 }
 
 export function ShareRoundControl({ onShare, onRevoke }: ShareRoundControlProps): React.ReactElement {

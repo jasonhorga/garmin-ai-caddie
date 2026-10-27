@@ -50,7 +50,8 @@ export function SharedRoundPage({ token }: { token: string }): React.ReactElemen
   if (state === null || state.token !== token) {
     return <main className="shared-round-page"><section className="panel empty-state"><p>正在加载分享记分卡…</p></section></main>
   }
-  if (state.status === 'error') {
+  // A failed fetch and a found:false/round:null response share one neutral expired state.
+  if (state.status === 'error' || !state.data.found || state.data.round === null) {
     return (
       <main className="shared-round-page">
         <section className="panel empty-state" aria-live="polite">
@@ -62,18 +63,7 @@ export function SharedRoundPage({ token }: { token: string }): React.ReactElemen
   }
 
   const data = state.data
-  if (!data.found || data.round === null) {
-    return (
-      <main className="shared-round-page">
-        <section className="panel empty-state" aria-live="polite">
-          <h1>链接已失效</h1>
-          <p>请向分享链接给你的人重新获取。</p>
-        </section>
-      </main>
-    )
-  }
-
-  const { round } = data
+  const round = state.data.round
   return (
     <main className="shared-round-page">
       <section className="panel shared-round-card" aria-labelledby="shared-round-title">
