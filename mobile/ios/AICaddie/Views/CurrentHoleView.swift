@@ -53,11 +53,13 @@ struct LiveHoleEventDerivedValues {
 }
 
 struct LiveWatchShotPayload {
-    let phoneShotEventIds: [String]
+    let markedShots: [LiveRoundEvent]
     let lastShotLatitude: Double?
     let lastShotLongitude: Double?
     let lastShotCapturedAt: String?
     let teeShotLanding: (latitude: Double, longitude: Double)?
+
+    var phoneShotEventIds: [String] { markedShots.map(\.eventId) }
 }
 
 enum LiveCaddieDecisionSignaturePolicy {
@@ -5655,6 +5657,7 @@ public struct CurrentHoleView: View {
         let shotPayload = Self.liveWatchShotPayload(
             from: eventSnapshot, roundId: package.roundId, hole: hole.number
         )
+        let markedShots = shotPayload.markedShots
         let state = watchBridge?.makeWatchRoundStatePayload(
             package: package,
             hole: hole,
@@ -5692,7 +5695,7 @@ public struct CurrentHoleView: View {
             decisionOriginShotEventIds: decision.flatMap { $0 == caddieDecision ? caddieDecisionOriginShot : nil },
             // The phone's current shots on this hole, so a shot recorded only here after the
             // decision still retires it on the Watch.
-            phoneShotEventIds: shotPayload.phoneShotEventIds,
+            phoneShotEventIds: markedShots.map(\.eventId),
             lastShotLatitude: shotPayload.lastShotLatitude,
             lastShotLongitude: shotPayload.lastShotLongitude,
             lastShotCapturedAt: shotPayload.lastShotCapturedAt,
@@ -5983,7 +5986,7 @@ public struct CurrentHoleView: View {
     ) -> LiveWatchShotPayload {
         let values = liveHoleEventDerivedValues(from: snapshot, roundId: roundId, hole: hole)
         return LiveWatchShotPayload(
-            phoneShotEventIds: values.markedShots.map(\.eventId),
+            markedShots: values.markedShots,
             lastShotLatitude: values.newestShotCoordinate?.latitude,
             lastShotLongitude: values.newestShotCoordinate?.longitude,
             lastShotCapturedAt: values.newestShotCoordinate?.capturedAt,
