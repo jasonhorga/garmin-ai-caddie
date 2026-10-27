@@ -369,6 +369,21 @@ enum LiveHolePagerSelectionLifecycle {
         ordered.contains(currentHole) else { return nil }
         return currentHole
     }
+
+    /// A rebuilt pager may still report the old visible page while the round cursor already moved
+    /// to a new routed hole. Retain a live selection only when it agrees with that cursor; prep
+    /// browsing has no persisted cursor and can retain its own page.
+    static func retainedSelectionAfterRefresh(
+        current: Int?,
+        activeHole: Int?,
+        isPrepMode: Bool
+    ) -> Int? {
+        guard isPrepMode else {
+            guard current == activeHole else { return nil }
+            return current
+        }
+        return current
+    }
 }
 
 enum LiveHoleSessionCachePolicy {
@@ -873,17 +888,6 @@ public struct RoundHomeView: View {
         }
         .onChange(of: package?.holeSetIdentity) { _, _ in
             reconcileLiveHoleRouteWithPackage()
-            guard let screenPackage = holeScreenPackage,
-                  case let .hole(routedHole) = path.last else { return }
-            let ordered = RoundPlayOrder.holes(
-                screenPackage.holes.map(\.number),
-                startingAt: liveRoundState?.startHole,
-                loops: screenPackage.roundLoops
-            )
-            guard ordered.contains(routedHole), holePagerSelection != routedHole else { return }
-            holePagerSelection = routedHole
-            holePagerNavigationLock = LiveHoleNavigationLock(currentHole: routedHole)
-            trimLiveHoleSessions(around: routedHole, package: screenPackage)
         }
         .onChange(of: liveRoundState?.activeHole) { _, activeHole in
             if !isPrepHoleScreen, let activeHole {
@@ -1095,7 +1099,11 @@ public struct RoundHomeView: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .onAppear {
                 holePagerSelection = LiveHolePagerInitialSelection.resolve(
-                    current: holePagerSelection,
+                    current: LiveHolePagerSelectionLifecycle.retainedSelectionAfterRefresh(
+                        current: holePagerSelection,
+                        activeHole: liveRoundState?.activeHole,
+                        isPrepMode: isPrepHoleScreen
+                    ),
                     ordered: ordered,
                     preferredHole: isPrepHoleScreen ? initialHole : liveRoundState?.activeHole,
                     fallbackHole: initialHole

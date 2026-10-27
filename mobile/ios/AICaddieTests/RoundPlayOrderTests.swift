@@ -381,6 +381,38 @@ final class RoundPlayOrderTests: XCTestCase {
         )
     }
 
+    func testPagerRefreshDropsAStalePageButRetainsTheActivePage() {
+        XCTAssertEqual(
+            LiveHolePagerSelectionLifecycle.retainedSelectionAfterRefresh(
+                current: 6, activeHole: 6, isPrepMode: false
+            ),
+            6
+        )
+        XCTAssertNil(
+            LiveHolePagerSelectionLifecycle.retainedSelectionAfterRefresh(
+                current: 9, activeHole: 10, isPrepMode: false
+            ),
+            "a pager remount must not write the completed page back over the active hole"
+        )
+    }
+
+    func testScoreSheetDismissalQueuesTurnOrFinishPresentation() {
+        var coordinator = LiveScoreDismissalCoordinator()
+        let course = NineLoopCourse(id: "example", loops: [NineLoop(id: "A", name: "A")])
+        let plan = NineLoopPlan(course: course, first: "A")!
+        coordinator.queue(.turn(plan))
+        XCTAssertEqual(coordinator.consumeAfterDismissal(), .turn(plan))
+        XCTAssertNil(coordinator.consumeAfterDismissal())
+
+        coordinator.queue(.finish)
+        XCTAssertEqual(coordinator.consumeAfterDismissal(), .finish)
+    }
+
+    func testInactiveHolePagesDoNotStartTheirExpensiveLoad() {
+        XCTAssertFalse(LiveHoleLoadLifecycle.shouldRun(isSelected: false))
+        XCTAssertTrue(LiveHoleLoadLifecycle.shouldRun(isSelected: true))
+    }
+
     func testLastHoleOfNineHoleLoopResolvesToFinish() throws {
         let package = try LiveRoundPackageFixture.nineHoleLoop()
         XCTAssertEqual(

@@ -451,6 +451,28 @@ enum LiveHoleAdvanceResolution: Equatable {
     }
 }
 
+enum LiveScoreDismissalAction: Equatable {
+    case turn(NineLoopPlan)
+    case finish
+}
+
+enum LiveHoleLoadLifecycle {
+    static func shouldRun(isSelected: Bool) -> Bool { isSelected }
+}
+
+struct LiveScoreDismissalCoordinator: Equatable {
+    private(set) var pending: LiveScoreDismissalAction?
+
+    mutating func queue(_ action: LiveScoreDismissalAction) {
+        pending = action
+    }
+
+    mutating func consumeAfterDismissal() -> LiveScoreDismissalAction? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
 public struct CurrentHoleView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -596,6 +618,7 @@ public struct CurrentHoleView: View {
     /// Mirrors `scenePhase` for the `/prep` probe, which reads it from its running task.
     @State private var liveSceneIsActive = true
     @State private var scoreDraft: LiveScoreDraft?
+    @State private var scoreDismissalCoordinator = LiveScoreDismissalCoordinator()
     @State private var showScorecard = false
     @State private var gpsHoleCandidate: LiveHoleGPSCandidate?
     @State private var pendingHistoricalScoreHole: Int?
@@ -974,7 +997,7 @@ public struct CurrentHoleView: View {
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .onAppear {
-            guard isSelected else { return }
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             #if DEBUG
             UITestEventLatencyTrace.record(
                 "live-hole.appear hole=\(hole.number) course=\(package.course.globalId)"
@@ -1012,7 +1035,7 @@ public struct CurrentHoleView: View {
             }
         }
         .onReceive(locationProvider.$latestFix) { latestFix in
-            guard isSelected else { return }
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             guard let latestFix else {
                 return
             }
@@ -1054,7 +1077,8 @@ public struct CurrentHoleView: View {
             }
             Task { await loadCaddieDecision(syncClub: true) }
         }
-        .task(id: localTopoRevisionTaskKey) {
+        .task(id: "\(localTopoRevisionTaskKey):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             let revision = LiveTopoAvailability.revision(hole: hole, prep: holePrep)
             let store = offlineStore
             let localURL = await Task.detached(priority: .utility) {
@@ -1070,7 +1094,8 @@ public struct CurrentHoleView: View {
                 entry.localTopoURL = localURL
             }
         }
-        .task(id: hole.number) {
+        .task(id: "\(hole.number):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             // Expensive file checks and base64 decoding are deliberately outside init/body. The
             // resulting values are retained for this physical hole and reused by the pager.
             hasEmbeddedTopoImage = CoursePrepHole.hasDecodableEmbeddedTopo(holePrep?.map?.image)
@@ -1205,17 +1230,20 @@ public struct CurrentHoleView: View {
             }
             carryOverLiveMapViewport(from: previous, to: next)
         }
-        .task(id: liveTopoURL) {
-            guard let requestedURL = liveTopoURL else { return }
+        .task(id: "\(liveTopoURL?.absoluteString ?? ""):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected),
+                  let requestedURL = liveTopoURL else { return }
             let ready = await TopoHoleImageStore.ensureLoaded(requestedURL)
             guard !Task.isCancelled, liveTopoURL == requestedURL else { return }
             preciseTopoImageReady = ready
         }
-        .task(id: garminDescriptorRecoveryKey) {
+        .task(id: "\(garminDescriptorRecoveryKey):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             await recoverGarminDescriptor()
         }
-        .task(id: garminVersionConflictURL) {
-            guard garminVersionConflictURL != nil else { return }
+        .task(id: "\(garminVersionConflictURL?.absoluteString ?? ""):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected),
+                  garminVersionConflictURL != nil else { return }
             await loadGarminRaster()
         }
         .onChange(of: pinSheetItems) { _, items in
@@ -1225,7 +1253,7 @@ public struct CurrentHoleView: View {
         .fullScreenCover(isPresented: $showGreenDetail) {
             greenDetailSurface
         }
-        .sheet(item: $scoreDraft) { presentedDraft in
+        .sheet(item: $scoreDraft, onDismiss: handleScoreSheetDismissed) { presentedDraft in
             scoreConfirmationSurface(for: presentedDraft)
         }
         .sheet(item: $pendingPhoneShot) { pendingShot in
@@ -1294,7 +1322,8 @@ public struct CurrentHoleView: View {
     /// Kept out of `body`'s modifier chain, which is already at the type checker's limit (C89).
     private var liveHoleContentWithHazardRequests: some View {
         liveHoleContent
-            .task(id: hazardMappingRequest) {
+            .task(id: "\(hazardMappingRequest?.hole ?? -1):\(isSelected)") {
+                guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
                 await runHazardMappingRequest()
             }
             .modifier(LiveHoleSceneActivity(isActive: $liveSceneIsActive))
@@ -1551,6 +1580,16 @@ public struct CurrentHoleView: View {
 
     private func handleScorecardDismissed() {
         presentPendingHistoricalScoreEdit()
+    }
+
+    private func handleScoreSheetDismissed() {
+        guard let action = scoreDismissalCoordinator.consumeAfterDismissal() else { return }
+        switch action {
+        case .turn(let plan):
+            turnPlan = plan
+        case .finish:
+            showRoundSummary = true
+        }
     }
 
     /// The summary's 放弃本场 asks for the confirmation once the summary sheet is gone; presenting
@@ -3884,7 +3923,7 @@ public struct CurrentHoleView: View {
 
         // The package request has already queued prodgeometry in the backend. Keep the CourseView
         // vectors usable now, then replace only this hole's map facts when the precise mesh arrives.
-        // The structured `.task(id: hole.number)` owns this loop, so changing holes or leaving the
+        // The structured selection-aware task owns this loop, so changing holes or leaving the
         // screen cancels it without leaving a detached poller behind.
         // A cached topo bitmap does not end this: the row drawn over it must reach its frame (C89).
         if LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: holePrep) {
@@ -5602,7 +5641,7 @@ public struct CurrentHoleView: View {
         if let offlineStore {
             try? offlineStore.clearLiveScoreDraft(roundId: package.roundId)
         }
-        scoreDraft = nil
+        var dismissalAction: LiveScoreDismissalAction?
         if accepted.hole == hole.number {
             score = accepted.score
             puttCount = accepted.putts
@@ -5619,12 +5658,16 @@ public struct CurrentHoleView: View {
                 onAdvanceHole(next)
             case .finish:
                 if let plan = turnPlanAtEndOfFirstLoop {
-                    turnPlan = plan
+                    dismissalAction = .turn(plan)
                 } else {
-                    showRoundSummary = true
+                    dismissalAction = .finish
                 }
             }
         }
+        if let dismissalAction {
+            scoreDismissalCoordinator.queue(dismissalAction)
+        }
+        scoreDraft = nil
         sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
     }
 
