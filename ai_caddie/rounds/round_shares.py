@@ -193,7 +193,9 @@ def revoke_round(
     count = 0
     with _file_lock(path):
         payload = _load(path)
-        changed = False
+        before_keys = set(payload["shares"])
+        _prune_for_write(payload, now)
+        changed = set(payload["shares"]) != before_keys
         for row in payload["shares"].values():
             if not isinstance(row, dict) or row.get("revokedAt"):
                 continue
