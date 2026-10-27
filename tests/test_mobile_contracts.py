@@ -3193,6 +3193,26 @@ class MobileContractTests(unittest.TestCase):
             self.assertIn(payload_key, builder)
         self.assertIn("targetCoordinate: CLLocationCoordinate2D? = nil", builder)
 
+    def test_mobile_location_accuracy_threshold_matches_ios_resolver(self) -> None:
+        mobile_live = _read_required_source(self, Path("ai_caddie") / "caddie" / "mobile_live.py")
+        resolver = _read_required_source(self, IOS_DIR / "Services" / "LiveHoleGPSResolver.swift")
+        server_match = re.search(
+            r"^MAXIMUM_HORIZONTAL_ACCURACY_M\s*=\s*([0-9]+(?:\.[0-9]+)?)",
+            mobile_live,
+            re.MULTILINE,
+        )
+        ios_match = re.search(
+            r"^\s*static let maximumHorizontalAccuracyM\s*=\s*([0-9]+(?:\.[0-9]+)?)",
+            resolver,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(server_match, "server location accuracy threshold must be a named constant")
+        self.assertIsNotNone(ios_match, "iOS location accuracy threshold must remain a numeric literal")
+        assert server_match is not None
+        assert ios_match is not None
+        self.assertEqual(float(server_match.group(1)), float(ios_match.group(1)))
+        self.assertEqual(float(server_match.group(1)), 35.0)
+
     def test_current_hole_view_emits_canonical_scoring_payload_keys(self) -> None:
         current_hole = _read_required_source(self, IOS_DIR / "Views" / "CurrentHoleView.swift")
         score_confirmation = _read_required_source(self, IOS_DIR / "Models" / "LiveScoreConfirmation.swift")
