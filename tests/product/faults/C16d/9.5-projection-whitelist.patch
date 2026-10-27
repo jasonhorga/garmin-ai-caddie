@@ -1,0 +1,28 @@
+diff --git a/server_v2/share_api.py b/server_v2/share_api.py
+index 0dea6f23..26988dc3 100644
+--- a/server_v2/share_api.py
++++ b/server_v2/share_api.py
+@@ -61,13 +61,14 @@ class SharedScorecardHole(BaseModel):
+ 
+ 
+ class SharedRoundResponse(BaseModel):
+-    model_config = ConfigDict(extra="forbid")
++    model_config = ConfigDict(extra="allow")
+ 
+     schema_: str = Field(alias="schema")
+     found: bool
+     expiresAt: str
+     round: SharedRoundModel
+     scorecard: list[SharedScorecardHole]
++    diagnostics: Any | None = None
+ 
+ 
+ class ShareCreatedResponse(BaseModel):
+@@ -173,6 +174,7 @@ def _shared_payload(row: dict[str, Any]) -> dict[str, Any]:
+         "expiresAt": str(row.get("expiresAt")),
+         "round": public_round,
+         "scorecard": public_scorecard,
++        "diagnostics": detail.get("missingData"),
+     }
+ 
+ 

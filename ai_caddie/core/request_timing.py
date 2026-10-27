@@ -28,6 +28,13 @@ _REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{1,96}$")
 _CURRENT: ContextVar["RequestTiming | None"] = ContextVar("ai_caddie_request_timing", default=None)
 logger = logging.getLogger("server_v2.timing")
 
+_SENSITIVE_QUERY_UNQUOTED = re.compile(
+    r"([?&](?:key|token|access_token|refresh_token|admin_token|authorization|api_key|member_token|share_token|secret)=)[^&#]*",
+    re.IGNORECASE,
+)
+_SHARE_PATH = re.compile(r"(/api/v2/share/)[^/?#]+")
+_MEMBER_PATH = re.compile(r"(/p/)[^/?#]+")
+
 _BEIJING = ZoneInfo("Asia/Shanghai")
 _TIMING_FILE = re.compile(r"^(?P<kind>client-)?(?P<day>\d{4}-\d{2}-\d{2})\.jsonl$")
 _TIMING_QUEUE: queue.Queue[tuple[Path, str, Path, date] | None] = queue.Queue(maxsize=4096)
@@ -38,6 +45,30 @@ _TIMING_CLEANED: set[tuple[Path, date]] = set()
 # use AI_CADDIE_PRIVATE_ROOT; with neither configured, fixture/unit requests never create files.
 TIMING_ROOT: Path | None = None
 TIMING_CLOCK: Callable[[], datetime] | None = None
+
+
+def redact_url(value: str | None) -> str:
+    """Remove capability values from a URL before it reaches logs or timing storage."""
+    text = str(value or "")
+    text = _SHARE_PATH.sub(r"\1:token", text)
+    text = _MEMBER_PATH.sub(r"\1:token", text)
+    return _SENSITIVE_QUERY_UNQUOTED.sub(r"\1***", text)
+
+
+class URLRedactionFilter(logging.Filter):
+    """Redact URL-bearing arguments in uvicorn access records in place."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple):
+            record.args = tuple(redact_url(item) if isinstance(item, str) else item for item in args)
+        elif isinstance(args, list):
+            record.args = [redact_url(item) if isinstance(item, str) else item for item in args]
+        elif isinstance(args, str):
+            record.args = redact_url(args)
+        elif not args and isinstance(record.msg, str):
+            record.msg = redact_url(record.msg)
+        return True
 
 
 def _beijing_now() -> datetime:
@@ -69,7 +100,7 @@ def timing_path(day: date, *, client: bool = False, root: Path | str | None = No
 
 def template_path(path: str) -> str:
     """Strip query data and replace numeric URL path segments with ``{id}``."""
-    clean = str(path or "").split("?", 1)[0].split("#", 1)[0] or "/"
+    clean = redact_url(path).split("?", 1)[0].split("#", 1)[0] or "/"
     segments = clean.split("/")
     return "/".join("{id}" if re.fullmatch(r"\d+", segment or "") else segment for segment in segments)
 
@@ -229,13 +260,14 @@ class RequestTiming:
     def finish(self, *, method: str, path: str, status: int) -> None:
         marks = self.marks.copy()
         total_ms = self.total_ms
+        safe_path = redact_url(path)
         record: dict[str, Any] | None = None
         try:
             record = {
                 "ts": _now().isoformat(timespec="milliseconds"),
                 "request_id": self.request_id,
                 "method": str(method).upper(),
-                "path": template_path(path),
+                "path": template_path(safe_path),
                 "status": int(status),
                 "total_ms": round(total_ms, 1),
                 "stages": {key: round(value, 1) for key, value in marks.items()},
@@ -246,7 +278,7 @@ class RequestTiming:
             "request_timing request_id=%s method=%s path=%s status=%s total_ms=%.1f stages=%s",
             self.request_id,
             method,
-            path,
+            safe_path,
             status,
             total_ms,
             ";".join(f"{key}:{value:.1f}" for key, value in marks.items()),
