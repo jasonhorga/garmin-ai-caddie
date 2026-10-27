@@ -237,7 +237,7 @@ class PersistenceTests(unittest.TestCase):
                         cr.record_courseview_venue_loops(second, root=root)
                     write.assert_not_called()
 
-    def test_venue_loop_index_migrates_gid_from_old_spelling_to_provider_group(self) -> None:
+    def test_venue_loop_index_migrates_entire_group_and_unifies_names(self) -> None:
         from ai_caddie.courses.course_search import CourseMatch
 
         with TemporaryDirectory() as tmp:
@@ -252,8 +252,12 @@ class PersistenceTests(unittest.TestCase):
                 ], root=root)
             payload = json.loads((root / "data" / "courseview" / "venue_loops.json").read_text())
             groups = {group["venueName"]: group for group in payload["venues"]}
-            self.assertEqual({row["globalId"] for row in groups["新名"]["loops"]}, {60001})
-            self.assertEqual({row["globalId"] for row in groups["旧名"]["loops"]}, {60002})
+            self.assertEqual({row["globalId"] for row in groups["新名"]["loops"]}, {60001, 60002})
+            self.assertNotIn("旧名", groups)
+            self.assertEqual(
+                {row["name"] for row in groups["新名"]["loops"]},
+                {"新名 ~ A", "新名 ~ B"},
+            )
 
     def test_catalogue_name_cache_accepts_only_native_garmin_cjk_rows(self) -> None:
         from ai_caddie.courses.course_search import CourseMatch
