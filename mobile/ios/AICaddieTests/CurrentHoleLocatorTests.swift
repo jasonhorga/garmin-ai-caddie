@@ -131,6 +131,7 @@ final class CurrentHoleLocatorTests: XCTestCase {
         var following = PrepHoleFollowingState()
 
         _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
         XCTAssertNil(following.navigationTarget(currentLocatedHole: nil, displayedHole: 2))
         XCTAssertEqual(following.lastLocatedHole, 1)
     }
