@@ -1046,10 +1046,8 @@ public struct CurrentHoleView: View {
         }
     }
 
-    public var body: some View {
-        #if DEBUG
-        let _ = UITestPagerTrace.shared.metric(.currentHoleBody)
-        #endif
+    /// Split from `body` so the modifier chain stays within the type checker's budget.
+    private var liveHoleLifecycleContent: some View {
         liveHoleContentWithHazardRequests
         .overlay {
             if turnContinuationPending, queuedTurnLoop == nil, let continuingLoopName {
@@ -1284,6 +1282,13 @@ public struct CurrentHoleView: View {
             )
             #endif
         }
+    }
+
+    public var body: some View {
+        #if DEBUG
+        let _ = UITestPagerTrace.shared.metric(.currentHoleBody)
+        #endif
+        liveHoleLifecycleContent
         .onChange(of: liveRoundState) { _, newState in
             applyRestoredStateIfNeeded(newState)
         }
