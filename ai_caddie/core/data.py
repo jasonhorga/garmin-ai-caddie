@@ -76,7 +76,10 @@ def atomic_write_json(path: Path, data: Any) -> None:
     try:
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
         os.replace(tmp, path)
-        revisions.bump_revision(path.parent)
+        # Only directories consumed by the filesystem-revision caches get a marker. Credential,
+        # session and unrelated stores use the same crash-safe writer without creating extra files.
+        if revisions.should_bump_revision(path.parent):
+            revisions.bump_revision(path.parent)
     finally:
         if tmp.exists():
             tmp.unlink(missing_ok=True)

@@ -7,6 +7,7 @@ the warm path; complete manifests remain the correctness fallback for an externa
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import os
 from pathlib import Path
 import tempfile
@@ -19,6 +20,12 @@ REVISION_FILENAME = ".revision"
 DEFAULT_SCAN_INTERVAL_S = 60.0
 _RACY_WINDOW_NS = 20_000_000
 _ENTRY_IDLE_ROUNDS = 10
+_REVISION_DIRECTORY_NAMES = frozenset({
+    # History/load inputs and the geometry/course directories used by the hot-path caches.
+    "scorecards", "shots", "snapshots", "manual_rounds", "corrections",
+    "meshes", "prodgeometry", "prodgeometry_hazards", "hazards", "courseview", "courses",
+})
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -35,7 +42,7 @@ class _Entry:
 _LOCK = threading.RLock()
 _ENTRIES: dict[tuple[str, Hashable], _Entry] = {}
 _INFLIGHT: dict[tuple[str, Hashable], threading.Event] = {}
-_BACKGROUND_ENTRIES: dict[str, list[tuple[str, bool, int, int, int]]] = {}
+_BACKGROUND_ENTRIES_LOCAL = threading.local()
 _BACKGROUND_PASS_LOCK = threading.Lock()
 _SCANNER_THREAD: threading.Thread | None = None
 _STOP = threading.Event()
@@ -45,6 +52,16 @@ _LAST_SCAN_DURATION_S = 0.0
 
 def _revision_path(directory: Path) -> Path:
     return directory / REVISION_FILENAME
+
+
+def should_bump_revision(directory: Path | str) -> bool:
+    """Whether ``directory`` is a filesystem-revision cache input.
+
+    This is deliberately a path-name policy rather than process state.  The sync process and the
+    API process do not share Python memory, so writers must make the same decision independently;
+    credential/session and unrelated application directories therefore never receive a marker.
+    """
+    return Path(directory).name in _REVISION_DIRECTORY_NAMES
 
 
 def _is_racy_mtime(mtime_ns: int | None, observed_ns: int) -> bool:
@@ -89,6 +106,8 @@ def bump_revision(directory: Path | str) -> None:
     marker inode and filesystem timestamps, never the counter value.
     """
     directory = Path(directory)
+    if not should_bump_revision(directory):
+        return
     directory.mkdir(parents=True, exist_ok=True)
     marker = _revision_path(directory)
     try:
@@ -110,11 +129,16 @@ def bump_revision(directory: Path | str) -> None:
 
 
 def directory_entries(directory: Path | str) -> list[tuple[str, bool, int, int, int]]:
-    """Return one complete directory listing, or the listing shared by a background pass."""
+    """Return one complete directory listing.
+
+    A background scan may install a thread-local listing for the scanner callback it is running.
+    Foreground callers always reach ``os.scandir`` themselves, even while that callback is active;
+    a maintenance snapshot can never leak into a request's coherence check.
+    """
     path = Path(directory)
     key = str(path.resolve())
-    with _LOCK:
-        shared = _BACKGROUND_ENTRIES.get(key)
+    shared_entries = getattr(_BACKGROUND_ENTRIES_LOCAL, "entries", None)
+    shared = shared_entries.get(key) if shared_entries is not None else None
     if shared is not None:
         return shared
     rows: list[tuple[str, bool, int, int, int]] = []
@@ -141,12 +165,10 @@ def cached_signature(
     key = (str(path.resolve()), variant)
     while True:
         signal = directory_signal(path)
-        racy_rescan = False
         with _LOCK:
             entry = _ENTRIES.get(key)
             if entry is not None:
                 entry.last_access_round = _SCAN_ROUND
-                racy_rescan = entry.signal == signal[:-1] and entry.racy_pending
                 if entry.signal == signal[:-1] and not entry.racy_pending:
                     return entry.signature
             event = _INFLIGHT.get(key)
@@ -172,7 +194,7 @@ def cached_signature(
         with _LOCK:
             _ENTRIES[key] = _Entry(
                 path, variant, signal[:-1], signature, scanner, _SCAN_ROUND,
-                signal[-1] and not racy_rescan,
+                signal[-1],
             )
             if _INFLIGHT.get(key) is event:
                 del _INFLIGHT[key]
@@ -201,21 +223,29 @@ def _scan_revision_cache_once() -> float:
         directories = {str(entry.directory.resolve()): entry.directory for entry in entries}
         signals = {key: directory_signal(path) for key, path in directories.items()}
     try:
-        for key, path in directories.items():
-            _BACKGROUND_ENTRIES[key] = directory_entries(path)
+        # The snapshot belongs only to this maintenance thread. In particular, do not publish it
+        # through a process-global map: a foreground cold read during this window must enumerate
+        # the directory after its own write.
+        _BACKGROUND_ENTRIES_LOCAL.entries = {
+            key: directory_entries(path) for key, path in directories.items()
+        }
         for entry in entries:
-            signature = entry.scanner()
             key = str(entry.directory.resolve())
+            try:
+                signature = entry.scanner()
+            except BaseException:
+                _LOGGER.exception("revision scanner failed for %s", key)
+                continue
             with _LOCK:
                 current = _ENTRIES.get((key, entry.variant))
-                if current is entry:
+                if current is entry and current.signal == signals[key][:-1]:
                     # Keep the signal observed before the listing. Writes during the scan must
                     # force the next request through a fresh scan.
                     current.signature = signature
                     current.signal = signals[key][:-1]
                     current.racy_pending = signals[key][-1]
     finally:
-        _BACKGROUND_ENTRIES.clear()
+        _BACKGROUND_ENTRIES_LOCAL.entries = None
         _LAST_SCAN_DURATION_S = time.perf_counter() - started
     return _LAST_SCAN_DURATION_S
 
@@ -228,7 +258,6 @@ def clear() -> None:
     """Test/maintenance hook; production writes invalidate entries through filesystem signals."""
     with _LOCK:
         _ENTRIES.clear()
-        _BACKGROUND_ENTRIES.clear()
 
 
 def stop_scanner() -> None:
@@ -238,8 +267,6 @@ def stop_scanner() -> None:
     if thread is not None and thread is not threading.current_thread():
         thread.join(timeout=1.0)
     _SCANNER_THREAD = None
-    with _LOCK:
-        _BACKGROUND_ENTRIES.clear()
 
 
 def _background_enabled() -> bool:
