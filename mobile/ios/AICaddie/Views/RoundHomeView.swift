@@ -989,6 +989,8 @@ public struct RoundHomeView: View {
 
     @ViewBuilder private func currentHoleView(_ number: Int) -> some View {
         if let package = holeScreenPackage, let hole = package.holes.first(where: { $0.number == number }) {
+            let pageIsSelected = holePagerSelection == number
+                || (holePagerSelection == nil && liveRoundState?.activeHole == number)
             // round-11: forward the round-management closures so 球局调整(加打/减九洞/结束本场)lives
             // inside the in-progress screen instead of the Hub.
             CurrentHoleView(
@@ -998,8 +1000,11 @@ public struct RoundHomeView: View {
                 // Network catalogue + installed templates: the turn's loops must resolve offline too.
                 courseOptions: NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions),
                 isPreparingRound: isPreparingRound,
-                pendingEventCount: pendingEventCount, isFinishingRound: isFinishingRound,
-                finishErrorMessage: finishErrorMessage,
+                // Event upload state belongs to the selected page. Freeze these values for the
+                // mounted neighbors so every appended event does not rebuild all hole bodies.
+                pendingEventCount: pageIsSelected ? pendingEventCount : 0,
+                isFinishingRound: pageIsSelected && isFinishingRound,
+                finishErrorMessage: pageIsSelected ? finishErrorMessage : nil,
                 onSetSecondLoop: onSetSecondLoop,
                 onContinueIntoSecondLoop: onContinueIntoSecondLoop, onFinishRound: onFinishRound,
                 onDiscardRound: onDiscardRound,
@@ -1008,8 +1013,7 @@ public struct RoundHomeView: View {
                 // On a cold restore the pager selection is seeded after its first TabView pass.
                 // The persisted model cursor is the safe initial selection so the visible page
                 // starts location updates before the delayed native binding acknowledgement.
-                isSelected: holePagerSelection == number
-                    || (holePagerSelection == nil && liveRoundState?.activeHole == number),
+                isSelected: pageIsSelected,
                 onAdvanceHole: { next in
                     guard var lock = holePagerNavigationLock,
                           lock.begin(from: number, to: next) else { return }
@@ -1055,7 +1059,7 @@ public struct RoundHomeView: View {
                 },
                 onUndoRoundStart: onUndoRoundStart,
                 onChangePrepTee: onChangePrepTee,
-                onEvent: onEvent
+                onEvent: pageIsSelected ? onEvent : { _ in }
             )
             // A hole owns its score/club/map/GPS presentation state and scroll position. NavigationStack
             // otherwise reuses the same destination view when `.hole(1)` becomes `.hole(2)`, carrying
