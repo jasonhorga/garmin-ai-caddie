@@ -9,6 +9,7 @@ from unittest.mock import patch
 from ai_caddie.core.fixtures import fixture_history_data
 from ai_caddie.history import corrected_history as history
 from ai_caddie.history import stats_cache
+from ai_caddie.core import revisions
 from ai_caddie.rounds import round_corrections
 from ai_caddie.courses.prep_work import PrepCancelled
 from ai_caddie.core.data import atomic_write_json
@@ -23,6 +24,7 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
             (geometry / "gid31795_h01_meshes.json").write_text("{}")
             clock = [100.0]
             with patch.object(stats_cache.time, "monotonic", side_effect=lambda: clock[0]), \
+                    patch.object(revisions.time, "time_ns", side_effect=lambda: geometry.stat().st_mtime_ns), \
                     patch.object(stats_cache.os, "scandir", wraps=stats_cache.os.scandir) as scandir:
                 first = stats_cache._history_geometry_dir_sig(geometry, (31795,))
                 second = stats_cache._history_geometry_dir_sig(geometry, (31795,))

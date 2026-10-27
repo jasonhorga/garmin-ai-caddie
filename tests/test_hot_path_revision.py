@@ -34,7 +34,8 @@ class HotPathRevisionTests(unittest.TestCase):
             corrections.mkdir()
             (root / "round.json").write_text("{}")
             data = HistoryData(raw_rounds=[], rounds=[], shots=[])
-            with patch.object(stats_cache, "_fingerprint_dirs", return_value=(root,)), \
+            with patch.object(revisions.time, "time_ns", return_value=0), \
+                    patch.object(stats_cache, "_fingerprint_dirs", return_value=(root,)), \
                     patch.object(stats_cache, "_GEOMETRY_DIRS", ()), \
                     patch.object(stats_cache, "_aux_files", return_value=[]), \
                     patch.object(stats_cache.round_corrections, "corrections_dir", return_value=corrections), \
@@ -55,7 +56,8 @@ class HotPathRevisionTests(unittest.TestCase):
             corrections.mkdir()
             (root / "round.json").write_text("{}")
             data = HistoryData(raw_rounds=[], rounds=[], shots=[])
-            with patch.object(stats_cache, "_fingerprint_dirs", return_value=(root,)), \
+            with patch.object(revisions.time, "time_ns", return_value=0), \
+                    patch.object(stats_cache, "_fingerprint_dirs", return_value=(root,)), \
                     patch.object(stats_cache, "_load_dirs", return_value=(root,)), \
                     patch.object(stats_cache, "_GEOMETRY_DIRS", ()), \
                     patch.object(stats_cache, "_aux_files", return_value=[]), \
@@ -240,6 +242,93 @@ class HotPathRevisionTests(unittest.TestCase):
             mobile._persist_mobile_package_identity(package, player_id="me")
         self.assertIn("persist_lock", stages)
         self.assertIn("persist_write", stages)
+
+    def test_foreground_scan_does_not_use_a_background_snapshot(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp) / "scorecards"
+            root.mkdir()
+            (root / "before.json").write_text("{}")
+            entered = threading.Event()
+            release = threading.Event()
+
+            def scanner():
+                entered.set()
+                self.assertTrue(release.wait(2))
+                return stats_cache._dir_sig(root)
+
+            revisions.cached_signature(root, "foreground", lambda: stats_cache._dir_sig(root))
+            revisions._ENTRIES[(str(root.resolve()), "foreground")].scanner = scanner
+            with ThreadPoolExecutor(1) as pool:
+                pending = pool.submit(revisions.scan_revision_cache_once)
+                self.assertTrue(entered.wait(2))
+                atomic_write_json(root / "after.json", {})
+                fresh = revisions.cached_signature(root, "foreground", lambda: stats_cache._dir_sig(root))
+                self.assertEqual(fresh[0], 2)
+                release.set()
+                pending.result(2)
+                self.assertEqual(
+                    revisions.cached_signature(root, "foreground", lambda: stats_cache._dir_sig(root))[0],
+                    2,
+                )
+
+    def test_history_source_revision_does_not_reuse_background_entries(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp) / "scorecards"
+            root.mkdir()
+            (root / "before.json").write_text("{}")
+            with patch.object(stats_cache, "_load_dirs", return_value=(root,)):
+                stats_cache._cached_dir_sig(root)
+                first = stats_cache.history_source_revision()
+                entered = threading.Event()
+                release = threading.Event()
+
+                def scanner():
+                    entered.set()
+                    self.assertTrue(release.wait(2))
+                    return stats_cache._dir_sig(root)
+
+                revisions._ENTRIES[(str(root.resolve()), ("dir", None))].scanner = scanner
+                with ThreadPoolExecutor(1) as pool:
+                    pending = pool.submit(revisions.scan_revision_cache_once)
+                    self.assertTrue(entered.wait(2))
+                    atomic_write_json(root / "after.json", {})
+                    second = stats_cache.history_source_revision()
+                    self.assertNotEqual(first, second)
+                    release.set()
+                    pending.result(2)
+
+    def test_racy_signal_remains_pending_for_the_next_read(self) -> None:
+        with TemporaryDirectory() as tmp, patch.object(
+            revisions, "directory_signal", side_effect=[("fixed", True)] * 3
+        ):
+            root = Path(tmp) / "scorecards"
+            root.mkdir()
+            calls = 0
+
+            def scanner():
+                nonlocal calls
+                calls += 1
+                return calls
+
+            self.assertEqual(revisions.cached_signature(root, "racy", scanner), 1)
+            self.assertEqual(revisions.cached_signature(root, "racy", scanner), 2)
+            self.assertEqual(revisions.cached_signature(root, "racy", scanner), 3)
+
+    def test_one_background_scanner_failure_does_not_abort_the_pass(self) -> None:
+        with TemporaryDirectory() as tmp:
+            first = Path(tmp) / "scorecards"
+            second = Path(tmp) / "shots"
+            first.mkdir()
+            second.mkdir()
+            revisions.cached_signature(first, "bad", lambda: ("old",))
+            revisions.cached_signature(second, "good", lambda: ("old",))
+            good_calls = []
+            revisions._ENTRIES[(str(first.resolve()), "bad")].scanner = lambda: (_ for _ in ()).throw(
+                RuntimeError("fixture scanner failure")
+            )
+            revisions._ENTRIES[(str(second.resolve()), "good")].scanner = lambda: good_calls.append(True) or ("new",)
+            revisions.scan_revision_cache_once()
+            self.assertEqual(good_calls, [True])
 
 
 if __name__ == "__main__":
