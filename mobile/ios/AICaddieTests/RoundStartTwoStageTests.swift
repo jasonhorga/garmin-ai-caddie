@@ -472,6 +472,37 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertEqual(model.package?.clubProfiles, [], "the personal package was never merged")
     }
 
+    /// A first stroke starts a deferred map-only round even when the hole screen has not called
+    /// `liveHoleInitialLoadDidFinish` yet. The player's first action must release the personal
+    /// package fetch; waiting for a later view callback leaves the round without clubs/history.
+    func testFirstStrokeReleasesDeferredPersonalPackage() async throws {
+        let host = "c102-first-stroke.example.test"
+        let roundId = "c102-first-stroke"
+        let mapPackage = try package(roundId: roundId, mapOnly: true)
+        let fullPackage = try package(roundId: roundId, mapOnly: false)
+        let fullData = try JSONEncoder().encode(fullPackage)
+        let fullSent = expectation(description: "personal package requested after first stroke")
+        let fullSentOnce = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            guard proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package",
+                  c33Query(proto.request, "map_only") != "true" else {
+                proto.reply(404)
+                return
+            }
+            if fullSentOnce.claim() { fullSent.fulfill() }
+            proto.reply(200, fullData)
+        })
+        let fixture = makeModel(host: host)
+        let model = fixture.model
+        model.enterPrepMode(with: mapPackage, hole: 1)
+
+        XCTAssertTrue(model.startRoundFromFirstStroke(startHole: 1))
+        await fulfillment(of: [fullSent], timeout: eventWait)
+        await model.waitForRoundEnrichmentForTesting()
+        XCTAssertFalse(model.package?.clubProfiles.isEmpty ?? true)
+    }
+
     /// The fallback behind the hook: once a test has invalidated the client, a request fails with
     /// `CancellationError` instead of creating a task in the invalidated session (NSGenericException).
     func testAnInvalidatedClientRefusesRequestsBeforeTheSession() async throws {

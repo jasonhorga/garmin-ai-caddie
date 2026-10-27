@@ -1681,7 +1681,8 @@ public final class LiveRoundAppModel: ObservableObject {
         #endif
         guard let snapshot = package,
               let syncClient,
-              roundEnrichmentInitialLoadRoundId == snapshot.roundId,
+              (roundEnrichmentInitialLoadRoundId == snapshot.roundId
+               || liveRoundState?.startHole != nil),
               isAwaitingRoundEnrichment(snapshot.roundId) else { return }
         if roundEnrichmentRoundId == snapshot.roundId, roundEnrichmentTask != nil { return }
         roundEnrichmentTask?.cancel()
@@ -4063,6 +4064,7 @@ public final class LiveRoundAppModel: ObservableObject {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
 #endif
             beginOfflineCourseDownload(revalidatePackage: true, priorityHole: startHole)
+            beginRoundEnrichmentIfNeeded()
             return true
         } catch {
             AICaddieLog.storage.error("First-stroke start failed: \(String(describing: error), privacy: .public)")
