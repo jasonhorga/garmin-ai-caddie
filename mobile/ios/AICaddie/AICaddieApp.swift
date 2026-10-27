@@ -1681,7 +1681,8 @@ public final class LiveRoundAppModel: ObservableObject {
         #endif
         guard let snapshot = package,
               let syncClient,
-              roundEnrichmentInitialLoadRoundId == snapshot.roundId,
+              (roundEnrichmentInitialLoadRoundId == snapshot.roundId
+               || liveRoundState?.startHole != nil),
               isAwaitingRoundEnrichment(snapshot.roundId) else { return }
         if roundEnrichmentRoundId == snapshot.roundId, roundEnrichmentTask != nil { return }
         roundEnrichmentTask?.cancel()
@@ -1964,6 +1965,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// retain every hole's lightweight route/hazard/F-M-B facts and its precise topo bitmap. The
     /// package identity remains the live round's; the course template and bitmap keys are static.
     private func beginOfflineCourseDownload(revalidatePackage: Bool = false, priorityHole: Int? = nil) {
+        #if DEBUG
+        guard !roundBackgroundWorkStoppedForTesting else { return }
+        #endif
         guard let initial = package, let syncClient else { return }
         let expectedRoundId = initial.roundId
         let expectedGlobalId = initial.course.globalId
@@ -2025,25 +2029,59 @@ public final class LiveRoundAppModel: ObservableObject {
         guard snapshot.dataMode != "fixture", snapshot.course.globalId > 0 else { return }
         var changed = false
         var seen = Set<Int>()
-        for loop in snapshot.roundLoops where seen.insert(loop.globalId).inserted {
+        var loops = snapshot.loopEntries
+        var catalogueLoopPositions: [Int: Int] = [:]
+        // A nine-hole loop's second nine can come from a sibling loop at the same venue. The
+        // turn planner already resolves that catalogue, so use the same candidates for the
+        // background template queue instead of only retaining the loop in the live package.
+        if let first = snapshot.roundLoops.first, !first.isCourseHalf {
+            let candidates = NineLoopTurn.candidateLoops(package: snapshot, catalogue: courseOptions)
+            for (position, candidate) in candidates.enumerated() {
+                catalogueLoopPositions[NineLoopTurn.entry(candidate.id)?.globalId ?? -1] = position
+            }
+            for candidate in candidates {
+                guard let entry = NineLoopTurn.entry(candidate.id),
+                      !loops.contains(where: { NineLoopTurn.loopId($0) == candidate.id }) else { continue }
+                loops.append(entry)
+            }
+        }
+        // Stable per round, so a repeated call for the same round does not rewrite (and persist) every row.
+        let queueGroupID = catalogueLoopPositions.count > 1 ? "round:\(snapshot.roundId)" : nil
+        for loop in loops where seen.insert(loop.globalId).inserted {
             if loop.globalId == snapshot.course.globalId, snapshot.wholeCourseTemplate() != nil {
                 continue
             }
-            let holes = loop.isCourseHalf ? RoundLoopEntry.holesPerLoop * 2 : RoundLoopEntry.holesPerLoop
-            let candidate = PrepCourseDownloadRecord(
+            let isCourseHalf = loop.half == "front" || loop.half == "back"
+            let holes = isCourseHalf ? RoundLoopEntry.holesPerLoop * 2 : RoundLoopEntry.holesPerLoop
+            let option = courseOptions.first(where: { $0.globalId == loop.globalId })
+            var candidate = PrepCourseDownloadRecord(
                 course: MobileCourseOption(
                     globalId: loop.globalId,
-                    name: snapshot.course.venueDisplayName,
+                    name: option?.name ?? snapshot.course.venueDisplayName,
                     holes: holes,
                     teeBox: snapshot.course.teeBox,
-                    venueName: snapshot.course.venueName,
-                    venueNameSource: snapshot.course.venueNameSource,
-                    segmentHoles: holes
+                    venueName: option?.venueName ?? snapshot.course.venueName,
+                    venueNameSource: option?.venueNameSource ?? snapshot.course.venueNameSource,
+                    segmentLabel: option?.segmentLabel ?? (
+                        loop.half == "front" ? "前九" :
+                        loop.half == "back" ? "后九" : snapshot.course.segmentLabel
+                    ),
+                    segmentHoles: option?.segmentHoles ?? holes
                 ),
                 teeBox: snapshot.course.teeBox,
                 totalHoles: holes
             )
+            if let queueGroupID, let queuePosition = catalogueLoopPositions[loop.globalId] {
+                candidate.queueGroupID = queueGroupID
+                candidate.queuePosition = queuePosition
+            }
             if let index = prepCourseDownloads.firstIndex(where: { $0.id == candidate.id }) {
+                if prepCourseDownloads[index].queueGroupID != candidate.queueGroupID
+                    || prepCourseDownloads[index].queuePosition != candidate.queuePosition {
+                    prepCourseDownloads[index].queueGroupID = candidate.queueGroupID
+                    prepCourseDownloads[index].queuePosition = candidate.queuePosition
+                    changed = true
+                }
                 if prepCourseDownloads[index].isSpeculative {
                     // The round needs it now: no longer a Wi-Fi-only guess held back during play.
                     prepCourseDownloads[index].isSpeculative = false
@@ -2106,14 +2144,20 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// Test teardown (C85). Cancels the round's background work and waits until each task has ended:
-    /// the personal package with its retry waits, the Garmin raster pass, and what can start them
-    /// again or send package requests of its own — the fresh-entry fallback timer, the all-hole
-    /// download and the prep queue. The personal package and the raster pass never start again on
-    /// this model, so the test can then invalidate its sessions (a task created in an invalidated
-    /// session raises NSGenericException and takes the whole test process down).
+    /// the personal package with its retry waits, the Garmin raster pass, pending package geometry,
+    /// and what can start them again or send package requests of its own — the fresh-entry fallback
+    /// timer, the all-hole download and the prep queue. The personal package and the raster pass
+    /// never start again on this model, so the test can then invalidate its sessions (a task created
+    /// in an invalidated session raises NSGenericException and takes the whole test process down).
     func stopRoundBackgroundWorkForTesting() async {
         roundBackgroundWorkStoppedForTesting = true
-        let running = [roundEnrichmentTask, garminRasterDownloadTask, freshEntryReleaseTask, offlineCourseDownloadTask]
+        let running = [
+            roundEnrichmentTask,
+            garminRasterDownloadTask,
+            freshEntryReleaseTask,
+            offlineCourseDownloadTask,
+            pendingGeometryRefreshTask,
+        ]
         cancelRoundEnrichment()
         cancelGarminRasterDownload()
         clearFreshEntryRelease()
@@ -2121,9 +2165,12 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadTask = nil
         offlineCourseDownloadRoundId = nil
         interruptedOfflineCourseDownloadRoundId = nil
+        pendingGeometryRefreshTask?.cancel()
+        pendingGeometryRefreshTask = nil
         for task in running {
             await task?.value
         }
+        pendingGeometryRefreshExecuting = false
         // Last: a cancelled all-hole download still hands over to the prep queue as it ends.
         await cancelPrepCourseDownloadForTesting()
     }
@@ -4060,6 +4107,7 @@ public final class LiveRoundAppModel: ObservableObject {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
 #endif
             beginOfflineCourseDownload(revalidatePackage: true, priorityHole: startHole)
+            beginRoundEnrichmentIfNeeded()
             return true
         } catch {
             AICaddieLog.storage.error("First-stroke start failed: \(String(describing: error), privacy: .public)")
@@ -5201,7 +5249,7 @@ public final class LiveRoundAppModel: ObservableObject {
 
     @discardableResult
     private func persistPrepCourseDownloads() -> Bool {
-        prepCourseDownloads.sort { $0.updatedAt > $1.updatedAt }
+        prepCourseDownloads = orderedPrepCourseDownloads(prepCourseDownloads)
         do {
             try offlineStore.savePrepCourseDownloads(prepCourseDownloads)
             return true
@@ -5223,6 +5271,41 @@ public final class LiveRoundAppModel: ObservableObject {
         update(&prepCourseDownloads[index])
         prepCourseDownloads[index].updatedAt = Date()
         persistPrepCourseDownloads()
+    }
+
+    /// Keep one catalogue expansion together and in its factual A/B/C order. Independent rows
+    /// retain the library's established newest-updated-first ordering. The group timestamp is the
+    /// newest row in that expansion, so a progress write moves the batch as one visible/worker
+    /// priority while its internal order remains stable.
+    private func orderedPrepCourseDownloads(
+        _ records: [PrepCourseDownloadRecord]
+    ) -> [PrepCourseDownloadRecord] {
+        let groupDates = Dictionary(grouping: records.compactMap { record -> (String, Date)? in
+            guard let group = record.queueGroupID else { return nil }
+            return (group, record.updatedAt)
+        }, by: { $0.0 }).mapValues { values in
+            values.map(\.1).max() ?? .distantPast
+        }
+        return records.sorted { lhs, rhs in
+            if let lhsGroup = lhs.queueGroupID,
+               let rhsGroup = rhs.queueGroupID,
+               lhsGroup == rhsGroup,
+               let lhsPosition = lhs.queuePosition,
+               let rhsPosition = rhs.queuePosition,
+               lhsPosition != rhsPosition {
+                return lhsPosition < rhsPosition
+            }
+            let lhsDate = lhs.queueGroupID.flatMap { groupDates[$0] } ?? lhs.updatedAt
+            let rhsDate = rhs.queueGroupID.flatMap { groupDates[$0] } ?? rhs.updatedAt
+            if lhsDate != rhsDate { return lhsDate > rhsDate }
+            if lhs.queueGroupID == rhs.queueGroupID,
+               let lhsPosition = lhs.queuePosition,
+               let rhsPosition = rhs.queuePosition,
+               lhsPosition != rhsPosition {
+                return lhsPosition < rhsPosition
+            }
+            return lhs.id < rhs.id
+        }
     }
 
     private func readyPrepTemplate(for record: PrepCourseDownloadRecord) -> LiveRoundPackage? {
@@ -5574,6 +5657,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// live hole. A 备战 action the player takes (`userRequested`) is never held behind it; the
     /// worker then runs only the jobs the player asked for until the release.
     private func startPrepCourseDownloadQueueIfNeeded(userRequested id: String? = nil) {
+        #if DEBUG
+        guard !roundBackgroundWorkStoppedForTesting else { return }
+        #endif
         if let id { userRequestedPrepDownloadIDs.insert(id) }
         // A cold course can keep the worker for minutes; a job someone asked for does not wait behind
         // a guess, and a guess stops when its network no longer allows it.
@@ -5632,7 +5718,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// which restarts the worker (`beginOfflineCourseDownload` → `startPrepCourseDownloadQueueIfNeeded`).
     private func nextPrepCourseDownloadJob() -> PrepCourseDownloadRecord? {
         let freshEntryPending = deferredOfflineCourseDownloadRevalidation != nil
-        return prepCourseDownloads
+        let eligible = prepCourseDownloads
             .filter { $0.phase == .queued }
             .filter { !freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id) }
             .filter { foregroundCourseRequestCount == 0 || !$0.yieldsToForeground }
@@ -5640,12 +5726,14 @@ public final class LiveRoundAppModel: ObservableObject {
             // flight; it waits for the start's first stage, then for the fresh-entry release.
             .filter { roundPreparationToken == nil || !$0.yieldsToForeground }
             .filter { !$0.isSpeculative || speculativeJobMayStart }
-            // Every job the player or a round asked for goes before a speculative one.
-            .sorted(by: { lhs, rhs in
-                if lhs.isSpeculative != rhs.isSpeculative { return rhs.isSpeculative }
-                return lhs.updatedAt > rhs.updatedAt
-            })
-            .first
+        // Every job the player or a round asked for goes before a speculative one. The stable
+        // catalogue ordering is then applied inside that priority class.
+        let catalogueOrder = orderedPrepCourseDownloads(eligible)
+        let orderIndex = Dictionary(uniqueKeysWithValues: catalogueOrder.enumerated().map { ($1.id, $0) })
+        return eligible.sorted(by: { lhs, rhs in
+            if lhs.isSpeculative != rhs.isSpeculative { return rhs.isSpeculative }
+            return orderIndex[lhs.id, default: .max] < orderIndex[rhs.id, default: .max]
+        }).first
     }
 
     // MARK: - 可能会打 (speculative course downloads)
@@ -6283,6 +6371,9 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func schedulePendingGeometryRefresh(for snapshot: LiveRoundPackage) {
+        #if DEBUG
+        guard !roundBackgroundWorkStoppedForTesting else { return }
+        #endif
         if !pendingGeometryRefreshExecuting {
             pendingGeometryRefreshTask?.cancel()
             pendingGeometryRefreshTask = nil
@@ -6318,6 +6409,9 @@ public final class LiveRoundAppModel: ObservableObject {
                   self.package?.roundId == roundId,
                   self.liveRoundState?.roundId == roundId,
                   self.package?.course.globalId == globalId else { return }
+            #if DEBUG
+            guard !self.roundBackgroundWorkStoppedForTesting else { return }
+            #endif
             self.pendingGeometryLastAttemptEpoch = retryAfter
             self.pendingGeometryRefreshExecuting = true
             defer { self.pendingGeometryRefreshExecuting = false }
@@ -6331,6 +6425,9 @@ public final class LiveRoundAppModel: ObservableObject {
                       self.liveRoundState?.roundId == roundId,
                       refreshed.roundId == roundId,
                       refreshed.course.globalId == globalId else { return }
+                #if DEBUG
+                guard !self.roundBackgroundWorkStoppedForTesting else { return }
+                #endif
                 let persisted = try self.offlineStore.saveRoundPackage(refreshed)
                 let remainsPending = persisted.holes.contains {
                     $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame

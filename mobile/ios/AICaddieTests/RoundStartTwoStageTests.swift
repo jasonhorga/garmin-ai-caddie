@@ -399,6 +399,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         let held = C85HeldRequests()
         let requests = C85Counter()
         let stopped = C85Counter()
+        let latePaths = C85RequestLog()
         let fullSent = expectation(description: "full package requested")
         let lateRequest = expectation(description: "a request after the stop")
         lateRequest.isInverted = true
@@ -409,7 +410,10 @@ final class RoundStartTwoStageTests: XCTestCase {
             // through the shared session, which is never invalidated, and ask for `Accept: image/*`.
             if proto.request.value(forHTTPHeaderField: "Accept")?.hasPrefix("image/") != true {
                 requests.increment()
-                if stopped.value > 0, lateRequestOnce.claim() { lateRequest.fulfill() }
+                if stopped.value > 0 {
+                    latePaths.append(proto.request)
+                    if lateRequestOnce.claim() { lateRequest.fulfill() }
+                }
             }
             guard proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package" else {
                 proto.reply(404); return
@@ -450,6 +454,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         await fulfillment(of: [fullSent], timeout: eventWait)
 
         await model.stopRoundBackgroundWorkForTesting()
+        await waitForNoRunningTasks(fixture.session)
         let requestsAtStop = requests.value
         stopped.set(1)
         // Push everything that could start work again: the held personal package fails now (a live
@@ -459,9 +464,44 @@ final class RoundStartTwoStageTests: XCTestCase {
         model.liveHoleInitialLoadDidFinish()
         await fulfillment(of: [lateRequest], timeout: 2)
 
-        XCTAssertEqual(requests.value, requestsAtStop, "no request after the stop")
+        let paths = latePaths.all.compactMap { request -> String? in
+            guard let url = request.url else { return nil }
+            return url.path + (url.query.map { "?\($0)" } ?? "")
+        }
+        XCTAssertEqual(requests.value, requestsAtStop, "no request after the stop; paths=\(paths)")
         XCTAssertEqual(rasterCalls.value, 1, "the raster pass ended at the stop")
         XCTAssertEqual(model.package?.clubProfiles, [], "the personal package was never merged")
+    }
+
+    /// A first stroke starts a deferred map-only round even when the hole screen has not called
+    /// `liveHoleInitialLoadDidFinish` yet. The player's first action must release the personal
+    /// package fetch; waiting for a later view callback leaves the round without clubs/history.
+    func testFirstStrokeReleasesDeferredPersonalPackage() async throws {
+        let host = "c102-first-stroke.example.test"
+        let roundId = "c102-first-stroke"
+        let mapPackage = try package(roundId: roundId, mapOnly: true)
+        let fullPackage = try package(roundId: roundId, mapOnly: false)
+        let fullData = try JSONEncoder().encode(fullPackage)
+        let fullSent = expectation(description: "personal package requested after first stroke")
+        let fullSentOnce = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            guard proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package",
+                  c33Query(proto.request, "map_only") != "true" else {
+                proto.reply(404)
+                return
+            }
+            if fullSentOnce.claim() { fullSent.fulfill() }
+            proto.reply(200, fullData)
+        })
+        let fixture = makeModel(host: host)
+        let model = fixture.model
+        model.enterPrepMode(with: mapPackage, hole: 1)
+
+        XCTAssertTrue(model.startRoundFromFirstStroke(startHole: 1))
+        await fulfillment(of: [fullSent], timeout: eventWait)
+        await model.waitForRoundEnrichmentForTesting()
+        XCTAssertFalse(model.package?.clubProfiles.isEmpty ?? true)
     }
 
     /// The fallback behind the hook: once a test has invalidated the client, a request fails with
@@ -500,6 +540,20 @@ final class RoundStartTwoStageTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// URLSession can deliver a request to URLProtocol after the model's cancellation hook returns.
+    /// Drain running tasks before taking the stop counter snapshot so that delivery belongs to the
+    /// pre-stop side of this test's boundary, rather than becoming a false late request.
+    private func waitForNoRunningTasks(_ session: URLSession) async {
+        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            let tasks: [URLSessionTask] = await withCheckedContinuation { continuation in
+                session.getAllTasks { continuation.resume(returning: $0) }
+            }
+            if tasks.allSatisfy({ $0.state != .running }) { return }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
 
     private struct ModelFixture {
         let model: LiveRoundAppModel

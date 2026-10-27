@@ -591,6 +591,11 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     /// played before, ranked by rounds), not for a round now. Wi-Fi only by default, lowest priority,
     /// hidden from 备战, and dropped once it ends. False for persisted rows from older builds.
     public var isSpeculative: Bool
+    /// Rows discovered together while expanding one round's catalogue keep their factual loop
+    /// order in the library and worker. Nil for rows created by older builds or an explicit
+    /// single-course download, which continue to use `updatedAt` ordering.
+    public var queueGroupID: String?
+    public var queuePosition: Int?
 
     public init(
         course: MobileCourseOption,
@@ -603,7 +608,9 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         errorText: String? = nil,
         requiredGeometryRevisions: [String: String]? = nil,
         isIntentPrefetch: Bool = false,
-        isSpeculative: Bool = false
+        isSpeculative: Bool = false,
+        queueGroupID: String? = nil,
+        queuePosition: Int? = nil
     ) {
         let rawTee = (teeBox ?? course.teeBox ?? "blue")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -622,6 +629,10 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
             : nil
         self.isIntentPrefetch = isIntentPrefetch
         self.isSpeculative = isSpeculative
+        self.queueGroupID = queueGroupID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? queueGroupID
+            : nil
+        self.queuePosition = queuePosition
     }
 
     /// Jobs the app queued on its own give way to a round start and to course search / nearby.
@@ -640,6 +651,7 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, course, teeBox, phase, preparedHoles, downloadedHoles, totalHoles, updatedAt
         case errorText, requiredGeometryRevisions, isIntentPrefetch, isSpeculative
+        case queueGroupID, queuePosition
     }
 
     /// The id is re-derived on decode, so a row persisted under the v1 `gid:tee:nine` key joins
@@ -661,6 +673,8 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         )
         isIntentPrefetch = try container.decodeIfPresent(Bool.self, forKey: .isIntentPrefetch) ?? false
         isSpeculative = try container.decodeIfPresent(Bool.self, forKey: .isSpeculative) ?? false
+        queueGroupID = try container.decodeIfPresent(String.self, forKey: .queueGroupID)
+        queuePosition = try container.decodeIfPresent(Int.self, forKey: .queuePosition)
     }
 
     public var isActive: Bool {

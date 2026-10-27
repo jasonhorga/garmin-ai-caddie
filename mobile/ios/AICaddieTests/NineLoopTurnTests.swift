@@ -192,6 +192,25 @@ final class NineLoopTurnTests: XCTestCase {
         XCTAssertEqual(candidates.map(\.id), ["7:all", "8:all"])
     }
 
+    func testOfflineTurnCanChooseTheSiblingNineLoop() throws {
+        let package = try halfRoundPackage(loops: [RoundLoopEntry(globalId: 7, half: "all")])
+        let catalogue = [
+            MobileCourseOption(globalId: 7, name: "球会 ~ A", holes: 9,
+                               venueName: "球会", segmentLabel: "A", segmentHoles: 9),
+            MobileCourseOption(globalId: 8, name: "球会 ~ B", holes: 9,
+                               venueName: "球会", segmentLabel: "B", segmentHoles: 9),
+        ]
+        var plan = try XCTUnwrap(NineLoopTurn.planAtEndOfFirstLoop(
+            package: package,
+            catalogue: catalogue,
+            remembered: [:],
+            history: []
+        ))
+
+        plan.chooseSecond(.loop("8:all"))
+        XCTAssertEqual(plan.second, .loop("8:all"))
+    }
+
     func testFinishSummaryZeroHoleAndSingleNineActions() {
         XCTAssertTrue(LiveRoundFinishSummaryView.showsAddNine(canAddNine: true, recordedHoleCount: 1))
         XCTAssertFalse(LiveRoundFinishSummaryView.showsAddNine(canAddNine: true, recordedHoleCount: 0))
