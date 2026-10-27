@@ -3511,7 +3511,7 @@ class ServerV2MobileTests(unittest.TestCase):
             "roundId": "bad-start", "timestamp": "2026-06-20T00:00:00Z", "hole": 5,
             "kind": "score", "payload": {"strokes": 1},
         }
-        for invalid_start in (0, -1, True, 5.5, "5"):
+        for invalid_start in (0, -1, True, 5.5, "5", 99):
             with self.subTest(startHole=invalid_start), TemporaryDirectory() as tmp:
                 with patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)):
                     response = TestClient(app).post(
