@@ -131,6 +131,22 @@ final class ProductPhoneUITests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 10), .completed, name)
             app.terminate()
         }
+
+        // A cached non-empty home must not survive a server answer that now contains zero rounds.
+        // The app deliberately waits three seconds before refreshing this cold cache (AICaddieApp).
+        var populated = ProductFixtureServer.State(); populated.roundCount = 3
+        server.configure(populated)
+        launch()
+        scores()
+        XCTAssertTrue(element("results-all-rounds").waitForExistence(timeout: 10), "populated cache seed")
+        app.terminate()
+
+        var emptyServer = ProductFixtureServer.State(); emptyServer.roundCount = 0
+        server.configure(emptyServer)
+        launch(reset: false)
+        Thread.sleep(forTimeInterval: 3)
+        scores()
+        XCTAssertTrue(element("results-empty").waitForExistence(timeout: 10), "server zero rounds replace old cache")
     }
 
     func test_j2_2_range_and_grain_disable_illegal_combinations_without_changing_range() {
@@ -424,6 +440,24 @@ final class ProductPhoneUITests: XCTestCase {
         insideWindow(par, "nine recorded holes")
         XCTAssertEqual(integers(in: par.label), [36, 9, 9], "recorded par, played holes, course holes")
         insideWindow(element("live-finish-save"), "save summary")
+    }
+
+    func test_j5_11_shortcut_start_keeps_actual_club_sheet_after_first_stroke() {
+        launch(latitude: "0")
+        let shortcut = element("home-quick-course-82001")
+        XCTAssertTrue(shortcut.waitForExistence(timeout: 15), "fixture nearby course exposes the shortcut")
+        shortcut.tap()
+        let start = element("start-round-primary-action")
+        XCTAssertTrue(start.waitForExistence(timeout: 15))
+        reveal(start)
+        XCTAssertTrue(start.isEnabled)
+        start.tap()
+        XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 15))
+
+        tap("live-record-shot")
+        let prompt = app.staticTexts["这一杆用了什么球杆？"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8), "shortcut start must preserve the first-stroke club sheet")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "跳过球杆")).firstMatch.exists)
     }
 
     func test_j5_2_home_active_card_replaces_new_round_and_can_resume() {
