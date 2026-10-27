@@ -696,6 +696,7 @@ public struct CurrentHoleView: View {
     @State private var liveChromeRects: [LiveChromeRect] = []
     @State private var liveHeroFrame: CGRect = .zero
     @State private var preciseTopoImageReady = false
+    @State private var preciseTopoDecodeFailed = false
     @State private var hasEmbeddedTopoImage = false
     @State private var resolvedLocalTopoURL: URL?
     @State private var garminRasterImageFailed = false
@@ -1245,6 +1246,7 @@ public struct CurrentHoleView: View {
             garminRaster = sessionEntry().garminRaster
                 ?? Self.packageGarminRaster(for: hole)
             preciseTopoImageReady = false
+            preciseTopoDecodeFailed = false
             garminRasterImageFailed = false
             garminRasterImageReady = false
             if let url = liveGarminRasterURL {
@@ -1343,9 +1345,11 @@ public struct CurrentHoleView: View {
         .task(id: "\(liveTopoURL?.absoluteString ?? ""):\(isSelected)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected),
                   let requestedURL = liveTopoURL else { return }
+            preciseTopoDecodeFailed = false
             let ready = await TopoHoleImageStore.ensureLoaded(requestedURL)
             guard !Task.isCancelled, liveTopoURL == requestedURL else { return }
             preciseTopoImageReady = ready
+            preciseTopoDecodeFailed = !ready
         }
         .task(id: "\(garminDescriptorRecoveryKey):\(isSelected)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
@@ -2787,8 +2791,14 @@ public struct CurrentHoleView: View {
                              partialOverlayMatchesTopo: LiveTopoAvailability.overlayCompatible(
                                  hole: hole, prep: holePrep
                              ),
-                             onPreciseImageReady: { preciseTopoImageReady = true },
-                             onPreciseImageFailed: { preciseTopoImageReady = false },
+                             onPreciseImageReady: {
+                                 preciseTopoImageReady = true
+                                 preciseTopoDecodeFailed = false
+                             },
+                             onPreciseImageFailed: {
+                                 preciseTopoImageReady = false
+                                 preciseTopoDecodeFailed = true
+                             },
                              onGarminImageReady: {
                                  garminRasterImageReady = true
                                  garminRasterImageRetrying = false
@@ -3236,6 +3246,7 @@ public struct CurrentHoleView: View {
     }
 
     private var hasPreciseTopoImage: Bool {
+        guard !preciseTopoDecodeFailed else { return false }
         if hasEmbeddedTopoImage { return true }
         guard let url = liveTopoURL else { return false }
         // A file URL means the exact PNG is available, but it is not drawable until its bytes
@@ -3247,7 +3258,8 @@ public struct CurrentHoleView: View {
     /// state. Decode readiness is tracked separately so the first selected frame cannot flash a
     /// Garmin bitmap while the local PNG is being promoted into memory.
     private var hasPreciseTopoAvailable: Bool {
-        hasEmbeddedTopoImage || resolvedLocalTopoURL != nil || preciseTopoImageReady
+        guard !preciseTopoDecodeFailed else { return false }
+        return hasEmbeddedTopoImage || resolvedLocalTopoURL != nil || preciseTopoImageReady
             || hasCachedTopoForCurrentHole
     }
 
@@ -3352,6 +3364,7 @@ public struct CurrentHoleView: View {
     }
 
     private var hasCachedTopoForCurrentHole: Bool {
+        guard !preciseTopoDecodeFailed else { return false }
         if localTopoURL != nil { return true }
         return liveTopoURL.map { TopoHoleImageStore.isMemoryCached($0) } ?? false
     }

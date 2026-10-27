@@ -21,6 +21,19 @@ final class LiveMapFirstFrameTests: XCTestCase {
         XCTAssertEqual(state, .factualPending)
     }
 
+    func testFailedPreciseDecodeAllowsReadyGarminFallback() {
+        let state = LiveMapDisplayState.resolveLive(.init(
+            coverage: "ready",
+            preciseTopoImageReady: false,
+            garminRaster: GarminRasterResponse(available: true, imageUrl: "/garmin.png"),
+            garminImageReady: true,
+            garminImageFailed: false,
+            hasCachedPreciseTopo: false,
+            preciseTopoAvailable: false
+        ))
+        XCTAssertEqual(state, .garminRaster)
+    }
+
     func testNeighbourLookupUsesTheSameLocalURLThatPrefetchDecodes() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("live-map-first-frame-\(UUID().uuidString)", isDirectory: true)
