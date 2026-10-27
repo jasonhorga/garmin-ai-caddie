@@ -59,17 +59,22 @@ def _digest(text: str) -> str:
 
 class NativeResultInterfaceTests(NativeMutantReplayCase):
     def test_dispatch_inputs_and_upload_step_follow_agenthubs_interface(self) -> None:
-        # G1: the inputs agenthub already dispatches with (#434's runs were accepted) stay exactly
-        # request_id, head_sha and patch_b64; one upload step names the artifact
+        # G1: the original request_id/head_sha/patch_b64 inputs remain stable, with optional scheme
+        # selectors added for targeted native mutants; one upload step names the artifact
         # `agenthub-native-${{ inputs.request_id }}` exactly and fails when result.json is missing.
         workflow = self._workflow()
         triggers = workflow.get("on", workflow.get(True))
         self.assertIsInstance(triggers, dict)
         inputs = (triggers.get("workflow_dispatch") or {}).get("inputs") or {}
-        self.assertEqual(sorted(inputs), ["head_sha", "patch_b64", "request_id"])
+        self.assertEqual(
+            sorted(inputs),
+            ["head_sha", "include_ui", "only_testing", "patch_b64", "request_id"],
+        )
         self.assertIs(inputs["request_id"].get("required"), True)
         self.assertIs(inputs["head_sha"].get("required"), True)
         self.assertIs((inputs["patch_b64"] or {}).get("required", False), False)
+        self.assertEqual((inputs["only_testing"] or {}).get("default"), "")
+        self.assertIs((inputs["include_ui"] or {}).get("default"), False)
         steps = next(iter((workflow.get("jobs") or {}).values())).get("steps") or []
         uploads = [step for step in steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
         self.assertEqual(len(uploads), 1, "exactly one upload step")

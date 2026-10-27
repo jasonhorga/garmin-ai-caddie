@@ -131,9 +131,25 @@ jobs:
         continue-on-error: true
         working-directory: native-head
         run: xcodegen generate --spec mobile/ios/project.yml --project-root .
+      - name: Select native test schemes
+        id: schemes
+        if: ${{ steps.generate.outcome == 'success' }}
+        env:
+          ONLY_TESTING: ${{ inputs.only_testing }}
+        run: |
+          python3 - <<'PY'
+          import os
+
+          values = [part.strip() for part in os.environ.get("ONLY_TESTING", "").split(",") if part.strip()]
+          all_ui = bool(values) and all(value.startswith("AICaddieUITests/") for value in values)
+          all_watch = bool(values) and all(value.startswith("AICaddieWatchTests/") for value in values)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"ios={'false' if all_ui or all_watch else 'true'}\n")
+              output.write(f"watch={'false' if all_ui else 'true'}\n")
+          PY
       - name: Test iPhone scheme
         id: ios
-        if: ${{ steps.validate.outcome == 'success' && steps.generate.outcome == 'success' }}
+        if: ${{ steps.validate.outcome == 'success' && steps.generate.outcome == 'success' && steps.schemes.outputs.ios == 'true' }}
         continue-on-error: true
         working-directory: native-head
         env:
@@ -151,7 +167,7 @@ jobs:
           xcodebuild "${args[@]}"
       - name: Test Watch scheme
         id: watch
-        if: ${{ steps.validate.outcome == 'success' && steps.generate.outcome == 'success' }}
+        if: ${{ steps.validate.outcome == 'success' && steps.generate.outcome == 'success' && steps.schemes.outputs.watch == 'true' }}
         continue-on-error: true
         working-directory: native-head
         env:
@@ -193,6 +209,9 @@ jobs:
           HEAD_SHA: ${{ inputs.head_sha }}
           APPLY_OUTCOME: ${{ steps.apply.outcome }}
           GENERATE_OUTCOME: ${{ steps.generate.outcome }}
+          INCLUDE_UI: ${{ inputs.include_ui }}
+          SKIP_IOS: ${{ steps.schemes.outputs.ios == 'false' }}
+          SKIP_WATCH: ${{ steps.schemes.outputs.watch == 'false' }}
           PATCH_FILE: ${{ runner.temp }}/native-patch.bin
         run: |
           if [ "$APPLY_OUTCOME" = "failure" ]; then
@@ -202,14 +221,24 @@ jobs:
           else
             STAGE=tested
           fi
-          python3 native-tools/.github/scripts/agenthub_native_result.py \
+          writer_args=(
             --request-id "$REQUEST_ID" \
             --head "$HEAD_SHA" \
             --patch "$PATCH_FILE" \
             --stage "$STAGE" \
             --ios-result "$RUNNER_TEMP/native-ios.xcresult" \
             --watch-result "$RUNNER_TEMP/native-watch.xcresult" \
-            --out native-verdict/result.json
+            --out native-verdict/result.json)
+          if [ "$INCLUDE_UI" = "true" ]; then
+            writer_args+=(--ui-result "$RUNNER_TEMP/native-ui.xcresult")
+          fi
+          if [ "$SKIP_IOS" = "true" ]; then
+            writer_args+=(--skip-ios)
+          fi
+          if [ "$SKIP_WATCH" = "true" ]; then
+            writer_args+=(--skip-watch)
+          fi
+          python3 native-tools/.github/scripts/agenthub_native_result.py "${writer_args[@]}"
       - name: Upload native result
         if: ${{ !cancelled() && steps.write_result.outcome == 'success' }}
         uses: actions/upload-artifact@v4

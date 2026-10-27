@@ -1162,12 +1162,13 @@ class NativeMutantReplayCase(unittest.TestCase):
         return workflow
 
     def _input_names(self, workflow: dict) -> tuple[str, str, str]:
-        # G1: exactly three dispatch inputs: request_id, the head SHA and the base64 patch.
+        # G1: the original request/head/patch inputs remain present; optional scheme selectors may
+        # extend the dispatch interface without changing the baseline replay.
         triggers = workflow.get("on", workflow.get(True))
         self.assertIsInstance(triggers, dict, "`on:` must be a mapping with workflow_dispatch")
         dispatch = triggers.get("workflow_dispatch") or {}
         inputs = dispatch.get("inputs") or {}
-        self.assertEqual(len(inputs), 3, f"expected three inputs, found {list(inputs)}")
+        self.assertGreaterEqual(len(inputs), 3, f"expected at least three inputs, found {list(inputs)}")
         self.assertIn("request_id", inputs)
         sha = [name for name in inputs if name != "request_id" and "sha" in name.lower()]
         patch = [name for name in inputs if name != "request_id" and "patch" in name.lower()]
@@ -1433,7 +1434,10 @@ class NativeMutantWorkflowTests(NativeMutantReplayCase):
                 f"the job's timeout-minutes, if set, is a literal of at least 60, not {timeout!r}",
             )
         self.assertNotIn("secrets.", text)
-        self.assertNotIn("AICaddieUITests", text)
+        self.assertIn("AICaddieUITests", text, "the optional UI scheme must be available for UI mutants")
+        inputs = triggers["workflow_dispatch"]["inputs"]
+        self.assertEqual(inputs["only_testing"].get("default"), "")
+        self.assertIs(inputs["include_ui"].get("default"), False)
         steps = job.get("steps") or []
         self.assertEqual(
             [step.get("name") or step.get("uses") for step in steps if "timeout-minutes" in step],
