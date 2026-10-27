@@ -1381,6 +1381,28 @@ final class RealFlowUITests: XCTestCase {
         )
         settle(1); save("09e-new-course-precise-map"); dump("09e-new-course-precise-map")
 
+        // Preparation is deliberately in-memory until the first stroke. Force-quitting here must
+        // return to the new-round entry without manufacturing an in-progress round.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
+        XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 60),
+                      "a prep-only course must return to the new-round entry")
+        XCTAssertFalse(app.buttons["home-in-progress-round"].exists,
+                       "prep-only process death must not create an active round")
+
+        // Re-enter the selected course so the following first-stroke recovery checks remain part
+        // of the same new-course journey.
+        XCTAssertTrue(openStartRound())
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        let resumedSegment = selectStartCourse(evidence.globalId)
+        XCTAssertTrue(resumedSegment.exists)
+        let resumedPrimary = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(waitUntilEnabled(resumedPrimary, timeout: 90))
+        XCTAssertTrue(scrollTo(resumedPrimary, maxSwipes: 20))
+        resumedPrimary.tap()
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 90))
+
         // A new course becomes a real round only after the first stroke.  Force-quit at that point
         // and prove the persisted card restores the same hole, map and structured caddie route.
         try recordJourneyShot(selectActualClub: false)
@@ -1430,17 +1452,6 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 20), "finishing must clear the active card")
         XCTAssertFalse(app.buttons["home-in-progress-round"].exists, "finished new-course data must be cleaned up")
 
-        // A course opened without a stroke remains preparation-only across process death.
-        app.terminate()
-        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LAT")
-        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LON")
-        app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "authorized"
-        app.launch()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
-        let newRound = app.buttons["home-new-round"]
-        XCTAssertTrue(newRound.waitForExistence(timeout: 60), "prep-only course must return to the new-round entry")
-        XCTAssertFalse(app.buttons["home-in-progress-round"].exists, "prep-only course must not create an active round")
-        settle(1); save("09f-new-course-prep-only-home"); dump("09f-new-course-prep-only-home")
     }
 
     // MARK: - navigation helpers

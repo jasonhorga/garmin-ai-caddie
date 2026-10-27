@@ -137,6 +137,8 @@ final class ProductPhoneUITests: XCTestCase {
         var populated = ProductFixtureServer.State(); populated.roundCount = 3
         server.configure(populated)
         launch()
+        let cachedTrend = element("home-recent-trend")
+        XCTAssertTrue(cachedTrend.waitForExistence(timeout: 2), "reset:false must first show the cached trend")
         scores()
         XCTAssertTrue(element("results-all-rounds").waitForExistence(timeout: 10), "populated cache seed")
         app.terminate()
@@ -144,6 +146,11 @@ final class ProductPhoneUITests: XCTestCase {
         var emptyServer = ProductFixtureServer.State(); emptyServer.roundCount = 0
         server.configure(emptyServer)
         launch(reset: false)
+        let statsRequest = XCTNSPredicateExpectation(predicate: NSPredicate { [server] _, _ in
+            server?.requestedPaths().contains { $0.hasPrefix("/api/v2/history/stats/mobile") } == true
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [statsRequest], timeout: 10), .completed,
+                       "reset:false must refresh the cached results from the fixture")
         // Zero rounds hide the home trend entry (as in the fresh empty case above), so the cached
         // populated entry must disappear once the delayed refresh lands.
         let trend = element("home-recent-trend")
@@ -425,6 +432,10 @@ final class ProductPhoneUITests: XCTestCase {
             if hole == 1 { recordFirstShot() }
             tap("live-score-hole")
             tap("score-save")
+            let trace = element("debug-pager-trace")
+            XCTAssertTrue(trace.waitForExistence(timeout: 5), "pager trace is enabled for hole \(hole)")
+            XCTAssertFalse(trace.label.contains("correction binding bounce"),
+                           "hole \(hole) must not record a correction binding bounce")
         }
         attachPagerEvidence("j5_10-after-nine-scores")
         if element("turn-stop").waitForExistence(timeout: 5) {
@@ -443,9 +454,6 @@ final class ProductPhoneUITests: XCTestCase {
         insideWindow(par, "nine recorded holes")
         XCTAssertEqual(integers(in: par.label), [36, 9, 9], "recorded par, played holes, course holes")
         insideWindow(element("live-finish-save"), "save summary")
-        let trace = element("debug-pager-trace")
-        XCTAssertTrue(trace.waitForExistence(timeout: 5), "pager trace is enabled for the regression journey")
-        XCTAssertFalse(trace.label.contains("correction binding bounce"), "pager correction must not bounce after the q2 fix")
     }
 
     func test_j5_11_shortcut_start_keeps_actual_club_sheet_after_first_stroke() {
@@ -464,7 +472,16 @@ final class ProductPhoneUITests: XCTestCase {
         tap("live-record-shot")
         let prompt = app.staticTexts["这一杆用了什么球杆？"]
         XCTAssertTrue(prompt.waitForExistence(timeout: 8), "shortcut start must preserve the first-stroke club sheet")
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "跳过球杆")).firstMatch.exists)
+        // The route upgrade can replace the hole view after the sheet first appears. Let that
+        // transition settle before asserting that the sheet remains presented.
+        Thread.sleep(forTimeInterval: 2.5)
+        XCTAssertTrue(prompt.exists, "the club sheet must survive the settled shortcut route")
+        let skip = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "跳过球杆")).firstMatch
+        XCTAssertTrue(skip.waitForExistence(timeout: 8))
+        skip.tap()
+        let title = element("live-hole-title")
+        XCTAssertTrue(title.waitForExistence(timeout: 8))
+        XCTAssertTrue(title.label.contains("1"), "skipping the club must remain on the first hole")
     }
 
     func test_j5_2_home_active_card_replaces_new_round_and_can_resume() {
