@@ -2250,9 +2250,9 @@ public final class OfflineStore {
                         state.longitude = longitude
                     }
                 } else {
-                    // A poor fix remains telemetry, but it must not restore a known map position.
-                    state.latitude = nil
-                    state.longitude = nil
+                    // A poor follow-up fix remains telemetry, but it must not overwrite a known
+                    // position already established by a better fix. A poor first fix leaves both
+                    // coordinates nil because the state starts without a landing.
                 }
                 applyTargetPayload(event.payload, to: &state)
                 switch optionalNumberPayload("horizontalAccuracyM", in: event.payload) {

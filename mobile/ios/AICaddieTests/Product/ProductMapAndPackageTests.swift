@@ -185,6 +185,35 @@ final class ProductMapAndPackageTests: XCTestCase {
         }
     }
 
+    func test_j5_5_poor_followup_location_keeps_previous_good_coordinates() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        var eventIndex = 0
+        let builder = LiveRoundEventBuilder(roundId: "synthetic", idFactory: {
+            eventIndex += 1
+            return "location-\(eventIndex)"
+        })
+        try store.appendEvent(builder.makeLocationEvent(
+            hole: 1,
+            coordinate: CLLocationCoordinate2D(latitude: 0.001, longitude: 0.002),
+            horizontalAccuracyM: 5
+        ))
+        try store.appendEvent(builder.makeLocationEvent(
+            hole: 1,
+            coordinate: CLLocationCoordinate2D(latitude: 0.009, longitude: 0.009),
+            horizontalAccuracyM: 120
+        ))
+
+        let state = try XCTUnwrap(
+            store.restoreLiveRoundState(roundId: "synthetic", package: ProductInputs.package())
+                .holeState(for: 1)
+        )
+        XCTAssertEqual(state.latitude, 0.001)
+        XCTAssertEqual(state.longitude, 0.002)
+        XCTAssertEqual(state.horizontalAccuracyM, 120)
+    }
+
     func test_j8_3_optional_sections_old_and_future_data_decode_without_losing_facts() throws {
         let rows: [(String, [String: Any], Int?, Bool)] = [
             ("old", ["hole": 1, "par": 4, "par_source": "synthetic", "blue_yards": 328, "route_len_m": 300, "steps": [], "cautions": [], "hazards": [:]], nil, false),
