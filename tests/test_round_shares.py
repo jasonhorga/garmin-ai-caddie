@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players, round_ingest, round_shares
 from ai_caddie.core import request_timing
+from ai_caddie.core.config import get_settings
 from server_v2.main import app
 from server_v2 import share_api
 
@@ -45,6 +46,9 @@ class RoundShareTests(unittest.TestCase):
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
+        # Settings are lru_cached; another module may have cached a different AI_CADDIE_DATA_MODE.
+        get_settings.cache_clear()
+        self.addCleanup(get_settings.cache_clear)
         share_api.reset_rate_limits()
         self.addCleanup(share_api.reset_rate_limits)
         self.alice = players.create_player("Alice", root=self.root)

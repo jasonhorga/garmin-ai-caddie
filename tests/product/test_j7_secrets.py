@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from ai_caddie.connectors.base import ConnectorRunResult
 from ai_caddie.history import history, stats_cache
+from ai_caddie.core.config import get_settings
 from ai_caddie.rounds import players
 from server_v2 import reports as reports_api
 from server_v2 import session as session_api
@@ -65,6 +66,9 @@ class J7SecretTests(unittest.TestCase):
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
+        # Settings are lru_cached; another module may have cached a different AI_CADDIE_DATA_MODE.
+        get_settings.cache_clear()
+        self.addCleanup(get_settings.cache_clear)
         stats_cache.clear()
         self.addCleanup(stats_cache.clear)
         # Every sensitive sample is fresh per test process; no fixture or source-text value is
