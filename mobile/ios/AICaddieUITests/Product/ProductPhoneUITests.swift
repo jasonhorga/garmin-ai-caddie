@@ -440,6 +440,9 @@ final class ProductPhoneUITests: XCTestCase {
         insideWindow(par, "nine recorded holes")
         XCTAssertEqual(integers(in: par.label), [36, 9, 9], "recorded par, played holes, course holes")
         insideWindow(element("live-finish-save"), "save summary")
+        let trace = element("debug-pager-trace")
+        XCTAssertTrue(trace.waitForExistence(timeout: 5), "pager trace is enabled for the regression journey")
+        XCTAssertFalse(trace.label.contains("correction binding bounce"), "pager correction must not bounce after the q2 fix")
     }
 
     func test_j5_11_shortcut_start_keeps_actual_club_sheet_after_first_stroke() {
