@@ -649,6 +649,7 @@ public final class OfflineStore {
     private let syncEventLogFile: (URL) throws -> Void
     private let syncEventLogDirectory: (URL) throws -> Void
     private let eventLogLock = NSLock()
+    private let liveRoundProgressLock = NSLock()
     private let resultsCommitLock = NSLock()
     /// Per bound account: start order of the request whose 成绩 answer was last committed.
     private var resultsCommittedRequestStarts: [String: UInt64] = [:]
@@ -798,11 +799,14 @@ public final class OfflineStore {
         resultsCommittedRequestStarts = [:]
         eventLogLock.lock()
         directoryURL = directory
+        logURL = directory.appendingPathComponent("events.jsonl")
         eventLogCache = nil
-        eventLogLock.unlock()
+        liveRoundProgressLock.lock()
+        liveProgressURL = directory.appendingPathComponent("live_progress.json")
         liveRoundProgressCache = nil
         liveRoundProgressCacheLoaded = false
-        logURL = directory.appendingPathComponent("events.jsonl")
+        liveRoundProgressLock.unlock()
+        eventLogLock.unlock()
         packagesDirectoryURL = directory.appendingPathComponent("packages", isDirectory: true)
         courseTemplatesDirectoryURL = directory.appendingPathComponent(
             "course_templates",
@@ -811,7 +815,6 @@ public final class OfflineStore {
         currentPackageURL = directory.appendingPathComponent("current_package.json")
         homePackageURL = directory.appendingPathComponent("home_package.json")
         recentCourseSelectionURL = directory.appendingPathComponent("recent_course_selection.json")
-        liveProgressURL = directory.appendingPathComponent("live_progress.json")
         prepCourseDownloadsURL = directory.appendingPathComponent("prep_course_downloads.json")
         historyRoundsURL = directory.appendingPathComponent("history_rounds.json")
         courseOptionsURL = directory.appendingPathComponent("course_options_v1.json")
@@ -1663,6 +1666,8 @@ public final class OfflineStore {
     }
 
     private func loadLiveRoundProgress() throws -> LiveRoundProgress? {
+        liveRoundProgressLock.lock()
+        defer { liveRoundProgressLock.unlock() }
         if liveRoundProgressCacheLoaded {
             return liveRoundProgressCache
         }
@@ -1683,6 +1688,8 @@ public final class OfflineStore {
     }
 
     private func saveLiveRoundProgress(_ progress: LiveRoundProgress) throws {
+        liveRoundProgressLock.lock()
+        defer { liveRoundProgressLock.unlock() }
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         try encoder.encode(progress).write(to: liveProgressURL, options: [.atomic])
         liveRoundProgressCache = progress
@@ -1756,8 +1763,10 @@ public final class OfflineStore {
         removeCurrentRoundPointerIfMatching(package.roundId)
         if let progress = try? loadLiveRoundProgress(), progress.roundId == package.roundId {
             try? FileManager.default.removeItem(at: liveProgressURL)
+            liveRoundProgressLock.lock()
             liveRoundProgressCache = nil
             liveRoundProgressCacheLoaded = true
+            liveRoundProgressLock.unlock()
         }
     }
 
@@ -1826,8 +1835,10 @@ public final class OfflineStore {
         try? FileManager.default.removeItem(at: packageURL(roundId: roundId))
         if let progress = try? loadLiveRoundProgress(), progress.roundId == roundId {
             try? FileManager.default.removeItem(at: liveProgressURL)
+            liveRoundProgressLock.lock()
             liveRoundProgressCache = nil
             liveRoundProgressCacheLoaded = true
+            liveRoundProgressLock.unlock()
         }
         let mediaIds = Set(try loadPendingMedia(roundId: roundId).map(\.id))
         try removePendingMedia(ids: mediaIds)
