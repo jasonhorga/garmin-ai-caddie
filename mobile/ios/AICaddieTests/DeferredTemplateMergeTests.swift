@@ -102,4 +102,26 @@ final class DeferredTemplateMergeTests: XCTestCase {
             "seeds remain usable where the geometry frame did not change"
         )
     }
+
+    func testCompleteTemplateWinsWhenCoverageReadyCountIsStale() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let existing = try LiveRoundPackageFixture.nineHoleLoop(dataMode: "local")
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(existing)) as? [String: Any])
+        json["generatedAt"] = "2099-01-01T00:00:00Z"
+        json["geometryCoverage"] = [
+            "state": "ready", "readyHoles": 0, "totalHoles": existing.holes.count,
+        ] as [String: Any]
+        let complete = try JSONDecoder().decode(
+            LiveRoundPackage.self,
+            from: JSONSerialization.data(withJSONObject: json)
+        )
+        XCTAssertTrue(complete.hasCompleteOfflineCoursePrep)
+
+        try store.saveCourseTemplate(existing)
+        try store.saveCourseTemplate(complete)
+        let saved = try XCTUnwrap(store.loadCourseTemplate(globalId: 31795, teeBox: "blue"))
+        XCTAssertEqual(saved.generatedAt, "2099-01-01T00:00:00Z")
+    }
 }

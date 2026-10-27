@@ -1585,7 +1585,13 @@ public final class OfflineStore {
         if candidatePrepCount != existingPrepCount {
             return candidatePrepCount > existingPrepCount
         }
-        if candidate.geometryCoverage.readyHoles != existing.geometryCoverage.readyHoles {
+        let candidateComplete = candidate.hasCompleteOfflineCoursePrep
+        let existingComplete = existing.hasCompleteOfflineCoursePrep
+        if candidateComplete != existingComplete {
+            return candidateComplete
+        }
+        if !candidateComplete && !existingComplete,
+           candidate.geometryCoverage.readyHoles != existing.geometryCoverage.readyHoles {
             return candidate.geometryCoverage.readyHoles > existing.geometryCoverage.readyHoles
         }
         func geometryRank(_ state: GeometryCoverageState) -> Int {
