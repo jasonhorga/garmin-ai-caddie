@@ -134,11 +134,15 @@ public struct CoursePrepMissingData: Codable, Equatable {
     public let label: String?
     public let reason: String?
     public let state: String?
+    /// Server scheduled retry for derivative work. A failed export with a future timestamp is
+    /// still retryable and must not be treated as terminal by the live pager.
+    public let retryAfterEpoch: Double?
 
-    public init(label: String?, reason: String?, state: String? = nil) {
+    public init(label: String?, reason: String?, state: String? = nil, retryAfterEpoch: Double? = nil) {
         self.label = label
         self.reason = reason
         self.state = state
+        self.retryAfterEpoch = retryAfterEpoch
     }
 }
 
