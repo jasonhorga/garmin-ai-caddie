@@ -1,6 +1,7 @@
 import XCTest
 @testable import AICaddie
 
+@MainActor
 final class CurrentHoleShotCountTests: XCTestCase {
     private func locationEvent(
         id: String,
@@ -29,15 +30,15 @@ final class CurrentHoleShotCountTests: XCTestCase {
             locationEvent(id: "other-hole", hole: 4, timestamp: "2026-10-27T08:06:00Z"),
             locationEvent(id: "other-round", roundId: "round-2", timestamp: "2026-10-27T08:07:00Z")
         ]
-        let redrawSnapshot = LiveEventLogSnapshot(loader: {
+        let redrawLoad = {
             redrawReads += 1
             return events
-        })
+        }
 
         // One redraw derives the F/M/B shot count, second-shot landing, and newest-shot marker
         // from one snapshot read.
         let redraw = CurrentHoleView.liveHoleEventDerivedValues(
-            from: redrawSnapshot, roundId: "round-1", hole: 3
+            load: redrawLoad, roundId: "round-1", hole: 3
         )
 
         XCTAssertEqual(redraw.markedShots.map(\.eventId), ["tee", "landing"])
@@ -47,21 +48,20 @@ final class CurrentHoleShotCountTests: XCTestCase {
 
         // sendWatchState builds its event portion through the same one-read boundary.
         var sendReads = 0
-        let sendSnapshot = LiveEventLogSnapshot(loader: {
+        let sendLoad = {
             sendReads += 1
             return events
-        })
+        }
         let payload = CurrentHoleView.liveWatchShotPayload(
-            from: sendSnapshot, roundId: "round-1", hole: 3
+            load: sendLoad, roundId: "round-1", hole: 3
         )
         XCTAssertEqual(payload.phoneShotEventIds, redraw.markedShots.map(\.eventId))
         XCTAssertEqual(payload.teeShotLanding?.latitude ?? -1, 40.0)
         XCTAssertEqual(payload.lastShotCapturedAt ?? "", "2026-10-27T08:05:00Z")
         XCTAssertEqual(sendReads, 1)
 
-        sendSnapshot.invalidate()
         _ = CurrentHoleView.liveWatchShotPayload(
-            from: sendSnapshot, roundId: "round-1", hole: 3
+            load: sendLoad, roundId: "round-1", hole: 3
         )
         XCTAssertEqual(sendReads, 2)
     }

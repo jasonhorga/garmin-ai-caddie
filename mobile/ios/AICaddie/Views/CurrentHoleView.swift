@@ -5655,7 +5655,7 @@ public struct CurrentHoleView: View {
         }
         // One event-log read per send (this runs on every GPS fix).
         let shotPayload = Self.liveWatchShotPayload(
-            from: eventSnapshot, roundId: package.roundId, hole: hole.number
+            load: eventSnapshot.events, roundId: package.roundId, hole: hole.number
         )
         let markedShots = shotPayload.markedShots
         let state = watchBridge?.makeWatchRoundStatePayload(
@@ -5919,7 +5919,7 @@ public struct CurrentHoleView: View {
               let prep = holePrep,
               let outline = prep.fairwayOutline else { return nil }
         let shots = Self.liveHoleEventDerivedValues(
-            from: eventSnapshot, roundId: package.roundId, hole: hole.number
+            load: eventSnapshot.events, roundId: package.roundId, hole: hole.number
         ).markedShots
         guard shots.count >= 2,
               case .number(let latitude)? = shots[1].payload["latitude"],
@@ -5972,19 +5972,19 @@ public struct CurrentHoleView: View {
     }
 
     static func liveHoleEventDerivedValues(
-        from snapshot: LiveEventLogSnapshot,
+        load: () -> [LiveRoundEvent],
         roundId: String,
         hole: Int
     ) -> LiveHoleEventDerivedValues {
-        liveHoleEventDerivedValues(from: snapshot.events(), roundId: roundId, hole: hole)
+        liveHoleEventDerivedValues(from: load(), roundId: roundId, hole: hole)
     }
 
     static func liveWatchShotPayload(
-        from snapshot: LiveEventLogSnapshot,
+        load: () -> [LiveRoundEvent],
         roundId: String,
         hole: Int
     ) -> LiveWatchShotPayload {
-        let values = liveHoleEventDerivedValues(from: snapshot, roundId: roundId, hole: hole)
+        let values = liveHoleEventDerivedValues(load: load, roundId: roundId, hole: hole)
         return LiveWatchShotPayload(
             markedShots: values.markedShots,
             lastShotLatitude: values.newestShotCoordinate?.latitude,
@@ -5996,7 +5996,7 @@ public struct CurrentHoleView: View {
 
     private var markedShotsOnHole: [LiveRoundEvent] {
         Self.liveHoleEventDerivedValues(
-            from: eventSnapshot, roundId: package.roundId, hole: hole.number
+            load: eventSnapshot.events, roundId: package.roundId, hole: hole.number
         ).markedShots
     }
 

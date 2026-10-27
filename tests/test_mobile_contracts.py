@@ -5779,6 +5779,24 @@ class WatchHolePagesContractTests(unittest.TestCase):
         self.assertIn("Self.planNote(caddieOption(s), stateRemainingM: s.caddieOptions.isEmpty ? s.expectedRemainingM : nil)", container)
         self.assertNotIn("originShotIndex", bridge + model + self.read("Models/WatchRoundState.swift"))
 
+    def test_current_hole_shot_derivations_use_one_injected_event_loader(self) -> None:
+        current = (Path("mobile") / "ios" / "AICaddie" / "Views" / "CurrentHoleView.swift").read_text(
+            encoding="utf-8"
+        )
+        snapshot_start = current.index("final class LiveEventLogSnapshot")
+        snapshot_end = current.index("\n}\n\nstruct LiveHoleEventDerivedValues", snapshot_start) + 2
+        snapshot = current[snapshot_start:snapshot_end]
+        self.assertEqual(current.count("cachedEvents()"), 1)
+        self.assertIn("return (try? store.cachedEvents()) ?? []", snapshot)
+        self.assertIn("static func liveHoleEventDerivedValues(", current)
+        self.assertIn("load: () -> [LiveRoundEvent]", current)
+        self.assertIn("static func liveWatchShotPayload(", current)
+        send = current[current.index("private func sendWatchState("):]
+        send = send[:send.index("\n    private func playsLikeMetres")]
+        self.assertNotIn("eventSnapshot.events()", send)
+        self.assertIn("load: eventSnapshot.events", send)
+        self.assertGreaterEqual(current.count("load: eventSnapshot.events"), 3)
+
     def test_a_real_recommendation_drives_the_club_tag_and_the_caddie_detail_draws_every_leg(self) -> None:
         container = self.read("Views/WatchRoundContainerView.swift")
         self.assertIn("showCaddieRecommendation: showsRootRecommendation(s, geometry: geometry)", container)
