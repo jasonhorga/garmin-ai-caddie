@@ -239,6 +239,33 @@ final class LiveHolePagerStateTests: XCTestCase {
         XCTAssertEqual(removed.activeHole, 3)
     }
 
+    func testAdvanceWhileSheetIsPresentedSyncsSelectionAfterDismissal() {
+        var pager = LiveHolePagerState()
+        pager.send(.pageSetChanged(ordered: Array(1...18), activeHole: 14))
+        pager.send(.bindingReported(14))
+        pager.send(.presentationChanged(true))
+
+        XCTAssertEqual(pager.send(.advance(15)).activeHoleToPersist, 15)
+        XCTAssertEqual(pager.selection, 14, "the presented page remains selected during dismissal")
+
+        let dismissed = pager.send(.presentationChanged(false))
+        XCTAssertEqual(pager.activeHole, 15)
+        XCTAssertEqual(pager.selection, 15)
+        XCTAssertEqual(dismissed.forceScrollTo, 15)
+    }
+
+    func testProgrammaticJumpWhileSheetIsPresentedSyncsSelectionAfterDismissal() {
+        var pager = LiveHolePagerState()
+        pager.send(.pageSetChanged(ordered: Array(1...18), activeHole: 14))
+        pager.send(.bindingReported(14))
+        pager.send(.presentationChanged(true))
+
+        pager.send(.programmaticHole(15))
+        let dismissed = pager.send(.presentationChanged(false))
+        XCTAssertEqual(pager.selection, 15)
+        XCTAssertEqual(dismissed.forceScrollTo, 15)
+    }
+
     func testRestoredTargetAcknowledgesAReportsAfterInitialSelectionWasUnset() {
         var pager = LiveHolePagerState()
         pager.send(.programmaticHole(10))
