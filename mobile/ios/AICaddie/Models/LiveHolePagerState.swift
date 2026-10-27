@@ -27,6 +27,8 @@ struct LiveHolePagerState: Equatable {
     private(set) var presentationBlocksCorrection = false
     private(set) var correctionAttempts = 0
     private var correctionDeferredByPresentation = false
+    private(set) var deferredOrdered: [Int]? = nil
+    private var deferredActiveHole: Int?
 
     static func swipeStep(
         translationX: Double, translationY: Double, predictedX: Double, scrollDisabled: Bool
@@ -42,9 +44,16 @@ struct LiveHolePagerState: Equatable {
         var effect = Effect()
         switch event {
         case .pageSetChanged(let holes, let active):
-            ordered = holes
             let requested = active ?? activeHole
-            setTarget(requested.flatMap { holes.contains($0) ? $0 : nil } ?? holes.first)
+            if presentationBlocksCorrection {
+                deferredOrdered = holes
+                deferredActiveHole = requested.flatMap { holes.contains($0) ? $0 : nil } ?? holes.first
+                // The model cursor changes immediately; only the native page order waits for the
+                // sheet and its dismissal animation. Keep the old ordered pages mounted.
+                setTarget(requested, clearReport: false)
+            } else {
+                applyPageSet(holes, active: requested, effect: &effect)
+            }
         case .programmaticHole(let hole):
             setTarget(hole)
         case .advance(let hole):
@@ -70,6 +79,12 @@ struct LiveHolePagerState: Equatable {
         case .presentationChanged(let blocked):
             let wasBlocked = presentationBlocksCorrection
             presentationBlocksCorrection = blocked
+            if wasBlocked, !blocked, let holes = deferredOrdered {
+                deferredOrdered = nil
+                let active = deferredActiveHole ?? activeHole
+                deferredActiveHole = nil
+                applyPageSet(holes, active: active, clearReport: false, effect: &effect)
+            }
             if wasBlocked, !blocked, correctionDeferredByPresentation, pendingTarget != nil {
                 requestCorrection(into: &effect)
             }
@@ -108,9 +123,20 @@ struct LiveHolePagerState: Equatable {
         effect.forceScrollTo = target
     }
 
-    private mutating func setTarget(_ hole: Int?) {
+    private mutating func applyPageSet(
+        _ holes: [Int], active: Int?, clearReport: Bool = true, effect: inout Effect
+    ) {
+        ordered = holes
+        let target = active.flatMap { holes.contains($0) ? $0 : nil } ?? holes.first
+        setTarget(target, clearReport: clearReport)
+        if let reportedSelection, reportedSelection != target {
+            requestCorrection(into: &effect)
+        }
+    }
+
+    private mutating func setTarget(_ hole: Int?, clearReport: Bool = true) {
         if activeHole != hole { correctionAttempts = 0 }
-        reportedSelection = nil
+        if clearReport { reportedSelection = nil }
         correctionDeferredByPresentation = false
         activeHole = hole
         selection = hole

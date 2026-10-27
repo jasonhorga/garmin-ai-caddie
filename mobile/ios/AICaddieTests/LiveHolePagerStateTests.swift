@@ -196,4 +196,36 @@ final class LiveHolePagerStateTests: XCTestCase {
         XCTAssertEqual(pager.correctionAttempts, 0)
     }
 
+    func testPageSetRotationWaitsForPresentedSheetThenCorrectsToTheActiveHole() {
+        var pager = LiveHolePagerState()
+        pager.send(.pageSetChanged(ordered: Array(1...9), activeHole: 9))
+        pager.send(.bindingReported(9))
+        pager.send(.presentationChanged(true))
+
+        let deferred = pager.send(.pageSetChanged(ordered: Array(10...18) + Array(1...9), activeHole: 10))
+        XCTAssertEqual(pager.ordered, Array(1...9))
+        XCTAssertEqual(pager.activeHole, 10)
+        XCTAssertEqual(pager.deferredOrdered, Array(10...18) + Array(1...9))
+        XCTAssertNil(deferred.forceScrollTo)
+
+        pager.send(.bindingReported(9))
+        let applied = pager.send(.presentationChanged(false))
+        XCTAssertEqual(pager.ordered, Array(10...18) + Array(1...9))
+        XCTAssertEqual(pager.activeHole, 10)
+        XCTAssertEqual(applied.forceScrollTo, 10)
+        XCTAssertNil(pager.deferredOrdered)
+    }
+
+    func testRestoredTargetAcknowledgesAReportsAfterInitialSelectionWasUnset() {
+        var pager = LiveHolePagerState()
+        pager.send(.programmaticHole(10))
+        XCTAssertNil(pager.reportedSelection)
+        XCTAssertEqual(pager.pendingTarget, 10)
+        let acknowledgement = pager.send(.bindingReported(10))
+        XCTAssertNil(acknowledgement.forceScrollTo)
+        XCTAssertEqual(pager.activeHole, 10)
+        XCTAssertEqual(pager.selection, 10)
+        XCTAssertNil(pager.pendingTarget)
+    }
+
 }

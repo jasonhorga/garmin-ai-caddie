@@ -1676,7 +1676,12 @@ final class RealFlowUITests: XCTestCase {
         let record = app.buttons["记一杆"]
         XCTAssertTrue(scrollTo(record, maxSwipes: 18), "each journey hole must expose GPS shot capture")
         record.tap()
-        XCTAssertTrue(app.staticTexts["这一杆用了什么球杆？"].waitForExistence(timeout: 5))
+        dump("journey-record-after-record")
+        assertAndCapture(
+            app.staticTexts["这一杆用了什么球杆？"].waitForExistence(timeout: 5),
+            "recording a journey shot must present the club prompt",
+            "journey-club-prompt-missing"
+        )
         XCTAssertTrue(
             app.staticTexts["第 1 杆的位置已经保存"].exists,
             "the first recorded shot order must reset to 1 on every hole"

@@ -521,6 +521,7 @@ public struct RoundHomeView: View {
     @State private var pagerCorrectionID = UUID()
     @State private var pagerCorrectionApplying = false
     @State private var pagerCorrectionTask: Task<Void, Never>?
+    @State private var pagerPresentationEndTask: Task<Void, Never>?
     @State private var pagerPresentationRequested = false
     @GestureState private var pagerTouchIsActive = false
     @State private var pagerGestureStarted = false
@@ -985,7 +986,11 @@ public struct RoundHomeView: View {
                 onDiscardRound: onDiscardRound,
                 sessionCache: liveHoleSessions,
                 usesExternalHolePager: true,
-                isSelected: holePagerSelection == number,
+                // On a cold restore the pager selection is seeded after its first TabView pass.
+                // The persisted model cursor is the safe initial selection so the visible page
+                // starts location updates before the delayed native binding acknowledgement.
+                isSelected: holePagerSelection == number
+                    || (holePagerSelection == nil && liveRoundState?.activeHole == number),
                 onAdvanceHole: { next in
                     guard var lock = holePagerNavigationLock,
                           lock.begin(from: number, to: next) else { return }
@@ -1054,11 +1059,15 @@ public struct RoundHomeView: View {
     /// navigation intent at finger-up; UIKit's binding reports only acknowledge displayed pages.
     @ViewBuilder private func holePagerView(_ initialHole: Int) -> some View {
         if let package = holeScreenPackage {
-            let ordered = RoundPlayOrder.holes(
+            let packageOrdered = RoundPlayOrder.holes(
                 package.holes.map(\.number),
                 startingAt: liveRoundState?.startHole,
                 loops: package.roundLoops
             )
+            // The state machine owns the mounted order. A package can rotate its preferred order
+            // while a child sheet is presented; using the package value directly would reorder
+            // ForEach and tear down the sheet before the deferred update is safe.
+            let ordered = holePager.ordered.isEmpty ? packageOrdered : holePager.ordered
             TabView(selection: pagerSelectionBinding) {
                 ForEach(ordered, id: \.self) { number in
                     currentHoleView(number)
@@ -1075,8 +1084,8 @@ public struct RoundHomeView: View {
                     trimLiveHoleSessions(around: selected, package: package)
                 }
             }
-            .onChange(of: ordered) { _, holes in
-                if holePager.ordered != holes { refreshPagerPageSet(fallback: initialHole) }
+            .onChange(of: packageOrdered) { _, _ in
+                refreshPagerPageSet(fallback: initialHole)
             }
             .onPreferenceChange(LiveHolePagerGestureStateKey.self) { disabled in
                 holePagerScrollDisabled = disabled
@@ -1085,8 +1094,23 @@ public struct RoundHomeView: View {
                 }
             }
             .onPreferenceChange(LiveHolePagerPresentationKey.self) { blocked in
-                pagerPresentationRequested = blocked
-                sendPager(.presentationChanged(blocked), source: "sheet presentation")
+                if blocked {
+                    pagerPresentationEndTask?.cancel()
+                    pagerPresentationRequested = true
+                    sendPager(.presentationChanged(true), source: "sheet presentation")
+                } else {
+                    // SwiftUI removes sheet content before UIKit finishes its dismissal animation.
+                    // Keep the old ForEach order mounted until the presented controller is gone.
+                    pagerPresentationEndTask?.cancel()
+                    pagerPresentationEndTask = Task { @MainActor in
+                        while !Task.isCancelled && LiveHolePagerDisplayProbe.presentationIsActive {
+                            try? await Task.sleep(nanoseconds: 50_000_000)
+                        }
+                        guard !Task.isCancelled else { return }
+                        pagerPresentationRequested = false
+                        sendPager(.presentationChanged(false), source: "sheet dismissal complete")
+                    }
+                }
             }
             .background {
                 LiveHolePagerDisplayProbe(
@@ -1118,6 +1142,8 @@ public struct RoundHomeView: View {
             }
             .onDisappear {
                 cancelPagerCorrection()
+                pagerPresentationEndTask?.cancel()
+                pagerPresentationEndTask = nil
                 holePagerNavigationLock = nil
                 holePagerScrollDisabled = false
             }
@@ -1167,6 +1193,8 @@ public struct RoundHomeView: View {
         )
         let active = isPrepHoleScreen ? (holePager.activeHole ?? fallback)
             : (liveRoundState?.activeHole ?? pendingLiveHole ?? fallback)
+        guard holePager.ordered != ordered || holePager.activeHole != active
+            || holePager.deferredOrdered != ordered else { return }
         tracePager("package holes=\(ordered.count)")
         sendPager(.pageSetChanged(ordered: ordered, activeHole: active), source: "package")
     }
@@ -1179,6 +1207,11 @@ public struct RoundHomeView: View {
         let lastReport = holePager.reportedSelection
         let effect = holePager.send(event)
         tracePager("\(source) \(event) selection \(oldSelection ?? -1)->\(holePager.selection ?? -1) pending \(oldPending ?? -1)->\(holePager.pendingTarget ?? -1)")
+        if let deferred = holePager.deferredOrdered {
+            tracePager("page order deferred count=\(deferred.count) active=\(holePager.activeHole ?? -1)")
+        } else if oldOrdered != holePager.ordered {
+            tracePager("page order applied count=\(holePager.ordered.count) active=\(holePager.activeHole ?? -1)")
+        }
         if oldActive != holePager.activeHole || oldOrdered != holePager.ordered || event == .touchBegan {
             cancelPagerCorrection()
         }
