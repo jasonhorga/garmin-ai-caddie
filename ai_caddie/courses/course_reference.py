@@ -281,7 +281,7 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
 
     def canonical_loop_name(venue: str, label: object, fallback: object) -> str:
         segment = normalize_course_text(label) if label is not None else None
-        return f"{venue} ~ {segment}" if segment else str(fallback or venue).strip() or venue
+        return f"{venue} ~ {segment}" if segment else venue
 
     for match in matches or ():
         try:
@@ -307,6 +307,8 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
                 "loops": [],
                 "lastSeenAt": 0,
             })
+            group["venueKey"] = key
+            group["venueName"] = venue
             # Provider discovery is authoritative for the physical grouping. If an earlier
             # history-only row put this gid under a different spelling, move the entire old venue
             # group into the provider group. A venue spelling applies to all of its A/B/C loops;
