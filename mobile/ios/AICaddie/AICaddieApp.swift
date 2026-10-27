@@ -1964,6 +1964,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// retain every hole's lightweight route/hazard/F-M-B facts and its precise topo bitmap. The
     /// package identity remains the live round's; the course template and bitmap keys are static.
     private func beginOfflineCourseDownload(revalidatePackage: Bool = false, priorityHole: Int? = nil) {
+        #if DEBUG
+        guard !roundBackgroundWorkStoppedForTesting else { return }
+        #endif
         guard let initial = package, let syncClient else { return }
         let expectedRoundId = initial.roundId
         let expectedGlobalId = initial.course.globalId
@@ -5574,6 +5577,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// live hole. A 备战 action the player takes (`userRequested`) is never held behind it; the
     /// worker then runs only the jobs the player asked for until the release.
     private func startPrepCourseDownloadQueueIfNeeded(userRequested id: String? = nil) {
+        #if DEBUG
+        guard !roundBackgroundWorkStoppedForTesting else { return }
+        #endif
         if let id { userRequestedPrepDownloadIDs.insert(id) }
         // A cold course can keep the worker for minutes; a job someone asked for does not wait behind
         // a guess, and a guess stops when its network no longer allows it.
