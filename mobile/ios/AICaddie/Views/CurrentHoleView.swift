@@ -988,6 +988,9 @@ public struct CurrentHoleView: View {
     }
 
     public var body: some View {
+        #if DEBUG
+        let _ = UITestPagerTrace.shared.metric(.currentHoleBody)
+        #endif
         liveHoleContentWithHazardRequests
         .overlay {
             if turnContinuationPending, queuedTurnLoop == nil, let continuingLoopName {
@@ -997,9 +1000,6 @@ public struct CurrentHoleView: View {
         // The app shell is intentionally light, but this approved live-play surface is dark.
         // Request dark system chrome here so the status-bar time, network, and battery stay visible.
         .preferredColorScheme(.dark)
-        #if DEBUG
-        .modifier(UITestPagerBodyMetric(metric: .currentHoleBody))
-        #endif
         // The map owns the live surface and supplies a stable navigation-style return row. The
         // inherited NavigationStack label is intentionally hidden because it can expose a stale
         // greeting from the round home rather than the approved live-play hierarchy.
@@ -1366,6 +1366,7 @@ public struct CurrentHoleView: View {
     @ViewBuilder private var pagerTraceElement: some View {
         #if DEBUG
         UITestPagerTraceElement()
+            .frame(width: 1, height: 1)
         #endif
     }
 
@@ -5062,7 +5063,7 @@ public struct CurrentHoleView: View {
     private var secondLoopStarted: Bool {
         guard package.secondLoop != nil,
               let offlineStore,
-              let events = try? offlineStore.loadEvents() else { return false }
+              let events = try? offlineStore.cachedEvents() else { return false }
         return package.isSecondLoopLocked(by: events)
     }
 
@@ -5676,7 +5677,7 @@ public struct CurrentHoleView: View {
     }
 
     private var recordedScoreHoles: Set<Int> {
-        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return [] }
+        guard let offlineStore, let events = try? offlineStore.cachedEvents() else { return [] }
         let displayedHoles = Set(package.holes.map(\.number))
         return Set(events.compactMap { event in
             guard event.roundId == package.roundId,
@@ -5745,7 +5746,7 @@ public struct CurrentHoleView: View {
               let prep = holePrep,
               let outline = prep.fairwayOutline,
               let offlineStore,
-              let events = try? offlineStore.loadEvents() else { return nil }
+              let events = try? offlineStore.cachedEvents() else { return nil }
         let shots = LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number)
         guard shots.count >= 2,
               case .number(let latitude)? = shots[1].payload["latitude"],
@@ -5785,7 +5786,7 @@ public struct CurrentHoleView: View {
     }
 
     private var markedShotsOnHole: [LiveRoundEvent] {
-        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return [] }
+        guard let offlineStore, let events = try? offlineStore.cachedEvents() else { return [] }
         return LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number)
     }
 
@@ -5808,7 +5809,7 @@ public struct CurrentHoleView: View {
     }
 
     private var recordedNonPuttShotCount: Int {
-        guard let offlineStore, let events = try? offlineStore.loadEvents() else { return 0 }
+        guard let offlineStore, let events = try? offlineStore.cachedEvents() else { return 0 }
         return LiveMarkedShots.locations(in: events, roundId: package.roundId, hole: hole.number).count
     }
 

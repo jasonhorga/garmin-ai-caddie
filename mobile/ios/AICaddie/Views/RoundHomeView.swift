@@ -726,6 +726,9 @@ public struct RoundHomeView: View {
     }
 
     public var body: some View {
+        #if DEBUG
+        let _ = UITestPagerTrace.shared.metric(.roundHomeBody)
+        #endif
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(spacing: 10) {
@@ -813,9 +816,6 @@ public struct RoundHomeView: View {
         // The NavigationStack owns the system status bar, so the immersive hole destination cannot
         // hide it reliably from inside CurrentHoleView. Keep normal chrome on every non-live route.
         .statusBarHidden(Self.isLiveHoleRoute(path.last))
-        #if DEBUG
-        .modifier(UITestPagerBodyMetric(metric: .roundHomeBody))
-        #endif
         .onChange(of: pendingLiveHole) { _, hole in
             #if DEBUG
             UITestEventLatencyTrace.record("round-home.pending-change hole=\(hole ?? -1)")
@@ -1261,9 +1261,18 @@ public struct RoundHomeView: View {
     }
 
     private func schedulePagerCorrection(target: Int, reported: Int?) {
-        guard pagerCorrectionTarget == nil, holePager.ordered.contains(target),
-              let bounce = reported.flatMap({ holePager.ordered.contains($0) && $0 != target ? $0 : nil })
-                ?? holePager.ordered.first(where: { $0 != target }) else { return }
+        guard pagerCorrectionTarget == nil, holePager.ordered.contains(target) else { return }
+        // The bounce must change the binding value. During sheet dismissal the stale native
+        // report can already equal the current selection; assigning it again would produce no
+        // UIViewRepresentable update and leave the correction request stuck forever. If the page
+        // set has only two usable values, jump directly to the target instead.
+        let currentSelection = holePager.selection
+        let bounce = reported.flatMap {
+            holePager.ordered.contains($0) && $0 != target && $0 != currentSelection ? $0 : nil
+        } ?? holePager.ordered.first {
+            $0 != target && $0 != currentSelection
+        }
+        guard bounce != nil || currentSelection != target else { return }
         pagerCorrectionTarget = target
         pagerCorrectionID = UUID()
         pagerCorrectionApplying = false
@@ -1273,10 +1282,10 @@ public struct RoundHomeView: View {
             defer { UITestPagerTrace.shared.taskFinished(.correctionTask) }
             #endif
             guard await waitForPagerCorrection(target: target) else { return }
-            tracePager("correction binding bounce=\(bounce) target=\(target)")
+            tracePager("correction binding bounce=\(bounce ?? target) target=\(target)")
             var transaction = Transaction()
             transaction.disablesAnimations = true
-            withTransaction(transaction) { pagerNativeSelectionOverride = bounce }
+            withTransaction(transaction) { pagerNativeSelectionOverride = bounce ?? target }
             // The probe acknowledges this distinct binding value after SwiftUI's update pass.
             // Only then can completePagerDisplayUpdate deliver the target in a later runloop.
         }
@@ -1334,6 +1343,7 @@ public struct RoundHomeView: View {
     @ViewBuilder private var pagerTraceElement: some View {
         #if DEBUG
         UITestPagerTraceElement()
+            .frame(width: 1, height: 1)
         #endif
     }
 
@@ -1570,7 +1580,7 @@ public struct RoundHomeView: View {
     /// player has not scored. Home progress therefore comes from the durable score events, matching
     /// the in-round scorecard, rather than from `liveRoundState.holes.count`.
     private var recordedScoreHoles: Set<Int> {
-        guard let package, let offlineStore, let events = try? offlineStore.loadEvents() else {
+        guard let package, let offlineStore, let events = try? offlineStore.cachedEvents() else {
             return Set(liveRoundState?.scoredHoles ?? [])
         }
         let displayedHoles = Set(package.holes.map(\.number))

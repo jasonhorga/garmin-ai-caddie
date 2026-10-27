@@ -23,6 +23,7 @@ final class UITestPagerTrace {
 
     private var events: [String] = []
     private var counts: [String: Int] = [:]
+    private var totals: [String: Double] = [:]
     private var taskCounts: [String: Int] = [:]
     private var views: [WeakTraceView] = []
 
@@ -55,6 +56,18 @@ final class UITestPagerTrace {
         refreshAccessibilityLabels()
     }
 
+    func loadEventsCompleted(duration: TimeInterval, cacheHit: Bool) {
+        guard enabled else { return }
+        counts["offline.loadEvents.calls"] = (counts["offline.loadEvents.calls"] ?? 0) + 1
+        if cacheHit {
+            counts["offline.loadEvents.cacheHits"] =
+                (counts["offline.loadEvents.cacheHits"] ?? 0) + 1
+        }
+        totals["offline.loadEvents.ms"] =
+            (totals["offline.loadEvents.ms"] ?? 0) + duration * 1_000
+        refreshAccessibilityLabels()
+    }
+
     func attach(_ view: UIView) {
         guard enabled else { return }
         views.removeAll { $0.view == nil || $0.view === view }
@@ -77,11 +90,15 @@ final class UITestPagerTrace {
 
     private func renderedLabel() -> String {
         let metricText = counts.keys.sorted().map { "\($0)=\(counts[$0] ?? 0)" }.joined(separator: " ")
+        let totalText = totals.keys.sorted().map {
+            let value = String(format: "%.1f", totals[$0] ?? 0)
+            return "\($0)=\(value)"
+        }.joined(separator: " ")
         let taskText = taskCounts.keys.sorted().map { "\($0)=\(taskCounts[$0] ?? 0)" }.joined(separator: " ")
         let mounted = (counts[Metric.currentHoleAppear.rawValue] ?? 0)
             - (counts[Metric.currentHoleDisappear.rawValue] ?? 0)
         return events.joined(separator: "\n")
-            + "\nCOUNTS \(metricText) currentHole.mounted=\(mounted) tasks=\(taskText)"
+            + "\nCOUNTS \(metricText) currentHole.mounted=\(mounted) totals=\(totalText) tasks=\(taskText)"
     }
 }
 
@@ -96,9 +113,11 @@ struct UITestPagerTraceElement: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
         view.isUserInteractionEnabled = false
-        view.isAccessibilityElement = true
-        view.accessibilityIdentifier = "debug-pager-trace"
         view.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        view.isAccessibilityElement = UITestPagerTrace.shared.enabled
+        if UITestPagerTrace.shared.enabled {
+            view.accessibilityIdentifier = "debug-pager-trace"
+        }
         UITestPagerTrace.shared.attach(view)
         return view
     }
@@ -108,12 +127,4 @@ struct UITestPagerTraceElement: UIViewRepresentable {
     }
 }
 
-struct UITestPagerBodyMetric: ViewModifier {
-    let metric: UITestPagerTrace.Metric
-
-    func body(content: Content) -> some View {
-        UITestPagerTrace.shared.metric(metric)
-        return content
-    }
-}
 #endif

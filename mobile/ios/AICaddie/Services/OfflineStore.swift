@@ -230,6 +230,19 @@ private struct LoadedEventLog {
     let state: EventLogEntryState
 }
 
+/// A process-local parsed-log cache. The file identity and byte count are checked before every
+/// lookup, so an append or atomic replacement made by another store/process cannot leave a stale
+/// snapshot in this instance. A force-quit simply loses this cache and reloads the durable file.
+private struct EventLogCacheSignature: Equatable {
+    let state: EventLogEntryState
+    let byteCount: UInt64
+}
+
+private struct EventLogCache {
+    let signature: EventLogCacheSignature
+    let events: [LiveRoundEvent]
+}
+
 private enum JSONPrefixClassification: Equatable {
     case incomplete
     case complete
@@ -642,6 +655,7 @@ public final class OfflineStore {
     private var resultsRequestSequence: UInt64 = 0
     /// Bumped by every account bind; a results ticket from an earlier scope is never committed.
     private var accountScope = 0
+    private var eventLogCache: EventLogCache?
 
     private static func nearestExistingDirectoryAncestor(of url: URL) -> URL {
         var candidate = url.standardizedFileURL.resolvingSymlinksInPath()
@@ -780,6 +794,9 @@ public final class OfflineStore {
         defer { resultsCommitLock.unlock() }
         accountScope += 1
         resultsCommittedRequestStarts = [:]
+        eventLogLock.lock()
+        eventLogCache = nil
+        eventLogLock.unlock()
         directoryURL = directory
         logURL = directory.appendingPathComponent("events.jsonl")
         packagesDirectoryURL = directory.appendingPathComponent("packages", isDirectory: true)
@@ -1735,6 +1752,7 @@ public final class OfflineStore {
     /// explicit Abandon intentionally deletes the round's local attachments too.
     public func discardRound(roundId: String) throws {
         try withEventLogLock {
+            eventLogCache = nil
             let authority = try openEventLogDirectoryAuthority(createIfMissing: false)
             if let authority {
                 try repairTornEventLogEOFIfNeededUnlocked(authority: authority)
@@ -1756,6 +1774,7 @@ public final class OfflineStore {
                     expectedState: loaded.state
                 )
             }
+            eventLogCache = nil
         }
         // A deferred finish may complete after the player has already started another round. Never
         // let cleanup of the old round erase the new round's active pointer.
@@ -1777,6 +1796,7 @@ public final class OfflineStore {
 
     public func appendEvent(_ event: LiveRoundEvent) throws {
         try withEventLogLock {
+            eventLogCache = nil
             var authority = try openEventLogDirectoryAuthority(createIfMissing: false)
             if let authority {
                 try repairTornEventLogEOFIfNeededUnlocked(authority: authority)
@@ -1801,6 +1821,7 @@ public final class OfflineStore {
                 authority: writeAuthority,
                 expectedState: loaded.state
             )
+            eventLogCache = nil
         }
     }
 
@@ -1830,6 +1851,7 @@ public final class OfflineStore {
 
     public func applyReplayEvents(_ replayEvents: [LiveRoundEvent]) throws -> Bool {
         try withEventLogLock {
+            eventLogCache = nil
             var authority = try openEventLogDirectoryAuthority(createIfMissing: false)
             if let authority {
                 try repairTornEventLogEOFIfNeededUnlocked(authority: authority)
@@ -1880,17 +1902,80 @@ public final class OfflineStore {
                     throw OfflineStoreError.replayIdentityEnvelopeMismatch
                 }
             }
+            if appendedAny {
+                eventLogCache = nil
+            }
             return appendedAny
         }
     }
 
     public func loadEvents() throws -> [LiveRoundEvent] {
-        try withEventLogLock {
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        var cacheHit = false
+        defer {
+            UITestPagerTrace.shared.loadEventsCompleted(
+                duration: ProcessInfo.processInfo.systemUptime - startedAt,
+                cacheHit: cacheHit
+            )
+        }
+        #endif
+        return try withEventLogLock {
+            let initialSignature = try eventLogCacheSignatureUnlocked()
+            if let eventLogCache, eventLogCache.signature == initialSignature {
+                #if DEBUG
+                cacheHit = true
+                #endif
+                return eventLogCache.events
+            }
             let authority = try openEventLogDirectoryAuthority(createIfMissing: false)
-            return try loadEventsUnlocked(
+            let loaded = try loadEventsUnlocked(
                 strict: false,
                 authority: authority
-            ).events
+            )
+            // Do not cache a snapshot that raced a writer. The next call will validate and parse
+            // the new file; the caller still receives the same atomic snapshot this call read.
+            let finalSignature = try eventLogCacheSignatureUnlocked()
+            if initialSignature == finalSignature {
+                eventLogCache = EventLogCache(
+                    signature: finalSignature,
+                    events: loaded.events
+                )
+            } else {
+                eventLogCache = nil
+            }
+            return loaded.events
+        }
+    }
+
+    /// UI-derived values are evaluated several times in one SwiftUI update. Once `loadEvents()`
+    /// has validated and parsed the log, let those reads share the same immutable snapshot; the
+    /// write paths above clear it before publishing a new event. Callers that need to observe a
+    /// different process's direct file mutation must use `loadEvents()`, whose metadata check is
+    /// deliberately retained.
+    public func cachedEvents() throws -> [LiveRoundEvent] {
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        var cacheHit = false
+        defer {
+            UITestPagerTrace.shared.loadEventsCompleted(
+                duration: ProcessInfo.processInfo.systemUptime - startedAt,
+                cacheHit: cacheHit
+            )
+        }
+        #endif
+        return try withEventLogLock {
+            if let eventLogCache {
+                #if DEBUG
+                cacheHit = true
+                #endif
+                return eventLogCache.events
+            }
+            let authority = try openEventLogDirectoryAuthority(createIfMissing: false)
+            let loaded = try loadEventsUnlocked(strict: false, authority: authority)
+            let signature = try eventLogCacheSignatureUnlocked()
+            eventLogCache = EventLogCache(signature: signature, events: loaded.events)
+            return loaded.events
         }
     }
 
@@ -2612,6 +2697,34 @@ public final class OfflineStore {
         }
         try revalidateEventLogDirectoryAuthority(authority)
         return EventLogSnapshot(data: data, state: .regular(opened.identity))
+    }
+
+    /// Read only the metadata needed to validate the parsed-event cache. Event-log writers append
+    /// in place or atomically replace the file, so identity plus byte count changes for every
+    /// supported external mutation while avoiding another full JSON decode on the hot path.
+    private func eventLogCacheSignatureUnlocked() throws -> EventLogCacheSignature {
+        guard let authority = try openEventLogDirectoryAuthority(createIfMissing: false) else {
+            return EventLogCacheSignature(state: .missing, byteCount: 0)
+        }
+        guard let opened = try openEventLogDescriptor(
+            authority: authority,
+            accessFlags: O_RDONLY,
+            allowMissing: true
+        ) else {
+            return EventLogCacheSignature(state: .missing, byteCount: 0)
+        }
+        defer { _ = close(opened.descriptor) }
+        var metadata = stat()
+        guard fstat(opened.descriptor, &metadata) == 0, metadata.st_size >= 0 else {
+            throw OfflineStoreError.eventLogCorrupt
+        }
+        guard try eventLogEntryState(authority: authority) == .regular(opened.identity) else {
+            throw OfflineStoreError.eventLogCorrupt
+        }
+        return EventLogCacheSignature(
+            state: .regular(opened.identity),
+            byteCount: UInt64(metadata.st_size)
+        )
     }
 
     private func establishEventLogFileAndDirectoryBarrier(
