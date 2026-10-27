@@ -2108,8 +2108,16 @@ public struct CurrentHoleView: View {
     /// 洞位图 (`LivePlayMapOverlayLayout.lightweightFittedFrame`). The precise topo keeps its
     /// aspect fit. Every projection, the pan clamp and tap hit testing use this one frame.
     private func liveMapFittedFrame(in viewport: CGSize) -> CGRect? {
-        guard liveMapDisplayState == .garminRaster,
-              let overlay = liveMapOverlay else { return nil }
+        guard liveMapDisplayState == .garminRaster else { return nil }
+        // Even without a factual CourseView overlay, the Garmin descriptor has a fixed image
+        // frame. Use that same gesture frame for placement so the standalone raster does not fall
+        // back to the legacy top-inset layout and slide under the bottom controls.
+        let overlay = liveMapOverlay ?? LiveMapDisplaySelection.gestureFrameOverlay(
+            for: .garminRaster,
+            overlay: nil,
+            garminProjection: liveGarminRasterProjection
+        )
+        guard let overlay else { return nil }
         return liveMapFittedFrame(for: overlay, in: viewport, lightweight: true)
     }
 
