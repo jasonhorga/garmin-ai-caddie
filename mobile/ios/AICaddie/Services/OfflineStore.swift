@@ -2227,11 +2227,21 @@ public final class OfflineStore {
                 // requiring a synthetic GPS/location event. Explicit nulls clear the whole tuple.
                 applyTargetPayload(event.payload, to: &state)
             case .location:
-                if let latitude = numberPayload("latitude", in: event.payload) {
-                    state.latitude = latitude
-                }
-                if let longitude = numberPayload("longitude", in: event.payload) {
-                    state.longitude = longitude
+                let accuracy = numberPayload("horizontalAccuracyM", in: event.payload)
+                let acceptsCoordinate = accuracy.map {
+                    $0.isFinite && (0...LiveHoleGPSResolver.maximumHorizontalAccuracyM).contains($0)
+                } ?? true
+                if acceptsCoordinate {
+                    if let latitude = numberPayload("latitude", in: event.payload) {
+                        state.latitude = latitude
+                    }
+                    if let longitude = numberPayload("longitude", in: event.payload) {
+                        state.longitude = longitude
+                    }
+                } else {
+                    // A poor fix remains telemetry, but it must not restore a known map position.
+                    state.latitude = nil
+                    state.longitude = nil
                 }
                 applyTargetPayload(event.payload, to: &state)
                 switch optionalNumberPayload("horizontalAccuracyM", in: event.payload) {
