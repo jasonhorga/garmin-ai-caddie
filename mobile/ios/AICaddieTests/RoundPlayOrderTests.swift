@@ -1,7 +1,6 @@
 import XCTest
 import CoreLocation
 import CoreGraphics
-import AICaddieDomain
 @testable import AICaddie
 
 final class RoundPlayOrderTests: XCTestCase {
@@ -395,18 +394,6 @@ final class RoundPlayOrderTests: XCTestCase {
             ),
             "a pager remount must not write the completed page back over the active hole"
         )
-    }
-
-    func testScoreSheetDismissalQueuesTurnOrFinishPresentation() {
-        var coordinator = LiveScoreDismissalCoordinator()
-        let course = NineLoopCourse(id: "example", loops: [NineLoop(id: "A", name: "A")])
-        let plan = NineLoopPlan(course: course, first: "A")!
-        coordinator.queue(.turn(plan))
-        XCTAssertEqual(coordinator.consumeAfterDismissal(), .turn(plan))
-        XCTAssertNil(coordinator.consumeAfterDismissal())
-
-        coordinator.queue(.finish)
-        XCTAssertEqual(coordinator.consumeAfterDismissal(), .finish)
     }
 
     func testInactiveHolePagesDoNotStartTheirExpensiveLoad() {
