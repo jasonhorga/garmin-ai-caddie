@@ -194,6 +194,17 @@ class TopoRenderModuleTests(unittest.TestCase):
         self.assertTrue(np.any(edge))
         self.assertGreaterEqual(float(luminance[edge].mean()), float(luminance[crown].mean()) * 0.9)
 
+        # The crown edge is antialiased coverage from the 4x local tile, not a blurred crown. On a
+        # horizontal centreline its 90% -> 10% alpha transition stays within two display pixels.
+        centreline = alpha[35, :]
+        peak = int(centreline.max())
+        self.assertGreater(peak, 0)
+        right = np.flatnonzero(np.arange(64) > 16.3)
+        inner = right[centreline[right] >= peak * 0.9]
+        outer = right[centreline[right] <= peak * 0.1]
+        self.assertTrue(len(inner) and len(outer))
+        self.assertLessEqual(int(outer[0] - inner[-1]), 2)
+
         # TreeArea is measured from rendered pixels beside the same Rough footprint, rather than
         # comparing palette constants.  The selected windows are local x=3 and x=7 respectively.
         surface = np.asarray(_synthetic_topo_image().convert("RGBA"), dtype=np.uint8)
