@@ -390,6 +390,26 @@ final class RoundPlayOrderTests: XCTestCase {
         )
     }
 
+    func testPagerCanSwipeWithinTheSecondLoopInBothDirections() {
+        let ordered = Array(1...18)
+        XCTAssertEqual(
+            HoleSwipeNavigation.target(
+                current: 12,
+                holes: ordered,
+                translation: CGSize(width: -120, height: 0)
+            ),
+            13
+        )
+        XCTAssertEqual(
+            HoleSwipeNavigation.target(
+                current: 12,
+                holes: ordered,
+                translation: CGSize(width: 120, height: 0)
+            ),
+            11
+        )
+    }
+
     func testGarminDescriptorNeedsDecodedImageBeforeRasterState() {
         let descriptor = GarminRasterResponse(available: true, imageUrl: "/raster.webp")
         XCTAssertEqual(
