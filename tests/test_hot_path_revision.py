@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -10,6 +12,7 @@ from ai_caddie.core.data import atomic_write_json
 from ai_caddie.core import revisions
 from ai_caddie.history import stats_cache
 from ai_caddie.history.history import HistoryData
+from server_v2 import mobile
 
 
 class HotPathRevisionTests(unittest.TestCase):
@@ -79,6 +82,45 @@ class HotPathRevisionTests(unittest.TestCase):
             os.replace(new, root / "added.json")
             second = revisions.cached_signature(root, "all", lambda: tuple(sorted(p.name for p in root.glob("*.json"))))
             self.assertNotEqual(first, second)
+
+    def test_mobile_stage_marks_split_wait_and_persistence(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+        waited = threading.Event()
+        stages: list[str] = []
+
+        def mark(name: str) -> None:
+            stages.append(name)
+            if name == "singleflight_wait":
+                waited.set()
+
+        def build() -> object:
+            entered.set()
+            self.assertTrue(release.wait(2))
+            return object()
+
+        with patch.object(mobile, "mark_request_stage", side_effect=mark), ThreadPoolExecutor(2) as pool:
+            leader = pool.submit(mobile._package_singleflight, ("stage-test",), build)
+            self.assertTrue(entered.wait(2))
+            follower = pool.submit(mobile._package_singleflight, ("stage-test",), build)
+            self.assertTrue(waited.wait(2))
+            release.set()
+            self.assertIs(leader.result(2), follower.result(2))
+
+        row = type("Loop", (), {"model_dump": lambda self: {"number": 1}})()
+        package = type("Package", (), {
+            "roundLoops": [row], "roundId": "round", "loopKey": "loop", "holes": []
+        })()
+
+        def fake_save(*args, event_lock, **kwargs):
+            with event_lock():
+                pass
+
+        with patch.object(mobile, "mark_request_stage", side_effect=mark), \
+                patch.object(mobile, "save_mobile_round_identity", side_effect=fake_save):
+            mobile._persist_mobile_package_identity(package, player_id="me")
+        self.assertIn("persist_lock", stages)
+        self.assertIn("persist_write", stages)
 
 
 if __name__ == "__main__":
