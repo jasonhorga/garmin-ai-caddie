@@ -28,7 +28,11 @@ enum UITapHelpers {
         }
         let firstBudget = max(0, deadline.timeIntervalSinceNow) / 2
         if !waitForCondition(transitionAcknowledged, timeout: firstBudget), !transitionAcknowledged() {
-            print("重试点击 \(diagnosticName) elapsed=\(Date().timeIntervalSince(started))")
+            let elapsed = Date().timeIntervalSince(started)
+            print("重试点击 \(diagnosticName) elapsed=\(elapsed)")
+            XCTContext.runActivity(named: "retry tap \(diagnosticName)") { activity in
+                activity.add(XCTAttachment(string: "retry tap \(diagnosticName), elapsed=\(elapsed)s"))
+            }
             if source.exists && source.isHittable, deadline.timeIntervalSinceNow > 0 {
                 source.tap()
             }
