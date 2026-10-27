@@ -112,7 +112,8 @@ enum CurrentHoleLocator {
     static func locate(
         coordinate: CLLocationCoordinate2D,
         horizontalAccuracyM: Double,
-        holes: [HoleLocatorGeometry]
+        holes: [HoleLocatorGeometry],
+        preferredHole: Int? = nil
     ) -> CurrentHoleLocation {
         guard CLLocationCoordinate2DIsValid(coordinate),
               coordinate.latitude.isFinite, coordinate.longitude.isFinite,
@@ -124,6 +125,14 @@ enum CurrentHoleLocator {
         // `min(by:)` keeps the first of equal elements, so ties resolve to package order.
         let tees = anchored.compactMap { row in
             row.tee.map { (hole: row.hole, distance: metres(coordinate, $0)) }
+        }
+        let teeCandidates = tees.filter { $0.distance <= teeRadiusM }
+        if let preferredHole,
+           teeCandidates.contains(where: { $0.hole == preferredHole }) {
+            // A course package can expose one shared clubhouse/course anchor for several holes.
+            // When the player is viewing one of those holes, its tee is the intended start area;
+            // package order must not turn an equal-distance anchor into hole 1.
+            return .onHole(preferredHole)
         }
         if let nearestTee = tees.min(by: { $0.distance < $1.distance }),
            nearestTee.distance <= teeRadiusM {
@@ -154,11 +163,20 @@ enum CurrentHoleLocator {
     }
 
     static func locate(fix: LocationFix?, package: LiveRoundPackage) -> CurrentHoleLocation {
+        locate(fix: fix, package: package, preferredHole: nil)
+    }
+
+    static func locate(
+        fix: LocationFix?,
+        package: LiveRoundPackage,
+        preferredHole: Int?
+    ) -> CurrentHoleLocation {
         guard let fix else { return .unknown }
         return locate(
             coordinate: fix.coordinate,
             horizontalAccuracyM: fix.horizontalAccuracyM,
-            holes: HoleLocatorGeometry.rows(for: package)
+            holes: HoleLocatorGeometry.rows(for: package),
+            preferredHole: preferredHole
         )
     }
 

@@ -825,7 +825,11 @@ public struct CurrentHoleView: View {
                 horizontalAccuracyM: latestFix.horizontalAccuracyM
             )
             if isPrepMode {
-                let locatedHole = CurrentHoleLocator.locate(fix: latestFix, package: package).hole
+                let locatedHole = CurrentHoleLocator.locate(
+                    fix: latestFix,
+                    package: package,
+                    preferredHole: hole.number
+                ).hole
                 if let target = onPrepLocationChanged(locatedHole, hole.number),
                    package.holes.contains(where: { $0.number == target }) {
                     onAdvanceHole(target)
@@ -1227,7 +1231,11 @@ public struct CurrentHoleView: View {
     }
 
     private var prepLocation: CurrentHoleLocation {
-        CurrentHoleLocator.locate(fix: locationProvider.latestFix, package: package)
+        CurrentHoleLocator.locate(
+            fix: locationProvider.latestFix,
+            package: package,
+            preferredHole: hole.number
+        )
     }
 
     private var canRecordShot: Bool {

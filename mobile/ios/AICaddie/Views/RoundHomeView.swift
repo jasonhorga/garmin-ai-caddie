@@ -594,6 +594,8 @@ public struct RoundHomeView: View {
                     // Keep the prep base route while the first-stroke sheet is presented. Once
                     // the player has chosen or skipped a club, the live hole becomes the sole
                     // destination and Back can no longer return to the picker.
+                    guard liveRoundState != nil,
+                          path.first.map({ LiveHoleRoutePath.isPrepBase($0) }) == true else { return }
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
                     withTransaction(transaction) {
