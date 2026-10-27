@@ -247,7 +247,7 @@ class RequestTiming:
             "request_timing request_id=%s method=%s path=%s status=%s total_ms=%.1f stages=%s",
             self.request_id,
             method,
-            record["path"],
+            path,
             status,
             total_ms,
             ";".join(f"{key}:{value:.1f}" for key, value in marks.items()),
