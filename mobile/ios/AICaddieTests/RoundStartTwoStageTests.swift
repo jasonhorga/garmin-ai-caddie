@@ -454,6 +454,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         await fulfillment(of: [fullSent], timeout: eventWait)
 
         await model.stopRoundBackgroundWorkForTesting()
+        await waitForNoRunningTasks(fixture.session)
         let requestsAtStop = requests.value
         stopped.set(1)
         // Push everything that could start work again: the held personal package fails now (a live
@@ -539,6 +540,20 @@ final class RoundStartTwoStageTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// URLSession can deliver a request to URLProtocol after the model's cancellation hook returns.
+    /// Drain running tasks before taking the stop counter snapshot so that delivery belongs to the
+    /// pre-stop side of this test's boundary, rather than becoming a false late request.
+    private func waitForNoRunningTasks(_ session: URLSession) async {
+        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            let tasks: [URLSessionTask] = await withCheckedContinuation { continuation in
+                session.getAllTasks { continuation.resume(returning: $0) }
+            }
+            if tasks.allSatisfy({ $0.state != .running }) { return }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
 
     private struct ModelFixture {
         let model: LiveRoundAppModel
