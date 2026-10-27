@@ -24,22 +24,23 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
             (geometry / "gid31795_h01_meshes.json").write_text("{}")
             clock = [100.0]
             with patch.object(stats_cache.time, "monotonic", side_effect=lambda: clock[0]), \
-                    patch.object(revisions.time, "time_ns", side_effect=lambda: geometry.stat().st_mtime_ns), \
+                    patch.object(revisions.time, "time_ns", return_value=0), \
                     patch.object(stats_cache.os, "scandir", wraps=stats_cache.os.scandir) as scandir:
                 first = stats_cache._history_geometry_dir_sig(geometry, (31795,))
                 second = stats_cache._history_geometry_dir_sig(geometry, (31795,))
                 self.assertEqual(first, second)
-                self.assertEqual(scandir.call_count, 2, "the racy-clean retry scans once before becoming warm")
+                self.assertEqual(scandir.call_count, 1, "the second read is a warm cache hit")
 
                 (geometry / "gid31795_h02_meshes.json").write_text("{}")
                 changed = stats_cache._history_geometry_dir_sig(geometry, (31795,))
                 self.assertNotEqual(changed, first, "a directory entry change is visible immediately")
+                self.assertEqual(scandir.call_count, 2)
                 (geometry / "gid31795_h01_meshes.json").write_text('{"updated":true}')
                 stats_cache.revisions.scan_revision_cache_once()
                 expired = stats_cache._history_geometry_dir_sig(geometry, (31795,))
 
             self.assertNotEqual(expired, changed, "background scan must observe in-place edits")
-            self.assertEqual(scandir.call_count, 5)
+            self.assertEqual(scandir.call_count, 3)
 
     def test_concurrent_deterministic_failure_is_shared_with_the_waiting_batch(self) -> None:
         """A corrupt correction projection must fail one batch once, with one error."""
