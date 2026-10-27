@@ -149,6 +149,7 @@ final class RealFlowUITests: XCTestCase {
             "the first-stroke club sheet must be dismissed before undo",
             "c99-back-nine-club-sheet-missing"
         )
+        skipClub.tap()
         let liveBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         assertAndCapture(
             liveBanner.waitForExistence(timeout: 5)
@@ -157,7 +158,6 @@ final class RealFlowUITests: XCTestCase {
             "the first stroke must show hole 10 as recording",
             "c99-back-nine-after-first-stroke-banner"
         )
-        skipClub.tap()
         let undo = app.buttons["live-undo-round-start"]
         assertAndCapture(
             undo.waitForExistence(timeout: 15),
