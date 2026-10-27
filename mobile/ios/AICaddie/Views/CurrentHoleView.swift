@@ -1060,6 +1060,7 @@ public struct CurrentHoleView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: ClubBagStore.didChange)) { _ in
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             // 球包 changed (a club removed, a carry typed): the route, landing and club list on
             // screen were planned with the old bag. Drop them and ask again with the new one.
             caddieRoutesByHole[hole.number] = nil
