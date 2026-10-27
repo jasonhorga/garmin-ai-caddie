@@ -623,6 +623,10 @@ private let REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
 private let REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
 
 public final class OfflineStore {
+#if DEBUG
+    /// Test seam for the account-switch window; production builds do not retain a callback.
+    static var accountSwitchEventLogHook: (() -> Void)?
+#endif
     private let trustedDirectoryAnchor: URL
     private let baseDirectoryURL: URL
     private var directoryURL: URL
@@ -807,6 +811,9 @@ public final class OfflineStore {
         liveRoundProgressCacheLoaded = false
         liveRoundProgressLock.unlock()
         eventLogLock.unlock()
+#if DEBUG
+        Self.accountSwitchEventLogHook?()
+#endif
         packagesDirectoryURL = directory.appendingPathComponent("packages", isDirectory: true)
         courseTemplatesDirectoryURL = directory.appendingPathComponent(
             "course_templates",

@@ -493,6 +493,29 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try store.cachedEvents(), [replay])
     }
 
+    func testAccountSwitchNeverExposesOldCachedEventsDuringTheSwitchWindow() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        store.bindAccount(playerId: "player-a", migrateLegacyData: false)
+        let event = LiveRoundEvent(
+            eventId: "switch-window", roundId: "switch-round", timestamp: "2026-08-07T00:00:00Z",
+            hole: 1, kind: .score, payload: ["strokes": .number(4)]
+        )
+        try store.appendEvent(event)
+        XCTAssertEqual(try store.cachedEvents(), [event])
+
+        var observed: [[LiveRoundEvent]] = []
+        OfflineStore.accountSwitchEventLogHook = {
+            observed.append((try? store.cachedEvents()) ?? [])
+        }
+        defer { OfflineStore.accountSwitchEventLogHook = nil }
+        store.bindAccount(playerId: "player-b", migrateLegacyData: false)
+
+        XCTAssertEqual(observed, [[]], "the hook runs after the new directory and cache are installed")
+    }
+
     func testCourseTemplateSurvivesRoundDiscardAndRebasesWithoutOldIdentityOrCursor() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
