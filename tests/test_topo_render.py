@@ -55,7 +55,7 @@ class TopoRenderModuleTests(unittest.TestCase):
     def test_topo_v10_starts_overlays_on_a_transparent_course_canvas(self) -> None:
         from PIL import Image
 
-        self.assertEqual(topo_render.STYLE_VERSION, "topo-v11")
+        self.assertEqual(topo_render.STYLE_VERSION, "topo-v12")
         self.assertTrue(hasattr(topo_render, "_clip_to_transparent_canvas"))
 
         source = Image.new("RGB", (2, 1), topo_render.PAL["bg"])
@@ -73,6 +73,57 @@ class TopoRenderModuleTests(unittest.TestCase):
         shadow = Image.new("RGBA", source.size, (32, 54, 32, 92))
         with_shadow = Image.alpha_composite(rendered, shadow)
         self.assertEqual(with_shadow.getpixel((0, 0)), (32, 54, 32, 92))
+
+    def test_topo_v12_masks_keep_partial_pixel_coverage(self) -> None:
+        from PIL import Image, ImageDraw
+
+        source = Image.new("L", (16, 16), 0)
+        ImageDraw.Draw(source).polygon([(0, 0), (16, 0), (0, 16)], fill=255)
+        reduced = topo_render._reduce_mask(source, (4, 4))
+
+        self.assertEqual(topo_render.MASK_SS, 4)
+        self.assertTrue(any(0 < value < 255 for value in reduced.getdata()))
+
+    def test_tree_area_is_kept_on_rough_colour(self) -> None:
+        self.assertEqual(topo_render.PAL["TreeArea"], (92, 148, 58))
+        self.assertIn("TreeArea", topo_render.ORDER)
+
+    def test_tree_canopy_and_shadow_stay_inside_soft_hole_alpha(self) -> None:
+        # Small in-memory geometry exercises the premultiplied canopy path without requiring the
+        # gitignored production mesh corpus.
+        square = {
+            "positions": [(0, 0, 0), (-10, 0, 0), (-10, 0, 10), (0, 0, 10)],
+            "faces": [(0, 1, 2), (0, 2, 3)],
+        }
+        by = {
+            "PhysicsMesh.drc": square,
+            "Rough.drc": square,
+            "Fairway.drc": {
+                "positions": [(0, 0, 0), (-5, 0, 0), (-5, 0, 10), (0, 0, 10)],
+                "faces": [(0, 1, 2), (0, 2, 3)],
+            },
+            "TreeArea.drc": square,
+        }
+        metadata = {"foliage": {"trees": [{"x": -8, "z": 5, "s": 1.0, "id": 4}]}}
+
+        def project(point):
+            return (16 + point[0] * 3, 60 - point[1] * 5)
+
+        rendered = topo_render._build(
+            metadata,
+            by,
+            [(0.0, 0.0), (0.0, 10.0)],
+            project,
+            5.0,
+            64,
+            64,
+            31795,
+            1,
+        )
+        alpha = rendered.getchannel("A")
+        self.assertIsNotNone(alpha.getbbox())
+        self.assertEqual(alpha.getpixel((0, 0)), 0)
+        self.assertTrue(any(0 < value < 255 for value in alpha.getdata()))
 
     def test_green_marker_is_a_compact_flag_without_target_rings(self) -> None:
         from PIL import Image
@@ -370,7 +421,7 @@ class TopoRenderModuleTests(unittest.TestCase):
     def test_cache_key_includes_style_version(self) -> None:
         with patch.dict("os.environ", {"AI_CADDIE_TOPO_CACHE_DIR": "/x/y"}):
             path = topo_render.cache_path(31795, 7)
-        self.assertTrue(path.name.startswith("gid31795_h07_topo-v11-"))
+        self.assertTrue(path.name.startswith("gid31795_h07_topo-v12-"))
         self.assertTrue(path.name.endswith(".png"))
         self.assertIn(topo_render.STYLE_VERSION, str(path))
 
@@ -615,6 +666,27 @@ class TopoEndpointTests(unittest.TestCase):
             refresh_release=False,
             require_hazards=False,
         )
+
+    def test_endpoint_accepts_previous_topo_style_but_rejects_unknown_style(self) -> None:
+        canned = _PNG_MAGIC + b"versioned-topo"
+        with (
+            patch.object(topo_render, "render_hole_topo_cached", return_value=canned) as render,
+            patch(
+                "ai_caddie.geometry.geometry_evidence.geometry_coverage_for_hole",
+                return_value={"coverage": "ready"},
+            ),
+        ):
+            old_client = self.client.get(
+                "/api/v2/courses/31795/holes/1/topo.png?v=topo-v11"
+            )
+            unknown = self.client.get(
+                "/api/v2/courses/31795/holes/1/topo.png?v=topo-v99"
+            )
+
+        self.assertEqual(old_client.status_code, 200)
+        self.assertEqual(old_client.content, canned)
+        self.assertEqual(unknown.status_code, 409)
+        render.assert_called_once_with(31795, 1)
 
     def test_green_detail_endpoint_uses_v3_style_and_1280_default(self) -> None:
         canned = _PNG_MAGIC + b"green-detail"

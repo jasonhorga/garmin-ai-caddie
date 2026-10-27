@@ -2482,7 +2482,7 @@ class MobileContractTests(unittest.TestCase):
         )
         self.assertIn("geometryRevision: String? = nil", sync_client)
         self.assertIn("api/v2/courses/\\(globalId)/holes/\\(localHole)/topo.png", sync_client)
-        self.assertIn('public static let topoStyleVersion = "topo-v11"', sync_client)
+        self.assertIn('public static let topoStyleVersion = "topo-v12"', sync_client)
         self.assertIn('URLQueryItem(name: "v", value: topoStyleVersion)', sync_client)
         self.assertIn("TopoHoleBaseImage(", hole_map_view)
         self.assertIn("garminRasterURL: garminRasterURL", hole_map_view)
@@ -2583,7 +2583,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIsNotNone(watch_version)
         assert phone_version is not None and watch_version is not None
         self.assertEqual(phone_version.group(1), watch_version.group(1))
-        self.assertEqual(phone_version.group(1), "topo-v11")
+        self.assertEqual(phone_version.group(1), "topo-v12")
 
         phone_green_version = re.search(
             r'public static let greenDetailStyleVersion = "([^"]+)"', sync_client
