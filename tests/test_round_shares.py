@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 import tempfile
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import players, round_ingest, round_shares
+from ai_caddie.core import request_timing
 from server_v2.main import app
 from server_v2 import share_api
 
@@ -151,6 +153,61 @@ class RoundShareTests(unittest.TestCase):
         for _ in range(round_shares.MAX_ACTIVE_PER_ROUND):
             self.assertEqual(self._share(self.alice, round_id).status_code, 201)
         self.assertEqual(self._share(self.alice, round_id).status_code, 429)
+
+    def test_anonymous_read_rate_limits_unknown_and_single_token(self) -> None:
+        with mock.patch.object(share_api, "UNKNOWN_READ_LIMIT", 2):
+            unknown = "/api/v2/share/" + "A" * 43
+            self.assertEqual(self.client.get(unknown).status_code, 404)
+            self.assertEqual(self.client.get(unknown).status_code, 404)
+            self.assertEqual(self.client.get(unknown).status_code, 429)
+        round_id = self._ingest(self.alice)
+        created = self._share(self.alice, round_id).json()
+        with mock.patch.object(share_api, "TOKEN_READ_LIMIT", 2):
+            self.assertEqual(self.client.get(created["url"]).status_code, 200)
+            self.assertEqual(self.client.get(created["url"]).status_code, 200)
+            self.assertEqual(self.client.get(created["url"]).status_code, 429)
+
+    def test_deleted_player_makes_existing_share_uniform_404(self) -> None:
+        round_id = self._ingest(self.alice)
+        created = self._share(self.alice, round_id).json()
+        players.delete_player(self.alice["id"], root=self.root)
+        response = self.client.get(created["url"])
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "share link not found"})
+
+    def test_revoke_matches_all_current_aliases_after_merge(self) -> None:
+        round_id = self._ingest(self.alice)
+        created = self._share(self.alice, round_id).json()
+        revoked = round_shares.revoke_round(
+            self.alice["id"], "merged_front_back", round_refs=("merged_front_back", round_id, "back-card"),
+            root=self.root,
+        )
+        self.assertEqual(revoked, 1)
+        self.assertEqual(self.client.get(created["url"]).status_code, 404)
+
+    def test_redaction_covers_access_info_and_timing_jsonl_trailing_text(self) -> None:
+        token = "T" * 43
+        access = logging.LogRecord(
+            "uvicorn.access", logging.INFO, __file__, 0,
+            '%s "%s %s %s" %s',
+            ("127.0.0.1", "GET", f"/api/v2/share/{token}.", "HTTP/1.1", 200), None,
+        )
+        request_timing.URLRedactionFilter().filter(access)
+        self.assertNotIn(token, access.getMessage())
+        self.assertNotIn(token, request_timing.redact_url(f"/p/{token}%E3%80%82"))
+        with self.assertLogs("server_v2.timing", level="INFO") as captured:
+            request_timing.RequestTiming("share-redaction").finish(
+                method="GET", path=f"/api/v2/share/{token}%E3%80%82", status=200,
+            )
+        self.assertTrue(captured.records)
+        self.assertTrue(all(token not in record.getMessage() for record in captured.records))
+        with mock.patch.object(request_timing, "TIMING_ROOT", self.root):
+            request_timing.RequestTiming("share-jsonl").finish(
+                method="GET", path=f"/api/v2/share/{token})", status=200,
+            )
+            request_timing.flush_timing_writes()
+            lines = "\n".join(path.read_text(encoding="utf-8") for path in (self.root / "timing").glob("*.jsonl"))
+        self.assertNotIn(token, lines)
 
 
 if __name__ == "__main__":

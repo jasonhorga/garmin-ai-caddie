@@ -1,0 +1,6 @@
+diff --git a/server_v2/share_api.py b/server_v2/share_api.py
+index 0dea6f23..b051aca0 100644
+--- a/server_v2/share_api.py
++++ b/server_v2/share_api.py
+@@ -172,0 +173 @@ def _shared_payload(row: dict[str, Any]) -> dict[str, Any]:
++        "diagnostics": detail.get("missingData"),
