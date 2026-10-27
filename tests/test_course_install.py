@@ -1381,6 +1381,8 @@ class CourseInstallHandOffTests(unittest.TestCase):
             # batch_prodgeometry_course._start_derivative_job: the snapshot raises OSError, nothing
             # is submitted and the export stays due.
             patch.object(batch, "_derivative_snapshot", side_effect=OSError("fixture unreadable mesh")),
+            # course_install derives both the persisted retry epoch and timer delay from this clock.
+            patch.object(self.ci.time, "time", return_value=1_700_000_000.0),
         ):
             for _pass in range(2):
                 # One non-deferred worker pass (run_course_install_job hands due exports to the lane)
@@ -1388,8 +1390,7 @@ class CourseInstallHandOffTests(unittest.TestCase):
                 self.ci.reconcile_derivatives(job)
                 self.ci._schedule_retry(job)
                 timer = self.ci._RETRY_TIMERS.pop(job)
-                # The synthetic retry epoch is sampled immediately before arming the timer.
-                self.assertAlmostEqual(timer.delay, self.EXPORT_RECHECK_S, places=1)
+                self.assertEqual(timer.delay, self.EXPORT_RECHECK_S)
 
     # ------------------------------------------------------------------ ⑥ ready journal
     def test_export_completing_the_job_drops_its_pending_wake_up(self) -> None:
