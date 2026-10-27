@@ -677,7 +677,7 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertEqual(model.putts, 2, "cancel must follow the current scorecard row, including putts")
     }
 
-    func testLandingOnlySaveAdoptsNewTotalButKeepsTheDraftPuttCount() async throws {
+    func testLandingOnlySaveAdoptsTheRefreshedTotalAndPutts() async throws {
         let model = makeModel(score: 5, putts: 3) { request in
             Self.response(request, status: request.httpMethod == "POST" ? 201 : 503, body: #"{"stored":{}}"#)
         }
@@ -688,10 +688,11 @@ final class RoundEditModelTests: XCTestCase {
 
         let firstSave = await model.save()
         XCTAssertTrue(firstSave)
-        XCTAssertEqual(model.putts, 3, "a landing-only save must not import an external putt change")
+        XCTAssertEqual(model.putts, 4, "a landing-only save writes no putts, so the server's newer count stands")
 
         model.enterEdit()
-        model.setPenalty(2) // The refreshed total 6 permits 3 putts + 2 penalty + 1.
+        XCTAssertEqual(model.putts, 4)
+        model.setPenalty(1) // The refreshed total 6 permits 4 putts + 1 penalty + 1.
         let secondSave = await model.save()
         XCTAssertTrue(secondSave)
     }

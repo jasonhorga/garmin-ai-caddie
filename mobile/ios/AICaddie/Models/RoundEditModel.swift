@@ -380,10 +380,14 @@ public final class RoundEditModel: ObservableObject {
             }
             originalPutts = putts
             if let pending = pendingRecordedScorecard {
-                // The saved draft owns the putt count.  Only the externally refreshed total is
-                // adopted; importing its putts would make a landing-only save look like a putt
-                // edit that the user never approved.
+                // The total is always adopted. Putts follow the refreshed row only when this save
+                // wrote no putt correction: a landing-only save leaves the server's newer putts in
+                // place, while an edited count is the user's and stays.
                 recordedScore = pending.score
+                if pendingPuttCorrection == nil {
+                    originalPutts = pending.putts
+                    putts = pending.putts
+                }
                 pendingRecordedScorecard = nil
             }
             if !shotsChanged {
