@@ -142,6 +142,9 @@ final class ProductPhoneUITests: XCTestCase {
         app.terminate()
 
         var emptyServer = ProductFixtureServer.State(); emptyServer.roundCount = 0
+        // A CI cold launch can take longer than the app's three-second refresh delay; hold the
+        // zero-round answer so the cached trend is checked before the refresh can replace it.
+        emptyServer.statsResponseDelay = 8
         server.configure(emptyServer)
         launch(reset: false)
         let cachedTrend = element("home-recent-trend")
