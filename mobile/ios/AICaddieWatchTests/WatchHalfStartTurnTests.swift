@@ -434,7 +434,8 @@ final class WatchHalfStartTurnTests: XCTestCase {
                         }
                         guard url.path.hasSuffix("/package"),
                               let loops = Self.query(request, "loops"),
-                              let globalId = Int(loops.split(separator: ":").first ?? "0") else {
+                              let firstLoop = loops.split(separator: ":").first,
+                              let globalId = Int(String(firstLoop)) else {
                             return (Data(), HTTPURLResponse(url: url, statusCode: 404,
                                                             httpVersion: nil, headerFields: nil)!)
                         }
