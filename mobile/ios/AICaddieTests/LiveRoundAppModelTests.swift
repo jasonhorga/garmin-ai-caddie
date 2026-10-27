@@ -2968,6 +2968,99 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertTrue(store.hasCourseTopoImages(for: try XCTUnwrap(model.package)))
     }
 
+    func testSiblingTemplateUsesVenueLoopLabelWhenCatalogueOmitsSibling() async throws {
+        let source = try localFixturePackage()
+        let venueLoops = [
+            VenueLoop(globalId: 31795, name: "北京天竺黑骑士球员俱乐部 ~ A", segmentLabel: "A", par: 36),
+            VenueLoop(globalId: 31796, name: "北京天竺黑骑士球员俱乐部 ~ B", segmentLabel: "B", par: 36),
+        ]
+        let active = try blackKnightLoopPackage(source: source, globalId: 31795, label: "A", venueLoops: venueLoops)
+        let sibling = try blackKnightLoopPackage(source: source, globalId: 31796, label: "B")
+        let snapshot = try XCTUnwrap(LiveRoundPackage.projecting(
+            [
+                RoundLoopEntry(globalId: 31795, half: "all"),
+                RoundLoopEntry(globalId: 31796, half: "all"),
+            ],
+            templates: [31795: active, 31796: sibling],
+            roundId: "c121-venue-loop-label"
+        ))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory),
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil
+        )
+        let activeOption = MobileCourseOption(
+            globalId: 31795, name: active.course.name, holes: 9, teeBox: "blue",
+            venueName: active.course.venueName, venueNameSource: active.course.venueNameSource,
+            segmentLabel: "A", segmentHoles: 9
+        )
+        await model.refreshCourseOptions { [activeOption] }
+        model.enqueueWholeCourseTemplatesForTesting(snapshot)
+        let row = try XCTUnwrap(model.prepCourseDownloads.first { $0.course.globalId == 31796 })
+        XCTAssertEqual(row.course.segmentLabel, "B")
+        XCTAssertEqual(row.course.name, venueLoops[1].name)
+    }
+
+    func testSiblingTemplateLeavesLabelNilWhenCatalogueAndVenueLoopsOmitSibling() async throws {
+        let source = try localFixturePackage()
+        let active = try blackKnightLoopPackage(source: source, globalId: 31795, label: "A")
+        let sibling = try blackKnightLoopPackage(source: source, globalId: 31796, label: "B")
+        let snapshot = try XCTUnwrap(LiveRoundPackage.projecting(
+            [
+                RoundLoopEntry(globalId: 31795, half: "all"),
+                RoundLoopEntry(globalId: 31796, half: "all"),
+            ],
+            templates: [31795: active, 31796: sibling],
+            roundId: "c121-missing-loop-label"
+        ))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory),
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil
+        )
+        let activeOption = MobileCourseOption(
+            globalId: 31795, name: active.course.name, holes: 9, teeBox: "blue",
+            venueName: active.course.venueName, venueNameSource: active.course.venueNameSource,
+            segmentLabel: "A", segmentHoles: 9
+        )
+        await model.refreshCourseOptions { [activeOption] }
+        model.enqueueWholeCourseTemplatesForTesting(snapshot)
+        let row = try XCTUnwrap(model.prepCourseDownloads.first { $0.course.globalId == 31796 })
+        XCTAssertNil(row.course.segmentLabel)
+        XCTAssertEqual(row.course.name, "")
+    }
+
+    func testHalfCourseTemplateLeavesSegmentLabelNil() async throws {
+        let source = try localFixturePackage()
+        let active = try blackKnightLoopPackage(source: source, globalId: 31795, label: "A")
+        let snapshot = package(
+            active,
+            roundId: "c121-half-template",
+            recentRounds: [],
+            roundLoops: RoundLoopEntry.table([RoundLoopEntry(globalId: 31795, half: "front")])
+        )
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory),
+            apiBaseURL: nil,
+            watchBridge: nil,
+            garminSessionStore: nil,
+            syncClient: nil
+        )
+        model.enqueueWholeCourseTemplatesForTesting(snapshot)
+        let row = try XCTUnwrap(model.prepCourseDownloads.first)
+        XCTAssertNil(row.course.segmentLabel)
+    }
+
     /// C78: a nine-hole A start discovers the venue's B/C loops from the catalogue. Their durable
     /// rows are ordinary queued work, but the fresh entry keeps every prep request behind hole 1;
     /// releasing that entry lets the same queue continue.
@@ -5030,7 +5123,8 @@ final class LiveRoundAppModelTests: XCTestCase {
     private func blackKnightLoopPackage(
         source: LiveRoundPackage,
         globalId: Int,
-        label: String
+        label: String,
+        venueLoops: [VenueLoop]? = nil
     ) throws -> LiveRoundPackage {
         let roundId = "black-knight-template-\(globalId)"
         let holes = (1...9).map { localHole in
@@ -5143,6 +5237,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             holes: holes,
             roundLoops: RoundLoopEntry.table([RoundLoopEntry(globalId: globalId, half: "all")]),
             loopKey: RoundLoopEntry.loopKey([RoundLoopEntry(globalId: globalId, half: "all")]),
+            venueLoops: venueLoops,
             coursePrep: CoursePrepPackage(
                 schema: "ai-caddie-course-prep-v1",
                 globalId: globalId,

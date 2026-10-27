@@ -1959,6 +1959,10 @@ public final class LiveRoundAppModel: ObservableObject {
         endForegroundCourseRequest()
     }
 
+    func enqueueWholeCourseTemplatesForTesting(_ snapshot: LiveRoundPackage) {
+        enqueueWholeCourseTemplates(for: snapshot)
+    }
+
     #endif
 
     /// Keep start latency low, then make the selected course genuinely reusable without a network:
