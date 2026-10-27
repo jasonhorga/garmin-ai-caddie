@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ai_caddie.history.history_round_detail import build_history_round_detail
 from ai_caddie.rounds import correction_audit, players, round_shares
 from server_v2.data_source import load_history_data_for_mode
-from server_v2.history_round_detail import ANNOTATION_ROOT
+from server_v2 import history_round_detail as history_round_detail_api
 from server_v2.players_api import current_player_id
 
 
@@ -149,7 +149,7 @@ def _shared_payload(row: dict[str, Any]) -> dict[str, Any]:
     detail = build_history_round_detail(
         data,
         round_ref,
-        annotations_root=ANNOTATION_ROOT,
+        annotations_root=history_round_detail_api.ANNOTATION_ROOT,
         player_id=player_id,
     )
     if not detail.get("found") or not isinstance(detail.get("round"), dict):
