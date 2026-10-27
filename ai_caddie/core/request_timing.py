@@ -11,15 +11,16 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+import json
 import logging
 import os
 from pathlib import Path
 import queue
 import re
+import threading
 import time
 import uuid
 from typing import Any, Callable, Iterator
-from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 
@@ -30,7 +31,7 @@ logger = logging.getLogger("server_v2.timing")
 _BEIJING = ZoneInfo("Asia/Shanghai")
 _TIMING_FILE = re.compile(r"^(?P<kind>client-)?(?P<day>\d{4}-\d{2}-\d{2})\.jsonl$")
 _TIMING_QUEUE: queue.Queue[tuple[Path, str, Path, date] | None] = queue.Queue(maxsize=4096)
-_TIMING_WRITER_LOCK = __import__("threading").Lock()
+_TIMING_WRITER_LOCK = threading.Lock()
 _TIMING_WRITER_STARTED = False
 _TIMING_CLEANED: set[tuple[Path, date]] = set()
 # Tests may inject a private root without setting the deployment environment.  ``None`` means
@@ -68,7 +69,7 @@ def timing_path(day: date, *, client: bool = False, root: Path | str | None = No
 
 def template_path(path: str) -> str:
     """Strip query data and replace numeric URL path segments with ``{id}``."""
-    clean = urlsplit(str(path or "")).path or "/"
+    clean = str(path or "").split("?", 1)[0].split("#", 1)[0] or "/"
     segments = clean.split("/")
     return "/".join("{id}" if re.fullmatch(r"\d+", segment or "") else segment for segment in segments)
 
@@ -122,8 +123,6 @@ def _ensure_writer() -> None:
     with _TIMING_WRITER_LOCK:
         if _TIMING_WRITER_STARTED:
             return
-        import threading
-
         thread = threading.Thread(target=_timing_writer, name="request-timing-writer", daemon=True)
         thread.start()
         _TIMING_WRITER_STARTED = True
@@ -158,8 +157,6 @@ def _enqueue_timing(record: dict[str, Any], *, client: bool = False) -> None:
         day = _now().date()
         _ensure_writer()
         path = timing_path(day, client=client, root=root)
-        import json
-
         line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
         _TIMING_QUEUE.put_nowait((path, line, root, day))
     except queue.Full:
@@ -190,8 +187,6 @@ def read_timing_rows(root: Path | str | None = None) -> list[dict[str, Any]]:
             continue
         for line in lines:
             try:
-                import json
-
                 value = json.loads(line)
             except (TypeError, ValueError):
                 continue
@@ -234,15 +229,19 @@ class RequestTiming:
     def finish(self, *, method: str, path: str, status: int) -> None:
         marks = self.marks.copy()
         total_ms = self.total_ms
-        record = {
-            "ts": _now().isoformat(timespec="milliseconds"),
-            "request_id": self.request_id,
-            "method": str(method).upper(),
-            "path": template_path(path),
-            "status": int(status),
-            "total_ms": round(total_ms, 1),
-            "stages": {key: round(value, 1) for key, value in marks.items()},
-        }
+        record: dict[str, Any] | None = None
+        try:
+            record = {
+                "ts": _now().isoformat(timespec="milliseconds"),
+                "request_id": self.request_id,
+                "method": str(method).upper(),
+                "path": template_path(path),
+                "status": int(status),
+                "total_ms": round(total_ms, 1),
+                "stages": {key: round(value, 1) for key, value in marks.items()},
+            }
+        except Exception:
+            logger.warning("request timing record construction failed", exc_info=True)
         logger.info(
             "request_timing request_id=%s method=%s path=%s status=%s total_ms=%.1f stages=%s",
             self.request_id,
@@ -252,7 +251,12 @@ class RequestTiming:
             total_ms,
             ";".join(f"{key}:{value:.1f}" for key, value in marks.items()),
         )
-        _enqueue_timing(record)
+        if record is not None:
+            try:
+                _enqueue_timing(record)
+            except Exception:
+                # The optional observability path must never alter the business response.
+                logger.warning("request timing enqueue failed", exc_info=True)
 
 
 def current() -> RequestTiming | None:
