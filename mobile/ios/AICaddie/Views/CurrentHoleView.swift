@@ -4058,7 +4058,6 @@ public struct CurrentHoleView: View {
             if let url = descriptor.resolvedImageURL(relativeTo: caddieBaseURL) {
                 GarminRasterImageStore.prefetch(url)
             }
-            prefetchAdjacentGarminRasters(around: hole.number, using: client)
         } catch {
             guard !Task.isCancelled, isCurrentRasterRequest(requestKey) else { return }
             if garminRaster?.hasDisplayableImage != true {
@@ -4084,78 +4083,6 @@ public struct CurrentHoleView: View {
             return
         }
         garminVersionConflictURL = url
-    }
-
-    /// Warm both neighbours because a pager can move in either direction. Each descriptor/image
-    /// request is independent and the shared image store coalesces duplicates. The neighbours are
-    /// resolved from the actual round order, so a second nine (or a loop starting at 5) never
-    /// prefetches a numerically adjacent physical hole by accident.
-    private func prefetchAdjacentGarminRasters(around roundHole: Int, using client: SyncClient) {
-        let orderedNumbers = RoundPlayOrder.holes(
-            package.holes.map(\.number),
-            startingAt: liveRoundState?.startHole,
-            loops: package.roundLoops
-        )
-        guard let index = orderedNumbers.firstIndex(of: roundHole) else { return }
-        let neighbourNumbers = Set([
-            index > orderedNumbers.startIndex ? orderedNumbers[index - 1] : nil,
-            orderedNumbers.indices.contains(index + 1) ? orderedNumbers[index + 1] : nil
-        ].compactMap { $0 })
-        let neighbours = package.holes.filter { neighbourNumbers.contains($0.number) }
-        for neighbour in neighbours {
-            Task { @MainActor in
-                guard neighbour.sourceGlobalId != 0, neighbour.sourceLocalHole > 0 else { return }
-                guard let descriptor = try? await client.fetchGarminRaster(
-                    globalId: neighbour.sourceGlobalId,
-                    localHole: neighbour.sourceLocalHole
-                ) else { return }
-                let cachedPrep = sessionCache.entry(
-                    roundId: package.roundId,
-                    hole: neighbour.number,
-                    sourceGlobalId: neighbour.sourceGlobalId,
-                    sourceLocalHole: neighbour.sourceLocalHole,
-                    teeBox: package.course.teeBox
-                ).holePrep
-                let revision = LiveHoleSessionCache.cacheRevision(
-                    hole: neighbour,
-                    prep: cachedPrep ?? package.coursePrep?.holes.first { $0.hole == neighbour.number }
-                )
-                liveHoleSessionsUpdate(
-                    hole: neighbour,
-                    revision: revision,
-                    descriptor: descriptor
-                )
-                GarminRasterMetadataCache.store(
-                    descriptor,
-                    globalId: neighbour.sourceGlobalId,
-                    localHole: neighbour.sourceLocalHole,
-                    revision: revision
-                )
-                if descriptor.hasDisplayableImage,
-                   let url = descriptor.resolvedImageURL(relativeTo: client.baseURL) {
-                    GarminRasterImageStore.prefetch(url)
-                }
-            }
-        }
-    }
-
-    @MainActor
-    private func liveHoleSessionsUpdate(
-        hole neighbour: Hole,
-        revision: String?,
-        descriptor: GarminRasterResponse
-    ) {
-        sessionCache.update(
-            roundId: package.roundId,
-            hole: neighbour.number,
-            sourceGlobalId: neighbour.sourceGlobalId,
-            sourceLocalHole: neighbour.sourceLocalHole,
-            teeBox: package.course.teeBox,
-            geometryRevision: revision
-        ) { entry in
-            entry.garminRaster = descriptor
-            if let revision { entry.garminRevision = revision }
-        }
     }
 
     private func loadHoleMap() async -> Bool {
