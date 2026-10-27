@@ -322,17 +322,6 @@ fileprivate extension LiveHoleSessionCache.Entry {
 }
 
 enum LiveHolePagerSelectionLifecycle {
-    static func acceptsSelectionWrite(
-        writerGeneration: Int,
-        currentGeneration: Int,
-        selection: Int?,
-        ordered: [Int]
-    ) -> Bool {
-        guard writerGeneration == currentGeneration else { return false }
-        guard let selection else { return true }
-        return ordered.contains(selection)
-    }
-
     static func shouldReset(
         previousPath: [HubRoute],
         currentPath: [HubRoute]
@@ -524,11 +513,14 @@ public struct RoundHomeView: View {
     @State private var path: [HubRoute] = []
     /// The live route is one destination containing a paging surface. Keeping the selection here
     /// avoids rebuilding a CurrentHoleView (and its location/task state) for every swipe.
-    @State private var holePagerSelection: Int?
-    /// Every playable hole-set replacement creates a new pager binding. UIKit can deliver a
-    /// selection from the old TabView after the replacement; that write must not become the new
-    /// round cursor.
-    @State private var holePagerGeneration = 0
+    @State private var holePager = LiveHolePagerState()
+    @State private var holePagerReloadID = 0
+    @GestureState private var pagerTouchIsActive = false
+    @State private var pagerGestureStarted = false
+    private var holePagerSelection: Int? { holePager.selection }
+    #if DEBUG
+    @StateObject private var pagerTrace = UITestPagerTrace.shared
+    #endif
     @State private var holePagerNavigationLock: LiveHoleNavigationLock?
     @State private var holePagerScrollDisabled = false
     @State private var liveHoleSessions = LiveHoleSessionCache()
@@ -824,7 +816,6 @@ public struct RoundHomeView: View {
         }
         .onChange(of: liveRoundState?.roundId) { previousRoundId, currentRoundId in
             if previousRoundId != currentRoundId {
-                holePagerGeneration &+= 1
                 liveHoleSessions.reset()
             }
 
@@ -838,7 +829,6 @@ public struct RoundHomeView: View {
         }
         .onChange(of: prepPackage?.roundId) { previousRoundID, roundId in
             if previousRoundID != roundId {
-                holePagerGeneration &+= 1
                 prepHoleFollowing.reset()
                 liveHoleSessions.reset()
             }
@@ -852,16 +842,13 @@ public struct RoundHomeView: View {
                 reconcilePagerSelectionAfterSessionChange()
             }
         }
-        .onChange(of: package?.holeSetIdentity) { _, _ in
-            holePagerGeneration &+= 1
+        .onChange(of: holeScreenPackage?.holeSetIdentity) { _, _ in
+            refreshPagerPageSet()
             reconcileLiveHoleRouteWithPackage()
         }
         .onChange(of: liveRoundState?.activeHole) { _, activeHole in
-            if !isPrepHoleScreen, let activeHole {
-                if holePagerSelection != activeHole {
-                    holePagerSelection = activeHole
-                    holePagerNavigationLock = LiveHoleNavigationLock(currentHole: activeHole)
-                }
+            if !isPrepHoleScreen, let activeHole, holePager.activeHole != activeHole {
+                sendPager(.programmaticHole(activeHole), source: "setActiveHole observer")
             }
             reconcileLiveHoleRouteWithPackage()
         }
@@ -877,7 +864,7 @@ public struct RoundHomeView: View {
                     currentPath: routes,
                     ordered: ordered
                 ) {
-                    holePagerSelection = target
+                    sendPager(.programmaticHole(target), source: "route")
                     holePagerNavigationLock = LiveHoleNavigationLock(currentHole: target)
                     trimLiveHoleSessions(around: target, package: screenPackage)
                 }
@@ -888,8 +875,7 @@ public struct RoundHomeView: View {
                 previousPath: previousRoutes,
                 currentPath: routes
             ) {
-                holePagerGeneration &+= 1
-                holePagerSelection = nil
+                sendPager(.programmaticHole(nil), source: "leave route")
                 holePagerNavigationLock = nil
             }
             onLiveAppearanceChanged(Self.isLiveHoleRoute(routes.last))
@@ -1001,7 +987,7 @@ public struct RoundHomeView: View {
                           lock.begin(from: number, to: next) else { return }
                     holePagerNavigationLock = lock
                     withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.92)) {
-                        holePagerSelection = next
+                        sendPager(.advance(next), source: "onAdvanceHole")
                     }
                     // A cancelled TabView animation may never deliver a selection change. Release
                     // the one-shot guard after the same short window as the interactive spring so
@@ -1060,9 +1046,8 @@ public struct RoundHomeView: View {
         }
     }
 
-    /// A native page tab view follows the finger and keeps the current and adjacent holes alive.
-    /// The map's own gestures remain on each page. Selection persistence is scheduled for the next
-    /// main-actor turn so save/replay/watch seeding cannot block the gesture callback.
+    /// UIKit owns the interactive page animation. The simultaneous drag supplies an explicit
+    /// navigation intent at finger-up; UIKit's binding reports only acknowledge displayed pages.
     @ViewBuilder private func holePagerView(_ initialHole: Int) -> some View {
         if let package = holeScreenPackage {
             let ordered = RoundPlayOrder.holes(
@@ -1070,28 +1055,20 @@ public struct RoundHomeView: View {
                 startingAt: liveRoundState?.startHole,
                 loops: package.roundLoops
             )
-            TabView(selection: pagerSelectionBinding(
-                generation: holePagerGeneration,
-                holeSetIdentity: package.holeSetIdentity,
-                ordered: ordered
-            )) {
+            TabView(selection: pagerSelectionBinding) {
                 ForEach(ordered, id: \.self) { number in
                     currentHoleView(number)
                         .tag(Optional(number))
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            // Recreate the native scroll controller only when it reports the wrong page without
+            // an intent. Reassigning the same binding value cannot correct UIKit's internal index.
+            .id(holePagerReloadID)
             .onAppear {
-                holePagerSelection = LiveHolePagerInitialSelection.resolve(
-                    current: LiveHolePagerSelectionLifecycle.retainedSelectionAfterRefresh(
-                        current: holePagerSelection,
-                        activeHole: liveRoundState?.activeHole,
-                        isPrepMode: isPrepHoleScreen
-                    ),
-                    ordered: ordered,
-                    preferredHole: isPrepHoleScreen ? initialHole : liveRoundState?.activeHole,
-                    fallbackHole: initialHole
-                )
+                if holePager.ordered != ordered || holePagerSelection == nil {
+                    refreshPagerPageSet(fallback: initialHole)
+                }
                 if let selected = holePagerSelection {
                     holePagerNavigationLock = LiveHoleNavigationLock(currentHole: selected)
                     trimLiveHoleSessions(around: selected, package: package)
@@ -1099,35 +1076,35 @@ public struct RoundHomeView: View {
             }
             .onPreferenceChange(LiveHolePagerGestureStateKey.self) { disabled in
                 holePagerScrollDisabled = disabled
+                if disabled, holePager.touchOrigin != nil {
+                    sendPager(.touchEnded(step: 0), source: "map owns gesture")
+                }
             }
             .scrollDisabled(holePagerScrollDisabled)
-            .onChange(of: holePagerSelection) { previous, selected in
-                guard let selected, previous != selected else { return }
-                if var lock = holePagerNavigationLock, lock.currentHole == selected {
-                    lock.finish(at: selected)
-                    holePagerNavigationLock = lock
-                } else {
-                    holePagerNavigationLock = LiveHoleNavigationLock(currentHole: selected)
-                }
-                if let package = holeScreenPackage {
-                    trimLiveHoleSessions(around: selected, package: package)
-                }
-                if !isPrepHoleScreen, liveRoundState?.activeHole == selected {
-                    return
-                }
+            .simultaneousGesture(pagerDragGesture)
+            .onChange(of: pagerTouchIsActive) { _, active in
+                guard !active else { return }
+                // A system cancellation has no onEnded. Let a normal onEnded commit first.
                 Task { @MainActor in
                     await Task.yield()
-                    if isPrepHoleScreen {
-                        onPrepHoleChanged(selected)
-                    } else {
-                        onSetActiveHole(selected)
+                    guard !pagerTouchIsActive else { return }
+                    pagerGestureStarted = false
+                    if holePager.touchOrigin != nil {
+                        sendPager(.touchEnded(step: 0), source: "cancelled user gesture")
                     }
                 }
+            }
+            .onChange(of: holePagerSelection) { previous, selected in
+                tracePager("onChange \(previous ?? -1)->\(selected ?? -1)")
+                guard let selected, previous != selected else { return }
+                holePagerNavigationLock = LiveHoleNavigationLock(currentHole: selected)
+                trimLiveHoleSessions(around: selected, package: package)
             }
             .onDisappear {
                 holePagerNavigationLock = nil
                 holePagerScrollDisabled = false
             }
+            .overlay(alignment: .topLeading) { pagerTraceElement }
             .accessibilityIdentifier("live-hole-pager")
             .accessibilityValue(holePagerSelection.map { "第 \($0) 洞" } ?? "")
         } else {
@@ -1135,24 +1112,91 @@ public struct RoundHomeView: View {
         }
     }
 
-    private func pagerSelectionBinding(
-        generation: Int,
-        holeSetIdentity: String,
-        ordered: [Int]
-    ) -> Binding<Int?> {
+    private var pagerSelectionBinding: Binding<Int?> {
         Binding(
             get: { holePagerSelection },
-            set: { selection in
-                guard LiveHolePagerSelectionLifecycle.acceptsSelectionWrite(
-                    writerGeneration: generation,
-                    currentGeneration: holePagerGeneration,
-                    selection: selection,
-                    ordered: ordered
-                ) else { return }
-                guard holeScreenPackage?.holeSetIdentity == holeSetIdentity else { return }
-                holePagerSelection = selection
-            }
+            set: { sendPager(.bindingReported($0), source: "binding set") }
         )
+    }
+
+    private var pagerDragGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .updating($pagerTouchIsActive) { _, active, _ in active = true }
+            .onChanged { value in
+                guard !pagerGestureStarted else { return }
+                pagerGestureStarted = true
+                guard !holePagerScrollDisabled,
+                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                sendPager(.touchBegan, source: "user gesture begin")
+            }
+            .onEnded { value in
+                pagerGestureStarted = false
+                guard holePager.touchOrigin != nil else { return }
+                let horizontal = abs(value.translation.width) > abs(value.translation.height)
+                let committed = !holePagerScrollDisabled && horizontal
+                    && (abs(value.translation.width) >= 50
+                        || abs(value.predictedEndTranslation.width) >= 100)
+                let step = committed ? (value.translation.width < 0 ? 1 : -1) : 0
+                sendPager(.touchEnded(step: step), source: "user gesture end")
+            }
+    }
+
+    private func refreshPagerPageSet(fallback: Int? = nil) {
+        guard let package = holeScreenPackage else { return }
+        let ordered = RoundPlayOrder.holes(
+            package.holes.map(\.number), startingAt: liveRoundState?.startHole, loops: package.roundLoops
+        )
+        let active = isPrepHoleScreen ? (holePager.activeHole ?? fallback)
+            : (liveRoundState?.activeHole ?? pendingLiveHole ?? fallback)
+        tracePager("package holes=\(ordered.count)")
+        sendPager(.pageSetChanged(ordered: ordered, activeHole: active), source: "package")
+    }
+
+    private func sendPager(_ event: LiveHolePagerState.Event, source: String) {
+        let oldSelection = holePager.selection
+        let oldPending = holePager.pendingTarget
+        let effect = holePager.send(event)
+        tracePager("\(source) \(event) selection \(oldSelection ?? -1)->\(holePager.selection ?? -1) pending \(oldPending ?? -1)->\(holePager.pendingTarget ?? -1)")
+        if let target = effect.forceScrollTo {
+            tracePager("discard report; force scroll=\(target)")
+            // Do not destroy UIKit's controller under the user's finger. The explicit end intent
+            // chooses a new target, or a cancelled touch forces the previous target back into view.
+            if holePager.touchOrigin == nil { holePagerReloadID &+= 1 }
+        }
+        if let selected = effect.activeHoleToPersist {
+            // Explicit gesture/save intent only. Never called from a selection observer or binding.
+            Task { @MainActor in
+                await Task.yield()
+                guard holePager.activeHole == selected else { return }
+                if isPrepHoleScreen {
+                    onPrepHoleChanged(selected)
+                } else {
+                    tracePager("onSetActiveHole=\(selected) source=\(source)")
+                    onSetActiveHole(selected)
+                }
+            }
+        }
+    }
+
+    private func tracePager(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        pagerTrace.record(message())
+        #endif
+    }
+
+    @ViewBuilder private var pagerTraceElement: some View {
+        #if DEBUG
+        if pagerTrace.enabled {
+            Text("pager trace")
+                .font(.system(size: 1))
+                .foregroundStyle(Color.white.opacity(0.02))
+                .frame(width: 1, height: 1)
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("debug-pager-trace")
+                .accessibilityLabel(pagerTrace.label)
+                .allowsHitTesting(false)
+        }
+        #endif
     }
 
     private func trimLiveHoleSessions(around selected: Int, package: LiveRoundPackage) {
@@ -1174,7 +1218,7 @@ public struct RoundHomeView: View {
     /// pager explicitly so clearing the old cache never leaves every retained page unselected.
     private func reconcilePagerSelectionAfterSessionChange() {
         guard let screenPackage = holeScreenPackage else {
-            holePagerSelection = nil
+            sendPager(.programmaticHole(nil), source: "session clear")
             holePagerNavigationLock = nil
             return
         }
@@ -1189,11 +1233,12 @@ public struct RoundHomeView: View {
             activeHole: liveRoundState?.activeHole,
             pendingLiveHole: pendingLiveHole
         ) else {
-            holePagerSelection = nil
+            sendPager(.programmaticHole(nil), source: "session clear")
             holePagerNavigationLock = nil
             return
         }
-        holePagerSelection = selected
+        refreshPagerPageSet(fallback: selected)
+        sendPager(.programmaticHole(selected), source: "session")
         holePagerNavigationLock = LiveHoleNavigationLock(currentHole: selected)
         trimLiveHoleSessions(around: selected, package: screenPackage)
     }

@@ -72,6 +72,38 @@ final class LiveHolePagerStateTests: XCTestCase {
         XCTAssertEqual(pager.selection, 7)
         pager.send(.bindingReported(7))
         XCTAssertNil(pager.pendingTarget)
+        pager.send(.touchBegan)
+        let back = pager.send(.touchEnded(step: -1))
+        XCTAssertEqual(pager.activeHole, 6)
+        XCTAssertEqual(back.activeHoleToPersist, 6)
+    }
+
+    func testUserSwipeCanCommitWhileAnEarlierProgrammaticDisplayIsAwaitingAcknowledgement() {
+        var pager = LiveHolePagerState()
+        pager.send(.pageSetChanged(ordered: Array(1...18), activeHole: 6))
+        pager.send(.touchBegan)
+        // A pending target still rejects the report; the explicit finger-up intent can replace it.
+        let report = pager.send(.bindingReported(7))
+        XCTAssertEqual(pager.activeHole, 6)
+        XCTAssertEqual(pager.selection, 6)
+        XCTAssertEqual(report.forceScrollTo, 6)
+        XCTAssertNil(report.activeHoleToPersist)
+        let end = pager.send(.touchEnded(step: 1))
+        XCTAssertEqual(pager.activeHole, 7)
+        XCTAssertEqual(pager.selection, 7)
+        XCTAssertEqual(end.activeHoleToPersist, 7)
+        XCTAssertNil(pager.pendingTarget)
+    }
+
+    func testMapTakingOwnershipBeforeAnyPagerReportDoesNotRebuildItsDragSurface() {
+        var pager = LiveHolePagerState()
+        pager.send(.pageSetChanged(ordered: Array(1...18), activeHole: 6))
+        pager.send(.touchBegan)
+        let mapOwnsTouch = pager.send(.touchEnded(step: 0))
+        XCTAssertNil(mapOwnsTouch.activeHoleToPersist)
+        XCTAssertNil(mapOwnsTouch.forceScrollTo)
+        XCTAssertEqual(pager.activeHole, 6)
+        XCTAssertNil(pager.touchOrigin)
     }
 
     func testCancelledSwipeAndProgrammaticMoveInvalidateAnOldTouch() {

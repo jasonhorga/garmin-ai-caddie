@@ -4090,12 +4090,18 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     public func setActiveHole(_ hole: Int) {
+        #if DEBUG
+        UITestPagerTrace.shared.record("setActiveHole request=\(hole)")
+        #endif
         guard let package, package.holes.contains(where: { $0.number == hole }) else {
             return
         }
         do {
             try offlineStore.saveActiveHole(roundId: package.roundId, hole: hole)
             liveRoundState = try offlineStore.restoreLiveRoundState(roundId: package.roundId, package: package)
+            #if DEBUG
+            UITestPagerTrace.shared.record("setActiveHole saved=\(liveRoundState?.activeHole ?? -1)")
+            #endif
             if let gate = freshEntryRelease, gate.roundId == package.roundId, gate.entryHole != hole {
                 // The player moved on before the entry hole's first load settled; that hole no
                 // longer needs priority.

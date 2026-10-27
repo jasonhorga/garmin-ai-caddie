@@ -79,6 +79,7 @@ final class RealFlowUITests: XCTestCase {
     /// The same whole-course prep package must allow a player standing on hole 10 to start there;
     /// no front-nine cursor is persisted before the first stroke.
     func testWholeCourseBackNineStartsFromFirstStrokeJourney() throws {
+        app.launchEnvironment["UITEST_PAGER_TRACE"] = "1"
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
         app.launchEnvironment["UITEST_RESET_ACTIVE_ROUND"] = "1"
         app.launchEnvironment["UITEST_RESET_COURSE_LIBRARY"] = "1"
@@ -271,6 +272,7 @@ final class RealFlowUITests: XCTestCase {
     }
 
     func testCaptureRealAppFlow() throws {
+        app.launchEnvironment["UITEST_PAGER_TRACE"] = "1"
         // Read every screen from the live backend, but keep the synthetic simulator round local.
         // This lets the score flow use real 北京丽宫 data without polluting the owner's history.
         app.launchEnvironment["UITEST_DISABLE_EVENT_SYNC"] = "1"
@@ -1132,8 +1134,13 @@ final class RealFlowUITests: XCTestCase {
             }
 
             if holeNumber < 18 {
+                let reached = app.staticTexts["第 \(holeNumber + 1) 洞"].waitForExistence(timeout: 30)
+                if !reached {
+                    save("pager-after-save-\(holeNumber)")
+                    dump("pager-after-save-\(holeNumber)")
+                }
                 XCTAssertTrue(
-                    app.staticTexts["第 \(holeNumber + 1) 洞"].waitForExistence(timeout: 30),
+                    reached,
                     "saving hole \(holeNumber) must advance the same round to hole \(holeNumber + 1)"
                 )
             }
