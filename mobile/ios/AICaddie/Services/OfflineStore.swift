@@ -626,6 +626,9 @@ public final class OfflineStore {
 #if DEBUG
     /// Test seam for the account-switch window; production builds do not retain a callback.
     static var accountSwitchEventLogHook: (() -> Void)?
+    /// Runs after matching the progress round, before deletion. Tests schedule a competing save
+    /// on another queue; the callback must never synchronously reenter the progress APIs.
+    var liveRoundProgressRemovalHook: (() -> Void)?
 #endif
     private let trustedDirectoryAnchor: URL
     private let baseDirectoryURL: URL
@@ -1769,6 +1772,9 @@ public final class OfflineStore {
         try savePendingRoundFinishes(records)
         removeCurrentRoundPointerIfMatching(package.roundId)
         if let progress = try? loadLiveRoundProgress(), progress.roundId == package.roundId {
+#if DEBUG
+            liveRoundProgressRemovalHook?()
+#endif
             try? FileManager.default.removeItem(at: liveProgressURL)
             liveRoundProgressLock.lock()
             liveRoundProgressCache = nil
@@ -1841,6 +1847,9 @@ public final class OfflineStore {
         removeCurrentRoundPointerIfMatching(roundId)
         try? FileManager.default.removeItem(at: packageURL(roundId: roundId))
         if let progress = try? loadLiveRoundProgress(), progress.roundId == roundId {
+#if DEBUG
+            liveRoundProgressRemovalHook?()
+#endif
             try? FileManager.default.removeItem(at: liveProgressURL)
             liveRoundProgressLock.lock()
             liveRoundProgressCache = nil

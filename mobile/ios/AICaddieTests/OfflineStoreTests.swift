@@ -258,6 +258,76 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertFalse(try store.isRoundPendingFinish(oldRound.roundId))
     }
 
+    func testDeferredFinishSerializesProgressRemovalWithNewRoundStart() throws {
+        try assertNewRoundProgressSurvivesCleanup { store, oldRound in
+            let metadata = MobileRoundFinishMetadata(
+                courseName: oldRound.course.name,
+                holePars: oldRound.holes.map(\.par),
+                holesCompleted: 0,
+                courseGlobalId: oldRound.course.globalId
+            )
+            try store.sealRoundForDeferredFinish(package: oldRound, metadata: metadata)
+        }
+    }
+
+    func testDiscardSerializesProgressRemovalWithNewRoundStart() throws {
+        try assertNewRoundProgressSurvivesCleanup { store, oldRound in
+            try store.discardRound(roundId: oldRound.roundId)
+        }
+    }
+
+    private func assertNewRoundProgressSurvivesCleanup(
+        _ cleanup: (OfflineStore, LiveRoundPackage) throws -> Void
+    ) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let oldRound = try localFixturePackage()
+        let store = OfflineStore(directoryURL: directory)
+        try store.saveRoundStart(roundId: oldRound.roundId, startHole: 1)
+        let writerStarted = DispatchSemaphore(value: 0)
+        let writerFinished = DispatchSemaphore(value: 0)
+        let writerDone = expectation(description: "new round progress saved")
+        var removalHookCalls = 0
+        store.liveRoundProgressRemovalHook = {
+            removalHookCalls += 1
+            DispatchQueue(label: "progress-save-during-cleanup").async {
+                writerStarted.signal()
+                do {
+                    try store.saveRoundStart(roundId: "new-round-during-cleanup", startHole: 4)
+                } catch {
+                    XCTFail("new round save failed: \(error)")
+                }
+                writerFinished.signal()
+                writerDone.fulfill()
+            }
+            XCTAssertEqual(writerStarted.wait(timeout: .now() + 5), .success)
+            // Old code allows this save to finish here, then deletes its newly written file.
+            // Atomic cleanup holds the progress lock until after removal, so the writer waits.
+            XCTAssertEqual(writerFinished.wait(timeout: .now() + 1), .timedOut)
+        }
+        defer { store.liveRoundProgressRemovalHook = nil }
+
+        XCTAssertNoThrow(try cleanup(store, oldRound))
+        store.liveRoundProgressRemovalHook = nil
+        wait(for: [writerDone], timeout: 5)
+        XCTAssertEqual(removalHookCalls, 1, "the test must reach the check/delete window")
+        XCTAssertEqual(try store.inProgressRoundId(), "new-round-during-cleanup")
+        XCTAssertEqual(
+            try OfflineStore(directoryURL: directory).inProgressRoundId(),
+            "new-round-during-cleanup",
+            "the new progress survives on disk, not only in the cache"
+        )
+
+        // A later retry of the old cleanup must also leave the new progress untouched.
+        try cleanup(store, oldRound)
+        XCTAssertEqual(try store.inProgressRoundId(), "new-round-during-cleanup")
+        XCTAssertEqual(
+            try OfflineStore(directoryURL: directory).inProgressRoundId(),
+            "new-round-during-cleanup"
+        )
+    }
+
     func testPrepCourseDownloadIntentPersistsForRelaunchResume() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
