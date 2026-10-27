@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -39,11 +40,118 @@ class HotPathRevisionTests(unittest.TestCase):
                     patch.object(stats_cache.round_corrections, "corrections_dir", return_value=corrections), \
                     patch.object(stats_cache.os, "scandir", wraps=stats_cache.os.scandir) as scandir:
                 stats_cache._fingerprint(data, {})
+                stats_cache._fingerprint(data, {})  # consume the racy-clean retry once
                 first_count = scandir.call_count
                 for _ in range(5):
                     stats_cache._fingerprint(data, {})
                 self.assertEqual(scandir.call_count, first_count,
                                  "unchanged hot-path fingerprints must not scan directories")
+
+    def test_all_three_hot_signatures_are_scandir_free_after_warmup(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp) / "history"
+            corrections = Path(tmp) / "corrections"
+            root.mkdir()
+            corrections.mkdir()
+            (root / "round.json").write_text("{}")
+            data = HistoryData(raw_rounds=[], rounds=[], shots=[])
+            with patch.object(stats_cache, "_fingerprint_dirs", return_value=(root,)), \
+                    patch.object(stats_cache, "_load_dirs", return_value=(root,)), \
+                    patch.object(stats_cache, "_GEOMETRY_DIRS", ()), \
+                    patch.object(stats_cache, "_aux_files", return_value=[]), \
+                    patch.object(stats_cache.round_corrections, "corrections_dir", return_value=corrections), \
+                    patch.object(stats_cache, "_load_history_data", return_value=data), \
+                    patch.object(stats_cache.os, "scandir", wraps=stats_cache.os.scandir) as scandir:
+                stats_cache._fingerprint(data, {})
+                stats_cache._fingerprint(data, {})
+                before_fingerprint = scandir.call_count
+                stats_cache._fingerprint(data, {})
+                self.assertEqual(scandir.call_count - before_fingerprint, 0)
+
+                revisions.clear()
+                stats_cache.clear()
+                stats_cache.cached_load_history_data("me")
+                stats_cache.cached_load_history_data("me")
+                before_load = scandir.call_count
+                stats_cache.cached_load_history_data("me")
+                self.assertEqual(scandir.call_count - before_load, 0)
+
+                revisions.clear()
+                stats_cache.correction_projection_inputs(data=data)
+                stats_cache.correction_projection_inputs(data=data)
+                before_projection = scandir.call_count
+                stats_cache.correction_projection_inputs(data=data)
+                self.assertEqual(scandir.call_count - before_projection, 0)
+
+    def test_write_during_scan_is_not_swallowed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "before.json").write_text("{}")
+            wrote = False
+
+            def scanner():
+                nonlocal wrote
+                result = stats_cache._dir_sig(root)
+                if not wrote:
+                    wrote = True
+                    atomic_write_json(root / "during.json", {})
+                return result
+
+            first = revisions.cached_signature(root, "during", scanner)
+            second = revisions.cached_signature(root, "during", scanner)
+            self.assertNotEqual(first, second)
+
+    def test_cached_key_scan_does_not_block_another_warm_key(self) -> None:
+        with TemporaryDirectory() as tmp:
+            slow_root = Path(tmp) / "slow"
+            warm_root = Path(tmp) / "warm"
+            slow_root.mkdir()
+            warm_root.mkdir()
+            (slow_root / "slow.json").write_text("{}")
+            (warm_root / "warm.json").write_text("{}")
+            warm = revisions.cached_signature(warm_root, "warm", lambda: stats_cache._dir_sig(warm_root))
+            revisions.cached_signature(warm_root, "warm", lambda: stats_cache._dir_sig(warm_root))
+            entered = threading.Event()
+            release = threading.Event()
+
+            def slow_scan():
+                entered.set()
+                self.assertTrue(release.wait(2))
+                return stats_cache._dir_sig(slow_root)
+
+            with ThreadPoolExecutor(1) as pool:
+                pending = pool.submit(revisions.cached_signature, slow_root, "slow", slow_scan)
+                self.assertTrue(entered.wait(2))
+                started = time.perf_counter()
+                self.assertEqual(warm, revisions.cached_signature(
+                    warm_root, "warm", lambda: stats_cache._dir_sig(warm_root)
+                ))
+                elapsed = time.perf_counter() - started
+                release.set()
+                pending.result(2)
+            self.assertLess(elapsed, 0.2)
+
+    def test_background_scans_one_directory_for_many_variants_and_evicts_idle(self) -> None:
+        with TemporaryDirectory() as tmp, patch.object(revisions, "_ENTRY_IDLE_ROUNDS", 2):
+            root = Path(tmp)
+            for index in range(100):
+                (root / f"f{index:03d}.json").write_text("{}")
+            for variant in range(30):
+                revisions.cached_signature(root, ("variant", variant), lambda: stats_cache._dir_sig(root))
+                revisions.cached_signature(root, ("variant", variant), lambda: stats_cache._dir_sig(root))
+            with patch.object(stats_cache.os, "scandir", wraps=stats_cache.os.scandir) as scandir:
+                revisions.scan_revision_cache_once()
+                self.assertEqual(scandir.call_count, 1)
+            revisions.scan_revision_cache_once()
+            self.assertEqual(len(revisions._ENTRIES), 0)
+
+    def test_fixture_mode_does_not_start_background_thread_and_can_stop_one(self) -> None:
+        with TemporaryDirectory() as tmp, patch.dict(os.environ, {"AI_CADDIE_FIXTURE_MODE": "1"}):
+            revisions.stop_scanner()
+            root = Path(tmp)
+            root.mkdir(exist_ok=True)
+            revisions.cached_signature(root, "fixture", lambda: stats_cache._dir_sig(root))
+            self.assertIsNone(revisions._SCANNER_THREAD)
 
     def test_official_atomic_write_is_visible_on_next_signature(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -76,7 +184,7 @@ class HotPathRevisionTests(unittest.TestCase):
             target = root / "a.json"
             target.write_text('{"v": 1}')
             first = revisions.cached_signature(root, "all", lambda: stats_cache._dir_sig(root))
-            target.write_text('{"v": 2}')
+            target.write_text('{"value": 222}')
             # A direct rewrite does not change the directory mtime. The deterministic maintenance
             # hook is the same pass the daemon runs periodically in production.
             revisions.scan_revision_cache_once()

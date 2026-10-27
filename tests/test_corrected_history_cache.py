@@ -11,6 +11,7 @@ from ai_caddie.history import corrected_history as history
 from ai_caddie.history import stats_cache
 from ai_caddie.rounds import round_corrections
 from ai_caddie.courses.prep_work import PrepCancelled
+from ai_caddie.core.data import atomic_write_json
 
 
 class CorrectedHistoryCacheTests(unittest.TestCase):
@@ -26,7 +27,7 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
                 first = stats_cache._history_geometry_dir_sig(geometry, (31795,))
                 second = stats_cache._history_geometry_dir_sig(geometry, (31795,))
                 self.assertEqual(first, second)
-                self.assertEqual(scandir.call_count, 1, "a warm short-TTL read must scan once")
+                self.assertEqual(scandir.call_count, 2, "the racy-clean retry scans once before becoming warm")
 
                 (geometry / "gid31795_h02_meshes.json").write_text("{}")
                 changed = stats_cache._history_geometry_dir_sig(geometry, (31795,))
@@ -36,7 +37,7 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
                 expired = stats_cache._history_geometry_dir_sig(geometry, (31795,))
 
             self.assertNotEqual(expired, changed, "background scan must observe in-place edits")
-            self.assertEqual(scandir.call_count, 3)
+            self.assertEqual(scandir.call_count, 5)
 
     def test_concurrent_deterministic_failure_is_shared_with_the_waiting_batch(self) -> None:
         """A corrupt correction projection must fail one batch once, with one error."""
@@ -102,20 +103,17 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
             data = fixture_history_data()  # Historical courses are 31795 and 41825.
             kwargs = dict(annotations_root=directory, corrections_root=directory)
             with (patch.object(stats_cache, "_GEOMETRY_DIRS", (geometry, hazards)),
-                  patch.object(stats_cache, "_GEOMETRY_SIG_TTL_S", 0.0),
                   patch.object(history, "_build_corrected_history_data", wraps=history._build_corrected_history_data) as replay):
                 first = history.corrected_history_data(data, **kwargs)
                 self.assertIs(history.corrected_history_data(data, **kwargs), first)
                 (geometry / "gid99999_h01_meshes.json").write_text("{}")
                 self.assertIs(history.corrected_history_data(data, **kwargs), first)
                 self.assertEqual(replay.call_count, 1, "an unrelated course must keep history warm")
-                mesh.write_text('{"updated":true}')
-                stats_cache.revisions.scan_revision_cache_once()
+                atomic_write_json(mesh, {"updated": True})
                 self.assertIsNot(history.corrected_history_data(data, **kwargs), first,
                                  "a changed historical frame must replay pixel corrections")
                 self.assertEqual(replay.call_count, 2)
-                (hazards / "gid31795_h01_hazards.json").write_text("{}")
-                stats_cache.revisions.scan_revision_cache_once()
+                atomic_write_json(hazards / "gid31795_h01_hazards.json", {})
                 history.corrected_history_data(data, **kwargs)
                 self.assertEqual(replay.call_count, 3)
 
