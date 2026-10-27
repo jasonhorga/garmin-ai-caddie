@@ -396,6 +396,55 @@ final class RoundPlayOrderTests: XCTestCase {
         )
     }
 
+    func testDelayedOldPagerWriteCannotReplaceTheFirstHoleOfTheNewLoop() {
+        // Old pager: the first loop ended on round hole 9. The model publishes the second loop,
+        // then moves its authoritative cursor to round hole 10 (the course's first hole). A
+        // delayed UIKit write from the old page may report its former last page, round hole 18,
+        // but the old binding generation must reject it before onChange can call setActiveHole.
+        var generation = 7
+        var selected = 9
+        var activeHole = 9
+        let oldGeneration = generation
+        generation += 1
+        let ordered = Array(1...18)
+        selected = 10
+        activeHole = 10
+        XCTAssertFalse(
+            LiveHolePagerSelectionLifecycle.acceptsSelectionWrite(
+                writerGeneration: oldGeneration,
+                currentGeneration: generation,
+                selection: 18,
+                ordered: ordered
+            )
+        )
+        XCTAssertEqual(selected, 10)
+        XCTAssertEqual(activeHole, 10)
+        XCTAssertTrue(
+            LiveHolePagerSelectionLifecycle.acceptsSelectionWrite(
+                writerGeneration: generation,
+                currentGeneration: generation,
+                selection: 11,
+                ordered: ordered
+            )
+        )
+    }
+
+    func testAddingASecondLoopWhileOnHoleSixKeepsTheSameSelectionAndCursor() {
+        // Package identity changes while the player is still on hole 6. The active cursor is the
+        // authority for this refresh; the route's entry hole must never reset it to hole 1.
+        XCTAssertEqual(
+            LiveHolePagerSelectionLifecycle.retainedSelectionAfterRefresh(
+                current: 6, activeHole: 6, isPrepMode: false
+            ),
+            6
+        )
+        XCTAssertTrue(
+            LiveHolePagerSelectionLifecycle.acceptsSelectionWrite(
+                writerGeneration: 3, currentGeneration: 3, selection: 6, ordered: Array(1...18)
+            )
+        )
+    }
+
     func testInactiveHolePagesDoNotStartTheirExpensiveLoad() {
         XCTAssertFalse(LiveHoleLoadLifecycle.shouldRun(isSelected: false))
         XCTAssertTrue(LiveHoleLoadLifecycle.shouldRun(isSelected: true))

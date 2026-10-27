@@ -322,6 +322,20 @@ fileprivate extension LiveHoleSessionCache.Entry {
 }
 
 enum LiveHolePagerSelectionLifecycle {
+    static func acceptsSelectionWrite(
+        writerGeneration: Int,
+        currentGeneration: Int,
+        selection: Int?,
+        ordered: [Int]
+    ) -> Bool {
+        // Compatibility seam for the red test commit: the old pager accepted any page from its
+        // current ordered set, regardless of which TabView generation produced the write.
+        _ = writerGeneration
+        _ = currentGeneration
+        guard let selection else { return true }
+        return ordered.contains(selection)
+    }
+
     static func shouldReset(
         previousPath: [HubRoute],
         currentPath: [HubRoute]
