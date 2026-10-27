@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
-import os
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -66,16 +65,9 @@ def _dir_sig(directory: Path) -> tuple[int, str]:
     one ``os.scandir`` plus the ``stat`` it already performs; file CONTENTS are never
     read (too slow on the shot dir) -- size+mtime_ns is the standard cheap manifest."""
     files: list[tuple[str, int, int, int]] = []
-    try:
-        with os.scandir(directory) as it:
-            for entry in it:
-                if entry.name == revisions.REVISION_FILENAME:
-                    continue
-                if entry.is_file():
-                    st = entry.stat()
-                    files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
-    except (FileNotFoundError, NotADirectoryError):
-        return (0, "")
+    for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(directory):
+        if name != revisions.REVISION_FILENAME and is_file:
+            files.append((name, size, mtime_ns, ctime_ns))
     files.sort()  # scandir order is unspecified; sort so the digest is order-independent
     digest = hashlib.blake2b(digest_size=16)
     for name, size, mtime_ns, ctime_ns in files:
@@ -96,16 +88,9 @@ def _matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
     so its cache dependency must have the same course boundary.
     """
     files: list[tuple[str, int, int, int]] = []
-    try:
-        with os.scandir(directory) as it:
-            for entry in it:
-                if entry.name == revisions.REVISION_FILENAME:
-                    continue
-                if entry.is_file() and fnmatch.fnmatchcase(entry.name, pattern):
-                    st = entry.stat()
-                    files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
-    except (FileNotFoundError, NotADirectoryError):
-        return (0, "")
+    for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(directory):
+        if name != revisions.REVISION_FILENAME and is_file and fnmatch.fnmatchcase(name, pattern):
+            files.append((name, size, mtime_ns, ctime_ns))
     files.sort()
     digest = hashlib.blake2b(digest_size=16)
     for name, size, mtime_ns, ctime_ns in files:
@@ -156,17 +141,14 @@ def _course_data_sig(global_id: int) -> tuple[int, str]:
 def _scan_course_data_sig(global_id: int) -> tuple[int, str]:
     """Complete scan used on a cold course-data signature."""
     gid = int(global_id)
-    paths = [
-        _COURSEVIEW_DIR / f"{gid}_releases.pb",
-        *_COURSEVIEW_DIR.glob(f"{gid}_course_data_*.json"),
-    ]
     rows: list[tuple[str, int, int, int]] = []
-    for path in paths:
-        try:
-            stat = path.stat()
-        except (FileNotFoundError, NotADirectoryError):
+    for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(_COURSEVIEW_DIR):
+        if not is_file or (
+            name != f"{gid}_releases.pb"
+            and not fnmatch.fnmatchcase(name, f"{gid}_course_data_*.json")
+        ):
             continue
-        rows.append((path.name, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+        rows.append((name, size, mtime_ns, ctime_ns))
     rows.sort()
     digest = hashlib.blake2b(digest_size=16)
     for name, size, mtime_ns, ctime_ns in rows:
@@ -368,7 +350,6 @@ def clear() -> None:
     Also wakes + drops any in-flight waiters so a cleared cache forces a fresh build (the
     prep-endpoint tests rely on this: each test clears, then asserts its mocked build ran)."""
     with _lock:
-        revisions.clear()
         _cache.clear()
         _hole_cache.clear()
         for event in _inflight.values():

@@ -313,7 +313,7 @@ def correction_projection_inputs(
     geometry = tuple(_history_geometry_dir_sig(path, global_ids) for path in _GEOMETRY_DIRS)
     return (
         str(annotations), _file_sig(annotations),
-        str(corrections), _dir_sig(corrections), geometry,
+        str(corrections), _cached_dir_sig(corrections), geometry,
     )
 
 
@@ -329,18 +329,13 @@ def _dir_sig(directory: Path) -> tuple[int, str]:
     read (too slow on the shot dir) -- size+mtime_ns is the standard cheap manifest."""
     files: list[tuple[str, int, int, int]] = []
     suffix = _DIR_FILE_SUFFIX.get(directory)
-    try:
-        with os.scandir(directory) as it:
-            for entry in it:
-                if entry.name == revisions.REVISION_FILENAME:
-                    continue
-                if suffix is not None and not entry.name.endswith(suffix):
-                    continue
-                if entry.is_file():
-                    st = entry.stat()
-                    files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
-    except (FileNotFoundError, NotADirectoryError):
-        return (0, "")
+    for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(directory):
+        if name == revisions.REVISION_FILENAME:
+            continue
+        if suffix is not None and not name.endswith(suffix):
+            continue
+        if is_file:
+            files.append((name, size, mtime_ns, ctime_ns))
     files.sort()  # scandir order is unspecified; sort so the digest is order-independent
     digest = hashlib.blake2b(digest_size=16)
     for name, size, mtime_ns, ctime_ns in files:
@@ -398,24 +393,16 @@ def _scan_history_geometry_dir_sig(
 ) -> tuple:
     """Build one uncached geometry-directory signature."""
     files: list[tuple[str, int, int, int]] = []
-    try:
-        with os.scandir(directory) as it:
-            for entry in it:
-                if entry.name == revisions.REVISION_FILENAME:
-                    continue
-                if not entry.is_file() or not entry.name.startswith("gid"):
-                    continue
-                prefix = entry.name[3:].split("_", 1)[0]
-                try:
-                    global_id = int(prefix)
-                except ValueError:
-                    continue
-                if global_id not in selected:
-                    continue
-                st = entry.stat()
-                files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
-    except (FileNotFoundError, NotADirectoryError):
-        pass
+    for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(directory):
+        if name == revisions.REVISION_FILENAME or not is_file or not name.startswith("gid"):
+            continue
+        prefix = name[3:].split("_", 1)[0]
+        try:
+            global_id = int(prefix)
+        except ValueError:
+            continue
+        if global_id in selected:
+            files.append((name, size, mtime_ns, ctime_ns))
     files.sort()
     digest = hashlib.blake2b(digest_size=16)
     for name, size, mtime_ns, ctime_ns in files:
@@ -470,7 +457,6 @@ def clear(player_id: str | None = None) -> None:
     is keyed by a tuple whose first element is the player id; ``_load_cache`` is keyed by
     player id directly."""
     with _lock:
-        revisions.clear()
         if player_id is None:
             _cache.clear()
             _load_cache.clear()
@@ -496,7 +482,7 @@ def cached_load_history_data(player_id: str = OWNER_ID):
     that player's dirs are unchanged; a new score (new file) auto-invalidates it. Each
     player has its own entry, so loading one player never evicts another."""
     while True:
-        fingerprint = tuple(_dir_sig(d) for d in _load_dirs(player_id))
+        fingerprint = tuple(_cached_dir_sig(d) for d in _load_dirs(player_id))
         mark("history_source_revision")
         with _lock:
             hit = _load_cache.get(player_id)
