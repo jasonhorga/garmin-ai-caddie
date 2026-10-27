@@ -41,6 +41,25 @@ class NonCancellableReceive:
 
 
 class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_disconnect_after_worker_done_is_not_reported_as_cancellation(self):
+        built = threading.Event()
+
+        class CompletedThenDisconnected:
+            async def receive(self):
+                await asyncio.to_thread(built.wait)
+                await asyncio.sleep(0)
+                return {"type": "http.disconnect"}
+
+        with patch("server_v2.prep_work.mark") as mark:
+            def build():
+                built.set()
+                return Response(status_code=200)
+
+            response = await asyncio.wait_for(run_prep(CompletedThenDisconnected(), build), 1)
+
+        self.assertEqual(response.status_code, 200)
+        mark.assert_not_called()
+
     async def test_completed_prep_does_not_wait_for_receive_proxy_cancellation(self):
         request = NonCancellableReceive()
 
@@ -62,7 +81,7 @@ class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):
     async def test_concurrent_http_requests_and_cache_hit_build_once(self):
         prep_cache.clear()
         self.addCleanup(prep_cache.clear)
-        entered, release = threading.Event(), threading.Event()
+        entered, second_entered, release = threading.Event(), threading.Event(), threading.Event()
 
         def build(*args, **kwargs):
             entered.set()
@@ -70,16 +89,27 @@ class PrepCancellationTests(unittest.IsolatedAsyncioTestCase):
                 raise AssertionError("test did not release builder")
             return [dict(hole=1, par=4)]
 
+        original_cached = prep_cache.cached_course_prep
+        cache_calls = 0
+
+        def cached(*args, **kwargs):
+            nonlocal cache_calls
+            cache_calls += 1
+            if cache_calls == 2:
+                second_entered.set()
+            return original_cached(*args, **kwargs)
+
         with (patch.object(course_reference, "courseview_release_info", return_value=None),
               patch.object(course_prep, "effective_club_ladder", return_value=[]),
               patch.object(course_prep, "club_ladder_with_provenance", return_value=[]),
-              patch.object(course_prep, "prep_nine", side_effect=build) as nine):
+              patch.object(course_prep, "prep_nine", side_effect=build) as nine,
+              patch.object(prep_cache, "cached_course_prep", side_effect=cached)):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://fixture") as client:
                 url = "/api/v2/courses/31795/prep?holes=1&render=false"
                 first = asyncio.create_task(client.get(url))
                 self.assertTrue(await asyncio.to_thread(entered.wait, 2))
                 second = asyncio.create_task(client.get(url))
-                await asyncio.sleep(.1)
+                self.assertTrue(await asyncio.to_thread(second_entered.wait, 2))
                 release.set()
                 results = await asyncio.wait_for(asyncio.gather(first, second), 3)
                 third = await client.get(url)

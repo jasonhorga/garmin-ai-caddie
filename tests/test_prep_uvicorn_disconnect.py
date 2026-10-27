@@ -60,6 +60,15 @@ class UvicornDisconnectTests(unittest.TestCase):
                 main.app, lifespan="off", loop="asyncio", http="h11", ws="none",
                 log_config=None, access_log=False, timeout_graceful_shutdown=2,
             ))
+            server_started = threading.Event()
+            original_startup = server.startup
+
+            async def startup(*args, **kwargs):
+                result = await original_startup(*args, **kwargs)
+                server_started.set()
+                return result
+
+            server.startup = startup
             thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
             with (patch.object(course_prep, "effective_club_ladder", return_value=[]),
                   patch.object(course_prep, "club_ladder_with_provenance", return_value=[]),
@@ -69,10 +78,7 @@ class UvicornDisconnectTests(unittest.TestCase):
                   patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "fixture-admin"})):
                 thread.start()
                 try:
-                    deadline = time.monotonic() + 5
-                    while not server.started and thread.is_alive() and time.monotonic() < deadline:
-                        time.sleep(.01)
-                    self.assertTrue(server.started, "fixture uvicorn did not start")
+                    self.assertTrue(server_started.wait(5), "fixture uvicorn did not start")
                     clients = [socket.create_connection(listener.getsockname(), timeout=2) for _ in range(2)]
                     try:
                         for client in clients:
@@ -120,16 +126,22 @@ class UvicornDisconnectTests(unittest.TestCase):
                 main.app, lifespan="off", loop="asyncio", http="h11", ws="none",
                 log_config=None, access_log=False, timeout_graceful_shutdown=2,
             ))
+            server_started = threading.Event()
+            original_startup = server.startup
+
+            async def startup(*args, **kwargs):
+                result = await original_startup(*args, **kwargs)
+                server_started.set()
+                return result
+
+            server.startup = startup
             thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
             with (patch.object(main, "_build_course_prep_nine", side_effect=build),
                   patch.dict("os.environ", {"AI_CADDIE_ADMIN_TOKEN": "fixture-admin"}),
                   self.assertLogs("server_v2.timing", level=logging.INFO) as timing):
                 thread.start()
                 try:
-                    deadline = time.monotonic() + 5
-                    while not server.started and thread.is_alive() and time.monotonic() < deadline:
-                        stop.wait(.01)
-                    self.assertTrue(server.started, "fixture uvicorn did not start")
+                    self.assertTrue(server_started.wait(5), "fixture uvicorn did not start")
                     with socket.create_connection(listener.getsockname(), timeout=2) as client:
                         client.sendall(
                             b"GET /api/v2/courses/31795/prep?holes=1&render=false HTTP/1.1\r\n"

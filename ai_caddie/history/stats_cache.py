@@ -69,6 +69,14 @@ _PLAYERS_DIR: Path = DATA_DIR / "players"
 # of the owner's _FINGERPRINT_DIRS); appended to each non-owner player's fingerprint.
 _GEOMETRY_DIRS: tuple[Path, ...] = (HAZARD_DIR, MESH_DIR)
 
+# A corrected-history read can ask for both geometry directories more than once (projection and
+# its callers).  Scanning a large 18,000-file directory for every read costs tens of milliseconds,
+# while a short process-local TTL still lets an install become visible promptly.  The directory
+# path is part of the key because hazard and mesh trees can have the same selected course ids.
+_GEOMETRY_SIG_TTL_S = 1.5
+_geometry_sig_lock = threading.Lock()
+_geometry_sig_cache: dict[tuple[str, tuple[int, ...]], tuple[float, tuple]] = {}
+
 _lock = threading.Lock()
 _cache: dict[tuple, tuple[Any, Any]] = {}
 _load_cache: dict[str, tuple[Any, Any]] = {}
@@ -370,6 +378,24 @@ def _history_global_ids(data: Any) -> tuple[int, ...]:
 def _history_geometry_dir_sig(directory: Path, global_ids: tuple[int, ...]) -> tuple:
     """Fingerprint only files belonging to courses present in the player's history."""
     selected = set(global_ids)
+    key = (str(directory.resolve()), tuple(global_ids))
+    now = time.monotonic()
+    with _geometry_sig_lock:
+        cached = _geometry_sig_cache.get(key)
+        if cached is not None and now - cached[0] < _GEOMETRY_SIG_TTL_S:
+            return cached[1]
+
+        # Keep the short scan under the cache lock so concurrent history readers do not all walk
+        # the same large directory during the same TTL window.
+        result = _scan_history_geometry_dir_sig(directory, global_ids, selected)
+        _geometry_sig_cache[key] = (now, result)
+        return result
+
+
+def _scan_history_geometry_dir_sig(
+    directory: Path, global_ids: tuple[int, ...], selected: set[int]
+) -> tuple:
+    """Build one uncached geometry-directory signature."""
     files: list[tuple[str, int, int, int]] = []
     try:
         with os.scandir(directory) as it:
@@ -441,6 +467,8 @@ def clear(player_id: str | None = None) -> None:
     is keyed by a tuple whose first element is the player id; ``_load_cache`` is keyed by
     player id directly."""
     with _lock:
+        with _geometry_sig_lock:
+            _geometry_sig_cache.clear()
         if player_id is None:
             _cache.clear()
             _load_cache.clear()

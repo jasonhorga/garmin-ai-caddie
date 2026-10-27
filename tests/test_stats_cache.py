@@ -173,7 +173,8 @@ class StatsCacheTests(unittest.TestCase):
         )
         with patch.object(stats_cache, "_build_history_stats", self._counting_build(calls)), \
              patch.object(stats_cache, "_FINGERPRINT_DIRS", (self.scorecards,)), \
-             patch.object(stats_cache, "_GEOMETRY_DIRS", (geometry,)):
+             patch.object(stats_cache, "_GEOMETRY_DIRS", (geometry,)), \
+             patch.object(stats_cache, "_GEOMETRY_SIG_TTL_S", 0.0):
             stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
             unrelated.write_text('{"new": true}')
             stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
