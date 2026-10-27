@@ -3279,6 +3279,7 @@ public struct CurrentHoleView: View {
             coverage: LiveTopoAvailability.coverage(hole: hole, prep: holePrep),
             decodeFailed: preciseTopoDecodeFailed,
             resolvedLocalTopoURL: resolvedLocalTopoURL,
+            hasLiveTopoURL: liveTopoURL != nil,
             hasEmbeddedTopoImage: hasEmbeddedTopoImage,
             preciseTopoImageReady: preciseTopoImageReady,
             memoryCached: liveTopoURL.map { TopoHoleImageStore.isMemoryCached($0) } ?? false,

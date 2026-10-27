@@ -26,6 +26,7 @@ final class LiveMapFirstFrameTests: XCTestCase {
             coverage: "ready",
             decodeFailed: true,
             resolvedLocalTopoURL: URL(fileURLWithPath: "/tmp/broken-topo.png"),
+            hasLiveTopoURL: true,
             hasEmbeddedTopoImage: false,
             preciseTopoImageReady: false,
             memoryCached: false,

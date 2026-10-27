@@ -2381,6 +2381,7 @@ enum LiveMapDisplayState: Equatable {
         coverage: String?,
         decodeFailed: Bool,
         resolvedLocalTopoURL: URL?,
+        hasLiveTopoURL: Bool,
         hasEmbeddedTopoImage: Bool,
         preciseTopoImageReady: Bool,
         memoryCached: Bool,
@@ -2389,7 +2390,8 @@ enum LiveMapDisplayState: Equatable {
         garminImageFailed: Bool
     ) -> LiveInputs {
         let preciseImageReady = !decodeFailed
-            && (hasEmbeddedTopoImage || preciseTopoImageReady || memoryCached)
+            && (hasEmbeddedTopoImage
+                || (hasLiveTopoURL && (preciseTopoImageReady || memoryCached)))
         let preciseAvailable = !decodeFailed
             && (hasEmbeddedTopoImage || resolvedLocalTopoURL != nil
                 || preciseTopoImageReady || memoryCached)
