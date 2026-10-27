@@ -27,6 +27,7 @@ import threading
 
 from ai_caddie.core.data import OWNER_ID
 from ai_caddie.core.request_timing import mark
+from ai_caddie.courses.prep_work import PrepCancelled
 from ai_caddie.history.history import HistoryData, history_data_fingerprint, round_source_shots
 from ai_caddie.reports.annotations import list_annotation_records
 from ai_caddie.rounds import round_corrections
@@ -362,14 +363,18 @@ def corrected_history_data(
             future.set_result(result)
             mark("history_corrected_build")
             return result
-        except BaseException:
-            # Only the leader owns its failure/cancellation. Detach it BEFORE waking followers
-            # so one of them can become a new leader rather than inherit PrepCancelled (or spin
-            # on the same failed future). Recheck store/geometry versions on every retry.
+        except BaseException as exc:
+            # A cooperative request cancellation belongs only to its leader: detach it and let a
+            # waiting request retry. A deterministic projection failure (for example, corrupt
+            # correction JSON) is different: publish the same exception to the callers already
+            # waiting on this flight, then detach it so a later request starts a fresh attempt.
             with _PROJECTION_LOCK:
                 if _PROJECTION_INFLIGHT.get(key) is future:
                     _PROJECTION_INFLIGHT.pop(key)
-            future.set_result(_RETRY_PROJECTION)
+            if isinstance(exc, PrepCancelled):
+                future.set_result(_RETRY_PROJECTION)
+            else:
+                future.set_exception(exc)
             raise
         finally:
             with _PROJECTION_LOCK:

@@ -24,6 +24,8 @@ async def run_prep(request: Request, build: Callable):
         while True:
             message = await request.receive()
             if message["type"] == "http.disconnect":
+                if worker.done():
+                    return
                 cancelled.set()
                 mark("prep_cancelled")
                 return
@@ -32,10 +34,10 @@ async def run_prep(request: Request, build: Callable):
     watcher = asyncio.create_task(watch_disconnect())
     try:
         done, _ = await asyncio.wait({worker, watcher}, return_when=asyncio.FIRST_COMPLETED)
-        if watcher in done:
-            await watcher  # Propagate receive failures; only an actual disconnect means 499.
-            return Response(status_code=499)
-        return await worker
+        if worker in done:
+            return await worker
+        await watcher  # Propagate receive failures; only an actual disconnect means 499.
+        return Response(status_code=499)
     except asyncio.CancelledError:
         mark("prep_cancelled")
         raise
@@ -43,10 +45,10 @@ async def run_prep(request: Request, build: Callable):
         # Cancelling a thread's await cannot stop CPU work. Signal the actual builder too.
         cancelled.set()
         watcher.cancel()
-        # BaseHTTPMiddleware's receive proxy can defer cancellation until its outer response has
-        # been sent. Do not wait for that proxy here: the handler must be able to return the response
-        # that closes it. The callback drains the eventual cancellation/error without retaining the
-        # request or producing an unobserved task exception.
+        # BaseHTTPMiddleware's receive proxy sits in anyio's CancelScope, which swallows native
+        # cancellation rather than deferring it. Do not wait for that proxy here: the handler must
+        # be able to return the response that closes it. The callback drains the eventual
+        # cancellation/error without retaining the request or producing an unobserved task exception.
         def consume(task):
             if not task.cancelled():
                 task.exception()

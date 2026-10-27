@@ -413,7 +413,10 @@ class PureLogicTests(unittest.TestCase):
             "par": 4, "route_len_m": 320.0,
             "hazards": {"water_carry": [], "bunkers": []}, "missingData": [],
         }
-        for error in [OSError("mesh unreadable"), ValueError("invalid mesh JSON"), KeyError("meshes")]:
+        for error in [
+            OSError("mesh unreadable"), ValueError("invalid mesh JSON"),
+            KeyError("meshes"), AttributeError("mesh loader missing"),
+        ]:
             with self.subTest(error=error):
                 with patch.object(cp, "precise_route_seed_hole", return_value=dict(row)), \
                         patch.object(cp.hole_render, "load_mesh", side_effect=error), \

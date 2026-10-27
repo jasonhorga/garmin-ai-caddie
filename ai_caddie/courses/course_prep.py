@@ -2869,7 +2869,7 @@ def _topo_frame_prep_hole(
         md, by = hole_render.load_mesh(int(global_id), int(local_hole))
         route, _route_len = derive_route(md, row["teeSet"]) if row.get("teeSet") is not None else derive_route(md)
         elevation_at = _route_elevation(by, route)
-    except (OSError, ValueError, KeyError, TypeError, IndexError):
+    except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError):
         logger.warning(
             "topo-frame prep terrain unavailable gid=%s hole=%s; planning without elevation",
             global_id, local_hole, exc_info=True,
