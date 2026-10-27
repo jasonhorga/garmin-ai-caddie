@@ -97,6 +97,14 @@ struct PrepHoleFollowingState: Equatable {
             pendingSampleCount = 0
             return nil
         }
+        if lastLocatedHole == nil, currentLocatedHole == displayedHole {
+            // A first fix that agrees with the screen cannot move it, so it confirms at once;
+            // a later manual preview of another hole is then kept until the fix really changes.
+            lastLocatedHole = currentLocatedHole
+            pendingLocatedHole = nil
+            pendingSampleCount = 0
+            return nil
+        }
         if pendingLocatedHole == currentLocatedHole {
             pendingSampleCount += 1
         } else {
