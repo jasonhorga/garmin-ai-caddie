@@ -461,7 +461,7 @@ enum LiveHoleLoadLifecycle {
 }
 
 struct LiveScoreDismissalCoordinator: Equatable {
-    private(set) var pending: LiveScoreDismissalAction?
+    private(set) var pending: LiveScoreDismissalAction? = nil
 
     mutating func queue(_ action: LiveScoreDismissalAction) {
         pending = action
