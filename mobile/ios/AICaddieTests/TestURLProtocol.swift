@@ -2,6 +2,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import XCTest
 
 func validOnePixelPNGData() -> Data {
     // Complete, decoder-valid 1x1 PNG. Signature-only placeholders must never satisfy offline-map
@@ -68,4 +69,71 @@ final class CapturingURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+final class CapturingURLProtocolTests: XCTestCase {
+    override func tearDown() {
+        CapturingURLProtocol.requestHandler = nil
+        super.tearDown()
+    }
+
+    func testAHandlerWaitingOnOneRequestDoesNotBlockAnotherRequest() async throws {
+        let heldStarted = expectation(description: "held request entered its handler")
+        let fastFinished = expectation(description: "fast request finished while held request waits")
+        let release = DispatchSemaphore(value: 0)
+        CapturingURLProtocol.requestHandler = { request in
+            if request.url?.path == "/held" {
+                heldStarted.fulfill()
+                _ = release.wait(timeout: .now() + 5)
+            }
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data())
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let held = Task { try await session.data(from: URL(string: "https://protocol.test/held")!) }
+
+        await fulfillment(of: [heldStarted], timeout: 1)
+        let fast = Task {
+            _ = try await session.data(from: URL(string: "https://protocol.test/fast")!)
+            fastFinished.fulfill()
+        }
+        await fulfillment(of: [fastFinished], timeout: 1)
+        release.signal()
+        _ = try await held.value
+        _ = try await fast.value
+    }
+
+    func testARequestAlreadyInFlightKeepsItsHandlerWhenTheNextTestInstallsOne() async throws {
+        let started = expectation(description: "old request entered its handler")
+        let release = DispatchSemaphore(value: 0)
+        var nextHandlerCalls = 0
+        CapturingURLProtocol.requestHandler = { request in
+            started.fulfill()
+            _ = release.wait(timeout: .now() + 5)
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data())
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let oldRequest = Task { try await session.data(from: URL(string: "https://protocol.test/old")!) }
+
+        await fulfillment(of: [started], timeout: 1)
+        CapturingURLProtocol.requestHandler = { request in
+            nextHandlerCalls += 1
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data())
+        }
+        release.signal()
+        _ = try await oldRequest.value
+        XCTAssertEqual(nextHandlerCalls, 0)
+    }
 }
