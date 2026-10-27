@@ -3197,12 +3197,12 @@ class MobileContractTests(unittest.TestCase):
         mobile_live = _read_required_source(self, Path("ai_caddie") / "caddie" / "mobile_live.py")
         resolver = _read_required_source(self, IOS_DIR / "Services" / "LiveHoleGPSResolver.swift")
         server_match = re.search(
-            r"^MAXIMUM_HORIZONTAL_ACCURACY_M\s*=\s*([0-9]+(?:\.[0-9]+)?)",
+            r"^MAXIMUM_HORIZONTAL_ACCURACY_M\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*(?:#.*)?$",
             mobile_live,
             re.MULTILINE,
         )
         ios_match = re.search(
-            r"^\s*static let maximumHorizontalAccuracyM\s*=\s*([0-9]+(?:\.[0-9]+)?)",
+            r"^\s*static let maximumHorizontalAccuracyM\s*=\s*([0-9]+(?:\.[0-9]+)?)\s*(?://.*)?$",
             resolver,
             re.MULTILINE,
         )
