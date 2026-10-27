@@ -616,6 +616,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(paths.tees, ["/api/v2/courses/31795/tees"], "a row without them asks /tees once")
     }
 
+    @MainActor
     func testRemoteTeeLookupKeepsConcreteColourStartGatedAcrossItsAwait() async {
         var loading = true
         let rows = await StartRoundView.courseTeeRows(

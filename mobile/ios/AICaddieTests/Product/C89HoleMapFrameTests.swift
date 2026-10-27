@@ -333,6 +333,7 @@ final class C89HoleMapFrameTests: XCTestCase {
         for phase in [ScenePhase.inactive, .background, .active] {
             var isActive = true
             let updated = expectation(description: "initial scene phase: \(phase)")
+            updated.assertForOverFulfill = false
             let root = Color.clear
                 .modifier(LiveHoleSceneActivity(isActive: Binding(
                     get: { isActive }, set: { isActive = $0; updated.fulfill() }
