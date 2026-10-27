@@ -470,6 +470,29 @@ final class OfflineStoreTests: XCTestCase {
         XCTAssertEqual(try store.cachedEvents(), [first, second])
     }
 
+    func testCachedEventsInvalidatesAfterDiscardAndReplay() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = OfflineStore(directoryURL: directory)
+        let first = LiveRoundEvent(
+            eventId: "discarded-cache-event", roundId: "cache-round", timestamp: "2026-08-07T00:00:00Z",
+            hole: 1, kind: .score, payload: ["strokes": .number(4)]
+        )
+        try store.appendEvent(first)
+        XCTAssertEqual(try store.cachedEvents(), [first])
+
+        try store.discardRound(roundId: "cache-round")
+        XCTAssertTrue(try store.cachedEvents().isEmpty)
+
+        let replay = LiveRoundEvent(
+            eventId: "replayed-cache-event", roundId: "cache-round", timestamp: "2026-08-07T00:01:00Z",
+            hole: 1, kind: .score, payload: ["strokes": .number(5)]
+        )
+        XCTAssertTrue(try store.applyReplayEvents([replay]))
+        XCTAssertEqual(try store.cachedEvents(), [replay])
+    }
+
     func testCourseTemplateSurvivesRoundDiscardAndRebasesWithoutOldIdentityOrCursor() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
