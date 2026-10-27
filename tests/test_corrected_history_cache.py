@@ -14,7 +14,8 @@ from ai_caddie.courses.prep_work import PrepCancelled
 
 
 class CorrectedHistoryCacheTests(unittest.TestCase):
-    def test_geometry_signature_is_short_cached_per_directory_and_expires(self) -> None:
+    def test_geometry_signature_is_cached_until_signal_or_background_scan(self) -> None:
+        stats_cache.revisions.clear()
         with TemporaryDirectory() as directory:
             geometry = Path(directory) / "meshes"
             geometry.mkdir()
@@ -28,13 +29,14 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
                 self.assertEqual(scandir.call_count, 1, "a warm short-TTL read must scan once")
 
                 (geometry / "gid31795_h02_meshes.json").write_text("{}")
-                within_ttl = stats_cache._history_geometry_dir_sig(geometry, (31795,))
-                self.assertEqual(within_ttl, first)
-                clock[0] += 2.0
+                changed = stats_cache._history_geometry_dir_sig(geometry, (31795,))
+                self.assertNotEqual(changed, first, "a directory entry change is visible immediately")
+                (geometry / "gid31795_h01_meshes.json").write_text('{"updated":true}')
+                stats_cache.revisions.scan_revision_cache_once()
                 expired = stats_cache._history_geometry_dir_sig(geometry, (31795,))
 
-            self.assertNotEqual(expired, first, "an expired signature must observe directory changes")
-            self.assertEqual(scandir.call_count, 2)
+            self.assertNotEqual(expired, changed, "background scan must observe in-place edits")
+            self.assertEqual(scandir.call_count, 3)
 
     def test_concurrent_deterministic_failure_is_shared_with_the_waiting_batch(self) -> None:
         """A corrupt correction projection must fail one batch once, with one error."""
@@ -108,10 +110,12 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
                 self.assertIs(history.corrected_history_data(data, **kwargs), first)
                 self.assertEqual(replay.call_count, 1, "an unrelated course must keep history warm")
                 mesh.write_text('{"updated":true}')
+                stats_cache.revisions.scan_revision_cache_once()
                 self.assertIsNot(history.corrected_history_data(data, **kwargs), first,
                                  "a changed historical frame must replay pixel corrections")
                 self.assertEqual(replay.call_count, 2)
                 (hazards / "gid31795_h01_hazards.json").write_text("{}")
+                stats_cache.revisions.scan_revision_cache_once()
                 history.corrected_history_data(data, **kwargs)
                 self.assertEqual(replay.call_count, 3)
 

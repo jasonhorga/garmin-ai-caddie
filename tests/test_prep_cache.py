@@ -16,6 +16,7 @@ import unittest
 from pathlib import Path
 
 from ai_caddie.courses import prep_cache
+from ai_caddie.core import revisions
 
 
 class PrepCacheTests(unittest.TestCase):
@@ -183,6 +184,7 @@ class PrepCacheTests(unittest.TestCase):
             # Regenerating this course still invalidates it immediately.
             selected_mesh = mesh_dir / "gid31795_h01_meshes.json"
             selected_mesh.write_text('{"changed":true}', encoding="utf-8")
+            revisions.scan_revision_cache_once()
             self.assertNotEqual(prep_cache._fingerprint(31795), selected_before)
 
     def test_geometry_fingerprint_changes_when_authority_sidecar_is_bound(self) -> None:

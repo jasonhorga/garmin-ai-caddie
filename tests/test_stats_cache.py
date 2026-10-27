@@ -25,6 +25,7 @@ from ai_caddie.caddie.decision import decision_audit_file
 from ai_caddie.core.data import evidence_root
 from ai_caddie.history import stats_cache
 from ai_caddie.history.history import HistoryData
+from ai_caddie.core import revisions
 from ai_caddie.llm.weather_context import weather_snapshot_file
 from ai_caddie.reports.annotations import annotation_file
 from ai_caddie.reports.reports import report_store_file
@@ -143,6 +144,7 @@ class StatsCacheTests(unittest.TestCase):
             st = target.stat()
             bump = st.st_mtime_ns + 1_000_000_000
             os.utime(target, ns=(bump, bump))  # ensure mtime advances regardless of FS granularity
+            revisions.scan_revision_cache_once()
             stats_cache.cached_build_history_stats(data, data_mode="local", **self.roots)
             self.assertEqual(calls["n"], 2)
 

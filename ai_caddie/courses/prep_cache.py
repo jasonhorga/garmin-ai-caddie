@@ -28,6 +28,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable
 from ai_caddie.core.request_timing import mark
+from ai_caddie.core import revisions
 from ai_caddie.courses.prep_work import checkpoint
 
 from ai_caddie.core.data import (
@@ -68,6 +69,8 @@ def _dir_sig(directory: Path) -> tuple[int, str]:
     try:
         with os.scandir(directory) as it:
             for entry in it:
+                if entry.name == revisions.REVISION_FILENAME:
+                    continue
                 if entry.is_file():
                     st = entry.stat()
                     files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
@@ -78,6 +81,10 @@ def _dir_sig(directory: Path) -> tuple[int, str]:
     for name, size, mtime_ns, ctime_ns in files:
         digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
+
+
+def _cached_dir_sig(directory: Path) -> tuple[int, str]:
+    return revisions.cached_signature(directory, ("dir",), lambda: _dir_sig(directory))
 
 
 def _matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
@@ -92,6 +99,8 @@ def _matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
     try:
         with os.scandir(directory) as it:
             for entry in it:
+                if entry.name == revisions.REVISION_FILENAME:
+                    continue
                 if entry.is_file() and fnmatch.fnmatchcase(entry.name, pattern):
                     st = entry.stat()
                     files.append((entry.name, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
@@ -102,6 +111,12 @@ def _matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
     for name, size, mtime_ns, ctime_ns in files:
         digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
+
+
+def _cached_matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
+    return revisions.cached_signature(
+        directory, ("matching", pattern), lambda: _matching_dir_sig(directory, pattern)
+    )
 
 
 def _file_sig(path: Path) -> tuple[int, int, int] | None:
@@ -131,6 +146,15 @@ def _manual_bag_sig(player_id: str) -> tuple[int, int] | None:
 
 def _course_data_sig(global_id: int) -> tuple[int, str]:
     """Fingerprint only this course's release-bound lightweight authority files."""
+    return revisions.cached_signature(
+        _COURSEVIEW_DIR,
+        ("course-data", int(global_id)),
+        lambda: _scan_course_data_sig(global_id),
+    )
+
+
+def _scan_course_data_sig(global_id: int) -> tuple[int, str]:
+    """Complete scan used on a cold course-data signature."""
     gid = int(global_id)
     paths = [
         _COURSEVIEW_DIR / f"{gid}_releases.pb",
@@ -167,9 +191,9 @@ def _requested_geometry_sig(
     gid = int(global_id)
     if requested is None:
         return (
-            _matching_dir_sig(MESH_DIR, f"gid{gid}_h*_meshes.json"),
-            _matching_dir_sig(MESH_DIR, f"gid{gid}_h*_authority.json"),
-            _matching_dir_sig(HAZARD_DIR, f"gid{gid}_h*_hazards.json"),
+            _cached_matching_dir_sig(MESH_DIR, f"gid{gid}_h*_meshes.json"),
+            _cached_matching_dir_sig(MESH_DIR, f"gid{gid}_h*_authority.json"),
+            _cached_matching_dir_sig(HAZARD_DIR, f"gid{gid}_h*_hazards.json"),
         )
     holes = sorted({int(hole) for hole in requested if int(hole) > 0})
     return tuple(
@@ -196,12 +220,12 @@ def _fingerprint(
         annotation_file = DATA_DIR / "annotations" / "annotations.jsonl"
         return (
             geometry_sig,                                   # only the requested holes' geometry
-            _dir_sig(SHOT_DIR),                              # club ladder (profiles) + your-shots scatter
-            _dir_sig(SCORECARD_DIR),                         # your-shots scatter reads scorecards too
+            _cached_dir_sig(SHOT_DIR),                       # club ladder (profiles) + your-shots scatter
+            _cached_dir_sig(SCORECARD_DIR),                  # your-shots scatter reads scorecards too
             _file_sig(CLUBS_BAG_FILE),                       # restrict_to_bag (real Garmin bag)
             _manual_bag_sig(OWNER_ID),                       # manual distance/selection overrides
             _file_sig(CLUBS_FILE),                           # manual club-name overrides (clubs.json)
-            _dir_sig(correction_dir),                        # corrected hole/shot facts
+            _cached_dir_sig(correction_dir),                 # corrected hole/shot facts
             _file_sig(annotation_file),                      # score/club/lie annotations
             par_sig,
             _course_data_sig(global_id),                    # CourseView route/green/hazard facts
@@ -212,10 +236,10 @@ def _fingerprint(
     base = DATA_DIR / "players" / player_id
     return (
         geometry_sig,
-        _dir_sig(base / "shots"),                            # their measured ladder + scatter
-        _dir_sig(base / "scorecards"),                       # their scatter reads scorecards too
+        _cached_dir_sig(base / "shots"),                      # their measured ladder + scatter
+        _cached_dir_sig(base / "scorecards"),                 # their scatter reads scorecards too
         _manual_bag_sig(player_id),                           # their manual bag (selection + typed dist)
-        _dir_sig(base / "corrections"),                       # corrected hole/shot facts
+        _cached_dir_sig(base / "corrections"),                 # corrected hole/shot facts
         _file_sig(base / "data" / "annotations" / "annotations.jsonl"),
         par_sig,
         _course_data_sig(global_id),                         # shared CourseView lightweight map
@@ -344,6 +368,7 @@ def clear() -> None:
     Also wakes + drops any in-flight waiters so a cleared cache forces a fresh build (the
     prep-endpoint tests rely on this: each test clears, then asserts its mocked build ran)."""
     with _lock:
+        revisions.clear()
         _cache.clear()
         _hole_cache.clear()
         for event in _inflight.values():

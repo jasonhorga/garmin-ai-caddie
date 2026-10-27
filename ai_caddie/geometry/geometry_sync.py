@@ -28,6 +28,7 @@ from ai_caddie.geometry.geometry_authority import (
     valid_geometry_zip_sha256,
     write_authority,
 )
+from ai_caddie.core.revisions import bump_revision
 from ai_caddie.geometry.inspect_courseview_release import (
     COURSEVIEW,
     GARMIN_OMT_SIMPLIFIED_CHINESE,
@@ -379,6 +380,7 @@ def ensure_prodgeometry(
                     )
                 else:
                     sidecar.unlink(missing_ok=True)
+                    bump_revision(sidecar.parent)
                     row["error"] = "decoded prodgeometry does not match the release asset authority"
             status = "downloaded" if row_ok else "failed"
             return {

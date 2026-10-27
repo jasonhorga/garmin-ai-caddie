@@ -13,6 +13,7 @@ import os
 import re
 import threading
 import time
+from ai_caddie.core import revisions
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "data"
@@ -75,6 +76,7 @@ def atomic_write_json(path: Path, data: Any) -> None:
     try:
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
         os.replace(tmp, path)
+        revisions.bump_revision(path.parent)
     finally:
         if tmp.exists():
             tmp.unlink(missing_ok=True)
