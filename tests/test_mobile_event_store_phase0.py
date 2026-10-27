@@ -1091,6 +1091,77 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(state["activeHole"], 1)
         self.assertEqual(reconciliation["summary"]["eventCount"], 1)
 
+    def test_poor_location_after_good_fix_keeps_coordinate_and_accuracy(self) -> None:
+        from ai_caddie.caddie.mobile_live import build_round_state, mobile_event_log
+
+        round_id = "poor-location-follow-up"
+        good = {
+            "eventId": "good-location",
+            "clientId": "ios",
+            "roundId": round_id,
+            "hole": 1,
+            "kind": "location",
+            "payload": {
+                "latitude": 39.9123,
+                "longitude": 116.3971,
+                "horizontalAccuracyM": 5.0,
+            },
+        }
+        poor = {
+            "eventId": "poor-location",
+            "clientId": "ios",
+            "roundId": round_id,
+            "hole": 1,
+            "kind": "location",
+            "payload": {
+                "latitude": 39.9134,
+                "longitude": 116.3982,
+                "horizontalAccuracyM": 60.0,
+            },
+        }
+        store = FileEventStore(mobile_event_log(self.root).parent)
+        store.append_batch(
+            round_id,
+            [good, poor],
+            request_key="poor-location-follow-up",
+        )
+
+        state = build_round_state(round_id, root=self.root)
+        hole = state["holes"][0]
+        self.assertEqual(hole["latitude"], good["payload"]["latitude"])
+        self.assertEqual(hole["longitude"], good["payload"]["longitude"])
+        self.assertEqual(hole["horizontalAccuracyM"], good["payload"]["horizontalAccuracyM"])
+
+    def test_poor_first_location_keeps_coordinates_empty_but_records_accuracy(self) -> None:
+        from ai_caddie.caddie.mobile_live import build_round_state, mobile_event_log
+
+        round_id = "poor-location-first"
+        poor = {
+            "eventId": "poor-location-only",
+            "clientId": "ios",
+            "roundId": round_id,
+            "hole": 1,
+            "kind": "location",
+            "payload": {
+                "latitude": 39.9123,
+                "longitude": 116.3971,
+                "horizontalAccuracyM": 60.0,
+            },
+        }
+        store = FileEventStore(mobile_event_log(self.root).parent)
+        store.append_batch(
+            round_id,
+            [poor],
+            request_key="poor-location-first",
+        )
+
+        state = build_round_state(round_id, root=self.root)
+        hole = state["holes"][0]
+        self.assertIsNone(hole.get("latitude"))
+        self.assertIsNone(hole.get("longitude"))
+        self.assertEqual(hole["horizontalAccuracyM"], poor["payload"]["horizontalAccuracyM"])
+        self.assertEqual(store.read_rows(round_id)[0]["event"]["payload"], poor["payload"])
+
     def test_trailing_corrupt_physical_lines_prevent_sequence_reuse(self) -> None:
         legacy = {
             "roundId": ROUND_A,
