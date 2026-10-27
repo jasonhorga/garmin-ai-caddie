@@ -28,6 +28,21 @@ final class CurrentHoleLocatorTests: XCTestCase {
         ), .onHole(10))
     }
 
+    func testClearlyNearerTeeBeatsTheDisplayedHole() {
+        // Standing on hole 10's tee (0 m) while the screen still shows hole 1, whose tee is ~33 m away.
+        let holes = [
+            HoleLocatorGeometry(hole: 1, tee: coordinate(40.0003, 116), green: coordinate(40.004, 116)),
+            HoleLocatorGeometry(hole: 10, tee: coordinate(40, 116), green: coordinate(40, 116.004)),
+        ]
+
+        XCTAssertEqual(CurrentHoleLocator.locate(
+            coordinate: coordinate(40, 116),
+            horizontalAccuracyM: 5,
+            holes: holes,
+            preferredHole: 1
+        ), .onHole(10))
+    }
+
     func testPracticeAreaFarFromHoleAnchorsDoesNotStartRound() {
         let holes = [
             HoleLocatorGeometry(hole: 5, tee: coordinate(40, 116), green: coordinate(40.001, 116)),
