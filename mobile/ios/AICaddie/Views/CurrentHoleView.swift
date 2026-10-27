@@ -1322,8 +1322,7 @@ public struct CurrentHoleView: View {
     /// Kept out of `body`'s modifier chain, which is already at the type checker's limit (C89).
     private var liveHoleContentWithHazardRequests: some View {
         liveHoleContent
-            .task(id: "\(hazardMappingRequest?.hole ?? -1):\(isSelected)") {
-                guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
+            .task(id: hazardMappingRequest) {
                 await runHazardMappingRequest()
             }
             .modifier(LiveHoleSceneActivity(isActive: $liveSceneIsActive))
@@ -3041,6 +3040,7 @@ public struct CurrentHoleView: View {
     /// Runs under `.task(id: hazardMappingRequest)`: changing holes resets the request (and leaving
     /// the screen ends the view), which cancels this task before a late row can be published.
     private func runHazardMappingRequest() async {
+        guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
         guard let request = hazardMappingRequest, request.hole == hole.number else { return }
         if request.source == .garminRegistration {
             await loadGarminRaster()
