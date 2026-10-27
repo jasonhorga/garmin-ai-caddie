@@ -77,7 +77,6 @@ struct LiveHolePagerState: Equatable {
             if next != origin { effect.activeHoleToPersist = next }
         case .presentationChanged(let blocked):
             let wasBlocked = presentationBlocksCorrection
-            let selectionWasMismatched = activeHole != nil && selection != activeHole
             let correctionWasDeferred = correctionDeferredByPresentation
             presentationBlocksCorrection = blocked
             if wasBlocked, !blocked, let holes = deferredOrdered {
@@ -88,15 +87,15 @@ struct LiveHolePagerState: Equatable {
             if wasBlocked, !blocked {
                 // A scorecard save/jump can move the authoritative cursor while the old page is
                 // still mounted under a sheet. Once UIKit has finished dismissing, selection must
-                // follow that cursor even when no page-set rotation was deferred. The explicit
-                // correction effect also gives the native pager a fresh binding value to observe.
+                // follow that cursor even when no page-set rotation was deferred. The selection
+                // value itself changes here, so the binding drives the native scroll; a forced
+                // bounce without a native report would flash an unrelated page first.
                 if deferredOrdered == nil, let target = activeHole, selection != target {
                     selection = target
                     pendingTarget = target
                 }
                 correctionDeferredByPresentation = false
-                if effect.forceScrollTo == nil,
-                   (selectionWasMismatched || correctionWasDeferred), pendingTarget != nil {
+                if effect.forceScrollTo == nil, correctionWasDeferred, pendingTarget != nil {
                     requestCorrection(into: &effect)
                 }
             }

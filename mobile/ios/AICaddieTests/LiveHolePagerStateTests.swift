@@ -251,7 +251,10 @@ final class LiveHolePagerStateTests: XCTestCase {
         let dismissed = pager.send(.presentationChanged(false))
         XCTAssertEqual(pager.activeHole, 15)
         XCTAssertEqual(pager.selection, 15)
-        XCTAssertEqual(dismissed.forceScrollTo, 15)
+        XCTAssertEqual(pager.pendingTarget, 15)
+        XCTAssertNil(dismissed.forceScrollTo, "the selection change scrolls; no bounce through another page")
+        XCTAssertNil(pager.send(.bindingReported(15)).forceScrollTo)
+        XCTAssertNil(pager.pendingTarget)
     }
 
     func testProgrammaticJumpWhileSheetIsPresentedSyncsSelectionAfterDismissal() {
@@ -263,7 +266,10 @@ final class LiveHolePagerStateTests: XCTestCase {
         pager.send(.programmaticHole(15))
         let dismissed = pager.send(.presentationChanged(false))
         XCTAssertEqual(pager.selection, 15)
-        XCTAssertEqual(dismissed.forceScrollTo, 15)
+        XCTAssertEqual(pager.pendingTarget, 15)
+        XCTAssertNil(dismissed.forceScrollTo, "the selection change scrolls; no bounce through another page")
+        XCTAssertNil(pager.send(.bindingReported(15)).forceScrollTo)
+        XCTAssertNil(pager.pendingTarget)
     }
 
     func testRestoredTargetAcknowledgesAReportsAfterInitialSelectionWasUnset() {
