@@ -449,6 +449,7 @@ final class ProductPhoneUITests: XCTestCase {
         launch(latitude: "0")
         let shortcut = element("home-quick-course-82001")
         XCTAssertTrue(shortcut.waitForExistence(timeout: 15), "fixture nearby course exposes the shortcut")
+        reveal(shortcut)
         shortcut.tap()
         let start = element("start-round-primary-action")
         XCTAssertTrue(start.waitForExistence(timeout: 15))
