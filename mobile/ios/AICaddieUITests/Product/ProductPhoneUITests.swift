@@ -144,9 +144,12 @@ final class ProductPhoneUITests: XCTestCase {
         var emptyServer = ProductFixtureServer.State(); emptyServer.roundCount = 0
         server.configure(emptyServer)
         launch(reset: false)
-        Thread.sleep(forTimeInterval: 3)
-        scores()
-        XCTAssertTrue(element("results-empty").waitForExistence(timeout: 10), "server zero rounds replace old cache")
+        // Zero rounds hide the home trend entry (as in the fresh empty case above), so the cached
+        // populated entry must disappear once the delayed refresh lands.
+        let trend = element("home-recent-trend")
+        let replaced = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !trend.exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [replaced], timeout: 20), .completed, "server zero rounds replace old cache")
+        app.terminate()
     }
 
     func test_j2_2_range_and_grain_disable_illegal_combinations_without_changing_range() {
