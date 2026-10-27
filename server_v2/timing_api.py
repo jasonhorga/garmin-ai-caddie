@@ -10,6 +10,7 @@ from typing import Any
 from ai_caddie.core import request_timing
 
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{1,96}$")
+_ERROR_CODE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 _CLIENT_FIELDS = {"request_id", "path", "client_total_ms", "status", "error", "started_at", "network_type"}
 _MAX_BATCH = 50
 
@@ -51,22 +52,27 @@ def sanitize_client_record(value: Any) -> dict[str, Any] | None:
         status = value.get("status")
         if isinstance(status, bool) or not isinstance(status, int) or not 100 <= status <= 599:
             return None
-    if has_error and (not isinstance(value.get("error"), str) or len(value["error"]) > 500):
-        return None
+    error = value.get("error") if has_error else None
+    if has_error and (not isinstance(error, str) or not _ERROR_CODE.fullmatch(error)):
+        has_error = False
     network = value.get("network_type")
     if network is not None and (not isinstance(network, str) or len(network) > 64):
+        return None
+    try:
+        templated_path = request_timing.template_path(path)
+    except Exception:
         return None
     record: dict[str, Any] = {
         "ts": request_timing._now().isoformat(timespec="milliseconds"),
         "request_id": request_id,
-        "path": request_timing.template_path(path),
+        "path": templated_path,
         "client_total_ms": round(float(total), 1),
         "started_at": started_at,
     }
     if has_status:
         record["status"] = value["status"]
     if has_error:
-        record["error"] = value["error"]
+        record["error"] = error
     if network is not None:
         record["network_type"] = network
     return record

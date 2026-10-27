@@ -558,6 +558,7 @@ async def add_security_headers(request: Request, call_next):
 # Comfortably exceeds the largest legitimate body — a base64 video upload (~80 MB raw ≈ 107 MB
 # encoded) — while still rejecting absurd/GB-scale payloads before any handler buffers them.
 MAX_REQUEST_BODY_BYTES = 160 * 1024 * 1024
+MAX_CLIENT_TIMING_BODY_BYTES = 64 * 1024
 
 
 @app.middleware("http")
@@ -571,6 +572,12 @@ async def reject_oversized_request_body(request: Request, call_next):
             declared = int(raw_length)
         except ValueError:
             declared = -1
+        if (
+            request.method.upper() == "POST"
+            and request.url.path == "/api/v2/mobile/client-timing"
+            and declared > MAX_CLIENT_TIMING_BODY_BYTES
+        ):
+            return JSONResponse({"detail": "client timing body too large"}, status_code=413)
         if declared > MAX_REQUEST_BODY_BYTES:
             return JSONResponse({"detail": "request body too large"}, status_code=413)
     return await call_next(request)
