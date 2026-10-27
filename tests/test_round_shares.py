@@ -122,6 +122,20 @@ class RoundShareTests(unittest.TestCase):
         self.assertEqual(admin.status_code, 404)
         self.assertEqual(alice.status_code, 404)
 
+    def test_projection_uses_the_player_correction_history(self) -> None:
+        round_id = self._ingest(self.alice)
+        created = self._share(self.alice, round_id)
+        self.assertEqual(created.status_code, 201, created.text)
+        correction = self.client.post(
+            f"/api/v2/history/rounds/{round_id}/corrections",
+            headers=self._auth(self.alice["token"]),
+            json={"op": "setHolePenalty", "hole": 1, "value": 1, "clientMutationId": "share-correction"},
+        )
+        self.assertEqual(correction.status_code, 201, correction.text)
+        shared = self.client.get(created.json()["url"])
+        self.assertEqual(shared.status_code, 200, shared.text)
+        self.assertEqual(shared.json()["scorecard"][0]["penalties"], 1)
+
     def test_write_methods_are_explicitly_rejected(self) -> None:
         round_id = self._ingest(self.alice)
         created = self._share(self.alice, round_id).json()
