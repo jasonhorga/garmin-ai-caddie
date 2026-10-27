@@ -205,6 +205,7 @@ final class LiveHolePagerStateTests: XCTestCase {
         let deferred = pager.send(.pageSetChanged(ordered: Array(10...18) + Array(1...9), activeHole: 10))
         XCTAssertEqual(pager.ordered, Array(1...9))
         XCTAssertEqual(pager.activeHole, 10)
+        XCTAssertEqual(pager.selection, 9, "the presented page remains mounted and selected")
         XCTAssertEqual(pager.deferredOrdered, Array(10...18) + Array(1...9))
         XCTAssertNil(deferred.forceScrollTo)
 

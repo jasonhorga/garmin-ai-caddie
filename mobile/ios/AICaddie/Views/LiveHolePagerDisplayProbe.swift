@@ -9,6 +9,13 @@ struct LiveHolePagerDisplayProbe: UIViewRepresentable {
     let requestID: UUID
     let didUpdate: (UUID, Int?) -> Void
 
+    final class Coordinator {
+        var lastSelection: Int?
+        var lastRequestID: UUID?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
         view.isUserInteractionEnabled = false
@@ -17,8 +24,15 @@ struct LiveHolePagerDisplayProbe: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
+        #if DEBUG
+        UITestPagerTrace.shared.metric(.displayProbeUpdate)
+        #endif
         let displayed = selection
         let request = requestID
+        guard context.coordinator.lastSelection != displayed
+            || context.coordinator.lastRequestID != request else { return }
+        context.coordinator.lastSelection = displayed
+        context.coordinator.lastRequestID = request
         DispatchQueue.main.async { didUpdate(request, displayed) }
     }
 

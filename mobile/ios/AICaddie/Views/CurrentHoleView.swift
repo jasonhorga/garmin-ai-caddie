@@ -997,12 +997,19 @@ public struct CurrentHoleView: View {
         // The app shell is intentionally light, but this approved live-play surface is dark.
         // Request dark system chrome here so the status-bar time, network, and battery stay visible.
         .preferredColorScheme(.dark)
+        #if DEBUG
+        .modifier(UITestPagerBodyMetric(metric: .currentHoleBody))
+        #endif
         // The map owns the live surface and supplies a stable navigation-style return row. The
         // inherited NavigationStack label is intentionally hidden because it can expose a stale
         // greeting from the round home rather than the approved live-play hierarchy.
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .onAppear {
+            #if DEBUG
+            UITestPagerTrace.shared.metric(.currentHoleAppear)
+            UITestPagerTrace.shared.record("page appear hole=\(hole.number) selected=\(isSelected)")
+            #endif
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             #if DEBUG
             UITestEventLatencyTrace.record(
@@ -1027,6 +1034,7 @@ public struct CurrentHoleView: View {
         }
         .onDisappear {
             #if DEBUG
+            UITestPagerTrace.shared.metric(.currentHoleDisappear)
             UITestPagerTrace.shared.record("page disappear hole=\(hole.number) sheet=\(pagerPresentationIsActive)")
             #endif
             locationProvider.stopUpdatingLocation()
@@ -3985,6 +3993,10 @@ public struct CurrentHoleView: View {
                 updateSession { entry in
                     entry.preciseProbeStarted = true
                 }
+                #if DEBUG
+                UITestPagerTrace.shared.taskStarted(.preciseMapPoll)
+                defer { UITestPagerTrace.shared.taskFinished(.preciseMapPoll) }
+                #endif
                 await waitForPreciseHoleMap(syncClub: !alreadyRecorded)
                 if Task.isCancelled {
                     updateSession { entry in

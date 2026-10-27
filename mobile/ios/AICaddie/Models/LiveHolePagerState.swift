@@ -48,16 +48,16 @@ struct LiveHolePagerState: Equatable {
                 deferredOrdered = holes
                 // The model cursor changes immediately; only the native page order waits for the
                 // sheet and its dismissal animation. Keep the old ordered pages mounted.
-                setTarget(requested, clearReport: false)
+                setTarget(requested, clearReport: false, updateSelection: false)
             } else {
                 applyPageSet(holes, active: requested, effect: &effect)
             }
         case .programmaticHole(let hole):
-            setTarget(hole)
+            setTarget(hole, updateSelection: !presentationBlocksCorrection)
         case .advance(let hole):
             // A cached page set is the model's current set (e.g. a loop added from the scorecard).
             guard (deferredOrdered ?? ordered).contains(hole) else { return effect }
-            setTarget(hole)
+            setTarget(hole, updateSelection: !presentationBlocksCorrection)
             effect.activeHoleToPersist = hole
         case .touchBegan:
             touchOrigin = activeHole
@@ -132,12 +132,14 @@ struct LiveHolePagerState: Equatable {
         }
     }
 
-    private mutating func setTarget(_ hole: Int?, clearReport: Bool = true) {
+    private mutating func setTarget(
+        _ hole: Int?, clearReport: Bool = true, updateSelection: Bool = true
+    ) {
         if activeHole != hole { correctionAttempts = 0 }
         if clearReport { reportedSelection = nil }
         correctionDeferredByPresentation = false
         activeHole = hole
-        selection = hole
+        if updateSelection { selection = hole }
         pendingTarget = hole
         touchOrigin = nil
     }

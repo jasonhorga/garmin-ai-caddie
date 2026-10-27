@@ -813,6 +813,9 @@ public struct RoundHomeView: View {
         // The NavigationStack owns the system status bar, so the immersive hole destination cannot
         // hide it reliably from inside CurrentHoleView. Keep normal chrome on every non-live route.
         .statusBarHidden(Self.isLiveHoleRoute(path.last))
+        #if DEBUG
+        .modifier(UITestPagerBodyMetric(metric: .roundHomeBody))
+        #endif
         .onChange(of: pendingLiveHole) { _, hole in
             #if DEBUG
             UITestEventLatencyTrace.record("round-home.pending-change hole=\(hole ?? -1)")
@@ -1088,12 +1091,18 @@ public struct RoundHomeView: View {
                 refreshPagerPageSet(fallback: initialHole)
             }
             .onPreferenceChange(LiveHolePagerGestureStateKey.self) { disabled in
+                #if DEBUG
+                UITestPagerTrace.shared.metric(.preferenceCallback)
+                #endif
                 holePagerScrollDisabled = disabled
                 if disabled, holePager.touchOrigin != nil {
                     sendPager(.touchEnded(step: 0), source: "map owns gesture")
                 }
             }
             .onPreferenceChange(LiveHolePagerPresentationKey.self) { blocked in
+                #if DEBUG
+                UITestPagerTrace.shared.metric(.preferenceCallback)
+                #endif
                 if blocked {
                     pagerPresentationEndTask?.cancel()
                     pagerPresentationRequested = true
@@ -1103,6 +1112,10 @@ public struct RoundHomeView: View {
                     // Keep the old ForEach order mounted until the presented controller is gone.
                     pagerPresentationEndTask?.cancel()
                     pagerPresentationEndTask = Task { @MainActor in
+                        #if DEBUG
+                        UITestPagerTrace.shared.taskStarted(.presentationEndTask)
+                        defer { UITestPagerTrace.shared.taskFinished(.presentationEndTask) }
+                        #endif
                         while !Task.isCancelled && LiveHolePagerDisplayProbe.presentationIsActive {
                             try? await Task.sleep(nanoseconds: 50_000_000)
                         }
@@ -1255,6 +1268,10 @@ public struct RoundHomeView: View {
         pagerCorrectionID = UUID()
         pagerCorrectionApplying = false
         pagerCorrectionTask = Task { @MainActor in
+            #if DEBUG
+            UITestPagerTrace.shared.taskStarted(.correctionTask)
+            defer { UITestPagerTrace.shared.taskFinished(.correctionTask) }
+            #endif
             guard await waitForPagerCorrection(target: target) else { return }
             tracePager("correction binding bounce=\(bounce) target=\(target)")
             var transaction = Transaction()
@@ -1280,6 +1297,10 @@ public struct RoundHomeView: View {
         pagerCorrectionApplying = true
         pagerCorrectionTask?.cancel()
         pagerCorrectionTask = Task { @MainActor in
+            #if DEBUG
+            UITestPagerTrace.shared.taskStarted(.correctionTask)
+            defer { UITestPagerTrace.shared.taskFinished(.correctionTask) }
+            #endif
             guard await waitForPagerCorrection(target: target) else { return }
             tracePager("correction binding apply=\(target)")
             var transaction = Transaction()

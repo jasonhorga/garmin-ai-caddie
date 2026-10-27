@@ -1,40 +1,119 @@
 #if DEBUG
 import Foundation
 import SwiftUI
+import UIKit
 
-/// An opt-in, in-memory ring for the accessibility tree captured by RealFlowUITests.dump().
-/// Release builds contain neither the store nor the accessibility element.
-// Called only by the main-actor view/model. Keeping initialization nonisolated also lets
-// SwiftUI create its observed trace view before evaluating body on older SDKs.
-final class UITestPagerTrace: ObservableObject {
+/// DEBUG-only trace storage. It deliberately is not ObservableObject: a trace event must not
+/// invalidate every CurrentHoleView mounted by the pager.
+final class UITestPagerTrace {
+    enum Metric: String {
+        case roundHomeBody = "roundHome.body"
+        case currentHoleBody = "currentHole.body"
+        case currentHoleAppear = "currentHole.appear"
+        case currentHoleDisappear = "currentHole.disappear"
+        case displayProbeUpdate = "displayProbe.update"
+        case preferenceCallback = "preference.callback"
+        case correctionTask = "task.correction"
+        case presentationEndTask = "task.presentationEnd"
+        case preciseMapPoll = "task.preciseMapPoll"
+    }
+
     static let shared = UITestPagerTrace()
     let enabled = ProcessInfo.processInfo.environment["UITEST_PAGER_TRACE"] == "1"
-    @Published private(set) var label = ""
+
     private var events: [String] = []
+    private var counts: [String: Int] = [:]
+    private var taskCounts: [String: Int] = [:]
+    private var views: [WeakTraceView] = []
 
     func record(_ message: String) {
         guard enabled else { return }
+        counts["trace.record"] = (counts["trace.record"] ?? 0) + 1
         events.append(String(format: "%.3f", ProcessInfo.processInfo.systemUptime) + " " + message)
         if events.count > 40 { events.removeFirst(events.count - 40) }
-        label = events.joined(separator: "\n")
+        refreshAccessibilityLabels()
+    }
+
+    func metric(_ metric: Metric) {
+        guard enabled else { return }
+        let key = metric.rawValue
+        counts[key] = (counts[key] ?? 0) + 1
+        refreshAccessibilityLabels()
+    }
+
+    func taskStarted(_ metric: Metric) {
+        guard enabled else { return }
+        let key = metric.rawValue
+        taskCounts[key] = (taskCounts[key] ?? 0) + 1
+        refreshAccessibilityLabels()
+    }
+
+    func taskFinished(_ metric: Metric) {
+        guard enabled else { return }
+        let key = metric.rawValue
+        taskCounts[key] = max(0, (taskCounts[key] ?? 0) - 1)
+        refreshAccessibilityLabels()
+    }
+
+    func attach(_ view: UIView) {
+        guard enabled else { return }
+        views.removeAll { $0.view == nil || $0.view === view }
+        views.append(WeakTraceView(view))
+        update(view)
+    }
+
+    func update(_ view: UIView) {
+        guard enabled else { return }
+        view.accessibilityIdentifier = "debug-pager-trace"
+        view.accessibilityLabel = renderedLabel()
+    }
+
+    private func refreshAccessibilityLabels() {
+        guard enabled else { return }
+        views.removeAll { $0.view == nil }
+        let value = renderedLabel()
+        for box in views { box.view?.accessibilityLabel = value }
+    }
+
+    private func renderedLabel() -> String {
+        let metricText = counts.keys.sorted().map { "\($0)=\(counts[$0] ?? 0)" }.joined(separator: " ")
+        let taskText = taskCounts.keys.sorted().map { "\($0)=\(taskCounts[$0] ?? 0)" }.joined(separator: " ")
+        let mounted = (counts[Metric.currentHoleAppear.rawValue] ?? 0)
+            - (counts[Metric.currentHoleDisappear.rawValue] ?? 0)
+        return events.joined(separator: "\n")
+            + "\nCOUNTS \(metricText) currentHole.mounted=\(mounted) tasks=\(taskText)"
     }
 }
 
-/// Put the same marker inside presented sheets: UIKit can hide the presenting page's AX subtree.
-struct UITestPagerTraceElement: View {
-    @ObservedObject private var trace = UITestPagerTrace.shared
+private final class WeakTraceView {
+    weak var view: UIView?
 
-    var body: some View {
-        if trace.enabled {
-            Text("pager trace")
-                .font(.system(size: 1))
-                .foregroundStyle(Color.white.opacity(0.02))
-                .frame(width: 1, height: 1)
-                .accessibilityElement(children: .ignore)
-                .accessibilityIdentifier("debug-pager-trace")
-                .accessibilityLabel(trace.label)
-                .allowsHitTesting(false)
-        }
+    init(_ view: UIView) { self.view = view }
+}
+
+/// A direct UIKit accessibility node. Updating its label does not invalidate SwiftUI's view tree.
+struct UITestPagerTraceElement: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = true
+        view.accessibilityIdentifier = "debug-pager-trace"
+        view.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        UITestPagerTrace.shared.attach(view)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        UITestPagerTrace.shared.attach(uiView)
+    }
+}
+
+struct UITestPagerBodyMetric: ViewModifier {
+    let metric: UITestPagerTrace.Metric
+
+    func body(content: Content) -> some View {
+        UITestPagerTrace.shared.metric(metric)
+        return content
     }
 }
 #endif
