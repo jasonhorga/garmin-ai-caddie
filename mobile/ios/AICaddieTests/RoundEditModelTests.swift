@@ -665,6 +665,52 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertNil(model.saveError)
     }
 
+    func testCancelFollowsScorecardValuesThatArrivedWhileEditing() async throws {
+        let model = makeModel(score: 5, putts: 3) { request in
+            Self.response(request, status: request.httpMethod == "POST" ? 201 : 503, body: #"{"stored":{}}"#)
+        }
+
+        model.enterEdit()
+        model.adoptRecordedScorecard(score: 4, putts: 2)
+        model.cancelEdit()
+
+        XCTAssertEqual(model.putts, 2, "cancel must follow the current scorecard row, including putts")
+    }
+
+    func testLandingOnlySaveAdoptsNewTotalButKeepsTheDraftPuttCount() async throws {
+        let model = makeModel(score: 5, putts: 3) { request in
+            Self.response(request, status: request.httpMethod == "POST" ? 201 : 503, body: #"{"stored":{}}"#)
+        }
+
+        model.enterEdit()
+        model.adoptRecordedScorecard(score: 6, putts: 4)
+        model.move(shotId: "shot-1", px: [46, 49])
+
+        XCTAssertTrue(await model.save())
+        XCTAssertEqual(model.putts, 3, "a landing-only save must not import an external putt change")
+
+        model.enterEdit()
+        model.setPenalty(2) // The refreshed total 6 permits 3 putts + 2 penalty + 1.
+        XCTAssertTrue(await model.save())
+    }
+
+    func testScorecardTotalThatArrivesDuringEditingStillRejectsAnImpossibleSave() async throws {
+        let unexpectedRequest = expectation(description: "a refreshed impossible total must make no request")
+        unexpectedRequest.isInverted = true
+        let model = makeModel(score: 5, putts: 3) { request in
+            unexpectedRequest.fulfill()
+            return Self.response(request, status: 201, body: #"{"stored":{}}"#)
+        }
+
+        model.enterEdit()
+        model.adoptRecordedScorecard(score: 4, putts: 3)
+        model.setPenalty(1) // 4 < 3 putts + 1 penalty + 1.
+
+        XCTAssertFalse(await model.save())
+        XCTAssertEqual(model.saveError, "总杆不得低于推杆+罚杆+1，草稿仍在；请调整后重试")
+        await fulfillment(of: [unexpectedRequest], timeout: 0.25)
+    }
+
     func testScorecardRefreshPreservesBothTotalsAndPuttsWhileAnyDraftIsOpen() async throws {
         // adoptRecordedPutts protects every open draft, including one with no changes yet.
         for manuallyChangedPutts in [false, true] {
