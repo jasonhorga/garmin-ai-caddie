@@ -218,6 +218,33 @@ def _media_context_row(event: dict[str, Any], payload: dict[str, Any], *, kind: 
     return row
 
 
+def _unmapped_local_only_row(
+    event: dict[str, Any], payload: dict[str, Any], *, kind: str, hole: int,
+) -> dict[str, Any]:
+    """Keep an event whose physical hole is absent from a partial Garmin upload as local evidence."""
+    if kind in {"photo", "video"}:
+        return _media_context_row(event, payload, kind=kind, hole=hole)
+    if kind == "score":
+        local_value = _payload_value(payload, "strokes", "score")
+    elif kind == "putt":
+        local_value = _payload_value(payload, "putts", "count")
+    elif kind == "penalty":
+        local_value = _payload_value(payload, "penalties", "count")
+    elif kind == "club":
+        local_value = _payload_value(payload, "clubName", "club")
+    elif kind == "note":
+        local_value = _payload_value(payload, "note", "text")
+    else:
+        local_value = payload
+    return {
+        "eventId": event.get("eventId"),
+        "roundId": event.get("roundId"),
+        "kind": kind,
+        "hole": hole,
+        "localValue": local_value,
+    }
+
+
 def _suggestion(
     suggestion_id: str,
     *,
@@ -446,23 +473,28 @@ def reconcile_mobile_round_events(
     local_only: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
     candidate_audits: list[dict[str, Any]] = []
+    unmapped_event_ids: set[str] = set()
 
     for event in events:
-        if hole_map is not None:
-            local_hole = _safe_int(event.get("hole")) or 0
-            if local_hole > 0:
-                if local_hole not in hole_map:
-                    # Garmin may have uploaded only part of the round. Keep missing holes
-                    # local-only; reject a fallback only if it would use another physical hole.
-                    if local_hole in scores or any(shot["hole"] == local_hole for shot in shots):
-                        raise MobileRoundIdentityError("mobile_round_hole_identity_unresolved")
-                else:
-                    event = {**event, "hole": hole_map[local_hole]}
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         kind = str(event.get("kind") or "")
         hole = _safe_int(event.get("hole")) or 0
         if hole <= 0:
             continue
+        if hole_map is not None:
+            if hole not in hole_map:
+                if hole_map:
+                    if event.get("eventId"):
+                        unmapped_event_ids.add(str(event["eventId"]))
+                    local_only.append(_unmapped_local_only_row(event, payload, kind=kind, hole=hole))
+                    continue
+                # A completely unresolved course identity is still unsafe to reconcile by display
+                # number; retain the C76 guard rather than suggesting a correction on another hole.
+                if hole in scores or any(shot["hole"] == hole for shot in shots):
+                    raise MobileRoundIdentityError("mobile_round_hole_identity_unresolved")
+            else:
+                event = {**event, "hole": hole_map[hole]}
+                hole = hole_map[hole]
         audit = _candidate_audit(event)
         if audit:
             candidate_audits.append(audit)
@@ -621,6 +653,10 @@ def reconcile_mobile_round_events(
         garmin_only=garmin_only,
         candidate_audits=candidate_audits,
     )
+    annotation_suggestions = [
+        row for row in annotation_suggestions
+        if str((row.get("payload") or {}).get("sourceEventId") or "") not in unmapped_event_ids
+    ]
     return {
         "schema": "ai-caddie-mobile-reconciliation-v1",
         "roundId": str(round_id),

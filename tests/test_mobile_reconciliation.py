@@ -56,8 +56,29 @@ class MobileReconciliationTests(unittest.TestCase):
                              [f"partial:{n}" for n in range(1, 10)])
             self.assertEqual([r["hole"] for r in result["localOnly"]], list(range(10, 19)))
             self.assertEqual(result["conflicts"], [])
-            self.assertEqual([r["targetId"] for r in result["annotationSuggestions"]],
-                             [f"partial:{n}" for n in range(10, 19)])
+            # Missing physical mappings are evidence only; never suggest a correction against a
+            # Garmin display hole that may belong to another card.
+            self.assertEqual(result["annotationSuggestions"], [])
+
+    def test_back_start_eighteen_round_with_only_first_garmin_card_is_partial(self) -> None:
+        """A back-start phone round must reconcile the uploaded 10..18 card only."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _save_identity(root, "back-start-partial", [(55555, "back"), (55555, "front")])
+            append_event_batch("back-start-partial", [{
+                "eventId": f"score-{n}", "roundId": "back-start-partial", "hole": n,
+                "kind": "score", "payload": {"strokes": 5},
+            } for n in range(1, 19)], idempotency_key="back-start-partial", root=root)
+            data = HistoryData(raw_rounds=[], rounds=[{
+                "id": "back-start-partial", "globalId": 55555, "holesCompleted": 9,
+                "holes": [{"number": n, "strokes": 5} for n in range(10, 19)],
+            }], shots=[])
+
+            result = reconcile_mobile_round_events("back-start-partial", data, root=root)
+
+        self.assertEqual([row["hole"] for row in result["matched"]], list(range(10, 19)))
+        self.assertEqual([row["hole"] for row in result["localOnly"]], list(range(10, 19)))
+        self.assertEqual(result["annotationSuggestions"], [])
 
     def test_saved_identity_matches_merged_front_then_back_of_eighteen_hole_course(self) -> None:
         self._assert_merged_eighteen_hole_halves_match("front")
