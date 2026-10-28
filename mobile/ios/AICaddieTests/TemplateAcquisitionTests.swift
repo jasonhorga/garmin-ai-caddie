@@ -602,7 +602,7 @@ final class TemplateAcquisitionTests: XCTestCase {
 
     /// Settling on a course sends a map-only intent with the Tee Start will use, before any round
     /// exists; the player's explicit download owns the later whole-course install.
-    func testCourseIntentInstallsTheWholeCourseBeforeStart() async throws {
+    func testCourseIntentOnlyWarmsFirstHoleBeforeStart() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
         let requests = LoopRequests()
