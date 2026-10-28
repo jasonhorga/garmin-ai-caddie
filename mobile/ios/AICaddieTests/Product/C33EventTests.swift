@@ -1180,7 +1180,7 @@ final class C33EventTests: XCTestCase {
         await model.waitForDeferredRoundFinishesForTesting()
         XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).map { $0.event.eventId }, ["accepted-score"])
         XCTAssertEqual(model.deferredFinishRecovery?.hole, 3)
-        XCTAssertTrue(model.deferredFinishRecovery?.prompt.contains("第 3 洞记分被服务器拒绝") == true)
+        XCTAssertTrue(model.deferredFinishRecovery?.prompt.contains("第 3 洞成绩被服务器拒绝") == true)
         finishLock.lock(); let blockedFinishes = finishRequests; finishLock.unlock()
         // The server round must stay open until the rejected hole is re-entered.
         XCTAssertEqual(blockedFinishes, 0)
@@ -1249,7 +1249,7 @@ final class C33EventTests: XCTestCase {
         model.syncOnForeground()
         await model.waitForDeferredRoundFinishesForTesting()
         XCTAssertEqual(model.deferredFinishRecovery?.hole, 3)
-        XCTAssertTrue(model.deferredFinishRecovery?.prompt.contains("第 3 洞记分被服务器拒绝") == true)
+        XCTAssertTrue(model.deferredFinishRecovery?.prompt.contains("第 3 洞成绩被服务器拒绝") == true)
     }
 
 }
