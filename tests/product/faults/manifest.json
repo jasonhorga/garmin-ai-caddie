@@ -1748,7 +1748,7 @@
       "id": "tests-product-faults-C134-5d-pause-prep",
       "patch": "tests/product/faults/C134/5d-pause-prep.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/TemplateAcquisitionTests/testARequestedJobPausedDuringEntryResumesAfterTheEntryHole",
+      "target": "AICaddieTests/TemplateAcquisitionTests/testAnInFlightOrdinaryDownloadIsCancelledByStartThenResumesAfterEntry",
       "promise": "5d"
     },
     {
@@ -1762,7 +1762,7 @@
       "id": "tests-product-faults-C134-5f-progress-source",
       "patch": "tests/product/faults/C134/5f-progress-reset.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/StartRoundDiscoveryTests/testRoundStartProgressAndButtonUseOneBusyState",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testReenteringStartKeepsTheExistingProgressTimer",
       "promise": "5f"
     },
     {

@@ -1,6 +1,7 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1559,7 +1559,6 @@
+@@ -1555,9 +1555,8 @@
+         clearFreshEntryRelease()
          // The start window owns the network until the first hole is visible. Pause every prep
          // worker here, including ordinary explicit downloads: the old yieldsToForeground check
          // spared a prep-library row such as 28242 and let it consume the connection beside Start.
@@ -8,3 +9,4 @@
          isPreparingRound = true
          // Re-entering Start replaces the request token but keeps the same user-visible operation;
          // resetting the timer here used to erase the slow-server explanation while the button kept
+         // spinning.

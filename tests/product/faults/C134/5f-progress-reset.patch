@@ -1,11 +1,13 @@
---- a/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
-+++ b/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
-@@ -27,7 +27,7 @@
- /// unit-testable without a SwiftUI host.
- enum StartRoundPresentation {
-     static func roundStartProgressText(isBusy: Bool, message: String?) -> String? {
--        guard isBusy else { return nil }
-+        guard true else { return nil }
-         return message ?? "正在准备球场…"
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -1560,9 +1560,9 @@
+         isPreparingRound = true
+         // Re-entering Start replaces the request token but keeps the same user-visible operation;
+         // resetting the timer here used to erase the slow-server explanation while the button kept
+         // spinning.
+-        if !replacingPreparation {
++        if true {
+             startRoundProgress()
+         }
+         return token
      }
- 
