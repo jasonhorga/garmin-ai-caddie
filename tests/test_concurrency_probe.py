@@ -11,6 +11,8 @@ from tests.perf.c135_concurrency import Sample, _sample, _summarize
 class ConcurrencyProbeTests(unittest.IsolatedAsyncioTestCase):
     async def test_fast_package_is_timed_when_it_completes_not_when_cold_package_finishes(self):
         async def respond(request):
+            if request.url.path.endswith("/package"):
+                self.assertEqual(request.url.params.get("background_geometry"), "true")
             if request.url.params.get("map_only") == "false":
                 await asyncio.sleep(0.2)
             return httpx.Response(200, json={})
@@ -38,6 +40,7 @@ class ConcurrencyProbeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(packages), 1)
         self.assertEqual(packages[0].params["round_id"], "live-1-existing")
         self.assertEqual(packages[0].params["map_only"], "true")
+        self.assertNotIn("background_geometry", packages[0].params)
         install = next(url for url in seen if url.path.endswith("/install/status"))
         self.assertEqual(install.params["loops"], "1:front,1:back")
 
