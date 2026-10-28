@@ -4,6 +4,14 @@ import XCTest
 import AICaddieDomain
 
 final class ProductMapAndPackageTests: XCTestCase {
+    func test_j4_5_garmin_disabled_gate_has_no_raster_request_or_surface() {
+        XCTAssertFalse(LiveGarminRasterPolicy.shouldFetch(enabled: false, requestStarted: false))
+        XCTAssertNil(LiveGarminRasterPolicy.displayedRaster(
+            enabled: false,
+            raster: GarminRasterResponse(available: true, imageUrl: "/raster.jpg", mode: "H")
+        ))
+    }
+
     func test_j4_2_cached_package_lifecycle_and_revision_adoption() throws {
         // Prepared at midnight; stale at +24 h; expires at +48 h. Boundary instants are inclusive.
         let status: OfflinePackageStatus = try ProductSharedVectors.decode([
@@ -122,6 +130,24 @@ final class ProductMapAndPackageTests: XCTestCase {
         }
     }
 
+    func test_j4_2_map_only_merge_preserves_player_package_facts() throws {
+        let current = try ProductInputs.package()
+        var input = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(current)) as? [String: Any]
+        )
+        input["coursePrep"] = [
+            "schema": "ai-caddie-course-prep-v1",
+            "globalId": current.course.globalId,
+            "holes": [try JSONSerialization.jsonObject(with: JSONEncoder().encode(ProductInputs.prep()))]
+        ]
+        let mapOnly = try ProductSharedVectors.decode(input)
+        let merged = current.mergingMapFacts(from: mapOnly)
+        XCTAssertEqual(merged.clubProfiles, current.clubProfiles, "map-only cannot replace the bag")
+        XCTAssertEqual(merged.caddieContextSeeds, current.caddieContextSeeds, "map-only cannot replace caddie seeds")
+        XCTAssertEqual(merged.eventCursor, current.eventCursor, "map-only cannot replace event authority")
+        XCTAssertEqual(merged.coursePrep?.holes.first?.resolvedMapOverlay, mapOnly.coursePrep?.holes.first?.resolvedMapOverlay)
+    }
+
     func test_j5_4_green_edges_and_live_position_ranges() throws {
         // At 1 px/m the rectangular green is 20m wide x 40m deep. The centred flag
         // is 20m from front/back and 10m from either side -> 22/22/11/11 yards.
@@ -151,6 +177,32 @@ final class ProductMapAndPackageTests: XCTestCase {
         XCTAssertEqual(clamped, CGPoint(x: 20, y: 20), "flag dragged beyond right edge attaches to boundary")
         XCTAssertNil(GeoDistance.yards(from: 0, 0, to: nil, nil))
         XCTAssertNil(GreenEdgeDistances.resolve(flagPx: [10, 20], outlinePx: [], referencePx: nil, pixelsPerMetre: 1))
+    }
+
+    /// C136: the selected Tee is the single distance origin for the static card and the caddie
+    /// before the first stroke. These values are calculated from the fixture coordinates rather
+    /// than copied from a screenshot or a server response.
+    func test_j5_4_selected_tee_static_golden_and_atomic_live_fallback() throws {
+        let tee = CLLocationCoordinate2D(latitude: 40.0000, longitude: 116.0000)
+        let front = CLLocationCoordinate2D(latitude: 40.0018, longitude: 116.0000)
+        let middle = CLLocationCoordinate2D(latitude: 40.0027, longitude: 116.0000)
+        let back = CLLocationCoordinate2D(latitude: 40.0036, longitude: 116.0000)
+        let staticRange = LiveGreenRangeYards(
+            front: GeoDistance.yards(from: tee.latitude, tee.longitude, to: front.latitude, front.longitude),
+            middle: GeoDistance.yards(from: tee.latitude, tee.longitude, to: middle.latitude, middle.longitude),
+            back: GeoDistance.yards(from: tee.latitude, tee.longitude, to: back.latitude, back.longitude)
+        )
+        XCTAssertEqual(staticRange.front, 219)
+        XCTAssertEqual(staticRange.middle, 328)
+        XCTAssertEqual(staticRange.back, 438)
+        XCTAssertEqual(
+            LiveGreenRangePresentation.resolve(
+                live: LiveGreenRangeYards(front: 220, middle: nil, back: 437),
+                staticFallback: staticRange
+            ),
+            staticRange,
+            "one missing live edge keeps the complete static group"
+        )
     }
 
     func test_j5_5_saved_gps_and_accuracy_or_unknown_score_position() throws {
