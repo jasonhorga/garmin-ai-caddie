@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4171,6 +4171,7 @@
+                 disposition: .abandoned
+             )
+             cancelRoundBackgroundWork()
++            pausePrepCourseDownload()
+             watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
+             if let home = try offlineStore.loadHomePackage() {
+                 try activateHomePackage(home, status: "本场已放弃")

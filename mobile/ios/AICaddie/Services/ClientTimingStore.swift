@@ -101,6 +101,7 @@ final class ClientTimingStore: @unchecked Sendable {
     private let persistenceQueue: DispatchQueue?
     private let now: () -> TimeInterval
     private let uploadsEnabled: Bool
+    private let persistenceObserver: (() -> Void)?
     private let encoder = JSONEncoder()
     private var records: [ClientTimingRecord]
     private var loaded: Bool
@@ -121,9 +122,32 @@ final class ClientTimingStore: @unchecked Sendable {
         self.persistenceQueue = nil
         self.now = now
         self.uploadsEnabled = uploadsEnabled
+        self.persistenceObserver = nil
         self.records = fileURL.map(Self.readRecords) ?? []
         self.loaded = true
     }
+
+    #if DEBUG
+    /// Test-only persistent store with an injected serial queue and write observer. Production
+    /// shared storage uses the private initializer below; explicit ordinary stores remain sync.
+    init(
+        fileURL: URL,
+        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        uploadsEnabled: Bool = false,
+        persistenceQueue: DispatchQueue,
+        persistenceObserver: (() -> Void)? = nil
+    ) {
+        self.fileURL = fileURL
+        self.persists = true
+        // Red-test stub: the repair commit wires this injected queue into persistence.
+        self.persistenceQueue = nil
+        self.now = now
+        self.uploadsEnabled = uploadsEnabled
+        self.persistenceObserver = persistenceObserver
+        self.records = Self.readRecords(fileURL)
+        self.loaded = true
+    }
+    #endif
 
     private init(
         fileURL: URL?,
@@ -139,6 +163,7 @@ final class ClientTimingStore: @unchecked Sendable {
             : nil
         self.now = now
         self.uploadsEnabled = uploadsEnabled
+        self.persistenceObserver = nil
         self.records = []
         self.loaded = !loadAsync
         if loadAsync, let fileURL {
@@ -317,6 +342,7 @@ final class ClientTimingStore: @unchecked Sendable {
 
     private func persist(_ snapshot: [ClientTimingRecord]) {
         guard let fileURL else { return }
+        persistenceObserver?()
         Self.fileLock.lock()
         defer { Self.fileLock.unlock() }
         do {

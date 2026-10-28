@@ -1,0 +1,14 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3728,10 +3728,8 @@
+                 holesCompleted: completedHoles.count,
+                 courseGlobalId: package.course.globalId
+             )
++            cancelRoundBackgroundWork()
+             try offlineStore.sealRoundForDeferredFinish(package: package, metadata: metadata)
+-            // Seal first: quarantine/media failures above must leave every round-owned task alive
+-            // so the player can repair the round and its interrupted downloads can resume.
+-            cancelRoundBackgroundWork(keepOfflineCourseDownload: true)
+             try leaveSealedRoundLocally(package: package)
+             watchBridge?.sendRoundClosureToWatch(
+                 roundId: package.roundId,

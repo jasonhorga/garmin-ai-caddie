@@ -438,6 +438,37 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(store.takeBatchIfDue(now: 63, foregroundStartRunning: false, threshold: 251)?.count, 50)
     }
 
+    /// J8: recording a timing row must leave file I/O off the caller queue.
+    func testClientTimingStorePersistsOffCallerQueue() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("c90-timing-async-\(UUID().uuidString).jsonl")
+        let callerQueue = DispatchQueue(label: "c90-timing-caller")
+        let callerKey = DispatchSpecificKey<Bool>()
+        callerQueue.setSpecific(key: callerKey, value: true)
+        let wroteOnCaller = LockedTimingFlag()
+        let persisted = DispatchSemaphore(value: 0)
+        let store = ClientTimingStore(
+            fileURL: url,
+            persistenceQueue: DispatchQueue(label: "c90-timing-writer", qos: .utility),
+            persistenceObserver: {
+                wroteOnCaller.set(DispatchQueue.getSpecific(key: callerKey) == true)
+                persisted.signal()
+            }
+        )
+        let finished = DispatchSemaphore(value: 0)
+        callerQueue.async {
+            store.record(ClientTimingRecord(
+                requestId: "async", path: "/api/v2/mobile/test", clientTotalMs: 1,
+                status: 200, error: nil, startedAt: "2026-10-28T00:00:00Z",
+                networkType: nil, serverTotalMs: nil
+            ))
+            finished.signal()
+        }
+        XCTAssertEqual(finished.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(persisted.wait(timeout: .now() + 2), .success)
+        XCTAssertFalse(wroteOnCaller.value)
+    }
+
 
     func testPrepTeeQueryOmitsUnresolvedTeeAndNormalizesChoice() {
         XCTAssertEqual(SyncClient.prepTeeQueryValue(" White "), "white")
@@ -2099,6 +2130,20 @@ private final class LockedTimingReadCounter: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return count
+    }
+}
+
+private final class LockedTimingFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored = false
+
+    func set(_ value: Bool) {
+        lock.lock(); stored = value; lock.unlock()
+    }
+
+    var value: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return stored
     }
 }
 

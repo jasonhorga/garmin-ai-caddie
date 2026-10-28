@@ -400,6 +400,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         let mapData = try JSONEncoder().encode(mapPackage)
         let held = C85HeldRequests()
         let requests = C85Counter()
+        let installStatusRequests = C85Counter()
         let stopped = C85Counter()
         let latePaths = C85RequestLog()
         let fullSent = expectation(description: "full package requested")
@@ -413,9 +414,13 @@ final class RoundStartTwoStageTests: XCTestCase {
             guard proto.request.url?.host == host else { proto.reply(404); return }
             // The client's requests. The hole screen's image stores (first-hole topo warm-up) go
             // through the shared session, which is never invalidated, and ask for `Accept: image/*`.
+            let isInstallStatus = proto.request.url?.path == "/api/v2/courses/\(c85CourseId)/install/status"
+            if isInstallStatus {
+                installStatusRequests.increment()
+            }
             if proto.request.value(forHTTPHeaderField: "Accept")?.hasPrefix("image/") != true {
                 requests.increment()
-                if stopped.value > 0 {
+                if isInstallStatus, stopped.value > 0 {
                     latePaths.append(proto.request)
                     if lateRequestOnce.claim() { lateRequest.fulfill() }
                 }
@@ -472,6 +477,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         await stopping.value
         await waitForNoRunningTasks(fixture.session)
         let requestsAtStop = requests.value
+        let installStatusAtStop = installStatusRequests.value
         // Push everything that could start work again: the held personal package fails now (a live
         // retry loop would ask again at once) and the live view repeats its initial-load callback
         // (it must not restart personal enrichment or either asset pass after the stop).
@@ -484,8 +490,116 @@ final class RoundStartTwoStageTests: XCTestCase {
             return url.path + (url.query.map { "?\($0)" } ?? "")
         }
         XCTAssertEqual(requests.value, requestsAtStop, "no request after the stop; paths=\(paths)")
+        XCTAssertEqual(installStatusRequests.value, installStatusAtStop, "no install/status start after the stop")
         XCTAssertEqual(rasterCalls.value, 1, "the raster pass ended at the stop")
         XCTAssertEqual(model.package?.clubProfiles, [], "the personal package was never merged")
+    }
+
+    /// J5.2/J4.2: a quarantine-blocked Save & End keeps the live round's background ownership.
+    func testQuarantineBlockedFinishKeepsRoundBackgroundWorkAlive() async throws {
+        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-quarantine-finish.example.test", roundId: "c90-quarantine-finish"
+        )
+        try fixture.store.quarantineEvent(
+            LiveRoundEvent(
+                eventId: "c90-quarantine-score", roundId: package.roundId,
+                timestamp: "2026-10-28T00:00:00Z", hole: 1, kind: .score,
+                payload: ["strokes": .number(5)]
+            ),
+            status: 422,
+            reason: "score rejected"
+        )
+        let result = await fixture.model.finishActiveRound()
+        XCTAssertFalse(result)
+        XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
+        XCTAssertNil(fixture.model.interruptedOfflineCourseDownloadRoundIdForTesting)
+        XCTAssertEqual(held.stopCount, 0, "the held background request was not cancelled")
+    }
+
+    /// J5.2/J4.2: a Watch-finished round blocked by quarantine remains resumable on the phone.
+    func testQuarantineBlockedWatchFinishKeepsRoundBackgroundWorkAlive() async throws {
+        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-quarantine-watch.example.test", roundId: "c90-quarantine-watch"
+        )
+        try fixture.store.quarantineEvent(
+            LiveRoundEvent(
+                eventId: "c90-watch-quarantine-score", roundId: package.roundId,
+                timestamp: "2026-10-28T00:00:00Z", hole: 1, kind: .score,
+                payload: ["strokes": .number(5)]
+            ),
+            status: 422,
+            reason: "score rejected"
+        )
+        fixture.model.handleWatchRoundClosure(
+            WatchRoundClosurePayload(roundId: package.roundId, disposition: .finished)
+        )
+        await fixture.model.waitForWatchRoundClosureReconciliationForTesting()
+        XCTAssertEqual(fixture.model.liveRoundState?.roundId, package.roundId)
+        XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
+        XCTAssertEqual(held.stopCount, 0, "the held background request was not cancelled")
+    }
+
+    /// J5.2/J4.2: an event-log failure in explicit discard leaves the active round and downloads intact.
+    func testDiscardFailureKeepsRoundBackgroundWorkAlive() async throws {
+        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-discard-failure.example.test", roundId: "c90-discard-failure"
+        )
+        try Data("{corrupt".utf8).write(
+            to: fixture.directory.appendingPathComponent("events.jsonl"), options: [.atomic]
+        )
+        fixture.model.discardActiveRound()
+        XCTAssertEqual(fixture.model.liveRoundState?.roundId, package.roundId)
+        XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
+        XCTAssertEqual(held.stopCount, 0, "the held background request was not cancelled")
+    }
+
+    /// J4.2: ending a round must leave another player-requested prep download running in place.
+    func testDiscardLeavesAnotherPrepCourseDownloadRunning() async throws {
+        let host = "c90-prep-survives-discard.example.test"
+        let roundId = "c90-prep-survives-discard"
+        let roundPackage = try package(roundId: roundId, mapOnly: false)
+        let roundData = try JSONEncoder().encode(roundPackage)
+        let targetHeld = C85HeldRequests()
+        let targetStarted = expectation(description: "another prep course request started")
+        let targetOnce = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            let path = proto.request.url?.path ?? ""
+            if path == "/api/v2/mobile/courses/\(c85CourseId)/package" {
+                proto.reply(200, roundData)
+            } else if path == "/api/v2/mobile/courses/31800/package" {
+                targetHeld.hold(proto)
+                if targetOnce.claim() { targetStarted.fulfill() }
+            } else {
+                proto.reply(503)
+            }
+        }, onStop: { request in
+            guard request.url?.host == host else { return }
+            targetHeld.forget(request)
+        })
+        let fixture = makeModel(host: host, held: targetHeld)
+        let model = fixture.model
+        await model.prepareCourseRound(
+            roundId: roundId, teeBox: "blue", loops: roundPackage.loopEntries
+        )
+        model.liveHoleInitialLoadDidFinish()
+        model.downloadPrepCourse(
+            MobileCourseOption(globalId: 31800, name: "Second course", holes: 18, teeBox: "blue")
+        )
+        await fulfillment(of: [targetStarted], timeout: eventWait)
+        model.discardActiveRound()
+        XCTAssertEqual(targetHeld.stopCount, 0, "discard must not pause the shared prep queue")
+    }
+
+    /// J4.2: Save & End keeps the current course's whole-course download alive until its request ends.
+    func testFinishKeepsWholeCourseDownloadRunning() async throws {
+        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-finish-offline.example.test", roundId: "c90-finish-offline"
+        )
+        let result = await fixture.model.finishActiveRound()
+        XCTAssertTrue(result)
+        XCTAssertEqual(held.stopCount, 0, "Save & End must not cancel the whole-course download")
+        XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
     }
 
     /// A first stroke starts a deferred map-only round even when the hole screen has not called
@@ -568,6 +682,36 @@ final class RoundStartTwoStageTests: XCTestCase {
             if tasks.allSatisfy({ $0.state != .running && $0.state != .canceling }) { return }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
+    }
+
+    private func startRoundWithHeldBackgroundWork(
+        host: String,
+        roundId: String
+    ) async throws -> (fixture: ModelFixture, package: LiveRoundPackage, held: C85HeldRequests) {
+        let package = try package(roundId: roundId, mapOnly: false, garminRasterVersion: "c90-r6")
+        let data = try JSONEncoder().encode(package)
+        let held = C85HeldRequests()
+        let requestStarted = expectation(description: "round background request started")
+        let requestOnce = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            if proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package" {
+                proto.reply(200, data)
+            } else {
+                held.hold(proto)
+                if requestOnce.claim() { requestStarted.fulfill() }
+            }
+        }, onStop: { request in
+            guard request.url?.host == host else { return }
+            held.forget(request)
+        })
+        let fixture = makeModel(host: host, held: held)
+        await fixture.model.prepareCourseRound(
+            roundId: roundId, teeBox: "blue", loops: package.loopEntries
+        )
+        fixture.model.liveHoleInitialLoadDidFinish()
+        await fulfillment(of: [requestStarted], timeout: eventWait)
+        return (fixture, package, held)
     }
 
     private struct ModelFixture {
@@ -709,6 +853,7 @@ private final class C85Counter {
 private final class C85HeldRequests {
     private let lock = NSLock()
     private var held: [C33URLProtocol] = []
+    private var stopped = 0
 
     func hold(_ proto: C33URLProtocol) {
         lock.lock(); held.append(proto); lock.unlock()
@@ -716,7 +861,16 @@ private final class C85HeldRequests {
 
     /// A request URLSession stopped (cancelled) is never answered afterwards.
     func forget(_ request: URLRequest) {
-        lock.lock(); held.removeAll { $0.request.url == request.url }; lock.unlock()
+        lock.lock()
+        let before = held.count
+        held.removeAll { $0.request.url == request.url }
+        if held.count != before { stopped += 1 }
+        lock.unlock()
+    }
+
+    var stopCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return stopped
     }
 
     func releaseAll(_ status: Int, _ data: Data = Data()) {
