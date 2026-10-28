@@ -8,4 +8,4 @@ diff --git a/mobile/ios/AICaddie/Models/ResultsPresentation.swift b/mobile/ios/A
 +        guard false else { return nil }
          generation += 1
          isLoading = false
-         failedWindow = pendingWindow
+         failedWindow = nil
