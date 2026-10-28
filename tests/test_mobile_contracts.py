@@ -2706,6 +2706,10 @@ class MobileContractTests(unittest.TestCase):
         # input, which must not hide a regression back to the raw network-only page catalogue.
         hole_page_arguments = round_home.split("CurrentHoleView(", 1)[1].split("sessionCache:", 1)[0]
         self.assertIn("courseOptions: catalogue,", hole_page_arguments)
+        # Frozen adjacent pages refresh once when a swipe begins; without this wiring they show a
+        # blank base mid-swipe (C112c).
+        self.assertIn("if event == .touchBegan {\n            holePageInteractionRevision &+= 1", round_home)
+        self.assertIn("interactionRevision: holePageInteractionRevision", round_home)
         self.assertIn("NineLoopTurn.candidateLoops(package: package, catalogue: courseOptions)", current_hole)
         # A coarse same-id network row (18 holes / no loop label) never masks the installed loop.
         self.assertIn("guard let local = installed[row.globalId], isFactualLoop(local), !isFactualLoop(row) else { return row }", turn)
