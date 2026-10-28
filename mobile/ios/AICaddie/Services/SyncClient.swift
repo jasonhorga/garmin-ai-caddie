@@ -542,7 +542,8 @@ public final class SyncClient {
         session: URLSession = .shared,
         retrySleep: @escaping (UInt64) async throws -> Void,
         roundStartTimeoutInterval: TimeInterval = 30,
-        monotonicNow: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+        monotonicNow: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        timingStore: ClientTimingStore = ClientTimingStore()
     ) {
         self.baseURL = baseURL
         self.adminToken = adminToken

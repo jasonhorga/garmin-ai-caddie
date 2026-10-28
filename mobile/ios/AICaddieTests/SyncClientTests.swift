@@ -6,6 +6,75 @@ import XCTest
 @testable import AICaddie
 
 final class SyncClientTests: XCTestCase {
+    func testClientTimingInjectsRequestIdAndReadsServerTotal() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let store = ClientTimingStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("c90-timing-\(UUID().uuidString).jsonl"))
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            let requestId = try XCTUnwrap(request.value(forHTTPHeaderField: "X-AI-Caddie-Request-ID"))
+            XCTAssertNotNil(UUID(uuidString: requestId))
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json", "Server-Timing": "total;dur=12.5"]
+            )!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        var clockCall = 0
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in },
+            monotonicNow: {
+                clockCall += 1
+                return clockCall == 1 ? 10 : 14
+            },
+            timingStore: store
+        )
+
+        _ = try await client.fetchCoursePrep(globalId: 31870, render: false)
+
+        let record = try XCTUnwrap(store.snapshot().last)
+        XCTAssertEqual(record.path, "/api/v2/courses/31870/prep")
+        XCTAssertEqual(record.clientTotalMs, 4_000, accuracy: 0.1)
+        XCTAssertEqual(record.serverTotalMs, 12.5, accuracy: 0.01)
+        XCTAssertEqual(record.status, 200)
+    }
+
+    func testClientTimingStoreIsBoundedAndThrottled() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("c90-timing-\(UUID().uuidString).jsonl")
+        let store = ClientTimingStore(fileURL: url)
+        func record(_ index: Int) {
+            store.record(ClientTimingRecord(
+                requestId: "timing-\(index)", path: "/api/v2/mobile/test",
+                clientTotalMs: Double(index), status: 200, error: nil,
+                startedAt: "2026-10-28T00:00:00Z", networkType: nil, serverTotalMs: nil
+            ))
+        }
+        for index in 0..<250 { record(index) }
+        XCTAssertEqual(store.snapshot().count, 200)
+        let lines = try String(contentsOf: url).split(whereSeparator: { $0.isNewline })
+        XCTAssertEqual(lines.count, 200)
+
+        let early = store.takeBatchIfDue(now: 1, foregroundStartRunning: false, threshold: 251)
+        XCTAssertNil(early)
+        let batch = try XCTUnwrap(store.takeBatchIfDue(now: 2, foregroundStartRunning: false, threshold: 10))
+        XCTAssertEqual(batch.count, 50)
+        store.finishUpload()
+        for index in 250..<260 { record(index) }
+        XCTAssertNil(store.takeBatchIfDue(now: 3, foregroundStartRunning: true, threshold: 1))
+        XCTAssertEqual(store.takeBatchIfDue(now: 63, foregroundStartRunning: false, threshold: 251)?.count, 50)
+    }
+
+
     func testPrepTeeQueryOmitsUnresolvedTeeAndNormalizesChoice() {
         XCTAssertEqual(SyncClient.prepTeeQueryValue(" White "), "white")
         XCTAssertEqual(SyncClient.prepTeeQueryValue("red"), "red")
