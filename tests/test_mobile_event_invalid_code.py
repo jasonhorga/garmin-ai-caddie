@@ -67,17 +67,12 @@ class MobileEventInvalidCodeTests(unittest.TestCase):
 
     def test_product_spec_59_store_and_batch_failures_are_not_quarantinable(self):
         for error in [ValueError("event_commit_store_corrupt"), ValueError("request_reservation_store_corrupt"),
-                      ValueError("idempotency_key_body_mismatch"), ValueError("identity_envelope_mismatch"),
-                      ScoreInvariantError("hole 1: total 2 is less than putts 2 + penalties 0 + 1")]:
+                      ValueError("idempotency_key_body_mismatch"), ValueError("identity_envelope_mismatch")]:
             with self.subTest(error=error), TemporaryDirectory() as tmp, patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)), patch("server_v2.mobile.append_event_batch", side_effect=error):
                 response = self.post([self.event])
                 self.assertEqual(response.status_code, 422)
                 detail = response.json()["detail"]
-                if isinstance(error, ScoreInvariantError):
-                    self.assertEqual(detail["code"], "event_invalid")
-                    self.assertEqual(detail["message"], str(error))
-                else:
-                    self.assertEqual(detail, str(error))
+                self.assertEqual(detail, str(error))
 
     def test_product_spec_57_score_invariant_is_event_invalid_and_retryable_sibling_writes(self):
         putt = {**self.event, "eventId": "putt-2", "kind": "putt", "payload": {"putts": 2}}
