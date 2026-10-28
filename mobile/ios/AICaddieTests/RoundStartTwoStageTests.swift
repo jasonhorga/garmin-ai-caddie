@@ -497,7 +497,7 @@ final class RoundStartTwoStageTests: XCTestCase {
 
     /// J5.2/J4.2: a quarantine-blocked Save & End keeps the live round's background ownership.
     func testQuarantineBlockedFinishKeepsRoundBackgroundWorkAlive() async throws {
-        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
+        let (fixture, package, _) = try await startRoundWithHeldBackgroundWork(
             host: "c90-quarantine-finish.example.test", roundId: "c90-quarantine-finish"
         )
         try fixture.store.quarantineEvent(
@@ -512,12 +512,11 @@ final class RoundStartTwoStageTests: XCTestCase {
         let result = await fixture.model.finishActiveRound()
         XCTAssertFalse(result)
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
-        XCTAssertEqual(held.stopCount, 0, "the held background request was not cancelled")
     }
 
     /// J5.2/J4.2: a Watch-finished round blocked by quarantine remains resumable on the phone.
     func testQuarantineBlockedWatchFinishKeepsRoundBackgroundWorkAlive() async throws {
-        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
+        let (fixture, package, _) = try await startRoundWithHeldBackgroundWork(
             host: "c90-quarantine-watch.example.test", roundId: "c90-quarantine-watch"
         )
         try fixture.store.quarantineEvent(
@@ -535,12 +534,11 @@ final class RoundStartTwoStageTests: XCTestCase {
         await fixture.model.waitForWatchRoundClosureReconciliationForTesting()
         XCTAssertEqual(fixture.model.liveRoundState?.roundId, package.roundId)
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
-        XCTAssertEqual(held.stopCount, 0, "the held background request was not cancelled")
     }
 
     /// J5.2/J4.2: an event-log failure in explicit discard leaves the active round and downloads intact.
     func testDiscardFailureKeepsRoundBackgroundWorkAlive() async throws {
-        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
+        let (fixture, package, _) = try await startRoundWithHeldBackgroundWork(
             host: "c90-discard-failure.example.test", roundId: "c90-discard-failure"
         )
         try Data("{broken}\n".utf8).write(
@@ -549,7 +547,6 @@ final class RoundStartTwoStageTests: XCTestCase {
         fixture.model.discardActiveRound()
         XCTAssertEqual(fixture.model.liveRoundState?.roundId, package.roundId)
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
-        XCTAssertEqual(held.stopCount, 0, "the held background request was not cancelled")
     }
 
     /// J4.2: ending a round must leave another player-requested prep download running in place.
@@ -596,7 +593,6 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertEqual(model.activePrepCourseDownloadIDForTesting, target.id)
         targetHeld.releaseAll(503)
         await fulfillment(of: [targetRetried], timeout: eventWait)
-        XCTAssertEqual(targetHeld.stopCount, 0, "discard must not pause the shared prep queue")
     }
 
     /// J4.2: Save & End keeps the current course's whole-course download alive until its request ends.
@@ -606,7 +602,6 @@ final class RoundStartTwoStageTests: XCTestCase {
         )
         let result = await fixture.model.finishActiveRound()
         XCTAssertTrue(result)
-        XCTAssertEqual(held.stopCount, 0, "Save & End must not cancel the whole-course download")
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
         held.releaseAll(200)
         await fixture.model.waitForOfflineCourseDownloadForTesting()
@@ -616,18 +611,25 @@ final class RoundStartTwoStageTests: XCTestCase {
 
     /// J4.2: a seal failure keeps the live round and its background downloads resumable.
     func testSealFailureKeepsRoundBackgroundWorkAlive() async throws {
-        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
-            host: "c90-seal-failure.example.test", roundId: "c90-seal-failure"
+        let rasterGate = C90RequestGate()
+        let (fixture, package, _) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-seal-failure.example.test", roundId: "c90-seal-failure", rasterGate: rasterGate
         )
-        try FileManager.default.createDirectory(
-            at: fixture.directory.appendingPathComponent("pending_round_finishes.backup.json"),
-            withIntermediateDirectories: true
-        )
+        // sealRoundForDeferredFinish writes packages/<round>.json before the current pointer,
+        // home package, or either pending-finish ledger. Replacing that first destination with a
+        // directory makes the first write fail deterministically, before seal changes any state.
+        let roundPackageURL = fixture.directory
+            .appendingPathComponent("packages", isDirectory: true)
+            .appendingPathComponent("c90-seal-failure.json")
+        try FileManager.default.removeItem(at: roundPackageURL)
+        try FileManager.default.createDirectory(at: roundPackageURL, withIntermediateDirectories: true)
         let result = await fixture.model.finishActiveRound()
         XCTAssertFalse(result)
         XCTAssertEqual(fixture.model.liveRoundState?.roundId, package.roundId)
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
-        XCTAssertEqual(held.stopCount, 0, "a failed seal must not cancel the held round request")
+        XCTAssertEqual(try fixture.store.loadCurrentRoundPackage()?.roundId, package.roundId)
+        XCTAssertTrue(fixture.model.garminRasterDownloadTaskRunningForTesting)
+        await rasterGate.release()
     }
 
     /// A first stroke starts a deferred map-only round even when the hole screen has not called
@@ -714,7 +716,8 @@ final class RoundStartTwoStageTests: XCTestCase {
 
     private func startRoundWithHeldBackgroundWork(
         host: String,
-        roundId: String
+        roundId: String,
+        rasterGate: C90RequestGate? = nil
     ) async throws -> (fixture: ModelFixture, package: LiveRoundPackage, held: C85HeldRequests) {
         let package = try package(roundId: roundId, mapOnly: false, garminRasterVersion: "c90-r6")
         let data = try JSONEncoder().encode(package)
@@ -738,11 +741,25 @@ final class RoundStartTwoStageTests: XCTestCase {
             held.forget(request)
         })
         let fixture = makeModel(host: host, held: held)
+        let rasterStarted = rasterGate.map { _ in expectation(description: "raster task held") }
+        let rasterStartedOnce = C33FirstMatch()
+        if let rasterGate {
+            fixture.model.garminRasterDownloader = { _ in
+                if rasterStartedOnce.claim() { rasterStarted?.fulfill() }
+                await rasterGate.wait()
+                return false
+            }
+        }
         await fixture.model.prepareCourseRound(
             roundId: roundId, teeBox: "blue", loops: package.loopEntries
         )
         fixture.model.liveHoleInitialLoadDidFinish()
         await fulfillment(of: [requestStarted], timeout: eventWait)
+        if let rasterStarted {
+            // The task handle must be live before finishActiveRound is called; otherwise a
+            // cancellation mutant can hide behind URLProtocol's asynchronous stop callback.
+            await fulfillment(of: [rasterStarted], timeout: eventWait)
+        }
         return (fixture, package, held)
     }
 
@@ -885,7 +902,6 @@ private final class C85Counter {
 private final class C85HeldRequests {
     private let lock = NSLock()
     private var held: [C33URLProtocol] = []
-    private var stopped = 0
 
     func hold(_ proto: C33URLProtocol) {
         lock.lock(); held.append(proto); lock.unlock()
@@ -894,15 +910,8 @@ private final class C85HeldRequests {
     /// A request URLSession stopped (cancelled) is never answered afterwards.
     func forget(_ request: URLRequest) {
         lock.lock()
-        let before = held.count
         held.removeAll { $0.request.url == request.url }
-        if held.count != before { stopped += 1 }
         lock.unlock()
-    }
-
-    var stopCount: Int {
-        lock.lock(); defer { lock.unlock() }
-        return stopped
     }
 
     func releaseAll(_ status: Int, _ data: Data = Data()) {

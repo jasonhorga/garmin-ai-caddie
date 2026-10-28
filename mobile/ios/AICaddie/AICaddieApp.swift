@@ -2171,6 +2171,8 @@ public final class LiveRoundAppModel: ObservableObject {
 
     var activePrepCourseDownloadIDForTesting: String? { activePrepCourseDownloadID }
 
+    var garminRasterDownloadTaskRunningForTesting: Bool { garminRasterDownloadTask != nil }
+
     var offlineCourseDownloadRoundIdForTesting: String? { offlineCourseDownloadRoundId }
 
     func evictIdleCoursesForTesting(_ plan: OfflineStorageEvictionPlan, for scope: OfflineStorageScope) {
