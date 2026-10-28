@@ -779,6 +779,18 @@ struct ResultsTimeContent: View {
     var onOpen: (ResultsTrendDestination) -> Void = { _ in }
     @Environment(\.resultsRangeAccessibilityValue) private var rangeAccessibilityValue
 
+    private var defaultRangeAccessibilityValue: String {
+        let title: String
+        switch window {
+        case "last10": title = "近 10 场"
+        case "last20": title = "近 20 场"
+        case "12m": title = "近一年"
+        case "all": title = "全部"
+        default: title = "统计范围"
+        }
+        return "\(title) · 已加载"
+    }
+
     var body: some View {
         let rows = ResultsTimePresentation.chartRows(stats, grain: grain)
         let cards = ResultsTimePresentation.periodCards(stats.time, grain: grain)
@@ -790,7 +802,7 @@ struct ResultsTimeContent: View {
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("time-range")
-            .accessibilityValue(rangeAccessibilityValue ?? window)
+            .accessibilityValue(rangeAccessibilityValue ?? defaultRangeAccessibilityValue)
             Picker("粒度", selection: $grain) {
                 ForEach(ResultsTimePresentation.Grain.allCases) { option in
                     Text(option.title).tag(option)
