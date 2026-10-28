@@ -368,8 +368,10 @@ public final class OfflineCaddieDecisionEvaluator {
         return PlanningHazards(water: water, unmodelled: unmodelled)
     }
 
-    /// Response scope matches Python `_build_shot_decision`: only the selected option's
-    /// hazards. The all-route union above remains an input to the conservative safety veto.
+    /// Offline uses the selected route's planningHazards. Online approach shots use
+    /// `_hazard_avoid_zones(context)` and tee shots use `_forbidden_zones_from_route`;
+    /// only the filtering function shares their rules. The all-route union above remains
+    /// an input to the conservative safety veto.
     private func selectedAvoidZones(
         seed: CaddieContextSeed, request: CaddieDecisionRequest,
         selected: OfflineCaddieOption?, firstStep: [String: JSONValue]?

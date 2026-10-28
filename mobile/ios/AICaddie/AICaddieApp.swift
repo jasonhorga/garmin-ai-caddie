@@ -5190,8 +5190,16 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    private func isSingleEventPayloadValidation422(_ body: String?) -> Bool {
+    static func isSingleEventPayloadValidation422(_ body: String?) -> Bool {
         guard let body else { return false }
+        if let data = body.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let detail = object["detail"] as? [String: Any],
+           detail.keys.contains("code") {
+            // A present code is authoritative, even if unknown/null and the message says payload.
+            return detail["code"] as? String == "event_invalid"
+        }
+        // Legacy fallback: remove after this server change has been deployed for one TF version.
         if let data = body.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let details = object["detail"] as? [[String: Any]] {
@@ -5250,7 +5258,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 return ProbeResult(result: result, invalid: [], allInvalid: false)
             } catch SyncClientError.http(status: let status, body: let body) {
                 guard batch.count > 1 else {
-                    guard isSingleEventPayloadValidation422(body) else {
+                    guard Self.isSingleEventPayloadValidation422(body) else {
                         throw SyncClientError.http(status: status, body: body)
                     }
                     return ProbeResult(

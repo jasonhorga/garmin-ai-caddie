@@ -284,6 +284,14 @@ final class WatchEventBridgeTests: XCTestCase {
     }
 
     func testLiveDecisionBuildsCompleteRootRecommendationFromItsInputAndMeasuredCarryRange() throws {
+        try assertLiveRootRecommendation(capturedAt: "2026-06-20T00:00:00Z")
+    }
+
+    func testProductSpec513FractionalCaptureKeepsTheLiveWatchRecommendation() throws {
+        try assertLiveRootRecommendation(capturedAt: "2026-06-20T00:00:00.375Z")
+    }
+
+    private func assertLiveRootRecommendation(capturedAt: String) throws {
         let bridge = WatchEventBridge()
         let package = try fixturePackage()
         let selected: [String: JSONValue] = [
@@ -313,7 +321,7 @@ final class WatchEventBridgeTests: XCTestCase {
                     "latitude": .number(40.0455),
                     "longitude": .number(116.5462),
                     "horizontalAccuracyM": .number(5),
-                    "capturedAt": .string("2026-06-20T00:00:00Z"),
+                    "capturedAt": .string(capturedAt),
                 ]),
             ],
             options: [selected],

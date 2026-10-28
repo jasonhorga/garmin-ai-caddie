@@ -96,9 +96,61 @@ struct PrepHoleFollowingState: Equatable {
         clearPending()
     }
 
+    static let maximumConfirmationAccuracyM = 30.0
+    static let maximumCachedSampleAge: TimeInterval = 30
+
+    /// Fresh, precise fixes confirm a new hole only when it leads the displayed hole clearly.
+    /// Shared tees and displayed/candidate tees within 10 m always need the 5 s confirmation.
+    mutating func navigationTarget(
+        currentLocatedHole: Int?, displayedHole: Int, fix: LocationFix,
+        holes: [HoleLocatorGeometry], now: Date = Date()
+    ) -> Int? {
+        guard let sampledAt = Self.sampleDate(fix.capturedAt), let currentLocatedHole else {
+            clearPending()
+            return nil
+        }
+        guard now.timeIntervalSince(sampledAt) <= Self.maximumCachedSampleAge else {
+            // CoreLocation may deliver an old cache entry first. It can replace the candidate,
+            // but the next usable observation must start its own clock and displacement baseline.
+            pendingLocatedHole = currentLocatedHole
+            pendingSample = nil
+            return nil
+        }
+        let accuracy = fix.horizontalAccuracyM
+        guard accuracy.isFinite, (0...Self.maximumConfirmationAccuracyM).contains(accuracy) else {
+            clearPending()
+            return nil
+        }
+        let sharedTee = CurrentHoleLocator.isSharedTee(
+            hole: currentLocatedHole, coordinate: fix.coordinate, holes: holes,
+            preferredHole: displayedHole
+        )
+        // An unchanged/initially displayed hole is not a transition. In particular, seed it even
+        // at close tees so a later manual preview still wins until GPS really changes holes.
+        guard currentLocatedHole == displayedHole || currentLocatedHole == lastLocatedHole
+                || sharedTee
+                || CurrentHoleLocator.entryDepthM(
+                    hole: currentLocatedHole, coordinate: fix.coordinate, holes: holes,
+                    preferredHole: displayedHole
+                ) > max(accuracy, Self.minimumConfirmationDisplacementM) else {
+            clearPending()
+            return nil
+        }
+        return navigationTarget(currentLocatedHole: currentLocatedHole, displayedHole: displayedHole,
+                                sampledAt: sampledAt, coordinate: fix.coordinate,
+                                requiresTimeConfirmation: sharedTee)
+    }
+
+    static func sampleDate(_ capturedAt: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: capturedAt) ?? ISO8601DateFormatter().date(from: capturedAt)
+    }
+
     mutating func navigationTarget(
         currentLocatedHole: Int?, displayedHole: Int,
-        sampledAt: Date = Date(), coordinate: CLLocationCoordinate2D? = nil
+        sampledAt: Date = Date(), coordinate: CLLocationCoordinate2D? = nil,
+        requiresTimeConfirmation: Bool = false
     ) -> Int? {
         guard let currentLocatedHole else {
             // A missing fix cannot confirm a consecutive sample for the pending hole, but it also
@@ -127,7 +179,9 @@ struct PrepHoleFollowingState: Equatable {
         // A replay of the same fix is not a second observation. Use the fix's capture time,
         // not delivery time, so delayed publisher callbacks cannot make old drift look stable.
         let interval = sampledAt.timeIntervalSince(first.sampledAt)
-        guard interval > 0 else { return nil }
+        guard interval >= 0,
+              interval > 0 || first.latitude != validCoordinate?.latitude
+                || first.longitude != validCoordinate?.longitude else { return nil }
         let displacement: Double = {
             guard let latitude = first.latitude, let longitude = first.longitude,
                   let validCoordinate else { return 0 }
@@ -135,7 +189,8 @@ struct PrepHoleFollowingState: Equatable {
                                               validCoordinate.latitude, validCoordinate.longitude)
         }()
         guard interval >= Self.minimumConfirmationInterval
-                || displacement >= Self.minimumConfirmationDisplacementM else { return nil }
+                || (!requiresTimeConfirmation && displacement >= Self.minimumConfirmationDisplacementM)
+                else { return nil }
         lastLocatedHole = currentLocatedHole
         clearPending()
         return currentLocatedHole == displayedHole ? nil : currentLocatedHole
@@ -221,6 +276,69 @@ enum CurrentHoleLocator {
             .map { metres(coordinate, $0) }
             .min() ?? .infinity
         return nearestAnchor <= courseRadiusM ? .atCourse : .awayFromCourse
+    }
+
+    /// Relative lead over the displayed hole only. At a tee this is d(old tee) - d(new tee),
+    /// capped by depth in the tee disc so drift at the next tee's edge cannot leave an old green.
+    /// Elsewhere compare distance to each hole's fairway/corridor union (inside is distance zero).
+    /// Fairway/corridor edges and third holes never cap the lead.
+    static func entryDepthM(
+        hole: Int, coordinate: CLLocationCoordinate2D, holes: [HoleLocatorGeometry],
+        preferredHole: Int? = nil
+    ) -> Double {
+        guard let preferredHole, preferredHole != hole,
+              locate(coordinate: coordinate, horizontalAccuracyM: 0, holes: holes,
+                     preferredHole: preferredHole) == .onHole(hole),
+              let selected = holes.first(where: { $0.hole == hole }) else { return 0 }
+        guard let leaving = holes.first(where: { $0.hole == preferredHole }) else { return .infinity }
+        if let newTee = selected.tee, let oldTee = leaving.tee,
+           metres(coordinate, newTee) <= teeRadiusM {
+            let newTeeDistance = metres(coordinate, newTee)
+            return min(metres(coordinate, oldTee) - newTeeDistance, teeRadiusM - newTeeDistance)
+        }
+        let oldDistance = distanceToHoleRegion(coordinate, hole: leaving)
+        let newDistance = distanceToHoleRegion(coordinate, hole: selected)
+        // No old geometry means an infinite lead, still subject to freshness/accuracy/confirmation.
+        guard newDistance.isFinite else { return 0 }
+        return oldDistance - newDistance
+    }
+
+    /// Shared anchors cannot distinguish loops; distinct old/new tees within 15 m cannot reliably
+    /// exceed the 10 m spatial threshold under GPS noise either (the depth is at most the tee gap).
+    /// `locate` owns the choice, and both cases need time confirmation.
+    static func isSharedTee(
+        hole: Int, coordinate: CLLocationCoordinate2D, holes: [HoleLocatorGeometry], preferredHole: Int
+    ) -> Bool {
+        guard let tee = holes.first(where: { $0.hole == hole })?.tee,
+              metres(coordinate, tee) <= teeRadiusM else { return false }
+        return holes.contains { row in
+            guard row.hole != hole, let otherTee = row.tee else { return false }
+            let tolerance = row.hole == preferredHole
+                ? PrepHoleFollowingState.minimumConfirmationDisplacementM + sharedTeeToleranceM
+                : sharedTeeToleranceM
+            return metres(tee, otherTee) <= tolerance
+        }
+    }
+
+    private static func distanceToHoleRegion(
+        _ point: CLLocationCoordinate2D, hole: HoleLocatorGeometry
+    ) -> Double {
+        if hole.fairway.contains(where: { pointInPolygon(point, polygon: $0) }) { return 0 }
+        let fairwayDistance = hole.fairway.map {
+            distanceToPolygonBoundary(point, polygon: $0)
+        }.min() ?? .infinity
+        let corridorDistance = max(0,
+            distanceToHoleLine(point, tee: hole.tee, green: hole.green) - corridorHalfWidthM)
+        return min(fairwayDistance, corridorDistance)
+    }
+
+    private static func distanceToPolygonBoundary(
+        _ point: CLLocationCoordinate2D, polygon: [CLLocationCoordinate2D]
+    ) -> Double {
+        guard polygon.count >= 3 else { return .infinity }
+        return polygon.indices.map { index in
+            distanceToHoleLine(point, tee: polygon[index], green: polygon[(index + 1) % polygon.count])
+        }.min() ?? .infinity
     }
 
     static func locate(fix: LocationFix?, package: LiveRoundPackage) -> CurrentHoleLocation {

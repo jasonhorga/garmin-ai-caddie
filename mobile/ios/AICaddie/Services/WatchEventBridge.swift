@@ -1441,9 +1441,11 @@ public final class WatchEventBridge: NSObject {
         let evidenceCount = max(decision.evidenceRefs?.count ?? 0, decision.evidence.count)
         let mode = nonEmpty(string(decision.context["guidanceMode"])) ?? "automatic"
         let formatter = ISO8601DateFormatter()
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         guard evidenceCount > 0,
               ["automatic", "manual"].contains(mode),
-              let generatedAt = formatter.date(from: capturedAt)
+              let generatedAt = fractional.date(from: capturedAt) ?? formatter.date(from: capturedAt)
         else {
             return nil
         }

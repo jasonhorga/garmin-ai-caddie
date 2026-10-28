@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterator
 from fastapi import HTTPException
 
 from ai_caddie.caddie.mobile_live import (
+    InvalidEventError,
     ack_event_cursor,
     append_event_batch,
     build_live_round_package,
@@ -756,6 +757,12 @@ def append_mobile_events_response(
                 # store's lock on its own deduplicated rows; otherwise nothing of the batch is stored.
                 validate_append=score_invariant.require_possible_appended_scores,
             )
+        except InvalidEventError as exc:
+            # A round-envelope mismatch is batch-wide even if a record also has bad content.
+            if any(event.roundId != round_id for event in request.events):
+                raise HTTPException(status_code=422, detail="event roundId does not match path") from exc
+            logger.warning("mobile_events validation_failed status=422 path=body.events type=event_invalid")
+            raise HTTPException(status_code=422, detail={"code": "event_invalid", "message": str(exc)}) from exc
         except ValueError as exc:
             logger.warning("mobile_events validation_failed status=422 path=body.events type=event_batch_invalid")
             raise HTTPException(status_code=422, detail=str(exc)) from exc

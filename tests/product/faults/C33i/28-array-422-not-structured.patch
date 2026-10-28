@@ -1,9 +1,9 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -4262,21 +4262,6 @@
- 
-     private func isSingleEventPayloadValidation422(_ body: String?) -> Bool {
-         guard let body else { return false }
+@@ -5200,21 +5200,6 @@
+             return detail["code"] as? String == "event_invalid"
+         }
+         // Legacy fallback: remove after this server change has been deployed for one TF version.
 -        if let data = body.data(using: .utf8),
 -           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
 -           let details = object["detail"] as? [[String: Any]] {
