@@ -348,10 +348,20 @@ public struct LiveRoundPackage: Codable, Equatable {
     /// Merge a map-only course package into this live round. Map refreshes carry no player
     /// history, club bag, weather, events, or caddie seeds, so those fields remain owned by the
     /// current round while geometry/tee/raster facts are adopted hole by hole.
+    public func mapFactsCompatible(with mapPackage: LiveRoundPackage) -> Bool {
+        let compatible = roundId == mapPackage.roundId
+            && loopKey == mapPackage.loopKey
+            && holes.map(\.number) == mapPackage.holes.map(\.number)
+        if !compatible {
+            AICaddieLog.network.info(
+                "Ignoring map facts for mismatched round/loop identity: current=\(loopKey, privacy: .public) incoming=\(mapPackage.loopKey, privacy: .public)"
+            )
+        }
+        return compatible
+    }
+
     public func mergingMapFacts(from mapPackage: LiveRoundPackage) -> LiveRoundPackage {
-        guard roundId == mapPackage.roundId,
-              loopKey == mapPackage.loopKey,
-              holes.map(\.number) == mapPackage.holes.map(\.number) else { return self }
+        guard mapFactsCompatible(with: mapPackage) else { return self }
         let mapByNumber = Dictionary(uniqueKeysWithValues: mapPackage.holes.map { ($0.number, $0) })
         let mergedHoles = holes.map { mapByNumber[$0.number] ?? $0 }
         let readyHoles = mergedHoles.filter { $0.geometryCoverage == .ready }.count

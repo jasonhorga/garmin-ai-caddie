@@ -7372,6 +7372,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 #if DEBUG
                 guard !self.roundBackgroundWorkStoppedForTesting else { return }
                 #endif
+                guard self.package?.mapFactsCompatible(with: refreshed) ?? true else {
+                    self.pendingGeometryRefreshTask = nil
+                    self.pendingGeometryRefreshExecuting = false
+                    self.pendingGeometryRetryAttempt = 0
+                    return
+                }
                 let merged = self.package?.mergingMapFacts(from: refreshed) ?? refreshed
                 let persisted = try self.offlineStore.saveRoundPackage(merged)
                 let remainsPending = persisted.holes.contains {

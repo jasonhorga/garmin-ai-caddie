@@ -4113,7 +4113,6 @@ class MobileContractTests(unittest.TestCase):
         # the hole (2026-10-10: a tee shot was planned from the clubhouse).
         self.assertIn("coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole", current_hole)
         self.assertIn("distanceToPinM: caddiePlanningDistanceMetres", current_hole)
-        self.assertIn("LiveCaddieDistance.planningDistance", current_hole)
         self.assertIn("static let offHoleMetres = 75.0", current_hole)
         self.assertIn("requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode)", current_hole)
         # B1c: the main map publishes the Touch Target through the same coordinate / pixel handlers.

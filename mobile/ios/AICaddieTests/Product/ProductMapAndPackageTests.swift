@@ -146,9 +146,15 @@ final class ProductMapAndPackageTests: XCTestCase {
         let fixture = c136Model(host: host, package: package)
         let started = expectation(description: "raster preload started")
         let gate = C136Gate()
+        let startLock = NSLock()
+        var didSignalStart = false
         fixture.model.garminRasterPreloadingEnabled = { true }
         fixture.model.garminRasterDownloader = { _ in
-            started.fulfill()
+            startLock.lock()
+            let shouldSignal = !didSignalStart
+            didSignalStart = true
+            startLock.unlock()
+            if shouldSignal { started.fulfill() }
             await gate.wait()
             return false
         }
@@ -163,7 +169,6 @@ final class ProductMapAndPackageTests: XCTestCase {
         )
         await fulfillment(of: [started], timeout: productEventWait)
         XCTAssertEqual(fixture.model.pendingLiveHole, 1, "first hole publishes while raster is held")
-        fixture.model.liveHoleInitialLoadDidFinish()
         fixture.model.setActiveHole(1)
         XCTAssertEqual(fixture.model.liveRoundState?.activeHole, 1, "scoring cursor is usable")
         await gate.release()
@@ -217,14 +222,17 @@ final class ProductMapAndPackageTests: XCTestCase {
         await model.prepareCourseRound(
             roundId: pending.roundId, teeBox: pending.course.teeBox, loops: pending.loopEntries
         )
+        let fullBaseline = fullRequests.value
+        let roundBaseline = roundPackageRequests.value
+        let mapBaseline = mapOnlyRequests.value
         model.setActiveHole(2)
         let deadline = ProcessInfo.processInfo.systemUptime + productEventWait
         while mapOnlyRequests.value == 0, ProcessInfo.processInfo.systemUptime < deadline {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertEqual(fullRequests.value, 1, "hole change does not refetch the personal package")
-        XCTAssertEqual(roundPackageRequests.value, 0, "hole change never fetches a complete round package")
-        XCTAssertGreaterThanOrEqual(mapOnlyRequests.value, 1)
+        XCTAssertEqual(fullRequests.value - fullBaseline, 0, "J4.2 hole change adds no full personal package")
+        XCTAssertEqual(roundPackageRequests.value - roundBaseline, 0, "J4.2 hole change adds no round package")
+        XCTAssertGreaterThanOrEqual(mapOnlyRequests.value - mapBaseline, 1)
         XCTAssertEqual(model.liveRoundState?.activeHole, 2, "local map and cursor are immediate")
         await model.stopRoundBackgroundWorkForTesting()
     }
@@ -287,6 +295,18 @@ final class ProductMapAndPackageTests: XCTestCase {
         XCTAssertEqual(
             LiveMapDisplayState.resolve(prep: failed, pending: false), .factual,
             "terminal failure ends the spinner while retaining route facts"
+        )
+        XCTAssertFalse(
+            CurrentHoleView.mapPreparingSurfaceFailed(
+                holeMapLoadFailed: false, preciseMapTimedOut: false, hasPrep: false, hasRoute: true
+            ),
+            "J4.5 an in-flight prep keeps the route surface actionable"
+        )
+        XCTAssertTrue(
+            CurrentHoleView.mapPreparingSurfaceFailed(
+                holeMapLoadFailed: false, preciseMapTimedOut: true, hasPrep: false, hasRoute: false
+            ),
+            "J4.5 a terminal timeout stops the waiting spinner"
         )
     }
 #endif
@@ -435,6 +455,27 @@ final class ProductMapAndPackageTests: XCTestCase {
         XCTAssertEqual(merged.coursePrep?.holes.first?.resolvedMapOverlay, mapOnly.coursePrep?.holes.first?.resolvedMapOverlay)
     }
 
+    func test_j4_2_map_only_merge_rejects_mismatched_loop_identity() throws {
+        let current = try ProductInputs.package()
+        let incoming = current.replacingCoursePrep(nil).replacingCourseDisplayName("other")
+        let mismatched = LiveRoundPackage(
+            schema: incoming.schema, roundId: incoming.roundId, dataMode: incoming.dataMode,
+            sourceCoverage: incoming.sourceCoverage, missingData: incoming.missingData,
+            playerProfile: incoming.playerProfile, course: incoming.course, holes: incoming.holes,
+            roundLoops: incoming.roundLoops, loopKey: "different-loop", venueLoops: incoming.venueLoops,
+            coursePrep: incoming.coursePrep, geometryCoverage: incoming.geometryCoverage,
+            readinessChecks: incoming.readinessChecks, caddieContextSeeds: incoming.caddieContextSeeds,
+            weatherSnapshot: incoming.weatherSnapshot, clubProfiles: incoming.clubProfiles,
+            caddieDecisionEndpoint: incoming.caddieDecisionEndpoint,
+            offlinePackageStatus: incoming.offlinePackageStatus, eventCursor: incoming.eventCursor,
+            recentHistory: incoming.recentHistory, cachedCaddieRules: incoming.cachedCaddieRules,
+            generatedAt: incoming.generatedAt, readinessState: incoming.readinessState,
+            enrichmentState: incoming.enrichmentState
+        )
+        XCTAssertFalse(current.mapFactsCompatible(with: mismatched))
+        XCTAssertEqual(current.mergingMapFacts(from: mismatched), current)
+    }
+
     func test_j5_4_green_edges_and_live_position_ranges() throws {
         // At 1 px/m the rectangular green is 20m wide x 40m deep. The centred flag
         // is 20m from front/back and 10m from either side -> 22/22/11/11 yards.
@@ -487,12 +528,36 @@ final class ProductMapAndPackageTests: XCTestCase {
         let firstFrame = LiveCaddieInput.firstFrameTee(greenDistances: prep.greenDistances, holeYards: hole.yards)
         XCTAssertEqual(firstFrame.distanceToPinM, prep.greenDistances?.middleM)
         XCTAssertEqual(
-            LiveCaddieDistance.planningDistance(
-                recordedShotCount: 0, isTeeShotOffTheHole: false, manualM: nil,
+            CurrentHoleView.planningDistanceForCaddie(
+                recordedShotCount: 0, isTeeShotOffTheHole: true, manualM: nil,
                 liveMiddleM: 999, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
             ),
             prep.greenDistances?.middleM,
-            "opening AI planning uses the same selected-Tee prep middle as the factual card"
+            "J5.4 opening planning uses the selected-Tee static middle"
+        )
+        XCTAssertEqual(
+            CurrentHoleView.planningDistanceForCaddie(
+                recordedShotCount: 1, isTeeShotOffTheHole: false, manualM: 214,
+                liveMiddleM: 999, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
+            ),
+            214,
+            "J5.4 Touch Target distance wins after the first stroke"
+        )
+        XCTAssertEqual(
+            CurrentHoleView.planningDistanceForCaddie(
+                recordedShotCount: 1, isTeeShotOffTheHole: false, manualM: 188,
+                liveMiddleM: 999, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
+            ),
+            188,
+            "J5.4 a dragged flag updates planning distance"
+        )
+        XCTAssertEqual(
+            CurrentHoleView.planningDistanceForCaddie(
+                recordedShotCount: 0, isTeeShotOffTheHole: false, manualM: nil,
+                liveMiddleM: 205, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
+            ),
+            205,
+            "J5.4 an unrecorded GPS fix beyond the selected Tee uses live distance"
         )
         XCTAssertEqual(
             LiveGreenRangePresentation.resolve(

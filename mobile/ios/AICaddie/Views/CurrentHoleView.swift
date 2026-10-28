@@ -2904,7 +2904,12 @@ public struct CurrentHoleView: View {
                     holeNumber: hole.courseHoleNumber,
                     par: hole.par,
                     yards: hole.yards,
-                    failed: holeMapLoadFailed || preciseMapTimedOut || (holePrep == nil && !liveHasRoute),
+                    failed: Self.mapPreparingSurfaceFailed(
+                        holeMapLoadFailed: holeMapLoadFailed,
+                        preciseMapTimedOut: preciseMapTimedOut,
+                        hasPrep: holePrep != nil,
+                        hasRoute: liveHasRoute
+                    ),
                     onRetry: {
                         holeMapLoadFailed = false
                         preciseMapTimedOut = false
@@ -2947,6 +2952,17 @@ public struct CurrentHoleView: View {
             }
             .transition(.opacity)
         }
+    }
+
+    /// A map wait is terminal only after its request failed/timed out and there is no factual route
+    /// to keep drawing. A normal in-flight request must stay an actionable numeric/map surface.
+    static func mapPreparingSurfaceFailed(
+        holeMapLoadFailed: Bool,
+        preciseMapTimedOut: Bool,
+        hasPrep: Bool,
+        hasRoute: Bool
+    ) -> Bool {
+        holeMapLoadFailed || preciseMapTimedOut || (!hasPrep && !hasRoute)
     }
 
     /// One configured map for both the bitmap layer and the viewport-plane route layer, so the
@@ -3788,21 +3804,31 @@ public struct CurrentHoleView: View {
             shotsRecorded: recordedNonPuttShotCount,
             shotType: selectedShotType,
             fix: currentCoordinate,
-            route: route
+            route: route,
+            tee: teeAnchorCoordinate
         )
     }
 
-    /// No shot recorded yet, still the tee shot, and the fix more than `offHoleMetres` from every
-    /// leg of the routed line. Unknown fix or route: false, so the live position keeps its role.
+    /// Before the first recorded shot, a GPS fix more than 30 m from the selected Tee counts as
+    /// the opening shot for distance planning. The route-based fallback remains for old callers
+    /// that do not carry a Tee anchor.
     static func isTeeShotOffTheHole(
         shotsRecorded: Int,
         shotType: String,
         fix: CLLocationCoordinate2D?,
-        route: [CLLocationCoordinate2D]
+        route: [CLLocationCoordinate2D],
+        tee: CLLocationCoordinate2D? = nil
     ) -> Bool {
         guard shotsRecorded == 0,
               shotType.caseInsensitiveCompare("tee") == .orderedSame,
-              let fix, route.count >= 2 else { return false }
+              let fix else { return false }
+        if let tee {
+            let distance = GeoDistance.haversineMetres(
+                fix.latitude, fix.longitude, tee.latitude, tee.longitude
+            )
+            return distance.isFinite && distance <= 30
+        }
+        guard route.count >= 2 else { return false }
         // Local metres around the fix (equirectangular; holes are a few hundred metres long).
         let metresPerDegreeLat = 111_320.0
         let metresPerDegreeLon = metresPerDegreeLat * cos(fix.latitude * .pi / 180)
@@ -4346,6 +4372,13 @@ public struct CurrentHoleView: View {
             }
         }
     }
+
+    #if DEBUG
+    @MainActor
+    func loadCurrentHoleForTesting() async {
+        await loadCurrentHole()
+    }
+    #endif
 
     private func loadGarminRasterIfNeeded() async {
         guard LiveGarminRasterPolicy.shouldFetch(
@@ -6350,15 +6383,43 @@ public struct CurrentHoleView: View {
     /// The distance the caddie plans from: the live answer, except before the tee shot off the hole,
     /// where only a typed distance or the tee's static green middle counts.
     private var caddiePlanningDistanceMetres: Double? {
-        return LiveCaddieDistance.planningDistance(
+        Self.planningDistanceForCaddie(
             recordedShotCount: recordedNonPuttShotCount,
             isTeeShotOffTheHole: isTeeShotOffTheHole,
-            manualM: distanceToPinMetres,
+            manualM: distanceToPinMetres ?? mapTargetDistanceMetres ?? greenPinDistanceMetres,
             liveMiddleM: liveGreenMetres?.middle,
             staticMiddleM: liveGreenDistances?.middleM,
             holeYards: hole.yards
         )
     }
+
+    static func planningDistanceForCaddie(
+        recordedShotCount: Int,
+        isTeeShotOffTheHole: Bool,
+        manualM: Double?,
+        liveMiddleM: Double?,
+        staticMiddleM: Double?,
+        holeYards: Int?
+    ) -> Double? {
+        LiveCaddieDistance.planningDistance(
+            recordedShotCount: recordedShotCount,
+            isTeeShotOffTheHole: isTeeShotOffTheHole,
+            manualM: manualM,
+            liveMiddleM: liveMiddleM,
+            staticMiddleM: staticMiddleM,
+            holeYards: holeYards
+        )
+    }
+
+    /// Product-test seam for the same planning source used by the live decision request. Keeping
+    /// this at the view boundary prevents a test from silently validating a detached distance
+    /// helper while the rendered hole uses another chain.
+    #if DEBUG
+    @MainActor
+    func caddiePlanningDistanceForTesting() -> Double? {
+        caddiePlanningDistanceMetres
+    }
+    #endif
 
     private var liveCoordinateForCurrentHole: CLLocationCoordinate2D? {
         mapReferenceIsLive ? currentCoordinate : nil
