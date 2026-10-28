@@ -561,7 +561,7 @@ final class ReviewEditUITests: XCTestCase {
             // hittability. Recheck after the wait too; querying accessibility itself takes time.
             let retryBudget = max(0, deadline.timeIntervalSinceNow) / 2
             let retryReady = waitForCondition({
-                acknowledged() || (source.exists && UITapHelpers.isSafelyHittable(source, in: app))
+                acknowledged() || (source.exists && UITapHelpers.isSafelyHittable(source, in: self.app))
             }, timeout: retryBudget)
             if retryReady, !acknowledged(), deadline.timeIntervalSinceNow > 0 {
                 print("REVIEW_EDIT_TAP retry \(diagnosticName) elapsed=\(Date().timeIntervalSince(started))")
@@ -583,12 +583,12 @@ final class ReviewEditUITests: XCTestCase {
     }
 
     private func waitUntilHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-        waitForCondition({ element.exists && UITapHelpers.isSafelyHittable(element, in: app) }, timeout: timeout)
+        waitForCondition({ element.exists && UITapHelpers.isSafelyHittable(element, in: self.app) }, timeout: timeout)
     }
 
     private func waitForAllReady(_ elements: [XCUIElement], timeout: TimeInterval) -> Bool {
         waitForCondition(
-            { elements.allSatisfy { UITapHelpers.isSafelyHittable($0, in: app) } },
+            { elements.allSatisfy { UITapHelpers.isSafelyHittable($0, in: self.app) } },
             timeout: timeout
         )
     }
