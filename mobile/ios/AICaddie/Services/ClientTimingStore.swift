@@ -100,6 +100,7 @@ final class ClientTimingStore: @unchecked Sendable {
     private let uploadsEnabled: Bool
     private let encoder = JSONEncoder()
     private var records: [ClientTimingRecord]
+    private var loaded: Bool
     private var pending: [ClientTimingRecord] = []
     private var pendingAges: [TimeInterval] = []
     private var uploadInFlight = false
@@ -117,6 +118,7 @@ final class ClientTimingStore: @unchecked Sendable {
         self.now = now
         self.uploadsEnabled = uploadsEnabled
         self.records = fileURL.map(Self.readRecords) ?? []
+        self.loaded = true
     }
 
     private init(
@@ -131,12 +133,17 @@ final class ClientTimingStore: @unchecked Sendable {
         self.now = now
         self.uploadsEnabled = uploadsEnabled
         self.records = []
+        self.loaded = !loadAsync
         if loadAsync, let fileURL {
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 let loaded = Self.readRecords(fileURL)
                 guard let self else { return }
                 self.lock.lock()
-                self.records = Array((loaded + self.records).suffix(Self.maxRecords))
+                self.records = Array(Self.deduplicate(loaded + self.records).suffix(Self.maxRecords))
+                self.loaded = true
+                if self.persists {
+                    self.persistLocked()
+                }
                 self.lock.unlock()
             }
         } else if let fileURL {
@@ -189,7 +196,7 @@ final class ClientTimingStore: @unchecked Sendable {
             pending.removeFirst(excess)
             pendingAges.removeFirst(excess)
         }
-        if persists {
+        if persists && loaded {
             persistLocked()
         }
         lock.unlock()
@@ -312,5 +319,14 @@ final class ClientTimingStore: @unchecked Sendable {
             try? decoder.decode(ClientTimingRecord.self, from: Data(line.utf8))
         }
         return Array(decoded.suffix(maxRecords))
+    }
+
+    private static func deduplicate(_ values: [ClientTimingRecord]) -> [ClientTimingRecord] {
+        var seen = Set<String>()
+        var result: [ClientTimingRecord] = []
+        for value in values.reversed() where seen.insert(value.requestId).inserted {
+            result.append(value)
+        }
+        return Array(result.reversed())
     }
 }

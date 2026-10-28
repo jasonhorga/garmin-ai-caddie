@@ -517,6 +517,14 @@ public final class SyncClient {
     private let timingStore: ClientTimingStore
 
     deinit {
+        let hadRoundStart = packageWorkLock.withLock { () -> Bool in
+            let hadRoundStart = roundStartOwner != nil
+            roundStartOwner = nil
+            return hadRoundStart
+        }
+        if hadRoundStart {
+            timingStore.foregroundStartDidEnd()
+        }
         roundStartSessionLock.lock()
         roundStartSessionStorage?.invalidateAndCancel()
         roundStartSessionStorage = nil
@@ -565,17 +573,21 @@ public final class SyncClient {
     /// Called synchronously before any start work. Cancelling producers releases even a held
     /// URLProtocol/URLSession request, rather than only ignoring its eventual response.
     func beginRoundStart(_ owner: UUID) {
-        ClientTimingStore.foregroundStartDidBegin()
-        let previous = packageWorkLock.withLock { () -> [Task<Data, Error>] in
+        let state = packageWorkLock.withLock { () -> (previous: [Task<Data, Error>], began: Bool) in
+            let began = roundStartOwner == nil
             roundStartOwner = owner
-            return packageWork.values.compactMap {
+            let previous = packageWork.values.compactMap {
                 switch $0.kind {
                 case .background, .foregroundStart: return $0.task
                 case .userDownload, .watchStart: return nil
                 }
             }
+            return (previous, began)
         }
-        previous.forEach { $0.cancel() }
+        if state.began {
+            ClientTimingStore.foregroundStartDidBegin()
+        }
+        state.previous.forEach { $0.cancel() }
     }
 
     func endRoundStart(_ owner: UUID) {
