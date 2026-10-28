@@ -136,6 +136,31 @@ enum StartRoundPresentation {
         return nil
     }
 
+    /// A stale cache/network status may explain an idle Start, but it must not reappear while a
+    /// new foreground request is preparing or while the prep map is opening.
+    static func staleSyncFailureMessage(
+        syncStatus: String?,
+        roundStartFailure: RoundStartFailure?,
+        failurePresentation: StartRoundView.StartFailurePresentation,
+        isPreparing: Bool,
+        isOpeningPrep: Bool
+    ) -> String? {
+        guard !isPreparing, !isOpeningPrep,
+              failurePresentation == .hidden,
+              roundStartFailure == nil,
+              let syncStatus else { return nil }
+        return syncFailureMessage(from: syncStatus)
+    }
+
+    static func syncFailureMessage(from status: String) -> String? {
+        let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines)
+        let failurePrefixes = [
+            "无法开始", "暂时无法开始", "开始失败", "未联网", "离线中",
+            "网络不可用", "服务器较慢",
+        ]
+        return failurePrefixes.contains(where: { normalized.hasPrefix($0) }) ? normalized : nil
+    }
+
     private static func knownTee(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

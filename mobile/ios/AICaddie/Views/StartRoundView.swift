@@ -1554,9 +1554,13 @@ public struct StartRoundView: View {
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("start-round-preparation-error")
-            } else if !isPreparing, !isOpeningPrepCourse,
-                      failurePresentation == .hidden, roundStartFailure == nil,
-                      let failure = Self.roundPreparationFailureMessage(from: syncStatus) {
+            } else if let failure = StartRoundPresentation.staleSyncFailureMessage(
+                syncStatus: syncStatus,
+                roundStartFailure: roundStartFailure,
+                failurePresentation: failurePresentation,
+                isPreparing: isPreparing,
+                isOpeningPrep: isOpeningPrepCourse
+            ) {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
@@ -1627,12 +1631,7 @@ public struct StartRoundView: View {
     /// successful background/cache chatter out of the setup screen, but never turn a failed Start
     /// into an unexplained spinner that simply disappears.
     static func roundPreparationFailureMessage(from status: String) -> String? {
-        let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines)
-        let failurePrefixes = [
-            "无法开始", "暂时无法开始", "开始失败", "未联网", "离线中",
-            "网络不可用", "服务器较慢",
-        ]
-        return failurePrefixes.contains(where: { normalized.hasPrefix($0) }) ? normalized : nil
+        StartRoundPresentation.syncFailureMessage(from: status)
     }
 
     /// Group rows by physical venue without re-sorting them by historical play count. The source is

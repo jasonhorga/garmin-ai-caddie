@@ -684,10 +684,10 @@ final class C33StartTests: XCTestCase {
         )
         let mapSent = expectation(description: "prep map request reached server")
         let enrichmentSent = expectation(description: "cancelled background enrichment reached server")
+        let enrichmentStopped = expectation(description: "background enrichment cancelled")
         let mapSentOnce = C33FirstMatch()
         let enrichmentSentOnce = C33FirstMatch()
-        let lock = NSLock()
-        var heldEnrichment: C33URLProtocol?
+        let enrichmentStoppedOnce = C33FirstMatch()
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host,
                   proto.request.url?.path == "/api/v2/mobile/courses/32850/package" else {
@@ -699,10 +699,14 @@ final class C33StartTests: XCTestCase {
                 if mapSentOnce.claim() { mapSent.fulfill() }
                 proto.reply(200, mapData)
             } else {
-                lock.lock(); heldEnrichment = proto; lock.unlock()
                 if enrichmentSentOnce.claim() { enrichmentSent.fulfill() }
                 // Intentionally never reply; closePrepMode cancels this background request.
             }
+        }, onStop: { request in
+            guard request.url?.host == host,
+                  request.url?.path == "/api/v2/mobile/courses/32850/package",
+                  c33Query(request, "map_only") == nil else { return }
+            if enrichmentStoppedOnce.claim() { enrichmentStopped.fulfill() }
         })
         defer {
             client.invalidateForTesting(); session.invalidateAndCancel()
@@ -713,9 +717,7 @@ final class C33StartTests: XCTestCase {
         XCTAssertTrue(model.openPrepCourse(course))
         await fulfillment(of: [mapSent, enrichmentSent], timeout: eventWait)
         model.closePrepMode()
-        try? await Task.sleep(nanoseconds: 200_000_000)
-        lock.lock(); let request = heldEnrichment; lock.unlock()
-        request?.reply(200, baseData)
+        await fulfillment(of: [enrichmentStopped], timeout: eventWait)
         await model.stopRoundBackgroundWorkForTesting()
         XCTAssertNil(model.roundStartFailure, "4.2: a closed prep screen must discard a late start failure")
         XCTAssertNotEqual(model.syncStatus, "离线中,使用已保存数据", "4.2: cancellation must not look like an offline failure")

@@ -260,18 +260,48 @@ final class StartRoundDiscoveryTests: XCTestCase {
             ),
             .hidden
         )
-        XCTAssertEqual(
-            StartRoundView.startFailurePresentation(
-                failure: nil, selectionMatches: true, isPreparing: true, isOpeningPrep: false
+        let hiddenWhilePreparing = StartRoundView.startFailurePresentation(
+            failure: nil, selectionMatches: true, isPreparing: true, isOpeningPrep: false
+        )
+        let hiddenWhileOpeningPrep = StartRoundView.startFailurePresentation(
+            failure: nil, selectionMatches: true, isPreparing: false, isOpeningPrep: true
+        )
+        let idlePresentation = StartRoundView.startFailurePresentation(
+            failure: nil, selectionMatches: true, isPreparing: false, isOpeningPrep: false
+        )
+        XCTAssertNil(
+            StartRoundPresentation.staleSyncFailureMessage(
+                syncStatus: "服务器较慢，没能开始，点重试", roundStartFailure: nil,
+                failurePresentation: hiddenWhilePreparing, isPreparing: true, isOpeningPrep: false
             ),
-            .hidden,
-            "4.2: preparation hides a stale sync failure such as 服务器较慢"
+            "4.2: preparation hides a stale sync failure"
+        )
+        XCTAssertNil(
+            StartRoundPresentation.staleSyncFailureMessage(
+                syncStatus: "服务器较慢，没能开始，点重试", roundStartFailure: nil,
+                failurePresentation: hiddenWhileOpeningPrep, isPreparing: false, isOpeningPrep: true
+            ),
+            "4.2: opening prep hides a stale sync failure"
         )
         XCTAssertEqual(
-            StartRoundView.startFailurePresentation(
-                failure: nil, selectionMatches: true, isPreparing: false, isOpeningPrep: false
+            StartRoundPresentation.staleSyncFailureMessage(
+                syncStatus: "服务器较慢，没能开始，点重试", roundStartFailure: nil,
+                failurePresentation: idlePresentation, isPreparing: false, isOpeningPrep: false
             ),
-            .hidden
+            "服务器较慢，没能开始，点重试"
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.staleSyncFailureMessage(
+                syncStatus: "网络不可用，没能开始，点重试", roundStartFailure: nil,
+                failurePresentation: idlePresentation, isPreparing: false, isOpeningPrep: false
+            ),
+            "网络不可用，没能开始，点重试"
+        )
+        XCTAssertNil(
+            StartRoundPresentation.staleSyncFailureMessage(
+                syncStatus: "主页就绪", roundStartFailure: nil,
+                failurePresentation: idlePresentation, isPreparing: false, isOpeningPrep: false
+            )
         )
     }
 
