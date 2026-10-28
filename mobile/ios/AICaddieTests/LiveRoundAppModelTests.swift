@@ -3646,11 +3646,8 @@ final class LiveRoundAppModelTests: XCTestCase {
     func testInFlightSyncCannotMarkANewerEventAsUploaded() async throws {
         let fixture = try completedFixtureRound()
         let requestStarted = expectation(description: "event upload started")
-        let releaseResponse = DispatchSemaphore(value: 0)
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        CapturingURLProtocol.requestHandler = { request in
+        let releaseResponse = TestRequestGate()
+        let protocolScope = CapturingURLProtocolScope { request in
             let path = request.url?.path ?? ""
             if path.hasSuffix("/events") {
                 let batch = try JSONDecoder().decode(
@@ -3658,9 +3655,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                     from: try capturedRequestBodyData(from: request)
                 )
                 requestStarted.fulfill()
-                guard releaseResponse.wait(timeout: .now() + 5) == .success else {
-                    throw URLError(.timedOut)
-                }
+                releaseResponse.wait()
                 let ids = batch.events.map(\.eventId)
                 return (
                     HTTPURLResponse(
@@ -3684,7 +3679,13 @@ final class LiveRoundAppModelTests: XCTestCase {
                 Data("{}".utf8)
             )
         }
-        defer { CapturingURLProtocol.requestHandler = nil }
+        let configuration = protocolScope.configuration()
+        let session = URLSession(configuration: configuration)
+        defer {
+            releaseResponse.release()
+            withExtendedLifetime(protocolScope) {}
+            CapturingURLProtocol.requestHandler = nil
+        }
         let model = LiveRoundAppModel(
             offlineStore: fixture.store,
             apiBaseURL: nil,
@@ -3719,7 +3720,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         // the first response is released. The assertion below then isolates the watermark decision.
         await Task.yield()
         await Task.yield()
-        releaseResponse.signal()
+        releaseResponse.release()
         await syncTask.value
 
         XCTAssertEqual(
@@ -3746,13 +3747,10 @@ final class LiveRoundAppModelTests: XCTestCase {
         ))
         let refreshedHomeBody = try JSONEncoder().encode(refreshedHome)
         let homeRefreshStarted = expectation(description: "post-finish home refresh started")
-        let releaseHomeRefresh = DispatchSemaphore(value: 0)
+        let releaseHomeRefresh = TestRequestGate()
         let homeRefreshLock = NSLock()
         var homeRefreshCount = 0
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        CapturingURLProtocol.requestHandler = { request in
+        let protocolScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
             switch url.path {
             case "/api/v2/mobile/rounds/\(fixture.package.roundId)/events":
@@ -3792,9 +3790,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                     }
                     if shouldBlock {
                         homeRefreshStarted.fulfill()
-                        guard releaseHomeRefresh.wait(timeout: .now() + 5) == .success else {
-                            throw URLError(.timedOut)
-                        }
+                        releaseHomeRefresh.wait()
                     }
                     return (
                         HTTPURLResponse(
@@ -3821,7 +3817,13 @@ final class LiveRoundAppModelTests: XCTestCase {
                 )
             }
         }
-        defer { CapturingURLProtocol.requestHandler = nil }
+        let configuration = protocolScope.configuration()
+        let session = URLSession(configuration: configuration)
+        defer {
+            releaseHomeRefresh.release()
+            withExtendedLifetime(protocolScope) {}
+            CapturingURLProtocol.requestHandler = nil
+        }
         let model = LiveRoundAppModel(
             offlineStore: fixture.store,
             apiBaseURL: nil,
@@ -3852,7 +3854,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             payload: ["strokes": .number(6), "fairway": .string("right")]
         )
         model.handleEvent(laterEvent)
-        releaseHomeRefresh.signal()
+        releaseHomeRefresh.release()
 
         let didFinish = await finishTask.value
         XCTAssertTrue(didFinish)

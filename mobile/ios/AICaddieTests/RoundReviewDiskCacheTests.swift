@@ -5,6 +5,8 @@ import XCTest
 /// the request, and every write path keeps each account to `retainedRounds` rounds.
 @MainActor
 final class RoundReviewDiskCacheTests: XCTestCase {
+    private var protocolScope: CapturingURLProtocolScope?
+
     private final class Player: @unchecked Sendable {
         private let lock = NSLock()
         private var value = "player-a"
@@ -34,6 +36,7 @@ final class RoundReviewDiskCacheTests: XCTestCase {
         RoundReviewDiskCache.legacyRootOverride = legacyRoot
         let player = self.player
         RoundReviewDiskCache.currentPlayerScope = { player.current }
+        protocolScope = CapturingURLProtocolScope { _ in throw URLError(.badServerResponse) }
     }
 
     override func tearDown() {
@@ -41,7 +44,22 @@ final class RoundReviewDiskCacheTests: XCTestCase {
         RoundReviewDiskCache.legacyRootOverride = nil
         RoundReviewDiskCache.currentPlayerScope = savedPlayerScope
         CapturingURLProtocol.requestHandler = nil
+        protocolScope = nil
         super.tearDown()
+    }
+
+    private func install(
+        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data),
+        asGlobalHandler: Bool = false
+    ) {
+        if asGlobalHandler {
+            CapturingURLProtocol.requestHandler = handler
+        }
+        if let protocolScope {
+            protocolScope.replaceHandler(handler)
+        } else {
+            protocolScope = CapturingURLProtocolScope(handler: handler)
+        }
     }
 
     private func roundDirectories(in base: URL) -> Int {
@@ -130,11 +148,15 @@ final class RoundReviewDiskCacheTests: XCTestCase {
 
     // MARK: - Account and cancellation (held responses)
 
-    private func heldClient(release: DispatchSemaphore, paths: Paths) -> SyncClient {
-        CapturingURLProtocol.requestHandler = { request in
+    private func heldClient(
+        release: TestRequestGate,
+        paths: Paths,
+        asGlobalHandler: Bool = false
+    ) -> SyncClient {
+        install({ request in
             let url = try XCTUnwrap(request.url)
             paths.append(url.path)
-            _ = release.wait(timeout: .now() + 5)
+            release.wait()
             let body: Data
             if url.path.hasSuffix("/shotmap") {
                 body = Data(#"{"found":true,"hole":3}"#.utf8)
@@ -143,9 +165,8 @@ final class RoundReviewDiskCacheTests: XCTestCase {
                 body = Data(#"{"roundRef":"\#(ref)","found":true,"scorecard":[],"phaseSummary":[],"missingData":[]}"#.utf8)
             }
             return (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
-        }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        }, asGlobalHandler: asGlobalHandler)
+        let configuration = protocolScope!.configuration()
         return SyncClient(
             baseURL: URL(string: "https://review-cache.example.test")!,
             session: URLSession(configuration: configuration),
@@ -168,7 +189,8 @@ final class RoundReviewDiskCacheTests: XCTestCase {
                 RoundReviewDiskCache.saveDetail(try detail("b-copy"), roundRef: ref, ticket: RoundReviewDiskCache.beginRequest())
             }
             player.set("player-a")
-            let release = DispatchSemaphore(value: 0)
+            let release = TestRequestGate()
+            defer { release.release() }
             let paths = Paths()
             let client = heldClient(release: release, paths: paths)
 
@@ -177,7 +199,7 @@ final class RoundReviewDiskCacheTests: XCTestCase {
             }
             try await waitForRequest(paths)
             player.set("player-b")
-            release.signal()
+            release.release()
             guard case .staleAccount = await pending.value else {
                 return XCTFail("A's scorecard must not be shown under B (bHasCopy=\(bHasCopy))")
             }
@@ -190,7 +212,8 @@ final class RoundReviewDiskCacheTests: XCTestCase {
     /// The page went away after the transport had already returned: the answer is not written.
     func testACancelledScorecardLoadNeverWritesAnAnswerThatStillArrived() async throws {
         let ref = "cancelled-\(UUID().uuidString)"
-        let release = DispatchSemaphore(value: 0)
+        let release = TestRequestGate()
+        defer { release.release() }
         let paths = Paths()
         let client = heldClient(release: release, paths: paths)
         let pending = Task { @MainActor () -> Bool in
@@ -200,7 +223,7 @@ final class RoundReviewDiskCacheTests: XCTestCase {
             return false
         }
         try await waitForRequest(paths)
-        release.signal()
+        release.release()
         Thread.sleep(forTimeInterval: 0.3)
         pending.cancel()
         let cancelled = await pending.value
@@ -211,9 +234,10 @@ final class RoundReviewDiskCacheTests: XCTestCase {
     /// The same for a hole's shot map loaded through the review repository.
     func testAShotMapAnswerForAPreviousPlayerIsNeitherWrittenNorShown() async throws {
         let ref = "map-\(UUID().uuidString)"
-        let release = DispatchSemaphore(value: 0)
+        let release = TestRequestGate()
+        defer { release.release() }
         let paths = Paths()
-        _ = heldClient(release: release, paths: paths)
+        _ = heldClient(release: release, paths: paths, asGlobalHandler: true)
         URLProtocol.registerClass(CapturingURLProtocol.self)
         defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
         let repository = RoundShotMapRepository(roundRef: ref, apiBaseURL: URL(string: "https://review-cache.example.test")!, adminToken: nil)
@@ -221,7 +245,7 @@ final class RoundReviewDiskCacheTests: XCTestCase {
         let pending = Task { @MainActor in await repository.load(3) }
         try await waitForRequest(paths)
         player.set("player-b")
-        release.signal()
+        release.release()
         await pending.value
         XCTAssertNil(repository.map(for: 3), "A's map is not shown under B")
         XCTAssertNil(RoundReviewDiskCache.loadShotMap(roundRef: ref, hole: 3))
@@ -231,16 +255,17 @@ final class RoundReviewDiskCacheTests: XCTestCase {
 
     func testACancelledShotMapLoadNeverWritesAnAnswerThatStillArrived() async throws {
         let ref = "map-cancelled-\(UUID().uuidString)"
-        let release = DispatchSemaphore(value: 0)
+        let release = TestRequestGate()
+        defer { release.release() }
         let paths = Paths()
-        _ = heldClient(release: release, paths: paths)
+        _ = heldClient(release: release, paths: paths, asGlobalHandler: true)
         URLProtocol.registerClass(CapturingURLProtocol.self)
         defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
         let repository = RoundShotMapRepository(roundRef: ref, apiBaseURL: URL(string: "https://review-cache.example.test")!, adminToken: nil)
 
         let pending = Task { @MainActor in await repository.load(3) }
         try await waitForRequest(paths)
-        release.signal()
+        release.release()
         Thread.sleep(forTimeInterval: 0.3)
         pending.cancel()
         await pending.value
