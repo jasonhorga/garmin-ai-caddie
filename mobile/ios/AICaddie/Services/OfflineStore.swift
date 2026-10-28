@@ -1361,7 +1361,7 @@ public final class OfflineStore {
     /// cannot promote a bitmap from a previous UI-test journey.
     @MainActor
     public func resetCourseLibraryForUITesting() throws {
-        for url in [prepCourseDownloadsURL, courseTemplatesDirectoryURL]
+        for url in [prepCourseDownloadsURL, courseTemplatesDirectoryURL, homePackageURL]
         where FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
