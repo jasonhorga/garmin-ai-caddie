@@ -674,6 +674,27 @@ public final class LiveRoundAppModel: ObservableObject {
     private var offlineStorageGrewAt: Date?
     private var offlineStorageRemeasureInFlight = false
     private var offlineStorageRemeasureTask: Task<Void, Never>?
+    /// Cancels every task owned by the current live round. Product finish/abandon paths use the
+    /// same cancellation boundary as test teardown so a late background continuation cannot start
+    /// another package, prep, geometry, or install-status request.
+    private func cancelRoundBackgroundWork() {
+        cancelRoundEnrichment()
+        prepEnrichmentTask?.cancel()
+        prepEnrichmentTask = nil
+        prepEnrichmentRoundID = nil
+        cancelGarminRasterDownload()
+        clearFreshEntryRelease()
+        offlineCourseDownloadTask?.cancel()
+        offlineCourseDownloadTask = nil
+        offlineCourseDownloadRoundId = nil
+        interruptedOfflineCourseDownloadRoundId = nil
+        pendingGeometryRefreshTask?.cancel()
+        pendingGeometryRefreshTask = nil
+        pausePrepCourseDownload()
+        activeRoundStartTask?.cancel()
+        activeRoundStartTask = nil
+    }
+
     #if DEBUG
     private(set) var offlineStorageMeasurementCountForTesting = 0
     #endif
@@ -2381,21 +2402,7 @@ public final class LiveRoundAppModel: ObservableObject {
             prepCourseDownloadTask,
             activeRoundStartTask,
         ]
-        cancelRoundEnrichment()
-        prepEnrichmentTask?.cancel()
-        prepEnrichmentTask = nil
-        prepEnrichmentRoundID = nil
-        cancelGarminRasterDownload()
-        clearFreshEntryRelease()
-        offlineCourseDownloadTask?.cancel()
-        offlineCourseDownloadTask = nil
-        offlineCourseDownloadRoundId = nil
-        interruptedOfflineCourseDownloadRoundId = nil
-        pendingGeometryRefreshTask?.cancel()
-        pendingGeometryRefreshTask = nil
-        pausePrepCourseDownload()
-        activeRoundStartTask?.cancel()
-        activeRoundStartTask = nil
+        cancelRoundBackgroundWork()
         for task in running {
             await task?.value
         }
@@ -3113,6 +3120,10 @@ public final class LiveRoundAppModel: ObservableObject {
         // server is still decoding Garmin ZIPs. Older servers simply fall back to the existing
         // coverage probe path.
         func refreshServerInstallStatus() async {
+            guard !Task.isCancelled else { return }
+            #if DEBUG
+            guard !roundBackgroundWorkStoppedForTesting else { return }
+            #endif
             let primaryGlobalId = snapshot.course.globalId
             let expectedKeys = Set(snapshot.holes.map { roundHole in
                 offlinePrepKey(
@@ -3148,6 +3159,10 @@ public final class LiveRoundAppModel: ObservableObject {
 
             var status: CourseInstallStatus?
             for tee in teeCandidates where status == nil {
+                guard !Task.isCancelled else { return }
+                #if DEBUG
+                guard !roundBackgroundWorkStoppedForTesting else { return }
+                #endif
                 do {
                     guard let candidate = try await syncClient.fetchCourseInstallStatus(
                         globalId: primaryGlobalId,
@@ -3711,6 +3726,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 holesCompleted: completedHoles.count,
                 courseGlobalId: package.course.globalId
             )
+            cancelRoundBackgroundWork()
             try offlineStore.sealRoundForDeferredFinish(package: package, metadata: metadata)
             try leaveSealedRoundLocally(package: package)
             watchBridge?.sendRoundClosureToWatch(
@@ -3863,6 +3879,7 @@ public final class LiveRoundAppModel: ObservableObject {
         roundId: String,
         notifyWatch: Bool = true
     ) throws {
+        cancelRoundBackgroundWork()
         guard try offlineStore.loadPendingMedia(roundId: roundId).isEmpty else {
             throw LiveRoundFinishError.pendingMedia
         }
@@ -4176,6 +4193,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// the Watch only after the matching phone data has been removed.
     public func discardActiveRound() {
         guard let package, liveRoundState?.roundId == package.roundId else { return }
+        cancelRoundBackgroundWork()
         pendingGeometryRefreshTask?.cancel()
         pendingGeometryRefreshTask = nil
         pendingGeometryLastAttemptEpoch = nil
@@ -6669,6 +6687,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
                 refreshDownloadedCourseOptions()
             } else {
+                guard !Task.isCancelled else { throw CancellationError() }
+                #if DEBUG
+                guard !roundBackgroundWorkStoppedForTesting else { throw CancellationError() }
+                #endif
                 let serverStatus: CourseInstallStatus?
                 let statusProbeFailed: Bool
                 do {
@@ -6969,6 +6991,10 @@ public final class LiveRoundAppModel: ObservableObject {
                     ? self.pendingGeometryRetryAttempt + 1 : 0
                 try self.activatePackage(persisted, status: "几何地图已更新")
                 if remainsPending {
+                    guard !Task.isCancelled else { return }
+                    #if DEBUG
+                    guard !self.roundBackgroundWorkStoppedForTesting else { return }
+                    #endif
                     _ = try await syncClient.fetchCourseInstallStatus(
                         globalId: globalId, teeBox: teeBox, loops: loops
                     )

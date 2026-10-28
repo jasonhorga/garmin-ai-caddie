@@ -632,6 +632,7 @@ public final class SyncClient {
             await gate(timedRequest)
         }
         #endif
+        try Task.checkCancellation()
         guard recordTiming else {
             return try await urlSession.data(for: timedRequest)
         }
