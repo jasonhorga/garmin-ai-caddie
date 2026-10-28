@@ -1,29 +1,7 @@
 diff --git a/ai_caddie/caddie/mobile_live.py b/ai_caddie/caddie/mobile_live.py
-index 67829e8d..ea5a3f6c 100644
 --- a/ai_caddie/caddie/mobile_live.py
 +++ b/ai_caddie/caddie/mobile_live.py
-@@ -158,17 +158,15 @@ def _release_selected_tee_anchor(
-         tee_set = tee_set_for_box(int(global_id), requested, colour_fallback=False)
-         if tee_set is None:
-             return None
+@@ -156,7 +156,8 @@ def _release_selected_tee_anchor(
 -        hazards = _load_mobile_hazards(int(global_id), int(local_hole))
--        tees = hazards.get("tees") if isinstance(hazards, dict) else None
--        selected = next((row for row in (tees or []) if tee_set in (row.get("sets") or [])), None)
--        position = selected.get("position") if isinstance(selected, dict) else None
--        route_length = float((selected or {}).get("target_distance_m") or 0.0)
--        if not isinstance(position, (list, tuple)) or len(position) < 2 or route_length <= 0:
-+        md, _ = course_prep.hole_render.load_mesh(int(global_id), int(local_hole))
-+        route, route_length = course_prep.derive_route(md, tee_set)
-+        if not route or not route_length or len(route[0]) < 2:
-             return None
--        ref_lat = float(hazards["refLat"])
--        ref_lon = float(hazards["refLon"])
-+        hole_meta = md.get("hole") or {}
-+        ref_lat = float(hole_meta["RefLat"])
-+        ref_lon = float(hole_meta["RefLon"])
-         latitude, longitude = local_to_world(
--            float(position[0]), float(position[1]), ref_lat=ref_lat, ref_lon=ref_lon
-+            float(route[0][0]), float(route[0][1]), ref_lat=ref_lat, ref_lon=ref_lon
-         )
-         if not all(math.isfinite(value) for value in (latitude, longitude, route_length)):
-             return None
++        _ = course_prep.hole_render.load_mesh(int(global_id), int(local_hole))
++        hazards = _load_mobile_hazards(int(global_id), int(local_hole))
