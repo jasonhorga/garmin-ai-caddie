@@ -2446,8 +2446,9 @@ public struct CurrentHoleView: View {
         from previous: LiveMapDisplayState,
         to next: LiveMapDisplayState
     ) {
-        guard (previous == .factual && (next == .precise || next == .garminRaster))
-                || (previous == .garminRaster && next == .precise) else { return }
+        guard let previousSpace = previous.pixelSpace,
+              let nextSpace = next.pixelSpace,
+              previousSpace != nextSpace else { return }
         let sourceOverlay = LiveMapDisplaySelection.mapFrameOverlay(
             for: previous,
             overlay: overlay(for: previous),
@@ -3364,7 +3365,7 @@ public struct CurrentHoleView: View {
             branch = "fallback"
         }
         let message = "live-map hole=\(hole.number) selected=\(isSelected) state=\(String(describing: state)) "
-            + "localTopoEmpty=\(localTopoURL == nil) topo=\(liveTopoURL?.query ?? \"nil\") "
+            + "localTopoEmpty=\(localTopoURL == nil) topo=\(liveTopoURL?.query ?? "nil") "
             + "preciseMemory=\(hasPreciseTopoImage) "
             + "garminMemory=\(garminImageReadyForDisplay) topoBase=\(branch)"
         #if DEBUG

@@ -1,8 +1,5 @@
 import Foundation
 import ImageIO
-#if canImport(UIKit)
-import UIKit
-#endif
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)

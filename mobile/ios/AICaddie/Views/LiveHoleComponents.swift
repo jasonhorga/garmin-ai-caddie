@@ -2322,6 +2322,20 @@ enum LiveMapDisplayState: Equatable {
     /// Numeric hole facts remain available when neither raster is usable.
     case numericPlaceholder
 
+    /// Pixel spaces used by the viewport carry-over. Factual, pending, precise, and the
+    /// point-bearing waiting state all use CourseView's projection; Garmin has its own raster
+    /// projection. A numeric placeholder has no map plane to carry into.
+    var pixelSpace: LiveMapPixelSpace? {
+        switch self {
+        case .factual, .factualPending, .precise, .waiting:
+            return .precise
+        case .garminRaster:
+            return .garmin
+        case .numericPlaceholder:
+            return nil
+        }
+    }
+
     static func isPrecisePending(
         geometryCoverage: String?,
         timedOut: Bool,
@@ -2460,6 +2474,11 @@ enum LiveMapDisplayState: Equatable {
     var fadesInHoleStrip: Bool { self == .numericPlaceholder || self == .waiting || self == .factualPending || self == .factual }
 }
 
+enum LiveMapPixelSpace: Equatable {
+    case precise
+    case garmin
+}
+
 /// Selects the pixel facts that belong to the bitmap currently shown by the live hole. Keeping
 /// this decision pure prevents a numeric/error state from accidentally reusing a topo overlay or
 /// projection, and lets native tests exercise the same branch as CurrentHoleView.
@@ -2577,8 +2596,8 @@ struct LiveMapViewportInteraction: Equatable {
 
 enum LiveMapViewportTransition {
     /// Transfer one displayed tier to another without letting a pixel from one image frame leak
-    /// into the next. Factual→precise is deliberately identity-preserving; factual/Garmin and
-    /// Garmin/precise use the two projections and the two frames that are actually on screen.
+    /// into the next. Same-space transitions are identity-preserving; cross-space transitions use
+    /// the two projections and the two frames that are actually on screen.
     static func preserve(
         previous: LiveMapDisplayState,
         next: LiveMapDisplayState,
@@ -2594,9 +2613,9 @@ enum LiveMapViewportTransition {
         interaction: LiveMapViewportInteraction
     ) -> LiveMapViewportInteraction {
         guard previous != next else { return interaction }
-        if previous == .factual && next == .precise { return interaction }
-        guard (previous == .factual && next == .garminRaster)
-                || (previous == .garminRaster && next == .precise) else {
+        guard let sourceSpace = previous.pixelSpace,
+              let destinationSpace = next.pixelSpace,
+              sourceSpace != destinationSpace else {
             return interaction
         }
 
@@ -2632,7 +2651,14 @@ enum LiveMapViewportTransition {
                   scale: interaction.scale,
                   offset: interaction.offset
               ) else {
-            return withPoints(interaction, targetPixel: nil, greenPinPixel: nil)
+            // A hero can report its projections before SwiftUI has measured either frame. Keep
+            // points that were already mapped into the destination space and defer only the
+            // scale/offset transfer until a later measured transition.
+            return withPoints(
+                interaction,
+                targetPixel: mappedTarget,
+                greenPinPixel: mappedGreenPin
+            )
         }
         return withPoints(
             interaction,
