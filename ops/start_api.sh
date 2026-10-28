@@ -135,5 +135,17 @@ fi
 # Cold topo renders run in two worker processes (ai_caddie/geometry/topo_render.py) so they use
 # more than one core and stop blocking the API's other requests. 0 renders in the API process.
 export AI_CADDIE_TOPO_RENDER_PROCESSES="${AI_CADDIE_TOPO_RENDER_PROCESSES:-2}"
+# Cold mobile package projections are Python/GIL-heavy. Keep one process lane for foreground
+# requests and one independent lane for prep-library prefetches; set to 0 in tests/fixtures.
+export AI_CADDIE_PACKAGE_BUILD_PROCESSES="${AI_CADDIE_PACKAGE_BUILD_PROCESSES:-1}"
+# Cold prep revisions use a separate process lane so the API and foreground package lane keep the GIL.
+export AI_CADDIE_PREP_BUILD_PROCESSES="${AI_CADDIE_PREP_BUILD_PROCESSES:-1}"
+# History stats are recomputed after sync/while idle, never on the map-only start path.
+export AI_CADDIE_STATS_BUILD_PROCESSES="${AI_CADDIE_STATS_BUILD_PROCESSES:-1}"
+# Cold nearby pagination/aggregation is isolated from the foreground API interpreter.
+export AI_CADDIE_NEARBY_BUILD_PROCESSES="${AI_CADDIE_NEARBY_BUILD_PROCESSES:-1}"
+# Raster decode/registration is process-isolated; provider fetches remain bounded by the existing
+# raster single-flight and prefetch pool.
+export AI_CADDIE_RASTER_REGISTER_PROCESSES="${AI_CADDIE_RASTER_REGISTER_PROCESSES:-1}"
 
 exec uv run --frozen uvicorn server_v2.main:app --host 0.0.0.0 --port "${PORT:-9000}"

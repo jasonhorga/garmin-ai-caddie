@@ -227,7 +227,9 @@ def _start_fixture_server(root: Path) -> tuple[subprocess.Popen[bytes], str]:
     })
     process = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "server_v2.main:app", "--host", "127.0.0.1", "--port", str(port)],
-        cwd=REPO_ROOT,
+        # The server's fixture roots intentionally use relative ``Path('.')`` constants; run it
+        # from the selected stable root so identity/cache assertions observe the same tree.
+        cwd=root,
         env=environment,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -237,7 +239,7 @@ def _start_fixture_server(root: Path) -> tuple[subprocess.Popen[bytes], str]:
 
 async def _wait_for_server(base_url: str, process: subprocess.Popen[bytes]) -> None:
     async with httpx.AsyncClient(base_url=base_url, timeout=2.0) as client:
-        for _ in range(60):
+        for _ in range(300):
             if process.poll() is not None:
                 raise SystemExit("fixture server exited before becoming healthy")
             try:
