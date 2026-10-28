@@ -5032,15 +5032,24 @@ public final class LiveRoundAppModel: ObservableObject {
             guard !Task.isCancelled, boundPlayerId == playerScope else { return }
             if try offlineStore.isRoundPendingFinish(package.roundId) { return }
             let events = try offlineStore.loadPendingEvents(roundId: package.roundId)
-            quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: package.roundId).count
+            let quarantined = try offlineStore.loadQuarantinedEvents(roundId: package.roundId)
+            quarantinedEventCount = quarantined.count
             pendingEventCount = events.count
             if events.isEmpty {
-                syncStatus = uploadedMediaCount > 0 ? "已同步 \(uploadedMediaCount) 张照片/视频" : "已是最新"
-                localEventUploadStatus = uploadedMediaCount > 0
-                    ? "已上传本机记录和 \(uploadedMediaCount) 个媒体文件"
-                    : (quarantinedEventCount > 0
-                        ? "\(quarantinedEventCount) 条异常记录已保留在本机隔离区，其余记录已上传"
-                        : "本机记录已上传")
+                if let rejectedScore = quarantined.first(where: { $0.event.kind == .score }) {
+                    let reason = rejectedScore.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let suffix = reason.isEmpty ? "" : "（\(reason)）"
+                    let prompt = "第 \(rejectedScore.event.hole) 洞成绩被服务器拒绝\(suffix)"
+                    syncStatus = prompt
+                    localEventUploadStatus = prompt
+                } else {
+                    syncStatus = uploadedMediaCount > 0 ? "已同步 \(uploadedMediaCount) 张照片/视频" : "已是最新"
+                    localEventUploadStatus = uploadedMediaCount > 0
+                        ? "已上传本机记录和 \(uploadedMediaCount) 个媒体文件"
+                        : (quarantinedEventCount > 0
+                            ? "\(quarantinedEventCount) 条异常记录已保留在本机隔离区，其余记录已上传"
+                            : "本机记录已上传")
+                }
             } else {
                 syncStatus = "同步中…"
                 let result = try await postPendingEventsAndRequireFullAcknowledgement(
