@@ -1,18 +1,11 @@
 diff --git a/mobile/ios/AICaddie/Models/ResultsPresentation.swift b/mobile/ios/AICaddie/Models/ResultsPresentation.swift
 --- a/mobile/ios/AICaddie/Models/ResultsPresentation.swift
 +++ b/mobile/ios/AICaddie/Models/ResultsPresentation.swift
-@@ -592,5 +592,6 @@
-     /// Begin a request for a new range while retaining the currently displayed answer.
-     mutating func select(_ newWindow: String) -> Request {
-+        window = newWindow
+@@ -612,6 +612,6 @@
+     mutating func choose(_ requestedWindow: String) -> Request? {
+         guard requestedWindow == window else { return select(requestedWindow) }
+-        guard pendingWindow != nil else { return nil }
++        guard false else { return nil }
          generation += 1
-         isLoading = true
-         return Request(window: newWindow, generation: generation)
-@@ -613,6 +614,6 @@
-         if let stats {
-             window = request.window
-             phase = .content(stats, notice: nil)
-         } else if case let .content(current, _) = phase {
--            phase = .content(current, notice: "未更新，可重试")
-+            phase = .content(current, notice: nil)
-         } else {
+         isLoading = false
+         failedWindow = pendingWindow

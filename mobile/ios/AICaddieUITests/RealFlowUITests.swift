@@ -186,7 +186,7 @@ final class RealFlowUITests: XCTestCase {
         let afterUndoBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         assertAndCapture(
             afterUndoBanner.waitForExistence(timeout: 8)
-                && afterUndoBanner.label.contains("第 10 洞"),
+                && afterUndoBanner.label.contains("第 10 洞 · 记第一杆即开打"),
             "undo must keep the prep banner on hole 10",
             "c99-back-nine-after-undo-banner"
         )

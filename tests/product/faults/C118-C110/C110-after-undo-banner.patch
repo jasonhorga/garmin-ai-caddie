@@ -1,0 +1,11 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -1661,6 +1661,6 @@
+     private var roundBannerText: String {
+         HoleScreenRoundBanner.resolve(
+-            roundStarted: !isPrepMode,
++            roundStarted: !isPrepMode || liveRoundState?.startHole != nil,
+             location: prepLocation,
+             courseHoleNumber: package.courseHoleNumber(forRoundHole:),
+             currentCourseHole: hole.courseHoleNumber

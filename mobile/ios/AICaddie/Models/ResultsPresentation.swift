@@ -612,6 +612,13 @@ struct ResultsTimeLoadState: Equatable {
     mutating func choose(_ requestedWindow: String) -> Request? {
         guard requestedWindow == window else { return select(requestedWindow) }
         guard pendingWindow != nil else { return nil }
+        generation += 1
+        isLoading = false
+        failedWindow = pendingWindow
+        pendingWindow = nil
+        if let failedWindow, case let .content(current, _) = phase {
+            phase = .content(current, notice: notice(for: failedWindow))
+        }
         return nil
     }
 

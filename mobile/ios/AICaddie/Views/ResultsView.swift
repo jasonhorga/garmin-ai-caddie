@@ -682,19 +682,18 @@ public struct ResultsTrendView: View {
     public var body: some View {
         ScrollView {
             if let stats = load.stats {
-                ResultsTimeContent(stats: stats, window: $window, grain: $grain) { destination = $0 }
                 if let notice = load.notice {
                     HStack(spacing: 8) {
                         Label(notice, systemImage: "exclamationmark.circle")
                         Spacer(minLength: 8)
-                        Button("重试") { start(load.refresh()) }
+                        Button("重试") { start(load.retry()) }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 16)
+                    .padding(16)
                     .accessibilityIdentifier("time-range-notice")
                 }
+                ResultsTimeContent(stats: stats, window: $window, grain: $grain) { destination = $0 }
             } else if load.isLoading {
                 ProgressView("载入时间与频率…").frame(maxWidth: .infinity).padding(.top, 40)
             } else {
@@ -709,13 +708,16 @@ public struct ResultsTrendView: View {
         }
         .background(HubStyle.grouped).navigationTitle("时间与频率")
         .navigationDestination(item: $destination) { destination in destinationView(destination) }
-        .task { start(load.refresh()) }
+        .task { reloadCommittedRange() }
         .onChange(of: window) { _, requested in
-            guard requested != load.window else { return }
-            start(load.select(requested))
+            if let request = load.choose(requested) {
+                start(request)
+            } else {
+                window = load.window
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
-            start(load.refresh())
+            reloadCommittedRange()
         }
     }
 
@@ -744,6 +746,12 @@ public struct ResultsTrendView: View {
                 window = load.window
             }
         }
+    }
+
+    @MainActor private func reloadCommittedRange() {
+        let request = load.refresh()
+        window = load.window
+        start(request)
     }
 }
 

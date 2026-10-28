@@ -581,6 +581,27 @@
       "kind": "python-script",
       "target": "python tests/product/faults/c16c_mutants.py",
       "promise": "C16c"
+    },
+    {
+      "id": "tests-product-faults-C118-C110-j2-2-range-switch-back",
+      "patch": "tests/product/faults/C118-C110/C118-range-failure.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/J2_2ResultsRangeFailureTests/test_j2_2_switching_back_invalidates_the_old_request",
+      "promise": "j2.2"
+    },
+    {
+      "id": "tests-product-faults-C118-C110-j5-1-recording-banner",
+      "patch": "tests/product/faults/C118-C110/C110-back-nine-banner.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/RealFlowUITests/testWholeCourseBackNineStartsFromFirstStrokeJourney",
+      "promise": "j5.1"
+    },
+    {
+      "id": "tests-product-faults-C118-C110-j5-1-after-undo-banner",
+      "patch": "tests/product/faults/C118-C110/C110-after-undo-banner.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/RealFlowUITests/testWholeCourseBackNineStartsFromFirstStrokeJourney",
+      "promise": "j5.1"
     }
   ]
 }
