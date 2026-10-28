@@ -427,6 +427,64 @@ final class C33EventTests: XCTestCase {
         XCTAssertTrue(finished)
     }
 
+    func testReplacementPuttClearsQuarantineAndAllowsFinish() async throws {
+        try await assertReplacementScoringEventAllowsFinish(
+            kind: .putt, payload: ["putts": .number(2)], replacement: ["putts": .number(1)]
+        )
+    }
+
+    func testReplacementPenaltyClearsQuarantineAndAllowsFinish() async throws {
+        try await assertReplacementScoringEventAllowsFinish(
+            kind: .penalty, payload: ["penalties": .number(2)], replacement: ["penalties": .number(0)]
+        )
+    }
+
+    private func assertReplacementScoringEventAllowsFinish(
+        kind: LiveRoundEventKind, payload: [String: JSONValue], replacement: [String: JSONValue]
+    ) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c137-replace.example.test")!, session: session)
+        let model = c33Model(store, client)
+        let package = try c33Package()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/package") { proto.reply(200, try! JSONEncoder().encode(package)); return }
+            if path.hasSuffix("/events") {
+                let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
+                if batch.events.contains(where: { $0.eventId == "bad-event" }) {
+                    proto.reply(422, Data(#"{"detail":{"code":"event_invalid","message":"score fact rejected"}}"#.utf8))
+                } else {
+                    proto.reply(200, try! JSONEncoder().encode(SyncResult(
+                        accepted: batch.events.count, duplicate: false,
+                        acceptedEventIds: batch.events.map(\.eventId)
+                    )))
+                }
+                return
+            }
+            if path.hasSuffix("/finish") { proto.reply(200); return }
+            proto.reply(404)
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        try store.appendEvent(LiveRoundEvent(eventId: "bad-event", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 1, kind: kind, payload: payload))
+        await model.syncPendingEvents()
+        XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).count, 1)
+        let blocked = await model.finishActiveRound()
+        XCTAssertFalse(blocked)
+        try store.appendEvent(LiveRoundEvent(eventId: "replacement-event", roundId: package.roundId,
+            timestamp: "2026-01-01T00:01:00Z", hole: 1, kind: kind, payload: replacement))
+        await model.syncPendingEvents()
+        XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
+        let finished = await model.finishActiveRound()
+        XCTAssertTrue(finished)
+    }
+
     func testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = OfflineStore(directoryURL: directory)
