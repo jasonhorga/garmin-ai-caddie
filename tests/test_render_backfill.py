@@ -22,7 +22,7 @@ class RenderBackfillTests(unittest.TestCase):
         return render_backfill.RenderBackfill(**options)
 
     def test_c135b_style_change_requeues_current_topo_version(self):
-        # J8.3: renderer-versioned derived assets are rebuilt after a version change.
+        # J4.2: a map version change rebuilds the affected derived asset in place.
         with TemporaryDirectory() as directory:
             root = Path(directory)
             mesh = root / "meshes"
@@ -37,7 +37,7 @@ class RenderBackfillTests(unittest.TestCase):
             self.assertEqual(second.status()["pending"], 1)
 
     def test_c135b_restart_resumes_only_remaining_work(self):
-        # J8.3: persisted progress survives restart and does not repeat completed holes.
+        # J4.2: background map work resumes after restart without repeating completed holes.
         with TemporaryDirectory() as directory:
             root = Path(directory)
             mesh = root / "meshes"
@@ -55,7 +55,7 @@ class RenderBackfillTests(unittest.TestCase):
             self.assertEqual(calls, [(1, 1), (1, 2)])
 
     def test_c135b_frontend_yield_is_observed_before_render(self):
-        # J8.3: low-priority backfill yields while foreground preparation is in flight.
+        # J4.2: background map work yields to the foreground start path.
         with TemporaryDirectory() as directory:
             root = Path(directory)
             mesh = root / "meshes"
@@ -74,7 +74,7 @@ class RenderBackfillTests(unittest.TestCase):
             self.assertEqual(calls, [(1, 1)])
 
     def test_c135b_garmin_work_is_skipped_without_a_source_asset(self):
-        # J8.3: only holes with a cached Garmin source receive a transparent-sky WebP.
+        # J4.2: a Garmin derivative is produced only when its source image exists.
         with TemporaryDirectory() as directory:
             root = Path(directory)
             mesh = root / "meshes"
@@ -90,7 +90,7 @@ class RenderBackfillTests(unittest.TestCase):
             self.assertEqual(calls, [("topo", 2, 2)])
 
     def test_c135b_priority_is_recent_then_downloaded_then_other(self):
-        # J8.3: front-door recent work overtakes downloaded/offline work, which overtakes the rest.
+        # J4.2: recent map work overtakes downloaded/offline work, which overtakes the rest.
         with TemporaryDirectory() as directory:
             root = Path(directory)
             mesh = root / "meshes"
