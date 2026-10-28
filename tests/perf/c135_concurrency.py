@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""C135/C141 concurrency probe (manual; never imported by the normal test suite).
+"""Manual concurrency probe for course start and next-hole requests.
 
-The probe measures the foreground sequence while a cold package and a prep prefetch overlap. Run
-the same command against two revisions with the same ``AI_CADDIE_ROOT``/fixture root and compare the
-JSON reports. Remote probes are read-only and require an existing ``--round-id``; a remote probe
-never creates or counts a local temporary identity directory.
+Run against a local fixture or a private deployment, for example:
+
+    python tests/perf/c135_concurrency.py --base-url <server-url> \
+      --global-id 31936 --samples 5 --label after
+
+Self-hosted samples compare a warmed map-only package with a fresh personal package. With
+``--install-pressure`` each sample also starts another synthetic course's whole-course install
+and a cold topo request. External probes require an existing ``--round-id`` and only read its
+map-only package and light routes. Use the same script with ``--server-repo`` for both revisions;
+run under taskset and set AI_CADDIE_TOPO_RENDER_PROCESSES to simulate cgroup-derived pool sizes
+on hosts without a CPU quota. Failed responses are reported separately from latency quantiles.
 """
 
 from __future__ import annotations
@@ -14,16 +21,15 @@ import asyncio
 from dataclasses import dataclass
 import json
 import os
-from pathlib import Path
-import re
 import socket
 import statistics
-import subprocess
 import sys
+import subprocess
 import tempfile
 import time
 from typing import Any
 import uuid
+from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
@@ -36,90 +42,98 @@ if str(REPO_ROOT) not in sys.path:
 @dataclass(frozen=True)
 class Sample:
     round_id: str
-    package_ms: float
-    prefetch_ms: float | None
-    light_ms: dict[str, float]
+    timings: dict[str, float]
     statuses: dict[str, int]
-    cold_package_ms: float | None = None
+    errors: dict[str, str]
+    pressure: dict[str, Any]
 
 
-async def _request(client: httpx.AsyncClient, name: str, path: str) -> tuple[str, float, int]:
+async def _request(client: httpx.AsyncClient, name: str, path: str) -> tuple[str, float, int, str]:
     started = time.perf_counter()
     try:
         response = await client.get(path)
         status = response.status_code
-    except httpx.HTTPError:
-        status = 599
-    return name, (time.perf_counter() - started) * 1000.0, status
+        detail = response.text[:2000] if not 200 <= status < 300 else ""
+    except httpx.HTTPError as exc:
+        status, detail = 599, str(exc)
+    return name, (time.perf_counter() - started) * 1000.0, status, detail
+
+
+def _package_path(args: argparse.Namespace, round_id: str, *, map_only: bool, gid: int | None = None) -> str:
+    gid = args.global_id if gid is None else gid
+    return (f"/api/v2/mobile/courses/{gid}/package?round_id={round_id}"
+            f"&map_only={str(map_only).lower()}&loops={gid}:front,{gid}:back&tee_box={args.tee_box}")
+
+
+def _light_paths(args: argparse.Namespace) -> dict[str, str]:
+    gid = args.global_id
+    return {
+        "nearby": (f"/api/v2/courses/nearby?latitude={args.latitude}&longitude={args.longitude}"
+                   f"&radius_km={args.radius_km}"),
+        "tees": f"/api/v2/courses/{gid}/tees",
+        "prep_cached": f"/api/v2/courses/{gid}/prep?render=false&holes=1",
+        "topo_cached": f"/api/v2/courses/{gid}/holes/1/topo.png",
+        "next_prep": f"/api/v2/courses/{gid}/prep?render=false&holes=2",
+        "next_topo": f"/api/v2/courses/{gid}/holes/2/topo.png",
+        "install_status": (f"/api/v2/courses/{gid}/install/status"
+                           f"?loops={gid}:front,{gid}:back&tee_box={args.tee_box}"),
+    }
 
 
 async def _sample(client: httpx.AsyncClient, args: argparse.Namespace, index: int) -> Sample:
-    round_id = args.round_id or f"live-{args.global_id}-{uuid.uuid4()}"
-    # The first-screen contract is map-only: it must not pay for stats_revision/caddie enrichment.
-    package_path = (
-        f"/api/v2/mobile/courses/{args.global_id}/package"
-        f"?round_id={round_id}&map_only=true"
-        f"&loops={args.global_id}:front,{args.global_id}:back&tee_box={args.tee_box}"
-    )
-    prefetch_path = None
+    pressure: dict[str, Any] = {}
+    topo_task = None
+    if args.install_pressure:
+        other = args.global_id + 1000 + index
+        response = await client.get(_package_path(args, f"prep-library-{other}", map_only=True, gid=other))
+        if response.status_code != 200:
+            raise RuntimeError(f"pressure package {response.status_code}: {response.text}")
+        job = response.json().get("courseInstallJob") or {}
+        pressure = {"globalId": other, "jobId": job.get("jobId"), "phase": job.get("phase")}
+        if not pressure["jobId"]:
+            raise RuntimeError("pressure package did not enqueue a whole-course install")
+        # In addition to the install's cold renders, hold a separate cold topo request in flight.
+        topo_task = asyncio.create_task(_request(client, "pressure_topo",
+                                                f"/api/v2/courses/{other}/holes/18/topo.png"))
+        await asyncio.sleep(args.overlap_delay_ms / 1000.0)
+        status = await client.get(f"/api/v2/courses/{other}/install/status"
+                                 f"?loops={other}:front,{other}:back&tee_box={args.tee_box}")
+        pressure["phaseAtProbe"] = status.json().get("phase")
+        pressure["topoReadyAtProbe"] = status.json().get("topoReady")
+        pressure["coldTopoInFlight"] = not topo_task.done()
+        if pressure["phaseAtProbe"] not in {"queued", "running"} or not pressure["coldTopoInFlight"]:
+            raise RuntimeError(f"background pressure ended before probe: {pressure}")
+    paths = _light_paths(args)
+    paths["package_map_only"] = _package_path(args, args.round_id, map_only=True)
+    if args.self_host:
+        # Measure full personal-package delivery with a fresh identity and already-warm map inputs.
+        paths["package_cold"] = _package_path(args, f"live-{args.global_id}-{uuid.uuid4()}", map_only=False)
     if args.prefetch:
-        prefetch_path = (
-            f"/api/v2/mobile/courses/{args.global_id}/package"
-            f"?round_id=prep-library-{args.global_id}-{index}"
-            f"&loops={args.global_id}:front,{args.global_id}:back&tee_box={args.tee_box}"
-        )
-    cold_path = (
-        f"/api/v2/mobile/courses/{args.global_id}/package"
-        f"?round_id=cold-{args.global_id}-{index}-{uuid.uuid4()}"
-        f"&loops={args.global_id}:front,{args.global_id}:back&tee_box={args.tee_box}"
-    )
-    light_paths = {
-        "nearby": (
-            f"/api/v2/courses/nearby?latitude={args.latitude}&longitude={args.longitude}"
-            f"&radius_km={args.radius_km}"
-        ),
-        "tees": f"/api/v2/courses/{args.global_id}/tees",
-        "prep_cached": f"/api/v2/courses/{args.global_id}/prep?render=false&holes=1",
-        "topo_cached": f"/api/v2/courses/{args.global_id}/holes/1/topo.png",
-        "next_prep": f"/api/v2/courses/{args.global_id}/prep?render=false&holes=2",
-        "next_topo": f"/api/v2/courses/{args.global_id}/holes/2/topo.png",
-        "green_cached": (
-            f"/api/v2/courses/{args.global_id}/holes/1/green.png"
-            "?x=0&y=0&width=64&height=64&size=320"
-        ),
-        "install_status": f"/api/v2/courses/{args.global_id}/install/status",
-    }
-    package_started = time.perf_counter()
-    package_task = asyncio.create_task(client.get(package_path))
-    prefetch_started = time.perf_counter()
-    prefetch_task = asyncio.create_task(client.get(prefetch_path)) if prefetch_path else None
-    cold_started = time.perf_counter()
-    cold_task = asyncio.create_task(client.get(cold_path))
-    await asyncio.sleep(args.overlap_delay_ms / 1000.0)
-    probe_results = await asyncio.gather(*(
-        _request(client, name, path) for name, path in light_paths.items()
-    ))
-    package_response = await package_task
-    prefetch_response = await prefetch_task if prefetch_task is not None else None
-    cold_response = await cold_task
-    package_ms = (time.perf_counter() - package_started) * 1000.0
-    prefetch_ms = (
-        (time.perf_counter() - prefetch_started) * 1000.0
-        if prefetch_task is not None else None
-    )
-    cold_ms = (time.perf_counter() - cold_started) * 1000.0
+        paths["prefetch"] = _package_path(args, f"prep-library-{args.global_id}-{index}", map_only=False)
+    rows = await asyncio.gather(*(_request(client, name, path) for name, path in paths.items()))
+    if topo_task is not None:
+        _, elapsed, status, detail = await topo_task
+        pressure.update(coldTopoMs=round(elapsed, 1), coldTopoStatus=status)
+        if status != 200:
+            raise RuntimeError(f"pressure topo {status}: {detail}")
+        # Let this install finish before the next sample so load does not accumulate differently
+        # across versions. All 18 holes still use the real journal and renderer.
+        for _ in range(1200):
+            result = await client.get(f"/api/v2/courses/{other}/install/status"
+                                      f"?loops={other}:front,{other}:back&tee_box={args.tee_box}")
+            phase = result.json().get("phase")
+            if phase in {"ready", "failed", "cancelled"}:
+                pressure["endPhase"] = phase
+                break
+            await asyncio.sleep(0.1)
+        if pressure.get("endPhase") != "ready":
+            raise RuntimeError(f"pressure install failed to complete: {result.text[:2000]}")
     return Sample(
-        round_id=round_id,
-        package_ms=package_ms,
-        prefetch_ms=prefetch_ms,
-        light_ms={name: elapsed for name, elapsed, _status in probe_results},
-        statuses={
-            "package": package_response.status_code,
-            **({"prefetch": prefetch_response.status_code} if prefetch_response is not None else {}),
-            "cold_package": cold_response.status_code,
-            **{name: status for name, _elapsed, status in probe_results},
-        },
-        cold_package_ms=cold_ms,
+        round_id=args.round_id,
+        timings={name: elapsed for name, elapsed, _status, _detail in rows},
+        statuses={name: status for name, _elapsed, status, _detail in rows},
+        errors={name: detail for name, _elapsed, status, detail in rows if not 200 <= status < 300},
+        pressure=pressure,
     )
 
 
@@ -127,7 +141,7 @@ def _loopback(base_url: str) -> bool:
     return urlparse(base_url).hostname in {"127.0.0.1", "localhost", "::1"}
 
 
-def _prepare_fixture(root: Path, global_id: int) -> None:
+def _prepare_fixture(root: Path, global_id: int, *, samples: int = 0) -> None:
     """Create production-shaped local pressure inputs; never called for remote URLs."""
     from ai_caddie.caddie.mobile_event_store import FileEventStore
     from ai_caddie.courses.course_reference import save_release_pb
@@ -149,15 +163,52 @@ def _prepare_fixture(root: Path, global_id: int) -> None:
             ],
             request_key="c135-large-history",
         )
-    payload = _synthetic_package_release(global_id)
-    token_pattern = re.compile(rb"garmindlm=\d{10}_[0-9a-f]{32}")
-    refreshed = token_pattern.sub(
-        b"garmindlm=1790000000_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", payload,
-    )
-    save_release_pb(global_id, refreshed, root=root)
+    from ai_caddie.courses.course_reference import courseview_release_info
+    from ai_caddie.geometry.geometry_authority import authority_path, build_authority, write_authority
+
+    for gid in [global_id, *(global_id + 1000 + index for index in range(samples))]:
+        save_release_pb(gid, _synthetic_package_release(gid), root=root)
+        release = courseview_release_info(gid, allow_fetch=False, root=root)
+        if not release:
+            raise RuntimeError(f"synthetic release {gid} was not readable")
+        for row in release["holes"]:
+            hole = int(row["hole"])
+            mesh = root / "output/prodgeometry" / f"gid{gid}_h{hole:02d}_meshes.json"
+            mesh.parent.mkdir(parents=True, exist_ok=True)
+            mesh.write_text(json.dumps(_synthetic_mesh(gid, hole)))
+            hazard = root / "output/prodgeometry_hazards" / f"gid{gid}_h{hole:02d}_hazards.json"
+            hazard.parent.mkdir(parents=True, exist_ok=True)
+            hazard.write_text(json.dumps({"globalId": gid, "holeNumber": hole, "hazards": []}))
+            authority = build_authority(global_id=gid, local_hole=hole, release=release, hole=row,
+                                        release_source="fixture", geometry_zip_sha256="b" * 64)
+            write_authority(authority_path(mesh), authority)
+
+
+def _synthetic_mesh(gid: int, hole: int) -> dict:
+    """Generic, explicitly synthetic geometry: exercise the real renderer without private assets."""
+    def surface(name: str, width: float, start: float, end: float) -> dict:
+        return {"name": name + ".drc", "positions": [
+            [-width, 0, start], [width, 0, start], [width, 0, end], [-width, 0, end]],
+            "faces": [[0, 1, 2], [0, 2, 3]]}
+    return {
+        "hole": {"GlobalId": gid, "HoleNumber": hole, "Par": 4,
+                 "RefLat": 0.0, "RefLon": 0.0,
+                 "TeeLocations": [{"X": 0, "Y": 0, "Sets": [1, 2]}],
+                 "Doglegs": [{"Line": [{"X": 0, "Y": 0}, {"X": 0, "Y": 360}]}]},
+        "meshes": [surface("PhysicsMesh", 50, -10, 380), surface("Rough", 50, -10, 380),
+                   surface("Fairway", 18, 20, 340), surface("Green", 12, 345, 375),
+                   surface("Teebox", 5, -5, 5)],
+        "foliage": {},
+    }
 
 
 def _synthetic_package_release(global_id: int) -> bytes:
+    """Build only the CourseView facts needed for a valid local 18-hole package.
+
+    The real release fixtures are nine-hole layouts. This fixture intentionally contains generic
+    par/tee/asset facts so the probe exercises a successful package path without inventing a real
+    course's geography or measurements.
+    """
     def varint(value: int) -> bytes:
         out = bytearray()
         while value > 127:
@@ -189,8 +240,10 @@ def _synthetic_package_release(global_id: int) -> bytes:
         aux = f"https://fixture.invalid/raster/{suffix}_1.jpg?garmindlm={token}"
         par = message(2, scalar(1, 4))
         handicap = message(3, scalar(1, ((hole_number - 1) % 9) + 1))
-        hole = scalar(1, hole_number) + par + handicap + scalar(6, 400)
-        hole += text(7, raster) + text(8, geometry) + text(9, aux)
+        hole = (
+            scalar(1, hole_number) + par + handicap + scalar(6, 400)
+            + text(7, raster) + text(8, geometry) + text(9, aux)
+        )
         holes.append(message(7, hole))
     sections = message(5, text(1, "OUT") + scalar(2, 36) + text(3, "MEN"))
     sections += message(5, text(1, "IN") + scalar(2, 36) + text(3, "MEN"))
@@ -201,26 +254,33 @@ def _synthetic_package_release(global_id: int) -> bytes:
     )
 
 
-async def _warm_light_routes(client: httpx.AsyncClient, args: argparse.Namespace) -> None:
-    warm_paths = (
-        f"/api/v2/courses/nearby?latitude={args.latitude}&longitude={args.longitude}"
-        f"&radius_km={args.radius_km}",
-        f"/api/v2/courses/{args.global_id}/tees",
-        f"/api/v2/courses/{args.global_id}/prep?render=false&holes=1",
-        f"/api/v2/courses/{args.global_id}/holes/1/topo.png",
-        f"/api/v2/courses/{args.global_id}/prep?render=false&holes=2",
-        f"/api/v2/courses/{args.global_id}/holes/2/topo.png",
-    )
-    for path in warm_paths:
-        await client.get(path)
+async def _warm_light_routes(client: httpx.AsyncClient, args: argparse.Namespace) -> dict[str, int]:
+    paths = _light_paths(args)
+    paths["package_map_only"] = _package_path(args, args.round_id, map_only=True)
+    statuses = {}
+    for name, path in paths.items():
+        response = await client.get(path)
+        statuses[name] = response.status_code
+        if name == "package_map_only" and response.status_code != 200:
+            raise RuntimeError(f"package warmup {response.status_code}: {response.text}")
+    if args.self_host:
+        # Complete the foreground course's warmup before adding a different course's install.
+        path = _light_paths(args)["install_status"]
+        for _ in range(1200):
+            response = await client.get(path)
+            phase = response.json().get("phase")
+            if phase in {"ready", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.1)
+        if phase != "ready":
+            raise RuntimeError(f"foreground fixture install failed: {response.text[:2000]}")
+    return statuses
 
 
-def _quantile(values: list[float], fraction: float) -> float:
+def _p95(values: list[float]) -> float:
     if not values:
         return 0.0
-    if len(values) == 1:
-        return values[0]
-    return statistics.quantiles(values, n=100, method="inclusive")[int(fraction * 100) - 1]
+    return statistics.quantiles(values, n=20, method="inclusive")[18] if len(values) > 1 else values[0]
 
 
 def _free_port() -> int:
@@ -229,28 +289,30 @@ def _free_port() -> int:
         return int(handle.getsockname()[1])
 
 
-def _start_fixture_server(root: Path) -> tuple[subprocess.Popen[bytes], str]:
+def _start_fixture_server(root: Path, repo: Path) -> tuple[subprocess.Popen[bytes], str]:
     port = _free_port()
     environment = dict(os.environ)
     environment.update({
         "AI_CADDIE_DATA_MODE": "fixture",
         "AI_CADDIE_ROOT": str(root),
-        "PYTHONPATH": str(REPO_ROOT),
+        "PYTHONPATH": str(repo),
+        "AI_CADDIE_FIXTURE_MODE": "0",
+        "AI_CADDIE_BOOT_BACKGROUND_WORK": "0",
     })
-    process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "server_v2.main:app", "--host", "127.0.0.1", "--port", str(port)],
-        # The server's fixture roots intentionally use relative ``Path('.')`` constants; run it
-        # from the selected stable root so identity/cache assertions observe the same tree.
-        cwd=root,
-        env=environment,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    with (root / "api.log").open("wb") as log:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "server_v2.main:app", "--host", "127.0.0.1", "--port", str(port)],
+            cwd=root,
+            env=environment,
+            stdout=log,
+            stderr=log,
+        )
     return process, f"http://127.0.0.1:{port}"
 
 
 async def _wait_for_server(base_url: str, process: subprocess.Popen[bytes]) -> None:
     async with httpx.AsyncClient(base_url=base_url, timeout=2.0) as client:
+        # Importing the full API (NumPy/PIL plus fixture indexes) can take several seconds on a cold host.
         for _ in range(300):
             if process.poll() is not None:
                 raise SystemExit("fixture server exited before becoming healthy")
@@ -265,52 +327,52 @@ async def _wait_for_server(base_url: str, process: subprocess.Popen[bytes]) -> N
 
 async def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.self_host and args.base_url is None:
+        # Placeholder only for the loopback guards below; _start_fixture_server picks the real port.
         args.base_url = "http://127.0.0.1"
     if args.base_url is None:
         raise SystemExit("--base-url is required unless --self-host is used")
     remote = not _loopback(args.base_url)
     if args.self_host and remote:
         raise SystemExit("--self-host requires a loopback probe")
-    if remote and not args.round_id:
-        raise SystemExit("remote probes require an existing --round-id (read-only mode)")
-    args.prefetch = bool(args.prefetch and not remote)
+    if not args.self_host and not args.round_id:
+        raise SystemExit("external probes require an existing --round-id (read-only mode)")
+    if args.samples < 1:
+        raise SystemExit("--samples must be positive")
+    args.prefetch = bool(args.prefetch and args.self_host)
     if args.prepare_fixture and remote:
         raise SystemExit("--prepare-fixture is restricted to a loopback base URL")
-
-    # Local before/after runs may opt into a stable root through AI_CADDIE_ROOT. Remote runs have no
-    # local root at all, so they cannot accidentally count a temporary directory as their baseline.
-    fixture_temp = None
-    configured_root = args.fixture_root or args.ai_caddie_root or os.environ.get("AI_CADDIE_ROOT")
-    if not remote and configured_root is None:
-        fixture_temp = tempfile.TemporaryDirectory(prefix="caddie-c135-")
-    fixture_root = Path(configured_root) if configured_root else Path(fixture_temp.name) if fixture_temp else None
+    if (args.prepare_fixture or args.install_pressure) and not args.self_host:
+        raise SystemExit("fixture preparation and install pressure require --self-host")
+    args.round_id = args.round_id or f"live-{args.global_id}-{uuid.uuid4()}"
+    fixture_temp = tempfile.TemporaryDirectory(prefix="caddie-c135-") if args.fixture_root is None else None
+    fixture_root = Path(args.fixture_root).resolve() if args.fixture_root is not None else Path(fixture_temp.name)
     service: subprocess.Popen[bytes] | None = None
     try:
         if args.prepare_fixture:
-            assert fixture_root is not None
-            _prepare_fixture(fixture_root, args.global_id)
+            _prepare_fixture(fixture_root, args.global_id, samples=args.samples if args.install_pressure else 0)
         if args.self_host:
-            assert fixture_root is not None
-            service, args.base_url = _start_fixture_server(fixture_root)
+            service, args.base_url = _start_fixture_server(fixture_root, Path(args.server_repo).resolve())
             await _wait_for_server(args.base_url, service)
-        identity_dir = fixture_root / "data" / "mobile_events" / "round_identity" if fixture_root else None
-        identity_before = len(list(identity_dir.glob("*.json"))) if identity_dir and identity_dir.exists() else 0
+        identity_dir = fixture_root / "data" / "mobile_events" / "round_identity"
+        identity_count_before = len(list(identity_dir.glob("*.json"))) if identity_dir.exists() else 0
         headers = {"Authorization": f"Bearer {args.token}"} if args.token else {}
-        limits = httpx.Limits(max_connections=32, max_keepalive_connections=32)
+        limits = httpx.Limits(max_connections=16, max_keepalive_connections=16)
         timeout = httpx.Timeout(args.timeout_seconds)
         async with httpx.AsyncClient(base_url=args.base_url.rstrip("/"), headers=headers,
                                      limits=limits, timeout=timeout) as client:
-            await _warm_light_routes(client, args)
+            warm_statuses = await _warm_light_routes(client, args)
             samples = [await _sample(client, args, index) for index in range(args.samples)]
-        if any(sample.statuses.get("package") != 200 for sample in samples):
-            raise SystemExit(f"package probe did not return 200: {samples[-1].statuses}")
-        if args.prefetch and any(sample.statuses.get("prefetch") != 200 for sample in samples):
-            raise SystemExit(f"prefetch package probe did not return 200: {samples[-1].statuses}")
-        if not remote and identity_dir is not None:
-            identity_after = len(list(identity_dir.glob("*.json"))) if identity_dir.exists() else 0
-            expected = identity_before + args.samples
-            if identity_after < expected:
-                raise SystemExit(f"new-round identity files {identity_after} < before+samples {expected}")
+        bad_packages = [sample.errors for sample in samples
+                        if sample.statuses.get("package_map_only") != 200
+                        or (args.self_host and sample.statuses.get("package_cold") != 200)
+                        or (args.prefetch and sample.statuses.get("prefetch") != 200)]
+        if bad_packages:
+            raise RuntimeError(f"package probe did not return 200: {bad_packages}")
+        if args.self_host:
+            identity_count_after = len(list(identity_dir.glob("*.json"))) if identity_dir.exists() else 0
+            if identity_count_after < identity_count_before + args.samples + 1:
+                raise RuntimeError(f"expected at least {args.samples + 1} new round identities; "
+                                   f"before={identity_count_before}, after={identity_count_after}")
     finally:
         if service is not None:
             service.terminate()
@@ -321,55 +383,30 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                 service.wait()
         if fixture_temp is not None:
             fixture_temp.cleanup()
-
-    route_stats: dict[str, dict[str, Any]] = {}
-    light_names = list(samples[0].light_ms) if samples else []
-    for name in light_names:
-        valid = [sample.light_ms[name] for sample in samples if 200 <= sample.statuses.get(name, 0) < 300]
-        failed_statuses = sorted({sample.statuses.get(name, 0) for sample in samples if not 200 <= sample.statuses.get(name, 0) < 300})
-        route_stats[name] = {
-            "p50Ms": round(_quantile(valid, 0.50), 1) if valid else None,
-            "p95Ms": round(_quantile(valid, 0.95), 1) if valid else None,
-            "samples": len(valid),
-            "failed": len(samples) - len(valid),
-            "failureStatuses": {str(status): sum(1 for sample in samples if sample.statuses.get(name) == status) for status in failed_statuses},
-        }
-    package_values = [sample.package_ms for sample in samples]
-    cold_values = [sample.cold_package_ms for sample in samples if sample.cold_package_ms is not None]
-    prefetch_values = [sample.prefetch_ms for sample in samples if sample.prefetch_ms is not None]
     return {
-        "label": args.label,
-        "baseUrl": args.base_url,
-        "globalId": args.global_id,
-        "samples": args.samples,
-        "lightRoutesWarmed": True,
-        "fixturePrepared": bool(args.prepare_fixture),
-        "remoteReadOnly": remote,
-        "package": {
-            "p50Ms": round(_quantile(package_values, 0.50), 1) if package_values else None,
-            "p95Ms": round(_quantile(package_values, 0.95), 1) if package_values else None,
-            "valuesMs": [round(value, 1) for value in package_values],
-        },
-        "packageMapOnly": {
-            "p50Ms": round(_quantile(package_values, 0.50), 1) if package_values else None,
-            "p95Ms": round(_quantile(package_values, 0.95), 1) if package_values else None,
-            "valuesMs": [round(value, 1) for value in package_values],
-        },
-        "packageCold": {
-            "p50Ms": round(_quantile(cold_values, 0.50), 1) if cold_values else None,
-            "p95Ms": round(_quantile(cold_values, 0.95), 1) if cold_values else None,
-            "valuesMs": [round(value, 1) for value in cold_values],
-        },
-        "prefetch": None if not args.prefetch else {
-            "p50Ms": round(_quantile(prefetch_values, 0.50), 1) if prefetch_values else None,
-            "p95Ms": round(_quantile(prefetch_values, 0.95), 1) if prefetch_values else None,
-        },
-        "lightRoutes": route_stats,
-        "packageP95Ms": round(_quantile(package_values, 0.95), 1) if package_values else 0.0,
-        "prefetchP95Ms": round(_quantile(prefetch_values, 0.95), 1) if args.prefetch and prefetch_values else None,
-        "lightP95Ms": {name: route_stats[name]["p95Ms"] for name in light_names},
-        "statuses": samples[-1].statuses if samples else {},
+        "label": args.label, "globalId": args.global_id, "samples": args.samples,
+        "serverRepo": Path(args.server_repo).name if args.self_host else None,
+        "cpuAffinity": sorted(os.sched_getaffinity(0)),
+        "renderProcessesEnv": os.environ.get("AI_CADDIE_TOPO_RENDER_PROCESSES"),
+        "fixturePrepared": bool(args.prepare_fixture), "remoteReadOnly": not args.self_host,
+        "warmStatuses": warm_statuses, "metrics": _summarize(samples),
+        "pressure": [sample.pressure for sample in samples],
     }
+
+
+def _summarize(samples: list[Sample]) -> dict[str, dict[str, Any]]:
+    metrics = {}
+    for name in samples[0].timings if samples else []:
+        values = [sample.timings[name] for sample in samples if 200 <= sample.statuses[name] < 300]
+        failures = [sample.errors[name] for sample in samples if name in sample.errors]
+        metrics[name] = {
+            "p50Ms": round(statistics.median(values), 1) if values else None,
+            "p95Ms": round(_p95(values), 1) if values else None,
+            "ok": len(values), "failed": len(failures),
+            "valuesMs": [round(value, 1) for value in values],
+            "statuses": [sample.statuses[name] for sample in samples], "errors": failures,
+        }
+    return metrics
 
 
 def parse_args() -> argparse.Namespace:
@@ -380,16 +417,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--latitude", type=float, default=40.0455)
     parser.add_argument("--longitude", type=float, default=116.5462)
     parser.add_argument("--radius-km", type=int, default=50)
-    parser.add_argument("--samples", type=int, default=20)
+    parser.add_argument("--samples", type=int, default=5)
     parser.add_argument("--overlap-delay-ms", type=float, default=50.0)
     parser.add_argument("--timeout-seconds", type=float, default=90.0)
     parser.add_argument("--token")
-    parser.add_argument("--round-id", help="Existing round id for remote read-only probes")
     parser.add_argument("--label", default="run", help="before/after label included in JSON output")
-    parser.add_argument("--self-host", action="store_true", help="Start a fixture API subprocess")
-    parser.add_argument("--prepare-fixture", action="store_true", help="Generate local pressure inputs")
-    parser.add_argument("--fixture-root", help="Stable local data root; never used for remote probes")
-    parser.add_argument("--ai-caddie-root", help="Alias for AI_CADDIE_ROOT for before/after revisions")
+    parser.add_argument("--self-host", action="store_true", help="Start a fixture API subprocess on a temporary high port")
+    parser.add_argument("--server-repo", default=str(REPO_ROOT), help="Self-host API source revision (same probe for before/after)")
+    parser.add_argument("--install-pressure", action="store_true", help="Local synthetic whole-course install plus cold topo for every sample")
+    parser.add_argument("--round-id", help="Existing round id for remote low-side-effect probes")
+    parser.add_argument(
+        "--prepare-fixture", action="store_true",
+        help="On loopback, generate a 6MB event log and refresh one release file before probing",
+    )
+    parser.add_argument("--fixture-root", help="Local fixture root; defaults to a deleted temp directory")
     parser.add_argument("--no-prefetch", dest="prefetch", action="store_false")
     parser.set_defaults(prefetch=True)
     return parser.parse_args()

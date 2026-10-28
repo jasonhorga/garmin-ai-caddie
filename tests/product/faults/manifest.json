@@ -763,6 +763,20 @@
       "kind": "python",
       "target": "tests.test_corrected_history_cache",
       "promise": "C135d.4"
+    },
+    {
+      "id": "tests-product-faults-C135d-08",
+      "patch": "tests/product/faults/C135d/08-probe-count-errors.patch",
+      "kind": "python",
+      "target": "tests.test_concurrency_probe",
+      "promise": "C135d.5"
+    },
+    {
+      "id": "tests-product-faults-C135d-09",
+      "patch": "tests/product/faults/C135d/09-probe-shared-timing.patch",
+      "kind": "python",
+      "target": "tests.test_concurrency_probe",
+      "promise": "C135d.5"
     }
   ]
 }
