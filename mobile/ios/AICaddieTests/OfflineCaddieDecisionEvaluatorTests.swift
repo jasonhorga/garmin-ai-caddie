@@ -2,6 +2,22 @@ import XCTest
 @testable import AICaddie
 
 final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
+    /// Product spec 5.4: the map facts and the upper F/M/B ladder use one presentation source.
+    func testProductSpec54LiveGreenReadoutIsSharedByMapFactsAndLadder() {
+        let live = LiveGreenRangeYards(front: 514, middle: 537, back: 552)
+        let staticFallback = LiveGreenRangeYards(front: 565, middle: 588, back: 603)
+        XCTAssertEqual(
+            LiveGreenRangePresentation.resolve(live: live, staticFallback: staticFallback),
+            live,
+            "a qualified live origin must drive both surfaces"
+        )
+        XCTAssertEqual(
+            LiveGreenRangePresentation.resolve(live: nil, staticFallback: staticFallback),
+            staticFallback,
+            "without a qualified fix both surfaces use the tee facts"
+        )
+    }
+
     func testLiveCaddieDistancePrefersManualThenLiveThenStaticMiddle() {
         XCTAssertEqual(
             LiveCaddieDistance.resolve(manualM: 141, liveMiddleM: 152, staticMiddleM: 163),

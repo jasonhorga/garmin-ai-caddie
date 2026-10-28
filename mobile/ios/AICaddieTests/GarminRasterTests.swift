@@ -31,6 +31,29 @@ private final class GarminRasterStubURLProtocol: URLProtocol {
 /// Card 454: the phone can use Garmin's raster while CourseView geometry is pending and can
 /// transfer the player's viewport/points when the precise image arrives.
 final class GarminRasterTests: XCTestCase {
+    /// Product spec 4.5: Garmin is an optional live-hole layer; opting out must avoid both its
+    /// descriptor request and its display state while the factual/precise map remains usable.
+    func testProductSpec45GarminOptOutDoesNotFetchOrDisplay() {
+        XCTAssertFalse(
+            LiveGarminRasterPolicy.shouldFetch(enabled: false, requestStarted: false),
+            "Garmin disabled must not start a descriptor request"
+        )
+        XCTAssertNil(
+            LiveGarminRasterPolicy.displayedRaster(
+                enabled: false,
+                raster: GarminRasterResponse(available: true, imageUrl: "/garmin.png")
+            ),
+            "Garmin disabled must stay out of the map state"
+        )
+    }
+
+    /// Product spec 4.5: selecting the optional Garmin layer keeps the request independent from the
+    /// live map and allows one in-flight descriptor request.
+    func testProductSpec45GarminOptInStartsOneRequest() {
+        XCTAssertTrue(LiveGarminRasterPolicy.shouldFetch(enabled: true, requestStarted: false))
+        XCTAssertFalse(LiveGarminRasterPolicy.shouldFetch(enabled: true, requestStarted: true))
+    }
+
     private func projection(
         originPixel: CGPoint,
         xPixel: CGPoint,

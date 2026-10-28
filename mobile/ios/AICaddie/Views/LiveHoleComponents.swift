@@ -2045,6 +2045,40 @@ struct LiveMapPreparingPill: View {
     }
 }
 
+/// Pure policies shared by the live-hole view and native tests.  The initial implementation keeps
+/// the existing always-on Garmin request and static F/M/B fallback; C136's product fix tightens
+/// these two decisions without coupling tests to SwiftUI view state.
+enum LiveGarminRasterPolicy {
+    static func shouldFetch(enabled: Bool, requestStarted: Bool) -> Bool {
+        _ = enabled
+        return !requestStarted
+    }
+
+    static func displayedRaster(
+        enabled: Bool,
+        raster: GarminRasterResponse?
+    ) -> GarminRasterResponse? {
+        _ = enabled
+        return raster
+    }
+}
+
+struct LiveGreenRangeYards: Equatable {
+    let front: Int?
+    let middle: Int?
+    let back: Int?
+}
+
+enum LiveGreenRangePresentation {
+    static func resolve(
+        live: LiveGreenRangeYards?,
+        staticFallback: LiveGreenRangeYards
+    ) -> LiveGreenRangeYards {
+        _ = live
+        return staticFallback
+    }
+}
+
 /// A selected obstacle the bitmap on screen cannot place (yet). Its distances remain in the hazard
 /// bar; this explains the empty map instead of leaving it silently blank.
 struct LiveHazardMapNotice: View {
