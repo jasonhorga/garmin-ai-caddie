@@ -1,7 +1,7 @@
 diff --git a/mobile/ios/AICaddie/Models/ResultsPresentation.swift b/mobile/ios/AICaddie/Models/ResultsPresentation.swift
 --- a/mobile/ios/AICaddie/Models/ResultsPresentation.swift
 +++ b/mobile/ios/AICaddie/Models/ResultsPresentation.swift
-@@ -638,7 +638,8 @@
+@@ -638,6 +638,7 @@
      /// generation so that the old answer cannot arrive and change the page.
      mutating func choose(_ requestedWindow: String) -> Request? {
          guard requestedWindow == window else { return select(requestedWindow) }
