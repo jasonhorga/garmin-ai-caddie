@@ -18,9 +18,12 @@ import argparse
 import asyncio
 from dataclasses import dataclass
 import json
+import os
 import re
+import socket
 import statistics
 import sys
+import subprocess
 import tempfile
 import time
 from typing import Any
@@ -37,6 +40,7 @@ if str(REPO_ROOT) not in sys.path:
 
 @dataclass(frozen=True)
 class Sample:
+    round_id: str
     package_ms: float
     prefetch_ms: float | None
     light_ms: dict[str, float]
@@ -93,6 +97,7 @@ async def _sample(client: httpx.AsyncClient, args: argparse.Namespace, index: in
         if prefetch_task is not None else None
     )
     return Sample(
+        round_id=round_id,
         package_ms=package_ms,
         prefetch_ms=prefetch_ms,
         light_ms={name: elapsed for name, elapsed, _status in probe_results},
@@ -132,14 +137,64 @@ def _prepare_fixture(root: Path, global_id: int) -> None:
         )
     # Keep the CourseView course id in the fixture aligned with the requested global id. A
     # mismatched protobuf would make the local package probe look like a provider failure.
-    release_fixture = REPO_ROOT / "tests" / "fixtures" / f"courseview_release_{global_id}.pb"
-    if release_fixture.exists():
-        payload = release_fixture.read_bytes()
-        token_pattern = re.compile(rb"garmindlm=\d{10}_[0-9a-f]{32}")
-        refreshed = token_pattern.sub(
-            b"garmindlm=1790000000_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", payload,
+    payload = _synthetic_package_release(global_id)
+    token_pattern = re.compile(rb"garmindlm=\d{10}_[0-9a-f]{32}")
+    refreshed = token_pattern.sub(
+        b"garmindlm=1790000000_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", payload,
+    )
+    save_release_pb(global_id, refreshed, root=root)
+
+
+def _synthetic_package_release(global_id: int) -> bytes:
+    """Build only the CourseView facts needed for a valid local 18-hole package.
+
+    The real release fixtures are nine-hole layouts. This fixture intentionally contains generic
+    par/tee/asset facts so the probe exercises a successful package path without inventing a real
+    course's geography or measurements.
+    """
+    def varint(value: int) -> bytes:
+        out = bytearray()
+        while value > 127:
+            out.append((value & 0x7F) | 0x80)
+            value >>= 7
+        out.append(value)
+        return bytes(out)
+
+    def scalar(field_no: int, value: int) -> bytes:
+        return varint(field_no << 3) + varint(value)
+
+    def text(field_no: int, value: str) -> bytes:
+        encoded = value.encode("utf-8")
+        return varint((field_no << 3) | 2) + varint(len(encoded)) + encoded
+
+    def message(field_no: int, value: bytes) -> bytes:
+        return varint((field_no << 3) | 2) + varint(len(value)) + value
+
+    tees = b"".join(
+        message(6, text(1, name) + scalar(2, slope) + text(4, "MEN") + scalar(5, index))
+        for index, (name, slope) in enumerate((("Blue", 110), ("White", 100)), start=1)
+    )
+    holes = []
+    for hole_number in range(1, 19):
+        suffix = f"hole{hole_number:02d}"
+        token = "1780159414_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        raster = f"https://fixture.invalid/raster/{suffix}_0.jpg?garmindlm={token}"
+        geometry = f"https://fixture.invalid/geometry/{suffix}_280640.zip?garmindlm={token}"
+        aux = f"https://fixture.invalid/raster/{suffix}_1.jpg?garmindlm={token}"
+        par = message(2, scalar(1, 4))
+        handicap = message(3, scalar(1, ((hole_number - 1) % 9) + 1))
+        hole = (
+            scalar(1, hole_number) + par + handicap + scalar(6, 400)
+            + text(7, raster) + text(8, geometry) + text(9, aux)
         )
-        save_release_pb(global_id, refreshed, root=root)
+        holes.append(message(7, hole))
+    sections = message(5, text(1, "OUT") + scalar(2, 36) + text(3, "MEN"))
+    sections += message(5, text(1, "IN") + scalar(2, 36) + text(3, "MEN"))
+    return (
+        scalar(1, int(global_id)) + scalar(2, 266) + text(3, "fixture-release")
+        + text(4, "Synthetic Fixture Course") + sections + tees
+        + b"".join(holes) + scalar(10, 28)
+    )
 
 
 async def _warm_light_routes(client: httpx.AsyncClient, args: argparse.Namespace) -> None:
@@ -165,8 +220,53 @@ def _p95(values: list[float]) -> float:
     return statistics.quantiles(values, n=20, method="inclusive")[18] if len(values) > 1 else values[0]
 
 
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as handle:
+        handle.bind(("127.0.0.1", 0))
+        return int(handle.getsockname()[1])
+
+
+def _start_fixture_server(root: Path) -> tuple[subprocess.Popen[bytes], str]:
+    port = _free_port()
+    environment = dict(os.environ)
+    environment.update({
+        "AI_CADDIE_DATA_MODE": "fixture",
+        "AI_CADDIE_ROOT": str(root),
+        "PYTHONPATH": str(REPO_ROOT),
+    })
+    process = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "server_v2.main:app", "--host", "127.0.0.1", "--port", str(port)],
+        cwd=root,
+        env=environment,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return process, f"http://127.0.0.1:{port}"
+
+
+async def _wait_for_server(base_url: str, process: subprocess.Popen[bytes]) -> None:
+    async with httpx.AsyncClient(base_url=base_url, timeout=2.0) as client:
+        for _ in range(60):
+            if process.poll() is not None:
+                raise SystemExit("fixture server exited before becoming healthy")
+            try:
+                if (await client.get("/api/v2/health")).status_code == 200:
+                    return
+            except httpx.HTTPError:
+                pass
+            await asyncio.sleep(0.1)
+    raise SystemExit("fixture server did not become healthy")
+
+
 async def run(args: argparse.Namespace) -> dict[str, Any]:
+    if args.self_host and args.base_url is None:
+        # Placeholder only for the loopback guards below; _start_fixture_server picks the real port.
+        args.base_url = "http://127.0.0.1"
+    if args.base_url is None:
+        raise SystemExit("--base-url is required unless --self-host is used")
     remote = not _loopback(args.base_url)
+    if args.self_host and remote:
+        raise SystemExit("--self-host requires a loopback probe")
     if remote and not args.round_id:
         raise SystemExit("remote probes require an existing --round-id (read-only mode)")
     args.prefetch = bool(args.prefetch and not remote)
@@ -174,9 +274,15 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         raise SystemExit("--prepare-fixture is restricted to a loopback base URL")
     fixture_temp = tempfile.TemporaryDirectory(prefix="caddie-c135-") if args.fixture_root is None else None
     fixture_root = Path(args.fixture_root) if args.fixture_root is not None else Path(fixture_temp.name)
+    service: subprocess.Popen[bytes] | None = None
     try:
         if args.prepare_fixture:
             _prepare_fixture(fixture_root, args.global_id)
+        if args.self_host:
+            service, args.base_url = _start_fixture_server(fixture_root)
+            await _wait_for_server(args.base_url, service)
+        identity_dir = fixture_root / "data" / "mobile_events" / "round_identity"
+        identity_count_before = len(list(identity_dir.glob("*.json"))) if identity_dir.exists() else 0
         headers = {"Authorization": f"Bearer {args.token}"} if args.token else {}
         limits = httpx.Limits(max_connections=16, max_keepalive_connections=16)
         timeout = httpx.Timeout(args.timeout_seconds)
@@ -184,7 +290,23 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
                                      limits=limits, timeout=timeout) as client:
             await _warm_light_routes(client, args)
             samples = [await _sample(client, args, index) for index in range(args.samples)]
+        bad_statuses = [sample.statuses for sample in samples if sample.statuses.get("package") != 200]
+        if bad_statuses:
+            raise SystemExit(f"package probe did not return 200: {bad_statuses[-1]}")
+        if args.prefetch and any(sample.statuses.get("prefetch") != 200 for sample in samples):
+            raise SystemExit("prefetch package probe did not return 200")
+        if not remote:
+            identity_count_after = len(list(identity_dir.glob("*.json"))) if identity_dir.exists() else 0
+            if identity_count_after <= identity_count_before:
+                raise SystemExit("new-round package did not create a round_identity file")
     finally:
+        if service is not None:
+            service.terminate()
+            try:
+                service.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                service.kill()
+                service.wait()
         if fixture_temp is not None:
             fixture_temp.cleanup()
     light_names = list(samples[0].light_ms) if samples else []
@@ -212,7 +334,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--base-url", help="Server under test; omitted only with --self-host")
     parser.add_argument("--global-id", type=int, default=31936)
     parser.add_argument("--tee-box", default="blue")
     parser.add_argument("--latitude", type=float, default=40.0455)
@@ -223,6 +345,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", type=float, default=90.0)
     parser.add_argument("--token")
     parser.add_argument("--label", default="run", help="before/after label included in JSON output")
+    parser.add_argument("--self-host", action="store_true", help="Start a fixture API subprocess on a temporary high port")
     parser.add_argument("--round-id", help="Existing round id for remote low-side-effect probes")
     parser.add_argument(
         "--prepare-fixture", action="store_true",

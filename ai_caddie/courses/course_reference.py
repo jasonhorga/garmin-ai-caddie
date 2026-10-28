@@ -770,9 +770,11 @@ def _semantic_release_signature(
     return (int(info["release_version"]), hashlib.sha256(canonical.encode("utf-8")).hexdigest())
 
 
-def courseview_release_signature(global_id: int, *, root: Path = ROOT) -> tuple[int, str] | None:
+def courseview_release_signature(
+    global_id: int, *, root: Path = ROOT, release_path: Path | None = None,
+) -> tuple[int, str] | None:
     """Return a semantic release signature; rotating ``garmindlm`` tokens do not evict caches."""
-    path = _courseview_dir(root) / f"{int(global_id)}_releases.pb"
+    path = release_path or (_courseview_dir(root) / f"{int(global_id)}_releases.pb")
     raw_signature = revisions.file_content_signature(path)
     if raw_signature is None:
         return None
