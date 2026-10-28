@@ -565,7 +565,7 @@ final class RoundStartTwoStageTests: XCTestCase {
             let tasks: [URLSessionTask] = await withCheckedContinuation { continuation in
                 session.getAllTasks { continuation.resume(returning: $0) }
             }
-            if tasks.allSatisfy({ $0.state != .running }) { return }
+            if tasks.allSatisfy({ $0.state != .running && $0.state != .canceling }) { return }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
     }
@@ -743,14 +743,21 @@ private final class C85DownloadLog {
 
 private actor C90RequestGate {
     private var waiter: CheckedContinuation<Void, Never>?
+    private var released = false
 
     func wait() async {
+        if released { return }
         await withCheckedContinuation { continuation in
+            if released {
+                continuation.resume()
+                return
+            }
             waiter = continuation
         }
     }
 
     func release() {
+        released = true
         waiter?.resume()
         waiter = nil
     }
