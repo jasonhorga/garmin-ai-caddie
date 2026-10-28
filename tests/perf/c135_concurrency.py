@@ -87,9 +87,12 @@ async def _sample(client: httpx.AsyncClient, args: argparse.Namespace, index: in
     topo_task = None
     if args.install_pressure:
         other = args.global_id + 1000 + index
-        response = await client.get(_package_path(args, f"prep-library-{other}", map_only=True, gid=other))
-        if response.status_code != 200:
-            raise RuntimeError(f"pressure package {response.status_code}: {response.text}")
+        # Startup can bind a newly discovered CourseData route to an existing mesh. Re-read once
+        # before timing so the journal follows that settled revision rather than the first snapshot.
+        for _ in range(2):
+            response = await client.get(_package_path(args, f"prep-library-{other}", map_only=True, gid=other))
+            if response.status_code != 200:
+                raise RuntimeError(f"pressure package {response.status_code}: {response.text}")
         job = response.json().get("courseInstallJob") or {}
         pressure = {"globalId": other, "jobId": job.get("jobId"), "phase": job.get("phase")}
         if not pressure["jobId"]:
@@ -166,6 +169,7 @@ def _prepare_fixture(root: Path, global_id: int, *, samples: int = 0) -> None:
             request_key="c135-large-history",
         )
     from ai_caddie.courses.course_reference import courseview_release_info
+    from ai_caddie.courses.courseview_core import course_data_cache_path
     from ai_caddie.geometry.geometry_authority import authority_path, build_authority, write_authority
 
     for gid in [global_id, *(global_id + 1000 + index for index in range(samples))]:
@@ -173,6 +177,18 @@ def _prepare_fixture(root: Path, global_id: int, *, samples: int = 0) -> None:
         release = courseview_release_info(gid, allow_fetch=False, root=root)
         if not release:
             raise RuntimeError(f"synthetic release {gid} was not readable")
+        # Supply an explicit synthetic route too: otherwise map startup may load a committed
+        # CourseData fixture for this id and change the mesh token after the package queued it.
+        route = [[0.0, 0.0], [360.0 / 111195.0, 0.0]]
+        course_data = {
+            "schema": "garmin-course-data-core-v1", "sourceVariant": "medium-plus",
+            "buildId": 266, "globalLayoutId": gid, "group": 0,
+            "holes": [{"holeNumber": hole, "lines": [{"role": "route",
+                "pointOrder": "tee-to-green", "lengthMetres": 360, "coordinateCount": 2, "points": [
+                {"latitude": lat, "longitude": lon} for lat, lon in route
+            ]}]} for hole in range(1, 19)],
+        }
+        course_data_cache_path(gid, 266, root=root).write_text(json.dumps(course_data))
         for row in release["holes"]:
             hole = int(row["hole"])
             mesh = root / "output/prodgeometry" / f"gid{gid}_h{hole:02d}_meshes.json"
@@ -183,6 +199,7 @@ def _prepare_fixture(root: Path, global_id: int, *, samples: int = 0) -> None:
             hazard.write_text(json.dumps({"globalId": gid, "holeNumber": hole, "hazards": []}))
             authority = build_authority(global_id=gid, local_hole=hole, release=release, hole=row,
                                         release_source="fixture", geometry_zip_sha256="b" * 64)
+            authority["cachedCourseDataRoute"] = route
             write_authority(authority_path(mesh), authority)
 
 
@@ -266,6 +283,9 @@ async def _warm_light_routes(client: httpx.AsyncClient, args: argparse.Namespace
         if name == "package_map_only" and response.status_code != 200:
             raise RuntimeError(f"package warmup {response.status_code}: {response.text}")
     if args.self_host:
+        response = await client.get(paths["package_map_only"])
+        if response.status_code != 200:
+            raise RuntimeError(f"package rebind warmup {response.status_code}: {response.text}")
         # Complete the foreground course's warmup before adding a different course's install.
         path = _light_paths(args)["install_status"]
         for _ in range(1200):
@@ -278,6 +298,7 @@ async def _warm_light_routes(client: httpx.AsyncClient, args: argparse.Namespace
             await asyncio.sleep(0.1)
         if phase != "ready":
             raise RuntimeError(f"foreground fixture install failed: {response.text[:2000]}")
+        statuses["install_status"] = response.status_code
     return statuses
 
 
