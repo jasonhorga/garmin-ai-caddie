@@ -278,10 +278,11 @@ final class CapturingURLProtocolTests: XCTestCase {
             return (response, Data("scoped".utf8))
         }
         let session = URLSession(configuration: scope.configuration())
-        let (_, body) = try await session.data(from: URL(string: "https://protocol.test/scoped")!)
+        let request = URLRequest(url: URL(string: "https://protocol.test/scoped")!)
+        let result: (Data, URLResponse) = try await session.data(for: request)
 
         XCTAssertEqual(scopedHandlerCalls, 1)
         XCTAssertEqual(observedToken, scope.token)
-        XCTAssertEqual(body, Data("scoped".utf8))
+        XCTAssertEqual(result.0, Data("scoped".utf8))
     }
 }
