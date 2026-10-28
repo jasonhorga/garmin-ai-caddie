@@ -1,0 +1,22 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4140,6 +4140,6 @@
+         enterPrepMode(
+             with: package.rebasedForOfflineStart(
+-                roundId: StartRoundView.freshLiveRoundId(globalId: package.course.globalId)
++                roundId: "undo-\(StartRoundView.freshLiveRoundId(globalId: package.course.globalId))"
+             ),
+             hole: hole
+         )
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -1661,6 +1661,6 @@
+     private var roundBannerText: String {
+         HoleScreenRoundBanner.resolve(
+-            roundStarted: !isPrepMode,
++            roundStarted: !isPrepMode || package.roundId.hasPrefix("undo-"),
+             location: prepLocation,
+             courseHoleNumber: package.courseHoleNumber(forRoundHole:),
+             currentCourseHole: hole.courseHoleNumber

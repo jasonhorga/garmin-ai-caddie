@@ -664,42 +664,60 @@ public struct ResultsTrendView: View {
     @State private var grain: ResultsTimePresentation.Grain = .quarter
     /// The time page has its own server-backed range.  Keep it independent from the chart grain so
     /// changing a chart presentation never silently changes the sample being displayed.
-    @State private var window = "all"
     /// Seeded with 成绩's own all-window payload (the same request), so the page opens at once and
-    /// the request below only refreshes it.
-    @State private var stats: MobileStats?
-    @State private var isLoading = true
-    @State private var failed = false
+    /// the request below only refreshes it. The state keeps the picker and payload paired when a
+    /// range request fails.
+    @State private var load: ResultsTimeLoadState
+    /// The picker binding is kept separate so a failed selection can snap back to the range of the
+    /// answer still on screen.
+    @State private var window = "all"
 
     public init(apiBaseURL: URL?, adminToken: String?, initialStats: MobileStats? = nil) {
         self.apiBaseURL = apiBaseURL
         self.adminToken = adminToken
-        _stats = State(initialValue: initialStats)
+        _load = State(initialValue: ResultsTimeLoadState(window: "all", stats: initialStats))
     }
-    /// Only the newest load writes back (a Garmin refresh can overlap the first load).
-    @State private var generation = 0
     @State private var destination: ResultsTrendDestination?
 
     public var body: some View {
         ScrollView {
-            if let stats {
+            if let stats = load.stats {
+                if let notice = load.notice {
+                    HStack(spacing: 8) {
+                        Label(notice, systemImage: "exclamationmark.circle")
+                        Spacer(minLength: 8)
+                        Button("重试") { start(load.retry()) }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(16)
+                    .accessibilityIdentifier("time-range-notice")
+                }
                 ResultsTimeContent(stats: stats, window: $window, grain: $grain) { destination = $0 }
-            } else if isLoading {
+            } else if load.isLoading {
                 ProgressView("载入时间与频率…").frame(maxWidth: .infinity).padding(.top, 40)
             } else {
-                Text(failed ? "时间与频率暂时取不到" : "还没有球局")
+                let message: String = {
+                    if case let .failed(value) = load.phase { return value }
+                    return "还没有球局"
+                }()
+                Text(message)
                     .font(.subheadline).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity).padding(.vertical, 40)
             }
         }
         .background(HubStyle.grouped).navigationTitle("时间与频率")
         .navigationDestination(item: $destination) { destination in destinationView(destination) }
-        .task { await load() }
-        .onChange(of: window) { _, value in
-            Task { await load(window: value) }
+        .task { reloadCommittedRange() }
+        .onChange(of: window) { _, requested in
+            if let request = load.choose(requested) {
+                start(request)
+            } else {
+                window = load.window
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .garminDataDidRefresh)) { _ in
-            Task { await load() }
+            reloadCommittedRange()
         }
     }
 
@@ -714,17 +732,25 @@ public struct ResultsTrendView: View {
         }
     }
 
-    @MainActor private func load(window requestedWindow: String? = nil) async {
-        generation += 1
-        let current = generation
-        guard let apiBaseURL else { isLoading = false; failed = true; return }
-        isLoading = true
-        let loaded = try? await SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
-            .fetchMobileStats(window: requestedWindow ?? window)
-        guard current == generation, !Task.isCancelled else { return }
-        if let loaded { stats = loaded }
-        failed = loaded == nil
-        isLoading = false
+    @MainActor private func start(_ request: ResultsTimeLoadState.Request) {
+        guard let apiBaseURL else {
+            load.complete(request, stats: nil)
+            window = load.window
+            return
+        }
+        let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
+        Task { @MainActor in
+            let loaded = try? await client.fetchMobileStats(window: request.window)
+            guard !Task.isCancelled else { return }
+            if load.complete(request, stats: loaded) {
+                window = load.window
+            }
+        }
+    }
+
+    @MainActor private func reloadCommittedRange() {
+        let request = load.refresh()
+        start(request)
     }
 }
 

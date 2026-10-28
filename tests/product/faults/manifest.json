@@ -20,7 +20,7 @@
       "patch": "tests/product/faults/C16e/j2_2.patch",
       "kind": "native-ui",
       "target": "AICaddieUITests/ProductPhoneUITests/test_j2_2_range_and_grain_disable_illegal_combinations_without_changing_range",
-      "promise": "j2.2"
+      "promise": "2.2"
     },
     {
       "id": "tests-product-faults-C16e-j2-3",
@@ -104,7 +104,7 @@
       "patch": "tests/product/faults/C16e/j5_1.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductPhoneStateTests/test_j5_1_phone_defaults_and_every_hole_ten_event_lock",
-      "promise": "j5.1"
+      "promise": "5.1"
     },
     {
       "id": "tests-product-faults-C16e-j5-10",
@@ -581,6 +581,34 @@
       "kind": "python-script",
       "target": "python tests/product/faults/c16c_mutants.py",
       "promise": "C16c"
+    },
+    {
+      "id": "tests-product-faults-C118-C110-j2-2-range-switch-back",
+      "patch": "tests/product/faults/C118-C110/C118-range-failure.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/J2_2ResultsRangeFailureTests/test_j2_2_switching_back_invalidates_the_old_request",
+      "promise": "2.2"
+    },
+    {
+      "id": "tests-product-faults-C118-C110-j2-2-range-core",
+      "patch": "tests/product/faults/C118-C110/C118-core-range-failure.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/J2_2ResultsRangeFailureTests/test_j2_2_failed_range_switch_reverts_picker_and_keeps_previous_data",
+      "promise": "2.2"
+    },
+    {
+      "id": "tests-product-faults-C118-C110-j5-1-recording-banner",
+      "patch": "tests/product/faults/C118-C110/C110-back-nine-banner.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/RealFlowUITests/testWholeCourseBackNineStartsFromFirstStrokeJourney",
+      "promise": "5.1"
+    },
+    {
+      "id": "tests-product-faults-C118-C110-j5-1-after-undo-banner",
+      "patch": "tests/product/faults/C118-C110/C110-after-undo-banner.patch",
+      "kind": "native-ui",
+      "target": "AICaddieUITests/RealFlowUITests/testWholeCourseBackNineStartsFromFirstStrokeJourney",
+      "promise": "5.1"
     }
   ]
 }

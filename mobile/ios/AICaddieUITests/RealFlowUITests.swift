@@ -76,7 +76,7 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("c99-whole-course-prep-first-hole"); dump("c99-whole-course-prep-first-hole")
     }
 
-    /// The same whole-course prep package must allow a player standing on hole 10 to start there;
+    /// C110①⑤ / J5.1: the same whole-course prep package must allow a player standing on hole 10 to start there;
     /// no front-nine cursor is persisted before the first stroke.
     func testWholeCourseBackNineStartsFromFirstStrokeJourney() throws {
         app.launchEnvironment["UITEST_PAGER_TRACE"] = "1"
@@ -162,8 +162,7 @@ final class RealFlowUITests: XCTestCase {
         let liveBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
         assertAndCapture(
             liveBanner.waitForExistence(timeout: 5)
-                && liveBanner.label.contains("第 10 洞")
-                && liveBanner.label.contains("正在记录"),
+                && liveBanner.label.contains("第 10 洞 · 正在记录"),
             "the first stroke must show hole 10 as recording",
             "c99-back-nine-after-first-stroke-banner"
         )
@@ -183,6 +182,13 @@ final class RealFlowUITests: XCTestCase {
             app.staticTexts["第 10 洞"].waitForExistence(timeout: 8),
             "undo must keep the player on hole 10",
             "c99-back-nine-after-undo-hole"
+        )
+        let afterUndoBanner = app.descendants(matching: .any)["live-round-banner"].firstMatch
+        assertAndCapture(
+            afterUndoBanner.waitForExistence(timeout: 8)
+                && afterUndoBanner.label.contains("第 10 洞 · 记第一杆即开打"),
+            "undo must keep the prep banner on hole 10",
+            "c99-back-nine-after-undo-banner"
         )
         settle(1); save("c99-whole-course-prep-back-nine"); dump("c99-whole-course-prep-back-nine")
     }

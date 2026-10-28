@@ -1,0 +1,10 @@
+diff --git a/mobile/ios/AICaddie/Models/RoundPlayOrder.swift b/mobile/ios/AICaddie/Models/RoundPlayOrder.swift
+--- a/mobile/ios/AICaddie/Models/RoundPlayOrder.swift
++++ b/mobile/ios/AICaddie/Models/RoundPlayOrder.swift
+@@ -74,5 +74,5 @@
+         case .prep: return "没到场，先备战·不记录"
+         case .atCourse: return "不在球洞范围·不记录"
+         case .readyToStart(let hole): return "第 \(hole) 洞 · 记第一杆即开打"
+-        case .recording(let hole): return "第 \(hole) 洞 · 正在记录"
++        case .recording(let hole): return "第 \(hole) 洞 · 记第一杆即开打"
+         }
