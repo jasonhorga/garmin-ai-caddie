@@ -10,13 +10,16 @@ from server_v2 import render_backfill
 
 class RenderBackfillTests(unittest.TestCase):
     def _worker(self, root: Path, **kwargs):
-        return render_backfill.RenderBackfill(
+        options = dict(
             state_path=root / "state.json",
             mesh_root=root / "meshes",
             topo_ready=lambda _gid, _hole: False,
             raster_version=lambda gid, hole: "asset-1" if (gid, hole) != (2, 2) else None,
-            **kwargs,
+            render_topo=lambda _gid, _hole: b"png",
+            render_garmin=lambda _gid, _hole, _version: b"webp",
         )
+        options.update(kwargs)
+        return render_backfill.RenderBackfill(**options)
 
     def test_c135b_style_change_requeues_current_topo_version(self):
         # J8.3: renderer-versioned derived assets are rebuilt after a version change.
@@ -27,8 +30,8 @@ class RenderBackfillTests(unittest.TestCase):
             (mesh / "gid1_h01_meshes.json").write_text("{}")
             first = self._worker(root, style_version="topo-v1", matte_version="sky1")
             first.enqueue_all()
-            first.run_once()
-            self.assertEqual(first.status()["done"], 1)
+            first.run_to_completion()
+            self.assertEqual(first.status()["done"], 2)
             second = self._worker(root, style_version="topo-v2", matte_version="sky1")
             second.enqueue_all()
             self.assertEqual(second.status()["pending"], 1)
@@ -47,8 +50,8 @@ class RenderBackfillTests(unittest.TestCase):
             worker.run_once()
             restarted = self._worker(root, render_topo=lambda gid, hole: calls.append((gid, hole)))
             restarted.enqueue_all()
-            self.assertEqual(restarted.status()["pending"], 1)
-            restarted.run_once()
+            self.assertEqual(restarted.status()["pending"], 3)
+            restarted.run_to_completion()
             self.assertEqual(calls, [(1, 1), (1, 2)])
 
     def test_c135b_frontend_yield_is_observed_before_render(self):
@@ -85,6 +88,20 @@ class RenderBackfillTests(unittest.TestCase):
             task = worker.status()["tasks"]["2:2"]
             self.assertEqual(task["garmin"], "skipped")
             self.assertEqual(calls, [("topo", 2, 2)])
+
+    def test_c135b_priority_is_recent_then_downloaded_then_other(self):
+        # J8.3: front-door recent work overtakes downloaded/offline work, which overtakes the rest.
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            mesh = root / "meshes"
+            mesh.mkdir()
+            for hole in (1, 2, 3):
+                (mesh / f"gid1_h{hole:02d}_meshes.json").write_text("{}")
+            calls = []
+            worker = self._worker(root, render_topo=lambda gid, hole: calls.append((gid, hole)))
+            worker.enqueue_all(recent={(1, 2)}, downloaded={(1, 3)})
+            worker.run_to_completion()
+            self.assertEqual(calls, [(1, 2), (1, 3), (1, 1)])
 
 
 if __name__ == "__main__":
