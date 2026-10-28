@@ -1,13 +1,20 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1893,16 +1893,7 @@
+@@ -1890,23 +1890,7 @@
          }
          guard let task = intentPrefetchTasks[key] else { return (nil, false) }
          do {
+-            let waitNanoseconds = roundStartIntentWaitNanoseconds
 -            let cached = try await withThrowingTaskGroup(of: LiveRoundPackage.self) { group in
--                group.addTask { try await task.value }
 -                group.addTask {
--                    try await Task.sleep(nanoseconds: self.roundStartIntentWaitNanoseconds)
+-                    try await withTaskCancellationHandler {
+-                        try await task.value
+-                    } onCancel: {
+-                        task.cancel()
+-                    }
+-                }
+-                group.addTask {
+-                    try await Task.sleep(nanoseconds: waitNanoseconds)
 -                    throw IntentPrefetchWaitTimeout()
 -                }
 -                defer { group.cancelAll() }

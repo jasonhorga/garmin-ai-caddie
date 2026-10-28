@@ -1,6 +1,6 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1888,9 +1888,6 @@
+@@ -1885,9 +1885,6 @@
          generatedAt: Date
      ) async -> (package: LiveRoundPackage?, timedOut: Bool) {
          let key = PrepCourseDownloadRecord.intentKey(globalId: globalId, teeBox: teeBox)
@@ -9,4 +9,4 @@
 -        }
          guard let task = intentPrefetchTasks[key] else { return (nil, false) }
          do {
-             let cached = try await withThrowingTaskGroup(of: LiveRoundPackage.self) { group in
+             let waitNanoseconds = roundStartIntentWaitNanoseconds
