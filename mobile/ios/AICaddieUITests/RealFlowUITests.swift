@@ -207,15 +207,34 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
         let openSearch = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20))
-        openSearch.tap()
+        XCTAssertTrue(
+            UITapHelpers.tapWhenHittable(
+                openSearch,
+                timeout: 5,
+                diagnosticName: "realflow-course-search-entry"
+            )
+        )
         XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
         let query = app.textFields["course-catalog-keyword-field"]
         XCTAssertTrue(scrollTo(query, maxSwipes: 8))
-        query.tap()
-        query.typeText("北京丽宫")
+        XCTAssertTrue(
+            UITapHelpers.focusAndTypeText(
+                query,
+                text: "北京丽宫",
+                app: app,
+                timeout: 8,
+                diagnosticName: "realflow-course-search"
+            )
+        )
         let search = app.buttons["course-catalog-search-action"]
         XCTAssertTrue(waitUntilEnabled(search, timeout: 5))
-        search.tap()
+        XCTAssertTrue(
+            UITapHelpers.tapWhenHittable(
+                search,
+                timeout: 5,
+                diagnosticName: "realflow-course-search-submit"
+            )
+        )
         XCTAssertTrue(waitUntilGone(app.keyboards.firstMatch, timeout: 8))
         let result = app.buttons["course-catalog-result-\(approvedJourneyCourseGlobalId)"]
         XCTAssertTrue(scrollTo(result, maxSwipes: 30))
@@ -585,7 +604,13 @@ final class RealFlowUITests: XCTestCase {
         )
         let openSearch = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20))
-        openSearch.tap()
+        XCTAssertTrue(
+            UITapHelpers.tapWhenHittable(
+                openSearch,
+                timeout: 5,
+                diagnosticName: "realflow-prep-search-entry"
+            )
+        )
         XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["course-catalog-nearby-action"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.textFields["course-catalog-city-field"].exists)
@@ -597,11 +622,24 @@ final class RealFlowUITests: XCTestCase {
         // provider result enters the prep hole screen directly; no review page sits between.
         let prepQuery = app.textFields["course-catalog-keyword-field"]
         XCTAssertTrue(scrollTo(prepQuery, maxSwipes: 8))
-        prepQuery.tap()
-        prepQuery.typeText("北京丽宫")
+        XCTAssertTrue(
+            UITapHelpers.focusAndTypeText(
+                prepQuery,
+                text: "北京丽宫",
+                app: app,
+                timeout: 8,
+                diagnosticName: "realflow-prep-search"
+            )
+        )
         let prepSearch = app.buttons["course-catalog-search-action"]
         XCTAssertTrue(waitUntilEnabled(prepSearch, timeout: 5))
-        prepSearch.tap()
+        XCTAssertTrue(
+            UITapHelpers.tapWhenHittable(
+                prepSearch,
+                timeout: 5,
+                diagnosticName: "realflow-prep-search-submit"
+            )
+        )
         XCTAssertTrue(waitUntilGone(app.keyboards.firstMatch, timeout: 8))
         let prepResult = app.buttons["course-catalog-result-\(approvedJourneyCourseGlobalId)"]
         XCTAssertTrue(
@@ -957,10 +995,18 @@ final class RealFlowUITests: XCTestCase {
         )
         settle(1); save("13-next-hole"); dump("13-next-hole")
 
-        let scorecard = app.buttons["计分卡"]
+        let scorecard = app.buttons["live-open-scorecard"]
         XCTAssertTrue(scrollTo(scorecard, maxSwipes: 8), "real hole must expose its scorecard action")
         XCTAssertTrue(scorecard.waitForExistence(timeout: 5), "live play must expose a real scorecard action")
-        scorecard.tap()
+        let scorecardHole = app.descendants(matching: .any)["live-scorecard-hole-index-1"].firstMatch
+        XCTAssertTrue(
+            UITapHelpers.tapAndWaitForElements(
+                scorecard,
+                destinations: [scorecardHole],
+                timeout: 8,
+                diagnosticName: "realflow-scorecard"
+            )
+        )
         XCTAssertTrue(app.staticTexts["计分卡"].waitForExistence(timeout: 5))
         XCTAssertTrue(
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "北京丽宫")).firstMatch.exists,
@@ -977,12 +1023,16 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("14-live-scorecard"); dump("14-live-scorecard")
 
         let selectFirstHole = app.buttons["选择第 1 洞"].firstMatch
+        let editFirstHole = app.buttons["改第 1 洞成绩"]
         XCTAssertTrue(
-            selectFirstHole.waitForExistence(timeout: 5) && selectFirstHole.isHittable,
+            UITapHelpers.tapAndWaitForElements(
+                selectFirstHole,
+                destinations: [editFirstHole],
+                timeout: 8,
+                diagnosticName: "realflow-scorecard-hole-selection"
+            ),
             "editing a historical score must start by selecting that hole in the scorecard"
         )
-        selectFirstHole.tap()
-        let editFirstHole = app.buttons["改第 1 洞成绩"]
         XCTAssertTrue(editFirstHole.waitForExistence(timeout: 5), "any completed hole must be editable")
         editFirstHole.tap()
         // The scorecard's own selection title is also "第 1 洞 · Par P", so prove the score sheet
@@ -1012,7 +1062,15 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("16-saved-previous-hole"); dump("16-saved-previous-hole")
 
         XCTAssertTrue(scrollTo(scorecard, maxSwipes: 8), "scorecard must remain available after historical save")
-        scorecard.tap()
+        let scorecardAfterEdit = app.descendants(matching: .any)["live-scorecard-hole-index-1"].firstMatch
+        XCTAssertTrue(
+            UITapHelpers.tapAndWaitForElements(
+                scorecard,
+                destinations: [scorecardAfterEdit],
+                timeout: 8,
+                diagnosticName: "realflow-scorecard-after-edit"
+            )
+        )
         XCTAssertTrue(app.staticTexts["计分卡"].waitForExistence(timeout: 5))
         XCTAssertTrue(
             app.staticTexts["正在打这一洞"].exists,
@@ -1240,7 +1298,13 @@ final class RealFlowUITests: XCTestCase {
 
         let openSearch = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20), "start form must expose full-catalogue search")
-        openSearch.tap()
+        XCTAssertTrue(
+            UITapHelpers.tapWhenHittable(
+                openSearch,
+                timeout: 5,
+                diagnosticName: "realflow-evidence-search-entry"
+            )
+        )
         let courseSearchNavigationBar = app.navigationBars["找球场"]
         var openedCourseSearch = courseSearchNavigationBar.waitForExistence(timeout: 8)
         if !openedCourseSearch, scrollTo(openSearch, maxSwipes: 2) {
@@ -1248,7 +1312,11 @@ final class RealFlowUITests: XCTestCase {
             // committing the start screen's live nearby update. Retry the still-visible user action
             // once, but keep the same sheet assertion so a real presentation failure remains fatal.
             settle(1)
-            openSearch.tap()
+            _ = UITapHelpers.tapWhenHittable(
+                openSearch,
+                timeout: 5,
+                diagnosticName: "realflow-evidence-search-entry-retry"
+            )
             openedCourseSearch = courseSearchNavigationBar.waitForExistence(timeout: 8)
         }
         if !openedCourseSearch {
@@ -1322,15 +1390,34 @@ final class RealFlowUITests: XCTestCase {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         XCTAssertFalse(selectedNewCourseDisplayName?.isEmpty ?? true)
         XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20))
-        openSearch.tap()
+        XCTAssertTrue(
+            UITapHelpers.tapWhenHittable(
+                openSearch,
+                timeout: 5,
+                diagnosticName: "realflow-evidence-search-entry-repeat"
+            )
+        )
         XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
         let queryField = app.textFields["course-catalog-keyword-field"]
         XCTAssertTrue(scrollTo(queryField, maxSwipes: 12))
-        queryField.tap()
-        queryField.typeText(evidence.searchQuery)
+        XCTAssertTrue(
+            UITapHelpers.focusAndTypeText(
+                queryField,
+                text: evidence.searchQuery,
+                app: app,
+                timeout: 8,
+                diagnosticName: "realflow-evidence-search"
+            )
+        )
         let manualSearch = app.buttons["course-catalog-search-action"]
         XCTAssertTrue(waitUntilEnabled(manualSearch, timeout: 5))
-        manualSearch.tap()
+        XCTAssertTrue(
+            UITapHelpers.tapWhenHittable(
+                manualSearch,
+                timeout: 5,
+                diagnosticName: "realflow-evidence-search-submit"
+            )
+        )
         XCTAssertTrue(
             waitUntilGone(app.keyboards.firstMatch, timeout: 8),
             "submitting a course search must dismiss the keyboard so results are visible"
@@ -1432,15 +1519,28 @@ final class RealFlowUITests: XCTestCase {
             hole: 1, par: 4, manual: false, expectedPreselectedScore: 3,
             fairwayLabel: nil
         )
-        let scorecard = app.buttons["计分卡"]
+        let scorecard = app.buttons["live-open-scorecard"]
         XCTAssertTrue(scrollTo(scorecard, maxSwipes: 18), "the restored new-course round must expose its scorecard")
-        scorecard.tap()
         let selectFirstHole = app.buttons["选择第 1 洞"].firstMatch
-        XCTAssertTrue(selectFirstHole.waitForExistence(timeout: 8))
-        selectFirstHole.tap()
         let editFirstHole = app.buttons["改第 1 洞成绩"]
+        XCTAssertTrue(
+            UITapHelpers.tapAndWaitForElements(
+                scorecard,
+                destinations: [selectFirstHole],
+                timeout: 8,
+                diagnosticName: "realflow-restored-scorecard"
+            )
+        )
+        XCTAssertTrue(selectFirstHole.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            UITapHelpers.tapAndWaitForElements(
+                selectFirstHole,
+                destinations: [editFirstHole],
+                timeout: 8,
+                diagnosticName: "realflow-restored-scorecard-hole-selection"
+            )
+        )
         XCTAssertTrue(editFirstHole.waitForExistence(timeout: 8))
-        editFirstHole.tap()
         let scoreChoice = app.buttons["score-choice-4"]
         XCTAssertTrue(scoreChoice.waitForExistence(timeout: 8), "the new-course score must be editable")
         scoreChoice.tap()

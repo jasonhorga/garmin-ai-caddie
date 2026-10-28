@@ -88,7 +88,13 @@ final class PrepDegradationUITests: XCTestCase {
             "start page must expose catalogue search",
             "b4c-search-entry-missing"
         )
-        openSearch.tap()
+        XCTAssertTrue(
+            UITapHelpers.tapWhenHittable(
+                openSearch,
+                timeout: 5,
+                diagnosticName: "b4c-search-entry"
+            )
+        )
         assertAndCapture(
             app.navigationBars["找球场"].waitForExistence(timeout: 8),
             "catalogue search must open",
@@ -100,8 +106,16 @@ final class PrepDegradationUITests: XCTestCase {
             "catalogue search must expose its keyword field",
             "b4c-search-keyword-missing"
         )
-        keyword.tap()
-        keyword.typeText("Fixture")
+        XCTAssertTrue(
+            UITapHelpers.focusAndTypeText(
+                keyword,
+                text: "Fixture",
+                app: app,
+                timeout: 5,
+                diagnosticName: "b4c-search-keyword"
+            ),
+            "catalogue keyword field must accept input after its sheet settles"
+        )
         assertAndCapture(
             waitUntilValue(keyword, containing: "Fixture", timeout: 5),
             "keyword input must reach the search field",
@@ -113,7 +127,13 @@ final class PrepDegradationUITests: XCTestCase {
             "a valid keyword must enable catalogue search",
             "b4c-search-button-not-ready"
         )
-        search.tap()
+        XCTAssertTrue(
+            UITapHelpers.tapWhenHittable(
+                search,
+                timeout: 5,
+                diagnosticName: "b4c-search-submit"
+            )
+        )
         let result = app.buttons["course-catalog-result-\(degradedCourseGlobalId)"]
         assertAndCapture(
             scrollIntoView(result, maxSwipes: 12),
