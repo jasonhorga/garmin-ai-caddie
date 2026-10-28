@@ -152,7 +152,10 @@ final class SpeculativePrefetchTests: XCTestCase {
         var payload = legacy
         payload[0].removeValue(forKey: "isRoundPrefetch")
         try JSONSerialization.data(withJSONObject: payload).write(to: prepURL)
-        let first = try model(rows: [])
+        let first = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: nil, watchBridge: nil,
+            garminSessionStore: nil, syncClient: nil, offlineGeometryRetryDelaysNanoseconds: []
+        )
         XCTAssertTrue(first.prepCourseDownloads.isEmpty)
 
         try first.offlineStore.savePrepCourseDownloads([guess])
