@@ -317,8 +317,9 @@ final class ProductPhoneUITests: XCTestCase {
                        "failed retry must show the range notice again")
         let requests = server.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }
         XCTAssertEqual(requests.count, before + 1, "retry must send exactly one additional stats request")
-        XCTAssertTrue(requests.last?.contains("window=all") == true,
-                      "retry must request the committed range")
+        // 全部 is sent without a window parameter (SyncClient omits it for "all").
+        XCTAssertTrue(requests.last.map { !$0.contains("window=") } == true,
+                      "retry must request the committed range (全部, no window)")
     }
 
     func test_j2_3_quarter_drilldown_opens_only_its_two_real_rounds_then_review() {
