@@ -1354,12 +1354,17 @@ public final class OfflineStore {
 
     #if DEBUG
     /// UI-test only: forget every prep-library row and course template so a journey starts with no
-    /// prepared course. Revision-keyed topo bitmaps stay shared; a template is the install authority.
+    /// prepared course. The image cache must be cleared with the library so a fixture revision
+    /// cannot promote a bitmap from a previous UI-test journey.
+    @MainActor
     public func resetCourseLibraryForUITesting() throws {
-        for url in [prepCourseDownloadsURL, courseTemplatesDirectoryURL]
+        for url in [prepCourseDownloadsURL, courseTemplatesDirectoryURL, homePackageURL]
         where FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
+        #if canImport(UIKit)
+        TopoHoleImageStore.resetForUITesting()
+        #endif
     }
 
     /// UI-test only: discard cached history/stats so a fixture response with zero rounds cannot

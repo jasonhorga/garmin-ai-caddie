@@ -89,9 +89,6 @@ class Card454AcceptanceTests(unittest.TestCase):
         self.assertIn('live-map-numeric-placeholder', components)
         self.assertIn("GarminRasterStandaloneView", current)
         self.assertIn("easeInOut(duration: 0.25)", current)
-        backdrop = current[current.index("@ViewBuilder private var liveMapBackdrop"):]
-        self.assertNotIn("LiveMapPreparingSurface(", backdrop)
-        self.assertNotIn("HoleMapWaitingPage(", backdrop)
 
     def test_known_refs_preserve_pixel_and_geographic_center(self) -> None:
         source_refs = [

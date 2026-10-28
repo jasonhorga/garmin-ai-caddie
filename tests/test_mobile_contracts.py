@@ -2555,10 +2555,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('return (played < carry * pitchFraction ? "切杆" : club, yards(played))', live_chrome)
         self.assertIn("lineWidth: 3, lineCap: .round", live_chrome)
         self.assertIn("obstacles.append(flagRect(foot: pinLeg.destination, scale: flagScale))", live_chrome)
-        # Card 454: live play never enters the full-screen waiting page or draws the coarse
-        # lightweight illustration; its fallback is the compact numeric placeholder.
-        self.assertNotIn("LiveMapPreparingSurface(", current_hole)
-        self.assertNotIn("HoleMapWaitingPage(", current_hole)
+        # Product spec 4.5: a shared CoursePrep route draws before any bitmap; a hole without
+        # that route enters the one full-screen waiting page rather than a blank/numeric map.
         self.assertIn("LiveMapNumericPlaceholder(", current_hole)
         self.assertIn("preciseMapTimedOut", current_hole)
         self.assertIn('accessibilityIdentifier("live-map-numeric-placeholder")', live_hole_components)

@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreLocation
 import Foundation
 import SwiftUI
 
@@ -2321,6 +2322,20 @@ enum LiveMapDisplayState: Equatable {
     /// Numeric hole facts remain available when neither raster is usable.
     case numericPlaceholder
 
+    /// Pixel spaces used by the viewport carry-over. Factual, pending, precise, and the
+    /// point-bearing waiting state all use CourseView's projection; Garmin has its own raster
+    /// projection. A numeric placeholder has no map plane to carry into.
+    var pixelSpace: LiveMapPixelSpace? {
+        switch self {
+        case .factual, .factualPending, .precise, .waiting:
+            return .precise
+        case .garminRaster:
+            return .garmin
+        case .numericPlaceholder:
+            return nil
+        }
+    }
+
     static func isPrecisePending(
         geometryCoverage: String?,
         timedOut: Bool,
@@ -2354,11 +2369,13 @@ enum LiveMapDisplayState: Equatable {
         let garminImageReady: Bool
         let garminImageFailed: Bool
         let hasCachedPreciseTopo: Bool
+        /// A factual tee-to-green route can draw before either bitmap arrives.
+        let hasRoute: Bool?
 
         init(
             coverage: String?, preciseTopoImageReady: Bool, garminRaster: GarminRasterResponse?,
             garminImageReady: Bool = true, garminImageFailed: Bool, hasCachedPreciseTopo: Bool,
-            preciseTopoAvailable: Bool = false
+            preciseTopoAvailable: Bool = false, hasRoute: Bool? = nil
         ) {
             self.coverage = coverage
             self.preciseTopoImageReady = preciseTopoImageReady
@@ -2367,6 +2384,7 @@ enum LiveMapDisplayState: Equatable {
             self.garminImageReady = garminImageReady
             self.garminImageFailed = garminImageFailed
             self.hasCachedPreciseTopo = hasCachedPreciseTopo
+            self.hasRoute = hasRoute
         }
 
         var preciseGeometryReady: Bool {
@@ -2387,7 +2405,8 @@ enum LiveMapDisplayState: Equatable {
         memoryCached: Bool,
         garminRaster: GarminRasterResponse?,
         garminImageReady: Bool,
-        garminImageFailed: Bool
+        garminImageFailed: Bool,
+        hasRoute: Bool? = nil
     ) -> LiveInputs {
         let preciseImageReady = !decodeFailed
             && (hasEmbeddedTopoImage
@@ -2404,19 +2423,22 @@ enum LiveMapDisplayState: Equatable {
             garminImageReady: garminImageReady,
             garminImageFailed: garminImageFailed,
             hasCachedPreciseTopo: cachedPreciseTopo,
-            preciseTopoAvailable: preciseAvailable
+            preciseTopoAvailable: preciseAvailable,
+            hasRoute: hasRoute
         )
     }
 
-    /// Phone live-play display priority: precise CourseView raster > Garmin raster image > numeric
-    /// placeholder. A Garmin descriptor with `available=false` can still provide a visual image,
-    /// but its projection is intentionally absent and the caller draws no geo overlays.
+    /// Phone live-play display priority: precise CourseView raster > Garmin raster image > factual
+    /// route > one waiting surface. A Garmin descriptor with `available=false` can still provide
+    /// a visual image, but its projection is intentionally absent and the caller draws no geo overlays.
     static func resolveLive(_ inputs: LiveInputs) -> LiveMapDisplayState {
         if inputs.preciseTopoImageReady && inputs.preciseGeometryReady { return .precise }
         if inputs.preciseTopoAvailable || inputs.hasCachedPreciseTopo {
             // Keep the screen on its neutral ground until the exact bitmap is decoded. The
             // Garmin descriptor can be ready at this point, but it is not the authority for a
             // hole whose exact local image is already known.
+            // A known precise bitmap with no prep route is still in the neutral decode-pending
+            // frame. Waiting is reserved for the case where neither bitmap nor route is known.
             return .factualPending
         }
         if !inputs.garminImageFailed,
@@ -2424,6 +2446,8 @@ enum LiveMapDisplayState: Equatable {
            inputs.garminRaster?.hasDisplayableImage == true {
             return .garminRaster
         }
+        if inputs.hasRoute == true { return .factual }
+        if inputs.hasRoute == false { return .waiting }
         return .numericPlaceholder
     }
 
@@ -2448,6 +2472,11 @@ enum LiveMapDisplayState: Equatable {
 
     /// 洞条: a hole whose precise map is not ready is only faded; tapping it still opens it.
     var fadesInHoleStrip: Bool { self == .numericPlaceholder || self == .waiting || self == .factualPending || self == .factual }
+}
+
+enum LiveMapPixelSpace: Equatable {
+    case precise
+    case garmin
 }
 
 /// Selects the pixel facts that belong to the bitmap currently shown by the live hole. Keeping
@@ -2480,7 +2509,7 @@ enum LiveMapDisplaySelection {
         overlay: CoursePrepOverlay?,
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
-        if let overlay, (state == .precise || state == .garminRaster) { return overlay }
+        if let overlay, (state == .precise || state == .garminRaster || state == .factualPending || state == .factual) { return overlay }
         guard state == .garminRaster else { return nil }
         let width = (garminProjection?.widthPx ?? 0) > 0
             ? (garminProjection?.widthPx ?? 1242)
@@ -2492,12 +2521,12 @@ enum LiveMapDisplaySelection {
     }
 
     static func gestureScale(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {
-        guard state != .numericPlaceholder else { return 1 }
+        guard state != .numericPlaceholder, state != .waiting else { return 1 }
         return min(max(proposed, 1), 4)
     }
 
     static func gestureOffset(for state: LiveMapDisplayState, proposed: CGSize) -> CGSize {
-        state == .numericPlaceholder ? .zero : proposed
+        (state == .numericPlaceholder || state == .waiting) ? .zero : proposed
     }
 
     static func projection(
@@ -2508,9 +2537,9 @@ enum LiveMapDisplaySelection {
         switch state {
         case .garminRaster:
             return garmin
-        case .precise:
+        case .precise, .factualPending, .factual:
             return precise
-        case .waiting, .factualPending, .factual, .numericPlaceholder:
+        case .waiting, .numericPlaceholder:
             return nil
         }
     }
@@ -2522,7 +2551,7 @@ enum LiveMapDisplaySelection {
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
         switch state {
-        case .precise:
+        case .precise, .factualPending, .factual:
             return precise
         case .garminRaster:
             guard let garminProjection,
@@ -2537,7 +2566,7 @@ enum LiveMapDisplaySelection {
                 from: preciseProjection,
                 to: garminProjection
             ) ?? empty
-        case .waiting, .factualPending, .factual, .numericPlaceholder:
+        case .waiting, .numericPlaceholder:
             return nil
         }
     }
@@ -2552,6 +2581,156 @@ enum LiveMapDisplaySelection {
               pixel.x <= CGFloat(overlay.w),
               pixel.y <= CGFloat(overlay.h) else { return nil }
         return pixel
+    }
+}
+
+/// State carried by the live viewport while a bitmap tier replaces a factual route. The transition
+/// itself is pure so route→precise and route→Garmin cannot accidentally reset interaction state.
+struct LiveMapViewportInteraction: Equatable {
+    let scale: CGFloat
+    let offset: CGSize
+    let selectedHazardID: String?
+    let targetPixel: CGPoint?
+    let greenPinPixel: CGPoint?
+}
+
+enum LiveMapViewportTransition {
+    /// Transfer one displayed tier to another without letting a pixel from one image frame leak
+    /// into the next. Same-space transitions are identity-preserving; cross-space transitions use
+    /// the two projections and the two frames that are actually on screen.
+    static func preserve(
+        previous: LiveMapDisplayState,
+        next: LiveMapDisplayState,
+        viewportSize: CGSize,
+        sourceFrame: CGRect?,
+        destinationFrame: CGRect?,
+        sourceOverlay: CoursePrepOverlay?,
+        destinationOverlay: CoursePrepOverlay?,
+        sourceProjection: CoursePrepHoleImageProjection?,
+        destinationProjection: CoursePrepHoleImageProjection?,
+        targetCoordinate: CLLocationCoordinate2D?,
+        greenPinCoordinate: CLLocationCoordinate2D?,
+        interaction: LiveMapViewportInteraction
+    ) -> LiveMapViewportInteraction {
+        guard previous != next else { return interaction }
+        guard let sourceSpace = previous.pixelSpace,
+              let destinationSpace = next.pixelSpace,
+              sourceSpace != destinationSpace else {
+            return interaction
+        }
+
+        let mappedTarget = remapPoint(
+            pixel: interaction.targetPixel,
+            coordinate: targetCoordinate,
+            source: sourceProjection,
+            destination: destinationProjection
+        )
+        let mappedGreenPin = remapPoint(
+            pixel: interaction.greenPinPixel,
+            coordinate: greenPinCoordinate,
+            source: sourceProjection,
+            destination: destinationProjection
+        )
+        if isDefaultViewport(interaction) {
+            return withPoints(
+                interaction,
+                scale: 1,
+                offset: .zero,
+                targetPixel: mappedTarget,
+                greenPinPixel: mappedGreenPin
+            )
+        }
+        guard let viewportSize = validViewport(viewportSize),
+              let sourceFrame,
+              let destinationFrame,
+              let sourceOverlay,
+              let destinationOverlay,
+              let sourceProjection,
+              let destinationProjection,
+              sourceProjection.isUsable,
+              destinationProjection.isUsable,
+              let transfer = LiveMapViewportCarryOver.transfer(
+                  viewportSize: viewportSize,
+                  sourceFrame: sourceFrame,
+                  destinationFrame: destinationFrame,
+                  sourceOverlay: sourceOverlay,
+                  destinationOverlay: destinationOverlay,
+                  sourceProjection: sourceProjection,
+                  destinationProjection: destinationProjection,
+                  scale: interaction.scale,
+                  offset: interaction.offset
+              ) else {
+            // A hero can report its projections before SwiftUI has measured either frame. Keep
+            // points that were already mapped into the destination space and defer only the
+            // scale/offset transfer until a later measured transition.
+            return withPoints(
+                interaction,
+                targetPixel: mappedTarget,
+                greenPinPixel: mappedGreenPin
+            )
+        }
+        return withPoints(
+            interaction,
+            scale: transfer.scale,
+            offset: transfer.offset,
+            targetPixel: mappedTarget,
+            greenPinPixel: mappedGreenPin
+        )
+    }
+
+    private static func validViewport(_ size: CGSize) -> CGSize? {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
+            return nil
+        }
+        return size
+    }
+
+    /// A fitted map has no user viewport to preserve. Keeping it fitted after a raster handoff
+    /// lets the normal hole pager keep receiving horizontal swipes and avoids zooming a map merely
+    /// because the two bitmap frames have different aspect ratios.
+    private static func isDefaultViewport(_ interaction: LiveMapViewportInteraction) -> Bool {
+        guard interaction.scale.isFinite,
+              interaction.scale >= 1,
+              !HeroMapGesturePolicy.isZoomed(scale: interaction.scale),
+              interaction.offset.width.isFinite,
+              interaction.offset.height.isFinite else { return false }
+        return abs(interaction.offset.width) <= 0.5
+            && abs(interaction.offset.height) <= 0.5
+    }
+
+    private static func remapPoint(
+        pixel: CGPoint?,
+        coordinate: CLLocationCoordinate2D?,
+        source: CoursePrepHoleImageProjection?,
+        destination: CoursePrepHoleImageProjection?
+    ) -> CGPoint? {
+        guard let destination, destination.isUsable else { return nil }
+        if let coordinate,
+           let projected = GarminRasterProjectionMath.projectToPixel(
+               latitude: coordinate.latitude,
+               longitude: coordinate.longitude,
+               projection: destination
+           ) {
+            return projected
+        }
+        guard let pixel, let source, source.isUsable else { return nil }
+        return GarminRasterProjectionMath.remap(pixel: pixel, from: source, to: destination)
+    }
+
+    private static func withPoints(
+        _ interaction: LiveMapViewportInteraction,
+        scale: CGFloat? = nil,
+        offset: CGSize? = nil,
+        targetPixel: CGPoint?,
+        greenPinPixel: CGPoint?
+    ) -> LiveMapViewportInteraction {
+        LiveMapViewportInteraction(
+            scale: scale ?? interaction.scale,
+            offset: offset ?? interaction.offset,
+            selectedHazardID: interaction.selectedHazardID,
+            targetPixel: targetPixel,
+            greenPinPixel: greenPinPixel
+        )
     }
 }
 

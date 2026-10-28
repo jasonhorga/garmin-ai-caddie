@@ -391,14 +391,16 @@ final class ProductPhoneUITests: XCTestCase {
             var state = ProductFixtureServer.State(); state.coverage = name
             server.configure(state); launch(); startRound()
             let map = element(expected)
-            if name == "ready" {
-                XCTAssertTrue(map.waitForExistence(timeout: 15), name)
-            } else {
-                knownRed("C16e J4.5: phone live map has no route-only or waiting tier") {
-                    XCTAssertTrue(map.waitForExistence(timeout: 15), name)
-                }
-            }
+            let appeared = map.waitForExistence(timeout: 15)
+            let requested = server.requestedPaths().joined(separator: "\n")
+            XCTAssertTrue(appeared, "\(name)\nrequestedPaths:\n\(requested)")
             if map.exists { insideWindow(map, name) }
+            if name == "partial" {
+                let precise = element("live-hole-map-precise")
+                Thread.sleep(forTimeInterval: 2)
+                XCTAssertTrue(map.exists, "partial route map disappeared; requestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))")
+                XCTAssertFalse(precise.exists, "partial fixture unexpectedly promoted to precise; requestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))")
+            }
             app.terminate()
         }
     }
