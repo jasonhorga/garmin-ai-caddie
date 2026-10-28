@@ -1,10 +1,16 @@
 diff --git a/ai_caddie/caddie/analysis.py b/ai_caddie/caddie/analysis.py
---- a/ai_caddie/caddie/analysis.py
-+++ b/ai_caddie/caddie/analysis.py
-@@ -178,11 +178,7 @@ def resolve_selected_tee_set(
+--- a/ai_caddie/caddie/analysis.py	2026-10-28 20:42:46.779261996 +0000
++++ b/ai_caddie/caddie/analysis.py	2026-10-28 21:05:23.484379193 +0000
+@@ -178,11 +178,7 @@
+                 available.append(value)
+     if not available:
+         return None
 -    requested = tee_set_for_box(
 -        global_id if global_id is not None else (hazards or {}).get("globalId"),
 -        tee_box,
 -        colour_fallback=True,
 -    )
 +    requested = TEE_SET_BY_BOX["blue"]
+     if requested in available:
+         return requested
+     if TEE_SET_BY_BOX["blue"] in available:

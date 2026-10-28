@@ -1,20 +1,12 @@
 diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-index e2bf9d79..a15a5467 100644
---- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-+++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -6302,14 +6302,7 @@ public struct CurrentHoleView: View {
-     /// The distance the caddie plans from: the live answer, except before the tee shot off the hole,
-     /// where only a typed distance or the tee's static green middle counts.
-     private var caddiePlanningDistanceMetres: Double? {
--        return LiveCaddieDistance.planningDistance(
--            recordedShotCount: recordedNonPuttShotCount,
--            isTeeShotOffTheHole: isTeeShotOffTheHole,
--            manualM: distanceToPinMetres,
--            liveMiddleM: liveGreenMetres?.middle,
--            staticMiddleM: liveGreenDistances?.middleM,
--            holeYards: hole.yards
--        )
-+        return effectiveDistanceToPinMetres
-     }
- 
-     private var liveCoordinateForCurrentHole: CLLocationCoordinate2D? {
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift	2026-10-28 21:06:21.288058767 +0000
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift	2026-10-28 21:06:21.265058498 +0000
+@@ -6353,7 +6353,7 @@
+         staticMiddleM: Double?,
+         holeYards: Int?
+     ) -> Double? {
+-        LiveCaddieDistance.planningDistance(
++        LiveCaddieDistance.resolve(
+             recordedShotCount: recordedShotCount,
+             isTeeShotOffTheHole: isTeeShotOffTheHole,
+             manualM: manualM,

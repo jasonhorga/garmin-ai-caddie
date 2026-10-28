@@ -1,13 +1,12 @@
 diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-index e2bf9d79..cf631f57 100644
---- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-+++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -2856,7 +2856,7 @@ public struct CurrentHoleView: View {
-                     holeNumber: hole.courseHoleNumber,
-                     par: hole.par,
-                     yards: hole.yards,
--                    failed: holeMapLoadFailed || preciseMapTimedOut || (holePrep == nil && !liveHasRoute),
-+                    failed: holeMapLoadFailed || preciseMapTimedOut,
-                     onRetry: {
-                         holeMapLoadFailed = false
-                         preciseMapTimedOut = false
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift	2026-10-28 21:06:44.264326314 +0000
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift	2026-10-28 21:06:44.241326047 +0000
+@@ -2914,7 +2914,7 @@
+         hasPrep: Bool,
+         hasRoute: Bool
+     ) -> Bool {
+-        holeMapLoadFailed || preciseMapTimedOut || (!hasPrep && !hasRoute)
++        holeMapLoadFailed || preciseMapTimedOut
+     }
+ 
+     /// One configured map for both the bitmap layer and the viewport-plane route layer, so the
