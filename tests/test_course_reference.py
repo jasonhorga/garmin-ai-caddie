@@ -489,6 +489,50 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(prep_cache.cached_course_prep(**kwargs), {"build": 2})
             self.assertEqual(calls["count"], 2)
 
+    def test_release_aux_raster_path_and_tee_slope_are_semantic_authority(self) -> None:
+        """J4.2: the third raster URL and tee rating changes invalidate prep authority."""
+        def varint(value: int) -> bytes:
+            out = bytearray()
+            while value > 127:
+                out.append((value & 0x7F) | 0x80)
+                value >>= 7
+            out.append(value)
+            return bytes(out)
+
+        def scalar(field_no: int, value: int) -> bytes:
+            return varint(field_no << 3) + varint(value)
+
+        def text(field_no: int, value: str) -> bytes:
+            encoded = value.encode("utf-8")
+            return varint((field_no << 3) | 2) + varint(len(encoded)) + encoded
+
+        def message(field_no: int, value: bytes) -> bytes:
+            return varint((field_no << 3) | 2) + varint(len(value)) + value
+
+        aux_url = "https://birdseye.garmin.cn/golf/gid31936/_0_.jpg?garmindlm=1780159414_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+        def release(*, aux: str, slope: int) -> bytes:
+            hole = scalar(1, 1) + message(9, aux.encode())
+            tee = text(1, "Blue") + scalar(2, slope) + text(4, "MEN") + scalar(5, 1)
+            return scalar(1, 31936) + scalar(2, 266) + message(6, tee) + message(7, hole)
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_dir = root / "data" / "courseview"
+            release_dir.mkdir(parents=True)
+            release_path = release_dir / "31936_releases.pb"
+            release_path.write_bytes(release(aux=aux_url, slope=115))
+            first = cr.courseview_release_signature(31936, root=root)
+
+            rotated = aux_url.replace("1780159414_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "1790000000_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+            release_path.write_bytes(release(aux=rotated, slope=115))
+            self.assertEqual(cr.courseview_release_signature(31936, root=root), first)
+
+            release_path.write_bytes(release(aux=rotated.replace("_0_.jpg", "_1_.jpg"), slope=115))
+            self.assertNotEqual(cr.courseview_release_signature(31936, root=root), first)
+            release_path.write_bytes(release(aux=rotated, slope=116))
+            self.assertNotEqual(cr.courseview_release_signature(31936, root=root), first)
+
     def test_stale_release_refresh_different_bytes_writes_and_changes_prep_fingerprint(self) -> None:
         fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
         original = fixture.read_bytes()
