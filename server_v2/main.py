@@ -71,6 +71,7 @@ from .geometry import (
     load_hole_map_response,
 )
 from .garmin_raster import ROUTER as garmin_raster_router, prefetch_holes as prefetch_garmin_rasters
+from .render_backfill import register_router as register_render_backfill_router, start_background as start_render_backfill
 from .pin_sheet import read_pin_sheet_response
 from .media import (
     analyze_media_response,
@@ -231,6 +232,7 @@ def configure_request_timing_logging() -> None:
 def _start_boot_background_work() -> None:
     """Start the process-owned warmers and recovery workers once the API can boot."""
     warm_stats_cache_in_background()
+    start_render_backfill()
     _garmin_sync_jobs.start(_run_garmin_sync_job)
     threading.Thread(
         target=course_install.resume_pending_jobs,
@@ -311,6 +313,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
             "/api/v2/mobile/courses/options", "/api/v2/caddie/context",
             "/api/v2/caddie/decision",
             "/api/v2/admin/timing",
+            "/api/v2/admin/render-backfill",
             "/api/v2/mobile/client-timing",
         }
         parameterized = (
@@ -337,6 +340,7 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
         return await call_next(request)
 app.include_router(admin_router)
 app.include_router(auth_router)
+register_render_backfill_router(garmin_raster_router)
 app.include_router(garmin_raster_router)
 app.include_router(share_router)
 
