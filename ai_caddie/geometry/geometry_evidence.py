@@ -42,10 +42,6 @@ SURFACE_KIND_ALIASES = {
     "water_edge": "water_edge",
     "green": "green",
     "greendrc": "green",
-    "vfxgreena": "green",
-    "vfxgreenadrc": "green",
-    "vfxgreenb": "green",
-    "vfxgreenbdrc": "green",
     "puttinggreen": "green",
     "fairway": "fairway",
     "fairwaydrc": "fairway",
@@ -247,7 +243,11 @@ def _load_hole_sources(
     hazards = _load_json_if_ready(hazard_path(int(global_id), int(local_hole))) or {}
     if meshes is None:
         meshes = _load_json_if_ready(mesh_path(int(global_id), int(local_hole))) or {}
-    rebound = bind_selected_green_target(hazards, meshes)
+    rebound = bind_selected_green_target(
+        hazards,
+        meshes,
+        include_selected_component=True,
+    )
     return (rebound or {}, meshes)
 
 
@@ -407,6 +407,7 @@ def _surface_id(row: dict[str, Any], fallback: str, kind: str) -> str:
 def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: str) -> dict[str, Any] | None:
     matches = []
     for index, row in enumerate(rows):
+        source_index = row.get("_sourceIndex", index)
         polygon = row.get("polygon") or row.get("points") or row.get("path")
         if not isinstance(polygon, list):
             continue
@@ -415,7 +416,7 @@ def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: st
             matches.append(
                 {
                     "priority": _surface_priority(kind),
-                    "index": index,
+                    "index": source_index,
                     "surface": {
                         "kind": kind,
                         "source": source,
@@ -454,6 +455,7 @@ def _mesh_row_bbox(row: dict[str, Any]) -> tuple[float, float, float, float] | N
 def _mesh_triangle_match(point: list[float], rows: list[dict[str, Any]], *, source: str) -> dict[str, Any] | None:
     matches = []
     for index, row in enumerate(rows):
+        source_index = row.get("_sourceIndex", index)
         positions = row.get("positions")
         faces = row.get("faces")
         if not isinstance(positions, list) or not isinstance(faces, list):
@@ -476,7 +478,7 @@ def _mesh_triangle_match(point: list[float], rows: list[dict[str, Any]], *, sour
                 matches.append(
                     {
                         "priority": _surface_priority(kind),
-                        "index": index,
+                        "index": source_index,
                         "surface": {
                             "kind": kind,
                             "source": source,
@@ -503,18 +505,49 @@ def _mesh_surface_match(point: list[float], rows: list[dict[str, Any]]) -> dict[
     return triangle if _surface_priority(triangle["kind"]) < _surface_priority(polygon["kind"]) else polygon
 
 
-def _mesh_gir_surface_match(point: list[float], rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _mesh_gir_surface_match(
+    point: list[float],
+    rows: list[dict[str, Any]],
+    selected_component: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """Classify a GIR endpoint using only the green and playable-boundary layers.
 
     Green is the only positive GIR evidence.  PlayableBounds is the small enclosing layer used
     to distinguish a known miss from a point outside the course; bunker/fairway/rough meshes are
     deliberately excluded because they are large and do not change the GIR answer.
     """
-    green_rows = [row for row in rows if _surface_kind(row, "mesh") == "green"]
-    green = _mesh_surface_match(point, green_rows)
+    green_rows = [
+        {**row, "_sourceIndex": index}
+        for index, row in enumerate(rows)
+        if _surface_kind(row, "mesh") == "green"
+    ]
+    green = None
+    if selected_component is not None:
+        triangles = selected_component.get("triangles")
+        if isinstance(triangles, list) and any(
+            point_in_triangle(tuple(point), *triangle)
+            for triangle in triangles
+            if isinstance(triangle, (list, tuple)) and len(triangle) == 3
+        ):
+            row_index = next(
+                (index for index, row in enumerate(rows) if _surface_kind(row, "mesh") == "green"),
+                0,
+            )
+            row = rows[row_index]
+            green = {
+                "kind": "green",
+                "source": "mesh",
+                "id": _surface_id(row, f"mesh-{row_index + 1}", "green"),
+            }
+    if green is None and selected_component is None:
+        green = _mesh_surface_match(point, green_rows)
     if green is not None:
         return green
-    boundary_rows = [row for row in rows if _surface_kind(row, "mesh") == "playable_bounds"]
+    boundary_rows = [
+        {**row, "_sourceIndex": index}
+        for index, row in enumerate(rows)
+        if _surface_kind(row, "mesh") == "playable_bounds"
+    ]
     return _mesh_surface_match(point, boundary_rows)
 
 
@@ -561,7 +594,11 @@ def classify_shot_surface(
             # GIR deliberately asks only whether the endpoint is on the green.  The mesh path
             # uses Green/VfxGreen plus the tiny playable boundary; hazard layers are irrelevant.
             hazard_match = None
-            mesh_match = _mesh_gir_surface_match(point, rows)
+            mesh_match = _mesh_gir_surface_match(
+                point,
+                rows,
+                selected_component=hazards.get("_selectedGreenComponent"),
+            )
         else:
             hazard_match = _surface_match(
                 point,

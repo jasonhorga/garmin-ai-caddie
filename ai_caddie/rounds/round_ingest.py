@@ -631,12 +631,11 @@ class _IngestGeometry:
         """The hole's mesh JSON for one planned use: decoded on the first, dropped after the last."""
         key = (int(global_id), int(local_hole))
         value = self._meshes[key] if key in self._meshes else self._read(key)
-        if key not in self._meshes:
-            # Record the active decode before consuming its final use.  This keeps the invariant
-            # observable (at most one mesh) while the branch below still releases it immediately.
-            self._meshes[key] = value
         remaining = self._uses.get(key, 0) - 1
         if remaining > 0:
+            # Keep a decoded mesh only when a later classification still needs it.  A final
+            # one-use mesh is returned directly and never enters the retained store.
+            self._meshes[key] = value
             self._uses[key] = remaining
         else:
             self._uses.pop(key, None)

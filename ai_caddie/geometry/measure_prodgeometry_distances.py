@@ -246,6 +246,8 @@ def target_point(hole: dict[str, Any], green_components: list[dict[str, Any]]) -
 def bind_selected_green_target(
     hazards: dict[str, Any] | None,
     decoded: dict[str, Any] | None,
+    *,
+    include_selected_component: bool = False,
 ) -> dict[str, Any] | None:
     """Overlay the current selected-layout target onto an older hazard export.
 
@@ -271,6 +273,35 @@ def bind_selected_green_target(
     except (IndexError, KeyError, TypeError, ValueError, OverflowError):
         return hazards
 
+    selected_component = None
+    if green_components:
+        selected_component = next(
+            (
+                component
+                for component in green_components
+                if any(point_in_triangle(target, *triangle) for triangle in component["triangles"])
+            ),
+            None,
+        )
+        if selected_component is None:
+            selected_component = min(
+                green_components,
+                key=lambda component: min(
+                    point_triangle_distance(target, triangle)
+                    for triangle in component["triangles"]
+                ),
+            )
+
+    def with_selected_component(value: dict[str, Any]) -> dict[str, Any]:
+        if not include_selected_component or selected_component is None:
+            return value
+        enriched = dict(value)
+        enriched["_selectedGreenComponent"] = {
+            "name": "Green.drc",
+            "triangles": selected_component["triangles"],
+        }
+        return enriched
+
     rounded_target = rounded_point(target)
     current_target = hazards.get("target") if isinstance(hazards.get("target"), dict) else {}
     current_position = current_target.get("position")
@@ -285,7 +316,7 @@ def bind_selected_green_target(
     except (IndexError, TypeError, ValueError, OverflowError):
         unchanged = False
     if unchanged and current_target.get("name") == target_name:
-        return hazards
+        return with_selected_component(hazards)
 
     rebound = dict(hazards)
     rebound["target"] = {
@@ -308,7 +339,7 @@ def bind_selected_green_target(
             pass
         rebound_tees.append(row)
     rebound["tees"] = rebound_tees
-    return rebound
+    return with_selected_component(rebound)
 
 
 def rounded_point(p: Point) -> list[float]:
