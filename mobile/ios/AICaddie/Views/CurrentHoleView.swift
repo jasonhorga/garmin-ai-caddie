@@ -751,6 +751,9 @@ public struct CurrentHoleView: View {
     @GestureState private var heroMapPinchScale: CGFloat = 1
     @State private var preciseMapTimedOut = false
     @State private var liveMapTransitionsEnabled = false
+    /// Garmin imagery is an optional visual layer. The choice is shared across holes, while the
+    /// factual CourseView map remains the default and never waits for Garmin.
+    @AppStorage("liveGarminRasterEnabled") private var garminRasterEnabled = false
     /// Garmin CN's fallback descriptor/image for this physical hole. It is deliberately separate
     /// from `holePrep`: the CourseView facts can be retained offline while the raster request fails.
     @State private var garminDescriptorLoadingKey: String?
@@ -1372,6 +1375,10 @@ public struct CurrentHoleView: View {
             carryOverLiveMapViewport(from: previous, to: next)
             recordLiveMapDisplayTrace(previous: previous, next: next)
         }
+        .onChange(of: garminRasterEnabled) { _, enabled in
+            guard enabled else { return }
+            Task { await loadGarminRasterIfNeeded() }
+        }
         .task(id: "\(liveTopoURL?.absoluteString ?? ""):\(isSelected)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected),
                   let requestedURL = liveTopoURL else { return }
@@ -1573,6 +1580,12 @@ public struct CurrentHoleView: View {
                         .reportsLiveChrome()
                         prepRoundBanner
                             .reportsLiveChrome()
+                        Toggle("Garmin 实景", isOn: $garminRasterEnabled)
+                            .font(.system(size: 11, weight: .semibold))
+                            .toggleStyle(.button)
+                            .tint(.white.opacity(0.9))
+                            .accessibilityIdentifier("live-garmin-toggle")
+                            .reportsLiveChrome()
                         if !isPrepMode {
                             LivePlayRoundButtons(
                                 onOpenScorecard: { showScorecard = true },
@@ -1595,9 +1608,9 @@ public struct CurrentHoleView: View {
                     }
                     Spacer(minLength: 8)
                     LivePlayGreenLadder(
-                        frontYards: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
-                        middleYards: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
-                        backYards: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM),
+                        frontYards: displayedGreenRangeYards.front,
+                        middleYards: displayedGreenRangeYards.middle,
+                        backYards: displayedGreenRangeYards.back,
                         flagYards: placedFlagYards,
                         isLive: isGreenRangeLive
                     )
@@ -2762,14 +2775,30 @@ public struct CurrentHoleView: View {
 
     /// The same current-hole facts as LivePlayTopInfo, including the selected Tee's yardage.
     private var liveMapPlaceholder: LiveMapNumericPlaceholder {
-        LiveMapNumericPlaceholder(
+        let distances = displayedGreenRangeYards
+        return LiveMapNumericPlaceholder(
             holeNumber: hole.courseHoleNumber,
             par: hole.par,
             yards: hole.yards,
-            frontYards: holePrep?.greenDistances?.frontM.map { CoursePrepRoute.yards(fromMetres: $0) },
-            middleYards: holePrep?.greenDistances?.middleM.map { CoursePrepRoute.yards(fromMetres: $0) },
-            backYards: holePrep?.greenDistances?.backM.map { CoursePrepRoute.yards(fromMetres: $0) }
+            frontYards: distances.front,
+            middleYards: distances.middle,
+            backYards: distances.back
         )
+    }
+
+    /// Both the upper ladder and the no-map facts card use this one origin. Before a qualified GPS
+    /// fix it is the selected tee; after one, it is the live player position. This prevents a static
+    /// tee readout and a live readout from appearing as two competing distance sources.
+    private var displayedGreenRangeYards: LiveGreenRangeYards {
+        let staticFallback = LiveGreenRangeYards(
+            front: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
+            middle: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
+            back: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM)
+        )
+        let live = liveGreenYards.map {
+            LiveGreenRangeYards(front: $0.front, middle: $0.middle, back: $0.back)
+        }
+        return LiveGreenRangePresentation.resolve(live: live, staticFallback: staticFallback)
     }
 
     /// Keep Garmin image loading/retry alive behind every non-Garmin surface. A descriptor can
@@ -3347,14 +3376,17 @@ public struct CurrentHoleView: View {
     /// Keep this projection in the same type as `holeImageProjection` so all phone interaction paths
     /// use the image currently on screen.
     private var liveGarminRasterProjection: CoursePrepHoleImageProjection? {
-        guard garminRaster?.available == true,
+        guard garminRasterEnabled,
+              garminRaster?.available == true,
               let projection = garminRaster?.projection,
               projection.isUsable else { return nil }
         return projection.coursePrepProjection
     }
 
     private var liveGarminRasterURL: URL? {
-        guard let garminRaster, let caddieBaseURL else { return nil }
+        guard garminRasterEnabled,
+              let garminRaster,
+              let caddieBaseURL else { return nil }
         guard garminRaster.hasDisplayableImage else { return nil }
         // A non-empty server URL that fails origin validation is unavailable. Never substitute a
         // guessed endpoint, which could display a different revision under this descriptor.
@@ -3385,9 +3417,13 @@ public struct CurrentHoleView: View {
             hasEmbeddedTopoImage: hasEmbeddedTopoImage,
             preciseTopoImageReady: preciseTopoImageReady,
             memoryCached: liveTopoURL.map { TopoHoleImageStore.isMemoryCached($0) } ?? false,
-            garminRaster: garminRaster,
-            garminImageReady: garminImageReadyForDisplay,
-            garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying,
+            garminRaster: LiveGarminRasterPolicy.displayedRaster(
+                enabled: garminRasterEnabled,
+                raster: garminRaster
+            ),
+            garminImageReady: garminRasterEnabled && garminImageReadyForDisplay,
+            garminImageFailed: garminRasterEnabled
+                && (garminRasterImageFailed || garminRasterImageRetrying),
             hasRoute: liveHasRoute
         )
     }
@@ -4290,6 +4326,10 @@ public struct CurrentHoleView: View {
     }
 
     private func loadGarminRasterIfNeeded() async {
+        guard LiveGarminRasterPolicy.shouldFetch(
+            enabled: garminRasterEnabled,
+            requestStarted: sessionEntry().garminRequestStarted
+        ) else { return }
         guard snapshotState?.garminRaster == nil else { return }
         await loadGarminRaster()
     }
@@ -4301,7 +4341,10 @@ public struct CurrentHoleView: View {
     /// Descriptor failures recover independently, so they never hold up the initial hole load or
     /// stop the precise-geometry refresh. SwiftUI cancels this task when the physical hole changes.
     private func recoverGarminDescriptor() async {
-        guard snapshotState == nil, caddieBaseURL != nil, hole.sourceGlobalId > 0 else { return }
+        guard garminRasterEnabled,
+              snapshotState == nil,
+              caddieBaseURL != nil,
+              hole.sourceGlobalId > 0 else { return }
         var cursor = GarminRasterRetryCursor()
         while !Task.isCancelled {
             cursor.recordFailure(at: DispatchTime.now().uptimeNanoseconds)
@@ -4320,7 +4363,8 @@ public struct CurrentHoleView: View {
     /// continues unaffected.
     @MainActor
     private func loadGarminRaster() async {
-        guard let caddieBaseURL,
+        guard garminRasterEnabled,
+              let caddieBaseURL,
               hole.sourceGlobalId != 0,
               hole.sourceLocalHole > 0 else {
             garminRaster = GarminRasterResponse(available: false, reason: "unavailable")

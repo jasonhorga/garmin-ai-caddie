@@ -54,6 +54,30 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertFalse(LiveGarminRasterPolicy.shouldFetch(enabled: true, requestStarted: true))
     }
 
+    /// Product spec 4.5: the model-owned ahead-of-play pass follows the same persisted opt-in and
+    /// has no implicit request when the preference has never been written.
+    func testProductSpec45GarminPreloadPreferenceDefaultsOff() throws {
+        let suiteName = "c136-garmin-preference-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { UserDefaults().removePersistentDomain(forName: suiteName) }
+        XCTAssertFalse(LiveGarminRasterPolicy.isEnabled(defaults: defaults))
+        defaults.set(true, forKey: LiveGarminRasterPolicy.preferenceKey)
+        XCTAssertTrue(LiveGarminRasterPolicy.isEnabled(defaults: defaults))
+    }
+
+    /// Product spec 4.5: a failed/timeout raster request immediately leaves a usable factual or
+    /// numeric surface; its later retry must never own the hole screen's visible loading state.
+    func testProductSpec45RasterFailureStopsVisibleSpinner() async {
+        let url = URL(string: "https://c136.example.test/raster-timeout.jpg")!
+        let store = GarminRasterImageStore(
+            sleep: { _ in throw CancellationError() },
+            loader: { _ in nil }
+        )
+        await store.load(url)
+        XCTAssertEqual(store.failedURL, url)
+        XCTAssertFalse(store.isLoading)
+    }
+
     private func projection(
         originPixel: CGPoint,
         xPixel: CGPoint,

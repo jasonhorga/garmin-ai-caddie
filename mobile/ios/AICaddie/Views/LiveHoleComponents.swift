@@ -2045,21 +2045,24 @@ struct LiveMapPreparingPill: View {
     }
 }
 
-/// Pure policies shared by the live-hole view and native tests.  The initial implementation keeps
-/// the existing always-on Garmin request and static F/M/B fallback; C136's product fix tightens
-/// these two decisions without coupling tests to SwiftUI view state.
+/// Pure policies shared by the live-hole view and native tests. Keeping these decisions outside
+/// SwiftUI state makes the optional Garmin layer and the F/M/B readout easy to verify offline.
 enum LiveGarminRasterPolicy {
+    static let preferenceKey = "liveGarminRasterEnabled"
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: preferenceKey)
+    }
+
     static func shouldFetch(enabled: Bool, requestStarted: Bool) -> Bool {
-        _ = enabled
-        return !requestStarted
+        enabled && !requestStarted
     }
 
     static func displayedRaster(
         enabled: Bool,
         raster: GarminRasterResponse?
     ) -> GarminRasterResponse? {
-        _ = enabled
-        return raster
+        enabled ? raster : nil
     }
 }
 
@@ -2074,8 +2077,7 @@ enum LiveGreenRangePresentation {
         live: LiveGreenRangeYards?,
         staticFallback: LiveGreenRangeYards
     ) -> LiveGreenRangeYards {
-        _ = live
-        return staticFallback
+        live ?? staticFallback
     }
 }
 

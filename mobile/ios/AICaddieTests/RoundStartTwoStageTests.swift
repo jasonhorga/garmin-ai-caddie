@@ -296,6 +296,9 @@ final class RoundStartTwoStageTests: XCTestCase {
         })
         let fixture = makeModel(host: host)
         let model = fixture.model
+        // C136 makes Garmin imagery opt-in; this legacy C85 pass test explicitly exercises the
+        // enabled path so it remains a test of ordering rather than the default preference.
+        model.garminRasterPreloadingEnabled = { true }
         let downloads = C85DownloadLog()
         model.garminRasterDownloader = { url in
             downloads.urls.append(url)
