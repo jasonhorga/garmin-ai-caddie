@@ -229,6 +229,7 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertEqual(waiting, .waiting)
     }
 
+    /// Product spec 4.5: replacing a route tier with a precise map keeps the same gestures.
     func testPreciseMapReplacesRouteTierWithoutChangingInteractionPolicy() {
         let route = LiveMapDisplayState.resolveLive(.init(
             coverage: "partial", preciseTopoImageReady: false, garminRaster: nil,
@@ -282,6 +283,7 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertEqual(preciseResult, interaction, "route → precise")
     }
 
+    /// Product spec 4.5: every map-tier handoff keeps physical points and fitted viewport state.
     func testViewportTransitionPixelSpaceMatrixRemapsCrossSpaceAndKeepsSameSpaceIdentity() throws {
         let preciseProjection = CoursePrepHoleImageProjection(
             available: true,
@@ -381,15 +383,19 @@ final class GarminRasterTests: XCTestCase {
             XCTAssertEqual(greenAfter.longitude, greenCoordinate.longitude, accuracy: 1e-9, "\(previous) → \(next) green longitude")
         }
 
+        // The factual → Garmin case is the 1.005/3pt boundary: d9d48c00 transferred it because
+        // the old implementation inspected offset, so this assertion is red on that baseline.
+        // Garmin → factualPending remains the centred fitted-state regression guard.
         for (previous, next) in [
             (LiveMapDisplayState.factual, LiveMapDisplayState.garminRaster),
             (.garminRaster, .factualPending),
         ] {
             let sourceProjection = previous == .garminRaster ? garminProjection : preciseProjection
             let destinationProjection = next == .garminRaster ? garminProjection : preciseProjection
+            let nearFittedBoundary = previous == .factual && next == .garminRaster
             let interaction = LiveMapViewportInteraction(
-                scale: 1,
-                offset: .zero,
+                scale: nearFittedBoundary ? 1.005 : 1,
+                offset: nearFittedBoundary ? CGSize(width: 3, height: 0) : .zero,
                 selectedHazardID: nil,
                 targetPixel: try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
                     latitude: targetCoordinate.latitude,
@@ -462,6 +468,7 @@ final class GarminRasterTests: XCTestCase {
         }
     }
 
+    /// Product spec 4.5: points are remapped even before SwiftUI has measured both map frames.
     func testCrossSpaceTransitionKeepsMappedPointsBeforeFramesAreMeasured() throws {
         let preciseProjection = projection(
             originPixel: CGPoint(x: 120, y: 330),
@@ -522,6 +529,8 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertEqual(result.greenPinPixel?.y ?? -1, expectedGreen.y, accuracy: 0.001)
     }
 
+    /// Product spec 4.5: waiting/Garmin transitions preserve geographic points and clear pixels
+    /// that have no destination projection.
     func testWaitingGarminTransitionsReprojectCoordinatesAndClearUnmappablePixels() throws {
         let precise = projection(
             originPixel: CGPoint(x: 120, y: 330),
@@ -591,6 +600,7 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertNil(fromGarmin.greenPinPixel, "pixel-only point has no destination projection")
     }
 
+    /// Product spec 4.5: a Garmin replacement keeps the route viewport's geographic centre.
     func testRouteTierToGarminRemapsPointsAndKeepsViewportGeography() throws {
         let sourceProjection = projection(
             originPixel: CGPoint(x: 120, y: 330),
@@ -611,8 +621,9 @@ final class GarminRasterTests: XCTestCase {
         let targetCoordinate = CLLocationCoordinate2D(latitude: 40.0005, longitude: 116.0005)
         let greenCoordinate = CLLocationCoordinate2D(latitude: 40.0002, longitude: 116.0008)
         let interaction = LiveMapViewportInteraction(
-            scale: 2,
-            offset: CGSize(width: 12, height: -8),
+            // This is the true-zoom boundary paired with the 1.005/3pt fitted case above.
+            scale: 1.02,
+            offset: CGSize(width: 1, height: 1),
             selectedHazardID: "water-0",
             targetPixel: try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
                 latitude: targetCoordinate.latitude,
@@ -656,6 +667,7 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertEqual(result.targetPixel?.y ?? -1, expectedTarget.y, accuracy: 0.001)
         XCTAssertEqual(result.greenPinPixel?.x ?? -1, expectedGreen.x, accuracy: 0.001)
         XCTAssertEqual(result.greenPinPixel?.y ?? -1, expectedGreen.y, accuracy: 0.001)
+        XCTAssertGreaterThan(result.scale, 1.01, "1.02 scale remains a transferred zoomed viewport")
 
         func centerCoordinate(
             frame: CGRect,
@@ -687,6 +699,7 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertEqual(afterCenter.longitude, beforeCenter.longitude, accuracy: 1e-9)
     }
 
+    /// Product spec 4.5: Garmin-to-precise replacement remaps pixel-only points into the new frame.
     func testGarminToPreciseViewportTransitionRemapsPixelOnlyPoints() throws {
         let garmin = projection(
             originPixel: CGPoint(x: 80, y: 1740),
@@ -734,6 +747,7 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertEqual(result.greenPinPixel?.y ?? -1, expected.y, accuracy: 0.001)
     }
 
+    /// Product spec 4.5: an unregistered raster cannot inherit pixel-only points from the route.
     func testRouteTierToUnregisteredGarminClearsPixelOnlyPoints() {
         let interaction = LiveMapViewportInteraction(
             scale: 2.2,
