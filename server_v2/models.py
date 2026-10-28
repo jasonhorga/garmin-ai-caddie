@@ -1250,6 +1250,15 @@ class LiveRoundEventRecord(BaseModel):
     # without an identity the compatibility ceiling is 27 (one extra nine-hole loop plus margin).
     startHole: int | None = Field(default=None, ge=1, le=27, strict=True, exclude_if=lambda value: value is None)
 
+    @field_validator("startHole", mode="before")
+    @classmethod
+    def start_hole_compatibility_limit(cls, value: Any) -> Any:
+        # Keep the schema's strict integer/range checks; give an out-of-range integer the
+        # same actionable wording as the tighter, package-proven limit at append time.
+        if type(value) is int and value > 27:
+            raise ValueError("本局 27 洞，startHole 不能超过 27")
+        return value
+
     @field_validator("timestamp")
     @classmethod
     def timestamp_is_iso8601(cls, value: str) -> str:
