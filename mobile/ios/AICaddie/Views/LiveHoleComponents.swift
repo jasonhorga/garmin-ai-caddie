@@ -2354,11 +2354,13 @@ enum LiveMapDisplayState: Equatable {
         let garminImageReady: Bool
         let garminImageFailed: Bool
         let hasCachedPreciseTopo: Bool
+        /// A factual tee-to-green route can draw before either bitmap arrives.
+        let hasRoute: Bool
 
         init(
             coverage: String?, preciseTopoImageReady: Bool, garminRaster: GarminRasterResponse?,
             garminImageReady: Bool = true, garminImageFailed: Bool, hasCachedPreciseTopo: Bool,
-            preciseTopoAvailable: Bool = false
+            preciseTopoAvailable: Bool = false, hasRoute: Bool = false
         ) {
             self.coverage = coverage
             self.preciseTopoImageReady = preciseTopoImageReady
@@ -2367,6 +2369,7 @@ enum LiveMapDisplayState: Equatable {
             self.garminImageReady = garminImageReady
             self.garminImageFailed = garminImageFailed
             self.hasCachedPreciseTopo = hasCachedPreciseTopo
+            self.hasRoute = hasRoute
         }
 
         var preciseGeometryReady: Bool {
@@ -2387,7 +2390,8 @@ enum LiveMapDisplayState: Equatable {
         memoryCached: Bool,
         garminRaster: GarminRasterResponse?,
         garminImageReady: Bool,
-        garminImageFailed: Bool
+        garminImageFailed: Bool,
+        hasRoute: Bool = false
     ) -> LiveInputs {
         let preciseImageReady = !decodeFailed
             && (hasEmbeddedTopoImage
@@ -2404,7 +2408,8 @@ enum LiveMapDisplayState: Equatable {
             garminImageReady: garminImageReady,
             garminImageFailed: garminImageFailed,
             hasCachedPreciseTopo: cachedPreciseTopo,
-            preciseTopoAvailable: preciseAvailable
+            preciseTopoAvailable: preciseAvailable,
+            hasRoute: hasRoute
         )
     }
 

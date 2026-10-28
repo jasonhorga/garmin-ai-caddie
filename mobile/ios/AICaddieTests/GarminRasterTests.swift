@@ -214,6 +214,40 @@ final class GarminRasterTests: XCTestCase {
         )
     }
 
+    /// Product spec 4.5: a measured tee-to-green route is the middle tier, while a hole
+    /// without even that route stays on the single waiting surface.
+    func testLiveMapThreeTiersUseRouteBeforeNumericWaiting() {
+        let routeOnly = LiveMapDisplayState.resolveLive(.init(
+            coverage: "partial", preciseTopoImageReady: false, garminRaster: nil,
+            garminImageFailed: true, hasCachedPreciseTopo: false, hasRoute: true
+        ))
+        XCTAssertEqual(routeOnly, .factual)
+        let waiting = LiveMapDisplayState.resolveLive(.init(
+            coverage: "partial", preciseTopoImageReady: false, garminRaster: nil,
+            garminImageFailed: true, hasCachedPreciseTopo: false, hasRoute: false
+        ))
+        XCTAssertEqual(waiting, .waiting)
+    }
+
+    func testPreciseMapReplacesRouteTierWithoutChangingInteractionPolicy() {
+        let route = LiveMapDisplayState.resolveLive(.init(
+            coverage: "partial", preciseTopoImageReady: false, garminRaster: nil,
+            garminImageFailed: true, hasCachedPreciseTopo: false, hasRoute: true
+        ))
+        let precise = LiveMapDisplayState.resolveLive(.init(
+            coverage: "ready", preciseTopoImageReady: true, garminRaster: nil,
+            garminImageFailed: true, hasCachedPreciseTopo: false, hasRoute: true
+        ))
+        XCTAssertEqual(route, .factual)
+        XCTAssertEqual(precise, .precise)
+        XCTAssertEqual(LiveMapDisplaySelection.gestureScale(for: route, proposed: 2.4), 2.4)
+        XCTAssertEqual(LiveMapDisplaySelection.gestureScale(for: precise, proposed: 2.4), 2.4)
+        XCTAssertEqual(
+            LiveMapDisplaySelection.gestureOffset(for: route, proposed: CGSize(width: 31, height: -12)),
+            LiveMapDisplaySelection.gestureOffset(for: precise, proposed: CGSize(width: 31, height: -12))
+        )
+    }
+
     func testNumericPlaceholderGestureStateResetsScaleAndOffset() {
         XCTAssertEqual(
             LiveMapDisplaySelection.gestureScale(for: .numericPlaceholder, proposed: 4),

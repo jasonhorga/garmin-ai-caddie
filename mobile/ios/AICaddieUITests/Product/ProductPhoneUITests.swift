@@ -391,13 +391,7 @@ final class ProductPhoneUITests: XCTestCase {
             var state = ProductFixtureServer.State(); state.coverage = name
             server.configure(state); launch(); startRound()
             let map = element(expected)
-            if name == "ready" {
-                XCTAssertTrue(map.waitForExistence(timeout: 15), name)
-            } else {
-                knownRed("C16e J4.5: phone live map has no route-only or waiting tier") {
-                    XCTAssertTrue(map.waitForExistence(timeout: 15), name)
-                }
-            }
+            XCTAssertTrue(map.waitForExistence(timeout: 15), name)
             if map.exists { insideWindow(map, name) }
             app.terminate()
         }
