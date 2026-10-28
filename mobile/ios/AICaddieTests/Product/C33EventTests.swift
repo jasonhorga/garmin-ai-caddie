@@ -943,6 +943,8 @@ final class C33EventTests: XCTestCase {
         XCTAssertEqual(finishes, 1)
         XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
         XCTAssertTrue(try store.loadPendingRoundFinishes().isEmpty)
+        XCTAssertNil(try store.loadRoundPackage(roundId: package.roundId))
+        XCTAssertNil(model.deferredFinishRecovery)
     }
 
     /// Product spec 5.9 / C143-4: a pending finish with no server rejection never invents a Hub
