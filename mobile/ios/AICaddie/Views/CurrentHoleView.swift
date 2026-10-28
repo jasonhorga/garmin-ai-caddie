@@ -2420,7 +2420,7 @@ public struct CurrentHoleView: View {
         from previous: LiveMapDisplayState,
         to next: LiveMapDisplayState
     ) {
-        guard previous == .garminRaster, next == .precise,
+        guard (previous == .garminRaster || previous == .factual), next == .precise,
               let sourceProjection = projection(for: previous),
               let destinationProjection = projection(for: next),
               let sourceOverlay = overlay(for: previous),
@@ -2755,6 +2755,14 @@ public struct CurrentHoleView: View {
                 .accessibilityIdentifier(
                     "live-hole-map-precise"
                 )
+                .transition(.opacity)
+        } else if let holePrep, liveMapDisplayState == .factual {
+            liveHoleImageMap(holePrep)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("live-hole-map-partial")
+                .transition(.opacity)
+        } else if liveMapDisplayState == .waiting {
+            LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber, par: hole.par, yards: hole.yards)
                 .transition(.opacity)
         } else if liveMapDisplayState == .precise, let liveTopoURL {
             TopoHoleBaseImage(topoURL: liveTopoURL, fallback: nil)
@@ -3285,8 +3293,14 @@ public struct CurrentHoleView: View {
             memoryCached: liveTopoURL.map { TopoHoleImageStore.isMemoryCached($0) } ?? false,
             garminRaster: garminRaster,
             garminImageReady: garminImageReadyForDisplay,
-            garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying
+            garminImageFailed: garminRasterImageFailed || garminRasterImageRetrying,
+            hasRoute: liveHasRoute
         )
+    }
+
+    private var liveHasRoute: Bool {
+        guard let route = holePrep?.resolvedMapOverlay?.route else { return false }
+        return route.count >= 2 && route.allSatisfy { $0.count >= 2 }
     }
 
     private func recordLiveMapDisplayTrace(

@@ -2355,12 +2355,12 @@ enum LiveMapDisplayState: Equatable {
         let garminImageFailed: Bool
         let hasCachedPreciseTopo: Bool
         /// A factual tee-to-green route can draw before either bitmap arrives.
-        let hasRoute: Bool
+        let hasRoute: Bool?
 
         init(
             coverage: String?, preciseTopoImageReady: Bool, garminRaster: GarminRasterResponse?,
             garminImageReady: Bool = true, garminImageFailed: Bool, hasCachedPreciseTopo: Bool,
-            preciseTopoAvailable: Bool = false, hasRoute: Bool = false
+            preciseTopoAvailable: Bool = false, hasRoute: Bool? = nil
         ) {
             self.coverage = coverage
             self.preciseTopoImageReady = preciseTopoImageReady
@@ -2391,7 +2391,7 @@ enum LiveMapDisplayState: Equatable {
         garminRaster: GarminRasterResponse?,
         garminImageReady: Bool,
         garminImageFailed: Bool,
-        hasRoute: Bool = false
+        hasRoute: Bool? = nil
     ) -> LiveInputs {
         let preciseImageReady = !decodeFailed
             && (hasEmbeddedTopoImage
@@ -2422,13 +2422,15 @@ enum LiveMapDisplayState: Equatable {
             // Keep the screen on its neutral ground until the exact bitmap is decoded. The
             // Garmin descriptor can be ready at this point, but it is not the authority for a
             // hole whose exact local image is already known.
-            return .factualPending
+            return inputs.hasRoute == false ? .waiting : .factualPending
         }
         if !inputs.garminImageFailed,
            inputs.garminImageReady,
            inputs.garminRaster?.hasDisplayableImage == true {
             return .garminRaster
         }
+        if inputs.hasRoute == true { return .factual }
+        if inputs.hasRoute == false { return .waiting }
         return .numericPlaceholder
     }
 
@@ -2485,7 +2487,7 @@ enum LiveMapDisplaySelection {
         overlay: CoursePrepOverlay?,
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
-        if let overlay, (state == .precise || state == .garminRaster) { return overlay }
+        if let overlay, (state == .precise || state == .garminRaster || state == .factualPending || state == .factual) { return overlay }
         guard state == .garminRaster else { return nil }
         let width = (garminProjection?.widthPx ?? 0) > 0
             ? (garminProjection?.widthPx ?? 1242)
@@ -2513,9 +2515,9 @@ enum LiveMapDisplaySelection {
         switch state {
         case .garminRaster:
             return garmin
-        case .precise:
+        case .precise, .factualPending, .factual:
             return precise
-        case .waiting, .factualPending, .factual, .numericPlaceholder:
+        case .waiting, .numericPlaceholder:
             return nil
         }
     }
