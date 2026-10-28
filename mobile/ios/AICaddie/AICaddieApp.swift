@@ -1959,6 +1959,10 @@ public final class LiveRoundAppModel: ObservableObject {
         endForegroundCourseRequest()
     }
 
+    func enqueueWholeCourseTemplatesForTesting(_ snapshot: LiveRoundPackage) {
+        enqueueWholeCourseTemplates(for: snapshot)
+    }
+
     #endif
 
     /// Keep start latency low, then make the selected course genuinely reusable without a network:
@@ -2054,18 +2058,22 @@ public final class LiveRoundAppModel: ObservableObject {
             let isCourseHalf = loop.half == "front" || loop.half == "back"
             let holes = isCourseHalf ? RoundLoopEntry.holesPerLoop * 2 : RoundLoopEntry.holesPerLoop
             let option = courseOptions.first(where: { $0.globalId == loop.globalId })
+            let venueLoop = snapshot.venueLoops?.first(where: { $0.globalId == loop.globalId })
+            let isCurrentLoop = loop.globalId == snapshot.course.globalId
+            // The venue display name is shared by every loop at the venue, so it stays a safe fallback.
+            let fallbackName = venueLoop?.name ?? snapshot.course.venueDisplayName
+            let fallbackSegmentLabel: String? = isCourseHalf
+                ? nil
+                : venueLoop?.segmentLabel ?? (isCurrentLoop ? snapshot.course.segmentLabel : nil)
             var candidate = PrepCourseDownloadRecord(
                 course: MobileCourseOption(
                     globalId: loop.globalId,
-                    name: option?.name ?? snapshot.course.venueDisplayName,
+                    name: option?.name ?? fallbackName,
                     holes: holes,
                     teeBox: snapshot.course.teeBox,
                     venueName: option?.venueName ?? snapshot.course.venueName,
                     venueNameSource: option?.venueNameSource ?? snapshot.course.venueNameSource,
-                    segmentLabel: option?.segmentLabel ?? (
-                        loop.half == "front" ? "前九" :
-                        loop.half == "back" ? "后九" : snapshot.course.segmentLabel
-                    ),
+                    segmentLabel: option?.segmentLabel ?? fallbackSegmentLabel,
                     segmentHoles: option?.segmentHoles ?? holes
                 ),
                 teeBox: snapshot.course.teeBox,
