@@ -90,7 +90,7 @@ public struct StartRoundView: View {
     @State private var nearbyStatusText: String?
     @State private var nearbyDiscoveryFailed = false
     @State private var nearbyRetryToken = 0
-    @State private var announcedIntentGlobalIDs = Set<Int>()
+    @State private var announcedIntentKeys = Set<String>()
     @State private var teeRequestToken: UUID?
     @State private var nearbyRequestToken: UUID?
     @State private var page: Page
@@ -448,8 +448,9 @@ public struct StartRoundView: View {
     private func announceCourseIntent() async {
         guard !courseIntentKey.isEmpty else { return }
         guard !Task.isCancelled, !courseIntentKey.isEmpty else { return }
-        guard let globalId = courseGlobalId,
-              announcedIntentGlobalIDs.insert(globalId).inserted else { return }
+        guard let globalId = courseGlobalId else { return }
+        let intentKey = "\(globalId):\(teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+        guard announcedIntentKeys.insert(intentKey).inserted else { return }
         onCourseIntent(selectedVenueLoops, teeBox)
     }
 
@@ -551,15 +552,28 @@ public struct StartRoundView: View {
     /// that can desync from courseGlobalIdText). An unavailable id stays blank rather than showing
     /// the first row's venue, which used to display one course while starting another.
     private var selectedVenueName: String {
+        Self.selectedVenueName(
+            globalId: courseGlobalId,
+            selectedSegment: selectedSegment,
+            candidates: courseRows.flatMap(\.segments)
+        )
+    }
+
+    /// The setup title follows the persisted selection even during a catalogue refresh that has
+    /// temporarily removed the selected loop from `selectedSegment`.
+    static func selectedVenueName(
+        globalId: Int?,
+        selectedSegment: MobileCourseOption?,
+        candidates: [MobileCourseOption]
+    ) -> String {
         if let selectedSegment {
-            return Self.courseVenueName(selectedSegment)
+            return courseVenueName(selectedSegment)
         }
         // A catalogue refresh can briefly remove the selected loop while its id remains in the
         // selection state (沙河 31832). Keep the title and the start request tied to that id rather
         // than falling back to the first nearby venue.
-        guard let globalId = courseGlobalId else { return "球场" }
-        return courseRows
-            .flatMap(\.segments)
+        guard let globalId else { return "球场" }
+        return candidates
             .first(where: { $0.globalId == globalId })
             .map(Self.courseVenueName) ?? "球场"
     }
@@ -1525,8 +1539,11 @@ public struct StartRoundView: View {
                 isPreparing: isPreparing,
                 isOpeningPrep: isOpeningPrepCourse
             )
-            if let roundStartProgressMessage, startBusy {
-                Text(roundStartProgressMessage)
+            if let progressText = StartRoundPresentation.roundStartProgressText(
+                isBusy: startBusy,
+                message: roundStartProgressMessage
+            ) {
+                Text(progressText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2176,6 +2193,18 @@ public struct StartRoundView: View {
     /// 50 km expansion, keeping catalogue traffic bounded at two requests per discovery.
     static let nearbyAutomaticRetryCount = 0
 
+    static var nearbyDiscoveryRadii: [Int] {
+        [nearbyInitialRadiusKm, nearbyExpandedRadiusKm]
+    }
+
+    static func nearbyDiscoveryShouldFail(
+        publishedProviderResult: Bool,
+        lastError: Error?,
+        hasNearbyRows: Bool
+    ) -> Bool {
+        !publishedProviderResult && lastError != nil && !hasNearbyRows
+    }
+
     static func shouldApplyNearbyDiscoveryResult(
         isCancelled: Bool,
         requestToken: UUID,
@@ -2257,7 +2286,7 @@ public struct StartRoundView: View {
         }
         var publishedProviderResult = false
         var lastError: Error?
-        let radii = [Self.nearbyInitialRadiusKm, Self.nearbyExpandedRadiusKm]
+        let radii = Self.nearbyDiscoveryRadii
         for (index, radius) in radii.enumerated() {
             var attempts = 0
             while attempts <= Self.nearbyAutomaticRetryCount {
@@ -2285,7 +2314,7 @@ public struct StartRoundView: View {
                         !providerIDs.contains($0.globalId)
                     }
                     nearbyDiscoveryFailed = false
-                    publishedProviderResult = true
+                    publishedProviderResult = !providerNearby.isEmpty || publishedProviderResult
                     if providerNearby.isEmpty, index == 0 {
                         nearbyStatusText = "正在扩大附近范围…"
                         break
@@ -2327,7 +2356,11 @@ public struct StartRoundView: View {
         ) else { return }
         // Preserve local/previous provider rows after both automatic attempts fail. The user can
         // still search by name, and a later GPS bucket/retry can replace this state.
-        nearbyDiscoveryFailed = !publishedProviderResult && nearbyCourseOptions.isEmpty
+        nearbyDiscoveryFailed = Self.nearbyDiscoveryShouldFail(
+            publishedProviderResult: publishedProviderResult,
+            lastError: lastError,
+            hasNearbyRows: !nearbyCourseOptions.isEmpty
+        )
         if nearbyDiscoveryFailed {
             nearbyStatusText = Self.nearbyDiscoveryErrorMessage(lastError ?? URLError(.timedOut))
             clearAutomaticSelection()

@@ -26,6 +26,11 @@ struct StartCourseListRow: Equatable, Identifiable {
 /// Pure copy and list rules for 开始一场 and the home hero, kept out of the views so they are
 /// unit-testable without a SwiftUI host.
 enum StartRoundPresentation {
+    static func roundStartProgressText(isBusy: Bool, message: String?) -> String? {
+        guard isBusy else { return nil }
+        return message ?? "正在准备球场…"
+    }
+
     /// The download library is newest-first; show one row per physical venue while retaining the
     /// newest useful Tee/package identity for that venue. Older builds created one row per loop,
     /// so globalId alone is not a sufficient visible key.
@@ -54,16 +59,13 @@ enum StartRoundPresentation {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
             guard !venue.isEmpty else { continue }
-            // A display name is presentation data, not physical identity. Prefer the provider's
-            // stable course key; coordinate fallback keeps two same-named venues apart when the
-            // catalogue has not supplied a key. Legacy rows without either retain venue grouping.
+            // Course keys are not physical identity: production sends one key per loop in some
+            // catalogue responses and one key per venue in others. A coarse coordinate groups
+            // loops a few dozen metres apart while keeping same-named venues kilometres apart.
             let key: String
-            if let courseKey = row.course.courseKey?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !courseKey.isEmpty {
-                key = "course:\(courseKey.lowercased())"
-            } else if let latitude = row.course.latitude, let longitude = row.course.longitude {
-                let latKey = Int((latitude * 10_000).rounded())
-                let lonKey = Int((longitude * 10_000).rounded())
+            if let latitude = row.course.latitude, let longitude = row.course.longitude {
+                let latKey = Int((latitude * 1_000).rounded())
+                let lonKey = Int((longitude * 1_000).rounded())
                 key = "coordinate:\(venue):\(latKey):\(lonKey)"
             } else {
                 key = "venue:\(venue)"
@@ -73,15 +75,44 @@ enum StartRoundPresentation {
                 order.append(key)
                 continue
             }
-            let rowReady = row.phase == .ready
-            let currentReady = current.phase == .ready
-            // Both callers receive the durable list newest-first. Keep that first representative;
-            // only a ready package can supersede an in-flight row when old ordering is ambiguous.
-            if rowReady && !currentReady {
-                selected[key] = row
-            }
+            selected[key] = merged(current, row)
         }
         return order.compactMap { selected[$0] }
+    }
+
+    private static func merged(
+        _ current: PrepCourseDownloadRecord,
+        _ row: PrepCourseDownloadRecord
+    ) -> PrepCourseDownloadRecord {
+        if current.course.globalId == row.course.globalId {
+            if current.phase == .failed { return current }
+            if row.phase == .failed { return row }
+            if current.phase == .ready { return current }
+            if row.phase == .ready { return row }
+            return row.updatedAt > current.updatedAt ? row : current
+        }
+        var result = current
+        result.totalHoles = current.totalHoles + row.totalHoles
+        result.preparedHoles = current.preparedHoles + row.preparedHoles
+        result.downloadedHoles = current.downloadedHoles + row.downloadedHoles
+        result.updatedAt = max(current.updatedAt, row.updatedAt)
+        if current.phase == .failed || row.phase == .failed {
+            result.phase = .failed
+            result.errorText = current.phase == .failed ? current.errorText : row.errorText
+        } else if current.phase == .downloading || row.phase == .downloading {
+            result.phase = .downloading
+            result.errorText = nil
+        } else if current.phase == .preparing || row.phase == .preparing {
+            result.phase = .preparing
+            result.errorText = nil
+        } else if current.phase == .queued || row.phase == .queued {
+            result.phase = .queued
+            result.errorText = nil
+        } else {
+            result.phase = .ready
+            result.errorText = nil
+        }
+        return result
     }
 
     static func recentRowSubtitle(_ download: PrepCourseDownloadRecord) -> String {

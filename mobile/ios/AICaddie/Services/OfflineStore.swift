@@ -1353,6 +1353,41 @@ public final class OfflineStore {
         try encoder.encode(retained).write(to: prepCourseDownloadsURL, options: [.atomic])
     }
 
+    /// One-time migration for the pre-C134 prep journal. Those rows had no ownership marker, so
+    /// an unfinished row cannot be distinguished from an automatic round/template job. Keep ready
+    /// assets (the immutable template is still useful) and let every unfinished row be requested
+    /// again explicitly. The version file makes a second launch a no-op.
+    @discardableResult
+    public func migrateLegacyPrepCourseDownloadsIfNeeded() throws -> Bool {
+        let markerURL = prepCourseDownloadsURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("prep_course_downloads_migration.json")
+        if let data = try? Data(contentsOf: markerURL),
+           let version = try? decoder.decode(Int.self, from: data),
+           version >= 1 {
+            return false
+        }
+        // Rows written by C134 already carry the ownership marker. A fresh install can have a
+        // queued row before this store is first reopened, so only a payload that actually lacks
+        // the field is eligible for the destructive legacy cleanup.
+        let data = try? Data(contentsOf: prepCourseDownloadsURL)
+        let rawRows: [[String: Any]]?
+        if let data {
+            rawRows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
+        } else {
+            rawRows = nil
+        }
+        let hasLegacyRows = rawRows?.contains { $0["isRoundPrefetch"] == nil } == true
+        let existing = (try? loadPrepCourseDownloads()) ?? []
+        let ready = hasLegacyRows ? existing.filter { $0.phase == .ready } : existing
+        if hasLegacyRows, !existing.isEmpty {
+            try savePrepCourseDownloads(ready)
+        }
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try encoder.encode(1).write(to: markerURL, options: [.atomic])
+        return true
+    }
+
     #if DEBUG
     /// UI-test only: forget every prep-library row and course template so a journey starts with no
     /// prepared course. The image cache must be cleared with the library so a fixture revision
