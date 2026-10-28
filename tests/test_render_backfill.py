@@ -9,6 +9,7 @@ import threading
 import time
 from concurrent.futures import CancelledError, Future, TimeoutError
 from concurrent.futures.process import BrokenProcessPool
+from concurrent.futures import process as process_pool
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -59,6 +60,194 @@ class BackgroundMapContractTests(unittest.TestCase):
         worker = self._worker(self.root, **kwargs)
         self.addCleanup(worker.close)
         return worker
+
+    @staticmethod
+    def _image_bytes(format="JPEG"):
+        image = io.BytesIO()
+        Image.new("RGB", (8, 8), "green").save(image, format=format)
+        return image.getvalue()
+
+    def test_J42_repeated_interruptions_are_bounded_and_let_peer_work_finish(self):
+        from ai_caddie.geometry import topo_render
+        (self.root / "meshes/gid2_h01_meshes.json").write_text("{}")
+        worker = self._new(render_topo=None, raster_version=lambda *_: None)
+        calls = []
+        pool = Mock()
+        def submit(_fn, gid, hole):
+            calls.append((gid, hole))
+            if gid == 1:
+                raise BrokenProcessPool("deterministic renderer crash")
+            future = Future()
+            future.set_result(self._image_bytes("PNG"))
+            return future
+        pool.submit.side_effect = submit
+        with (patch.object(topo_render, "_render_process_count", return_value=1),
+              patch.object(topo_render, "_get_render_pool", return_value=pool),
+              patch.object(topo_render, "_discard_render_pool"),
+              patch.object(render_backfill.time, "sleep") as sleep):
+            worker.enqueue_all(recent={(1, 1), (2, 1)}, downloaded=set())
+            for _ in range(6):
+                worker.run_once()
+            self.assertEqual(calls, [(1, 1), (2, 1), (1, 1), (1, 1)])
+            self.assertEqual(worker.status()["done"], 1)
+            self.assertEqual(worker.status()["failed"], 1)
+            self.assertEqual(worker.status()["pending"], 0)
+            self.assertIn("render interrupted 3x: BrokenProcessPool", worker.status()["failures"][0]["error"])
+            self.assertEqual(sleep.call_count, 2)  # J4.2 / r4: limit 3 => only two backoffs.
+
+    def test_J42_timeout_is_terminal_and_never_resubmitted(self):
+        from ai_caddie.geometry import topo_render
+        worker = self._new(render_topo=None, raster_version=lambda *_: None)
+        pool, future = Mock(), Future()
+        future.set_exception(TimeoutError())
+        pool.submit.return_value = future
+        with (patch.object(topo_render, "_render_process_count", return_value=1),
+              patch.object(topo_render, "_get_render_pool", return_value=pool),
+              patch.object(topo_render, "_discard_render_pool"),
+              patch.object(render_backfill.time, "sleep") as sleep):
+            worker.enqueue_all(downloaded=set())
+            worker.run_once()
+            self.assertEqual(worker.status()["failed"], 1)
+            self.assertIn("render timed out after 180s", worker.status()["failures"][0]["error"])
+            self.assertFalse(worker.run_once())
+            self.assertEqual(pool.submit.call_count, 1)
+            sleep.assert_not_called()
+
+    def test_J42_submission_is_durable_before_entering_the_pool(self):
+        from ai_caddie.geometry import topo_render
+        worker = self._new(render_topo=None, raster_version=lambda *_: None)
+        pool = Mock()
+        def submit(*_):
+            observer = self._worker(self.root)
+            state = observer.status(detail=True)["tasks"]["1:1"]
+            self.assertTrue(state.get("submitted", {}).get("topo", False))
+            self.assertEqual(state.get("interrupts", {}).get("topo"), 0)
+            future = Future()
+            future.set_result(self._image_bytes("PNG"))
+            return future
+        pool.submit.side_effect = submit
+        with (patch.object(topo_render, "_render_process_count", return_value=1),
+              patch.object(topo_render, "_get_render_pool", return_value=pool)):
+            worker.enqueue_all(downloaded=set())
+            worker.run_once()
+            self.assertEqual(worker.status()["done"], 1)
+            task = worker.status(detail=True)["tasks"]["1:1"]
+            self.assertEqual(task.get("interrupts", {}).get("topo"), 0)
+            self.assertFalse(task.get("submitted", {}).get("topo", True))
+
+    def _seed_interrupted_submission(self, count):
+        worker = self._new(raster_version=lambda *_: None)
+        worker.enqueue_all(downloaded=set())
+        worker.close()
+        payload = json.loads(worker.state_path.read_text())
+        payload["tasks"]["1:1"]["interrupts"] = {"topo": count, "garmin": 0}
+        payload["tasks"]["1:1"]["submitted"] = {"topo": True, "garmin": False}
+        worker.state_path.write_text(json.dumps(payload))
+
+    def test_J42_restart_counts_an_unfinished_submission_once(self):
+        self._seed_interrupted_submission(0)
+        worker = self._new(raster_version=lambda *_: None)
+        worker.enqueue_all(downloaded=set())
+        task = worker.status(detail=True)["tasks"]["1:1"]
+        self.assertEqual(task.get("interrupts", {}).get("topo"), 1)
+        self.assertFalse(task.get("submitted", {}).get("topo", True))
+        worker.close()
+        again = self._new(raster_version=lambda *_: None)
+        again.enqueue_all(downloaded=set())
+        self.assertEqual(again.status(detail=True)["tasks"]["1:1"]["interrupts"]["topo"], 1)
+
+    def test_J42_restart_at_interrupt_limit_fails_without_submitting(self):
+        from ai_caddie.geometry import topo_render
+        self._seed_interrupted_submission(2)
+        worker = self._new(render_topo=None, raster_version=lambda *_: None)
+        with patch.object(topo_render, "_get_render_pool") as pool:
+            worker.enqueue_all(downloaded=set())
+            self.assertFalse(worker.run_once())
+            pool.assert_not_called()
+        self.assertEqual(worker.status()["failed"], 1)
+        self.assertIn("render interrupted 3x", worker.status()["failures"][0]["error"])
+        self.assertEqual(worker.status(detail=True)["tasks"]["1:1"]["interrupts"]["topo"], 0)
+
+    def test_J42_shutdown_cancellation_preserves_the_interrupt_budget(self):
+        from ai_caddie.geometry import topo_render
+        worker = self._new(render_topo=None, raster_version=lambda *_: None)
+        pool, future = Mock(), Future()
+        future.set_exception(CancelledError())
+        pool.submit.return_value = future
+        with (patch.object(topo_render, "_render_process_count", return_value=1),
+              patch.object(topo_render, "_get_render_pool", return_value=pool),
+              patch.object(topo_render, "_discard_render_pool"),
+              patch.object(process_pool, "_global_shutdown", True),
+              patch.object(render_backfill.time, "sleep") as sleep):
+            worker.enqueue_all(downloaded=set())
+            self.assertFalse(worker.run_once())
+            self.assertEqual(worker.status()["failed"], 0)
+            self.assertEqual(worker.status()["pending"], 1)
+            task = worker.status(detail=True)["tasks"]["1:1"]
+            self.assertEqual(task.get("interrupts", {}).get("topo"), 0)
+            self.assertFalse(task.get("submitted", {}).get("topo", True))
+            sleep.assert_not_called()
+
+    def test_J42_force_resets_the_persisted_interrupt_budget(self):
+        self._seed_interrupted_submission(1)
+        worker = self._new(raster_version=lambda *_: None)
+        worker.enqueue_all(downloaded=set(), force=True)
+        task = worker.status(detail=True)["tasks"]["1:1"]
+        self.assertEqual(task.get("interrupts", {}).get("topo"), 0)
+        self.assertFalse(task.get("submitted", {}).get("topo", True))
+
+    def test_J42_corrupt_cached_jpeg_is_replaced_before_matting(self):
+        from ai_caddie.geometry import garmin_raster as raster, topo_render
+        worker = self._new(topo_ready=lambda *_: True, render_garmin=None)
+        pool, future = Mock(), Future()
+        future.set_result(self._image_bytes("WEBP"))
+        pool.submit.return_value = future
+        jpeg = self._image_bytes()
+        def download(*_args, **_kwargs):
+            self.assertFalse(source.exists(), "corrupt JPEG was left in the cache")
+            source.write_bytes(jpeg)
+            return jpeg
+        with (patch.object(raster, "RASTER_CACHE_DIR", self.root / "raster"),
+              patch.object(raster, "courseview_release_info", return_value={"holes": [
+                  {"hole": 1, "raster_url": "https://example.invalid/image", "geometryAssetVersion": "asset-1"}
+              ]}),
+              patch.object(raster, "fetch_raster", side_effect=download) as fetch,
+              patch.object(topo_render, "_render_process_count", return_value=1),
+              patch.object(topo_render, "_get_render_pool", return_value=pool)):
+            source = raster._raster_path(1, 1, "asset-1")
+            source.parent.mkdir(exist_ok=True)
+            source.write_bytes(b"corrupt JPEG")
+            worker.enqueue_all(downloaded=set())
+            worker.run_once()
+            fetch.assert_called_once()
+            pool.submit.assert_called_once_with(raster.matte_sky_webp, jpeg)
+            self.assertEqual(worker.status()["failed"], 0)
+
+    def test_J42_force_while_waiting_for_a_writer_is_visible_on_timeout(self):
+        first, worker = self._new(), self._new()
+        first.enqueue_all(downloaded=set())
+        clock = [0.0]
+        def sleep(seconds):
+            clock[0] += seconds
+            if clock[0] == 30:
+                render_backfill.enqueue_all(force=True)
+        with (patch.object(render_backfill, "_BACKGROUND", worker),
+              patch.object(render_backfill, "_BACKGROUND_THREAD", None),
+              patch.object(render_backfill, "_RESCAN", False),
+              patch.object(render_backfill, "_FORCE", False),
+              patch.object(render_backfill.time, "monotonic", side_effect=lambda: clock[0]),
+              patch.object(render_backfill.time, "sleep", side_effect=sleep),
+              patch.object(render_backfill.logger, "exception") as exception):
+            render_backfill.start_background(manual=True)
+            thread = render_backfill._BACKGROUND_THREAD
+            if thread is not None:
+                thread.join(2)
+            self.assertIsNone(render_backfill._BACKGROUND_THREAD)
+            self.assertFalse(render_backfill._FORCE)
+            self.assertFalse(render_backfill._RESCAN)
+            self.assertEqual(worker.status().get("writerState"), "blocked")
+            self.assertIn("600", worker.status().get("lastError") or "")
+            exception.assert_not_called()
 
     def _assert_pool_failure_recovers(self, unit, failure, *, during_submit=False):
         """J4.2: infrastructure loss keeps the same map unit pending for a later pool."""
