@@ -66,6 +66,9 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         ] + [{"roundId": ROUND_A, "event": {"hole": hole, "kind": "score"}}
              for hole in ("4", True, 3.7)]
         raw = b"\n".join(json.dumps(row, sort_keys=True).encode("utf-8") for row in rows)
+        # The authoritative UTF-8 text reader rejects a BOM; bytes-based JSON autodetection
+        # must not make migration silently accept an extra row.
+        raw += b"\n\xef\xbb\xbf" + json.dumps({"roundId": ROUND_A, "event": {"hole": 99}}).encode()
         raw += b"\n{broken\n\xff\n" + json.dumps({"roundId": ROUND_B, "event": {"hole": 8}}).encode()
         for with_marker, final_lf in ((False, False), (False, True), (True, True)):
             with self.subTest(marker=with_marker, final_lf=final_lf):

@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import time
 import unittest
@@ -302,6 +304,69 @@ class EventAppendTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
             FileEventStore(self.root).append_batch(ROUND_A, [self._event("new")], request_key="new")
         self.assertNotIn("new", (self.root / "request_reservations.json").read_text())
+
+    def test_j59_stale_index_repairs_before_dedup_and_score_validation(self):
+        """J5.9/J5.7: index damage cannot lose an ACK, duplicate a score, or admit 3 < 2+1+1."""
+        from ai_caddie.rounds.score_invariant import require_possible_appended_scores, ScoreInvariantError
+
+        first = {**self._event("score"), "hole": 1}
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [
+            first,
+            {**self._event("putts"), "hole": 1, "kind": "putt", "payload": {"putts": 2}},
+            {**self._event("penalty"), "hole": 1, "kind": "penalty", "payload": {"penalties": 1}},
+        ], request_key="first")
+        store.append_batch(ROUND_B, [{**first, "roundId": ROUND_B, "eventId": "other"}], request_key="other")
+        payload = json.loads(store.round_index.read_text())
+        payload["offsets"][ROUND_A] = []
+        store.round_index.write_text(json.dumps(payload))
+        duplicate = FileEventStore(self.root).append_batch(
+            ROUND_A, [first], request_key="retry", validate_append=require_possible_appended_scores,
+        )
+        self.assertEqual((duplicate[0].status, duplicate[0].position, duplicate.server_sequence),
+                         ("duplicate_hash_match", 1, 4))
+        before_log, before_reservations = store.log.read_bytes(), store.reservations.read_bytes()
+        store.round_index.unlink()
+        with self.assertRaises(ScoreInvariantError):
+            FileEventStore(self.root).append_batch(ROUND_A, [
+                {**self._event("too-low"), "hole": 1, "payload": {"strokes": 3}},
+            ], request_key="impossible", validate_append=require_possible_appended_scores)
+        self.assertEqual(store.log.read_bytes(), before_log)
+        self.assertEqual(store.reservations.read_bytes(), before_reservations)
+        self.assertEqual(store.round_event_holes(ROUND_A), [1, 1, 1])
+
+    def test_j59_external_process_append_refreshes_prefix_and_global_positions(self):
+        """J5.9: another process can commit between requests without stale dedupe or sequence state."""
+        store = FileEventStore(self.root)
+        first = {**self._event("one"), "hole": 1}
+        store.append_batch(ROUND_A, [first], request_key="one")
+        script = """
+import json, sys
+from ai_caddie.caddie.mobile_event_store import FileEventStore
+FileEventStore(sys.argv[1]).append_batch(sys.argv[2], [json.loads(sys.argv[3])], request_key="external")
+"""
+        second = {**self._event("two"), "hole": 2}
+        subprocess.run([sys.executable, "-c", script, str(self.root), ROUND_A, json.dumps(second)],
+                       cwd=Path(__file__).resolve().parents[2], check=True, timeout=30)
+        result = FileEventStore(self.root).append_batch(
+            ROUND_A, [second, {**self._event("three"), "hole": 3}], request_key="three",
+        )
+        self.assertEqual([(r.status, r.position) for r in result],
+                         [("duplicate_hash_match", 2), ("accepted", 3)])
+        self.assertEqual(store.round_event_holes(ROUND_A), [1, 2, 3])
+
+    def test_j59_unavailable_auxiliary_index_still_allows_durable_ack(self):
+        """J5.9: sidecar repair failure cannot lose or duplicate a committed event."""
+        store = FileEventStore(self.root)
+        first = self._event("one")
+        with self.assertLogs("ai_caddie.caddie.mobile_event_store", level="WARNING"), patch.object(
+            FileEventStore, "_write_round_index_unlocked", side_effect=OSError("fixture-sidecar-unavailable"),
+        ):
+            result = store.append_batch(ROUND_A, [first], request_key="first")
+            retry = FileEventStore(self.root).append_batch(ROUND_A, [first], request_key="retry")
+        self.assertEqual((result[0].status, retry[0].status), ("accepted", "duplicate_hash_match"))
+        self.assertEqual(len(store.read_rows()), 1)
+        self.assertTrue(store.ensure_round_event_index())
 
     def test_j59_event_append_persists_request_and_storage_stage_timings(self) -> None:
         """J5.9: the durable event ACK is observable without recording the event body."""
