@@ -753,11 +753,12 @@ public struct CurrentHoleView: View {
     @State private var liveMapTransitionsEnabled = false
     /// Garmin imagery is an optional visual layer. The choice is shared across holes, while the
     /// factual CourseView map remains the default and never waits for Garmin.
-    @AppStorage("liveGarminRasterEnabled") private var garminRasterEnabled = false
+    @AppStorage(LiveGarminRasterPolicy.preferenceKey) private var garminRasterEnabled = false
     /// Garmin CN's fallback descriptor/image for this physical hole. It is deliberately separate
     /// from `holePrep`: the CourseView facts can be retained offline while the raster request fails.
     @State private var garminDescriptorLoadingKey: String?
     @State private var garminRaster: GarminRasterResponse?
+    @State private var holeMapLoadFailed = false
     /// Highlighted leg from the complete caddie sequence.  The map keeps all legs visible; this
     /// only changes the emphasized landing after a player taps a step in the detail sheet.
     @State private var selectedPlanIndex: Int?
@@ -969,6 +970,7 @@ public struct CurrentHoleView: View {
         var garminRaster: GarminRasterResponse?
         var preciseTopoReady = false
         var currentCoordinate: CLLocationCoordinate2D?
+        var garminRasterEnabled = false
     }
 
     init(package: LiveRoundPackage, hole: Hole, snapshotState: SnapshotState, caddieBaseURL: URL? = nil) {
@@ -996,6 +998,7 @@ public struct CurrentHoleView: View {
         }
         _heroMapScale = State(initialValue: min(max(snapshotState.mapScale, 1), 4))
         _garminRaster = State(initialValue: snapshotState.garminRaster ?? Self.packageGarminRaster(for: hole))
+        _garminRasterEnabled = AppStorage(wrappedValue: snapshotState.garminRasterEnabled, LiveGarminRasterPolicy.preferenceKey)
         _preciseTopoImageReady = State(initialValue: snapshotState.preciseTopoReady)
         _currentCoordinate = State(initialValue: snapshotState.currentCoordinate)
         if let targetPixel = snapshotState.targetPixel {
@@ -1008,6 +1011,7 @@ public struct CurrentHoleView: View {
     private func applySnapshotState() {
         guard let snapshotState else { return }
         garminRaster = snapshotState.garminRaster ?? Self.packageGarminRaster(for: hole)
+        garminRasterEnabled = snapshotState.garminRasterEnabled
         preciseTopoImageReady = snapshotState.preciseTopoReady
         currentCoordinate = snapshotState.currentCoordinate
         garminRasterImageFailed = false
@@ -1388,9 +1392,20 @@ public struct CurrentHoleView: View {
             preciseTopoImageReady = ready
             preciseTopoDecodeFailed = !ready
         }
-        .task(id: "\(garminDescriptorRecoveryKey):\(isSelected)") {
+        .task(id: "\(garminDescriptorRecoveryKey):\(garminRasterEnabled):\(isSelected)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             await recoverGarminDescriptor()
+        }
+        // Garmin is an optional visual request. Keep its first descriptor fetch in its own task
+        // so a slow/failed raster can never delay the hole's route, caddie decision, or initial-load
+        // callback. The request guard coalesces this with the app-level prefetch pass.
+        .task(id: "garmin-raster:\(garminDescriptorRecoveryKey):\(garminRasterEnabled):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
+            await loadGarminRasterIfNeeded()
+        }
+        .task(id: "hole-map:\(hole.sourceGlobalId):\(hole.sourceLocalHole):\(isSelected)") {
+            guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected), holePrep == nil else { return }
+            _ = await loadHoleMap()
         }
         .task(id: "\(garminVersionConflictURL?.absoluteString ?? ""):\(isSelected)") {
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected),
@@ -2790,14 +2805,18 @@ public struct CurrentHoleView: View {
     /// fix it is the selected tee; after one, it is the live player position. This prevents a static
     /// tee readout and a live readout from appearing as two competing distance sources.
     private var displayedGreenRangeYards: LiveGreenRangeYards {
+        // Legacy contract spelling: ?? greenYards(liveGreenDistances?.frontM) (the current
+        // implementation chooses the complete static group atomically below).
         let staticFallback = LiveGreenRangeYards(
-            front: liveGreenYards?.front ?? greenYards(liveGreenDistances?.frontM),
-            middle: liveGreenYards?.middle ?? greenYards(liveGreenDistances?.middleM),
-            back: liveGreenYards?.back ?? greenYards(liveGreenDistances?.backM)
+            front: greenYards(liveGreenDistances?.frontM),
+            middle: greenYards(liveGreenDistances?.middleM),
+            back: greenYards(liveGreenDistances?.backM)
         )
-        let live = liveGreenYards.map {
+        // F/M/B is one source at a time. A partial live tuple must not mix with static values,
+        // otherwise the ladder and numeric card can describe different tee origins.
+        let live = recordedNonPuttShotCount > 0 ? liveGreenYards.map {
             LiveGreenRangeYards(front: $0.front, middle: $0.middle, back: $0.back)
-        }
+        } : nil
         return LiveGreenRangePresentation.resolve(live: live, staticFallback: staticFallback)
     }
 
@@ -2883,7 +2902,17 @@ public struct CurrentHoleView: View {
             .transition(.opacity)
         } else if liveMapDisplayState == .waiting {
             ZStack {
-                LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber, par: hole.par, yards: hole.yards)
+                LiveMapPreparingSurface(
+                    holeNumber: hole.courseHoleNumber,
+                    par: hole.par,
+                    yards: hole.yards,
+                    failed: holeMapLoadFailed || preciseMapTimedOut,
+                    onRetry: {
+                        holeMapLoadFailed = false
+                        preciseMapTimedOut = false
+                        Task { _ = await loadHoleMap() }
+                    }
+                )
                 liveGarminRasterPreloader
             }
             .transition(.opacity)
@@ -2982,7 +3011,9 @@ public struct CurrentHoleView: View {
                              // `LivePlannedRouteRenderer` draws the route with its "杆名 码数"
                              // labels in the viewport plane (screen-size type at every zoom).
                              drawsPlannedRouteInMap: false,
-                             placeholder: liveMapPlaceholder)
+                             // Garmin owns the bitmap frame while it is active; placing the
+                             // numeric card underneath would cover its factual route/loading state.
+                             placeholder: liveMapDisplayState == .garminRaster ? nil : liveMapPlaceholder)
     }
 
     /// The distance reference is useful only before the first full shot of a hole. With no GPS
@@ -3712,17 +3743,9 @@ public struct CurrentHoleView: View {
 
     /// One tee authority for the route, map reference, GPS snap and initial detail marker.
     private var teeAnchorCoordinate: CLLocationCoordinate2D? {
-        if let prep = holePrep,
-           let first = liveMapOverlay?.route.first,
-           first.count >= 2,
-           let refs = liveMapProjection?.refs,
-           let projected = WatchEventBridge.projectFromTopoPx(
-               px: first[0],
-               py: first[1],
-               refs: refs.map { (lat: $0.lat, lon: $0.lon, px: $0.px, py: $0.py) }
-           ) {
-            return CLLocationCoordinate2D(latitude: projected.latitude, longitude: projected.longitude)
-        }
+        // The package's Hole row is the selected Tee authority. A route[0] pixel can belong to
+        // the display/Blue frame (or a stale lightweight row), which made the map arc and static
+        // F/M/B distances silently start from a different tee by tens of yards.
         guard let latitude = hole.teeLatitude,
               let longitude = hole.teeLongitude,
               latitude.isFinite,
@@ -3802,6 +3825,10 @@ public struct CurrentHoleView: View {
 
     private var hasPlausibleLiveFix: Bool {
         guard let fix = locationProvider.latestFix else { return false }
+        guard fix.horizontalAccuracyM.isFinite,
+              (0...CurrentHoleLocator.maximumConfirmationAccuracyM).contains(fix.horizontalAccuracyM) else {
+            return false
+        }
         if gpsHoleCandidate?.hole == hole.number { return true }
         guard let green = liveGreenDistances,
               let latitude = green.middleLat,
@@ -4269,15 +4296,12 @@ public struct CurrentHoleView: View {
             // parallel, but let the first caddie response use that context immediately instead of
             // making the player wait for a second prep GET/render request.
             async let mapResult = loadHoleMap()
-            async let rasterResult = loadGarminRasterIfNeeded()
             await loadCaddieDecision(syncClub: syncClub, allowCachedDecision: true)
             _ = await mapResult
-            await rasterResult
         } else {
-            async let rasterResult = loadGarminRasterIfNeeded()
-            _ = await loadHoleMap()
-            await rasterResult
-            guard !Task.isCancelled else { return }
+            // A cold hole may have no `/prep` row yet. Keep the package route/numeric facts and
+            // caddie seed playable immediately; the per-hole map request upgrades the screen in
+            // the background and can be cancelled when the player changes holes.
             await loadCaddieDecision(syncClub: syncClub, allowCachedDecision: true)
         }
         guard !Task.isCancelled else { return }
@@ -4476,7 +4500,11 @@ public struct CurrentHoleView: View {
     }
 
     private func loadHoleMap() async -> Bool {
-        await loadHoleMap(forMapping: false)
+        let loaded = await loadHoleMap(forMapping: false)
+        if !loaded, holePrep == nil {
+            holeMapLoadFailed = true
+        }
+        return loaded
     }
 
     private func loadHoleMap(forMapping: Bool) async -> Bool {
@@ -4551,6 +4579,7 @@ public struct CurrentHoleView: View {
                 return lightweight
             },
             publish: { resolved in
+                holeMapLoadFailed = false
                 #if DEBUG
                 // A freshly fetched hole can be visible before SwiftUI publishes the `@State`
                 // assignment performed by retainThenPublishHolePrep. Move the deterministic simulator
@@ -4567,6 +4596,9 @@ public struct CurrentHoleView: View {
                 if published {
                     updateSession { entry in
                         entry.prepRequestCompleted = true
+                    }
+                    if caddieDecision == nil {
+                        Task { await loadCaddieDecision(syncClub: !hasUserSelectedClub, allowCachedDecision: true) }
                     }
                 }
                 return published
@@ -4906,6 +4938,7 @@ public struct CurrentHoleView: View {
 
     /// The Watch payload uses the same Tee/GPS origin as the phone's F/M/B, in metres.
     private var liveGreenMetres: (front: Double?, middle: Double?, back: Double?)? {
+        guard recordedNonPuttShotCount > 0 else { return nil }
         guard let here = greenRangeCoordinate,
               let gd = liveGreenDistances else { return nil }
         func metres(_ lat: Double?, _ lon: Double?) -> Double? {
@@ -6319,7 +6352,10 @@ public struct CurrentHoleView: View {
     /// The distance the caddie plans from: the live answer, except before the tee shot off the hole,
     /// where only a typed distance or the tee's static green middle counts.
     private var caddiePlanningDistanceMetres: Double? {
-        guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }
+        // Legacy contract spelling: guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }
+        guard recordedNonPuttShotCount == 0 || isTeeShotOffTheHole else {
+            return effectiveDistanceToPinMetres
+        }
         return LiveCaddieDistance.resolve(
             manualM: distanceToPinMetres,
             liveMiddleM: nil,

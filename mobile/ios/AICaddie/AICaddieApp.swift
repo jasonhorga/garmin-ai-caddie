@@ -7348,9 +7348,21 @@ public final class LiveRoundAppModel: ObservableObject {
             self.pendingGeometryRefreshExecuting = true
             defer { self.pendingGeometryRefreshExecuting = false }
             do {
-                let refreshed = try await syncClient.fetchRoundPackage(
-                    roundId: roundId, capturedAt: Date(), ensureGeometry: false,
-                    foregroundStart: false, requestKind: .background
+                // Geometry retries are map facts only. Re-fetching the complete round package
+                // repeatedly used to replace the active round's player events, bag, and caddie
+                // context while a single hole's mesh was still pending.
+                let refreshed = try await syncClient.fetchCoursePackage(
+                    globalId: globalId,
+                    roundId: roundId,
+                    teeBox: teeBox,
+                    loops: loops,
+                    capturedAt: Date(),
+                    ensureGeometry: false,
+                    backgroundGeometry: true,
+                    mapOnly: true,
+                    includeEventCursor: false,
+                    requestKind: .background,
+                    priorityHole: self.liveRoundState?.activeHole ?? snapshot.holes.first?.number
                 )
                 guard !Task.isCancelled,
                       self.package?.roundId == roundId,
@@ -7360,7 +7372,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 #if DEBUG
                 guard !self.roundBackgroundWorkStoppedForTesting else { return }
                 #endif
-                let persisted = try self.offlineStore.saveRoundPackage(refreshed)
+                let merged = self.package?.mergingMapFacts(from: refreshed) ?? refreshed
+                let persisted = try self.offlineStore.saveRoundPackage(merged)
                 let remainsPending = persisted.holes.contains {
                     $0.geometryState?.caseInsensitiveCompare("pending") == .orderedSame
                 }

@@ -345,6 +345,53 @@ public struct LiveRoundPackage: Codable, Equatable {
         )
     }
 
+    /// Merge a map-only course package into this live round. Map refreshes carry no player
+    /// history, club bag, weather, events, or caddie seeds, so those fields remain owned by the
+    /// current round while geometry/tee/raster facts are adopted hole by hole.
+    public func mergingMapFacts(from mapPackage: LiveRoundPackage) -> LiveRoundPackage {
+        guard roundId == mapPackage.roundId,
+              loopKey == mapPackage.loopKey,
+              holes.map(\.number) == mapPackage.holes.map(\.number) else { return self }
+        let mapByNumber = Dictionary(uniqueKeysWithValues: mapPackage.holes.map { ($0.number, $0) })
+        let mergedHoles = holes.map { mapByNumber[$0.number] ?? $0 }
+        let readyHoles = mergedHoles.filter { $0.geometryCoverage == .ready }.count
+        let mergedCoverage = GeometryCoverage(
+            state: readyHoles == mergedHoles.count ? .ready : (readyHoles > 0 ? .partial : .missing),
+            readyHoles: readyHoles,
+            totalHoles: mergedHoles.count
+        )
+        var prepRows = Dictionary(uniqueKeysWithValues: (coursePrep?.holes ?? []).map { ($0.hole, $0) })
+        for incoming in mapPackage.coursePrep?.holes ?? [] {
+            let current = prepRows[incoming.hole]
+            if current == nil || CoursePrepHoleAdoptionPolicy.shouldAdopt(
+                current: current,
+                incoming: incoming,
+                authoritativeRevision: mapByNumber[incoming.hole]?.geometryRevision
+            ) {
+                prepRows[incoming.hole] = incoming
+            }
+        }
+        let mergedPrep: CoursePrepPackage? = (coursePrep != nil || mapPackage.coursePrep != nil)
+            ? CoursePrepPackage(
+                schema: coursePrep?.schema ?? mapPackage.coursePrep?.schema ?? "ai-caddie-course-prep-v1",
+                globalId: coursePrep?.globalId ?? mapPackage.coursePrep?.globalId ?? course.globalId,
+                holes: prepRows.values.sorted { $0.hole < $1.hole },
+                missingData: coursePrep?.missingData ?? mapPackage.coursePrep?.missingData
+            )
+            : nil
+        return LiveRoundPackage(
+            schema: schema, roundId: roundId, dataMode: dataMode, sourceCoverage: sourceCoverage,
+            missingData: missingData, playerProfile: playerProfile, course: course, holes: mergedHoles,
+            roundLoops: roundLoops, loopKey: loopKey, venueLoops: venueLoops, coursePrep: mergedPrep,
+            geometryCoverage: mergedCoverage, readinessChecks: readinessChecks,
+            caddieContextSeeds: caddieContextSeeds, weatherSnapshot: weatherSnapshot,
+            clubProfiles: clubProfiles, caddieDecisionEndpoint: caddieDecisionEndpoint,
+            offlinePackageStatus: offlinePackageStatus, eventCursor: eventCursor,
+            recentHistory: recentHistory, cachedCaddieRules: cachedCaddieRules,
+            generatedAt: generatedAt, readinessState: readinessState, enrichmentState: enrichmentState
+        )
+    }
+
     /// Keep the catalogue identity the player actually selected while retaining every package fact
     /// (global id, Tee, release revisions, geometry and event authority) from the server. Garmin's
     /// catalogue and package builders can expose different localized aliases for the same globalId;
