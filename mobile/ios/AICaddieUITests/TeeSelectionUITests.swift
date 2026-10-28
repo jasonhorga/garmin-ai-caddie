@@ -569,8 +569,8 @@ final class TeeSelectionUITests: XCTestCase {
             app.buttons["start-round-retry"].waitForExistence(timeout: 5),
             "4.2 must offer retry for the unchanged selection"
         )
-        save("c114-start-failure")
-        dump("c114-start-failure")
+        save("start-failure-retry")
+        dump("start-failure-retry")
     }
 
     /// Product spec 4.2: once the foreground request has lasted eight seconds, the card says what
@@ -602,8 +602,8 @@ final class TeeSelectionUITests: XCTestCase {
             progress.waitForExistence(timeout: 20),
             "4.2 must explain the wait after eight seconds"
         )
-        save("c114-start-progress")
-        dump("c114-start-progress")
+        save("start-progress")
+        dump("start-progress")
     }
 
     func testNoCourseWithinFiftyKilometresStillOffersCompleteCatalogueFallback() throws {

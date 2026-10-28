@@ -468,12 +468,18 @@ public struct StartRoundView: View {
         ) else { return }
         fetchedTees = tees
         let pickedTee = userPickedTee ? teeBox : nil
-        teeBox = Self.teeAfterRefresh(
+        let refreshedTee = Self.teeAfterRefresh(
             current: teeBox,
             userPicked: userPickedTee,
             lastUsed: lastUsedTee,
             rows: tees
         )
+        if refreshedTee.caseInsensitiveCompare(teeBox) != .orderedSame {
+            // Tee authority changed an automatic/default choice. Clear a stale failed-start
+            // request so the corrected selection remains visibly startable.
+            onClearRoundStartFailure()
+        }
+        teeBox = refreshedTee
         // If the response removed a manual pick, the fallback is automatic again.
         userPickedTee = pickedTee.map { picked in
             tees.contains {

@@ -204,6 +204,26 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(RoundStartProgress.message(after: 20), "服务器还在准备，最多再等十几秒")
     }
 
+    func testProductSpec42AutomaticTeeCorrectionLeavesTheStartActionUsable() {
+        let corrected = StartRoundView.teeAfterRefresh(
+            current: "white",
+            userPicked: false,
+            lastUsed: nil,
+            rows: [CourseTee(teeBox: "blue", name: "Blue", isDefault: true)]
+        )
+        XCTAssertEqual(corrected, "blue")
+        XCTAssertTrue(StartRoundView.isStartAllowed(
+            isPreparing: false,
+            isLoadingTees: false,
+            roundId: "round-42",
+            courseGlobalId: 32850,
+            teeBox: corrected,
+            selectedCourseRequiresRemoteTees: false,
+            teeOptions: ["blue"],
+            selectedCourseWasManualSearch: false
+        ))
+    }
+
     func testOfflineNearbyFallbackIncludesOnlyCoordinateProvenDownloadedCourses() {
         let near = option(
             globalId: 1,

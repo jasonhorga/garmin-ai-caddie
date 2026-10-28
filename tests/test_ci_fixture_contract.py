@@ -270,24 +270,6 @@ class CIFixtureContractTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             round_package(ROUND_REF, tee_box="green")
 
-    def test_package_routes_expose_opt_in_slow_and_timeout_controls(self) -> None:
-        from fastapi import HTTPException
-        from server_v2.ci_fixture import GLOBAL_ID, ROUND_REF, course_package, round_package
-
-        loops = f"{GLOBAL_ID}:front,{GLOBAL_ID}:back"
-        with self.assertRaises(HTTPException) as course_error:
-            course_package(GLOBAL_ID, loops=loops, round_id=ROUND_REF, timeout_package=True)
-        self.assertEqual(course_error.exception.status_code, 504)
-        with self.assertRaises(HTTPException) as round_error:
-            round_package(ROUND_REF, timeout_package=True)
-        self.assertEqual(round_error.exception.status_code, 504)
-        # A zero millisecond delay is a deterministic no-op and exercises the query-shaped switch
-        # without slowing this contract suite.
-        self.assertEqual(
-            course_package(GLOBAL_ID, loops=loops, round_id=ROUND_REF, slow_package_ms=0)["roundId"],
-            ROUND_REF,
-        )
-
     def test_manual_search_unknown_tee_uses_default_without_losing_provenance(self) -> None:
         try:
             from fastapi import HTTPException

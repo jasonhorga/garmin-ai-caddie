@@ -431,11 +431,130 @@ final class C33StartTests: XCTestCase {
         let finished = expectation(description: "prep spinner ended")
         let subscription = model.$isOpeningPrepCourse.dropFirst().filter { !$0 }.first().sink { _ in finished.fulfill() }
         defer { subscription.cancel() }
-        let course = MobileCourseOption(globalId: 32850, name: "C114 prep timeout", teeBox: "blue", tees: ["blue"])
+        let course = MobileCourseOption(globalId: 32850, name: "Prep timeout", teeBox: "blue", tees: ["blue"])
         XCTAssertTrue(model.openPrepCourse(course))
         await fulfillment(of: [sent, finished], timeout: eventWait)
         XCTAssertEqual(model.roundStartFailure, .timedOut)
         XCTAssertNil(model.roundStartProgressMessage)
+    }
+
+    func testProductSpec42ImmediatePrepStartQueuesItsBackgroundDownload() async throws {
+        let host = "c114-prep-queue.example.test"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 0.05)
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
+            watchBridge: nil, garminSessionStore: nil, syncClient: client,
+            roundStartProgressSleep: { _ in }
+        )
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            proto.reply(503)
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let course = MobileCourseOption(globalId: 32850, name: "Queued prep", teeBox: "blue", tees: ["blue"])
+        XCTAssertTrue(model.openPrepCourse(course))
+        XCTAssertTrue(
+            model.prepCourseDownloads.contains { $0.course.globalId == course.globalId },
+            "4.2: an immediate prep tap must enqueue the course before the view's delayed intent task"
+        )
+        model.closePrepMode()
+        await model.stopRoundBackgroundWorkForTesting()
+    }
+
+    func testProductSpec42PrepMapPackageIsFollowedByBackgroundPersonalPackage() async throws {
+        let host = "c114-prep-enrichment.example.test"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let fullPackage = try c33Package()
+        let fullData = try JSONEncoder().encode(fullPackage)
+        var mapJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: fullData) as? [String: Any]
+        )
+        var coverage = try XCTUnwrap(mapJSON["sourceCoverage"] as? [String: Any])
+        coverage["playerStatsWindow"] = "deferred"
+        mapJSON["sourceCoverage"] = coverage
+        let mapData = try JSONSerialization.data(withJSONObject: mapJSON)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 1)
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
+            watchBridge: nil, garminSessionStore: nil, syncClient: client,
+            roundStartProgressSleep: { _ in }
+        )
+        let mapSent = expectation(description: "map-only prep package")
+        let fullSent = expectation(description: "background full prep package")
+        let lock = NSLock()
+        var directRequests = 0
+        var mapOnlyValues: [String?] = []
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            let roundID = c33Query(proto.request, "round_id") ?? ""
+            if roundID.hasPrefix("prep-library-") { proto.reply(503); return }
+            lock.lock()
+            directRequests += 1
+            let count = directRequests
+            mapOnlyValues.append(c33Query(proto.request, "map_only"))
+            lock.unlock()
+            if count == 1 {
+                mapSent.fulfill()
+                proto.reply(200, mapData)
+            } else {
+                fullSent.fulfill()
+                proto.reply(200, fullData)
+            }
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let course = MobileCourseOption(globalId: 32850, name: "Prep enrichment", teeBox: "blue", tees: ["blue"])
+        XCTAssertTrue(model.openPrepCourse(course))
+        await fulfillment(of: [mapSent, fullSent], timeout: eventWait)
+        await model.waitForPrepEnrichmentForTesting()
+        lock.lock(); let observedMapOnly = mapOnlyValues; lock.unlock()
+        XCTAssertEqual(observedMapOnly.prefix(2).compactMap { $0 }, ["true", "false"])
+        XCTAssertFalse(model.prepPackage?.sourceCoverage.playerStatsWindow == "deferred")
+        model.closePrepMode()
+        await model.stopRoundBackgroundWorkForTesting()
+    }
+
+    func testProductSpec42ClosingPrepDropsALateStartFailure() async throws {
+        let host = "c114-prep-cancel.example.test"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 0.05)
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
+            watchBridge: nil, garminSessionStore: nil, syncClient: client,
+            roundStartProgressSleep: { _ in }
+        )
+        let sent = expectation(description: "cancelled prep request reached server")
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            if (c33Query(proto.request, "round_id") ?? "").hasPrefix("prep-library-") {
+                proto.reply(503)
+            } else {
+                sent.fulfill() // Intentionally never reply; closePrepMode cancels this request.
+            }
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let course = MobileCourseOption(globalId: 32850, name: "Cancelled prep", teeBox: "blue", tees: ["blue"])
+        XCTAssertTrue(model.openPrepCourse(course))
+        await fulfillment(of: [sent], timeout: eventWait)
+        model.closePrepMode()
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertNil(model.roundStartFailure, "4.2: a closed prep screen must discard a late start failure")
+        XCTAssertFalse(model.isPreparingRound)
     }
 }
 #endif

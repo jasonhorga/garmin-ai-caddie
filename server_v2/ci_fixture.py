@@ -10,7 +10,6 @@ from collections.abc import Callable
 from io import BytesIO
 import json
 import math
-import os
 from pathlib import Path
 import re
 import struct
@@ -646,26 +645,6 @@ def _fixture_loops(raw: str, global_id: int) -> list[tuple[int, str]]:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-def _package_test_controls(*, slow_package_ms: int | None = None, timeout_package: bool = False) -> None:
-    """Apply opt-in package faults for native start UX coverage.
-
-    These switches are read only by the non-production CI fixture.  The query form makes an
-    isolated test deterministic; the environment form lets the fixture process hold every package
-    request for a run without changing the app or production API.
-    """
-    if timeout_package or os.environ.get("AI_CADDIE_FIXTURE_TIMEOUT_PACKAGE") == "1":
-        raise HTTPException(status_code=504, detail="fixture package timeout")
-    raw_delay = os.environ.get("AI_CADDIE_FIXTURE_SLOW_PACKAGE_MS")
-    delay_ms = slow_package_ms
-    if delay_ms is None and raw_delay:
-        try:
-            delay_ms = int(raw_delay)
-        except ValueError:
-            delay_ms = None
-    if delay_ms is not None and delay_ms > 0:
-        time.sleep(min(delay_ms, 30_000) / 1000.0)
-
-
 def _loop_holes(loops: list[tuple[int, str]]) -> list[tuple[int, int, int]]:
     """(round hole, physical local hole, physical course) in play order."""
     rows: list[tuple[int, int, int]] = []
@@ -1246,12 +1225,9 @@ def course_package(
     loops: str = Query(...),
     round_id: str | None = None,
     tee_box: str | None = None,
-    slow_package_ms: int | None = None,
-    timeout_package: bool = False,
 ) -> dict:
     if round_id is None:
         raise HTTPException(status_code=404, detail="fixture round not found")
-    _package_test_controls(slow_package_ms=slow_package_ms, timeout_package=timeout_package)
     return _package(round_id, global_id, _fixture_loops(loops, global_id), tee_box if tee_box is not None else "blue")
 
 
@@ -1260,10 +1236,7 @@ def round_package(
     round_id: str,
     tee_box: str | None = None,
     global_id: int | None = None,
-    slow_package_ms: int | None = None,
-    timeout_package: bool = False,
 ) -> dict:
-    _package_test_controls(slow_package_ms=slow_package_ms, timeout_package=timeout_package)
     return _package(round_id, global_id, None, tee_box if tee_box is not None else "blue")
 
 
