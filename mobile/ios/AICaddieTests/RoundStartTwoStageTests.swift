@@ -603,10 +603,17 @@ final class RoundStartTwoStageTests: XCTestCase {
         let result = await fixture.model.finishActiveRound()
         XCTAssertTrue(result)
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
-        held.releaseAll(200)
+        let prepData = try offlinePrepResponseData(for: package)
+        held.releaseAllAndReplyFuture(200, prepData, onlyPath: "/api/v2/courses/\(c85CourseId)/prep")
         await fixture.model.waitForOfflineCourseDownloadForTesting()
         XCTAssertNil(fixture.model.offlineCourseDownloadRoundIdForTesting)
-        XCTAssertNotNil(try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue"))
+        let template = try XCTUnwrap(
+            try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue")
+        )
+        XCTAssertEqual(template.coursePrep?.holes.count, package.holes.count)
+        XCTAssertTrue(template.coursePrep?.holes.allSatisfy {
+            $0.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame
+        } ?? false)
     }
 
     /// J4.2: a seal failure keeps the live round and its background downloads resumable.
@@ -722,6 +729,8 @@ final class RoundStartTwoStageTests: XCTestCase {
         let package = try package(roundId: roundId, mapOnly: false, garminRasterVersion: "c90-r6")
         let data = try JSONEncoder().encode(package)
         let held = C85HeldRequests()
+        let prepPath = "/api/v2/courses/\(c85CourseId)/prep"
+        let prepData = try offlinePrepResponseData(for: package)
         let requestStarted = expectation(description: "round background request started")
         let requestOnce = C33FirstMatch()
         C33URLProtocol.setHandlers(onStart: { proto in
@@ -733,7 +742,11 @@ final class RoundStartTwoStageTests: XCTestCase {
                     proto.reply(404)
                     return
                 }
-                held.hold(proto)
+                if proto.request.url?.path == prepPath {
+                    held.holdOrReplyAfterRelease(proto, status: 200, data: prepData)
+                } else {
+                    held.holdOrReplyAfterRelease(proto, status: 404)
+                }
                 if requestOnce.claim() { requestStarted.fulfill() }
             }
         }, onStop: { request in
@@ -761,6 +774,36 @@ final class RoundStartTwoStageTests: XCTestCase {
             await fulfillment(of: [rasterStarted], timeout: eventWait)
         }
         return (fixture, package, held)
+    }
+
+    private func offlinePrepResponseData(for package: LiveRoundPackage) throws -> Data {
+        let route: [[Double]] = [[0, 0, 0], [100, 0, 100]]
+        let holes: [[String: Any]] = package.holes.map { hole in
+            [
+                "hole": hole.number,
+                "par": hole.par,
+                "par_source": "fixture",
+                "blue_yards": hole.yards ?? 0,
+                "route_len_m": 100.0,
+                "route": route,
+                "geometryCoverage": "ready",
+                "geometryRevision": "c90-r8",
+                "steps": [],
+                "cautions": [],
+                "hazards": ["water_carry": [], "bunkers": []],
+                "map": [
+                    "image": NSNull(),
+                    "overlay": ["w": 100, "h": 100, "ppm": 1.0, "ln": 100.0, "route": route],
+                ],
+            ]
+        }
+        return try JSONSerialization.data(withJSONObject: [
+            "schema": "ai-caddie-course-prep-v1",
+            "globalId": c85CourseId,
+            "holeCount": holes.count,
+            "clubs": [],
+            "holes": holes,
+        ])
     }
 
     private struct ModelFixture {
@@ -902,9 +945,22 @@ private final class C85Counter {
 private final class C85HeldRequests {
     private let lock = NSLock()
     private var held: [C33URLProtocol] = []
+    private var replyFuture = false
 
     func hold(_ proto: C33URLProtocol) {
         lock.lock(); held.append(proto); lock.unlock()
+    }
+
+    func holdOrReplyAfterRelease(
+        _ proto: C33URLProtocol,
+        status: Int,
+        data: Data = Data()
+    ) {
+        lock.lock()
+        let released = replyFuture
+        if !released { held.append(proto) }
+        lock.unlock()
+        if released { proto.reply(status, data) }
     }
 
     /// A request URLSession stopped (cancelled) is never answered afterwards.
@@ -920,6 +976,25 @@ private final class C85HeldRequests {
         held.removeAll()
         lock.unlock()
         released.forEach { $0.reply(status, data) }
+    }
+
+    func releaseAllAndReplyFuture(
+        _ status: Int,
+        _ data: Data = Data(),
+        onlyPath: String? = nil
+    ) {
+        lock.lock()
+        replyFuture = true
+        let released = held
+        held.removeAll()
+        lock.unlock()
+        released.forEach { proto in
+            if onlyPath == nil || proto.request.url?.path == onlyPath {
+                proto.reply(status, data)
+            } else {
+                proto.reply(404)
+            }
+        }
     }
 
     /// Answers only the start's held package; any other held request stays held.
