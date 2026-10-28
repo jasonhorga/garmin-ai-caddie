@@ -94,6 +94,7 @@ public struct AICaddieApp: App {
                         roundStartSelection: model.roundStartSelection,
                         isFinishingRound: model.isFinishingRound,
                         finishErrorMessage: model.finishErrorMessage,
+                        deferredFinishRecovery: model.deferredFinishRecovery,
                         onEvent: model.handleEvent,
                         onPrepareRound: { roundId in
                             Task {
@@ -123,6 +124,9 @@ public struct AICaddieApp: App {
                         },
                         onFinishRound: {
                             return await model.finishActiveRound()
+                        },
+                        onResumeDeferredFinish: {
+                            model.resumeDeferredFinishForEditing()
                         },
                         onDiscardRound: {
                             model.discardActiveRound()
@@ -354,6 +358,25 @@ public struct RoundStartSelection: Equatable {
     }
 }
 
+/// A deferred finish was rejected after the live round had already been sealed. The Hub keeps this
+/// explicit recovery affordance separate from ordinary in-progress state so it cannot appear merely
+/// because the device is offline or because a finish is still waiting for transport.
+public struct DeferredFinishRecovery: Equatable, Identifiable {
+    public let id: String
+    public let roundId: String
+    public let hole: Int
+    public let prompt: String
+    public let holeAvailable: Bool
+
+    public init(roundId: String, hole: Int, prompt: String, holeAvailable: Bool) {
+        self.id = roundId
+        self.roundId = roundId
+        self.hole = hole
+        self.prompt = prompt
+        self.holeAvailable = holeAvailable
+    }
+}
+
 @MainActor
 public final class LiveRoundAppModel: ObservableObject {
     private static func roundStartFailure(for error: Error) -> RoundStartFailure {
@@ -436,9 +459,55 @@ public final class LiveRoundAppModel: ObservableObject {
     /// When a NEW round is freshly prepared, the hole to jump straight into (so 开始记分 enters
     /// the live screen directly instead of bouncing back to the Hub). UI consumes + clears it.
     @Published public private(set) var pendingLiveHole: Int?
+    /// A sealed round whose deferred `/finish` was stopped by a server-rejected scoring event.
+    /// This remains nil until that rejection is durably quarantined.
+    @Published public private(set) var deferredFinishRecovery: DeferredFinishRecovery? = nil
 
     public func consumePendingLiveHole() {
         pendingLiveHole = nil
+    }
+
+    /// Reopen the sealed round named by the Hub recovery card. The pending-finish ledger is removed
+    /// only after the active package pointer is durable, and the Watch seed is cleared without
+    /// sending a second seed after it has already acknowledged `.finished`.
+    @discardableResult
+    public func resumeDeferredFinishForEditing() -> Bool {
+        guard let recovery = deferredFinishRecovery else { return false }
+        do {
+            guard let sealed = try offlineStore.loadRoundPackage(roundId: recovery.roundId) else {
+                throw URLError(.fileDoesNotExist)
+            }
+            guard sealed.holes.contains(where: { $0.number == recovery.hole }) else {
+                // A deliberate nine-hole edit may have removed the rejected hole. Do not call
+                // setActiveHole (which would silently no-op); leave the ledger sealed and explain
+                // the required recovery to the player.
+                finishErrorMessage = "第 \(recovery.hole) 洞已从当前球局移除，请恢复该九洞后再处理"
+                syncStatus = finishErrorMessage ?? "请恢复该九洞后再处理"
+                return false
+            }
+            let restored = try offlineStore.resumeDeferredRoundFinish(roundId: recovery.roundId)
+            try activatePackage(
+                restored,
+                status: "已恢复本场 · 请重录第 \(recovery.hole) 洞",
+                rememberAsRecent: true,
+                sendWatchSeed: false
+            )
+            watchBridge?.clearRoundSeed(roundId: recovery.roundId)
+            finishErrorMessage = nil
+            pendingLiveHole = recovery.hole
+            try offlineStore.saveActiveHole(roundId: recovery.roundId, hole: recovery.hole)
+            liveRoundState = try offlineStore.restoreLiveRoundState(
+                roundId: recovery.roundId,
+                package: restored
+            )
+            deferredFinishRecovery = nil
+            return true
+        } catch {
+            AICaddieLog.storage.error("Deferred finish recovery failed: \(String(describing: error), privacy: .public)")
+            finishErrorMessage = "本场暂时无法恢复，请稍后重试"
+            syncStatus = finishErrorMessage ?? "本场暂时无法恢复"
+            return false
+        }
     }
 
     private func startRoundProgress() {
@@ -984,6 +1053,7 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingEventCount = 0
         quarantinedEventCount = 0
         pendingLiveHole = nil
+        deferredFinishRecovery = nil
         closePrepMode()
         restoreCachedCourseOptions()
         recentCourseOption = try? offlineStore.loadRecentCourseSelection()
@@ -3716,13 +3786,13 @@ public final class LiveRoundAppModel: ObservableObject {
         #endif
 
         do {
-            let quarantined = try offlineStore.loadQuarantinedEvents(roundId: package.roundId)
-            if let blocked = quarantined.first(where: { Self.isScoringEvent($0.event) }) {
+            if let blocked = try preferredQuarantineRecord(roundId: package.roundId) {
                 setActiveHole(blocked.event.hole)
                 let prompt = Self.scoringRejectionPrompt(for: blocked)
                 let suffix = try quarantineFinishSuffix(for: blocked, roundId: package.roundId)
                 finishErrorMessage = "\(prompt)\(suffix)"
                 syncStatus = "结束已暂停 · \(prompt)\(suffix)"
+                schedulePendingReplacementSync(roundId: package.roundId)
                 return false
             }
             let events = try offlineStore.loadEvents().filter { $0.roundId == package.roundId }
@@ -3833,12 +3903,17 @@ public final class LiveRoundAppModel: ObservableObject {
                     throw LiveRoundFinishError.incompleteAcknowledgement
                 }
                 if let blockedHole = try blockingQuarantineHole(roundId: record.roundId) {
-                    let blocked = try offlineStore.loadQuarantinedEvents(roundId: record.roundId)
-                        .first(where: { Self.isScoringEvent($0.event) && $0.event.hole == blockedHole })
+                    let blocked = try preferredQuarantineRecord(roundId: record.roundId)
                     let prompt = blocked.map(Self.scoringRejectionPrompt)
                         ?? "第 \(blockedHole) 洞记分记录上传被拒"
                     let suffix = try quarantineFinishSuffix(for: blocked, roundId: record.roundId)
                     syncStatus = "结束已暂停 · \(prompt)\(suffix)"
+                    deferredFinishRecovery = DeferredFinishRecovery(
+                        roundId: record.roundId,
+                        hole: blockedHole,
+                        prompt: prompt,
+                        holeAvailable: finishedPackage?.holes.contains(where: { $0.number == blockedHole }) == true
+                    )
                     throw LiveRoundFinishError.blockedByQuarantine
                 }
                 try await syncClient.finishRound(
@@ -3857,16 +3932,24 @@ public final class LiveRoundAppModel: ObservableObject {
                     throw LiveRoundFinishError.incompleteAcknowledgement
                 }
                 if let blockedHole = try blockingQuarantineHole(roundId: record.roundId) {
-                    let blocked = try offlineStore.loadQuarantinedEvents(roundId: record.roundId)
-                        .first(where: { Self.isScoringEvent($0.event) && $0.event.hole == blockedHole })
+                    let blocked = try preferredQuarantineRecord(roundId: record.roundId)
                     let prompt = blocked.map(Self.scoringRejectionPrompt)
                         ?? "第 \(blockedHole) 洞记分记录上传被拒"
                     let suffix = try quarantineFinishSuffix(for: blocked, roundId: record.roundId)
                     syncStatus = "结束已暂停 · \(prompt)\(suffix)"
+                    deferredFinishRecovery = DeferredFinishRecovery(
+                        roundId: record.roundId,
+                        hole: blockedHole,
+                        prompt: prompt,
+                        holeAvailable: finishedPackage?.holes.contains(where: { $0.number == blockedHole }) == true
+                    )
                     throw LiveRoundFinishError.blockedByQuarantine
                 }
                 try offlineStore.discardRound(roundId: record.roundId)
                 try? offlineStore.removeQuarantinedEvents(roundId: record.roundId)
+                if deferredFinishRecovery?.roundId == record.roundId {
+                    deferredFinishRecovery = nil
+                }
                 if let refreshedHome {
                     if liveRoundState == nil { try activateHomePackage(refreshedHome, status: "本场已同步") }
                     else { try offlineStore.saveHomePackage(refreshedHome) }
@@ -3894,13 +3977,15 @@ public final class LiveRoundAppModel: ObservableObject {
             throw LiveRoundFinishError.pendingMedia
         }
         if let blockedHole = try blockingQuarantineHole(roundId: roundId) {
-            let blocked = try offlineStore.loadQuarantinedEvents(roundId: roundId)
-                .first(where: { Self.isScoringEvent($0.event) && $0.event.hole == blockedHole })
-            if let blocked { setActiveHole(blocked.event.hole) }
+            let blocked = try preferredQuarantineRecord(roundId: roundId)
+            if let blocked, package?.holes.contains(where: { $0.number == blocked.event.hole }) == true {
+                setActiveHole(blocked.event.hole)
+            }
             let prompt = blocked.map(Self.scoringRejectionPrompt) ?? "第 \(blockedHole) 洞记分记录上传被拒"
             let suffix = try quarantineFinishSuffix(for: blocked, roundId: roundId)
             finishErrorMessage = "\(prompt)\(suffix)"
             syncStatus = "结束已暂停 · \(prompt)\(suffix)"
+            schedulePendingReplacementSync(roundId: roundId)
             throw LiveRoundFinishError.blockedByQuarantine
         }
         let homePackage = package
@@ -3915,6 +4000,9 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         package = homePackage
         liveRoundState = nil
+        if deferredFinishRecovery?.roundId == roundId {
+            deferredFinishRecovery = nil
+        }
         if pendingWatchRoundStart?.roundId == roundId {
             pendingWatchRoundStart = nil
         }
@@ -3934,9 +4022,30 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func blockingQuarantineHole(roundId: String) throws -> Int? {
-        try offlineStore.loadQuarantinedEvents(roundId: roundId).first {
-            Self.isScoringEvent($0.event)
-        }?.event.hole
+        try preferredQuarantineRecord(roundId: roundId)?.event.hole
+    }
+
+    /// Choose the rejected scoring hole that still needs player input. A later same-hole/same-kind
+    /// pending replacement already gives that hole a path forward, so another rejected hole should
+    /// be named when several are present.
+    private func preferredQuarantineRecord(roundId: String) throws -> QuarantinedLiveEvent? {
+        let records = try offlineStore.loadQuarantinedEvents(roundId: roundId)
+            .filter { Self.isScoringEvent($0.event) }
+        guard records.count > 1 else { return records.first }
+        let pending = try offlineStore.loadPendingEvents(roundId: roundId)
+        let order = try localEventOrder()
+        func hasReplacement(_ record: QuarantinedLiveEvent) -> Bool {
+            let rejectedPosition = order[record.event.eventId]
+            return pending.contains { event in
+                guard Self.isScoringEvent(event), event.hole == record.event.hole,
+                      event.kind == record.event.kind else { return false }
+                if let acceptedPosition = order[event.eventId], let rejectedPosition {
+                    return acceptedPosition > rejectedPosition
+                }
+                return event.timestamp > record.event.timestamp
+            }
+        }
+        return records.first(where: { !hasReplacement($0) }) ?? records.first
     }
 
     private func quarantineFinishSuffix(
@@ -3956,9 +4065,26 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             return event.timestamp > record.event.timestamp
         }
-        return hasPendingReplacement
-            ? "，正在同步/等待联网后再结束球局"
-            : "，请重新录入后再结束球局"
+        if hasPendingReplacement {
+            return networkState.isSatisfied ? "，正在同步后再结束球局" : "，等待联网后再结束球局"
+        }
+        guard let package, package.holes.contains(where: { $0.number == record.event.hole }) else {
+            return "，第 \(record.event.hole) 洞已从当前球局移除，请恢复该九洞后再处理"
+        }
+        return "，请重新录入后再结束球局"
+    }
+
+    /// A blocked finish should actively flush a pending same-hole replacement. Yielding lets the
+    /// current finish guard clear before the task enters the uploader.
+    private func schedulePendingReplacementSync(roundId: String) {
+        guard (try? offlineStore.loadPendingEvents(roundId: roundId).isEmpty) == false else { return }
+        let status = networkState.isSatisfied ? "正在同步" : "等待联网"
+        syncStatus = status
+        localEventUploadStatus = status
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            await self?.syncPendingEvents()
+        }
     }
 
     /// Activate a round created on the Watch even when the phone was asleep or the Watch had no
@@ -4192,7 +4318,10 @@ public final class LiveRoundAppModel: ObservableObject {
             try clearFinishedRoundLocally(roundId: roundId, notifyWatch: false)
         } catch {
             AICaddieLog.storage.error("Watch-finished round reconciliation failed: \(String(describing: error), privacy: .public)")
-            finishErrorMessage = "手表已结束，本机记录仍保留"
+            if !(error is LiveRoundFinishError),
+               finishErrorMessage?.contains("被服务器拒绝") != true {
+                finishErrorMessage = "手表已结束，本机记录仍保留"
+            }
         }
     }
 
@@ -5105,7 +5234,7 @@ public final class LiveRoundAppModel: ObservableObject {
             quarantinedEventCount = quarantined.count
             pendingEventCount = events.count
             if events.isEmpty {
-                if let rejected = quarantined.first(where: { Self.isScoringEvent($0.event) }) {
+                if let rejected = try preferredQuarantineRecord(roundId: package.roundId) {
                     let prompt = Self.scoringRejectionPrompt(for: rejected)
                     syncStatus = prompt
                     localEventUploadStatus = prompt
@@ -5128,8 +5257,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 if try offlineStore.isRoundPendingFinish(package.roundId) { return }
                 pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
                 let mediaSuffix = uploadedMediaCount > 0 ? " · \(uploadedMediaCount) 张照片/视频" : ""
-                let rejected = try offlineStore.loadQuarantinedEvents(roundId: package.roundId)
-                    .first(where: { Self.isScoringEvent($0.event) })
+                let rejected = try preferredQuarantineRecord(roundId: package.roundId)
                 if let rejected {
                     syncStatus = Self.scoringRejectionPrompt(for: rejected)
                 } else {
@@ -5373,8 +5501,8 @@ public final class LiveRoundAppModel: ObservableObject {
             let invalidReasons: [String: String]
             let allInvalid: Bool
         }
-        func probe(_ groups: [[LiveRoundEvent]]) async throws -> ProbeResult {
-            let batch = groups.flatMap { $0 }
+        func probe(_ groups: [[LiveRoundEvent]], initialBatch: [LiveRoundEvent]? = nil) async throws -> ProbeResult {
+            let batch = initialBatch ?? groups.flatMap { $0 }
             do {
                 let result = try await syncClient.postEventBatchWithRetry(
                     batch, roundId: roundId, idempotencyKey: idempotencyKey(roundId: roundId, events: batch)
@@ -5420,7 +5548,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 )
             }
         }
-        let probed = try await probe(groups)
+        // The first request preserves the append-only event-log order. Hole grouping is only a
+        // bisection aid after that request receives a payload rejection.
+        let probed = try await probe(groups, initialBatch: events)
         guard !probed.allInvalid || groups.count == 1 else {
             throw SyncClientError.http(status: 422, body: "all events rejected")
         }
@@ -6888,7 +7018,8 @@ public final class LiveRoundAppModel: ObservableObject {
     private func activatePackage(
         _ nextPackage: LiveRoundPackage,
         status: String,
-        rememberAsRecent: Bool = false
+        rememberAsRecent: Bool = false,
+        sendWatchSeed: Bool = true
     ) throws {
         recordUITestLatency("activate.template.begin globalId=\(nextPackage.course.globalId)")
         try? offlineStore.saveCourseTemplate(nextPackage)
@@ -6920,7 +7051,7 @@ public final class LiveRoundAppModel: ObservableObject {
         if rememberAsRecent {
             rememberRecentCourseSelection(from: nextPackage)
         }
-        if let watchBridge,
+        if sendWatchSeed, let watchBridge,
            let activeHole = liveRoundState?.activeHole ?? nextPackage.holes.first?.number {
             recordUITestLatency("activate.watch-seed.begin globalId=\(nextPackage.course.globalId)")
             let seed = watchBridge.makeWatchRoundSeedPayload(

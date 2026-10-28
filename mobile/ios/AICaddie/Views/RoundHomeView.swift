@@ -640,6 +640,7 @@ public struct RoundHomeView: View {
     public let roundStartSelection: RoundStartSelection?
     public let isFinishingRound: Bool
     public let finishErrorMessage: String?
+    public let deferredFinishRecovery: DeferredFinishRecovery?
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
     /// Start a round: (roundId, teeBox, ordered loops) — B4b-2 `loops=`.
@@ -651,6 +652,7 @@ public struct RoundHomeView: View {
     /// B4 turn: add the chosen second loop and open its first hole (the model navigates).
     public let onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void
     public let onFinishRound: () async -> Bool
+    public let onResumeDeferredFinish: () -> Bool
     public let onDiscardRound: () -> Void
     public let onSetActiveHole: (Int) -> Void
     public let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
@@ -782,6 +784,7 @@ public struct RoundHomeView: View {
         roundStartSelection: RoundStartSelection? = nil,
         isFinishingRound: Bool = false,
         finishErrorMessage: String? = nil,
+        deferredFinishRecovery: DeferredFinishRecovery? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
@@ -790,6 +793,7 @@ public struct RoundHomeView: View {
         onSetSecondLoop: @escaping (RoundLoopEntry?, String) -> Void = { _, _ in },
         onContinueIntoSecondLoop: @escaping (RoundLoopEntry, String) -> Void = { _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
+        onResumeDeferredFinish: @escaping () -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
@@ -863,6 +867,7 @@ public struct RoundHomeView: View {
         self.roundStartSelection = roundStartSelection
         self.isFinishingRound = isFinishingRound
         self.finishErrorMessage = finishErrorMessage
+        self.deferredFinishRecovery = deferredFinishRecovery
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
@@ -871,6 +876,7 @@ public struct RoundHomeView: View {
         self.onSetSecondLoop = onSetSecondLoop
         self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
         self.onFinishRound = onFinishRound
+        self.onResumeDeferredFinish = onResumeDeferredFinish
         self.onDiscardRound = onDiscardRound
         self.onSetActiveHole = onSetActiveHole
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
@@ -1816,7 +1822,13 @@ public struct RoundHomeView: View {
     /// An active or Watch-created round owns this card. Starting a second round would orphan the
     /// durable score/shot state, so the new-round entry only exists when neither state does.
     @ViewBuilder private var playSection: some View {
-        switch heroState {
+        if let deferredFinishRecovery {
+            HubDeferredFinishRecoveryCard(
+                recovery: deferredFinishRecovery,
+                onResume: onResumeDeferredFinish
+            )
+        } else {
+            switch heroState {
         case .inProgress:
             if let liveRoundState, let package {
                 let activeHole = package.holes.contains(where: { $0.number == liveRoundState.activeHole })
@@ -1861,6 +1873,7 @@ public struct RoundHomeView: View {
             NavigationLink(value: HubRoute.start) { HubStartPlayCard() }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home-new-round")
+            }
         }
     }
 

@@ -70,6 +70,43 @@ struct HubStartPlayCard: View {
     }
 }
 
+/// Recovery card for a deferred finish rejected after the round left the live screen.
+struct HubDeferredFinishRecoveryCard: View {
+    let recovery: DeferredFinishRecovery
+    let onResume: () -> Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(HubBentoStyle.clay)
+                Text("第 \(recovery.hole) 洞记分被拒 · 去重录")
+                    .font(.title3.weight(.heavy))
+            }
+            Text(recovery.prompt)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if recovery.holeAvailable {
+                Button("去重录") {
+                    _ = onResume()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(HubBentoStyle.deepGreen)
+            } else {
+                Text("第 \(recovery.hole) 洞已从当前球局移除，请恢复该九洞后再处理")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(HubBentoStyle.clay)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("home-deferred-finish-recovery")
+    }
+}
+
 struct HubQuickCourseChip: View {
     let title: String
     let isNearby: Bool
