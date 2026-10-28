@@ -7,11 +7,13 @@ import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import Future
+from concurrent.futures import CancelledError, Future, TimeoutError
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -57,6 +59,212 @@ class BackgroundMapContractTests(unittest.TestCase):
         worker = self._worker(self.root, **kwargs)
         self.addCleanup(worker.close)
         return worker
+
+    def _assert_pool_failure_recovers(self, unit, failure, *, during_submit=False):
+        """J4.2: infrastructure loss keeps the same map unit pending for a later pool."""
+        from ai_caddie.geometry import garmin_raster as raster, topo_render
+        options = dict(render_topo=None, raster_version=lambda *_: None) if unit == "topo" else dict(
+            topo_ready=lambda *_: True, render_garmin=None)
+        worker = self._new(**options)
+        try:
+            failed_pool, good_pool = Mock(), Mock()
+            failed_future, good_future = Future(), Future()
+            failed_future.result = Mock(wraps=failed_future.result)
+            good_future.result = Mock(wraps=good_future.result)
+            if during_submit:
+                failed_pool.submit.side_effect = failure
+            else:
+                failed_future.set_exception(failure)
+                failed_pool.submit.return_value = failed_future
+            image = io.BytesIO()
+            Image.new("RGB", (8, 8), "green").save(image, format="PNG" if unit == "topo" else "WEBP")
+            good_future.set_result(image.getvalue())
+            good_pool.submit.return_value = good_future
+            with (patch.object(raster, "RASTER_CACHE_DIR", self.root / "raster"),
+                  patch.object(topo_render, "_render_process_count", return_value=1),
+                  patch.object(topo_render, "_get_render_pool", side_effect=[failed_pool, good_pool]),
+                  patch.object(topo_render, "_discard_render_pool") as discard,
+                  patch.object(render_backfill.time, "sleep") as sleep):
+                source = raster._raster_path(1, 1, "asset-1")
+                source.parent.mkdir(exist_ok=True)
+                source.write_bytes(b"cached-jpeg")
+                worker.enqueue_all(downloaded=set(), recent={(1, 1)})
+                original_priority = worker.status(detail=True)["tasks"]["1:1"]["priority"]
+                self.assertTrue(worker.run_once())
+                state = worker.status(detail=True)
+                self.assertEqual(state["tasks"]["1:1"][unit], "pending")
+                self.assertEqual(state["failed"], 0)
+                self.assertEqual(state["failures"], [])
+                self.assertEqual(state["tasks"]["1:1"]["priority"], original_priority)
+                discard.assert_called_once_with(failed_pool)
+                sleep.assert_called_once_with(5.0)  # J4.2 / r3: back off five seconds after pool loss.
+                self.assertTrue(worker.run_once())
+                self.assertEqual(worker.status(detail=True)["tasks"]["1:1"][unit], "done")
+                self.assertFalse(worker.run_once())
+                self.assertEqual(worker.status()["failed"], 0)
+                good_future.result.assert_called_once_with(timeout=180.0)
+                if not during_submit:
+                    # Both renders must impose the r3 180-second bound on Future.result.
+                    failed_future.result.assert_called_once_with(timeout=180.0)
+        finally:
+            worker.close()
+
+    def test_J42_broken_pool_during_submit_requeues_topo(self):
+        self._assert_pool_failure_recovers("topo", BrokenProcessPool("worker killed"), during_submit=True)
+
+    def test_J42_broken_pool_during_submit_requeues_garmin(self):
+        self._assert_pool_failure_recovers("garmin", BrokenProcessPool("worker killed"), during_submit=True)
+
+    def test_J42_broken_pool_during_result_requeues_topo(self):
+        self._assert_pool_failure_recovers("topo", BrokenProcessPool("worker killed"))
+
+    def test_J42_broken_pool_during_result_requeues_garmin(self):
+        self._assert_pool_failure_recovers("garmin", BrokenProcessPool("worker killed"))
+
+    def test_J42_cancelled_pool_does_not_fail_map_units(self):
+        for unit in ("topo", "garmin"):
+            with self.subTest(unit=unit):
+                self._assert_pool_failure_recovers(unit, CancelledError())
+
+    def test_J42_render_timeout_discards_pool_and_keeps_unit_pending(self):
+        for unit in ("topo", "garmin"):
+            with self.subTest(unit=unit):
+                self._assert_pool_failure_recovers(unit, TimeoutError())
+
+    def test_J42_topo_foreground_and_backfill_share_singleflight(self):
+        from ai_caddie.geometry import topo_render
+        image = io.BytesIO()
+        Image.new("RGB", (8, 8), "green").save(image, format="PNG")
+        entered, following = threading.Event(), threading.Event()
+        future, pool = Future(), Mock()
+        def submit(*_):
+            entered.set()
+            return future
+        pool.submit.side_effect = submit
+        worker = self._new(render_topo=None, raster_version=lambda *_: None)
+        responses = []
+        thread = threading.Thread(target=worker.run_once)
+        frontend = threading.Thread(target=lambda: responses.append(topo_render.render_hole_topo_cached(1, 1)))
+        with (patch.object(topo_render, "_render_process_count", return_value=1),
+              patch.object(topo_render, "_get_render_pool", return_value=pool),
+              patch.object(topo_render, "_render_cold", return_value=image.getvalue()) as draw):
+            worker.enqueue_all(downloaded=set())
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(1))
+                event = topo_render._cache_inflight.get(topo_render.cache_path(1, 1))
+                self.assertIsNotNone(event, "background render did not register the foreground singleflight")
+                real_wait = event.wait
+                def wait(*args, **kwargs):
+                    following.set()
+                    return real_wait(*args, **kwargs)
+                with patch.object(event, "wait", side_effect=wait):
+                    frontend.start()
+                    self.assertTrue(following.wait(1))
+                    future.set_result(image.getvalue())
+                    frontend.join(2)
+                    self.assertFalse(frontend.is_alive())
+            finally:
+                if not future.done():
+                    future.set_result(image.getvalue())
+                thread.join(2)
+                if frontend.ident is not None:
+                    frontend.join(2)
+            draw.assert_not_called()
+            self.assertEqual(responses, [image.getvalue()])
+            self.assertEqual(pool.submit.call_count, 1)
+
+    def test_J42_background_retries_a_writer_lease_during_container_overlap(self):
+        first, worker = self._new(), self._new()
+        first.enqueue_all(downloaded=set())
+        worker._recent_holes = lambda: set()
+        worker._downloaded_holes = lambda: set()
+        with (patch.object(render_backfill, "_BACKGROUND", worker),
+              patch.object(render_backfill, "_BACKGROUND_THREAD", None),
+              patch.object(render_backfill, "_RESCAN", False),
+              patch.object(render_backfill, "_FORCE", False),
+              patch.object(render_backfill.time, "sleep", side_effect=lambda _: first.close()) as sleep):
+            render_backfill.start_background(manual=True)
+            thread = render_backfill._BACKGROUND_THREAD
+            if thread is not None:
+                thread.join(2)
+            self.assertIsNone(render_backfill._BACKGROUND_THREAD)
+            self.assertEqual(worker.status()["done"], 2)
+            sleep.assert_called_once_with(30.0)
+
+    def test_J42_writer_lease_retry_stops_after_ten_minutes(self):
+        first, worker = self._new(), self._new()
+        first.enqueue_all(downloaded=set())
+        worker._recent_holes = lambda: set()
+        worker._downloaded_holes = lambda: set()
+        clock = [0.0]
+        with (patch.object(render_backfill, "_BACKGROUND", worker),
+              patch.object(render_backfill, "_BACKGROUND_THREAD", None),
+              patch.object(render_backfill, "_RESCAN", False),
+              patch.object(render_backfill, "_FORCE", False),
+              patch.object(render_backfill.time, "monotonic", side_effect=lambda: clock[0]),
+              patch.object(render_backfill.time, "sleep", side_effect=lambda seconds: clock.__setitem__(0, clock[0] + seconds)) as sleep):
+            render_backfill.start_background(manual=True)
+            thread = render_backfill._BACKGROUND_THREAD
+            if thread is not None:
+                thread.join(2)
+            self.assertIsNone(render_backfill._BACKGROUND_THREAD)
+            self.assertEqual(clock[0], 600.0)  # J4.2 / r3: bounded container-overlap recovery.
+            self.assertEqual(sleep.call_count, 20)
+            self.assertEqual(worker.status()["failed"], 0)
+
+    def test_J42_garmin_errors_identify_download_http_status_and_matte_stage(self):
+        from ai_caddie.geometry import garmin_raster as raster, topo_render
+        worker = self._new(topo_ready=lambda *_: True, render_garmin=None)
+        url = "https://example.invalid/image?signature=synthetic-secret"
+        with (patch.object(raster, "RASTER_CACHE_DIR", self.root / "raster"),
+              patch.object(raster, "courseview_release_info", return_value={"holes": [
+                  {"hole": 1, "raster_url": url, "geometryAssetVersion": "asset-1"}
+              ]}),
+              patch.object(raster, "urlopen", side_effect=HTTPError(url, 403, "expired signature", None, None)),
+              patch.object(topo_render, "_render_process_count", return_value=1)):
+            worker.enqueue_all(downloaded=set())
+            worker.run_once()
+            error = worker.status()["failures"][0]["error"]
+            self.assertIn("download", error)
+            self.assertIn("403", error)
+            self.assertNotIn("synthetic-secret", worker.state_path.read_text() + error)
+            source = raster._raster_path(1, 1, "asset-1")
+            source.parent.mkdir(exist_ok=True)
+            source.write_bytes(b"cached-jpeg")
+            failed = Future()
+            failed.set_exception(ValueError("invalid pixels"))
+            pool = Mock()
+            pool.submit.return_value = failed
+            with patch.object(topo_render, "_get_render_pool", return_value=pool):
+                worker.enqueue_all(downloaded=set(), force=True)
+                worker.run_once()
+                self.assertIn("matte", worker.status()["failures"][0]["error"])
+
+    def test_J42_force_during_a_pass_only_rescans_after_the_pass_finishes(self):
+        entered, release = threading.Event(), threading.Event()
+        def draw(*_):
+            entered.set()
+            release.wait(2)
+        worker = self._new(render_topo=draw)
+        worker._recent_holes = lambda: set()
+        worker._downloaded_holes = lambda: set()
+        with (patch.object(render_backfill, "_BACKGROUND", worker),
+              patch.object(render_backfill, "_BACKGROUND_THREAD", None),
+              patch.object(render_backfill, "_RESCAN", False),
+              patch.object(render_backfill, "_FORCE", False),
+              patch.object(worker, "enqueue_all", wraps=worker.enqueue_all) as scan):
+            render_backfill.start_background(manual=True)
+            thread = render_backfill._BACKGROUND_THREAD
+            try:
+                self.assertTrue(entered.wait(1))
+                render_backfill.enqueue_all(force=True)
+                self.assertEqual(scan.call_count, 1)
+            finally:
+                release.set()
+                if thread is not None:
+                    thread.join(2)
+            self.assertEqual([call.kwargs["force"] for call in scan.call_args_list], [False, True])
 
     def test_J42_fixture_boot_does_not_start_a_writer(self):
         from server_v2 import main
