@@ -1,7 +1,8 @@
 diff --git a/mobile/ios/AICaddie/Models/ResultsPresentation.swift b/mobile/ios/AICaddie/Models/ResultsPresentation.swift
+index 27e203e1..bcac0b6d 100644
 --- a/mobile/ios/AICaddie/Models/ResultsPresentation.swift
 +++ b/mobile/ios/AICaddie/Models/ResultsPresentation.swift
-@@ -601,6 +601,7 @@
+@@ -617,6 +617,7 @@ struct ResultsTimeLoadState: Equatable {
      /// Begin a request for a new range while retaining the currently displayed answer.
      mutating func select(_ newWindow: String) -> Request {
          let wasRefresh = pendingIsRefresh
@@ -9,12 +10,12 @@ diff --git a/mobile/ios/AICaddie/Models/ResultsPresentation.swift b/mobile/ios/A
          generation += 1
          isLoading = true
          pendingWindow = newWindow
-@@ -666,7 +667,7 @@
+@@ -681,7 +682,7 @@ struct ResultsTimeLoadState: Equatable {
              }
          } else if case let .content(current, _) = phase {
              failedWindow = failedWindow ?? request.window
 -            phase = .content(current, notice: notice(for: failedWindow ?? request.window))
 +            phase = .content(current, notice: nil)
-         } else {
-             phase = .failed("时间与频率暂时取不到")
-             failedWindow = request.window
+             if refreshInvalidatedBySelection {
+                 _ = restartRefresh()
+             }
