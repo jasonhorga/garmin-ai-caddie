@@ -609,6 +609,13 @@
       "kind": "native-ui",
       "target": "AICaddieUITests/RealFlowUITests/testWholeCourseBackNineStartsFromFirstStrokeJourney",
       "promise": "5.1"
+    },
+    {
+      "id": "tests-product-faults-C138-05-wrong-round-offset-skips-rebuild",
+      "patch": "tests/product/faults/C138/05-wrong-round-offset-skips-rebuild.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_round_index_offset_for_another_round_rebuilds_before_append",
+      "promise": "5.9"
     }
   ]
 }

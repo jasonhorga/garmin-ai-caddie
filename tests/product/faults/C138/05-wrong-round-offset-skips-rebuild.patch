@@ -1,0 +1,11 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -670,7 +670,3 @@
+             if not isinstance(parsed, dict) or str(parsed.get("roundId") or "") != round_id:
+-                if rebuild:
+-                    raise ValueError("event_commit_store_corrupt")
+-                return self._indexed_round_log_unlocked(
+-                    round_id, handle=handle, rebuild=True, index_sink=index_sink,
+-                )
++                continue
+             row = dict(parsed)

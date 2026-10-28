@@ -126,6 +126,7 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual(store.round_event_holes(ROUND_A), [7])
 
     def test_round_index_offset_for_another_round_rebuilds_before_append(self) -> None:
+        """J5.9: a self-consistent but misdirected index must not duplicate an ACKed event."""
         store = FileEventStore(self.root)
         store.append_batch(ROUND_A, [_event("a1")], request_key="a1")
         store.append_batch(ROUND_B, [_event("b1", round_id=ROUND_B)], request_key="b1")
@@ -137,13 +138,17 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         store.round_index.write_text(json.dumps(payload), encoding="utf-8")
 
         result = FileEventStore(self.root).append_batch(
-            ROUND_A, [_event("a2")], request_key="a2",
+            ROUND_A, [_event("a1")], request_key="a1-retry",
         )
-        self.assertEqual(result[0].status, "accepted")
-        self.assertEqual(
-            [receipt.event_id for receipt in FileEventStore(self.root).read_events(ROUND_A)],
-            ["a1", "a2"],
-        )
+        event_ids = [receipt.event_id for receipt in FileEventStore(self.root).read_events(ROUND_A)]
+        self.assertEqual(result[0].status, "duplicate_hash_match", f"stored_events={event_ids}")
+        self.assertEqual(event_ids, ["a1"])
+        repaired = json.loads(store.round_index.read_text(encoding="utf-8"))
+        # The first serialized v1 fixture row is 403 bytes at offset 0, sequence/line 1.
+        self.assertEqual(repaired["offsets"][ROUND_A], [[0, 403, 1, 1]])
+        start, length, _, _ = repaired["offsets"][ROUND_A][0]
+        row = json.loads(store.log.read_bytes()[start:start + length])
+        self.assertEqual((row["roundId"], row["event"]["eventId"]), (ROUND_A, "a1"))
 
     def test_round_index_rebuild_refuses_a_tampered_committed_prefix(self) -> None:
         # The light scan must still verify the committed prefix before labelling a rebuilt
