@@ -21,6 +21,7 @@ import asyncio
 from dataclasses import dataclass
 import json
 import os
+import shutil
 import socket
 import statistics
 import sys
@@ -62,7 +63,8 @@ async def _request(client: httpx.AsyncClient, name: str, path: str) -> tuple[str
 def _package_path(args: argparse.Namespace, round_id: str, *, map_only: bool, gid: int | None = None) -> str:
     gid = args.global_id if gid is None else gid
     return (f"/api/v2/mobile/courses/{gid}/package?round_id={round_id}"
-            f"&map_only={str(map_only).lower()}&loops={gid}:front,{gid}:back&tee_box={args.tee_box}")
+            f"&map_only={str(map_only).lower()}&loops={gid}:front,{gid}:back&tee_box={args.tee_box}"
+            + ("&background_geometry=true" if args.self_host else ""))
 
 
 def _light_paths(args: argparse.Namespace) -> dict[str, str]:
@@ -268,6 +270,8 @@ async def _warm_light_routes(client: httpx.AsyncClient, args: argparse.Namespace
         path = _light_paths(args)["install_status"]
         for _ in range(1200):
             response = await client.get(path)
+            if response.status_code != 200:
+                raise RuntimeError(f"foreground install status {response.status_code}: {response.text}")
             phase = response.json().get("phase")
             if phase in {"ready", "failed", "cancelled"}:
                 break
@@ -290,12 +294,18 @@ def _free_port() -> int:
 
 
 def _start_fixture_server(root: Path, repo: Path) -> tuple[subprocess.Popen[bytes], str]:
+    # Some geometry tools derive their data roots from __file__ rather than AI_CADDIE_ROOT.
+    # Copy the selected API source into the fixture so every real installer/renderer sees the
+    # same isolated release and output tree, including its atomic derivative renames.
+    for name in ("ai_caddie", "server_v2", "contracts", "tests/fixtures"):
+        shutil.copytree(repo / name, root / name, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     port = _free_port()
     environment = dict(os.environ)
     environment.update({
         "AI_CADDIE_DATA_MODE": "fixture",
         "AI_CADDIE_ROOT": str(root),
-        "PYTHONPATH": str(repo),
+        "PYTHONPATH": str(root),
         "AI_CADDIE_FIXTURE_MODE": "0",
         "AI_CADDIE_BOOT_BACKGROUND_WORK": "0",
     })
@@ -354,7 +364,8 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             service, args.base_url = _start_fixture_server(fixture_root, Path(args.server_repo).resolve())
             await _wait_for_server(args.base_url, service)
         identity_dir = fixture_root / "data" / "mobile_events" / "round_identity"
-        identity_count_before = len(list(identity_dir.glob("*.json"))) if identity_dir.exists() else 0
+        identity_count_before = (len(list(identity_dir.glob("*.json")))
+                                 if args.self_host and identity_dir.exists() else 0)
         headers = {"Authorization": f"Bearer {args.token}"} if args.token else {}
         limits = httpx.Limits(max_connections=16, max_keepalive_connections=16)
         timeout = httpx.Timeout(args.timeout_seconds)
