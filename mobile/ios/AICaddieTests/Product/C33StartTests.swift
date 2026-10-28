@@ -521,7 +521,7 @@ final class C33StartTests: XCTestCase {
         )
         let retry = Task { await model.retryRoundStart() }
         await retry.value
-        XCTAssertEqual(model.roundStartFailure, .unavailable)
+        XCTAssertEqual(model.roundStartFailure, .timedOut)
         lock.lock(); let observedRoundIDs = roundIDs; lock.unlock()
         XCTAssertEqual(observedRoundIDs, ["tee-refresh-round", "tee-refresh-round"])
     }
@@ -644,13 +644,16 @@ final class C33StartTests: XCTestCase {
         let course = MobileCourseOption(globalId: 32850, name: "Prep priority", teeBox: "blue", tees: ["blue"])
         XCTAssertTrue(model.openPrepCourse(course))
         await fulfillment(of: [mapSent], timeout: eventWait)
-        for _ in 0..<100 where model.prepPackage == nil {
+        let packageDeadline = Date().addingTimeInterval(eventWait)
+        while model.prepPackage == nil, Date() < packageDeadline {
             try await Task.sleep(nanoseconds: 1_000_000)
         }
+        XCTAssertNotNil(model.prepPackage)
         await fulfillment(of: [enrichmentSent], timeout: eventWait)
         model.prioritizePrepHole(2)
         await fulfillment(of: [prioritySent], timeout: eventWait)
-        for _ in 0..<100 where model.prepPackage?.sourceCoverage.playerStatsWindow != "priority" {
+        let priorityDeadline = Date().addingTimeInterval(eventWait)
+        while model.prepPackage?.sourceCoverage.playerStatsWindow != "priority", Date() < priorityDeadline {
             try await Task.sleep(nanoseconds: 1_000_000)
         }
         XCTAssertEqual(model.prepPackage?.sourceCoverage.playerStatsWindow, "priority")
@@ -665,6 +668,13 @@ final class C33StartTests: XCTestCase {
     func testProductSpec42ClosingPrepDropsALateStartFailure() async throws {
         let host = "prep-cancel.example.test"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let basePackage = try c33Package()
+        let baseData = try JSONEncoder().encode(basePackage)
+        var mapJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: baseData) as? [String: Any])
+        var mapCoverage = try XCTUnwrap(mapJSON["sourceCoverage"] as? [String: Any])
+        mapCoverage["playerStatsWindow"] = "deferred"
+        mapJSON["sourceCoverage"] = mapCoverage
+        let mapData = try JSONSerialization.data(withJSONObject: mapJSON)
         let session = C33URLProtocol.session()
         let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 0.05)
         let model = LiveRoundAppModel(
@@ -672,8 +682,12 @@ final class C33StartTests: XCTestCase {
             watchBridge: nil, garminSessionStore: nil, syncClient: client,
             roundStartProgressSleep: { _ in }
         )
-        let sent = expectation(description: "cancelled prep request reached server")
-        let sentOnce = C33FirstMatch()
+        let mapSent = expectation(description: "prep map request reached server")
+        let enrichmentSent = expectation(description: "cancelled background enrichment reached server")
+        let mapSentOnce = C33FirstMatch()
+        let enrichmentSentOnce = C33FirstMatch()
+        let lock = NSLock()
+        var heldEnrichment: C33URLProtocol?
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host,
                   proto.request.url?.path == "/api/v2/mobile/courses/32850/package" else {
@@ -681,8 +695,13 @@ final class C33StartTests: XCTestCase {
             }
             if (c33Query(proto.request, "round_id") ?? "").hasPrefix("prep-library-") {
                 proto.reply(503)
+            } else if c33Query(proto.request, "map_only") == "true" {
+                if mapSentOnce.claim() { mapSent.fulfill() }
+                proto.reply(200, mapData)
             } else {
-                if sentOnce.claim() { sent.fulfill() } // Intentionally never reply; closePrepMode cancels this request.
+                lock.lock(); heldEnrichment = proto; lock.unlock()
+                if enrichmentSentOnce.claim() { enrichmentSent.fulfill() }
+                // Intentionally never reply; closePrepMode cancels this background request.
             }
         })
         defer {
@@ -692,9 +711,12 @@ final class C33StartTests: XCTestCase {
         }
         let course = MobileCourseOption(globalId: 32850, name: "Cancelled prep", teeBox: "blue", tees: ["blue"])
         XCTAssertTrue(model.openPrepCourse(course))
-        await fulfillment(of: [sent], timeout: eventWait)
+        await fulfillment(of: [mapSent, enrichmentSent], timeout: eventWait)
         model.closePrepMode()
         try? await Task.sleep(nanoseconds: 200_000_000)
+        lock.lock(); let request = heldEnrichment; lock.unlock()
+        request?.reply(200, baseData)
+        await model.stopRoundBackgroundWorkForTesting()
         XCTAssertNil(model.roundStartFailure, "4.2: a closed prep screen must discard a late start failure")
         XCTAssertNotEqual(model.syncStatus, "离线中,使用已保存数据", "4.2: cancellation must not look like an offline failure")
         XCTAssertFalse(model.isPreparingRound)

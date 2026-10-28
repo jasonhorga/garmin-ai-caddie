@@ -844,18 +844,6 @@ public struct StartRoundView: View {
         )
     }
 
-    // Keep the view-level history accessor as part of the mobile surface contract.  The refresh
-    // path below composes the same inputs explicitly so it remains directly testable.
-    private var lastUsedTee: String? {
-        guard let selectedSegment else { return nil }
-        let caller = (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId }
-        return StartRoundPresentation.lastUsedTee(
-            selectedVenue: Self.courseVenueName(selectedSegment),
-            recentVenue: recentCourseOption.map(Self.courseVenueName), recentTee: recentCourseOption?.teeBox,
-            callerVenue: caller.map(Self.courseVenueName), callerTee: callerTeeBox
-        )
-    }
-
     /// Prefer the venue's last-used tee, then the course default, then a colour guess.
     static func initialTee(callerTee: String, offered: [String], courseTee: String?) -> String {
         StartRoundPresentation.preselectedTee(
@@ -1566,7 +1554,8 @@ public struct StartRoundView: View {
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("start-round-preparation-error")
-            } else if failurePresentation == .hidden, roundStartFailure == nil,
+            } else if !isPreparing, !isOpeningPrepCourse,
+                      failurePresentation == .hidden, roundStartFailure == nil,
                       let failure = Self.roundPreparationFailureMessage(from: syncStatus) {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)

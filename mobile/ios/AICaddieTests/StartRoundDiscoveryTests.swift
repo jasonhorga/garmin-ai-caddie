@@ -262,6 +262,13 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         XCTAssertEqual(
             StartRoundView.startFailurePresentation(
+                failure: nil, selectionMatches: true, isPreparing: true, isOpeningPrep: false
+            ),
+            .hidden,
+            "4.2: preparation hides a stale sync failure such as 服务器较慢"
+        )
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
                 failure: nil, selectionMatches: true, isPreparing: false, isOpeningPrep: false
             ),
             .hidden
@@ -290,6 +297,15 @@ final class StartRoundDiscoveryTests: XCTestCase {
             ),
             "Gold",
             "4.2: without a same-venue last-used Tee, the server default wins"
+        )
+        XCTAssertEqual(
+            StartRoundView.teeAfterRefreshUsingHistory(
+                current: "Blue", userPicked: false,
+                selectedVenue: "黑骑士", recentVenue: nil, recentTee: nil,
+                callerVenue: "黑骑士", callerTee: "White", rows: rows
+            ),
+            "White",
+            "4.2: caller history supplies the Tee when recent history is absent"
         )
     }
 
