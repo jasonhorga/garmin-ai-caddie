@@ -316,6 +316,7 @@ final class C33StartTests: XCTestCase {
         await model.retryRoundStart()
         lock.lock(); let observed = requests; lock.unlock()
         XCTAssertEqual(observed.count, 2)
+        guard observed.count == 2 else { return }
         for name in ["round_id", "tee_box", "loops", "captured_at"] {
             XCTAssertEqual(c33Query(observed[0], name), c33Query(observed[1], name), name)
         }
