@@ -565,6 +565,8 @@ struct ResultsTimeLoadState: Equatable {
     private(set) var phase: Phase
     private(set) var generation = 0
     private(set) var isLoading = false
+    private(set) var pendingWindow: String?
+    private(set) var failedWindow: String?
 
     init(window: String = "all", stats: MobileStats? = nil) {
         self.window = window
@@ -573,6 +575,9 @@ struct ResultsTimeLoadState: Equatable {
         } else {
             phase = .loading
         }
+        isLoading = stats == nil
+        pendingWindow = nil
+        failedWindow = nil
     }
 
     var stats: MobileStats? {
@@ -593,14 +598,40 @@ struct ResultsTimeLoadState: Equatable {
     mutating func select(_ newWindow: String) -> Request {
         generation += 1
         isLoading = true
+        pendingWindow = newWindow
+        failedWindow = nil
+        if case let .content(current, _) = phase {
+            phase = .content(current, notice: nil)
+        }
         return Request(window: newWindow, generation: generation)
+    }
+
+    /// Apply a picker choice. Returning nil means there is no request for the committed range;
+    /// when a different range is in flight, choosing the committed range still advances the
+    /// generation so that the old answer cannot arrive and change the page.
+    mutating func choose(_ requestedWindow: String) -> Request? {
+        guard requestedWindow == window else { return select(requestedWindow) }
+        guard pendingWindow != nil else { return nil }
+        return nil
     }
 
     /// Begin a refresh of the range that is already displayed.
     mutating func refresh() -> Request {
+        if let pendingWindow {
+            failedWindow = pendingWindow
+            self.pendingWindow = nil
+            if case let .content(current, _) = phase {
+                phase = .content(current, notice: notice(for: pendingWindow))
+            }
+        }
         generation += 1
         isLoading = true
         return currentRequest
+    }
+
+    /// Retry the range whose request was last rejected; otherwise refresh the committed range.
+    mutating func retry() -> Request {
+        select(failedWindow ?? window)
     }
 
     /// Commit only the newest request. A failed switch retains the old answer and identifies the
@@ -609,14 +640,23 @@ struct ResultsTimeLoadState: Equatable {
     mutating func complete(_ request: Request, stats: MobileStats?) -> Bool {
         guard request.generation == generation else { return false }
         isLoading = false
+        pendingWindow = nil
         if let stats {
             window = request.window
             phase = .content(stats, notice: nil)
+            failedWindow = nil
         } else if case let .content(current, _) = phase {
-            phase = .content(current, notice: "未更新，可重试")
+            failedWindow = failedWindow ?? request.window
+            phase = .content(current, notice: notice(for: failedWindow ?? request.window))
         } else {
             phase = .failed("时间与频率暂时取不到")
+            failedWindow = request.window
         }
         return true
+    }
+
+    private func notice(for window: String) -> String {
+        let title = AnalysisLoadState.windows.first { $0.id == window }?.title ?? window
+        return "\(title)未更新，可重试"
     }
 }
