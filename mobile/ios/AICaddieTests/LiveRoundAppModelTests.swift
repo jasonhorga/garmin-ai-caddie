@@ -952,6 +952,132 @@ final class LiveRoundAppModelTests: XCTestCase {
         )).hasCompleteOfflineCoursePrep)
     }
 
+    func testPrepStatusProbeFailsThreeTimesThenCanRetryAndClearFailure() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = OfflineStore(directoryURL: directory)
+        let source = try nineHoleFixturePackage()
+        let oldRevision = "old-status-release"
+        let newRevision = "new-status-release"
+        let oldTemplate = try offlineReadyPackage(source, geometryRevision: oldRevision)
+        try store.saveCourseTemplate(oldTemplate)
+        for hole in oldTemplate.holes {
+            _ = try store.saveCourseTopoImage(
+                minimalPNGData(),
+                globalId: hole.sourceGlobalId,
+                localHole: hole.sourceLocalHole,
+                geometryRevision: oldRevision
+            )
+        }
+        let fetched = package(
+            source,
+            roundId: "status-probe-failure",
+            recentRounds: [],
+            holes: source.holes.map { hole in
+                Hole(
+                    number: hole.number, par: hole.par, yards: hole.yards,
+                    geometryCoverage: .ready, geometryRevision: newRevision,
+                    sourceGlobalId: hole.sourceGlobalId, sourceLocalHole: hole.sourceLocalHole,
+                    courseHoleNumber: hole.courseHoleNumber
+                )
+            }
+        ).replacingCoursePrep(nil)
+        let course = MobileCourseOption(
+            globalId: fetched.course.globalId, name: fetched.course.name,
+            holes: fetched.holes.count, teeBox: fetched.course.teeBox
+        )
+        var pending = PrepCourseDownloadRecord(
+            course: course, phase: .queued, totalHoles: fetched.holes.count
+        )
+        pending.requiredGeometryRevisions = [
+            "\(course.globalId):1": newRevision,
+        ]
+        try store.savePrepCourseDownloads([pending])
+
+        let packageData = try JSONEncoder().encode(fetched)
+        let requestLock = NSLock()
+        var statusRequestCount = 0
+        var statusShouldSucceed = false
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let body: Data
+            let contentType: String
+            if url.path.hasSuffix("/mobile/courses/\(course.globalId)/package") {
+                body = packageData
+                contentType = "application/json"
+            } else if url.path.hasSuffix("/courses/\(course.globalId)/install/status") {
+                let succeeds = requestLock.withLock {
+                    statusRequestCount += 1
+                    return statusShouldSucceed
+                }
+                guard succeeds else {
+                    return (
+                        HTTPURLResponse(
+                            url: url, statusCode: 503, httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!,
+                        Data(#"{"detail":"status unavailable"}"#.utf8)
+                    )
+                }
+                body = self.installStatusData(
+                    globalId: course.globalId, revision: newRevision,
+                    localHoles: fetched.holes.map(\.sourceLocalHole)
+                )
+                contentType = "application/json"
+            } else if url.path.hasSuffix("/courses/\(course.globalId)/prep") {
+                let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
+                    .filter { $0.name == "holes" }
+                    .compactMap { $0.value.flatMap(Int.init) } ?? []
+                let succeeds = requestLock.withLock { statusShouldSucceed }
+                body = try self.offlinePrepResponseData(
+                    for: fetched, localHoles: requested,
+                    geometryCoverage: succeeds ? "ready" : "partial",
+                    geometryRevision: newRevision
+                )
+                contentType = "application/json"
+            } else if url.path.hasSuffix("/topo.png") {
+                body = self.minimalPNGData()
+                contentType = "image/png"
+            } else {
+                throw URLError(.unsupportedURL)
+            }
+            return (
+                HTTPURLResponse(
+                    url: url, statusCode: 200, httpVersion: nil,
+                    headerFields: ["Content-Type": contentType]
+                )!,
+                body
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: URL(string: "https://status-probe-failure.example.test")!,
+            session: session,
+            retrySleep: { _ in XCTFail("status probe must not add transport retries") }
+        )
+        let model = LiveRoundAppModel(
+            offlineStore: store, apiBaseURL: client.baseURL,
+            watchBridge: nil, garminSessionStore: nil, syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [],
+            prepStatusProbeRetryDelayNanoseconds: 0
+        )
+
+        model.downloadPrepCourse(course)
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .failed)
+        XCTAssertEqual(model.prepCourseDownloads.first?.errorText, "服务器状态暂时无法确认，点重试")
+        XCTAssertGreaterThanOrEqual(requestLock.withLock { statusRequestCount }, 3)
+
+        requestLock.withLock { statusShouldSucceed = true }
+        model.retryPrepCourseDownload(id: pending.id)
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
+        XCTAssertNil(model.prepCourseDownloads.first?.errorText)
+    }
+
     func testReleaseReplacementKeepsLastKnownGoodTemplateUntilNewAssetsAreComplete() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

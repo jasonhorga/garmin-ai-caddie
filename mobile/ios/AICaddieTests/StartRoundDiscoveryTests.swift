@@ -204,6 +204,22 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(RoundStartProgress.message(after: 20), "服务器还在准备，最多再等十几秒")
     }
 
+    /// J4.2/C134: the slow-start explanation and the primary button share one busy state.
+    func testRoundStartProgressAndButtonUseOneBusyState() {
+        XCTAssertEqual(
+            StartRoundPresentation.roundStartProgressText(isBusy: true, message: nil),
+            "正在准备球场…"
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.roundStartProgressText(
+                isBusy: true,
+                message: "服务器还在准备，最多再等十几秒"
+            ),
+            "服务器还在准备，最多再等十几秒"
+        )
+        XCTAssertNil(StartRoundPresentation.roundStartProgressText(isBusy: false, message: "旧提示"))
+    }
+
     func testProductSpec42AutomaticTeeCorrectionLeavesTheStartActionUsable() {
         let corrected = StartRoundView.teeAfterRefresh(
             current: "white",
@@ -1247,7 +1263,49 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
     }
 
+    /// J4.2/C134: a first timeout expands to the 50 km pass before the setup page can fail.
+    func testNearbyFirstTimeoutUsesTheExpandedPassBeforeFailure() {
+        XCTAssertEqual(StartRoundView.nearbyDiscoveryRadii, [5, 50])
+        XCTAssertFalse(
+            StartRoundView.nearbyDiscoveryShouldFail(
+                publishedProviderResult: false, lastError: nil, hasNearbyRows: false
+            )
+        )
+    }
+
+    /// J4.2/C134: an empty 5 km response followed by a failed 50 km response is retryable and
+    /// keeps the offline fallback instead of presenting a false empty-success state.
+    func testNearbyEmptyFirstPassAndFailedExpansionEnterRetryState() {
+        XCTAssertTrue(
+            StartRoundView.nearbyDiscoveryShouldFail(
+                publishedProviderResult: false,
+                lastError: URLError(.timedOut),
+                hasNearbyRows: false
+            )
+        )
+    }
+
     // MARK: - B4b: one course list, first-loop tiles, start title
+
+    func testSelectedTeePageTitleKeepsSelectedCourseWhenSelectedSegmentIsTemporarilyNil() {
+        let selected = loop(9451, venue: "沙河高尔夫俱乐部", label: "A")
+        XCTAssertEqual(
+            StartRoundView.selectedVenueName(
+                globalId: selected.globalId,
+                selectedSegment: nil,
+                candidates: [selected]
+            ),
+            "沙河高尔夫俱乐部"
+        )
+        XCTAssertEqual(
+            StartRoundView.selectedVenueName(
+                globalId: 99_999,
+                selectedSegment: nil,
+                candidates: [selected]
+            ),
+            "球场"
+        )
+    }
 
     func testCourseListMergesSourcesNearbyFirstWithoutDuplicateVenues() {
         let bkA = loop(9101, venue: "黑骑士", label: "A")

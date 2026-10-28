@@ -66,8 +66,8 @@ final class AICaddieAppTests: XCTestCase {
 
     /// Device feedback: the same 黑骑士 A 场 prepared with two tees showed as two identical rows.
     func testRecentPrepListsEachCourseOnceWithItsTee() {
-        let a = MobileCourseOption(globalId: 31794, courseKey: "black-knight", name: "黑骑士 ~ A", holes: 9, venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9)
-        let b = MobileCourseOption(globalId: 31795, courseKey: "black-knight", name: "黑骑士 ~ B", holes: 9, venueName: "黑骑士", segmentLabel: "B", segmentHoles: 9)
+        let a = MobileCourseOption(globalId: 31794, courseKey: "gid-a", name: "黑骑士 ~ A", holes: 9, venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9, latitude: 40.0000, longitude: 116.0000)
+        let b = MobileCourseOption(globalId: 31795, courseKey: "gid-b", name: "黑骑士 ~ B", holes: 9, venueName: "黑骑士", segmentLabel: "B", segmentHoles: 9, latitude: 40.0002, longitude: 116.0002)
         let sameDisplayDifferentCourse = MobileCourseOption(
             globalId: 31796,
             courseKey: "other-black-knight",
@@ -75,7 +75,9 @@ final class AICaddieAppTests: XCTestCase {
             holes: 9,
             venueName: "黑骑士",
             segmentLabel: "A",
-            segmentHoles: 9
+            segmentHoles: 9,
+            latitude: 40.1,
+            longitude: 116.1
         )
         let newestFirst = [
             PrepCourseDownloadRecord(course: a, teeBox: "white"),
@@ -84,8 +86,49 @@ final class AICaddieAppTests: XCTestCase {
             PrepCourseDownloadRecord(course: sameDisplayDifferentCourse, teeBox: "red"),
         ]
         let rows = StartRoundPresentation.recentRows(newestFirst)
-        XCTAssertEqual(rows.map(\.id), [newestFirst[0].id, newestFirst[3].id], "J4.1 groups loops/tees by course identity")
+        XCTAssertEqual(rows.map(\.id), [newestFirst[0].id, newestFirst[3].id], "J4.1 groups loops by coarse physical location")
         XCTAssertEqual(StartRoundPresentation.recentRowSubtitle(rows[0]), "A 场 · 白 T")
+    }
+
+    /// J4.1/C134: loop rows a few dozen metres apart collapse into one status row, and one failed
+    /// loop keeps the retry action visible while progress is aggregated across the loops.
+    func testRecentRowsAggregateNearbyLoopProgressAndExposeFailure() throws {
+        let first = PrepCourseDownloadRecord(
+            course: MobileCourseOption(
+                globalId: 31801, courseKey: "gid-front", name: "同名球场 ~ A", holes: 9,
+                venueName: "同名球场", segmentLabel: "A", segmentHoles: 9,
+                latitude: 40.0000, longitude: 116.0000
+            ),
+            phase: .downloading, downloadedHoles: 3, totalHoles: 9
+        )
+        let second = PrepCourseDownloadRecord(
+            course: MobileCourseOption(
+                globalId: 31802, courseKey: "gid-back", name: "同名球场 ~ B", holes: 9,
+                venueName: "同名球场", segmentLabel: "B", segmentHoles: 9,
+                latitude: 40.0002, longitude: 116.0002
+            ),
+            phase: .failed, totalHoles: 9, errorText: "下载未完成，点下载继续"
+        )
+        let row = try XCTUnwrap(StartRoundPresentation.recentRows([first, second]).first)
+        XCTAssertEqual(row.phase, .failed)
+        XCTAssertEqual(row.totalHoles, 18)
+        XCTAssertEqual(row.downloadedHoles, 3)
+    }
+
+    func testMapOnlyCompletionReadsTheLatestDownloadIntent() {
+        XCTAssertFalse(
+            LiveRoundAppModel.mapOnlyFetchStillRepresentsIntent(
+                capturedIsIntentPrefetch: true,
+                currentIsIntentPrefetch: false
+            ),
+            "a tap on 下载 promotes the in-flight map-only row to a retained full download"
+        )
+        XCTAssertTrue(
+            LiveRoundAppModel.mapOnlyFetchStillRepresentsIntent(
+                capturedIsIntentPrefetch: true,
+                currentIsIntentPrefetch: nil
+            )
+        )
     }
 
     func testCourseSearchDoesNotShowEmptyStateWhileRequestIsStillRunning() {
