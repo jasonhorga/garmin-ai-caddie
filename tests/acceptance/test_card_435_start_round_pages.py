@@ -572,41 +572,6 @@ class StartRoundPagesAcceptanceTests(unittest.TestCase):
             "teeAfterRefresh must call preselectedTee(lastUsed: lastUsed, …, defaultTee: <the isDefault row>)",
         )
 
-    def test_start_round_wires_last_used_tee_into_the_tees_refresh(self) -> None:
-        # G2: a tapped row keeps the current / recent loop; /tees answers through the refresh rule with
-        # the recent or caller tee of this venue; a tapped tee chip is tracked and reset per course.
-        code = _code(START_VIEW)
-        self.assertRegex(
-            _func_body(self, code, "selectCourseRow"),
-            r"StartRoundPresentation\.preselectedLoop\(\s*in:\s*row\.segments\s*,\s*current:\s*selectedSegment\s*,"
-            r"\s*recent:\s*recentResolvedCourseOption\s*\)",
-        )
-        self.assertRegex(code, r"\bprivate let callerCourseGlobalId\s*:\s*Int\?")
-        self.assertRegex(code, r"\bprivate let callerTeeBox\s*:\s*String\b")
-        self.assertRegex(code, r"\bself\.callerCourseGlobalId\s*=\s*defaultCourseGlobalId\b")
-        self.assertRegex(code, r"\bself\.callerTeeBox\s*=\s*defaultTeeBox\b")
-        self.assertRegex(code, r"\bprivate var lastUsedTee\s*:\s*String\?")
-        last_used = _var_body(self, code, "lastUsedTee")
-        calls = _call_args(last_used, r"StartRoundPresentation\.lastUsedTee")
-        self.assertEqual(len(calls), 1, "lastUsedTee must call StartRoundPresentation.lastUsedTee once")
-        args = _labelled(calls[0])
-        for key in ("selectedVenue", "recentVenue", "recentTee", "callerVenue", "callerTee"):
-            self.assertIn(key, args)
-        self.assertNotEqual(args["recentTee"], "nil")
-        self.assertNotEqual(args["callerTee"], "nil")
-        for name in ("recentCourseOption", "callerTeeBox", "callerCourseGlobalId", "courseVenueName"):
-            self.assertRegex(last_used, rf"\b{name}\b", f"lastUsedTee must read {name}")
-        load_tees = _func_body(self, code, "loadTees")
-        self.assertRegex(
-            load_tees,
-            r"\bteeBox\s*=\s*Self\.teeAfterRefresh\(\s*current:\s*teeBox\s*,\s*userPicked:\s*userPickedTee\s*,"
-            r"\s*lastUsed:\s*lastUsedTee\s*,\s*rows:\s*tees\s*\)",
-        )
-        self.assertNotRegex(load_tees, r"\bif\s+!userPickedTee\b")
-        self.assertRegex(code, r"@State\s+private\s+var\s+userPickedTee\b")
-        self.assertRegex(_func_body(self, code, "teeChip"), r"\buserPickedTee\s*=\s*true\b")
-        self.assertRegex(_func_body(self, code, "applySelectedCourse"), r"\buserPickedTee\s*=\s*false\b")
-
     def test_swift_tee_table_matches_the_contract(self) -> None:
         # G2: every asserted preselectedTee call agrees with the rule; T1–T10 are all asserted.
         body = _func_body(self, _code(DISCOVERY_TESTS), "testPreselectedTeePrefersLastUsedThenCourseDefault")

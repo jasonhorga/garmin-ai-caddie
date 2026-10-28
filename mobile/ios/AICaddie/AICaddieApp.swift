@@ -109,7 +109,7 @@ public struct AICaddieApp: App {
                             await model.retryRoundStart()
                         },
                         onClearRoundStartFailure: {
-                            model.clearRoundStartFailure()
+                            model.clearRoundStartFailureIfIdle()
                         },
                         onSetSecondLoop: { entry, roundId in
                             Task {
@@ -477,6 +477,13 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingRoundStartRequest = nil
         roundStartSelection = nil
         if hadRoundStartState { syncStatus = "请选择球场后开始" }
+    }
+
+    /// Tee authority can answer while the foreground start is still in flight. Keep that request's
+    /// progress/failure evidence until it has finished; the setup view also gates the callback.
+    public func clearRoundStartFailureIfIdle() {
+        guard !isPreparingRound else { return }
+        clearRoundStartFailure()
     }
 
     private func reusableCapturedAt(for request: RoundStartRequest) -> Date {
@@ -1630,18 +1637,12 @@ public final class LiveRoundAppModel: ObservableObject {
             syncStatus = "无法开始这一场,请重试"
             return
         }
-        // The foreground request can begin before StartRoundView's 1.5-second intent task. Keep
-        // the complete-course cache job owned by the model so a combined start never cancels it.
-        let availableCourses = courseOptions + downloadedCourseOptions + [recentCourseOption].compactMap { $0 }
-        for entry in loops {
-            if let course = availableCourses.first(where: { $0.globalId == entry.globalId }) {
-                downloadPrepCourse(course.replacingTeeBox(teeBox))
-            }
-        }
         let selection = RoundStartSelection(globalId: globalId, teeBox: teeBox, loops: loops)
         let now = roundStartNow()
         let reusable: (roundId: String, capturedAt: Date)? = {
-            guard let pending = pendingRoundStartRequest,
+            guard roundStartFailure != nil,
+                  roundPreparationToken == nil,
+                  let pending = pendingRoundStartRequest,
                   pending.selection == selection,
                   now.timeIntervalSince(pending.capturedAt) < 120 else { return nil }
             if case let .course(_, pendingRoundId, _, _, capturedAt) = pending {
@@ -2377,6 +2378,8 @@ public final class LiveRoundAppModel: ObservableObject {
             freshEntryReleaseTask,
             offlineCourseDownloadTask,
             pendingGeometryRefreshTask,
+            prepCourseDownloadTask,
+            activeRoundStartTask,
         ]
         cancelRoundEnrichment()
         prepEnrichmentTask?.cancel()
@@ -2390,6 +2393,9 @@ public final class LiveRoundAppModel: ObservableObject {
         interruptedOfflineCourseDownloadRoundId = nil
         pendingGeometryRefreshTask?.cancel()
         pendingGeometryRefreshTask = nil
+        pausePrepCourseDownload()
+        activeRoundStartTask?.cancel()
+        activeRoundStartTask = nil
         for task in running {
             await task?.value
         }
@@ -4178,7 +4184,9 @@ public final class LiveRoundAppModel: ObservableObject {
         let selection = RoundStartSelection(globalId: course.globalId, teeBox: record.teeBox, loops: loops)
         let now = roundStartNow()
         let reusable: (roundId: String, capturedAt: Date)? = {
-            guard let pending = pendingRoundStartRequest,
+            guard roundStartFailure != nil,
+                  roundPreparationToken == nil,
+                  let pending = pendingRoundStartRequest,
                   pending.selection == selection,
                   now.timeIntervalSince(pending.capturedAt) < 120 else { return nil }
             if case let .prep(_, pendingRoundId, _, _, capturedAt, _) = pending {
@@ -4334,7 +4342,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private func beginPrepEnrichmentIfNeeded() {
         guard let prep = prepPackage,
               Self.defersPlayerEnrichment(prep),
-              let syncClient else { return }
+              syncClient != nil else { return }
         if prepEnrichmentRoundID == prep.roundId, prepEnrichmentTask != nil { return }
         prepEnrichmentTask?.cancel()
         let roundId = prep.roundId
@@ -4343,40 +4351,31 @@ public final class LiveRoundAppModel: ObservableObject {
         let teeBox = prep.course.teeBox
         let loops = prep.loopEntries
         prepEnrichmentRoundID = roundId
-        prepEnrichmentTask = Task { @MainActor [weak self, syncClient] in
+        prepEnrichmentTask = Task { @MainActor [weak self] in
             defer {
                 if self?.prepEnrichmentRoundID == roundId {
                     self?.prepEnrichmentTask = nil
                     self?.prepEnrichmentRoundID = nil
                 }
             }
-            do {
-                let full = try await syncClient.fetchCoursePackage(
-                    globalId: globalId,
-                    roundId: roundId,
-                    teeBox: teeBox,
-                    loops: loops,
-                    capturedAt: Date(),
-                    ensureGeometry: false,
-                    backgroundGeometry: true,
-                    mapOnly: false,
-                    includeEventCursor: false,
-                    foregroundStart: false,
-                    requestKind: .background
-                )
-                guard !Task.isCancelled,
-                      let self,
-                      generation == self.prepOpenGeneration,
-                      self.liveRoundState == nil,
-                      self.prepPackage?.roundId == roundId,
-                      !Self.defersPlayerEnrichment(full) else { return }
-                self.prepPackage = self.carryingInstalledPrecisePrep(full)
-            } catch {
-                // The map-only prep remains playable; the next explicit hole/tee request retries.
-                AICaddieLog.network.info(
-                    "Prep personal package deferred: \(String(describing: error), privacy: .public)"
-                )
-            }
+            guard let self else { return }
+            // Use the same DEBUG fault gate and stale-result handling as foreground package fetches.
+            guard let full = await self.fetchRemoteCoursePackage(
+                globalId: globalId,
+                roundId: roundId,
+                teeBox: teeBox,
+                loops: loops,
+                capturedAt: Date(),
+                mapOnly: false
+            ) else { return }
+            guard !Task.isCancelled,
+                  generation == self.prepOpenGeneration,
+                  self.liveRoundState == nil,
+                  let current = self.prepPackage,
+                  current.roundId == roundId,
+                  Self.defersPlayerEnrichment(current),
+                  !Self.defersPlayerEnrichment(full) else { return }
+            self.prepPackage = self.carryingInstalledPrecisePrep(full)
         }
     }
 

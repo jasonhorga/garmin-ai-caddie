@@ -474,7 +474,7 @@ public struct StartRoundView: View {
             lastUsed: lastUsedTee,
             rows: tees
         )
-        if refreshedTee.caseInsensitiveCompare(teeBox) != .orderedSame {
+        if !isPreparing && refreshedTee.caseInsensitiveCompare(teeBox) != .orderedSame {
             // Tee authority changed an automatic/default choice. Clear a stale failed-start
             // request so the corrected selection remains visibly startable.
             onClearRoundStartFailure()

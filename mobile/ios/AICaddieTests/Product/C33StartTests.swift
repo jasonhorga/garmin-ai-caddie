@@ -278,7 +278,7 @@ final class C33StartTests: XCTestCase {
     }
 
     func testRetryReusesTheSameCourseStartParameters() async throws {
-        let host = "c114-retry.example.test"
+        let host = "retry-round.example.test"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let package = try c33Package()
         let packageData = try JSONEncoder().encode(package)
@@ -343,7 +343,7 @@ final class C33StartTests: XCTestCase {
     }
 
     func testProductSpec42ProgressCopyAdvancesAndClearsAfterSuccessfulStart() async throws {
-        let host = "c114-progress.example.test"
+        let host = "progress-round.example.test"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let package = try c33Package()
         let packageData = try JSONEncoder().encode(package)
@@ -359,12 +359,13 @@ final class C33StartTests: XCTestCase {
             roundStartProgressSleep: { _ in await gate.wait() }
         )
         let sent = expectation(description: "slow package start reached server")
+        let sentOnce = C33FirstMatch()
         let lock = NSLock()
         var heldRequest: C33URLProtocol?
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host else { proto.reply(404); return }
             lock.lock(); heldRequest = proto; lock.unlock()
-            sent.fulfill()
+            if sentOnce.claim() { sent.fulfill() }
         })
         defer {
             client.invalidateForTesting(); session.invalidateAndCancel()
@@ -407,7 +408,7 @@ final class C33StartTests: XCTestCase {
     }
 
     func testProductSpec42PrepTimeoutShowsRetryableFailure() async throws {
-        let host = "c114-prep-timeout.example.test"
+        let host = "prep-timeout.example.test"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let session = C33URLProtocol.session()
         let client = SyncClient(
@@ -416,12 +417,13 @@ final class C33StartTests: XCTestCase {
         )
         let model = c33Model(OfflineStore(directoryURL: directory), client)
         let sent = expectation(description: "prep package start reached server")
+        let sentOnce = C33FirstMatch()
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host,
                   proto.request.url?.path.contains("/api/v2/mobile/courses/32850/package") == true else {
                 proto.reply(404); return
             }
-            sent.fulfill() // Intentionally never reply: the injected foreground budget must end it.
+            if sentOnce.claim() { sent.fulfill() } // Intentionally never reply: the injected foreground budget must end it.
         })
         defer {
             client.invalidateForTesting(); session.invalidateAndCancel()
@@ -436,10 +438,12 @@ final class C33StartTests: XCTestCase {
         await fulfillment(of: [sent, finished], timeout: eventWait)
         XCTAssertEqual(model.roundStartFailure, .timedOut)
         XCTAssertNil(model.roundStartProgressMessage)
+        model.closePrepMode()
+        await model.stopRoundBackgroundWorkForTesting()
     }
 
     func testProductSpec42ImmediatePrepStartQueuesItsBackgroundDownload() async throws {
-        let host = "c114-prep-queue.example.test"
+        let host = "prep-queue.example.test"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let session = C33URLProtocol.session()
         let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 0.05)
@@ -467,8 +471,44 @@ final class C33StartTests: XCTestCase {
         await model.stopRoundBackgroundWorkForTesting()
     }
 
+    func testProductSpec42TeeCorrectionKeepsAnInFlightStartState() async throws {
+        let host = "tee-refresh-start.example.test"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 1)
+        let model = c33Model(OfflineStore(directoryURL: directory), client)
+        let sent = expectation(description: "foreground start reached server")
+        let lock = NSLock()
+        var held: C33URLProtocol?
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            lock.lock(); held = proto; lock.unlock()
+            sent.fulfill()
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let start = Task {
+            await model.prepareCourseRound(
+                roundId: "tee-refresh-round",
+                teeBox: "blue",
+                loops: [.init(globalId: 32850, half: "all")]
+            )
+        }
+        await fulfillment(of: [sent], timeout: eventWait)
+        XCTAssertTrue(model.isPreparingRound)
+        model.clearRoundStartFailureIfIdle()
+        XCTAssertTrue(model.isPreparingRound, "4.2: tee refresh must not clear an in-flight start state")
+        lock.lock(); let request = held; lock.unlock()
+        request?.reply(503)
+        await start.value
+        XCTAssertNotNil(model.roundStartFailure)
+    }
+
     func testProductSpec42PrepMapPackageIsFollowedByBackgroundPersonalPackage() async throws {
-        let host = "c114-prep-enrichment.example.test"
+        let host = "prep-enrichment.example.test"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let fullPackage = try c33Package()
         let fullData = try JSONEncoder().encode(fullPackage)
@@ -488,6 +528,8 @@ final class C33StartTests: XCTestCase {
         )
         let mapSent = expectation(description: "map-only prep package")
         let fullSent = expectation(description: "background full prep package")
+        let mapSentOnce = C33FirstMatch()
+        let fullSentOnce = C33FirstMatch()
         let lock = NSLock()
         var directRequests = 0
         var mapOnlyValues: [String?] = []
@@ -495,16 +537,19 @@ final class C33StartTests: XCTestCase {
             guard proto.request.url?.host == host else { proto.reply(404); return }
             let roundID = c33Query(proto.request, "round_id") ?? ""
             if roundID.hasPrefix("prep-library-") { proto.reply(503); return }
+            guard proto.request.url?.path == "/api/v2/mobile/courses/32850/package" else {
+                proto.reply(404); return
+            }
             lock.lock()
             directRequests += 1
             let count = directRequests
             mapOnlyValues.append(c33Query(proto.request, "map_only"))
             lock.unlock()
             if count == 1 {
-                mapSent.fulfill()
+                if mapSentOnce.claim() { mapSent.fulfill() }
                 proto.reply(200, mapData)
             } else {
-                fullSent.fulfill()
+                if fullSentOnce.claim() { fullSent.fulfill() }
                 proto.reply(200, fullData)
             }
         })
@@ -524,8 +569,78 @@ final class C33StartTests: XCTestCase {
         await model.stopRoundBackgroundWorkForTesting()
     }
 
+    func testProductSpec42PrepPriorityWinsOverLateEnrichment() async throws {
+        let host = "prep-priority.example.test"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let basePackage = try c33Package()
+        let baseData = try JSONEncoder().encode(basePackage)
+        var mapJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: baseData) as? [String: Any])
+        var mapCoverage = try XCTUnwrap(mapJSON["sourceCoverage"] as? [String: Any])
+        mapCoverage["playerStatsWindow"] = "deferred"
+        mapJSON["sourceCoverage"] = mapCoverage
+        let mapData = try JSONSerialization.data(withJSONObject: mapJSON)
+        func packageData(window: String) throws -> Data {
+            var json = try XCTUnwrap(JSONSerialization.jsonObject(with: baseData) as? [String: Any])
+            var coverage = try XCTUnwrap(json["sourceCoverage"] as? [String: Any])
+            coverage["playerStatsWindow"] = window
+            json["sourceCoverage"] = coverage
+            return try JSONSerialization.data(withJSONObject: json)
+        }
+        let priorityData = try packageData(window: "priority")
+        let lateData = try packageData(window: "late")
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 1)
+        let model = c33Model(OfflineStore(directoryURL: directory), client)
+        let mapSent = expectation(description: "map-only prep package")
+        let enrichmentSent = expectation(description: "enrichment request held")
+        let prioritySent = expectation(description: "priority request")
+        let mapSentOnce = C33FirstMatch()
+        let enrichmentSentOnce = C33FirstMatch()
+        let prioritySentOnce = C33FirstMatch()
+        let lock = NSLock()
+        var heldEnrichment: C33URLProtocol?
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            let roundID = c33Query(proto.request, "round_id") ?? ""
+            if roundID.hasPrefix("prep-library-") { proto.reply(503); return }
+            guard proto.request.url?.path == "/api/v2/mobile/courses/32850/package" else {
+                proto.reply(404); return
+            }
+            if c33Query(proto.request, "map_only") == "true" {
+                if mapSentOnce.claim() { mapSent.fulfill() }
+                proto.reply(200, mapData)
+            } else if c33Query(proto.request, "priority_hole") == "2" {
+                if prioritySentOnce.claim() { prioritySent.fulfill() }
+                proto.reply(200, priorityData)
+            } else {
+                lock.lock(); heldEnrichment = proto; lock.unlock()
+                if enrichmentSentOnce.claim() { enrichmentSent.fulfill() }
+            }
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let course = MobileCourseOption(globalId: 32850, name: "Prep priority", teeBox: "blue", tees: ["blue"])
+        XCTAssertTrue(model.openPrepCourse(course))
+        await fulfillment(of: [mapSent], timeout: eventWait)
+        for _ in 0..<100 where model.prepPackage == nil {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        await fulfillment(of: [enrichmentSent], timeout: eventWait)
+        model.prioritizePrepHole(2)
+        await fulfillment(of: [prioritySent], timeout: eventWait)
+        lock.lock(); let lateRequest = heldEnrichment; lock.unlock()
+        lateRequest?.reply(200, lateData)
+        await model.waitForPrepEnrichmentForTesting()
+        XCTAssertEqual(model.prepPackage?.sourceCoverage.playerStatsWindow, "priority")
+        model.closePrepMode()
+        await model.stopRoundBackgroundWorkForTesting()
+    }
+
     func testProductSpec42ClosingPrepDropsALateStartFailure() async throws {
-        let host = "c114-prep-cancel.example.test"
+        let host = "prep-cancel.example.test"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let session = C33URLProtocol.session()
         let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 0.05)
