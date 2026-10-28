@@ -1,4 +1,4 @@
-# C90 iOS r6 故障清单
+# C90 iOS r7 故障清单
 
 本轮每条新增验收行为测试都有一个独立 native mutant。项目台在 native CI 对每个
 patch 单独 apply 并运行 manifest 中的 target；本机没有 Swift/Xcode，只做 patch
@@ -6,10 +6,10 @@ patch 单独 apply 并运行 manifest 中的 target；本机没有 Swift/Xcode�
 
 | promise | mutant | 测试 / 红断言 |
 |---|---|---|
-| B1 | 01、02、03 | `testQuarantineBlockedFinishKeepsRoundBackgroundWorkAlive`、`testQuarantineBlockedWatchFinishKeepsRoundBackgroundWorkAlive`、`testDiscardFailureKeepsRoundBackgroundWorkAlive`：held round request 被取消或 round ownership 被清除 |
-| B2 | 04 | `testDiscardLeavesAnotherPrepCourseDownloadRunning`：另一个球场 prep held request 的 stop count 变为 1 |
-| B5 | 05 | `testFinishKeepsWholeCourseDownloadRunning`：Save & End 后本局 held whole-course request 被取消 |
-| B4 | 06 | `testAStoppedModelSendsNoFurtherRequest`：install/status 在 stop 后到达 `URLProtocol.startLoading`，违反 inverted expectation |
+| B1 | 01、02、03 | `testSealFailureKeepsRoundBackgroundWorkAlive`、`testQuarantineBlockedWatchFinishKeepsRoundBackgroundWorkAlive`、`testDiscardFailureKeepsRoundBackgroundWorkAlive`：seal/clear/discard 失败时 held round request 被取消或 round ownership 被清除 |
+| B2 | 04 | `testDiscardLeavesAnotherPrepCourseDownloadRunning`：discard 后另一球场 prep 行保持下载中、active job 不清，并在释放 503 后发起下一次请求 |
+| B5 | 05 | `testFinishKeepsWholeCourseDownloadRunning`：Save & End 后本局 whole-course 下载继续并最终落盘模板 |
+| B4 | 06 | `testAStoppedModelSendsNoFurtherRequest`：SyncClient 删除 transport 前 cancellation check 后，stop 后 gate 放行仍会到达 transport，违反 inverted expectation |
 | B3 | 07 | `testCancelledRequestSamplesTimingBeforeTransportCheck`：取消发生在 gate 后仍必须采到一次 monotonic start |
 | B3 | 08 | `testClientTimingStorePersistsOffCallerQueue`：写盘 observer 在调用队列执行 |
 

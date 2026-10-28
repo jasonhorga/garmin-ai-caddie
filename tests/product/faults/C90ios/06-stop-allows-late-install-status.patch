@@ -1,10 +1,10 @@
---- a/mobile/ios/AICaddie/AICaddieApp.swift
-+++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -2404,7 +2404,6 @@
-             prepCourseDownloadTask,
-             activeRoundStartTask,
-         ]
--        cancelRoundBackgroundWork()
-         // Product finish/discard paths leave the shared prep queue alone; test teardown owns the
-         // process-wide queue too, so cancel it before awaiting the captured task handles.
-         pausePrepCourseDownload()
+diff --git a/mobile/ios/AICaddie/Services/SyncClient.swift b/mobile/ios/AICaddie/Services/SyncClient.swift
+--- a/mobile/ios/AICaddie/Services/SyncClient.swift
++++ b/mobile/ios/AICaddie/Services/SyncClient.swift
+@@ -640,6 +640,5 @@
+             try Task.checkCancellation()
+             return try await urlSession.data(for: timedRequest)
+         }
+-        try Task.checkCancellation()
+         do {
+             let result = try await urlSession.data(for: timedRequest)
