@@ -279,7 +279,7 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
             seen_venue_keys.add(key)
             seen_venue_order.append(key)
 
-    def canonical_loop_name(venue: str, label: object, fallback: object) -> str:
+    def canonical_loop_name(venue: str, label: object) -> str:
         segment = normalize_course_text(label) if label is not None else None
         return f"{venue} ~ {segment}" if segment else venue
 
@@ -294,7 +294,6 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
             if not key:
                 continue
             label = normalize_course_text(getattr(match, "segment_label", None)) or None
-            name = normalize_course_text(getattr(match, "name", None)) or venue
             # A later discovery may spell the venue differently. Stable globalId wins, and all
             # groups that already contain it are folded into the first one before updating it.
             containing = [group_key for group_key, group in venues.items() if any(
@@ -319,11 +318,14 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
                 old_group = venues.get(old_key)
                 if old_group is None:
                     continue
+                # Recency drives daily refresh and eviction. Folding a venue spelling must
+                # preserve the newest observation, including one newer than this worker's clock.
+                group["lastSeenAt"] = max(group["lastSeenAt"], old_group["lastSeenAt"])
                 moved = old_group["loops"]
                 for item in moved:
                     item = dict(item)
                     moved_gid = int(item.get("globalId") or 0)
-                    item["name"] = canonical_loop_name(venue, item.get("segmentLabel"), item.get("name"))
+                    item["name"] = canonical_loop_name(venue, item.get("segmentLabel"))
                     if not any(
                         int(existing.get("globalId") or 0) == moved_gid
                         and existing.get("segmentLabel") == item.get("segmentLabel")
@@ -334,7 +336,7 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
             # Rows already in the destination group also inherit the provider's current venue
             # spelling. This keeps the persisted display names coherent after a partial refresh.
             for item in group["loops"]:
-                item["name"] = canonical_loop_name(venue, item.get("segmentLabel"), item.get("name"))
+                item["name"] = canonical_loop_name(venue, item.get("segmentLabel"))
             mark_seen(key)
             # A discovery hit is evidence that this venue is still active even when its
             # particular loop row was already indexed. Refresh at most daily to avoid rewriting
@@ -345,10 +347,10 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
                           if int(item.get("globalId") or 0) == gid
                           and item.get("segmentLabel") == label), None)
             if prior is not None:
-                unified_name = canonical_loop_name(venue, label, name)
+                unified_name = canonical_loop_name(venue, label)
                 if prior.get("name") != unified_name:
                     prior["name"] = unified_name
-                    group["lastSeenAt"] = now
+                    group["lastSeenAt"] = max(group["lastSeenAt"], now)
                 continue
             try:
                 pars = courseview_par(gid, allow_fetch=False) or []
@@ -359,7 +361,7 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
             par = sum(int(value) for value in pars if isinstance(value, (int, float))) if len(pars) == 9 else None
             row = {
                 "globalId": gid,
-                "name": canonical_loop_name(venue, label, name),
+                "name": canonical_loop_name(venue, label),
                 "segmentLabel": label,
                 "holeCount": 9,
                 "par": par,
@@ -367,7 +369,7 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
             if prior != row:
                 group["loops"] = [item for item in group["loops"] if int(item.get("globalId") or 0) != gid]
                 group["loops"].append(row)
-                group["lastSeenAt"] = now
+                group["lastSeenAt"] = max(group["lastSeenAt"], now)
         except (AttributeError, TypeError, ValueError, OverflowError, OSError):
             continue
     # Keep one bounded index file. Current-batch groups win eviction in first-appearance order,
