@@ -106,6 +106,51 @@ final class RoundShareTests: XCTestCase {
     }
 
     @MainActor
+    func testProductSpec95ShareFlowRebuildsWhenAdminTokenChanges() async throws {
+        let payload = #"{"schema":"ai-caddie-round-share-v1","url":"/api/v2/share/token","pageUrl":"/s/token","expiresAt":"2026-11-27T00:00:00Z","shareId":"share-1"}"#
+        var requests: [URLRequest] = []
+        let lock = NSLock()
+        CapturingURLProtocol.requestHandler = { request in
+            lock.lock()
+            requests.append(request)
+            lock.unlock()
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 201, httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data(payload.utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let fallback = "本场复盘"
+        func makeFlow(adminToken: String) -> RoundShareFlow {
+            let client = SyncClient(baseURL: baseURL, adminToken: adminToken, session: session)
+            return RoundShareFlow(
+                create: { try await client.createRoundShare(roundRef: $0) },
+                fallbackText: fallback,
+                baseURL: baseURL,
+                adminToken: adminToken
+            )
+        }
+
+        var flow = makeFlow(adminToken: "token-a")
+        _ = await flow.share(roundRef: "round-1")
+        if !RoundShareFlow.canReuse(flow, baseURL: baseURL, adminToken: "token-b") {
+            flow = makeFlow(adminToken: "token-b")
+        }
+        _ = await flow.share(roundRef: "round-1")
+
+        lock.lock()
+        let captured = requests
+        lock.unlock()
+        XCTAssertEqual(captured.count, 2)
+        let firstRequest = try XCTUnwrap(captured.first)
+        let secondRequest = try XCTUnwrap(captured.dropFirst().first)
+        XCTAssertEqual(firstRequest.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "token-a")
+        XCTAssertEqual(secondRequest.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "token-b")
+    }
+
+    @MainActor
     func testProductSpec95ShareFlow503AndTimeoutFallBackToPlainText() async throws {
         let fallback = "本场复盘"
         var timeout: TimeInterval?
@@ -152,9 +197,12 @@ final class RoundShareTests: XCTestCase {
         CapturingURLProtocol.requestHandler = { request in
             lock.lock()
             requestCount += 1
+            let shouldHold = requestCount == 1
             lock.unlock()
             entered.fulfill()
-            _ = release.wait(timeout: .now() + 5)
+            if shouldHold {
+                _ = release.wait(timeout: .now() + 5)
+            }
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url), statusCode: 201, httpVersion: nil, headerFields: nil
             )!
@@ -175,16 +223,19 @@ final class RoundShareTests: XCTestCase {
             await flow.share(roundRef: "round-1")
         }
 
-        await fulfillment(of: [entered], timeout: 1)
+        await fulfillment(of: [entered], timeout: 5)
         let second = await flow.share(roundRef: "round-1")
         XCTAssertNil(second)
         release.signal()
         let firstPresentation = await first.value
 
+        let third = await flow.share(roundRef: "round-1")
+        XCTAssertNotNil(third, "the in-flight gate must reset after the first request completes")
+
         lock.lock()
         let count = requestCount
         lock.unlock()
-        XCTAssertEqual(count, 1)
+        XCTAssertEqual(count, 2)
         XCTAssertEqual(
             firstPresentation,
             .activityText(fallback + "\nhttps://api.example.test/s/token")

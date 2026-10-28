@@ -58,13 +58,31 @@ public final class RoundShareFlow {
 
     private let create: Create
     public let baseURL: URL?
+    public let adminToken: String?
     public private(set) var fallbackText: String
     public private(set) var isInFlight = false
 
-    public init(create: @escaping Create, fallbackText: String, baseURL: URL?) {
+    public init(
+        create: @escaping Create,
+        fallbackText: String,
+        baseURL: URL?,
+        adminToken: String? = nil
+    ) {
         self.create = create
         self.fallbackText = fallbackText
         self.baseURL = baseURL
+        self.adminToken = adminToken
+    }
+
+    /// A flow may be reused only while both the backend origin and its credential remain current.
+    /// The view's inputs can change after a re-login while SwiftUI preserves the view state.
+    public static func canReuse(
+        _ existing: RoundShareFlow?,
+        baseURL: URL?,
+        adminToken: String?
+    ) -> Bool {
+        guard let existing else { return false }
+        return existing.baseURL == baseURL && existing.adminToken == adminToken
     }
 
     public func update(fallbackText: String) {
