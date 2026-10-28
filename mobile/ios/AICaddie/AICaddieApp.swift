@@ -1812,9 +1812,6 @@ public final class LiveRoundAppModel: ObservableObject {
     /// takes no further automatic job (`nextPrepCourseDownloadJob`).
     private func beginRoundPreparation() -> UUID {
         let replacingPreparation = roundPreparationToken != nil
-        if let previousToken = roundPreparationToken {
-            syncClient?.endRoundStart(previousToken)
-        }
         let token = UUID()
         roundPreparationToken = token
         roundPreparationGeneration &+= 1
@@ -2151,10 +2148,17 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         guard let task = intentPrefetchTasks[key] else { return (nil, false) }
         do {
+            let waitNanoseconds = roundStartIntentWaitNanoseconds
             let cached = try await withThrowingTaskGroup(of: LiveRoundPackage.self) { group in
-                group.addTask { try await task.value }
                 group.addTask {
-                    try await Task.sleep(nanoseconds: self.roundStartIntentWaitNanoseconds)
+                    try await withTaskCancellationHandler {
+                        try await task.value
+                    } onCancel: {
+                        task.cancel()
+                    }
+                }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: waitNanoseconds)
                     throw IntentPrefetchWaitTimeout()
                 }
                 defer { group.cancelAll() }
