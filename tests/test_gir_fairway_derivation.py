@@ -274,6 +274,25 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
             {"number": 1, "strokes": 4, "putts": 2, "penalties": 0, "scoreSource": "manual_edit", "gir": True},
         )  # GIR follows total - putts <= par - 2; fairway remains undeterminable.
 
+    def test_ingest_without_putts_and_geometry_leaves_gir_unknown(self) -> None:
+        events = [event for event in self._par4_events() if event["kind"] != "putt"]
+        events = [
+            {**event, "payload": {**event["payload"], "strokes": 5}}
+            if event["kind"] == "score" else event
+            for event in events
+        ]
+        meta = {"courseGlobalId": GID, "courseName": "Test", "holePars": "4"}
+        empty = self.root / "empty-no-putts"
+        empty.mkdir()
+        with _patch_geometry(empty, fairway_outline=False):
+            summary = round_ingest.ingest_round(
+                "p_friend", events, meta, idempotency_key="g3", root=self.root
+            )
+        sc_path = self.root / "data" / "players" / "p_friend" / "scorecards" / f"{summary['id']}.json"
+        hole = read_json(sc_path)["scorecardDetails"][0]["scorecard"]["holes"][0]
+        self.assertNotIn("putts", hole)
+        self.assertIsNone(hole.get("gir"))
+
 
 if __name__ == "__main__":
     unittest.main()

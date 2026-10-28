@@ -457,9 +457,21 @@ class GeometryEvidenceTests(unittest.TestCase):
                 patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
                 patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
             ):
-                inside = classify_shot_surface(31795, 6, {"ref": "mesh-green", "end": {"x": 1, "y": 1}})
-                outside = classify_shot_surface(31795, 6, {"ref": "mesh-outside", "end": {"x": 20, "y": 20}})
+                baseline = classify_shot_surface(
+                    31795, 6, {"ref": "mesh-green", "end": {"x": 10 / 3, "y": 10 / 3}}
+                )
+                inside = classify_shot_surface(
+                    31795,
+                    6,
+                    {"ref": "mesh-green", "end": {"x": 10 / 3, "y": 10 / 3}},
+                    include_mesh_triangles=True,
+                )
+                outside = classify_shot_surface(
+                    31795, 6, {"ref": "mesh-outside", "end": {"x": 20, "y": 20}},
+                    include_mesh_triangles=True,
+                )
 
+        self.assertEqual(baseline["surface"]["kind"], "unknown")
         self.assertEqual(inside["surface"]["kind"], "green")
         self.assertEqual(inside["surface"]["source"], "mesh")
         self.assertEqual(outside["surface"]["kind"], "unknown")

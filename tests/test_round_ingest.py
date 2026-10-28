@@ -104,6 +104,21 @@ class RoundIngestCoreTests(unittest.TestCase):
         self.assertEqual(hole["putts"], 2)
         self.assertFalse(hole["gir"])
 
+    def test_missing_putts_do_not_fill_zero_when_gir_is_undeterminable(self) -> None:
+        events = [
+            {"hole": 1, "kind": "club", "payload": {"clubName": "8I", "shotType": "approach"}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": 47.73, "longitude": 138.89}},
+            {"hole": 1, "kind": "score", "payload": {"strokes": 5}},
+        ]
+        result = round_ingest.ingest_round(
+            "p_friend", events, {"courseName": "Manual", "holePars": "4"},
+            idempotency_key="missing-putts", root=self.root,
+        )
+        card = self._player_dir("p_friend") / "scorecards" / f"{result['id']}.json"
+        hole = json.loads(card.read_text())["scorecardDetails"][0]["scorecard"]["holes"][0]
+        self.assertNotIn("putts", hole)  # product spec 2.8: a missing cell is not zero-filled
+        self.assertIsNone(hole.get("gir"))
+
     def test_round_is_consumable_by_load_raw_rounds(self) -> None:
         round_ingest.ingest_round(
             "p_friend", _events(), _meta(), idempotency_key="rnd-1", root=self.root

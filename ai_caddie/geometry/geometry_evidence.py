@@ -512,8 +512,14 @@ def _polygon_ring(points: Any, ref_lat: float | None, ref_lon: float | None) -> 
 
 
 def classify_shot_surface(
-    global_id: int, local_hole: int, shot: dict[str, Any], *, meshes: dict[str, Any] | None = None
+    global_id: int,
+    local_hole: int,
+    shot: dict[str, Any],
+    *,
+    meshes: dict[str, Any] | None = None,
+    include_mesh_triangles: bool = False,
 ) -> dict[str, Any]:
+    del include_mesh_triangles  # C51-r2 wires the GIR-only path in the follow-up fix.
     hazards, meshes = _load_hole_sources(global_id, local_hole, meshes)
     ref_lat = hazards.get("refLat")
     ref_lon = hazards.get("refLon")
