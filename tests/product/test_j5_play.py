@@ -289,7 +289,10 @@ class EventAppendTests(unittest.TestCase):
         self.assertEqual(result[0].status, "accepted")
         # One small existing target row plus the new tail, with 4KiB slack for boundary checks.
         self.assertLess(reads["bytes"], 8192)
-        self.assertLess(elapsed, 0.2)
+        # Read bytes above are the regression guard against replaying unrelated history.
+        # Timing only catches extreme degradation and follows the user's <1s standard;
+        # rewriting/fsyncing the index can exceed 200ms under concurrent host load.
+        self.assertLess(elapsed, 1.0)
 
     def test_j59_warm_append_refuses_same_size_prefix_edit_even_with_restored_mtime(self) -> None:
         """J5.9: a previously acknowledged event cannot silently change before the next ACK."""
