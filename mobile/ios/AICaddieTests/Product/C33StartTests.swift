@@ -276,5 +276,50 @@ final class C33StartTests: XCTestCase {
         await fulfillment(of: [retryFailed], timeout: eventWait)
         XCTAssertNotNil(model.roundStartFailure)
     }
+
+    func testRetryReusesTheSameCourseStartParameters() async throws {
+        let host = "c114-retry.example.test"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let package = try c33Package()
+        let packageData = try JSONEncoder().encode(package)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(
+            baseURL: URL(string: "https://\(host)")!, session: session,
+            roundStartTimeoutInterval: 0.05
+        )
+        let model = c33Model(OfflineStore(directoryURL: directory), client)
+        let firstSent = expectation(description: "first package start")
+        let lock = NSLock()
+        var requests: [URLRequest] = []
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path == "/api/v2/mobile/courses/\(package.course.globalId)/package" else {
+                proto.reply(404); return
+            }
+            lock.lock(); requests.append(proto.request); let count = requests.count; lock.unlock()
+            if count == 1 {
+                firstSent.fulfill()
+            } else {
+                proto.reply(200, packageData)
+            }
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let loops = [RoundLoopEntry(globalId: package.course.globalId, half: "all")]
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: loops)
+        await fulfillment(of: [firstSent], timeout: 5)
+        XCTAssertEqual(model.roundStartFailure, .timedOut)
+
+        await model.retryRoundStart()
+        lock.lock(); let observed = requests; lock.unlock()
+        XCTAssertEqual(observed.count, 2)
+        for name in ["round_id", "tee_box", "loops", "captured_at"] {
+            XCTAssertEqual(c33Query(observed[0], name), c33Query(observed[1], name), name)
+        }
+        XCTAssertNil(model.roundStartFailure)
+    }
 }
 #endif

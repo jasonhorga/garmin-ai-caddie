@@ -314,6 +314,20 @@ public final class PrepCourseDownloadPresentationState: ObservableObject {
 public enum RoundStartFailure: Equatable {
     case timedOut
     case unavailable
+
+    public var presentationMessage: String {
+        switch self {
+        case .timedOut: return "开始超时（30 秒），请重试"
+        case .unavailable: return "暂时无法开始,稍后重试"
+        }
+    }
+}
+
+public enum RoundStartProgress {
+    public static func message(after elapsed: TimeInterval) -> String? {
+        // C114 red-test seam: the old start path has no explanatory progress copy.
+        nil
+    }
 }
 
 @MainActor
@@ -375,6 +389,7 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var apiBaseURL: URL?
     @Published public private(set) var adminToken: String?
     @Published public private(set) var roundStartFailure: RoundStartFailure?
+    @Published public private(set) var roundStartProgressMessage: String?
     @Published public private(set) var isPreparingRound = false
     @Published public private(set) var isFinishingRound = false
     @Published public private(set) var finishErrorMessage: String?
@@ -387,6 +402,11 @@ public final class LiveRoundAppModel: ObservableObject {
 
     public func consumePendingLiveHole() {
         pendingLiveHole = nil
+    }
+
+    /// C114 red-test seam. A failed start will retain its request and provide a retry action.
+    public func retryRoundStart() async {
+        // Old behavior: the Start button had no retry operation.
     }
     /// 备战 on the hole screen (design 2026-10-23 §2): the course package the screen shows while no
     /// round exists. Memory only — never a round package, cursor, event or upload. The first stroke
