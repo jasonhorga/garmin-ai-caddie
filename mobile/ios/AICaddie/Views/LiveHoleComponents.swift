@@ -2413,9 +2413,9 @@ enum LiveMapDisplayState: Equatable {
         )
     }
 
-    /// Phone live-play display priority: precise CourseView raster > Garmin raster image > numeric
-    /// placeholder. A Garmin descriptor with `available=false` can still provide a visual image,
-    /// but its projection is intentionally absent and the caller draws no geo overlays.
+    /// Phone live-play display priority: precise CourseView raster > Garmin raster image > factual
+    /// route > one waiting surface. A Garmin descriptor with `available=false` can still provide
+    /// a visual image, but its projection is intentionally absent and the caller draws no geo overlays.
     static func resolveLive(_ inputs: LiveInputs) -> LiveMapDisplayState {
         if inputs.preciseTopoImageReady && inputs.preciseGeometryReady { return .precise }
         if inputs.preciseTopoAvailable || inputs.hasCachedPreciseTopo {
