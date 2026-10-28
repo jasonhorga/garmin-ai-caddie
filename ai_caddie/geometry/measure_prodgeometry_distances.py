@@ -298,6 +298,7 @@ def bind_selected_green_target(
     """
     if not isinstance(hazards, dict) or not isinstance(decoded, dict):
         return hazards
+    by_name: dict[str, Any] = {}
     try:
         by_name = {
             mesh["name"]: mesh
@@ -311,6 +312,8 @@ def bind_selected_green_target(
         )
         target_name, target = target_point(decoded["hole"], green_components)
     except (IndexError, KeyError, TypeError, ValueError, OverflowError):
+        if not by_name:
+            return hazards
         if not include_selected_component and isinstance(decoded.get("hole"), dict):
             try:
                 fallback_components = (
