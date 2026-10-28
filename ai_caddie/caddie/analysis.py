@@ -163,8 +163,9 @@ def resolve_selected_tee_set(
 
     A named release Tee wins when this hole carries that set. If a colour is not published on
     this hole (or the release list is unavailable), both callers use Blue when present, then the
-    first available Tee. This keeps the package anchor, CoursePrep route and F/M/B distances on
-    one factual origin without inventing a different Tee in either endpoint.
+    first available Tee. An explicit ``unknown`` choice remains unresolved when the release list
+    is unavailable. This keeps the package anchor, CoursePrep route and F/M/B distances on one
+    factual origin without inventing a different Tee in either endpoint.
     """
     rows = [row for row in (hazards or {}).get("tees") or [] if isinstance(row, dict)]
     available: list[int] = []
@@ -178,6 +179,17 @@ def resolve_selected_tee_set(
                 available.append(value)
     if not available:
         return None
+    requested_box = str(tee_box or "").strip().lower()
+    if requested_box == "unknown":
+        # An unresolved player choice may use the picker default only when the
+        # release itself supplies that authority. Without it, keep the tee
+        # unresolved instead of silently fabricating Blue facts.
+        release_set = tee_set_for_box(
+            global_id if global_id is not None else (hazards or {}).get("globalId"),
+            tee_box,
+            colour_fallback=False,
+        )
+        return release_set if release_set in available else None
     requested = tee_set_for_box(
         global_id if global_id is not None else (hazards or {}).get("globalId"),
         tee_box,

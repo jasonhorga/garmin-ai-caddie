@@ -32,7 +32,6 @@ from ai_caddie.core.data import (
     safe_read_json,
 )
 from ai_caddie.core.revisions import bump_revision
-from ai_caddie.core import revisions
 from ai_caddie.courses.name_authority import contains_cjk, normalize_course_text
 from ai_caddie.geometry.inspect_courseview_release import (
     GARMIN_OMT_SIMPLIFIED_CHINESE,
@@ -777,18 +776,20 @@ def courseview_release_signature(
 ) -> tuple[int, str] | None:
     """Return a semantic release signature; rotating ``garmindlm`` tokens do not evict caches."""
     path = release_path or (_courseview_dir(root) / f"{int(global_id)}_releases.pb")
-    raw_signature = revisions.file_content_signature(path)
-    if raw_signature is None:
+    # Read the release bytes directly instead of relying on the shared stat-keyed
+    # content cache. Garmin refreshes can rewrite a same-size protobuf several
+    # times inside one filesystem timestamp tick; a stat-only hit would then
+    # reuse the previous semantic signature and leave prep authority stale.
+    try:
+        payload = path.read_bytes()
+    except (FileNotFoundError, NotADirectoryError, OSError):
         return None
+    raw_signature = (len(payload), hashlib.sha256(payload).hexdigest())
     key = str(path.resolve(strict=False))
     with _RELEASE_SEMANTIC_CACHE_LOCK:
         cached = _RELEASE_SEMANTIC_CACHE.get(key)
         if cached is not None and cached[0] == raw_signature:
             return cached[1]
-    try:
-        payload = path.read_bytes()
-    except OSError:
-        return raw_signature
     semantic = _semantic_release_signature(int(global_id), raw_signature, payload)
     with _RELEASE_SEMANTIC_CACHE_LOCK:
         _RELEASE_SEMANTIC_CACHE[key] = (raw_signature, semantic)
