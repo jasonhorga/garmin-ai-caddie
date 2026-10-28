@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import io
 import os
+import subprocess
+import sys
 import threading
 import time
 from concurrent.futures import Future
@@ -18,7 +20,9 @@ from PIL import Image
 from server_v2 import render_backfill
 
 
-class RenderBackfillTests(unittest.TestCase):
+class BackgroundMapContractTests(unittest.TestCase):
+    """J4.2: persistent map updates must leave foreground map entry responsive."""
+
     def _worker(self, root: Path, **kwargs):
         options = dict(
             state_path=root / "state.json",
@@ -29,15 +33,16 @@ class RenderBackfillTests(unittest.TestCase):
             render_garmin=lambda _gid, _hole, _version: b"webp",
         )
         options.update(kwargs)
-        return render_backfill.RenderBackfill(**options)
-
-
-class BackgroundMapContractTests(unittest.TestCase):
-    """J4.2: persistent map updates must leave foreground map entry responsive."""
-
-    _worker = RenderBackfillTests._worker
+        worker = render_backfill.RenderBackfill(**options)
+        return worker
 
     def setUp(self):
+        from server_v2 import main, map_startup
+        self.enterContext(patch.object(main, "nearby_work_blocked", return_value=False))
+        self.enterContext(patch.object(main, "tee_requests_in_flight", return_value=False))
+        self.enterContext(patch.object(map_startup, "startup_in_flight", return_value=False))
+        self.enterContext(patch.object(render_backfill, "_LAST_FOREGROUND_FINISHED", float("-inf")))
+        self.enterContext(patch.object(render_backfill, "_FOREGROUND_REQUESTS", 0))
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
@@ -50,16 +55,25 @@ class BackgroundMapContractTests(unittest.TestCase):
 
     def _new(self, **kwargs):
         worker = self._worker(self.root, **kwargs)
-        # The old implementation needs no close; a writer with a journal lease does.
-        self.addCleanup(lambda: getattr(worker, "close", lambda: None)())
+        self.addCleanup(worker.close)
         return worker
 
     def test_J42_fixture_boot_does_not_start_a_writer(self):
+        from server_v2 import main
         with (patch.object(render_backfill, "_BACKGROUND", None),
               patch.object(render_backfill, "_BACKGROUND_THREAD", None),
               patch.object(render_backfill, "RenderBackfill") as constructor,
-              patch.object(render_backfill.threading, "Thread")):
-            render_backfill.start_background()
+              patch.object(main, "warm_stats_cache_in_background"),
+              patch.object(main._garmin_sync_jobs, "start"),
+              patch.object(main.course_install, "resume_pending_jobs"),
+              patch.object(main, "_prepare_recent_bg"),
+              patch.object(main, "cleanup_session_material"),
+              patch.object(main, "configure_request_timing_logging"),
+              patch.object(main.request_timing, "initialize_timing_storage"),
+              patch.dict(os.environ, {"AI_CADDIE_BOOT_BACKGROUND_WORK": "1",
+                                     "AI_CADDIE_ADMIN_TOKEN": "fixture-admin"})):
+            with TestClient(main.app) as client:
+                self.assertEqual(client.get("/api/v2/health").status_code, 200)
             constructor.assert_not_called()
             self.assertFalse((self.root / "state.json").exists())
 
@@ -67,13 +81,35 @@ class BackgroundMapContractTests(unittest.TestCase):
         from ai_caddie.geometry import topo_render
         buffer = io.BytesIO()
         Image.new("RGB", (8, 8), "green").save(buffer, format="PNG")
-        worker = self._new(render_topo=topo_render.render_hole_topo_cached,
-                           raster_version=lambda *_: None)
-        with patch.object(topo_render, "render_hole_topo", return_value=buffer.getvalue()) as draw:
+        worker = self._new(render_topo=None, raster_version=lambda *_: None)
+        pool = Mock()
+        def submit(fn, gid, hole):
+            self.assertIs(fn, topo_render._render_in_worker)
+            future = Future()
+            future.set_result(topo_render.render_hole_topo(gid, hole))
+            return future
+        pool.submit.side_effect = submit
+        with (patch.object(topo_render, "render_hole_topo", return_value=buffer.getvalue()) as draw,
+              patch.object(topo_render, "_get_render_pool", return_value=pool),
+              patch.object(topo_render, "_render_process_count", return_value=2)):
             worker.enqueue_all(downloaded=set())
             worker.run_to_completion()
             self.assertEqual(topo_render.render_hole_topo_cached(1, 1), buffer.getvalue())
             self.assertEqual(draw.call_count, 1)
+            pool.submit.assert_called_once_with(topo_render._render_in_worker, 1, 1)
+
+    def test_J42_disabled_pool_never_falls_back_to_api_cpu(self):
+        from ai_caddie.geometry import garmin_raster as raster, topo_render
+        worker = self._new(render_topo=None, render_garmin=None)
+        with (patch.object(topo_render, "_render_process_count", return_value=0),
+              patch.object(topo_render, "render_hole_topo") as draw,
+              patch.object(raster, "RASTER_CACHE_DIR", self.root / "raster"),
+              patch.object(raster, "matte_sky_webp") as matte):
+            worker.enqueue_all(downloaded=set())
+            worker.run_to_completion()
+            self.assertEqual(worker.status()["failed"], 2)
+            draw.assert_not_called()
+            matte.assert_not_called()
 
     def test_J42_garmin_uses_shared_process_pool_and_the_real_webp_cache(self):
         from ai_caddie.geometry import garmin_raster as raster, topo_render
@@ -92,9 +128,13 @@ class BackgroundMapContractTests(unittest.TestCase):
         with (patch.object(raster, "RASTER_CACHE_DIR", self.root / "raster"),
               patch.object(raster, "raster_asset_version", return_value="asset-1"),
               patch.object(raster, "fetch_raster", return_value=jpeg),
+              patch.dict(os.environ, {"AI_CADDIE_GARMIN_RASTER_PREFETCH": "0"}),
               patch.object(raster, "matte_sky_webp", side_effect=AssertionError("matte in API process")) as matte,
               patch.object(topo_render, "_get_render_pool", return_value=pool),
               patch.object(topo_render, "_render_process_count", return_value=2)):
+            source = raster._raster_path(1, 1, "asset-1")
+            source.parent.mkdir(parents=True)
+            source.write_bytes(jpeg)
             worker.enqueue_all(downloaded=set())
             worker.run_to_completion()
             pool.submit.assert_called_once_with(matte, jpeg)
@@ -197,6 +237,26 @@ class BackgroundMapContractTests(unittest.TestCase):
         worker.run_once()
         self.assertEqual(worker.state_path.read_bytes(), before)
 
+    def test_J42_journal_checkpoints_a_batch_or_ten_seconds(self):
+        for hole in range(2, 14):
+            (self.root / f"meshes/gid1_h{hole:02d}_meshes.json").write_text("{}")
+        worker = self._new()
+        worker.enqueue_all(downloaded=set())
+        before = worker.state_path.read_bytes()
+        for _ in range(24):
+            worker.run_once()
+        self.assertEqual(worker.state_path.read_bytes(), before)
+        worker.run_once()
+        saved = json.loads(worker.state_path.read_text())
+        done = sum(task[unit] == "done" for task in saved["tasks"].values() for unit in ("topo", "garmin"))
+        self.assertEqual(done, 25)  # J4.2 / r2: checkpoint after 25 completed units.
+        later = time.monotonic() + 10.1
+        with patch.object(render_backfill.time, "monotonic", return_value=later):
+            worker.run_once()
+        saved = json.loads(worker.state_path.read_text())
+        self.assertTrue(all(task[unit] == "done" for task in saved["tasks"].values() for unit in ("topo", "garmin")))
+        self.assertNotIn(b"\n", worker.state_path.read_bytes())
+
     def test_J42_unit_errors_do_not_erase_each_other(self):
         worker = self._new(render_topo=lambda *_: (_ for _ in ()).throw(ValueError("topo failure")))
         worker.enqueue_all(downloaded=set())
@@ -238,6 +298,82 @@ class BackgroundMapContractTests(unittest.TestCase):
             worker.run_to_completion()
         self.assertEqual(calls, [2, 1])
 
+    def test_J42_network_sources_are_rate_limited_without_release_refresh(self):
+        from ai_caddie.geometry import garmin_raster as raster, topo_render
+        (self.root / "meshes/gid1_h02_meshes.json").write_text("{}")
+        worker = self._new(topo_ready=lambda *_: True, render_garmin=None)
+        clock, starts = [100.0], []
+        future = Future()
+        future.set_result(b"webp")
+        pool = Mock()
+        pool.submit.return_value = future
+        def fetch(*_):
+            starts.append(clock[0])
+            return b"jpeg"
+        with (patch.object(raster, "RASTER_CACHE_DIR", self.root / "raster"),
+              patch.object(raster, "courseview_release_info", return_value={"holes": [
+                  {"hole": h, "raster_url": f"https://example.invalid/{h}"} for h in (1, 2)
+              ]}) as release,
+              patch.object(raster, "fetch_raster", side_effect=fetch),
+              patch.object(topo_render, "_render_process_count", return_value=2),
+              patch.object(topo_render, "_get_render_pool", return_value=pool),
+              patch.object(render_backfill.time, "monotonic", side_effect=lambda: clock[0]),
+              patch.object(render_backfill.time, "sleep", side_effect=lambda seconds: clock.__setitem__(0, clock[0] + seconds))):
+            worker.enqueue_all(downloaded=set())
+            worker.run_to_completion()
+            self.assertEqual(starts, [100.0, 102.0])  # J4.2 / r2: at most one remote JPEG per 2 s.
+            self.assertTrue(all(call.kwargs == {"allow_fetch": False} for call in release.call_args_list))
+
+    def test_J42_local_jpeg_is_a_source_even_without_a_download_url(self):
+        from ai_caddie.geometry import garmin_raster as raster
+        worker = self._new(raster_version=None, topo_ready=lambda *_: True)
+        with (patch.object(raster, "RASTER_CACHE_DIR", self.root / "raster"),
+              patch.object(raster, "courseview_release_info", return_value={"holes": [
+                  {"hole": 1, "geometryAssetVersion": "asset-1"}
+              ]})):
+            source = raster._raster_path(1, 1, "asset-1")
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"jpeg")
+            worker.enqueue_all(downloaded=set())
+            self.assertEqual(worker.status()["pending"], 1)
+
+    def test_J42_background_lane_is_lower_than_default_work(self):
+        from ai_caddie.core.priority_work import NEARBY, current_priority
+        priorities = []
+        worker = self._new(render_topo=lambda *_: priorities.append(current_priority()))
+        worker.enqueue_all(downloaded=set())
+        worker.run_once()
+        self.assertGreater(priorities[0], NEARBY)
+
+    def test_J42_operator_status_runs_as_a_read_only_script(self):
+        result = subprocess.run([sys.executable, "ops/render_backfill.py", "--status"],
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["total"], 0)
+        self.assertFalse((self.root / "state.json").exists())
+        self.assertFalse((self.root / "state.json.lock").exists())
+
+    def test_J42_admin_post_restarts_an_exhausted_background_worker(self):
+        from server_v2 import main
+        worker = self._new()
+        worker._recent_holes = lambda: set()
+        with (patch.object(render_backfill, "_BACKGROUND", worker),
+              patch.object(render_backfill, "_BACKGROUND_THREAD", None),
+              patch.object(render_backfill, "_RESCAN", False),
+              patch.object(render_backfill, "_FORCE", False),
+              patch.dict(os.environ, {"AI_CADDIE_SECURITY_PROFILE": "production",
+                                     "AI_CADDIE_ADMIN_TOKEN": "fixture-admin"})):
+            client = TestClient(main.app)
+            for _ in range(2):
+                response = client.post("/api/v2/admin/render-backfill?force=true",
+                                       headers={"X-AI-Caddie-Admin-Token": "fixture-admin"})
+                self.assertEqual(response.status_code, 202)
+                thread = render_backfill._BACKGROUND_THREAD
+                if thread is not None:
+                    thread.join(2)
+                self.assertIsNone(render_backfill._BACKGROUND_THREAD)
+                self.assertEqual(worker.status()["done"], 2)
+
     def test_c135b_style_change_requeues_current_topo_version(self):
         # J4.2: a map version change rebuilds the affected derived asset in place.
         with TemporaryDirectory() as directory:
@@ -252,6 +388,7 @@ class BackgroundMapContractTests(unittest.TestCase):
             second = self._worker(root, style_version="topo-v2", matte_version="sky1")
             second.enqueue_all()
             self.assertEqual(second.status()["pending"], 1)
+            second.close()
 
     def test_c135b_restart_resumes_only_remaining_work(self):
         # J4.2: background map work resumes after restart without repeating completed holes.
@@ -265,6 +402,7 @@ class BackgroundMapContractTests(unittest.TestCase):
             worker = self._worker(root, render_topo=lambda gid, hole: calls.append((gid, hole)))
             worker.enqueue_all()
             worker.run_once()
+            worker.close()  # graceful restart checkpoints the current partial journal batch
             restarted = self._worker(root, render_topo=lambda gid, hole: calls.append((gid, hole)))
             restarted.enqueue_all()
             self.assertEqual(restarted.status()["pending"], 3)
@@ -282,13 +420,14 @@ class BackgroundMapContractTests(unittest.TestCase):
             calls = []
             worker = self._worker(
                 root,
-                should_yield=lambda: next(busy),
+                should_yield=lambda: next(busy, False),
                 render_topo=lambda gid, hole: calls.append((gid, hole)),
                 wait_seconds=0,
             )
             worker.enqueue_all()
             worker.run_once()
             self.assertEqual(calls, [(1, 1)])
+            worker.close()
 
     def test_c135b_garmin_work_is_skipped_without_a_source_asset(self):
         # J4.2: a Garmin derivative is produced only when its source image exists.
@@ -302,9 +441,10 @@ class BackgroundMapContractTests(unittest.TestCase):
                                   render_garmin=lambda gid, hole, version: calls.append(("garmin", gid, hole, version)))
             worker.enqueue_all()
             worker.run_once()
-            task = worker.status()["tasks"]["2:2"]
+            task = worker.status(detail=True)["tasks"]["2:2"]
             self.assertEqual(task["garmin"], "skipped")
             self.assertEqual(calls, [("topo", 2, 2)])
+            worker.close()
 
     def test_c135b_priority_is_recent_then_downloaded_then_other(self):
         # J4.2: recent map work overtakes downloaded/offline work, which overtakes the rest.
@@ -336,10 +476,12 @@ class BackgroundMapContractTests(unittest.TestCase):
             self.assertTrue(worker.run_once())
             self.assertEqual(worker.status()["failed"], 1)
             self.assertFalse(worker.run_once())
+            worker.close()
             restarted = self._worker(root, raster_version=lambda _gid, _hole: None)
             restarted.enqueue_all()
             self.assertEqual(restarted.status()["pending"], 0)
             self.assertEqual(restarted.status()["failed"], 1)
+            restarted.close()
 
 
 if __name__ == "__main__":

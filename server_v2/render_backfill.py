@@ -1,15 +1,16 @@
-"""Durable, low-priority backfill for versioned course render assets.
+"""Durable map derivatives using the existing render pool, one background unit at a time.
 
-The normal request/install paths remain the source of truth for one hole.  This worker only scans
-decoded meshes already on disk, records each asset unit before doing work, and uses the existing
-``PriorityExecutor``/``work_priority`` lanes so foreground topo renders overtake queued backfill.
-The journal is deliberately a small JSON file: it is crash safe, inspectable, and does not need a
-database migration for renderer-only versions.
+Completed units are trusted until a renderer/source version changes or an explicit force scan.
+Missing/corrupt files for a journaled ``done`` unit are repaired by the foreground cache path;
+this worker deliberately does not revalidate all completed files on every boot.
 """
 from __future__ import annotations
 
-from copy import deepcopy
+import atexit
+from contextlib import contextmanager
 from datetime import UTC, datetime
+import fcntl
+import heapq
 import json
 import logging
 import os
@@ -19,16 +20,49 @@ import threading
 import time
 from typing import Any, Callable
 
-from ai_caddie.core.data import MESH_DIR, ROOT, atomic_write_json
-from ai_caddie.core.priority_work import NEARBY, work_priority
+from ai_caddie.core.data import MESH_DIR, ROOT
+from ai_caddie.core.priority_work import BACKFILL, work_priority
 from ai_caddie.geometry import garmin_raster, topo_render
 
 logger = logging.getLogger(__name__)
-
 _MESH_RE = re.compile(r"^gid(?P<gid>\d+)_h(?P<hole>\d+)_meshes\.json$")
 _SCHEMA = "ai-caddie-render-backfill-v1"
 _DEFAULT_STATE = ROOT / "data" / "render-backfill.json"
-_MAX_YIELD_SECONDS = 30.0
+_STARTUP_YIELD_SECONDS = 30.0
+FOREGROUND_QUIET_SECONDS = 10.0
+NETWORK_RASTER_INTERVAL_SECONDS = 2.0
+JOURNAL_BATCH_UNITS = 25
+JOURNAL_INTERVAL_SECONDS = 10.0
+
+_FOREGROUND_LOCK = threading.Lock()
+_FOREGROUND_REQUESTS = 0
+_LAST_FOREGROUND_FINISHED = float("-inf")
+
+
+def foreground_request_started(path: str) -> bool:
+    """Track only map-heavy HTTP requests; status polling must not starve the worker."""
+    relevant = (path.endswith(("/package", "/topo.png", "/green.png", "/garmin-raster",
+                               "/garmin-raster.jpg", "/garmin-raster.webp")))
+    if relevant:
+        global _FOREGROUND_REQUESTS
+        with _FOREGROUND_LOCK:
+            _FOREGROUND_REQUESTS += 1
+    return relevant
+
+
+def foreground_request_finished() -> None:
+    global _FOREGROUND_REQUESTS, _LAST_FOREGROUND_FINISHED
+    with _FOREGROUND_LOCK:
+        _FOREGROUND_REQUESTS -= 1
+        _LAST_FOREGROUND_FINISHED = time.monotonic()
+
+
+def _foreground_busy() -> bool:
+    from server_v2 import map_startup
+    with _FOREGROUND_LOCK:
+        busy = (_FOREGROUND_REQUESTS > 0 or
+                time.monotonic() - _LAST_FOREGROUND_FINISHED < FOREGROUND_QUIET_SECONDS)
+    return busy or map_startup.nearby_work_blocked() or map_startup.tee_requests_in_flight()
 
 
 def _now() -> str:
@@ -40,71 +74,59 @@ def _key(gid: int, hole: int) -> str:
 
 
 def _default_topo_ready(gid: int, hole: int) -> bool:
-    return topo_render.cache_path(int(gid), int(hole)).is_file()
+    return topo_render.cache_path(gid, hole).is_file()
 
 
 def _default_raster_ready(gid: int, hole: int, version: str) -> bool:
-    return garmin_raster._matte_path(int(gid), int(hole), version).is_file()
+    return garmin_raster._matte_path(gid, hole, version).is_file()
 
 
 def _mesh_rows(mesh_root: Path) -> list[tuple[int, int]]:
-    rows: list[tuple[int, int]] = []
-    try:
-        paths = mesh_root.glob("gid*_h*_meshes.json")
-    except OSError:
-        return rows
-    for path in paths:
-        match = _MESH_RE.match(path.name)
-        if match and path.is_file():
-            rows.append((int(match.group("gid")), int(match.group("hole"))))
-    return sorted(set(rows))
+    return sorted({(int(match["gid"]), int(match["hole"]))
+                   for path in mesh_root.glob("gid*_h*_meshes.json")
+                   if (match := _MESH_RE.match(path.name)) and path.is_file()})
 
 
 class RenderBackfill:
-    """One durable scan/worker instance.
+    """A single journal writer. Status never waits for IO, foreground gates or rendering.
 
-    ``render_topo`` and ``render_garmin`` are injectable so the queue's ordering, persistence and
-    yielding can be tested without PIL, Garmin bytes, or a real geometry directory.
+    Call ``close`` at a manual checkpoint; normal drains flush and release the journal lease.
+    A crash can replay at most the unflushed batch (the image caches still avoid redrawing).
     """
 
-    def __init__(
-        self,
-        *,
-        state_path: Path | str | None = None,
-        mesh_root: Path | str | None = None,
-        style_version: str | None = None,
-        matte_version: str | None = None,
-        topo_ready: Callable[[int, int], bool] | None = None,
-        raster_version: Callable[[int, int], str | None] | None = None,
-        raster_ready: Callable[[int, int, str], bool] | None = None,
-        render_topo: Callable[[int, int], Any] | None = None,
-        render_garmin: Callable[[int, int, str], Any] | None = None,
-        should_yield: Callable[[], bool] | None = None,
-        wait_seconds: float = 0.25,
-    ) -> None:
+    def __init__(self, *, state_path: Path | str | None = None,
+                 mesh_root: Path | str | None = None, style_version: str | None = None,
+                 matte_version: str | None = None,
+                 topo_ready: Callable[[int, int], bool] | None = None,
+                 raster_version: Callable[[int, int], str | None] | None = None,
+                 raster_ready: Callable[[int, int, str], bool] | None = None,
+                 render_topo: Callable[[int, int], Any] | None = None,
+                 render_garmin: Callable[[int, int, str], Any] | None = None,
+                 should_yield: Callable[[], bool] | None = None,
+                 wait_seconds: float = .25) -> None:
         self.state_path = Path(state_path or os.environ.get("AI_CADDIE_RENDER_BACKFILL_STATE", _DEFAULT_STATE))
         self.mesh_root = Path(mesh_root or MESH_DIR)
         self.style_version = str(style_version or topo_render.STYLE_VERSION)
         self.matte_version = str(matte_version or garmin_raster.RASTER_MATTE_VERSION)
         self._topo_ready = topo_ready or _default_topo_ready
-        self._raster_version = raster_version or (
-            lambda gid, hole: garmin_raster.raster_asset_version(gid, hole, allow_fetch=False)
-        )
+        self._raster_version = raster_version
         self._raster_ready = raster_ready or _default_raster_ready
-        self._render_topo = render_topo or topo_render.render_hole_topo_cached
+        self._render_topo = render_topo or self._default_render_topo
         self._render_garmin = render_garmin or self._default_render_garmin
-        self._should_yield = should_yield or self._default_should_yield
+        self._should_yield = should_yield
         self._wait_seconds = max(0.0, float(wait_seconds))
         self._lock = threading.RLock()
+        self._unit_lock = threading.Lock()
+        self._io_lock = threading.Lock()
+        self._lease = None
+        self._dirty = 0
+        self._last_saved = time.monotonic()
+        self._last_network = float("-inf")
         self._state = self._load()
-
-    def _default_render_garmin(self, gid: int, hole: int, version: str) -> bool:
-        """Use the existing bounded Garmin prefetch pool, including its startup yield hook."""
-        from server_v2.garmin_raster import prefetch_holes
-
-        futures = prefetch_holes([(gid, hole)], should_yield=self._should_yield)
-        results = [future.result() for future in futures]
-        return bool(any(results)) or self._raster_ready(gid, hole, version)
+        self._queue: list[tuple[int, int, str, str]] = []
+        self._counts: dict[str, int] = {}
+        self._failures: dict[tuple[str, str], dict[str, Any]] = {}
+        self._index_state()
 
     def _load(self) -> dict[str, Any]:
         try:
@@ -114,26 +136,147 @@ class RenderBackfill:
         if not isinstance(payload, dict) or payload.get("schema") != _SCHEMA:
             payload = {}
         tasks = payload.get("tasks") if isinstance(payload.get("tasks"), dict) else {}
-        return {
-            "schema": _SCHEMA,
-            "styleVersion": str(payload.get("styleVersion") or ""),
-            "matteVersion": str(payload.get("matteVersion") or ""),
-            "updatedAt": str(payload.get("updatedAt") or ""),
-            "tasks": tasks,
-        }
+        return {"schema": _SCHEMA, "styleVersion": str(payload.get("styleVersion") or ""),
+                "matteVersion": str(payload.get("matteVersion") or ""),
+                "updatedAt": str(payload.get("updatedAt") or ""), "tasks": tasks}
 
-    def _save(self) -> None:
-        self._state["updatedAt"] = _now()
-        atomic_write_json(self.state_path, self._state)
+    def _acquire_writer(self) -> None:
+        if self._lease is not None:
+            return
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        lease = self.state_path.with_suffix(self.state_path.suffix + ".lock").open("a+")
+        try:
+            fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            lease.close()
+            raise RuntimeError("render backfill journal already has a writer") from exc
+        self._lease = lease
+        # Another service may have drained the journal since this object was created.
+        state = self._load()
+        with self._lock:
+            self._state = state
+            self._index_state()
+
+    def _save(self, *, force: bool = False) -> None:
+        with self._io_lock:
+            if self._lease is None:
+                return
+            with self._lock:
+                if not self._dirty or (not force and self._dirty < JOURNAL_BATCH_UNITS and
+                                      time.monotonic() - self._last_saved < JOURNAL_INTERVAL_SECONDS):
+                    return
+                stamp = _now()
+                snapshot = dict(self._state, updatedAt=stamp, tasks=dict(self._state["tasks"]))
+                dirty = self._dirty
+            # Task dictionaries are replaced, never mutated after publication. JSON and disk IO
+            # stay outside the status lock, including on a 10k-hole journal.
+            temporary = self.state_path.with_name(f".{self.state_path.name}.{os.getpid()}.tmp")
+            try:
+                temporary.write_text(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")))
+                os.replace(temporary, self.state_path)
+            finally:
+                temporary.unlink(missing_ok=True)
+            with self._lock:
+                self._state["updatedAt"] = stamp
+                self._dirty -= dirty
+                self._last_saved = time.monotonic()
+
+    def close(self) -> None:
+        with self._unit_lock:
+            try:
+                self._save(force=True)
+            finally:
+                with self._io_lock:
+                    if self._lease is not None:
+                        fcntl.flock(self._lease, fcntl.LOCK_UN)
+                        self._lease.close()
+                        self._lease = None
 
     @staticmethod
     def _default_should_yield() -> bool:
-        try:
-            from server_v2 import map_startup
+        from server_v2 import map_startup
+        return _foreground_busy() or map_startup.startup_in_flight()
 
-            return map_startup.startup_in_flight()
-        except Exception:
+    def _wait_for_foreground(self) -> None:
+        from server_v2 import map_startup
+        deadline = time.monotonic() + _STARTUP_YIELD_SECONDS
+        while True:
+            if self._should_yield is not None:
+                busy = self._should_yield()
+            else:
+                # Only abandoned startup preparation has a deadline. Active rounds, tee work
+                # and real HTTP requests can pause the whole backfill for as long as necessary.
+                busy = _foreground_busy() or (time.monotonic() < deadline and map_startup.startup_in_flight())
+            if not busy:
+                return
+            self._save()  # flush a partial batch even during a long foreground pause
+            time.sleep(self._wait_seconds)
+
+    def _default_render_topo(self, gid: int, hole: int) -> bytes:
+        # Never allow the shared renderer's disabled/broken-pool fallback to run CPU work in
+        # the API process. Production enables this pool through the existing start script.
+        path = topo_render.cache_path(gid, hole)
+        if topo_render._read_cached_topo(path):
+            return b"cached"
+        processes = topo_render._render_process_count()
+        if not processes:
+            raise RuntimeError("background rendering requires the existing render process pool")
+        with self._render_slot():
+            png = topo_render._get_render_pool(processes).submit(topo_render._render_in_worker, gid, hole).result()
+        topo_render._write_cached_topo(path, png)
+        return png
+
+    @contextmanager
+    def _render_slot(self):
+        while True:
+            self._wait_for_foreground()
+            with topo_render._cold_render_slot:
+                # Admission itself may have waited behind foreground work. Give the slot back
+                # throughout a round/cooldown instead of reserving half the foreground capacity.
+                busy = self._should_yield() if self._should_yield is not None else _foreground_busy()
+                if busy:
+                    continue
+                yield
+                return
+
+    def _default_render_garmin(self, gid: int, hole: int, version: str) -> bool:
+        path = garmin_raster._matte_path(gid, hole, version)
+        if path.is_file():
+            return True
+        processes = topo_render._render_process_count()
+        if not processes:
+            raise RuntimeError("background matting requires the existing render process pool")
+        source_path = garmin_raster._raster_path(gid, hole, version)
+        if source_path.is_file():
+            source = source_path.read_bytes()
+        else:
+            # Resolve only the cached release; never refresh release authority in backfill.
+            info = garmin_raster.courseview_release_info(gid, allow_fetch=False) or {}
+            row = next((r for r in info.get("holes", []) if int(r.get("hole", 0)) == hole), None)
+            if not row or not row.get("raster_url"):
+                return False
+            while time.monotonic() - self._last_network < NETWORK_RASTER_INTERVAL_SECONDS:
+                self._save()
+                time.sleep(self._wait_seconds)
+            self._wait_for_foreground()
+            self._last_network = time.monotonic()
+            source = garmin_raster.fetch_raster(gid, dict(row, geometryAssetVersion=version))
+        if not source:
             return False
+        with self._render_slot():
+            data = topo_render._get_render_pool(processes).submit(garmin_raster.matte_sky_webp, source).result()
+        if not data:
+            return False
+        # No registration and no cache lock held across a pool wait: foreground requests remain
+        # free to read/use their normal cache path. Each writer has a distinct atomic temporary.
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.backfill.tmp")
+        try:
+            temporary.write_bytes(data)
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return True
 
     def _priority(self, gid: int, hole: int, recent: set[tuple[int, int]], downloaded: set[tuple[int, int]]) -> int:
         if (gid, hole) in recent:
@@ -177,172 +320,217 @@ class RenderBackfill:
             logger.debug("render_backfill recent priority scan unavailable", exc_info=True)
             return set()
 
-    def enqueue_all(
-        self,
-        *,
-        recent: set[tuple[int, int]] | None = None,
-        downloaded: set[tuple[int, int]] | None = None,
-        force: bool = False,
-    ) -> dict[str, Any]:
-        """Discover all installed meshes and queue missing/current-version derivatives."""
-        recent = {(int(g), int(h)) for g, h in (recent or set())}
-        downloaded = self._downloaded_holes() if downloaded is None else {
-            (int(g), int(h)) for g, h in downloaded
-        }
-        with self._lock:
-            old_style = self._state.get("styleVersion")
-            old_matte = self._state.get("matteVersion")
-            style_changed = bool(old_style) and old_style != self.style_version
-            matte_changed = bool(old_matte) and old_matte != self.matte_version
-            tasks = self._state["tasks"]
-            seen: set[str] = set()
-            for gid, hole in _mesh_rows(self.mesh_root):
-                key = _key(gid, hole)
-                seen.add(key)
-                source = self._raster_version(gid, hole)
-                task = tasks.get(key) if isinstance(tasks.get(key), dict) else None
-                if task is None:
-                    task = {
-                        "globalId": gid,
-                        "localHole": hole,
-                        "priority": self._priority(gid, hole, recent, downloaded),
-                        "topo": "done" if self._topo_ready(gid, hole) else "pending",
-                        "garmin": "skipped" if not source else (
-                            "done" if self._raster_ready(gid, hole, str(source)) else "pending"
-                        ),
-                        "assetVersion": str(source) if source else None,
-                        "error": None,
-                    }
-                    tasks[key] = task
-                else:
-                    task["priority"] = min(int(task.get("priority", 20)), self._priority(gid, hole, recent, downloaded))
-                    source_changed = task.get("assetVersion") != (str(source) if source else None)
-                    if style_changed or force:
-                        if task.get("topo") in {"done", "failed", "skipped"}:
-                            task["topo"] = "pending"
-                    if matte_changed or force or source_changed:
-                        task["garmin"] = "skipped" if not source else "pending"
-                    task["assetVersion"] = str(source) if source else None
-                    if task.get("topo") == "pending" and self._topo_ready(gid, hole):
-                        task["topo"] = "done"
-                    if source and task.get("garmin") == "pending" and self._raster_ready(gid, hole, str(source)):
-                        task["garmin"] = "done"
-                    task["error"] = None if force or style_changed or matte_changed or source_changed else task.get("error")
-            for key in list(tasks):
-                if key not in seen:
-                    tasks.pop(key, None)
-            self._state["styleVersion"] = self.style_version
-            self._state["matteVersion"] = self.matte_version
-            self._save()
-            return self.status()
+    def _sources(self, rows: list[tuple[int, int]]) -> dict[tuple[int, int], str | None]:
+        if self._raster_version is not None:
+            return {(gid, hole): self._raster_version(gid, hole) for gid, hole in rows}
+        sources = {}
+        grouped: dict[int, list[int]] = {}
+        for gid, hole in rows:
+            grouped.setdefault(gid, []).append(hole)
+        for gid, holes in grouped.items():
+            self._wait_for_foreground()
+            info = garmin_raster.courseview_release_info(gid, allow_fetch=False) or {}
+            by_hole = {int(row.get("hole", 0)): row for row in info.get("holes", [])}
+            for hole in holes:
+                row = by_hole.get(hole)
+                version = garmin_raster._geometry_asset_version(info, row, hole) if row else None
+                local = version and garmin_raster._raster_path(gid, hole, version).is_file()
+                sources[gid, hole] = version if row and (row.get("raster_url") or local) else None
+        return sources
 
-    def _wait_for_foreground(self) -> None:
-        deadline = time.monotonic() + _MAX_YIELD_SECONDS
-        while True:
-            try:
-                busy = bool(self._should_yield())
-            except Exception:
-                return
-            if not busy or time.monotonic() >= deadline:
-                if busy:
-                    logger.warning("render_backfill yield timeout; resuming low-priority work")
-                return
-            time.sleep(self._wait_seconds)
-
-    def _next_task(self) -> tuple[str, dict[str, Any]] | None:
-        candidates = []
+    def _index_state(self) -> None:
+        self._counts = {"total": 0, "done": 0, "pending": 0, "failed": 0}
+        self._failures = {}
         for key, task in self._state["tasks"].items():
-            if task.get("topo") == "pending" or task.get("garmin") == "pending":
-                candidates.append((int(task.get("priority", 20)), key, task))
-        if not candidates:
-            return None
-        _priority, key, task = min(candidates, key=lambda item: item[:2])
-        return key, task
+            for unit in ("topo", "garmin"):
+                value = task.get(unit)
+                if value in ("done", "pending", "failed"):
+                    self._counts["total"] += 1
+                    self._counts[value] += 1
+                if value == "failed":
+                    self._failures[key, unit] = {"globalId": task["globalId"], "localHole": task["localHole"],
+                                                 "unit": unit, "error": task.get("errors", {}).get(unit) or task.get("error")}
+
+    def enqueue_all(self, *, recent: set[tuple[int, int]] | None = None,
+                    downloaded: set[tuple[int, int]] | None = None, force: bool = False) -> dict[str, Any]:
+        """Scan outside the status lock; only the process-owned worker may mutate the queue."""
+        with self._unit_lock:
+            self._acquire_writer()
+            recent = recent or set()
+            downloaded = self._downloaded_holes() if downloaded is None else downloaded
+            rows = _mesh_rows(self.mesh_root)
+            sources = self._sources(rows)
+            with self._lock:
+                old = self._state
+            style_changed = bool(old["styleVersion"]) and old["styleVersion"] != self.style_version
+            matte_changed = bool(old["matteVersion"]) and old["matteVersion"] != self.matte_version
+            tasks, queue = {}, []
+            for gid, hole in rows:
+                self._wait_for_foreground()
+                key, source = _key(gid, hole), sources[gid, hole]
+                previous = old["tasks"].get(key, {})
+                task = dict(previous, globalId=gid, localHole=hole,
+                            priority=self._priority(gid, hole, recent, downloaded), assetVersion=source)
+                errors = dict(previous.get("errors") or {})
+                for unit, changed, ready in (
+                    ("topo", style_changed, lambda: self._topo_ready(gid, hole)),
+                    ("garmin", matte_changed or previous.get("assetVersion") != source,
+                     lambda: bool(source) and self._raster_ready(gid, hole, source)),
+                ):
+                    if not previous or force or changed or (unit == "garmin" and not source):
+                        task[unit] = ("skipped" if unit == "garmin" and not source else
+                                      "done" if ready() else "pending")
+                        errors.pop(unit, None)
+                    elif task.get(unit) == "pending" and ready():
+                        task[unit] = "done"
+                        errors.pop(unit, None)
+                    # Migrate the old shared error field to each failed unit.
+                    if task.get(unit) == "failed" and previous.get("error"):
+                        errors.setdefault(unit, previous["error"])
+                    if task.get(unit) == "pending":
+                        network = int(unit == "garmin" and not garmin_raster._raster_path(gid, hole, source).is_file())
+                        queue.append((task["priority"], network, key, unit))
+                task.pop("error", None)
+                task["errors"] = errors
+                tasks[key] = task
+            heapq.heapify(queue)
+            with self._lock:
+                self._state = dict(old, styleVersion=self.style_version, matteVersion=self.matte_version, tasks=tasks)
+                self._queue = queue
+                self._dirty += 1
+                self._index_state()
+            self._save(force=True)
+        return self.status()
 
     def run_once(self) -> bool:
-        """Render one hole's pending units. Failed units are durable and never spin-retried."""
-        with self._lock:
-            selected = self._next_task()
-            if selected is None:
-                return False
-            key, task = selected
-            gid, hole = int(task["globalId"]), int(task["localHole"])
-            unit = "topo" if task.get("topo") == "pending" else "garmin"
+        """Run one asset with at most one pool slot; status locks never cover waits/rendering."""
+        with self._unit_lock:
+            self._acquire_writer()
             self._wait_for_foreground()
+            with self._lock:
+                if not self._queue:
+                    return False
+                _priority, _network, key, unit = heapq.heappop(self._queue)
+                task = self._state["tasks"][key]
+            error = None
             try:
-                with work_priority(NEARBY):
+                with work_priority(BACKFILL):
                     if unit == "topo":
-                        self._render_topo(gid, hole)
-                    else:
-                        version = str(task.get("assetVersion") or "")
-                        if not version or not self._render_garmin(gid, hole, version):
-                            raise RuntimeError("garmin source or matte unavailable")
-                task[unit] = "done"
-                task["error"] = None
-                logger.info("render_backfill asset=ready gid=%s hole=%s kind=%s", gid, hole, unit)
-            except Exception as exc:  # noqa: BLE001 - persist the failure and continue the queue
-                task[unit] = "failed"
-                task["error"] = f"{type(exc).__name__}: {exc}"[:500]
-                logger.warning("render_backfill asset=failed gid=%s hole=%s kind=%s reason=%s", gid, hole, unit, task["error"])
+                        self._render_topo(task["globalId"], task["localHole"])
+                    elif not self._render_garmin(task["globalId"], task["localHole"], task["assetVersion"]):
+                        raise RuntimeError("garmin source or matte unavailable")
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"[:500]
+                logger.warning("render_backfill asset=failed gid=%s hole=%s kind=%s reason=%s",
+                               task["globalId"], task["localHole"], unit, error)
+            with self._lock:
+                errors = dict(task.get("errors") or {})
+                if error:
+                    errors[unit] = error
+                else:
+                    errors.pop(unit, None)
+                value = "failed" if error else "done"
+                self._state["tasks"][key] = dict(task, **{unit: value, "errors": errors})
+                self._counts["pending"] -= 1
+                self._counts[value] += 1
+                if error:
+                    self._failures[key, unit] = {"globalId": task["globalId"], "localHole": task["localHole"],
+                                                 "unit": unit, "error": error}
+                self._dirty += 1
             self._save()
             return True
 
     def run_to_completion(self) -> None:
-        while self.run_once():
-            pass
+        try:
+            while self.run_once():
+                pass
+        finally:
+            self.close()
 
-    def status(self) -> dict[str, Any]:
+    def status(self, *, detail: bool = False) -> dict[str, Any]:
         with self._lock:
-            tasks = deepcopy(self._state["tasks"])
-            units = [task[field] for task in tasks.values() for field in ("topo", "garmin") if task.get(field) != "skipped"]
-            return {
-                "schema": _SCHEMA,
-                "styleVersion": self._state.get("styleVersion") or self.style_version,
-                "matteVersion": self._state.get("matteVersion") or self.matte_version,
-                "total": len(units),
-                "done": sum(value == "done" for value in units),
-                "pending": sum(value == "pending" for value in units),
-                "failed": sum(value == "failed" for value in units),
-                "updatedAt": self._state.get("updatedAt"),
-                "tasks": tasks,
-            }
+            result = {"schema": _SCHEMA, "styleVersion": self._state["styleVersion"] or self.style_version,
+                      "matteVersion": self._state["matteVersion"] or self.matte_version,
+                      **self._counts, "updatedAt": self._state["updatedAt"],
+                      "failures": [dict(row) for _, row in zip(range(50), self._failures.values())]}
+            if detail:
+                result["tasks"] = {key: dict(task, errors=dict(task.get("errors") or {}))
+                                   for key, task in self._state["tasks"].items()}
+            return result
 
 
 _BACKGROUND_LOCK = threading.Lock()
 _BACKGROUND: RenderBackfill | None = None
 _BACKGROUND_THREAD: threading.Thread | None = None
+_RESCAN = False
+_FORCE = False
 
 
-def start_background() -> RenderBackfill:
-    """Scan and drain once after boot; the durable failed state prevents infinite retries."""
-    global _BACKGROUND, _BACKGROUND_THREAD
+def _automatic_enabled() -> bool:
+    truthy = {"1", "true", "yes", "on"}
+    return (os.environ.get("AI_CADDIE_DATA_MODE", "").lower() != "fixture" and
+            os.environ.get("AI_CADDIE_FIXTURE_MODE", "").lower() not in truthy and
+            os.environ.get("AI_CADDIE_TEST_MODE", "").lower() not in truthy)
+
+
+def start_background(*, force: bool = False, manual: bool = False) -> RenderBackfill | None:
+    """Boot/retrigger the sole writer; fixture startup does not even construct a worker."""
+    if not manual and not _automatic_enabled():
+        return None
+    global _BACKGROUND, _BACKGROUND_THREAD, _RESCAN, _FORCE
     with _BACKGROUND_LOCK:
         if _BACKGROUND is None:
             _BACKGROUND = RenderBackfill()
-        if _BACKGROUND_THREAD is None or not _BACKGROUND_THREAD.is_alive():
+        _RESCAN = True
+        _FORCE = _FORCE or force
+        if _BACKGROUND_THREAD is None:
             def worker() -> None:
+                global _BACKGROUND_THREAD, _RESCAN, _FORCE
                 try:
-                    _BACKGROUND.enqueue_all(recent=_BACKGROUND._recent_holes())
-                    _BACKGROUND.run_to_completion()
+                    while True:
+                        with _BACKGROUND_LOCK:
+                            retry = _FORCE
+                            _RESCAN, _FORCE = False, False
+                        _BACKGROUND.enqueue_all(recent=_BACKGROUND._recent_holes(), force=retry)
+                        _BACKGROUND.run_to_completion()
+                        with _BACKGROUND_LOCK:
+                            if not _RESCAN:
+                                _BACKGROUND_THREAD = None
+                                return
                 except Exception:
                     logger.exception("render_backfill crashed")
-
+                    _BACKGROUND.close()
+                    with _BACKGROUND_LOCK:
+                        _BACKGROUND_THREAD = None
             _BACKGROUND_THREAD = threading.Thread(target=worker, name="render-backfill", daemon=True)
             _BACKGROUND_THREAD.start()
         return _BACKGROUND
 
 
-def status() -> dict[str, Any]:
+def status(*, detail: bool = False) -> dict[str, Any]:
     with _BACKGROUND_LOCK:
-        return (_BACKGROUND or RenderBackfill()).status()
+        worker = _BACKGROUND
+    # A status-only process never takes the journal lease or creates files.
+    return (worker or RenderBackfill()).status(detail=detail)
 
 
 def enqueue_all(*, force: bool = False) -> dict[str, Any]:
-    return start_background().enqueue_all(force=force)
+    worker = start_background(force=force, manual=True)
+    return {"queued": True, **worker.status()}
+
+
+@atexit.register
+def _flush_background() -> None:
+    if _BACKGROUND is not None:
+        _BACKGROUND._save(force=True)
 
 
 def register_router(router: Any) -> None:
-    """Attach the read-only admin status endpoint to an already-mounted server router."""
-    @router.get("/api/v2/admin/render-backfill")
-    def render_backfill_status() -> dict[str, Any]:
-        return status()
+    """Mount on admin_router; the existing global admin middleware supplies authentication."""
+    @router.get("/render-backfill")
+    def render_backfill_status(detail: bool = False) -> dict[str, Any]:
+        return status(detail=detail)
+
+    @router.post("/render-backfill", status_code=202)
+    def render_backfill_enqueue(force: bool = True) -> dict[str, Any]:
+        return enqueue_all(force=force)

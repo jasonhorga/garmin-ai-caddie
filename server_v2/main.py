@@ -71,7 +71,10 @@ from .geometry import (
     load_hole_map_response,
 )
 from .garmin_raster import ROUTER as garmin_raster_router, prefetch_holes as prefetch_garmin_rasters
-from .render_backfill import register_router as register_render_backfill_router, start_background as start_render_backfill
+from .render_backfill import (
+    register_router as register_render_backfill_router, start_background as start_render_backfill,
+    foreground_request_started, foreground_request_finished,
+)
 from .pin_sheet import read_pin_sheet_response
 from .media import (
     analyze_media_response,
@@ -280,6 +283,7 @@ async def request_timing_middleware(request: Request, call_next):
     """Expose safe request correlation and stage timing for startup diagnostics."""
     timing = RequestTiming(request_id_for(request.headers.get("X-AI-Caddie-Request-ID")))
     request.state.request_id = timing.request_id
+    map_request = foreground_request_started(request.url.path)
     with bind_request_timing(timing), work_priority(FOREGROUND):
         try:
             response = await call_next(request)
@@ -287,6 +291,9 @@ async def request_timing_middleware(request: Request, call_next):
             timing.mark("error")
             timing.finish(method=request.method, path=request.url.path, status=500)
             raise
+        finally:
+            if map_request:
+                foreground_request_finished()
     timing.mark("response")
     response.headers["X-AI-Caddie-Request-ID"] = timing.request_id
     response.headers["Server-Timing"] = timing.server_timing()
@@ -338,9 +345,9 @@ if os.getenv("AI_CADDIE_FIXTURE_MODE") == "1":
         if path.startswith("/api/v2/") and path not in allowed and not any(re.fullmatch(pattern, path) for pattern in parameterized):
             return JSONResponse(status_code=404, content={"detail": "fixture route not implemented"})
         return await call_next(request)
+register_render_backfill_router(admin_router)
 app.include_router(admin_router)
 app.include_router(auth_router)
-register_render_backfill_router(garmin_raster_router)
 app.include_router(garmin_raster_router)
 app.include_router(share_router)
 
