@@ -49,48 +49,128 @@ enum StartRoundPresentation {
         })
     }
 
+    private struct VenueGroup {
+        let venue: String
+        var rows: [PrepCourseDownloadRecord]
+        var coordinates: [(Double, Double)]
+    }
+
     private static func deduplicatedVenueRows(
         _ downloads: [PrepCourseDownloadRecord]
     ) -> [PrepCourseDownloadRecord] {
-        var selected: [String: PrepCourseDownloadRecord] = [:]
-        var order: [String] = []
-        for row in downloads {
+        var groups: [VenueGroup] = []
+        for row in downloads.sorted(by: stableInputOrder) {
             let venue = row.course.venueDisplayName
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
             guard !venue.isEmpty else { continue }
-            // Course keys are not physical identity: production sends one key per loop in some
-            // catalogue responses and one key per venue in others. A coarse coordinate groups
-            // loops a few dozen metres apart while keeping same-named venues kilometres apart.
-            let key: String
-            if let latitude = row.course.latitude, let longitude = row.course.longitude {
-                let latKey = Int((latitude * 1_000).rounded())
-                let lonKey = Int((longitude * 1_000).rounded())
-                key = "coordinate:\(venue):\(latKey):\(lonKey)"
+            let coordinate = row.course.latitude.flatMap { latitude in
+                row.course.longitude.map { (latitude, $0) }
+            }
+            let sameVenue = groups.indices.filter { groups[$0].venue == venue }
+            let coordinateGroups = sameVenue.filter { !groups[$0].coordinates.isEmpty }
+            let match = sameVenue.first { index in
+                let group = groups[index]
+                if let coordinate {
+                    if group.coordinates.isEmpty {
+                        // An unlocated legacy row may join the first located venue, but it must
+                        // never bridge two separately located venues with the same display name.
+                        return coordinateGroups.isEmpty
+                    }
+                    return group.coordinates.first.map { distanceMetres(coordinate, $0) < 1_000 } ?? false
+                }
+                if group.coordinates.isEmpty { return true }
+                return coordinateGroups.count == 1
+            }
+            if let match {
+                groups[match].rows.append(row)
+                if let coordinate { groups[match].coordinates.append(coordinate) }
             } else {
-                key = "venue:\(venue)"
+                groups.append(VenueGroup(venue: venue, rows: [row], coordinates: coordinate.map { [$0] } ?? []))
             }
-            guard let current = selected[key] else {
-                selected[key] = row
-                order.append(key)
-                continue
-            }
-            selected[key] = merged(current, row)
         }
-        return order.compactMap { selected[$0] }
+
+        // A stable venue order keeps presentation independent of provider/catalogue order. Within
+        // each physical venue, collapse one row per loop before aggregating progress.
+        return groups
+            .sorted { lhs, rhs in
+                if lhs.venue != rhs.venue { return lhs.venue < rhs.venue }
+                let l = lhs.coordinates.first
+                let r = rhs.coordinates.first
+                if let l, let r {
+                    return l.0 == r.0 ? l.1 < r.1 : l.0 < r.0
+                }
+                return l != nil
+            }
+            .compactMap { group in
+                var byGlobalID: [Int: PrepCourseDownloadRecord] = [:]
+                for row in group.rows {
+                    if let current = byGlobalID[row.course.globalId] {
+                        byGlobalID[row.course.globalId] = preferred(current, row)
+                    } else {
+                        byGlobalID[row.course.globalId] = row
+                    }
+                }
+                let segments = byGlobalID.values.sorted { lhs, rhs in
+                    if lhs.course.globalId != rhs.course.globalId {
+                        return lhs.course.globalId < rhs.course.globalId
+                    }
+                    return lhs.teeBox.localizedCaseInsensitiveCompare(rhs.teeBox) == .orderedAscending
+                }
+                guard var result = segments.first else { return nil }
+                for segment in segments.dropFirst() {
+                    result = mergedAcrossLoops(result, segment)
+                }
+                return result
+            }
     }
 
-    private static func merged(
+    private static func stableInputOrder(
+        _ lhs: PrepCourseDownloadRecord,
+        _ rhs: PrepCourseDownloadRecord
+    ) -> Bool {
+        let lVenue = lhs.course.venueDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rVenue = rhs.course.venueDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lVenue != rVenue { return lVenue < rVenue }
+        switch (lhs.course.latitude, lhs.course.longitude, rhs.course.latitude, rhs.course.longitude) {
+        case let (lLat?, lLon?, rLat?, rLon?):
+            if lLat != rLat { return lLat < rLat }
+            if lLon != rLon { return lLon < rLon }
+        case (nil, _, nil, _): break
+        case (nil, _, _, _): return false
+        case (_, _, nil, _): return true
+        }
+        if lhs.course.globalId != rhs.course.globalId { return lhs.course.globalId < rhs.course.globalId }
+        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt < rhs.updatedAt }
+        return lhs.teeBox.localizedCaseInsensitiveCompare(rhs.teeBox) == .orderedAscending
+    }
+
+    private static func preferred(
+        _ current: PrepCourseDownloadRecord,
+        _ candidate: PrepCourseDownloadRecord
+    ) -> PrepCourseDownloadRecord {
+        if candidate.updatedAt != current.updatedAt { return candidate.updatedAt > current.updatedAt ? candidate : current }
+        return candidate.teeBox.localizedCaseInsensitiveCompare(current.teeBox) == .orderedAscending
+            ? current : candidate
+    }
+
+    private static func distanceMetres(
+        _ lhs: (Double, Double),
+        _ rhs: (Double, Double)
+    ) -> Double {
+        let radians = Double.pi / 180
+        let dLat = (lhs.0 - rhs.0) * radians
+        let dLon = (lhs.1 - rhs.1) * radians
+        let meanLat = (lhs.0 + rhs.0) * 0.5 * radians
+        let x = dLon * cos(meanLat)
+        let y = dLat
+        return 6_371_000 * sqrt(x * x + y * y)
+    }
+
+    private static func mergedAcrossLoops(
         _ current: PrepCourseDownloadRecord,
         _ row: PrepCourseDownloadRecord
     ) -> PrepCourseDownloadRecord {
-        if current.course.globalId == row.course.globalId {
-            if current.phase == .failed { return current }
-            if row.phase == .failed { return row }
-            if current.phase == .ready { return current }
-            if row.phase == .ready { return row }
-            return row.updatedAt > current.updatedAt ? row : current
-        }
         var result = current
         result.totalHoles = current.totalHoles + row.totalHoles
         result.preparedHoles = current.preparedHoles + row.preparedHoles

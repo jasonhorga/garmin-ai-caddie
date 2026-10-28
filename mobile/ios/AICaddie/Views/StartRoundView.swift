@@ -2189,8 +2189,8 @@ public struct StartRoundView: View {
     /// the terminal failure state while avoiding duplicate view-layer transport retries.
     static let nearbyInitialRadiusKm = 5
     static let nearbyExpandedRadiusKm = 50
-    /// SyncClient owns transport retries. The view makes one 5 km request and, if needed, one
-    /// 50 km expansion, keeping catalogue traffic bounded at two requests per discovery.
+    /// SyncClient owns transport retries. The view makes one request per configured radius and
+    /// expands from the fast local pass to the wider catalogue pass when needed.
     static let nearbyAutomaticRetryCount = 0
 
     static var nearbyDiscoveryRadii: [Int] {

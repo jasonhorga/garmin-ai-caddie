@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -6727,7 +6727,7 @@
+                 let serverStatus: CourseInstallStatus?
+                 let statusProbeFailed: Bool
+                 do {
+-                    serverStatus = try await syncClient.probeCourseInstallStatusForRevalidation(
++                    serverStatus = try await syncClient.fetchCourseInstallStatus(
+                         globalId: record.course.globalId,
+                         teeBox: record.teeBox,
+                         loops: fetched.loopEntries

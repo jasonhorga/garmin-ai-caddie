@@ -1069,7 +1069,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         await model.waitForPrepCourseDownloadForTesting()
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .failed)
         XCTAssertEqual(model.prepCourseDownloads.first?.errorText, "服务器状态暂时无法确认，点重试")
-        XCTAssertGreaterThanOrEqual(requestLock.withLock { statusRequestCount }, 3)
+        XCTAssertEqual(requestLock.withLock { statusRequestCount }, 3)
 
         requestLock.withLock { statusShouldSucceed = true }
         model.retryPrepCourseDownload(id: pending.id)

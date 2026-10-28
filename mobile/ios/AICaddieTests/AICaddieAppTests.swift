@@ -90,6 +90,23 @@ final class AICaddieAppTests: XCTestCase {
         XCTAssertEqual(StartRoundPresentation.recentRowSubtitle(rows[0]), "A 场 · 白 T")
     }
 
+    func testRecentRowsDeduplicateGlobalIDsBeforeAggregatingRegardlessOfOrder() {
+        let older = MobileCourseOption(globalId: 701, name: "同名球场 ~ A", holes: 9, venueName: "同名球场", segmentLabel: "A", segmentHoles: 9, latitude: 40.0004, longitude: 116.0004)
+        let newer = older.replacingTeeBox("white")
+        let back = MobileCourseOption(globalId: 702, name: "同名球场 ~ B", holes: 9, venueName: "同名球场", segmentLabel: "B", segmentHoles: 9, latitude: 40.0006, longitude: 116.0006)
+        let oldRow = PrepCourseDownloadRecord(course: older, teeBox: "blue", phase: .downloading, downloadedHoles: 2, totalHoles: 9, updatedAt: Date(timeIntervalSince1970: 10))
+        let newRow = PrepCourseDownloadRecord(course: newer, teeBox: "white", phase: .ready, downloadedHoles: 9, totalHoles: 9, updatedAt: Date(timeIntervalSince1970: 20))
+        let backRow = PrepCourseDownloadRecord(course: back, teeBox: "blue", phase: .ready, downloadedHoles: 9, totalHoles: 9, updatedAt: Date(timeIntervalSince1970: 15))
+
+        let forward = StartRoundPresentation.recentRows([oldRow, backRow, newRow])
+        let shuffled = StartRoundPresentation.recentRows([newRow, oldRow, backRow])
+        XCTAssertEqual(forward, shuffled)
+        XCTAssertEqual(forward.count, 1)
+        XCTAssertEqual(forward[0].totalHoles, 18)
+        XCTAssertEqual(forward[0].downloadedHoles, 18)
+        XCTAssertEqual(forward[0].teeBox, "white", "the newest Tee row wins within one global id")
+    }
+
     /// J4.1/C134: loop rows a few dozen metres apart collapse into one status row, and one failed
     /// loop keeps the retry action visible while progress is aggregated across the loops.
     func testRecentRowsAggregateNearbyLoopProgressAndExposeFailure() throws {

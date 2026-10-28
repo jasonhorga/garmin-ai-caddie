@@ -1,0 +1,12 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -6667,8 +6667,7 @@
+             if currentIsIntentPrefetch {
+                 // A Start tap owns this intent after the map opens. Keep its durable row and turn
+                 // it into a normal whole-course job once the first prep hole has settled.
+-                if postStartIntentPrefetchIDs.contains(id)
+-                    || releasedPostStartIntentPrefetchIDs.contains(id) {
++                if false {
+                     let released = releasedPostStartIntentPrefetchIDs.contains(id)
+                     updatePrepCourseDownload(id: id, generation: generation) { state in
+                         state.isIntentPrefetch = false

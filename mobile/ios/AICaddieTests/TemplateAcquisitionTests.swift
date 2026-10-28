@@ -4,10 +4,11 @@ import XCTest
 /// Every package request (`loops=` and `tee_box=`), in order (filled from the URLProtocol thread).
 private final class LoopRequests: @unchecked Sendable {
     private let lock = NSLock()
-    private var entries: [(loops: String, tee: String)] = []
-    func append(loops: String, tee: String) {
-        lock.withLock { entries.append((loops, tee)) }
+    private var entries: [(loops: String, tee: String, mapOnly: String?)] = []
+    func append(loops: String, tee: String, mapOnly: String? = nil) {
+        lock.withLock { entries.append((loops, tee, mapOnly)) }
     }
+    var mapOnlyValues: [String?] { lock.withLock { entries.map(\.mapOnly) } }
     var all: [String] { lock.withLock { entries.map(\.loops) } }
     func contains(loops: String, tee: String) -> Bool {
         lock.withLock { entries.contains { $0.loops == loops && $0.tee == tee } }
@@ -155,7 +156,7 @@ final class TemplateAcquisitionTests: XCTestCase {
             let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
             let loops = queryItems.first { $0.name == "loops" }?.value ?? ""
             let tee = queryItems.first { $0.name == "tee_box" }?.value ?? ""
-            requests.append(loops: loops, tee: tee)
+            requests.append(loops: loops, tee: tee, mapOnly: queryItems.first { $0.name == "map_only" }?.value)
             guard let body = oracle.responses[loops] else {
                 return try Self.response(request, status: 422, body: Data(#"{"detail":"loops"}"#.utf8))
             }
@@ -577,6 +578,29 @@ final class TemplateAcquisitionTests: XCTestCase {
         let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "white")
         XCTAssertTrue(observedWholeCourse)
         XCTAssertNil(model.package, "an intent never creates a round")
+    }
+
+    /// C134/N5: the Start tap's map-only intent remains durable and is promoted to a complete
+    /// whole-course library download after the first prep hole is visible.
+    func testStartPrepIntentContinuesAsWholeCourseOfflineDownload() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let requests = LoopRequests()
+        serveOracle(oracle, into: requests)
+        defer { CapturingURLProtocol.requestHandler = nil }
+
+        let model = acquisitionModel(directory: freshDirectory())
+        let course = MobileCourseOption(globalId: gid, name: "Start intent", holes: 18, teeBox: "white")
+        XCTAssertTrue(model.openPrepCourse(course))
+        XCTAssertTrue(await requests.waitFor(tee: "white"))
+        model.liveHoleInitialLoadDidFinish()
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertTrue(requests.mapOnlyValues.contains("true"), "the opening request is map-only")
+        XCTAssertTrue(requests.mapOnlyValues.contains(nil), "the same intent must later request the full package")
+        let row = try XCTUnwrap(model.prepCourseDownloads.first { $0.course.globalId == gid })
+        XCTAssertFalse(row.isIntentPrefetch)
+        XCTAssertEqual(row.phase, .ready)
+        XCTAssertTrue(try model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")?.hasCompleteOfflineCoursePrep == true)
     }
 
     /// Tapping through the list: a newer intent drops the older one's unfinished row, so only the

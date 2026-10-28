@@ -824,6 +824,9 @@ public final class LiveRoundAppModel: ObservableObject {
     var prepStatusProbeRetryDelayNanoseconds: UInt64
     private var prefetchedTopoURLs = Set<String>()
     private var completedIntentPrefetchIDs = Set<String>()
+    /// Start-created intent rows become ordinary whole-course jobs after the first prep hole.
+    private var postStartIntentPrefetchIDs = Set<String>()
+    private var releasedPostStartIntentPrefetchIDs = Set<String>()
     #if canImport(UIKit)
     private var prepBackgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
     #endif
@@ -2348,12 +2351,36 @@ public final class LiveRoundAppModel: ObservableObject {
             beginRoundEnrichmentIfNeeded()
         }
         releaseFreshEntry(reason: "live-initial-load-finished")
+        releasePostStartIntentPrefetches()
         resumeInterruptedOfflineCourseDownload()
     }
 
     /// Course discovery stops the round's all-hole download (`prioritizeCourseDiscovery`). When the
     /// player comes back to that round's live view instead of starting another, pick it up again:
     /// it skips every hole already on disk. Previously nothing restarted it until the next launch.
+    private func releasePostStartIntentPrefetches() {
+        guard !postStartIntentPrefetchIDs.isEmpty else { return }
+        let ids = postStartIntentPrefetchIDs
+        releasedPostStartIntentPrefetchIDs.formUnion(ids)
+        postStartIntentPrefetchIDs.removeAll()
+        var changed = false
+        for id in ids {
+            guard prepCourseDownloads.contains(where: { $0.id == id }) else { continue }
+            updatePrepCourseDownload(id: id) { record in
+                record.isIntentPrefetch = false
+                record.isRoundPrefetch = false
+                record.phase = .queued
+                record.errorText = nil
+            }
+            changed = true
+        }
+        if changed {
+            persistPrepCourseDownloads()
+            refreshDownloadedCourseOptions()
+            startPrepCourseDownloadQueueIfNeeded()
+        }
+    }
+
     private func resumeInterruptedOfflineCourseDownload() {
         guard let roundId = interruptedOfflineCourseDownloadRoundId else { return }
         guard offlineCourseDownloadRoundId == nil,
@@ -4649,6 +4676,7 @@ public final class LiveRoundAppModel: ObservableObject {
         prepEnrichmentTask = nil
         // Record the tap immediately, but keep the whole-course job as an intent so the foreground
         // map-only request owns the network until the hole screen is ready (C85).
+        postStartIntentPrefetchIDs.insert(PrepCourseDownloadRecord.key(globalId: course.globalId, teeBox: teeBox))
         prefetchIntendedCourses([course], teeBox: teeBox)
         prepPriorityRoundID = roundId
         prepPriorityHole = hole ?? 1
@@ -6146,25 +6174,20 @@ public final class LiveRoundAppModel: ObservableObject {
     // MARK: - Prep course library / resumable downloads
 
     private func restorePrepCourseDownloadsFromDisk() {
+        var migrationFailed = false
         do {
             _ = try offlineStore.migrateLegacyPrepCourseDownloadsIfNeeded()
         } catch {
+            migrationFailed = true
             AICaddieLog.storage.error(
                 "Prep course download migration failed: \(String(describing: error), privacy: .public)"
             )
         }
         let loaded = (try? offlineStore.loadPrepCourseDownloads()) ?? []
-        // Speculative rows are app-owned cache hints. A queued/preparing hint from an older build
-        // has no player who can resume it, so retaining it creates the stale "正在准备/继续下载"
-        // rows seen in the offline picker. Ready speculative templates remain useful cache and are
-        // still eligible for the normal downloaded-course reconciliation.
-        let restored = loaded.filter { record in
-            guard record.phase != .ready else { return true }
-            // Automatic round/template and intent rows have no user who asked to resume them.
-            // Drop them once at migration; explicit rows remain visible and retryable.
-            return !record.isSpeculative && !record.isIntentPrefetch && !record.isRoundPrefetch
-        }
-        prepCourseDownloads = restored.map { record in
+        // Automatic rows are cleaned only by the one-time legacy migration above. Ordinary
+        // launches must restore every durable row so an interrupted worker can resume after the
+        // network returns instead of silently losing its queue entry.
+        prepCourseDownloads = loaded.map { record in
             var resumable = record
             // A ready row is only a convenience index; the revision-bound facts and every topo
             // file remain the install authority. Reconcile stale rows at launch so the library
@@ -6178,7 +6201,11 @@ public final class LiveRoundAppModel: ObservableObject {
             }
             return resumable
         }
-        persistPrepCourseDownloads()
+        // A failed legacy save must leave the original bytes untouched; retry the migration on
+        // the next launch rather than writing decoded rows (and a new ownership field) here.
+        if !migrationFailed {
+            persistPrepCourseDownloads()
+        }
     }
 
     /// Interrupted rows should keep their durable progress but re-enter the queue as the newest
@@ -7115,14 +7142,30 @@ public final class LiveRoundAppModel: ObservableObject {
                 try offlineStore.saveCourseTemplate(canonicalFetched)
             }
             if currentIsIntentPrefetch {
-                // Selection prefetch is deliberately map-only: the template makes the next Start
-                // immediate and hole 1's topo is warmed above. The live round's own pipeline owns
-                // the complete personal/topo package after entry; do not launch a second 18-hole
-                // asset pass here.
-                prepCourseDownloads.removeAll { $0.id == id }
-                completedIntentPrefetchIDs.insert(id)
-                persistPrepCourseDownloads()
-                refreshDownloadedCourseOptions()
+                // A Start tap owns this intent after the map opens. Keep its durable row and turn
+                // it into a normal whole-course job once the first prep hole has settled.
+                if postStartIntentPrefetchIDs.contains(id)
+                    || releasedPostStartIntentPrefetchIDs.contains(id) {
+                    let released = releasedPostStartIntentPrefetchIDs.contains(id)
+                    updatePrepCourseDownload(id: id, generation: generation) { state in
+                        state.isIntentPrefetch = false
+                        state.isRoundPrefetch = !released
+                        state.phase = .queued
+                        state.totalHoles = max(state.totalHoles, canonicalFetched.holes.count)
+                        state.errorText = released ? nil : "进洞后继续"
+                    }
+                    releasedPostStartIntentPrefetchIDs.remove(id)
+                    persistPrepCourseDownloads()
+                    refreshDownloadedCourseOptions()
+                    if released {
+                        startPrepCourseDownloadQueueIfNeeded()
+                    }
+                } else {
+                    prepCourseDownloads.removeAll { $0.id == id }
+                    completedIntentPrefetchIDs.insert(id)
+                    persistPrepCourseDownloads()
+                    refreshDownloadedCourseOptions()
+                }
                 return
             }
             updatePrepCourseDownload(id: id, generation: generation) { state in
@@ -7174,7 +7217,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 let serverStatus: CourseInstallStatus?
                 let statusProbeFailed: Bool
                 do {
-                    serverStatus = try await syncClient.fetchCourseInstallStatus(
+                    serverStatus = try await syncClient.probeCourseInstallStatusForRevalidation(
                         globalId: record.course.globalId,
                         teeBox: record.teeBox,
                         loops: fetched.loopEntries

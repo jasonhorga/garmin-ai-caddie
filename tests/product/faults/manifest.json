@@ -1729,6 +1729,55 @@
       "kind": "python",
       "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_refused_no_during_deploy_leaves_no_second_on_failure_release",
       "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C134-5a-nearby-expansion",
+      "patch": "tests/product/faults/C134/5a-nearby-expansion.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyFirstTimeoutUsesTheExpandedPassBeforeFailure",
+      "promise": "5a"
+    },
+    {
+      "id": "tests-product-faults-C134-5b-nearby-failure",
+      "patch": "tests/product/faults/C134/5b-nearby-failure.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testNearbyEmptyFirstPassAndFailedExpansionEnterRetryState",
+      "promise": "5b"
+    },
+    {
+      "id": "tests-product-faults-C134-5d-pause-prep",
+      "patch": "tests/product/faults/C134/5d-pause-prep.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/TemplateAcquisitionTests/testARequestedJobPausedDuringEntryResumesAfterTheEntryHole",
+      "promise": "5d"
+    },
+    {
+      "id": "tests-product-faults-C134-5e-status-probe",
+      "patch": "tests/product/faults/C134/5e-status-probe-retries.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/LiveRoundAppModelTests/testPrepStatusProbeFailsThreeTimesThenCanRetryAndClearFailure",
+      "promise": "5e"
+    },
+    {
+      "id": "tests-product-faults-C134-5f-progress-source",
+      "patch": "tests/product/faults/C134/5f-progress-reset.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/StartRoundDiscoveryTests/testRoundStartProgressAndButtonUseOneBusyState",
+      "promise": "5f"
+    },
+    {
+      "id": "tests-product-faults-C134-block3-map-only",
+      "patch": "tests/product/faults/C134/block3-map-only-intent.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/TemplateAcquisitionTests/testStartPrepIntentContinuesAsWholeCourseOfflineDownload",
+      "promise": "挡3"
+    },
+    {
+      "id": "tests-product-faults-C134-N5-intent-followup",
+      "patch": "tests/product/faults/C134/N5-start-intent-followup.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/TemplateAcquisitionTests/testStartPrepIntentContinuesAsWholeCourseOfflineDownload",
+      "promise": "N5①"
     }
   ]
 }

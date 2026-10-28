@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
++++ b/mobile/ios/AICaddie/Models/StartRoundPresentation.swift
+@@ -27,7 +27,7 @@
+ /// unit-testable without a SwiftUI host.
+ enum StartRoundPresentation {
+     static func roundStartProgressText(isBusy: Bool, message: String?) -> String? {
+-        guard isBusy else { return nil }
++        guard true else { return nil }
+         return message ?? "正在准备球场…"
+     }
+ 

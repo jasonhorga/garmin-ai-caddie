@@ -137,16 +137,30 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertFalse(decoded.yieldsToForeground)
     }
 
-    /// J4.1/C134: a speculative row interrupted before completion has no owner after relaunch and
-    /// is migrated out of the visible/durable prep list.
-    func testInterruptedSpeculativeRowsAreRemovedDuringRestore() throws {
+    /// J4.1/C134: only a legacy payload is cleaned. A current interrupted speculative row survives
+    /// a later launch so its queue can resume when Wi-Fi returns.
+    func testInterruptedSpeculativeRowsAreRemovedOnlyDuringLegacyMigration() throws {
         let guess = PrepCourseDownloadRecord(
             course: course(99, rounds: 3), teeBox: "blue", phase: .downloading,
             downloadedHoles: 2, totalHoles: 18, isSpeculative: true
         )
-        let restored = try model(rows: [guess])
-        XCTAssertTrue(restored.prepCourseDownloads.isEmpty)
-        XCTAssertTrue((try restored.offlineStore.loadPrepCourseDownloads()).isEmpty)
+        let legacy = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode([guess])) as? [[String: Any]]
+        )
+        let prepURL = directory.appendingPathComponent("prep_course_downloads.json")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var payload = legacy
+        payload[0].removeValue(forKey: "isRoundPrefetch")
+        try JSONSerialization.data(withJSONObject: payload).write(to: prepURL)
+        let first = try model(rows: [])
+        XCTAssertTrue(first.prepCourseDownloads.isEmpty)
+
+        try first.offlineStore.savePrepCourseDownloads([guess])
+        let second = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: nil, watchBridge: nil,
+            garminSessionStore: nil, syncClient: nil, offlineGeometryRetryDelaysNanoseconds: []
+        )
+        XCTAssertEqual(second.prepCourseDownloads.map(\.id), [guess.id])
     }
 
     // MARK: Queue
