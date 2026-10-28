@@ -139,8 +139,7 @@ final class ClientTimingStore: @unchecked Sendable {
     ) {
         self.fileURL = fileURL
         self.persists = true
-        // Red-test stub: the repair commit wires this injected queue into persistence.
-        self.persistenceQueue = nil
+        self.persistenceQueue = persistenceQueue
         self.now = now
         self.uploadsEnabled = uploadsEnabled
         self.persistenceObserver = persistenceObserver
