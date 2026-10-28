@@ -515,7 +515,8 @@ struct RoundReviewContent: View {
     private func beginShare(_ detail: RoundDetail, card: RoundReviewScorecard) {
         let fallback = Self.shareText(course: courseName(detail.round), round: detail.round, card: card)
         let flow: RoundShareFlow
-        if let existing = shareFlow, existing.baseURL == apiBaseURL {
+        if let existing = shareFlow,
+           RoundShareFlow.canReuse(existing, baseURL: apiBaseURL, adminToken: adminToken) {
             flow = existing
         } else {
             let configuredBaseURL = apiBaseURL
@@ -528,7 +529,8 @@ struct RoundReviewContent: View {
                     ).createRoundShare(roundRef: roundRef)
                 },
                 fallbackText: fallback,
-                baseURL: configuredBaseURL
+                baseURL: configuredBaseURL,
+                adminToken: configuredAdminToken
             )
             shareFlow = created
             flow = created
