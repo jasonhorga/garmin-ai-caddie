@@ -602,6 +602,11 @@ struct ResultsTimeLoadState: Equatable {
     /// committed answer after completion or failure.
     var displayedWindow: String { pendingWindow ?? window }
 
+    /// The range the retry action should put back into the picker. It is deliberately separate
+    /// from `displayedWindow`: after a failed switch the committed answer remains visible until
+    /// the user explicitly retries the failed range.
+    var retryWindow: String { failedWindow ?? window }
+
     /// A VoiceOver value for the range control. It names the range in user-facing language and
     /// never exposes the `/stats/mobile` query key.
     var accessibilityValue: String {

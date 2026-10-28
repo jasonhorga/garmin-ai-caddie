@@ -19,6 +19,7 @@ final class J2_2ResultsRangeFailureTests: XCTestCase {
         XCTAssertEqual(state.window, "all", "failed 10 场 request must return the picker to the data's all range")
         XCTAssertEqual(state.stats?.summary?.totalRounds, 31, "the previous all-range answer remains visible")
         XCTAssertEqual(state.notice, "10 场未更新，可重试")
+        XCTAssertEqual(state.retryWindow, "last10")
         XCTAssertEqual(state.retry().window, "last10", "retry must request the failed range")
     }
 

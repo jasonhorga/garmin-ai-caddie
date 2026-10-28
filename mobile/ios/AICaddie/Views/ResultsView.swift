@@ -756,7 +756,7 @@ public struct ResultsTrendView: View {
     }
 
     @MainActor private func retry() {
-        window = load.displayedWindow
+        window = load.retryWindow
     }
 }
 
