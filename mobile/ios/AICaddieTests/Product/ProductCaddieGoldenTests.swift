@@ -7,6 +7,18 @@ struct ProductCaddieDocument: Decodable {
     let cases: [ProductCaddieVector]
 }
 
+struct ProductAvoidZoneDocument: Decodable {
+    struct Case: Decodable {
+        let id: String
+        let carryM: Double
+        let routeEvidence: [String: JSONValue]
+        let zones: [[String: JSONValue]]
+        let expectedAvoidZones: [[String: JSONValue]]
+    }
+    let alternativeRoute: [String: JSONValue]
+    let cases: [Case]
+}
+
 struct ProductCaddieVector: Decodable {
     struct Profile: Decodable {
         let median_m: Double
@@ -200,6 +212,44 @@ final class ProductCaddieGoldenTests: XCTestCase {
                     XCTAssertEqual(raw["shotsToGreen"], .number(Double(expected.plannedStrokes)), vector.id + " " + expected.id)
                 }
             }
+        }
+    }
+
+    func testSelectedRouteAvoidZonesMatchOnlineSharedFixture() throws {
+        let document: ProductAvoidZoneDocument = try ProductSharedVectors.read("c120_avoid_zones")
+        for vector in document.cases {
+            // Approach bypasses the tee-only OB veto: both candidates exist, A is selected,
+            // and B's OB must not appear in A's response. Tee veto behaviour has separate tests.
+            let context: [String: JSONValue] = [
+                "routeEvidence": .object(vector.routeEvidence),
+                "candidateRoutes": .array([
+                    .object(["id": .string("stock_line"),
+                             "planningHazards": .array(vector.zones.map(JSONValue.object))]),
+                    .object(document.alternativeRoute),
+                ]),
+            ]
+            let seed = CaddieContextSeed(
+                hole: 1, sourceRef: "course:81001:hole:1", shotTypes: ["approach"],
+                requiredLiveInputs: [], context: context, selectedOfflineOptionId: "stock",
+                offlineOptions: [
+                    OfflineCaddieOption(optionId: "stock", label: "A", clubName: "7I",
+                        carryM: vector.carryM, sampleSize: 24, confidence: "medium", riskScore: 0,
+                        source: "fixture", sourceRefs: []),
+                    OfflineCaddieOption(optionId: "attack", label: "B", clubName: "6I",
+                        carryM: 160, sampleSize: 24, confidence: "medium", riskScore: 5,
+                        source: "fixture", sourceRefs: []),
+                ], evidence: [], missingData: []
+            )
+            let decision = try XCTUnwrap(OfflineCaddieDecisionEvaluator().makeDecision(
+                seed: seed, request: CaddieDecisionRequest(shotType: "approach", context: context),
+                strategyMode: "stock"), vector.id)
+            XCTAssertEqual(decision.selectedOptionId, "stock", vector.id)
+            XCTAssertEqual(decision.avoidZones, vector.expectedAvoidZones, vector.id)
+            // OB is retained when B itself is selected; filtering is about scope, not kind.
+            let alternative = try XCTUnwrap(OfflineCaddieDecisionEvaluator().makeDecision(
+                seed: seed, request: CaddieDecisionRequest(shotType: "approach", context: context),
+                strategyMode: "attack"), vector.id)
+            XCTAssertEqual(alternative.avoidZones.map { $0["id"] }, [.string("B_OB")], vector.id)
         }
     }
 

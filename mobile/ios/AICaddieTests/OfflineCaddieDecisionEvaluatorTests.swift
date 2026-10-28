@@ -597,6 +597,7 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         XCTAssertNil(decision.selected, file: file, line: line)
         XCTAssertNil(decision.selectedOption, file: file, line: line)
         XCTAssertNil(decision.selectedOptionId, file: file, line: line)
+        XCTAssertTrue(decision.avoidZones.isEmpty, "no selected route has no response zones", file: file, line: line)
         XCTAssertTrue((decision.sequences ?? []).isEmpty, file: file, line: line)
         XCTAssertNil(decision.selectedSequence, file: file, line: line)
         XCTAssertNil(CaddiePlanSequence.selectedSequence(from: decision), file: file, line: line)

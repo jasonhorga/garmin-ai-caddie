@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import unittest
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 from ai_caddie.caddie.analysis import _hole_summary, llm_brief
 from ai_caddie.caddie.decision import (
+    _avoid_zones_for_target,
+    _target_local_from_route_evidence,
     _dedupe_strategy_options,
     _profile_tee_routes,
     _route_option_id,
@@ -170,6 +174,15 @@ def long_hole_fixture():
 
 
 class DecisionLayerTests(unittest.TestCase):
+    def test_avoid_zones_match_native_shared_fixture(self) -> None:
+        fixture = json.loads((Path(__file__).parent / "product/fixtures/shared/c120_avoid_zones.json").read_text())
+        for row in fixture["cases"]:
+            with self.subTest(row=row["id"]):
+                target = _target_local_from_route_evidence({"routeEvidence": row["routeEvidence"]}, row["carryM"])
+                self.assertEqual(target, row["targetLocal"])
+                actual = _avoid_zones_for_target(row["zones"], route_evidence=row["routeEvidence"], target_local=target)
+                self.assertEqual(actual, row["expectedAvoidZones"], fixture["handCalculation"])
+
     def test_par3_tee_emits_a_direct_scoring_sequence(self) -> None:
         context = analysis_fixture()
         context.update({

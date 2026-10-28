@@ -259,6 +259,36 @@ class PersistenceTests(unittest.TestCase):
                 {"新名 ~ A", "新名 ~ B"},
             )
 
+    def test_venue_group_migration_preserves_latest_last_seen(self) -> None:
+        from ai_caddie.courses.course_search import CourseMatch
+
+        # lastSeenAt controls refresh and eviction; renaming cannot make a recently seen
+        # group older, even if discovery's clock lags the persisted timestamp.
+        for destination_seen, old_seen, expected in [(100, 450, 450), (480, 450, 480), (100, 600, 600)]:
+            for changed_label in (False, True):
+                with self.subTest(destination_seen=destination_seen, old_seen=old_seen,
+                                  changed_label=changed_label), TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    path = root / "data" / "courseview" / "venue_loops.json"
+                    path.parent.mkdir(parents=True)
+                    path.write_text(json.dumps({"venues": [
+                        {"venueName": "旧名", "lastSeenAt": old_seen, "loops": [
+                            {"globalId": 60001, "segmentLabel": "A", "name": "旧名 ~ A"},
+                            {"globalId": 60002, "segmentLabel": "B", "name": "旧名 ~ B"},
+                        ]},
+                        {"venueName": "新名", "lastSeenAt": destination_seen, "loops": []},
+                    ]}), encoding="utf-8")
+                    with patch.object(cr.time, "time", return_value=500), \
+                            patch.object(cr, "courseview_par", return_value=[4] * 9):
+                        cr.record_courseview_venue_loops([
+                            CourseMatch(60001, "新名 ~ A", 9, None, None, 0.0,
+                                        venue_name="新名", segment_label="C" if changed_label else "A"),
+                        ], root=root)
+                    groups = json.loads(path.read_text())["venues"]
+                    self.assertEqual(len(groups), 1)
+                    self.assertEqual(groups[0]["lastSeenAt"], max(expected, 500) if changed_label else expected)
+                    self.assertEqual({row["globalId"] for row in groups[0]["loops"]}, {60001, 60002})
+
     def test_catalogue_name_cache_accepts_only_native_garmin_cjk_rows(self) -> None:
         from ai_caddie.courses.course_search import CourseMatch
 

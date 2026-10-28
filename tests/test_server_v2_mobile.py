@@ -3541,6 +3541,38 @@ class ServerV2MobileTests(unittest.TestCase):
             self.assertEqual(response.status_code, 422, response.text)
             self.assertFalse((root / "data" / "mobile_events" / "events.jsonl").exists())
 
+    def test_mobile_start_hole_422_names_actual_round_limit(self) -> None:
+        event = {
+            "schema": "ai-caddie-live-round-event-v1", "eventId": "start-limit",
+            "roundId": "start-limit", "timestamp": "2026-06-20T00:00:00Z", "hole": 1,
+            "kind": "score", "payload": {"strokes": 4},
+        }
+        for limit, loops in [(9, [(55555, "front")]),
+                             (18, [(55555, "front"), (55555, "back")]), (27, None)]:
+            with self.subTest(limit=limit), TemporaryDirectory() as tmp, TestClient(app) as client:
+                root = Path(tmp)
+                if loops is not None:
+                    self._identity_course_package(root, "start-limit", loops)
+                with patch("server_v2.mobile.MOBILE_ROOT", root):
+                    response = client.post(
+                        "/api/v2/mobile/rounds/start-limit/events",
+                        headers={"Idempotency-Key": "start-limit"},
+                        json={"roundId": "start-limit", "events": [{**event, "startHole": limit + 1}]},
+                    )
+                    self.assertEqual(response.status_code, 422, response.text)
+                    self.assertIn(f"startHole must be <= {limit}", response.text)
+                    if limit != 27:
+                        # iOS isSingleEventPayloadValidation422 只认 "must be " 等英文子串；去掉会把单条坏事件
+                        # 变成整批 422、整局同步卡死。27 档走 pydantic 列表 detail，客户端本来就不按单条处理。
+                        self.assertIn(f"本局洞号最大 {limit}", response.text)
+                    # Rejection is atomic; retrying a valid start with the same key succeeds.
+                    valid = client.post(
+                        "/api/v2/mobile/rounds/start-limit/events",
+                        headers={"Idempotency-Key": "start-limit"},
+                        json={"roundId": "start-limit", "events": [{**event, "startHole": limit}]},
+                    )
+                    self.assertEqual(valid.status_code, 200, valid.text)
+
     def test_mobile_round_state_projects_authoritative_per_hole_state(self) -> None:
         # round-12 sync spine: GET …/state folds the event log into per-hole state (last-write-wins by
         # serverSequence) and flags fields two distinct clients disagree on.

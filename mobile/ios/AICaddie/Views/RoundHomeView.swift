@@ -1032,11 +1032,14 @@ public struct RoundHomeView: View {
                         holePagerNavigationLock = current
                     }
                 },
-                onPrepLocationChanged: { locatedHole, displayedHole in
-                    guard isPrepHoleScreen else { return nil }
+                onPrepLocationChanged: { locatedHole, displayedHole, fix in
+                    guard isPrepHoleScreen,
+                          let sampledAt = ISO8601DateFormatter().date(from: fix.capturedAt) else { return nil }
                     return prepHoleFollowing.navigationTarget(
                         currentLocatedHole: locatedHole,
-                        displayedHole: displayedHole
+                        displayedHole: displayedHole,
+                        sampledAt: sampledAt,
+                        coordinate: fix.coordinate
                     )
                 },
                 onLiveHoleInitialLoadDidFinish: onLiveHoleInitialLoadDidFinish,

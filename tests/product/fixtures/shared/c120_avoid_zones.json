@@ -1,0 +1,48 @@
+{
+  "handCalculation": "Stock A lands at (0,130); B has OB and must never leak into A. The landing window at (0,150), radius 6, excludes A by 20 m. Keep independent route-distance facts after stripping landing-window facts. At (0,144) the 6 m boundary is inclusive. Missing geometry conservatively keeps the risk.",
+  "alternativeRoute": {
+    "id": "aggressive_line",
+    "planningHazards": [{"id": "B_OB", "kind": "ob", "side": "both", "corridorWidth_m": 8}]
+  },
+  "cases": [
+    {
+      "id": "selected_A_excludes_B_OB",
+      "carryM": 130,
+      "routeEvidence": {},
+      "targetLocal": null,
+      "zones": [{"id": "A_bunker", "kind": "bunker", "carryToFront_m": 70, "carryToClear_m": 80}],
+      "expectedAvoidZones": [{"id": "A_bunker", "kind": "bunker", "carryToFront_m": 70, "carryToClear_m": 80}]
+    },
+    {
+      "id": "outside_window_strips_only_landing_facts",
+      "carryM": 130,
+      "routeEvidence": {"routeStartLocal": [0,0], "routeTargetLocal": [0,150], "routeLength_m": 150, "landingWindowLocal": {"center": [0,150], "radius_m": 6}},
+      "targetLocal": [0,130],
+      "zones": [
+        {"id": "landing_only", "kind": "bunker", "distanceToCenter_m": 2, "landingRadius_m": 6, "overlap_m": 7, "source": "landing_window", "reason": "landing window overlaps known risk"},
+        {"id": "merged", "kind": "bunker", "carryToFront_m": 70, "carryToClear_m": 80, "distanceToCenter_m": 2, "landingRadius_m": 6, "overlap_m": 7, "source": "route_geometry+landing_window", "reason": "route geometry intersects known risk and landing window overlaps known risk"},
+        {"id": "distance_only", "kind": "tree_area", "distance_m": 9, "overlap_m": 3, "source": "landing_window", "reason": "landing window overlaps known risk"}
+      ],
+      "expectedAvoidZones": [
+        {"id": "merged", "kind": "bunker", "carryToFront_m": 70, "carryToClear_m": 80, "source": "route_geometry", "reason": "route geometry intersects known risk"},
+        {"id": "distance_only", "kind": "tree_area", "distance_m": 9}
+      ]
+    },
+    {
+      "id": "window_boundary_keeps_landing_risk",
+      "carryM": 144,
+      "routeEvidence": {"routeStartLocal": [0,0], "routeTargetLocal": [0,150], "routeLength_m": 150, "landingWindowLocal": {"center": [0,150], "radius_m": 6}},
+      "targetLocal": [0,144],
+      "zones": [{"id": "landing_only", "kind": "bunker", "distanceToCenter_m": 2, "landingRadius_m": 6, "overlap_m": 7, "source": "landing_window"}],
+      "expectedAvoidZones": [{"id": "landing_only", "kind": "bunker", "distanceToCenter_m": 2, "landingRadius_m": 6, "overlap_m": 7, "source": "landing_window"}]
+    },
+    {
+      "id": "missing_geometry_keeps_landing_risk",
+      "carryM": 130,
+      "routeEvidence": {},
+      "targetLocal": null,
+      "zones": [{"id": "landing_only", "kind": "bunker", "overlap_m": 7, "source": "landing_window"}],
+      "expectedAvoidZones": [{"id": "landing_only", "kind": "bunker", "overlap_m": 7, "source": "landing_window"}]
+    }
+  ]
+}
