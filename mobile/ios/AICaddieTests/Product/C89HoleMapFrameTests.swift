@@ -160,6 +160,12 @@ final class C89HoleMapFrameTests: XCTestCase {
         )
         XCTAssertEqual(drawable, .drawable(hole: sameFrame, row: sameFrameHazard))
         XCTAssertNil(LiveHazardMapFrame.notice(for: drawable, requestInFlight: false))
+
+        let routeOnly = LiveHazardMapFrame.resolve(
+            state: .factual, hole: hole, prep: sameFrame, row: sameFrameHazard, garminProjection: nil
+        )
+        XCTAssertEqual(routeOnly, .drawable(hole: sameFrame, row: sameFrameHazard),
+                       "product spec 4.5 route tier can map known obstacles")
     }
 
     func testSelectedHazardOverGarminRasterUsesTheRegistrationOrSaysWhy() throws {

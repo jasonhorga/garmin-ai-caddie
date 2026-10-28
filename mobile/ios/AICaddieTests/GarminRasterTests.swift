@@ -248,6 +248,27 @@ final class GarminRasterTests: XCTestCase {
         )
     }
 
+    /// Product spec 4.5: bitmap replacement keeps the complete viewport interaction state.
+    func testRouteTierViewportTransitionPreservesStateForPreciseAndGarmin() {
+        let interaction = LiveMapViewportInteraction(
+            scale: 2.4,
+            offset: CGSize(width: 31, height: -12),
+            selectedHazardID: "bunker-0",
+            targetPixel: CGPoint(x: 88, y: 141),
+            greenPinPixel: CGPoint(x: 91, y: 52)
+        )
+        for next in [LiveMapDisplayState.precise, .garminRaster] {
+            let result = LiveMapViewportTransition.preserve(
+                previous: .factual,
+                next: next,
+                sourceFrame: CGRect(x: 0, y: 0, width: 240, height: 360),
+                destinationFrame: CGRect(x: 0, y: 0, width: 560, height: 800),
+                interaction: interaction
+            )
+            XCTAssertEqual(result, interaction, "route → \(next)")
+        }
+    }
+
     func testNumericPlaceholderGestureStateResetsScaleAndOffset() {
         XCTAssertEqual(
             LiveMapDisplaySelection.gestureScale(for: .numericPlaceholder, proposed: 4),

@@ -2562,6 +2562,42 @@ enum LiveMapDisplaySelection {
     }
 }
 
+/// State carried by the live viewport while a bitmap tier replaces a factual route. The transition
+/// itself is pure so route→precise and route→Garmin cannot accidentally reset interaction state.
+struct LiveMapViewportInteraction: Equatable {
+    let scale: CGFloat
+    let offset: CGSize
+    let selectedHazardID: String?
+    let targetPixel: CGPoint?
+    let greenPinPixel: CGPoint?
+}
+
+enum LiveMapViewportTransition {
+    static func preserve(
+        previous: LiveMapDisplayState,
+        next: LiveMapDisplayState,
+        sourceFrame: CGRect,
+        destinationFrame: CGRect,
+        interaction: LiveMapViewportInteraction
+    ) -> LiveMapViewportInteraction {
+        // Existing implementation placeholder: the later fix makes route transitions explicitly
+        // identity-preserving. Keeping this interface first lets the regression test fail on the
+        // old transfer behaviour rather than merely proving a new symbol exists.
+        if previous == .factual && (next == .precise || next == .garminRaster) {
+            return LiveMapViewportInteraction(
+                scale: 1,
+                offset: .zero,
+                selectedHazardID: interaction.selectedHazardID,
+                targetPixel: interaction.targetPixel,
+                greenPinPixel: interaction.greenPinPixel
+            )
+        }
+        _ = sourceFrame
+        _ = destinationFrame
+        return interaction
+    }
+}
+
 /// Compact live-hole fallback. It keeps the same numeric facts visible while both raster paths are
 /// unavailable; the copy describes the active download without exposing an implementation state.
 public struct LiveMapNumericPlaceholder: View {

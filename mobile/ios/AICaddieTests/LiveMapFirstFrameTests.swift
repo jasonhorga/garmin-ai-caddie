@@ -21,6 +21,24 @@ final class LiveMapFirstFrameTests: XCTestCase {
         XCTAssertEqual(state, .factualPending)
     }
 
+    func testKnownPreciseTopoWithNoPrepRouteKeepsNeutralPendingFrame() {
+        let inputs = LiveMapDisplayState.liveInputs(
+            coverage: "ready",
+            decodeFailed: false,
+            resolvedLocalTopoURL: URL(fileURLWithPath: "/tmp/known-topo.png"),
+            hasLiveTopoURL: true,
+            hasEmbeddedTopoImage: false,
+            preciseTopoImageReady: false,
+            memoryCached: false,
+            garminRaster: GarminRasterResponse(available: true, imageUrl: "/garmin.png"),
+            garminImageReady: true,
+            garminImageFailed: false,
+            hasRoute: false
+        )
+        XCTAssertEqual(LiveMapDisplayState.resolveLive(inputs), .factualPending,
+                       "holePrep nil must not flash the waiting page before the known topo decodes")
+    }
+
     func testFailedPreciseDecodeAllowsReadyGarminFallback() {
         let inputs = LiveMapDisplayState.liveInputs(
             coverage: "ready",
