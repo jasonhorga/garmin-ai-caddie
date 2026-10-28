@@ -1,0 +1,8 @@
+--- a/mobile/ios/AICaddie/Views/RoundHomeView.swift
++++ b/mobile/ios/AICaddie/Views/RoundHomeView.swift
+@@ -1265,5 +1265,4 @@
+                     onBackToHome: {
+                         tracePager("back home path before=\(path)")
+-                        path = []
+                         tracePager("back home path after=\(path)")
+                     },

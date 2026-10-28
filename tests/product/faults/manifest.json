@@ -644,6 +644,13 @@
       "kind": "native-unit",
       "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_10_prep_geometry_belongs_to_the_displayed_page_not_cached_package",
       "promise": "5.10"
+    },
+    {
+      "id": "tests-product-faults-C112c-05-back-keeps-owner-path",
+      "patch": "tests/product/faults/C112c/05-back-keeps-owner-path.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductLiveHolePageTests/test_j5_2_new_round_route_back_action_reaches_home_after_first_stroke",
+      "promise": "5.2"
     }
   ]
 }

@@ -134,6 +134,7 @@ final class ProductLiveHolePageTests: XCTestCase {
         }
     }
 
+    @MainActor
     private struct ObservedHome: View {
         @ObservedObject var model: LiveRoundAppModel
         let preparedPackage: LiveRoundPackage

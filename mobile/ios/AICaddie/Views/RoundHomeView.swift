@@ -1260,7 +1260,13 @@ public struct RoundHomeView: View {
                     // The persisted model cursor is the safe initial selection so the visible page
                     // starts location updates before the delayed native binding acknowledgement.
                     isSelected: selected,
-                    onBackToHome: nil,
+                    // This owner holds NavigationStack's binding. A TabView page's environment
+                    // dismissal need not target that stack; the home action clears its real path.
+                    onBackToHome: {
+                        tracePager("back home path before=\(path)")
+                        path = []
+                        tracePager("back home path after=\(path)")
+                    },
                     onAdvanceHole: { next in
                         // The retained page reads the live State binding, not its creation-time lock.
                         callbacks.advance(from: number, to: next, navigationLock: $holePagerNavigationLock) { _, next in
@@ -1309,6 +1315,9 @@ public struct RoundHomeView: View {
                 }
                 #endif
             }.equatable()
+            // Adjacent pages keep their preview chrome but expose no duplicate Back/shot actions
+            // to VoiceOver or XCUITest. This modifier does not invalidate the frozen page body.
+            .accessibilityHidden(!selected)
             // A hole owns its score/club/map/GPS presentation state and scroll position. NavigationStack
             // otherwise reuses the same destination view when `.hole(1)` becomes `.hole(2)`, carrying
             // the prior hole's @State and scroll offset into the next hole. Explicit round+hole identity
@@ -1661,10 +1670,7 @@ public struct RoundHomeView: View {
     }
 
     private func startRoundView(globalId: Int?, teeBox: String?) -> some View {
-        #if DEBUG
-        holePageNavigationProbe?.openPrepCourse = onOpenPrepCourse
-        #endif
-        return StartRoundView(
+        StartRoundView(
             defaultCourseGlobalId: globalId,
             defaultTeeBox: teeBox ?? "unknown",
             // 换球场或组合 carries the course-here venue's provider loops (already fetched here).
@@ -1697,6 +1703,9 @@ public struct RoundHomeView: View {
             onValidateReadyPrepCourse: onValidateReadyPrepCourse,
             isOpeningPrepCourse: isOpeningPrepCourse
         )
+        #if DEBUG
+        .onAppear { holePageNavigationProbe?.openPrepCourse = onOpenPrepCourse }
+        #endif
     }
 
     // MARK: - 主卡(README §8:进行中 / 上次的球场 / 搜索)

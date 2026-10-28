@@ -614,7 +614,14 @@ final class ProductPhoneUITests: XCTestCase {
     func test_j5_2_home_active_card_replaces_new_round_and_can_resume() {
         launch(latitude: "0"); startRound()
         recordFirstShot()
-        XCTAssertEqual(app.buttons.matching(identifier: "live-back-home").count, 1,
+        let backCount = app.buttons.matching(identifier: "live-back-home").count
+        if backCount != 1 {
+            let evidence = XCTAttachment(string: app.debugDescription)
+            evidence.name = "Back accessibility and pager trace"
+            evidence.lifetime = .keepAlways
+            add(evidence)
+        }
+        XCTAssertEqual(backCount, 1,
                        "only the selected page may expose the home action to accessibility")
         tap("live-back-home") // 返回 goes straight home and keeps the round (CurrentHoleView).
         insideWindow(element("home-in-progress-round"), "active round hero")
