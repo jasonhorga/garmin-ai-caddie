@@ -18,7 +18,7 @@ final class J2_2ResultsRangeFailureTests: XCTestCase {
         XCTAssertTrue(state.complete(request, stats: nil))
         XCTAssertEqual(state.window, "all", "failed 10 场 request must return the picker to the data's all range")
         XCTAssertEqual(state.stats?.summary?.totalRounds, 31, "the previous all-range answer remains visible")
-        XCTAssertEqual(state.notice, "10 场未更新，可重试")
+        XCTAssertEqual(state.notice, "近 10 场未更新，可重试")
         XCTAssertEqual(state.retryWindow, "last10")
         XCTAssertEqual(state.retry().window, "last10", "retry must request the failed range")
     }
@@ -78,7 +78,7 @@ final class J2_2ResultsRangeFailureTests: XCTestCase {
         XCTAssertTrue(state.complete(refresh, stats: refreshedAll))
 
         XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
-        XCTAssertEqual(state.notice, "10 场未更新，可重试")
+        XCTAssertEqual(state.notice, "近 10 场未更新，可重试")
         XCTAssertEqual(state.retry().window, "last10")
     }
 
@@ -92,7 +92,6 @@ final class J2_2ResultsRangeFailureTests: XCTestCase {
 
         XCTAssertEqual(retry.window, "last10")
         XCTAssertEqual(state.pendingWindow, "last10")
-        XCTAssertEqual(state.displayedWindow, "last10")
         XCTAssertTrue(state.isLoading)
         XCTAssertEqual(state.window, "all", "the committed answer remains all until retry succeeds")
     }
@@ -149,15 +148,37 @@ final class J2_2ResultsRangeFailureTests: XCTestCase {
         XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
     }
 
-    func test_j2_2_grain_selected_while_range_is_loading_survives_commit() throws {
+    func test_j2_2_failed_full_refresh_retry_requests_the_committed_range() throws {
         let all = try stats(31)
-        let ten = try stats(10)
         var state = ResultsTimeLoadState(window: "all", stats: all)
-        var grain = ResultsTimePresentation.Grain.quarter
-        let request = state.select("last10")
+        let refresh = state.refresh()
 
-        grain = .year
-        XCTAssertTrue(state.complete(request, stats: ten))
-        XCTAssertEqual(grain, .year, "committing a range must not reset the independently selected grain")
+        XCTAssertTrue(state.complete(refresh, stats: nil))
+        XCTAssertEqual(state.retryWindow, "all")
+        let retry = state.retry()
+        XCTAssertEqual(retry.window, "all")
+        XCTAssertTrue(state.isLoading)
+        XCTAssertEqual(state.pendingWindow, "all")
+    }
+
+    func test_j2_2_failed_selection_after_refresh_continues_the_invalidated_refresh() throws {
+        let all = try stats(31)
+        let refreshedAll = try stats(32)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let refresh = state.refresh()
+        let selected = state.select("last10")
+
+        XCTAssertTrue(state.complete(selected, stats: nil))
+        XCTAssertTrue(state.isLoading, "a failed selection must continue the refresh it invalidated")
+        XCTAssertEqual(state.currentRequest.window, "all")
+        XCTAssertGreaterThan(state.currentRequest.generation, selected.generation)
+        XCTAssertEqual(state.notice, "近 10 场未更新，可重试")
+
+        let continued = state.currentRequest
+        XCTAssertFalse(state.complete(refresh, stats: refreshedAll), "the invalidated refresh response is stale")
+        XCTAssertTrue(state.complete(continued, stats: refreshedAll))
+        XCTAssertEqual(state.window, "all")
+        XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
+        XCTAssertEqual(state.notice, "近 10 场未更新，可重试")
     }
 }

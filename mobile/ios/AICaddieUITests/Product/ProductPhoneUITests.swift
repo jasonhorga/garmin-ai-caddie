@@ -188,9 +188,9 @@ final class ProductPhoneUITests: XCTestCase {
                 server?.lastSample()?.window == window
             }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 10), .completed, window + " sample loaded")
+            let title = ["last10": "近 10 场", "last20": "近 20 场", "12m": "近一年", "all": "全部"][window]!
             let committed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                let title = ["last10": "近 10 场", "last20": "近 20 场", "12m": "近一年", "all": "全部"][window]!
-                (range.value as? String) == "\(title) · 已加载"
+                return (range.value as? String) == "\(title) · 已加载"
             }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 10), .completed,
                            window + " range committed before changing grain")
@@ -215,6 +215,8 @@ final class ProductPhoneUITests: XCTestCase {
     }
 
     func test_j2_2_grain_selected_while_range_request_is_in_flight_survives_commit() {
+        // This covers a grain tap while the range request is in flight; it does not reproduce the
+        // separate tap-vs-render race at the instant the range response lands.
         launch(); scores(); tap("results-entry-time")
         let range = element("time-range")
         let grain = element("time-grain")
@@ -270,6 +272,15 @@ final class ProductPhoneUITests: XCTestCase {
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [oneMore], timeout: 10), .completed,
                        "retry must produce exactly one stats request")
+        let noticeReturned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            return notice.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [noticeReturned], timeout: 10), .completed,
+                       "failed retry must show the range notice again")
+        let requests = server.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }
+        XCTAssertEqual(requests.count, before + 1, "retry must send exactly one additional stats request")
+        XCTAssertTrue(requests.last?.contains("window=last10") == true,
+                      "retry must request the failed range")
     }
 
     func test_j2_3_quarter_drilldown_opens_only_its_two_real_rounds_then_review() {
