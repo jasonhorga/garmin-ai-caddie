@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from ai_caddie.rounds.score_invariant import ScoreInvariantError
 from server_v2.main import app
 
 
@@ -65,10 +66,10 @@ class MobileEventInvalidCodeTests(unittest.TestCase):
                 self.assertFalse(isinstance(detail, dict) and detail.get("code") == "event_invalid")
 
     def test_product_spec_59_store_and_batch_failures_are_not_quarantinable(self):
-        for error in ["event_commit_store_corrupt", "request_reservation_store_corrupt",
-                      "idempotency_key_body_mismatch", "identity_envelope_mismatch",
-                      "hole 1: total 2 is less than putts 2 + penalties 0 + 1"]:
-            with self.subTest(error=error), TemporaryDirectory() as tmp, patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)), patch("server_v2.mobile.append_event_batch", side_effect=ValueError(error)):
+        for error in [ValueError("event_commit_store_corrupt"), ValueError("request_reservation_store_corrupt"),
+                      ValueError("idempotency_key_body_mismatch"), ValueError("identity_envelope_mismatch"),
+                      ScoreInvariantError("hole 1: total 2 is less than putts 2 + penalties 0 + 1")]:
+            with self.subTest(error=error), TemporaryDirectory() as tmp, patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)), patch("server_v2.mobile.append_event_batch", side_effect=error):
                 response = self.post([self.event])
                 self.assertEqual(response.status_code, 422)
-                self.assertEqual(response.json()["detail"], error)
+                self.assertEqual(response.json()["detail"], str(error))

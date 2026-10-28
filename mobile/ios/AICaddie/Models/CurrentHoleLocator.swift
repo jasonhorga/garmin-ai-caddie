@@ -100,7 +100,7 @@ struct PrepHoleFollowingState: Equatable {
     static let maximumCachedSampleAge: TimeInterval = 30
 
     /// Fresh, precise fixes confirm a new hole only when it leads the displayed hole clearly.
-    /// A shared tee remains ambiguous in space and always needs the 5 s time confirmation.
+    /// Shared tees and displayed/candidate tees within 10 m always need the 5 s confirmation.
     mutating func navigationTarget(
         currentLocatedHole: Int?, displayedHole: Int, fix: LocationFix,
         holes: [HoleLocatorGeometry], now: Date = Date()
@@ -122,7 +122,8 @@ struct PrepHoleFollowingState: Equatable {
             return nil
         }
         let sharedTee = CurrentHoleLocator.isSharedTee(
-            hole: currentLocatedHole, coordinate: fix.coordinate, holes: holes
+            hole: currentLocatedHole, coordinate: fix.coordinate, holes: holes,
+            preferredHole: displayedHole
         )
         // An unchanged/initially displayed hole is not a transition. In particular, seed it even
         // at close tees so a later manual preview still wins until GPS really changes holes.
@@ -277,9 +278,10 @@ enum CurrentHoleLocator {
         return nearestAnchor <= courseRadiusM ? .atCourse : .awayFromCourse
     }
 
-    /// Relative lead over the displayed hole only. At a tee this is d(old tee) - d(new tee).
+    /// Relative lead over the displayed hole only. At a tee this is d(old tee) - d(new tee),
+    /// capped by depth in the tee disc so drift at the next tee's edge cannot leave an old green.
     /// Elsewhere compare distance to each hole's fairway/corridor union (inside is distance zero).
-    /// Never cap it by the new area's edge or a third hole's position.
+    /// Fairway/corridor edges and third holes never cap the lead.
     static func entryDepthM(
         hole: Int, coordinate: CLLocationCoordinate2D, holes: [HoleLocatorGeometry],
         preferredHole: Int? = nil
@@ -287,28 +289,32 @@ enum CurrentHoleLocator {
         guard let preferredHole, preferredHole != hole,
               locate(coordinate: coordinate, horizontalAccuracyM: 0, holes: holes,
                      preferredHole: preferredHole) == .onHole(hole),
-              let selected = holes.first(where: { $0.hole == hole }),
-              let leaving = holes.first(where: { $0.hole == preferredHole }) else { return 0 }
+              let selected = holes.first(where: { $0.hole == hole }) else { return 0 }
+        guard let leaving = holes.first(where: { $0.hole == preferredHole }) else { return .infinity }
         if let newTee = selected.tee, let oldTee = leaving.tee,
            metres(coordinate, newTee) <= teeRadiusM {
-            return metres(coordinate, oldTee) - metres(coordinate, newTee)
+            let newTeeDistance = metres(coordinate, newTee)
+            return min(metres(coordinate, oldTee) - newTeeDistance, teeRadiusM - newTeeDistance)
         }
         let oldDistance = distanceToHoleRegion(coordinate, hole: leaving)
         let newDistance = distanceToHoleRegion(coordinate, hole: selected)
-        guard oldDistance.isFinite, newDistance.isFinite else { return 0 }
+        // No old geometry means an infinite lead, still subject to freshness/accuracy/confirmation.
+        guard newDistance.isFinite else { return 0 }
         return oldDistance - newDistance
     }
 
-    /// Shared course anchors cannot distinguish loops. `locate` owns the displayed/package choice;
-    /// the following state adds time confirmation instead of trying to derive a spatial margin.
+    /// Shared anchors cannot distinguish loops; distinct old/new tees within 10 m cannot exceed
+    /// the spatial threshold either. `locate` owns the choice, and both cases need time confirmation.
     static func isSharedTee(
-        hole: Int, coordinate: CLLocationCoordinate2D, holes: [HoleLocatorGeometry]
+        hole: Int, coordinate: CLLocationCoordinate2D, holes: [HoleLocatorGeometry], preferredHole: Int
     ) -> Bool {
         guard let tee = holes.first(where: { $0.hole == hole })?.tee,
               metres(coordinate, tee) <= teeRadiusM else { return false }
         return holes.contains { row in
             guard row.hole != hole, let otherTee = row.tee else { return false }
-            return metres(tee, otherTee) <= sharedTeeToleranceM
+            let tolerance = row.hole == preferredHole
+                ? PrepHoleFollowingState.minimumConfirmationDisplacementM : sharedTeeToleranceM
+            return metres(tee, otherTee) <= tolerance
         }
     }
 
