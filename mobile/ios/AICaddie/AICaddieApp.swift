@@ -6733,6 +6733,7 @@ public final class LiveRoundAppModel: ObservableObject {
             || deferredOfflineCourseDownloadRevalidation != nil
         let eligible = prepCourseDownloads
             .filter { $0.phase == .queued }
+            .filter { !postStartIntentPrefetchIDs.contains($0.id) }
             .filter { !startWindowActive }
             .filter {
                 foregroundCourseRequestCount == 0
