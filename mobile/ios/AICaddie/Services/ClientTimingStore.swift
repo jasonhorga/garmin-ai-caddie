@@ -149,8 +149,13 @@ final class ClientTimingStore: @unchecked Sendable {
                 self.records = Array(Self.deduplicate(loaded + self.records).suffix(Self.maxRecords))
                 self.loaded = true
                 let snapshot = self.persists ? self.records : nil
+                // Enqueue while holding the state lock so a concurrent record cannot enqueue a
+                // newer snapshot before this load snapshot and then have it overwritten by load.
+                if let snapshot, self.persistenceQueue != nil {
+                    self.enqueuePersistence(snapshot)
+                }
                 self.lock.unlock()
-                if let snapshot {
+                if let snapshot, self.persistenceQueue == nil {
                     self.enqueuePersistence(snapshot)
                 }
             }
@@ -205,8 +210,13 @@ final class ClientTimingStore: @unchecked Sendable {
             pendingAges.removeFirst(excess)
         }
         let snapshot = persists && loaded ? records : nil
+        if let snapshot, persistenceQueue != nil {
+            // Queue submission is inside the lock to preserve snapshot order relative to the
+            // asynchronous load above; the file write itself remains off this request path.
+            enqueuePersistence(snapshot)
+        }
         lock.unlock()
-        if let snapshot {
+        if let snapshot, persistenceQueue == nil {
             enqueuePersistence(snapshot)
         }
         startUploadIfDue(now: timestamp)
