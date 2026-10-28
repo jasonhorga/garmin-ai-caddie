@@ -1,10 +1,9 @@
-diff --git a/ai_caddie/caddie/analysis.py b/ai_caddie/caddie/analysis.py
---- a/ai_caddie/caddie/analysis.py	2026-10-28 20:42:46.779261996 +0000
-+++ b/ai_caddie/caddie/analysis.py	2026-10-28 21:05:23.484379193 +0000
-@@ -178,11 +178,7 @@
-                 available.append(value)
-     if not available:
-         return None
+--- a/ai_caddie/caddie/analysis.py
++++ b/ai_caddie/caddie/analysis.py
+@@ -190,11 +190,7 @@
+             colour_fallback=False,
+         )
+         return release_set if release_set in available else None
 -    requested = tee_set_for_box(
 -        global_id if global_id is not None else (hazards or {}).get("globalId"),
 -        tee_box,
