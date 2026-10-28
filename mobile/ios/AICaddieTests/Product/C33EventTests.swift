@@ -962,7 +962,8 @@ final class C33EventTests: XCTestCase {
         await model.prepareCourseRound(roundId: packageA.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
         try store.appendEvent(LiveRoundEvent(eventId: "round-a-rejected", roundId: packageA.roundId,
             timestamp: "2026-01-01T00:00:00Z", hole: 3, kind: .score, payload: ["strokes": .number(3)]))
-        XCTAssertTrue(await model.finishActiveRound())
+        let sealed = await model.finishActiveRound()
+        XCTAssertTrue(sealed)
         await model.waitForDeferredRoundFinishesForTesting()
         XCTAssertEqual(model.deferredFinishRecovery?.roundId, packageA.roundId)
 
@@ -1032,7 +1033,8 @@ final class C33EventTests: XCTestCase {
         await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
         try store.appendEvent(LiveRoundEvent(eventId: "removed-hole-score", roundId: package.roundId,
             timestamp: "2026-01-01T00:00:00Z", hole: 10, kind: .score, payload: ["strokes": .number(3)]))
-        XCTAssertTrue(await model.finishActiveRound())
+        let sealed = await model.finishActiveRound()
+        XCTAssertTrue(sealed)
         await model.waitForDeferredRoundFinishesForTesting()
         XCTAssertEqual(model.deferredFinishRecovery?.hole, 10)
         XCTAssertEqual(model.deferredFinishRecovery?.holeAvailable, false)
