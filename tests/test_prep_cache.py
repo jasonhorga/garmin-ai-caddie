@@ -62,8 +62,8 @@ class PrepCacheTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
 
     def test_dir_sig_detects_in_place_edit_of_a_non_newest_file(self) -> None:
-        # Mirror of stats_cache: the old (count, newest-mtime) sig missed an in-place edit
-        # to a non-newest file (count + newest-mtime unchanged) and could serve stale prep.
+        # A same-size content edit to a non-newest file must invalidate prep even when the newest
+        # file's mtime is unchanged. Metadata-only rewrites intentionally keep the content sig.
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)
             (older := d / "a.json").write_text("{}")
@@ -71,6 +71,7 @@ class PrepCacheTests(unittest.TestCase):
             os.utime(older, ns=(1_000_000_000, 1_000_000_000))  # mtime = 1s
             os.utime(newer, ns=(5_000_000_000, 5_000_000_000))  # mtime = 5s (newest)
             before = prep_cache._dir_sig(d)
+            older.write_text("[]")
             os.utime(older, ns=(3_000_000_000, 3_000_000_000))  # 1s -> 3s, still < newest(5s)
             after = prep_cache._dir_sig(d)
             self.assertEqual(before[0], after[0], "file count must be unchanged (the trap)")

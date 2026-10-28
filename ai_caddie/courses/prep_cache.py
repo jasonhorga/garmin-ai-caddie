@@ -55,23 +55,17 @@ _inflight: dict[tuple, threading.Event] = {}
 
 
 def _dir_sig(directory: Path) -> tuple[int, str]:
-    """Per-file manifest fingerprint: ``(file_count, digest)`` where ``digest`` hashes
-    every file's ``(name, size, mtime_ns)``. Mirrors ``stats_cache._dir_sig``.
-
-    A ``(count, newest_mtime)`` pair is too coarse: it misses an in-place edit to a file
-    that is NOT the newest (count and newest-mtime both unchanged) and a same-second
-    add+delete (count unchanged) -> stale prep could be served. Hashing every file's
-    name+size+mtime_ns catches all three (add/remove, in-place edit, add+delete). Cheap:
-    one ``os.scandir`` plus the ``stat`` it already performs; file CONTENTS are never
-    read (too slow on the shot dir) -- size+mtime_ns is the standard cheap manifest."""
-    files: list[tuple[str, int, int, int]] = []
+    """Per-file manifest fingerprint using memoized content hashes."""
+    files: list[tuple[str, int, str]] = []
     for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(directory):
         if name != revisions.REVISION_FILENAME and is_file:
-            files.append((name, size, mtime_ns, ctime_ns))
+            signature = revisions.file_content_signature(directory / name)
+            if signature is not None:
+                files.append((name, signature[0], signature[1]))
     files.sort()  # scandir order is unspecified; sort so the digest is order-independent
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, mtime_ns, ctime_ns in files:
-        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
+    for name, size, content_hash in files:
+        digest.update(f"{name}\x00{size}\x00{content_hash}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
 
 
@@ -87,14 +81,16 @@ def _matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
     already-stable prep for course A.  Course prep reads only ``gid<id>_h*`` geometry,
     so its cache dependency must have the same course boundary.
     """
-    files: list[tuple[str, int, int, int]] = []
+    files: list[tuple[str, int, str]] = []
     for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(directory):
         if name != revisions.REVISION_FILENAME and is_file and fnmatch.fnmatchcase(name, pattern):
-            files.append((name, size, mtime_ns, ctime_ns))
+            signature = revisions.file_content_signature(directory / name)
+            if signature is not None:
+                files.append((name, signature[0], signature[1]))
     files.sort()
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, mtime_ns, ctime_ns in files:
-        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
+    for name, size, content_hash in files:
+        digest.update(f"{name}\x00{size}\x00{content_hash}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
 
 
@@ -104,14 +100,8 @@ def _cached_matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
     )
 
 
-def _file_sig(path: Path) -> tuple[int, int, int] | None:
-    # ctime_ns changes on every content write (and cannot be reset with utime), so a same-size
-    # in-place rewrite within one mtime tick still changes the signature.
-    try:
-        st = path.stat()
-    except (FileNotFoundError, NotADirectoryError):
-        return None
-    return (st.st_mtime_ns, st.st_size, st.st_ctime_ns)
+def _file_sig(path: Path) -> tuple[int, str] | None:
+    return revisions.file_content_signature(path)
 
 
 def _manual_bag_sig(player_id: str) -> tuple[int, int] | None:
@@ -141,18 +131,20 @@ def _course_data_sig(global_id: int) -> tuple[int, str]:
 def _scan_course_data_sig(global_id: int) -> tuple[int, str]:
     """Complete scan used on a cold course-data signature."""
     gid = int(global_id)
-    rows: list[tuple[str, int, int, int]] = []
+    rows: list[tuple[str, int, str]] = []
     for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(_COURSEVIEW_DIR):
         if not is_file or (
             name != f"{gid}_releases.pb"
             and not fnmatch.fnmatchcase(name, f"{gid}_course_data_*.json")
         ):
             continue
-        rows.append((name, size, mtime_ns, ctime_ns))
+        signature = revisions.file_content_signature(_COURSEVIEW_DIR / name)
+        if signature is not None:
+            rows.append((name, signature[0], signature[1]))
     rows.sort()
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, mtime_ns, ctime_ns in rows:
-        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
+    for name, size, content_hash in rows:
+        digest.update(f"{name}\x00{size}\x00{content_hash}\x00".encode("utf-8"))
     return (len(rows), digest.hexdigest())
 
 

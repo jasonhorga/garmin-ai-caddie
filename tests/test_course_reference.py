@@ -435,6 +435,29 @@ class PersistenceTests(unittest.TestCase):
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             self.assertGreater(metadata["fetchedAt"], 1)
 
+    def test_identical_release_replacement_keeps_content_signatures(self) -> None:
+        """J4.2: replacing a release with equal bytes must keep vector/prep authorities warm."""
+        fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        payload = fixture.read_bytes()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_dir = root / "data" / "courseview"
+            release_dir.mkdir(parents=True)
+            release_path = release_dir / "31936_releases.pb"
+            release_path.write_bytes(payload)
+            original_courseview_dir = prep_cache._COURSEVIEW_DIR
+            prep_cache._COURSEVIEW_DIR = release_dir
+            self.addCleanup(setattr, prep_cache, "_COURSEVIEW_DIR", original_courseview_dir)
+
+            before = prep_cache._course_data_sig(31936)
+            release_signature = cr.courseview_release_signature(31936, root=root)
+            replacement = release_path.with_name(".replacement.pb")
+            replacement.write_bytes(payload)
+            os.replace(replacement, release_path)
+
+            self.assertEqual(prep_cache._course_data_sig(31936), before)
+            self.assertEqual(cr.courseview_release_signature(31936, root=root), release_signature)
+
     def test_stale_release_refresh_different_bytes_writes_and_changes_prep_fingerprint(self) -> None:
         fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
         original = fixture.read_bytes()

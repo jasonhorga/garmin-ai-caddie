@@ -32,6 +32,7 @@ from ai_caddie.core.data import (
     safe_read_json,
 )
 from ai_caddie.core.revisions import bump_revision
+from ai_caddie.core import revisions
 from ai_caddie.courses.name_authority import contains_cjk, normalize_course_text
 from ai_caddie.geometry.inspect_courseview_release import (
     GARMIN_OMT_SIMPLIFIED_CHINESE,
@@ -736,16 +737,11 @@ def courseview_release_info(
     return _release_info(global_id, allow_fetch=allow_fetch, root=root)
 
 
-def courseview_release_signature(global_id: int, *, root: Path = ROOT) -> tuple[int, int, int] | None:
-    """The cached release file's ``(mtime_ns, size, inode)``, or None when none is cached.
-
-    A replaced release changes it, so callers may reuse anything derived from the release under it.
-    """
-    try:
-        stat = (_courseview_dir(root) / f"{int(global_id)}_releases.pb").stat()
-    except OSError:
-        return None
-    return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+def courseview_release_signature(global_id: int, *, root: Path = ROOT) -> tuple[int, str] | None:
+    """Return the cached release's content signature, ignoring identical file replacement."""
+    return revisions.file_content_signature(
+        _courseview_dir(root) / f"{int(global_id)}_releases.pb"
+    )
 
 
 def courseview_release_fetch_failed(global_id: int, *, root: Path = ROOT) -> bool:

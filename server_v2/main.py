@@ -1904,7 +1904,7 @@ def _cached_course_tees_payload(global_id: int) -> dict | None:
 @lru_cache(maxsize=64)
 def _memoized_course_tees_payload(
     global_id: int,
-    release_signature: tuple[int, int, int],
+    release_signature: tuple[int, str],
     mesh_dir_signature: tuple[int, int],
     hazard_dir_signature: tuple[int, int],
 ) -> dict | None:

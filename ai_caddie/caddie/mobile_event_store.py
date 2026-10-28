@@ -26,10 +26,12 @@ ACK_LOCK_FILENAME = "client_acks.json.lock"
 RESERVATION_FILENAME = "request_reservations.json"
 EVENT_COMMIT_FILENAME = "events.jsonl.commit.json"
 EVENT_PENDING_COMMIT_FILENAME = "events.jsonl.pending.json"
+ROUND_INDEX_FILENAME = "round_event_index.json"
 ACK_SCHEMA = "ai-caddie-mobile-event-acks-v1"
 RESERVATION_SCHEMA = "ai-caddie-mobile-event-request-reservations-v1"
 EVENT_COMMIT_SCHEMA = "ai-caddie-mobile-event-commit-v2"
 EVENT_PENDING_COMMIT_SCHEMA = "ai-caddie-mobile-event-pending-commit-v2"
+ROUND_INDEX_SCHEMA = "ai-caddie-mobile-round-event-index-v1"
 _IDENTITY_FIELDS = ("roundId", "clientId", "eventId")
 REDACTED_LOCAL_MEDIA_URL = "[REDACTED_LOCAL_MEDIA_URL]"
 REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
@@ -457,6 +459,7 @@ class FileEventStore:
         self.reservations = self.root / RESERVATION_FILENAME
         self.commit_marker = self.root / EVENT_COMMIT_FILENAME
         self.pending_commit = self.root / EVENT_PENDING_COMMIT_FILENAME
+        self.round_index = self.root / ROUND_INDEX_FILENAME
         self._additional_sanitizer = sanitizer
 
     @contextmanager
@@ -483,6 +486,103 @@ class FileEventStore:
             return self.log.stat().st_size
         except FileNotFoundError:
             return 0
+
+    def _load_round_index_unlocked(self, committed_length: int) -> dict[str, list[int]] | None:
+        try:
+            payload = json.loads(self.round_index.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, UnicodeDecodeError, ValueError):
+            return None
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema") != ROUND_INDEX_SCHEMA
+            or payload.get("committedByteLength") != committed_length
+            or not isinstance(payload.get("rounds"), dict)
+        ):
+            return None
+        rounds: dict[str, list[int]] = {}
+        for round_id, holes in payload["rounds"].items():
+            if not isinstance(round_id, str) or not isinstance(holes, list):
+                return None
+            if any(
+                not isinstance(hole, int) or isinstance(hole, bool) or hole <= 0
+                for hole in holes
+            ):
+                return None
+            rounds[round_id] = [int(hole) for hole in holes]
+        return rounds
+
+    def _write_round_index_unlocked(
+        self, rounds: dict[str, list[int]], committed_length: int,
+    ) -> None:
+        self._atomic_write_json(
+            self.round_index,
+            {
+                "schema": ROUND_INDEX_SCHEMA,
+                "committedByteLength": committed_length,
+                "rounds": rounds,
+            },
+        )
+
+    @staticmethod
+    def _round_index_from_rows(rows: Sequence[_StoredRow]) -> dict[str, list[int]]:
+        rounds: dict[str, list[int]] = {}
+        for stored in rows:
+            row = stored.row
+            event = row.get("event")
+            if not isinstance(event, dict) or not FileEventStore._is_legacy_compatible_event(event):
+                continue
+            try:
+                hole = int(event.get("hole"))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if hole <= 0:
+                continue
+            round_id = str(row.get("roundId") or "")
+            rounds.setdefault(round_id, []).append(hole)
+        return rounds
+
+    def _record_round_index_after_append(
+        self,
+        rows: Sequence[dict[str, Any]],
+        *,
+        base_length: int,
+        committed_length: int,
+    ) -> None:
+        rounds = self._load_round_index_unlocked(base_length)
+        if rounds is None:
+            rounds = self._round_index_from_rows(self._stored_log().rows)
+        else:
+            for row in rows:
+                event = row.get("event")
+                if not isinstance(event, dict) or not self._is_legacy_compatible_event(event):
+                    continue
+                try:
+                    hole = int(event.get("hole"))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if hole > 0:
+                    rounds.setdefault(str(row.get("roundId") or ""), []).append(hole)
+        self._write_round_index_unlocked(rounds, committed_length)
+
+    def round_event_holes(self, round_id: str) -> list[int]:
+        """Return compatible hole numbers without replaying unrelated event payloads.
+
+        The append path maintains a durable sidecar keyed by committed log length. A missing or
+        stale sidecar is rebuilt once from legacy data, which keeps old installs correct while all
+        subsequent new-round identity registrations are O(1) in event-log size.
+        """
+        # A stale/missing sidecar is repaired lazily. Keep that repair under the same
+        # exclusive lock used by appenders so concurrent readers cannot replace one another's
+        # rebuilt index while an append is advancing the commit marker.
+        with self._locked(self.event_lock):
+            actual_size = self._event_log_size()
+            marker = self._load_commit_marker()
+            committed_length = marker.committed_byte_length if marker is not None else actual_size
+            rounds = self._load_round_index_unlocked(committed_length)
+            if rounds is None:
+                rounds = self._round_index_from_rows(self._stored_log().rows)
+                self._write_round_index_unlocked(rounds, committed_length)
+            return list(rounds.get(str(round_id), ()))
 
     @staticmethod
     def _is_sha256(value: Any) -> bool:
@@ -1597,6 +1697,17 @@ class FileEventStore:
             target_marker=target_marker,
         )
         self._clear_pending_commit()
+        try:
+            self._record_round_index_after_append(
+                rows,
+                base_length=base_marker.committed_byte_length,
+                committed_length=target_marker.committed_byte_length,
+            )
+        except Exception:
+            # The event log is authoritative. A failed auxiliary index is rebuilt lazily by the
+            # next identity lookup, so an index filesystem issue cannot turn a committed batch
+            # into a client-visible append failure.
+            pass
 
     def _load_acks(self, *, strict: bool) -> tuple[dict[str, dict[str, Any]], bytes | None]:
         if not self.acks.exists():

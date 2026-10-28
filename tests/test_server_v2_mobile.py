@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -84,6 +85,42 @@ class ServerV2MobileTests(unittest.TestCase):
             identity = load_mobile_round_identity("late-package", root=root)
             self.assertEqual(identity["loopKey"], "55555:front+55555:back")
             self.assertEqual([h["sourceLocalHole"] for h in identity["holes"]], list(range(1, 19)))
+
+    def test_j42_new_round_identity_uses_durable_round_index_after_large_log(self) -> None:
+        """J4.2: a 6MB unrelated event log does not make concurrent new-round registration scan."""
+        from ai_caddie.caddie.mobile_live import append_event_batch
+        from ai_caddie.caddie.mobile_round_identity import load_mobile_round_identity
+        from ai_caddie.caddie.mobile_event_store import FileEventStore
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_event_batch(
+                "old-round",
+                [
+                    {
+                        "eventId": f"old-{index}", "roundId": "old-round", "hole": index % 9 + 1,
+                        "kind": "note", "payload": {"text": "x" * 2600},
+                    }
+                    for index in range(2500)
+                ],
+                idempotency_key="large-history", root=root,
+            )
+            event_log = root / "data" / "mobile_events" / "events.jsonl"
+            self.assertGreaterEqual(event_log.stat().st_size, 6_000_000)
+
+            def register() -> str:
+                package = self._identity_course_package(root, "new-round", [(65555, "front")])
+                return str(package.roundId)
+
+            with patch.object(FileEventStore, "_stored_log", side_effect=AssertionError("full scan")):
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    self.assertEqual(sorted(executor.map(lambda _index: register(), range(2))), [
+                        "new-round", "new-round",
+                    ])
+                restarted = FileEventStore(root / "data" / "mobile_events")
+                self.assertEqual(restarted.round_event_holes("new-round"), [])
+
+            self.assertEqual(load_mobile_round_identity("new-round", root=root)["roundId"], "new-round")
 
     def test_corrupt_identity_does_not_fail_package_or_rebind_legacy_events(self) -> None:
         from ai_caddie.caddie.mobile_live import append_event_batch
