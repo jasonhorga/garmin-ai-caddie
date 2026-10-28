@@ -737,8 +737,12 @@ public struct ResultsTrendView: View {
 
     @MainActor private func start(_ request: ResultsTimeLoadState.Request) {
         guard let apiBaseURL else {
-            load.complete(request, stats: nil)
-            window = load.window
+            if load.complete(request, stats: nil) {
+                window = load.window
+                if load.isLoading {
+                    start(load.currentRequest)
+                }
+            }
             return
         }
         let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
