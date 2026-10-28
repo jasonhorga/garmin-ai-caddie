@@ -56,51 +56,144 @@ struct ClientTimingUploadRecord: Codable {
     }
 }
 
-/// A locked, bounded JSONL ring plus an in-memory pending queue for the next client-timing batch.
-/// Failed uploads are deliberately discarded by ``takeBatchIfDue`` as required by C90.
+enum ClientTimingUploadOutcome: Equatable {
+    case sent
+    case dropped
+    case unavailable
+}
+
+typealias ClientTimingUploadHandler = ([ClientTimingUploadRecord]) async -> ClientTimingUploadOutcome
+
+/// Process-wide timing ring and upload scheduler. The shared instance loads its existing ring on a
+/// utility queue; request construction never waits for App Support I/O. A lock protects both the
+/// ring and the pending upload queue, while a separate file lock serializes atomic replacements.
 final class ClientTimingStore: @unchecked Sendable {
     static let maxRecords = 200
     static let maxUploadBatch = 50
     static let uploadThreshold = 10
     static let uploadInterval: TimeInterval = 60
+
+    #if DEBUG
+    private static let sharedUploadsEnabled = false
+    #else
+    private static let sharedUploadsEnabled = true
+    #endif
+
     private static let fileLock = NSLock()
+    private static let foregroundLock = NSLock()
+    private static var foregroundStartCount = 0
+
+    static let shared: ClientTimingStore = {
+        ClientTimingStore(
+            fileURL: ClientTimingStore.defaultFileURL(),
+            persists: true,
+            loadAsync: true,
+            now: { ProcessInfo.processInfo.systemUptime },
+            uploadsEnabled: sharedUploadsEnabled
+        )
+    }()
 
     private let lock = NSLock()
     private let fileURL: URL?
+    private let persists: Bool
+    private let now: () -> TimeInterval
+    private let uploadsEnabled: Bool
     private let encoder = JSONEncoder()
     private var records: [ClientTimingRecord]
     private var pending: [ClientTimingRecord] = []
-    private var lastUploadAt: TimeInterval?
+    private var pendingAges: [TimeInterval] = []
     private var uploadInFlight = false
+    private var uploadHandler: ClientTimingUploadHandler?
 
-    init(fileURL: URL? = nil) {
-        self.fileURL = fileURL ?? Self.defaultFileURL()
+    /// Explicit stores are synchronous and are intended for timing tests or an injected owner.
+    /// The production app uses ``shared``, whose file read is asynchronous.
+    init(
+        fileURL: URL? = nil,
+        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        uploadsEnabled: Bool = true
+    ) {
+        self.fileURL = fileURL
+        self.persists = fileURL != nil
+        self.now = now
+        self.uploadsEnabled = uploadsEnabled
+        self.records = fileURL.map(Self.readRecords) ?? []
+    }
+
+    private init(
+        fileURL: URL?,
+        persists: Bool,
+        loadAsync: Bool,
+        now: @escaping () -> TimeInterval,
+        uploadsEnabled: Bool
+    ) {
+        self.fileURL = fileURL
+        self.persists = persists
+        self.now = now
+        self.uploadsEnabled = uploadsEnabled
         self.records = []
-        if let fileURL = self.fileURL {
-            self.records = Self.readRecords(fileURL: fileURL)
+        if loadAsync, let fileURL {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let loaded = Self.readRecords(fileURL)
+                guard let self else { return }
+                self.lock.lock()
+                self.records = Array((loaded + self.records).suffix(Self.maxRecords))
+                self.lock.unlock()
+            }
+        } else if let fileURL {
+            self.records = Self.readRecords(fileURL)
         }
     }
 
-    static func prepareAtLaunch() {
-        guard let fileURL = defaultFileURL() else { return }
-        try? FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+    /// The internal SyncClient test initializer uses this store so ordinary tests cannot write
+    /// App Support or emit a diagnostic POST. Timing tests explicitly inject an upload-enabled one.
+    static func testingStore() -> ClientTimingStore {
+        ClientTimingStore(fileURL: nil, now: { 0 }, uploadsEnabled: false)
     }
 
-    func record(_ value: ClientTimingRecord) {
+    static func foregroundStartDidBegin() {
+        foregroundLock.lock()
+        foregroundStartCount += 1
+        foregroundLock.unlock()
+    }
+
+    func foregroundStartDidEnd() {
+        Self.foregroundLock.lock()
+        if Self.foregroundStartCount > 0 {
+            Self.foregroundStartCount -= 1
+        }
+        let running = Self.foregroundStartCount > 0
+        Self.foregroundLock.unlock()
+        if !running {
+            startUploadIfDue(now: now())
+        }
+    }
+
+    func configureUploader(_ handler: ClientTimingUploadHandler?) {
         lock.lock()
-        defer { lock.unlock() }
+        uploadHandler = handler
+        lock.unlock()
+        startUploadIfDue(now: now())
+    }
+
+    func record(_ value: ClientTimingRecord, now timestamp: TimeInterval? = nil) {
+        let timestamp = timestamp ?? now()
+        lock.lock()
         records.append(value)
         if records.count > Self.maxRecords {
             records.removeFirst(records.count - Self.maxRecords)
         }
         pending.append(value)
+        pendingAges.append(timestamp)
         if pending.count > Self.maxRecords {
-            pending.removeFirst(pending.count - Self.maxRecords)
+            let excess = pending.count - Self.maxRecords
+            pending.removeFirst(excess)
+            pendingAges.removeFirst(excess)
         }
-        persistLocked()
+        if persists {
+            persistLocked()
+        }
+        lock.unlock()
+        startUploadIfDue(now: timestamp)
     }
 
     func snapshot() -> [ClientTimingRecord] {
@@ -109,8 +202,10 @@ final class ClientTimingStore: @unchecked Sendable {
         return records
     }
 
+    /// Compatibility seam for the focused store tests. Production scheduling uses the uploader
+    /// configured above, so a failed network call is discarded and never requeued.
     func takeBatchIfDue(
-        now: TimeInterval,
+        now timestamp: TimeInterval,
         foregroundStartRunning: Bool,
         threshold: Int = ClientTimingStore.uploadThreshold,
         interval: TimeInterval = ClientTimingStore.uploadInterval
@@ -118,22 +213,70 @@ final class ClientTimingStore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard !foregroundStartRunning, !uploadInFlight, !pending.isEmpty else { return nil }
-        // With no previous upload, allow a small pending batch to age for the same interval
-        // before the next request triggers a best-effort flush.
-        let intervalDue = lastUploadAt.map { now - $0 >= interval } ?? now >= interval
-        guard pending.count >= threshold || intervalDue else { return nil }
+        guard isDueLocked(now: timestamp, threshold: threshold, interval: interval) else { return nil }
         uploadInFlight = true
-        lastUploadAt = now
-        let count = min(Self.maxUploadBatch, pending.count)
-        let batch = Array(pending.prefix(count))
-        pending.removeFirst(count)
-        return batch
+        return reserveBatchLocked().records
     }
 
     func finishUpload() {
         lock.lock()
         uploadInFlight = false
         lock.unlock()
+    }
+
+    private func startUploadIfDue(now timestamp: TimeInterval) {
+        guard uploadsEnabled, !Self.foregroundStartIsRunning() else { return }
+        lock.lock()
+        guard !uploadInFlight,
+              let handler = uploadHandler,
+              isDueLocked(now: timestamp, threshold: Self.uploadThreshold, interval: Self.uploadInterval) else {
+            lock.unlock()
+            return
+        }
+        let reserved = reserveBatchLocked()
+        uploadInFlight = true
+        lock.unlock()
+
+        let store = self
+        let upload = reserved.records.map(\.uploadValue)
+        Task {
+            let outcome = await handler(upload)
+            store.finishUpload(outcome: outcome, records: reserved.records, ages: reserved.ages)
+        }
+    }
+
+    private func finishUpload(
+        outcome: ClientTimingUploadOutcome,
+        records: [ClientTimingRecord],
+        ages: [TimeInterval]
+    ) {
+        lock.lock()
+        if outcome == .unavailable {
+            pending = records + pending
+            pendingAges = ages + pendingAges
+        }
+        uploadInFlight = false
+        lock.unlock()
+    }
+
+    private func isDueLocked(now timestamp: TimeInterval, threshold: Int, interval: TimeInterval) -> Bool {
+        guard let first = pendingAges.first else { return false }
+        return pending.count >= threshold || timestamp - first >= interval
+    }
+
+    private func reserveBatchLocked() -> (records: [ClientTimingRecord], ages: [TimeInterval]) {
+        let count = min(Self.maxUploadBatch, pending.count)
+        let records = Array(pending.prefix(count))
+        let ages = Array(pendingAges.prefix(count))
+        pending.removeFirst(count)
+        pendingAges.removeFirst(count)
+        return (records, ages)
+    }
+
+    private static func foregroundStartIsRunning() -> Bool {
+        foregroundLock.lock()
+        defer { foregroundLock.unlock() }
+        return foregroundStartCount > 0
     }
 
     private func persistLocked() {
@@ -159,7 +302,7 @@ final class ClientTimingStore: @unchecked Sendable {
             .appendingPathComponent("client-network-timing.jsonl", isDirectory: false)
     }
 
-    private static func readRecords(fileURL: URL) -> [ClientTimingRecord] {
+    private static func readRecords(_ fileURL: URL) -> [ClientTimingRecord] {
         fileLock.lock()
         defer { fileLock.unlock() }
         guard let data = try? Data(contentsOf: fileURL),

@@ -534,7 +534,8 @@ public final class SyncClient {
         self.decoder = JSONDecoder()
         self.retrySleep = { try await Task.sleep(nanoseconds: $0) }
         self.monotonicNow = { ProcessInfo.processInfo.systemUptime }
-        self.timingStore = ClientTimingStore()
+        self.timingStore = ClientTimingStore.shared
+        configureTimingUploader()
     }
 
     init(
@@ -545,7 +546,7 @@ public final class SyncClient {
         retrySleep: @escaping (UInt64) async throws -> Void,
         roundStartTimeoutInterval: TimeInterval = 30,
         monotonicNow: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-        timingStore: ClientTimingStore = ClientTimingStore()
+        timingStore: ClientTimingStore = ClientTimingStore.testingStore()
     ) {
         self.baseURL = baseURL
         self.adminToken = adminToken
@@ -558,11 +559,13 @@ public final class SyncClient {
         self.retrySleep = retrySleep
         self.monotonicNow = monotonicNow
         self.timingStore = timingStore
+        configureTimingUploader()
     }
 
     /// Called synchronously before any start work. Cancelling producers releases even a held
     /// URLProtocol/URLSession request, rather than only ignoring its eventual response.
     func beginRoundStart(_ owner: UUID) {
+        ClientTimingStore.foregroundStartDidBegin()
         let previous = packageWorkLock.withLock { () -> [Task<Data, Error>] in
             roundStartOwner = owner
             return packageWork.values.compactMap {
@@ -576,9 +579,12 @@ public final class SyncClient {
     }
 
     func endRoundStart(_ owner: UUID) {
-        packageWorkLock.withLock {
-            if roundStartOwner == owner { roundStartOwner = nil }
+        let ended = packageWorkLock.withLock { () -> Bool in
+            guard roundStartOwner == owner else { return false }
+            roundStartOwner = nil
+            return true
         }
+        if ended { timingStore.foregroundStartDidEnd() }
     }
 
     #if DEBUG
@@ -613,23 +619,27 @@ public final class SyncClient {
         let started = monotonicNow()
         do {
             let result = try await urlSession.data(for: timedRequest)
+            let finished = monotonicNow()
             recordClientTiming(
                 request: timedRequest,
                 requestId: requestId,
                 startedAt: startedAt,
-                elapsed: max(0, monotonicNow() - started),
+                elapsed: max(0, finished - started),
                 response: result.1,
-                error: nil
+                error: nil,
+                now: finished
             )
             return result
         } catch {
+            let finished = monotonicNow()
             recordClientTiming(
                 request: timedRequest,
                 requestId: requestId,
                 startedAt: startedAt,
-                elapsed: max(0, monotonicNow() - started),
+                elapsed: max(0, finished - started),
                 response: nil,
-                error: error
+                error: error,
+                now: finished
             )
             throw error
         }
@@ -641,7 +651,8 @@ public final class SyncClient {
         startedAt: String,
         elapsed: TimeInterval,
         response: URLResponse?,
-        error: Error?
+        error: Error?,
+        now: TimeInterval
     ) {
         let status = (response as? HTTPURLResponse)?.statusCode
         let serverTotalMs = Self.serverTotalMilliseconds(response)
@@ -665,7 +676,7 @@ public final class SyncClient {
             networkType: nil,
             serverTotalMs: serverTotalMs
         )
-        timingStore.record(record)
+        timingStore.record(record, now: now)
         if elapsed >= 3 {
             AICaddieLog.net.notice(
                 "Slow request \(record.path, privacy: .public) \(record.clientTotalMs, privacy: .public)ms request_id=\(requestId, privacy: .public) server_total_ms=\(serverTotalMs ?? -1, privacy: .public)"
@@ -675,19 +686,17 @@ public final class SyncClient {
                 "Request \(record.path, privacy: .public) \(record.clientTotalMs, privacy: .public)ms request_id=\(requestId, privacy: .public)"
             )
         }
-        Task { [weak self] in
-            await self?.flushClientTimingIfDue()
+    }
+
+    private func configureTimingUploader() {
+        timingStore.configureUploader { [weak self] batch in
+            guard let self else { return .unavailable }
+            return await self.uploadClientTiming(batch)
         }
     }
 
-    private func flushClientTimingIfDue() async {
-        let foregroundRunning = packageWorkLock.withLock { roundStartOwner != nil }
-        guard let batch = timingStore.takeBatchIfDue(
-            now: monotonicNow(),
-            foregroundStartRunning: foregroundRunning
-        ) else { return }
-        defer { timingStore.finishUpload() }
-        guard let body = try? encoder.encode(batch.map(\.uploadValue)) else { return }
+    private func uploadClientTiming(_ batch: [ClientTimingUploadRecord]) async -> ClientTimingUploadOutcome {
+        guard let body = try? encoder.encode(batch) else { return .dropped }
         var request = URLRequest(url: endpointURL("/api/v2/mobile/client-timing"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -697,12 +706,14 @@ public final class SyncClient {
             let (_, response) = try await requestData(for: request, in: session, recordTiming: false)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 AICaddieLog.net.debug("Client timing upload rejected")
-                return
+                return .dropped
             }
+            return .sent
         } catch {
             // The batch was intentionally removed before the request. Timing must never retry or
             // affect the business request that triggered this best-effort upload.
             AICaddieLog.net.debug("Client timing upload dropped: \(String(describing: error), privacy: .public)")
+            return .dropped
         }
     }
 
