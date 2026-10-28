@@ -87,14 +87,18 @@ class RoundIngestCoreTests(unittest.TestCase):
         )
         self.assertFalse(gir)
 
-    def test_gir_can_count_explicit_putter_shots_when_putt_event_is_missing(self) -> None:
-        """Product spec 2.8: shot-derived putts affect GIR, but do not fill the putts cell."""
+    def test_product_spec_2_8_counts_complete_explicit_putter_shots(self) -> None:
+        """Product spec 2.8: a complete shot log can derive GIR putts without filling the cell."""
         events = [
-            {"hole": 1, "kind": "club", "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}},
+            {"hole": 1, "kind": "club", "payload": {"clubName": "1W", "shotType": "tee", "lie": "TeeBox"}},
             {"hole": 1, "kind": "location", "payload": {"latitude": 47.73, "longitude": 138.89}},
-            {"hole": 1, "kind": "club", "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}},
+            {"hole": 1, "kind": "club", "payload": {"clubName": "8I", "shotType": "approach", "lie": "Fairway"}},
             {"hole": 1, "kind": "location", "payload": {"latitude": 47.7301, "longitude": 138.8901}},
-            {"hole": 1, "kind": "score", "payload": {"strokes": 5}},
+            {"hole": 1, "kind": "club", "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": 47.7302, "longitude": 138.8902}},
+            {"hole": 1, "kind": "club", "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": 47.7303, "longitude": 138.8903}},
+            {"hole": 1, "kind": "score", "payload": {"strokes": 4}},
         ]
         result = round_ingest.ingest_round(
             "p_friend", events, {"courseName": "Manual", "holePars": "4"},
@@ -105,7 +109,7 @@ class RoundIngestCoreTests(unittest.TestCase):
         # Shot-derived putts are used for GIR only; the scorecard putts cell remains
         # absent because no putt event was entered (product spec 2.8).
         self.assertNotIn("putts", hole)
-        self.assertIsNone(hole.get("gir"))
+        self.assertTrue(hole["gir"])
 
     def test_missing_putts_do_not_fill_zero_when_gir_is_undeterminable(self) -> None:
         events = [

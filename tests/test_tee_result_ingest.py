@@ -160,19 +160,20 @@ class TeeResultIngestTest(unittest.TestCase):
         sizes: list[int] = []
         reads: list[str] = []
 
-        class Recording(dict):
-            def __setitem__(self, k, v):
-                super().__setitem__(k, v)
-                sizes.append(len(self))
-
         init = round_ingest._IngestGeometry.__init__
         enrich = round_ingest._enrich_hole_gir_fairway
         read_text = Path.read_text
 
         def recording_init(geometry, *args, **kwargs):
             init(geometry, *args, **kwargs)
-            geometry._meshes = Recording()
-            sizes.append(len(geometry._meshes))
+
+        read_mesh = round_ingest._IngestGeometry._read
+
+        def recording_read(key):
+            value = read_mesh(key)
+            if value is not None:
+                sizes.append(1)
+            return value
 
         def observed_enrich(hole, **kwargs):
             result = enrich(hole, **kwargs)
@@ -186,6 +187,7 @@ class TeeResultIngestTest(unittest.TestCase):
 
         with patch.object(round_ingest._IngestGeometry, "__init__", recording_init), \
                 patch.object(round_ingest, "_enrich_hole_gir_fairway", observed_enrich), \
+                patch.object(round_ingest._IngestGeometry, "_read", staticmethod(recording_read)), \
                 patch.object(Path, "read_text", counting):
             fairways = self.fairways(events, key, **meta)
         return fairways, after_hole, sizes, reads
