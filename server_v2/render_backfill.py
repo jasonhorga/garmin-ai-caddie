@@ -216,17 +216,18 @@ class RenderBackfill:
                     tasks[key] = task
                 else:
                     task["priority"] = min(int(task.get("priority", 20)), self._priority(gid, hole, recent, downloaded))
+                    source_changed = task.get("assetVersion") != (str(source) if source else None)
                     if style_changed or force:
                         if task.get("topo") in {"done", "failed", "skipped"}:
                             task["topo"] = "pending"
-                    if matte_changed or force or task.get("assetVersion") != (str(source) if source else None):
+                    if matte_changed or force or source_changed:
                         task["garmin"] = "skipped" if not source else "pending"
                     task["assetVersion"] = str(source) if source else None
                     if task.get("topo") == "pending" and self._topo_ready(gid, hole):
                         task["topo"] = "done"
                     if source and task.get("garmin") == "pending" and self._raster_ready(gid, hole, str(source)):
                         task["garmin"] = "done"
-                    task["error"] = None if force else task.get("error")
+                    task["error"] = None if force or style_changed or matte_changed or source_changed else task.get("error")
             for key in list(tasks):
                 if key not in seen:
                     tasks.pop(key, None)
