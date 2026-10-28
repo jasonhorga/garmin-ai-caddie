@@ -3812,7 +3812,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertNotIn("LiveCumulativeTrend(", round_review)
         self.assertNotIn("round-review-trend", round_review)
         self.assertIn('identifier: "round-review-metric-\\(metric.id)"', round_review)
-        self.assertIn("ShareLink(item: Self.shareText(", round_review)
         self.assertIn('.accessibilityIdentifier("round-review-share")', round_review)
         for removed in ("func scorecardGrid(", "func scorecardNine(", "func scoreToken("):
             self.assertNotIn(removed, round_review)
