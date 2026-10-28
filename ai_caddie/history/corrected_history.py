@@ -310,6 +310,7 @@ def corrected_history_data(
     corrections_root: Path | str | None = None,
     round_refs: set[str] | None = None,
     holes_by_round: dict[str, set[int]] | None = None,
+    projection_data: HistoryData | None = None,
 ) -> HistoryData:
     """Share the complete corrected snapshot by source, player and both edit-store revisions.
 
@@ -325,13 +326,18 @@ def corrected_history_data(
     if round_refs is not None or holes_by_round is not None:
         return _build_corrected_history_data(data, **kwargs)
     # Lazy import: stats_cache imports the stats builder, which imports this module.
+    # A targeted round view still needs the full source history's geometry identity. Otherwise
+    # share detail changes the geometry-signature key from all course ids to one round's subset.
     from ai_caddie.history.stats_cache import correction_projection_inputs
 
     while True:
         # Pixel edits are replayed through the historical course's frame. A new mesh/hazard
         # file must invalidate this projection before any stats/profile reader receives it.
         inputs = correction_projection_inputs(
-            player_id, annotations_root=annotations_root, corrections_root=corrections_root, data=data,
+            player_id,
+            annotations_root=annotations_root,
+            corrections_root=corrections_root,
+            data=projection_data if projection_data is not None else data,
         )
         key = (player_id, data.source_fingerprint or history_data_fingerprint(data),
                inputs)
@@ -447,6 +453,10 @@ def corrected_round(
         correction_fingerprint=None,
     )
     corrected = corrected_history_data(
-        view, player_id=player_id, annotations_root=annotations_root, corrections_root=corrections_root,
+        view,
+        player_id=player_id,
+        annotations_root=annotations_root,
+        corrections_root=corrections_root,
+        projection_data=data,
     )
     return corrected, corrected.rounds[0]
