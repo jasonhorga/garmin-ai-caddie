@@ -396,6 +396,24 @@ final class CurrentHoleLocatorTests: XCTestCase {
         }
     }
 
+    /// Product spec 5.13: tees 12 m apart must still change under ordinary GPS wobble. A 3 m
+    /// sideways fix has only ~9.4 m of depth, so a spatial gate would keep restarting the timer.
+    func testProductSpec513TwelveMetreTeesConfirmThroughSidewaysWobble() {
+        let holes = [parallelHole(1, eastM: 0), parallelHole(2, eastM: 12)]
+        let start = Date(timeIntervalSince1970: 100)
+        var following = PrepHoleFollowingState()
+        _ = follow(&following, at: localPoint(eastM: 0, northM: 0), time: start,
+                   displayedHole: 1, holes: holes)
+        XCTAssertEqual(following.lastLocatedHole, 1)
+        for second in 1...5 {
+            let point = localPoint(eastM: 12, northM: second.isMultiple(of: 2) ? 3 : 0)
+            XCTAssertNil(follow(&following, at: point, time: start.addingTimeInterval(Double(second)),
+                                displayedHole: 1, holes: holes), "5.13: second \(second) is before confirmation")
+        }
+        XCTAssertEqual(follow(&following, at: localPoint(eastM: 12, northM: 3),
+                              time: start.addingTimeInterval(6), displayedHole: 1, holes: holes), 2)
+    }
+
     /// Product spec 5.13: incomplete geometry must not prevent following a known next hole.
     func testProductSpec513DisplayedHoleWithoutGeometryCanFollowTheNextTee() {
         let next = parallelHole(2, eastM: 0)
@@ -473,7 +491,7 @@ final class CurrentHoleLocatorTests: XCTestCase {
         XCTAssertNil(follow(&following, at: localPoint(eastM: 0, northM: -60), time: start,
                             displayedHole: 5, holes: holes))
         XCTAssertEqual(following.lastLocatedHole, 5)
-        XCTAssertNil(follow(&following, at: localPoint(eastM: 0, northM: -35),
+        XCTAssertNil(follow(&following, at: localPoint(eastM: 0, northM: -30),
                             time: start.addingTimeInterval(1), displayedHole: 5, holes: holes))
         XCTAssertEqual(follow(&following, at: localPoint(eastM: 0, northM: 0),
                               time: start.addingTimeInterval(3), displayedHole: 5, holes: holes), 6)

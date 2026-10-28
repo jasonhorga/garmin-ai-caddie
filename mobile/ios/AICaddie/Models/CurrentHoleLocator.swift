@@ -303,8 +303,9 @@ enum CurrentHoleLocator {
         return oldDistance - newDistance
     }
 
-    /// Shared anchors cannot distinguish loops; distinct old/new tees within 10 m cannot exceed
-    /// the spatial threshold either. `locate` owns the choice, and both cases need time confirmation.
+    /// Shared anchors cannot distinguish loops; distinct old/new tees within 15 m cannot reliably
+    /// exceed the 10 m spatial threshold under GPS noise either (the depth is at most the tee gap).
+    /// `locate` owns the choice, and both cases need time confirmation.
     static func isSharedTee(
         hole: Int, coordinate: CLLocationCoordinate2D, holes: [HoleLocatorGeometry], preferredHole: Int
     ) -> Bool {
@@ -313,7 +314,8 @@ enum CurrentHoleLocator {
         return holes.contains { row in
             guard row.hole != hole, let otherTee = row.tee else { return false }
             let tolerance = row.hole == preferredHole
-                ? PrepHoleFollowingState.minimumConfirmationDisplacementM : sharedTeeToleranceM
+                ? PrepHoleFollowingState.minimumConfirmationDisplacementM + sharedTeeToleranceM
+                : sharedTeeToleranceM
             return metres(tee, otherTee) <= tolerance
         }
     }
