@@ -19,8 +19,8 @@ import threading
 import time
 from typing import Any, Callable
 
-from ai_caddie.core.data import MESH_DIR, ROOT, atomic_write_json, mesh_path
-from ai_caddie.core.priority_work import NEARBY, PriorityExecutor, work_priority
+from ai_caddie.core.data import MESH_DIR, ROOT, atomic_write_json
+from ai_caddie.core.priority_work import NEARBY, work_priority
 from ai_caddie.geometry import garmin_raster, topo_render
 
 logger = logging.getLogger(__name__)
