@@ -32,6 +32,7 @@ from ai_caddie.core.data import (
     safe_read_json,
 )
 from ai_caddie.core.revisions import bump_revision
+from ai_caddie.core import revisions
 from ai_caddie.courses.name_authority import contains_cjk, normalize_course_text
 from ai_caddie.geometry.inspect_courseview_release import (
     GARMIN_OMT_SIMPLIFIED_CHINESE,
@@ -53,6 +54,8 @@ _RELEASE_FETCH_FAILED_AT: dict[tuple[str, int], float] = {}
 # The last fetch of a never-cached release failed for a transient reason (network, 5xx, malformed
 # bytes). Garmin answering 404/410 is a fact — no such layout — and is not recorded here.
 _RELEASE_UNCACHED_FAILURES: dict[tuple[str, int], str] = {}
+_RELEASE_SEMANTIC_CACHE: dict[str, tuple[tuple[int, str], tuple[int, str]]] = {}
+_RELEASE_SEMANTIC_CACHE_LOCK = threading.RLock()
 
 PAR_SOURCES = ("played", "courseview", "estimate")
 
@@ -736,16 +739,56 @@ def courseview_release_info(
     return _release_info(global_id, allow_fetch=allow_fetch, root=root)
 
 
-def courseview_release_signature(global_id: int, *, root: Path = ROOT) -> tuple[int, int, int] | None:
-    """The cached release file's ``(mtime_ns, size, inode)``, or None when none is cached.
+def _semantic_release_signature(
+    global_id: int, raw_signature: tuple[int, str], payload: bytes,
+) -> tuple[int, str]:
+    """Hash decoded release facts while ignoring expiring URL query signatures.
 
-    A replaced release changes it, so callers may reuse anything derived from the release under it.
+    The parser exposes the release version, CourseGen version, hole par/yardage/location facts,
+    tee ratings, and the raster/prodgeometry URL paths.  Those fields cover the authorities used
+    by vector/prep/topo; URL hosts and query strings are transport details, so canonicalizing every
+    parsed URL to its path makes a new ``garmindlm`` token a cache hit while a changed asset path,
+    tee, or geometry version remains a miss.
     """
     try:
-        stat = (_courseview_dir(root) / f"{int(global_id)}_releases.pb").stat()
-    except OSError:
+        info = inspect_valid_release(payload, expected_course_id=int(global_id))
+    except (TypeError, ValueError, OverflowError):
+        return raw_signature
+
+    def normalize(value: object) -> object:
+        if isinstance(value, dict):
+            return {str(key): normalize(item) for key, item in sorted(value.items(), key=lambda row: str(row[0]))}
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            from ai_caddie.geometry.geometry_authority import canonical_asset_path
+
+            return canonical_asset_path(value)
+        return value
+
+    canonical = json.dumps(normalize(info), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return (int(info["release_version"]), hashlib.sha256(canonical.encode("utf-8")).hexdigest())
+
+
+def courseview_release_signature(global_id: int, *, root: Path = ROOT) -> tuple[int, str] | None:
+    """Return a semantic release signature; rotating ``garmindlm`` tokens do not evict caches."""
+    path = _courseview_dir(root) / f"{int(global_id)}_releases.pb"
+    raw_signature = revisions.file_content_signature(path)
+    if raw_signature is None:
         return None
-    return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+    key = str(path.resolve(strict=False))
+    with _RELEASE_SEMANTIC_CACHE_LOCK:
+        cached = _RELEASE_SEMANTIC_CACHE.get(key)
+        if cached is not None and cached[0] == raw_signature:
+            return cached[1]
+    try:
+        payload = path.read_bytes()
+    except OSError:
+        return raw_signature
+    semantic = _semantic_release_signature(int(global_id), raw_signature, payload)
+    with _RELEASE_SEMANTIC_CACHE_LOCK:
+        _RELEASE_SEMANTIC_CACHE[key] = (raw_signature, semantic)
+    return semantic
 
 
 def courseview_release_fetch_failed(global_id: int, *, root: Path = ROOT) -> bool:

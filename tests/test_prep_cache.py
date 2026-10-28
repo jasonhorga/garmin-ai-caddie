@@ -62,8 +62,9 @@ class PrepCacheTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
 
     def test_dir_sig_detects_in_place_edit_of_a_non_newest_file(self) -> None:
-        # Mirror of stats_cache: the old (count, newest-mtime) sig missed an in-place edit
-        # to a non-newest file (count + newest-mtime unchanged) and could serve stale prep.
+        # Metadata changes to a non-newest file must invalidate prep even when the newest file's
+        # mtime is unchanged. Directory inputs remain cheap metadata manifests; release files use
+        # the semantic content signature tested in course_reference.
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)
             (older := d / "a.json").write_text("{}")

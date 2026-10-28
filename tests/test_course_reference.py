@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import os
+import re
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -434,6 +435,59 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(prep_cache._fingerprint(31936), fingerprint_before)
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             self.assertGreater(metadata["fetchedAt"], 1)
+
+    def test_signed_release_refresh_keeps_semantic_signature_and_prep_hit(self) -> None:
+        """J4.2: rotating Garmin URL tokens keeps the vector/prep authority warm."""
+        fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"
+        payload = fixture.read_bytes()
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            release_dir = root / "data" / "courseview"
+            release_dir.mkdir(parents=True)
+            release_path = release_dir / "31936_releases.pb"
+            release_path.write_bytes(payload)
+            original_courseview_dir = prep_cache._COURSEVIEW_DIR
+            prep_cache._COURSEVIEW_DIR = release_dir
+            self.addCleanup(setattr, prep_cache, "_COURSEVIEW_DIR", original_courseview_dir)
+
+            prep_cache.clear()
+            calls = {"count": 0}
+
+            def build() -> dict:
+                calls["count"] += 1
+                return {"build": calls["count"]}
+
+            kwargs = {
+                "global_id": 31936, "requested": [1], "render": False,
+                "include_shots": False, "player_id": "me", "build": build,
+            }
+            before = cr.courseview_release_signature(31936, root=root)
+            self.assertIsNotNone(before)
+            self.assertEqual(prep_cache.cached_course_prep(**kwargs), {"build": 1})
+            token_pattern = re.compile(rb"garmindlm=\d{10}_[0-9a-f]{32}")
+            self.assertGreaterEqual(len(token_pattern.findall(payload)), 18)
+            signed_refresh = token_pattern.sub(
+                b"garmindlm=1790000000_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", payload,
+            )
+            replacement = release_path.with_name(".replacement.pb")
+            replacement.write_bytes(signed_refresh)
+            os.replace(replacement, release_path)
+
+            self.assertEqual(cr.courseview_release_signature(31936, root=root), before)
+            self.assertEqual(prep_cache.cached_course_prep(**kwargs), {"build": 1})
+            self.assertEqual(calls["count"], 1)
+
+            geometry_changed = re.sub(
+                rb"(hole01_)(\d+)(\.zip)",
+                lambda match: match.group(1) + str(int(match.group(2)) + 1).encode() + match.group(3),
+                signed_refresh,
+                count=1,
+            )
+            replacement.write_bytes(geometry_changed)
+            os.replace(replacement, release_path)
+            self.assertNotEqual(cr.courseview_release_signature(31936, root=root), before)
+            self.assertEqual(prep_cache.cached_course_prep(**kwargs), {"build": 2})
+            self.assertEqual(calls["count"], 2)
 
     def test_stale_release_refresh_different_bytes_writes_and_changes_prep_fingerprint(self) -> None:
         fixture = Path(__file__).parent / "fixtures" / "courseview_release_31936.pb"

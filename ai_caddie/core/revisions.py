@@ -7,6 +7,7 @@ the warm path; complete manifests remain the correctness fallback for an externa
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -48,6 +49,41 @@ _SCANNER_THREAD: threading.Thread | None = None
 _STOP = threading.Event()
 _SCAN_ROUND = 0
 _LAST_SCAN_DURATION_S = 0.0
+_CONTENT_HASH_CACHE: dict[str, tuple[int, int, int, int, str]] = {}
+
+
+def file_content_signature(path: Path | str) -> tuple[int, str] | None:
+    """Return ``(size, sha256)`` while caching bytes by filesystem identity.
+
+    Course release refreshes can replace a file with byte-identical content. Consumers must keep
+    their cached facts in that case, so inode/ctime are deliberately absent from the returned
+    signature. The cache key includes mtime, size, ctime, and inode so a same-size rewrite that
+    restores mtime cannot reuse stale bytes.
+    """
+    target = Path(path)
+    key = str(target.resolve(strict=False))
+    try:
+        stat = target.stat()
+    except (FileNotFoundError, NotADirectoryError, OSError):
+        with _LOCK:
+            _CONTENT_HASH_CACHE.pop(key, None)
+        return None
+    cached = _CONTENT_HASH_CACHE.get(key)
+    cache_key = (stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns, stat.st_ino)
+    if cached is not None and cached[:4] == cache_key:
+        return (stat.st_size, cached[4])
+    digest = hashlib.sha256()
+    try:
+        with target.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except (FileNotFoundError, NotADirectoryError, OSError):
+        with _LOCK:
+            _CONTENT_HASH_CACHE.pop(key, None)
+        return None
+    with _LOCK:
+        _CONTENT_HASH_CACHE[key] = (*cache_key, digest.hexdigest())
+    return (stat.st_size, digest.hexdigest())
 
 
 def _revision_path(directory: Path) -> Path:
@@ -258,6 +294,7 @@ def clear() -> None:
     """Test/maintenance hook; production writes invalidate entries through filesystem signals."""
     with _LOCK:
         _ENTRIES.clear()
+        _CONTENT_HASH_CACHE.clear()
 
 
 def stop_scanner() -> None:

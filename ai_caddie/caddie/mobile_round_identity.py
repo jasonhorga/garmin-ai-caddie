@@ -86,14 +86,13 @@ def _write_mobile_round_identity(
         if previous == document:
             return
         event_path = mobile_event_log(root, player_id=player_id)
-        rows = open_mobile_event_store(event_path.parent).read_rows(round_id)
+        event_holes = open_mobile_event_store(event_path.parent).round_event_holes(round_id)
         after = {hole["number"]: hole for hole in document["holes"]}
         if previous is None:
             # Offline first-nine events may precede background package validation. Only fill
             # the table if their existing display numbers are also their physical numbers.
             # In particular a late back-nine package must not rotate an old event stream.
-            for row in rows:
-                number = row.get("event", {}).get("hole") or 0
+            for number in event_holes:
                 if number <= 0:
                     continue
                 if not (1 <= number <= 9 and number in after
@@ -103,7 +102,7 @@ def _write_mobile_round_identity(
             before = {hole["number"]: hole for hole in previous["holes"]}
             if any(
                 number in before and before[number] != after.get(number)
-                for number in (row.get("event", {}).get("hole") for row in rows)
+                for number in event_holes
             ):
                 raise MobileRoundIdentityError("mobile_round_identity_changes_played_hole")
         descriptor, temporary_name = tempfile.mkstemp(dir=path.parent, prefix=".identity-")

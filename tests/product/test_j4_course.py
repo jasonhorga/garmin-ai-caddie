@@ -1,6 +1,8 @@
 """J4: course identity over HTTP and independent, small polygon arithmetic."""
 import copy
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -223,6 +225,8 @@ class GeometryTests(unittest.TestCase):
                 self.assertEqual(hazards["water_carry"],[[expected[2],expected[3]]])
                 detail = hazards["details"][0]
                 self.assertEqual(tuple(detail[k] for k in ("frontM","backM","frontRouteM","backRouteM")),expected)
+
+
         # Side bunker: nearest (20,100), farthest (30,120) -> 102.0/123.7m;
         # orthogonal northbound projections are 100/120m and lateral gap is 20m.
         with self.subTest(row="side_bunker"):
@@ -255,3 +259,54 @@ class GeometryTests(unittest.TestCase):
                     if name == "cutout":
                         self.assertEqual({tuple(v) for v in polygons[0]["holesPx"][0]},
                                          {(10,10),(20,10),(20,20),(10,20)})
+
+
+class MobileRoundIndexTests(unittest.TestCase):
+    def _store_with_event(self, root: Path):
+        from ai_caddie.caddie.mobile_event_store import FileEventStore
+
+        store = FileEventStore(root / "data" / "mobile_events")
+        store.append_batch(
+            "legacy-round",
+            [{
+                "eventId": "legacy-hole-1",
+                "roundId": "legacy-round",
+                "hole": 1,
+                "kind": "note",
+                "payload": {"text": "fixture"},
+            }],
+            request_key="legacy-request",
+        )
+        return store
+
+    def test_j4_2_round_index_migrates_a_legacy_log_once(self):
+        """J4.2: a pre-index event log is migrated on first lookup and then served from disk."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self._store_with_event(root)
+            index_path = store.round_index
+            index_path.unlink()
+            self.assertEqual(store.round_event_holes("legacy-round"), [1])
+            self.assertTrue(index_path.exists())
+            self.assertEqual(store.round_event_holes("legacy-round"), [1])
+
+    def test_j4_2_corrupt_round_index_falls_back_and_repairs(self):
+        """J4.2: a partial JSON sidecar falls back to the authoritative event log."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self._store_with_event(root)
+            store.round_index.write_text('{"schema":', encoding="utf-8")
+            self.assertEqual(store.round_event_holes("legacy-round"), [1])
+            self.assertEqual(json.loads(store.round_index.read_text())["rounds"]["legacy-round"], [1])
+
+    def test_j4_2_round_index_length_mismatch_rebuilds(self):
+        """J4.2: a sidecar for another committed log length is rebuilt before lookup."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = self._store_with_event(root)
+            payload = json.loads(store.round_index.read_text(encoding="utf-8"))
+            payload["committedByteLength"] += 1
+            store.round_index.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertEqual(store.round_event_holes("legacy-round"), [1])
+            repaired = json.loads(store.round_index.read_text(encoding="utf-8"))
+            self.assertEqual(repaired["committedByteLength"], store.log.stat().st_size)
