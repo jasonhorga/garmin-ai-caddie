@@ -55,7 +55,8 @@ concurrency:
 jobs:
   native-mobile:
     runs-on: macos-15
-    timeout-minutes: 60
+    # PR runs stay bounded at 60; dispatch adds the real-simulator screenshot step (own 90-min cap, job ~66-88 min)
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 150 || 60 }}
     env:
       IOS_DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=latest
       WATCH_DESTINATION: platform=watchOS Simulator,name=Apple Watch Series 10 (46mm),OS=latest
