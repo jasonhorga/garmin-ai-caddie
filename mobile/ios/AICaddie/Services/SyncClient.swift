@@ -632,12 +632,15 @@ public final class SyncClient {
             await gate(timedRequest)
         }
         #endif
-        try Task.checkCancellation()
-        guard recordTiming else {
+        // Capture cheap raw clocks before the final cancellation check. Formatting a date here
+        // would put avoidable work between that check and URLSession's transport handoff.
+        let startedAt = Date()
+        let started = recordTiming ? monotonicNow() : 0
+        if !recordTiming {
+            try Task.checkCancellation()
             return try await urlSession.data(for: timedRequest)
         }
-        let startedAt = ISO8601DateFormatter().string(from: Date())
-        let started = monotonicNow()
+        try Task.checkCancellation()
         do {
             let result = try await urlSession.data(for: timedRequest)
             let finished = monotonicNow()
@@ -669,7 +672,7 @@ public final class SyncClient {
     private func recordClientTiming(
         request: URLRequest,
         requestId: String,
-        startedAt: String,
+        startedAt: Date,
         elapsed: TimeInterval,
         response: URLResponse?,
         error: Error?,
@@ -693,7 +696,7 @@ public final class SyncClient {
             clientTotalMs: elapsed * 1_000,
             status: status,
             error: timingError,
-            startedAt: startedAt,
+            startedAt: ISO8601DateFormatter().string(from: startedAt),
             networkType: nil,
             serverTotalMs: serverTotalMs
         )

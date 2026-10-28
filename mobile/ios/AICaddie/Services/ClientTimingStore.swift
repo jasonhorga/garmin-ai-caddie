@@ -2,7 +2,7 @@ import Foundation
 
 /// The privacy-safe record persisted for one client request. It contains only transport facts;
 /// server timing is useful locally but is intentionally omitted from the upload schema.
-struct ClientTimingRecord: Codable, Equatable {
+struct ClientTimingRecord: Codable, Equatable, Sendable {
     let requestId: String
     let path: String
     let clientTotalMs: Double
@@ -36,7 +36,7 @@ struct ClientTimingRecord: Codable, Equatable {
     }
 }
 
-struct ClientTimingUploadRecord: Codable {
+struct ClientTimingUploadRecord: Codable, Sendable {
     let requestId: String
     let path: String
     let clientTotalMs: Double
@@ -96,6 +96,9 @@ final class ClientTimingStore: @unchecked Sendable {
     private let lock = NSLock()
     private let fileURL: URL?
     private let persists: Bool
+    /// The process-wide store writes snapshots off the request path. Explicit injected stores keep
+    /// synchronous writes for deterministic focused tests and callers that need an immediate file.
+    private let persistenceQueue: DispatchQueue?
     private let now: () -> TimeInterval
     private let uploadsEnabled: Bool
     private let encoder = JSONEncoder()
@@ -115,6 +118,7 @@ final class ClientTimingStore: @unchecked Sendable {
     ) {
         self.fileURL = fileURL
         self.persists = fileURL != nil
+        self.persistenceQueue = nil
         self.now = now
         self.uploadsEnabled = uploadsEnabled
         self.records = fileURL.map(Self.readRecords) ?? []
@@ -130,6 +134,9 @@ final class ClientTimingStore: @unchecked Sendable {
     ) {
         self.fileURL = fileURL
         self.persists = persists
+        self.persistenceQueue = persists
+            ? DispatchQueue(label: "ai.caddie.client-timing-persistence", qos: .utility)
+            : nil
         self.now = now
         self.uploadsEnabled = uploadsEnabled
         self.records = []
@@ -141,10 +148,11 @@ final class ClientTimingStore: @unchecked Sendable {
                 self.lock.lock()
                 self.records = Array(Self.deduplicate(loaded + self.records).suffix(Self.maxRecords))
                 self.loaded = true
-                if self.persists {
-                    self.persistLocked()
-                }
+                let snapshot = self.persists ? self.records : nil
                 self.lock.unlock()
+                if let snapshot {
+                    self.enqueuePersistence(snapshot)
+                }
             }
         } else if let fileURL {
             self.records = Self.readRecords(fileURL)
@@ -196,10 +204,11 @@ final class ClientTimingStore: @unchecked Sendable {
             pending.removeFirst(excess)
             pendingAges.removeFirst(excess)
         }
-        if persists && loaded {
-            persistLocked()
-        }
+        let snapshot = persists && loaded ? records : nil
         lock.unlock()
+        if let snapshot {
+            enqueuePersistence(snapshot)
+        }
         startUploadIfDue(now: timestamp)
     }
 
@@ -286,7 +295,17 @@ final class ClientTimingStore: @unchecked Sendable {
         return foregroundStartCount > 0
     }
 
-    private func persistLocked() {
+    private func enqueuePersistence(_ snapshot: [ClientTimingRecord]) {
+        guard let persistenceQueue else {
+            persist(snapshot)
+            return
+        }
+        persistenceQueue.async { [weak self] in
+            self?.persist(snapshot)
+        }
+    }
+
+    private func persist(_ snapshot: [ClientTimingRecord]) {
         guard let fileURL else { return }
         Self.fileLock.lock()
         defer { Self.fileLock.unlock() }
@@ -295,7 +314,7 @@ final class ClientTimingStore: @unchecked Sendable {
                 at: fileURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            let lines = try records.map { try encoder.encode($0) }
+            let lines = try snapshot.map { try encoder.encode($0) }
                 .map { String(decoding: $0, as: UTF8.self) }
                 .joined(separator: "\n")
             try (lines + (lines.isEmpty ? "" : "\n")).write(to: fileURL, atomically: true, encoding: .utf8)

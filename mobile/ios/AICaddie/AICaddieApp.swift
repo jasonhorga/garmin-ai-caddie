@@ -674,23 +674,24 @@ public final class LiveRoundAppModel: ObservableObject {
     private var offlineStorageGrewAt: Date?
     private var offlineStorageRemeasureInFlight = false
     private var offlineStorageRemeasureTask: Task<Void, Never>?
-    /// Cancels every task owned by the current live round. Product finish/abandon paths use the
-    /// same cancellation boundary as test teardown so a late background continuation cannot start
-    /// another package, prep, geometry, or install-status request.
-    private func cancelRoundBackgroundWork() {
+    /// Cancels the cancellable work owned by the current live round. A successful Save & End keeps
+    /// the whole-course download alive so it can finish after the live package is sealed; callers
+    /// that need to abandon the round pass `keepOfflineCourseDownload: false`.
+    private func cancelRoundBackgroundWork(keepOfflineCourseDownload: Bool = false) {
         cancelRoundEnrichment()
         prepEnrichmentTask?.cancel()
         prepEnrichmentTask = nil
         prepEnrichmentRoundID = nil
         cancelGarminRasterDownload()
         clearFreshEntryRelease()
-        offlineCourseDownloadTask?.cancel()
-        offlineCourseDownloadTask = nil
-        offlineCourseDownloadRoundId = nil
-        interruptedOfflineCourseDownloadRoundId = nil
+        if !keepOfflineCourseDownload {
+            offlineCourseDownloadTask?.cancel()
+            offlineCourseDownloadTask = nil
+            offlineCourseDownloadRoundId = nil
+            interruptedOfflineCourseDownloadRoundId = nil
+        }
         pendingGeometryRefreshTask?.cancel()
         pendingGeometryRefreshTask = nil
-        pausePrepCourseDownload()
         activeRoundStartTask?.cancel()
         activeRoundStartTask = nil
     }
@@ -3726,8 +3727,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 holesCompleted: completedHoles.count,
                 courseGlobalId: package.course.globalId
             )
-            cancelRoundBackgroundWork()
             try offlineStore.sealRoundForDeferredFinish(package: package, metadata: metadata)
+            // Seal first: quarantine/media failures above must leave every round-owned task alive
+            // so the player can repair the round and its interrupted downloads can resume.
+            cancelRoundBackgroundWork(keepOfflineCourseDownload: true)
             try leaveSealedRoundLocally(package: package)
             watchBridge?.sendRoundClosureToWatch(
                 roundId: package.roundId,
@@ -3879,7 +3882,6 @@ public final class LiveRoundAppModel: ObservableObject {
         roundId: String,
         notifyWatch: Bool = true
     ) throws {
-        cancelRoundBackgroundWork()
         guard try offlineStore.loadPendingMedia(roundId: roundId).isEmpty else {
             throw LiveRoundFinishError.pendingMedia
         }
@@ -3894,8 +3896,11 @@ public final class LiveRoundAppModel: ObservableObject {
             throw LiveRoundFinishError.blockedByQuarantine
         }
         let homePackage = package
-        watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
         try offlineStore.discardRound(roundId: roundId)
+        // The local discard is durable now; cancellation cannot strand a still-live round after a
+        // pending-media or quarantine guard throws above.
+        cancelRoundBackgroundWork(keepOfflineCourseDownload: true)
+        watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
         try? offlineStore.removeQuarantinedEvents(roundId: roundId)
         if let homePackage {
             try offlineStore.saveHomePackage(homePackage)
@@ -4193,9 +4198,6 @@ public final class LiveRoundAppModel: ObservableObject {
     /// the Watch only after the matching phone data has been removed.
     public func discardActiveRound() {
         guard let package, liveRoundState?.roundId == package.roundId else { return }
-        cancelRoundBackgroundWork()
-        pendingGeometryRefreshTask?.cancel()
-        pendingGeometryRefreshTask = nil
         pendingGeometryLastAttemptEpoch = nil
         watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
         do {
@@ -4205,6 +4207,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 roundId: package.roundId,
                 disposition: .abandoned
             )
+            cancelRoundBackgroundWork()
             if let home = try offlineStore.loadHomePackage() {
                 try activateHomePackage(home, status: "本场已放弃")
             } else {
