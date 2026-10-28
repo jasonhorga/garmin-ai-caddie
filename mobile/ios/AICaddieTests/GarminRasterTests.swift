@@ -67,6 +67,7 @@ final class GarminRasterTests: XCTestCase {
 
     /// Product spec 4.5: a failed/timeout raster request immediately leaves a usable factual or
     /// numeric surface; its later retry must never own the hole screen's visible loading state.
+    @MainActor
     func testProductSpec45RasterFailureStopsVisibleSpinner() async {
         let url = URL(string: "https://c136.example.test/raster-timeout.jpg")!
         let store = GarminRasterImageStore(
