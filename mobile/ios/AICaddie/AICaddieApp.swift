@@ -2013,7 +2013,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     globalId: globalId,
                     teeBox: teeBox,
                     roundId: requestedRoundId,
-                    generatedAt: preparedAt
+                    generatedAt: preparedAt,
+                    preparationToken: preparationToken
                 )
                 if intent.timedOut { return }
                 fetched = intent.package
@@ -2140,7 +2141,8 @@ public final class LiveRoundAppModel: ObservableObject {
         globalId: Int,
         teeBox: String,
         roundId: String,
-        generatedAt: Date
+        generatedAt: Date,
+        preparationToken: UUID
     ) async -> (package: LiveRoundPackage?, timedOut: Bool) {
         let key = PrepCourseDownloadRecord.intentKey(globalId: globalId, teeBox: teeBox)
         if let cached = intentPrefetchPackages[key] {
@@ -2168,6 +2170,7 @@ public final class LiveRoundAppModel: ObservableObject {
             return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
         } catch is IntentPrefetchWaitTimeout {
             task.cancel()
+            guard isCurrentRoundPreparation(preparationToken) else { return (nil, true) }
             roundStartFailure = .timedOut
             syncStatus = roundStartFailure?.presentationMessage ?? "服务器较慢，没能开始，点重试"
             return (nil, true)
@@ -4761,7 +4764,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     globalId: course.globalId,
                     teeBox: teeBox,
                     roundId: roundId,
-                    generatedAt: capturedAt
+                    generatedAt: capturedAt,
+                    preparationToken: preparationToken
                 )
                 if intent.timedOut { return }
                 opened = intent.package
