@@ -2529,7 +2529,7 @@ enum LiveMapDisplaySelection {
         garminProjection: CoursePrepHoleImageProjection?
     ) -> CoursePrepOverlay? {
         switch state {
-        case .precise:
+        case .precise, .factualPending, .factual:
             return precise
         case .garminRaster:
             guard let garminProjection,
@@ -2544,7 +2544,7 @@ enum LiveMapDisplaySelection {
                 from: preciseProjection,
                 to: garminProjection
             ) ?? empty
-        case .waiting, .factualPending, .factual, .numericPlaceholder:
+        case .waiting, .numericPlaceholder:
             return nil
         }
     }
