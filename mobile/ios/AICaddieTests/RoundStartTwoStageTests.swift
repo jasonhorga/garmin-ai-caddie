@@ -322,7 +322,7 @@ final class RoundStartTwoStageTests: XCTestCase {
     func testCompletedCourseIntentIsReusedByStart() async throws {
         let host = "c85-intent-complete.example.test"
         let roundId = "c85-intent-complete"
-        let intentId = 31796
+        let intentId = c85CourseId
         let mapPackage = try package(roundId: roundId, mapOnly: true)
         let mapData = try JSONEncoder().encode(mapPackage)
         let requests = C85RequestLog()
@@ -357,13 +357,15 @@ final class RoundStartTwoStageTests: XCTestCase {
     func testInFlightCourseIntentIsAwaitedByStartWithoutDuplicate() async throws {
         let host = "c85-intent-flight.example.test"
         let roundId = "c85-intent-flight"
-        let intentId = 31796
+        let intentId = c85CourseId
         let mapPackage = try package(roundId: roundId, mapOnly: true)
         let mapData = try JSONEncoder().encode(mapPackage)
         let held = C85HeldRequests()
         let requests = C85RequestLog()
         let intentSent = expectation(description: "intent package sent")
         let intentSentOnce = C33FirstMatch()
+        let intentStopped = expectation(description: "in-flight intent remains active until release")
+        intentStopped.isInverted = true
         let intentPath = "/api/v2/mobile/courses/\(intentId)/package"
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host,
@@ -371,7 +373,10 @@ final class RoundStartTwoStageTests: XCTestCase {
             requests.append(proto.request)
             held.hold(proto)
             if intentSentOnce.claim() { intentSent.fulfill() }
-        }, onStop: { held.forget($0) })
+        }, onStop: { request in
+            held.forget(request)
+            if request.url?.path == intentPath { intentStopped.fulfill() }
+        })
         let fixture = makeModel(host: host, held: held)
         let model = fixture.model
         let intent = MobileCourseOption(globalId: intentId, name: "Intent nine", holes: 9, teeBox: "blue")
@@ -384,6 +389,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         try await Task.sleep(nanoseconds: 50_000_000)
         let mapRequestsBeforeRelease = requests.all.filter { c33Query($0, "map_only") == "true" }
         XCTAssertEqual(mapRequestsBeforeRelease.count, 1, "Start waits for the in-flight intent instead of sending another map package")
+        await fulfillment(of: [intentStopped], timeout: 0.1)
         held.releaseAll(200, mapData)
         await start.value
 
@@ -401,31 +407,57 @@ final class RoundStartTwoStageTests: XCTestCase {
         let requests = C85RequestLog()
         let intentSent = expectation(description: "intent package sent")
         let intentSentOnce = C33FirstMatch()
+        let intentStopped = expectation(description: "timed-out intent is cancelled")
+        let intentStoppedOnce = C33FirstMatch()
+        let stoppedRequestCount = C85Counter()
         let intentPath = "/api/v2/mobile/courses/\(intentId)/package"
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host,
                   proto.request.url?.path == intentPath else { proto.reply(404); return }
             requests.append(proto.request)
-            held.hold(proto)
-            if intentSentOnce.claim() { intentSent.fulfill() }
-        }, onStop: { held.forget($0) })
+            if requests.all.filter({ c33Query($0, "map_only") == "true" }).count == 1 {
+                held.hold(proto)
+                if intentSentOnce.claim() { intentSent.fulfill() }
+            } else {
+                // If the budget mutant keeps waiting, let teardown finish the retry ladder
+                // after the bounded test wait instead of leaving a URLSession task alive.
+                proto.reply(503)
+            }
+        }, onStop: { request in
+            held.forget(request)
+            guard request.url?.path == intentPath, intentStoppedOnce.claim() else { return }
+            stoppedRequestCount.set(requests.all.filter { c33Query($0, "map_only") == "true" }.count)
+            intentStopped.fulfill()
+        })
         let fixture = makeModel(host: host, held: held, roundStartIntentWaitNanoseconds: 50_000_000)
         let model = fixture.model
         let intent = MobileCourseOption(globalId: intentId, name: "Intent nine", holes: 9, teeBox: "blue")
 
         model.prefetchIntendedCourses([intent], teeBox: "blue")
         await fulfillment(of: [intentSent], timeout: eventWait)
+        let startFinished = expectation(description: "foreground start finishes within its intent budget")
+        let startFinishedFlag = C85Counter()
         let start = Task {
             await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: mapPackage.loopEntries)
+            startFinishedFlag.set(1)
+            startFinished.fulfill()
         }
-        await start.value
+        await fulfillment(of: [startFinished], timeout: 2)
+        if startFinishedFlag.value == 0 {
+            // The wait-budget mutant leaves the first request held. Release it and answer
+            // retries so this mutant produces a bounded test failure instead of hanging the job.
+            held.releaseAll(503)
+            await start.value
+            return
+        }
+        await fulfillment(of: [intentStopped], timeout: eventWait)
 
         XCTAssertEqual(model.roundStartFailure, .timedOut)
         XCTAssertNil(model.pendingLiveHole)
         XCTAssertEqual(
-            requests.all.filter { c33Query($0, "map_only") == "true" }.count,
+            stoppedRequestCount.value,
             1,
-            "timeout fails the foreground start instead of issuing an unbounded duplicate"
+            "timeout cancels the original intent before the prep worker can issue a retry"
         )
     }
 
