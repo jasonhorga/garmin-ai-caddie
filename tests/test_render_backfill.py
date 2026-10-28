@@ -23,6 +23,15 @@ from PIL import Image
 from server_v2 import render_backfill
 
 
+def _crashing_topo_worker(gid, hole):
+    """Synthetic J4.2 worker: crash only this test's render child, never the API process."""
+    if gid == 1:
+        os._exit(9)
+    image = io.BytesIO()
+    Image.new("RGB", (8, 8), "green").save(image, format="PNG")
+    return image.getvalue()
+
+
 class BackgroundMapContractTests(unittest.TestCase):
     """J4.2: persistent map updates must leave foreground map entry responsive."""
 
@@ -113,6 +122,83 @@ class BackgroundMapContractTests(unittest.TestCase):
             self.assertEqual(pool.submit.call_count, 1)
             sleep.assert_not_called()
 
+    def test_J42_real_child_crashes_stop_without_starving_peer_work(self):
+        from ai_caddie.geometry import topo_render
+        (self.root / "meshes/gid2_h01_meshes.json").write_text("{}")
+        worker = self._new(render_topo=None, raster_version=lambda *_: None)
+        with (patch.dict(os.environ, {"AI_CADDIE_TOPO_RENDER_PROCESSES": "1"}),
+              patch.object(topo_render, "_render_pool", None),
+              patch.object(topo_render, "_render_in_worker", _crashing_topo_worker),
+              patch.object(render_backfill.time, "sleep") as sleep):
+            try:
+                worker.enqueue_all(recent={(1, 1), (2, 1)}, downloaded=set())
+                for _ in range(6):
+                    worker.run_once()
+                worker.close()
+                self.assertEqual(worker.status()["done"], 1)
+                self.assertEqual(worker.status()["failed"], 1)
+                self.assertEqual(worker.status()["pending"], 0)
+                self.assertEqual(sleep.call_count, 2)
+            finally:
+                topo_render._shutdown_render_pool()
+
+    def test_J42_runtime_errors_and_nonshutdown_cancellation_use_the_same_limit(self):
+        from ai_caddie.geometry import topo_render
+        for failure in (RuntimeError("submission refused"), CancelledError()):
+            with self.subTest(failure=type(failure).__name__):
+                worker = self._new(state_path=self.root / f"{type(failure).__name__}.json",
+                                   render_topo=None, raster_version=lambda *_: None)
+                pool = Mock()
+                pool.submit.side_effect = failure
+                with (patch.object(topo_render, "_render_process_count", return_value=1),
+                      patch.object(topo_render, "_get_render_pool", return_value=pool),
+                      patch.object(topo_render, "_discard_render_pool"),
+                      patch.object(render_backfill.time, "sleep") as sleep):
+                    worker.enqueue_all(downloaded=set())
+                    for _ in range(3):
+                        worker.run_once()
+                    self.assertFalse(worker.run_once())
+                    self.assertEqual(worker.status()["failed"], 1)
+                    self.assertIn(f"render interrupted 3x: {type(failure).__name__}",
+                                  worker.status()["failures"][0]["error"])
+                    self.assertEqual(pool.submit.call_count, 3)
+                    self.assertEqual(sleep.call_count, 2)
+
+    @staticmethod
+    def _release_crashed_writer(worker):
+        # Simulate process death: the OS releases flock, without a graceful checkpoint.
+        worker._lease.close()
+        worker._lease = None
+
+    def test_J42_restart_replays_submission_intent_without_a_checkpoint(self):
+        from ai_caddie.geometry import topo_render
+        worker = self._new(render_topo=None, raster_version=lambda *_: None)
+        pool = Mock()
+        pool.submit.side_effect = SystemExit("synthetic API exit")
+        with (patch.object(topo_render, "_render_process_count", return_value=1),
+              patch.object(topo_render, "_get_render_pool", return_value=pool)):
+            worker.enqueue_all(downloaded=set())
+            with self.assertRaises(SystemExit):
+                worker.run_once()
+        self._release_crashed_writer(worker)
+        restarted = self._new(raster_version=lambda *_: None)
+        restarted.enqueue_all(downloaded=set())
+        task = restarted.status(detail=True)["tasks"]["1:1"]
+        self.assertEqual(task["interrupts"]["topo"], 1)
+        self.assertFalse(task["submitted"]["topo"])
+
+    def test_J42_restart_replays_completed_units_without_repeating_them(self):
+        worker = self._new(raster_version=lambda *_: None)
+        worker.enqueue_all(downloaded=set())
+        worker.run_once()
+        self._release_crashed_writer(worker)
+        draw = Mock()
+        restarted = self._new(render_topo=draw, raster_version=lambda *_: None)
+        restarted.enqueue_all(downloaded=set())
+        self.assertFalse(restarted.run_once())
+        self.assertEqual(restarted.status()["done"], 1)
+        draw.assert_not_called()
+
     def test_J42_submission_is_durable_before_entering_the_pool(self):
         from ai_caddie.geometry import topo_render
         worker = self._new(render_topo=None, raster_version=lambda *_: None)
@@ -186,6 +272,7 @@ class BackgroundMapContractTests(unittest.TestCase):
             task = worker.status(detail=True)["tasks"]["1:1"]
             self.assertEqual(task.get("interrupts", {}).get("topo"), 0)
             self.assertFalse(task.get("submitted", {}).get("topo", True))
+            pool.submit.assert_called_once()
             sleep.assert_not_called()
 
     def test_J42_force_resets_the_persisted_interrupt_budget(self):
@@ -276,7 +363,7 @@ class BackgroundMapContractTests(unittest.TestCase):
                   patch.object(render_backfill.time, "sleep") as sleep):
                 source = raster._raster_path(1, 1, "asset-1")
                 source.parent.mkdir(exist_ok=True)
-                source.write_bytes(b"cached-jpeg")
+                source.write_bytes(self._image_bytes())
                 worker.enqueue_all(downloaded=set(), recent={(1, 1)})
                 original_priority = worker.status(detail=True)["tasks"]["1:1"]["priority"]
                 self.assertTrue(worker.run_once())
@@ -315,10 +402,28 @@ class BackgroundMapContractTests(unittest.TestCase):
             with self.subTest(unit=unit):
                 self._assert_pool_failure_recovers(unit, CancelledError())
 
-    def test_J42_render_timeout_discards_pool_and_keeps_unit_pending(self):
-        for unit in ("topo", "garmin"):
-            with self.subTest(unit=unit):
-                self._assert_pool_failure_recovers(unit, TimeoutError())
+    def test_J42_garmin_timeout_discards_pool_and_fails_once(self):
+        from ai_caddie.geometry import garmin_raster as raster, topo_render
+        worker = self._new(topo_ready=lambda *_: True, render_garmin=None)
+        pool, future = Mock(), Future()
+        future.set_exception(TimeoutError())
+        pool.submit.return_value = future
+        with (patch.object(raster, "RASTER_CACHE_DIR", self.root / "raster"),
+              patch.object(topo_render, "_render_process_count", return_value=1),
+              patch.object(topo_render, "_get_render_pool", return_value=pool),
+              patch.object(topo_render, "_discard_render_pool") as discard,
+              patch.object(render_backfill.time, "sleep") as sleep):
+            source = raster._raster_path(1, 1, "asset-1")
+            source.parent.mkdir(exist_ok=True)
+            source.write_bytes(self._image_bytes())
+            worker.enqueue_all(downloaded=set())
+            worker.run_once()
+            self.assertEqual(worker.status()["failed"], 1)
+            self.assertIn("render timed out after 180s", worker.status()["failures"][0]["error"])
+            self.assertFalse(worker.run_once())
+            self.assertEqual(pool.submit.call_count, 1)
+            discard.assert_called_once_with(pool)
+            sleep.assert_not_called()
 
     def test_J42_topo_foreground_and_backfill_share_singleflight(self):
         from ai_caddie.geometry import topo_render
@@ -420,7 +525,7 @@ class BackgroundMapContractTests(unittest.TestCase):
             self.assertNotIn("synthetic-secret", worker.state_path.read_text() + error)
             source = raster._raster_path(1, 1, "asset-1")
             source.parent.mkdir(exist_ok=True)
-            source.write_bytes(b"cached-jpeg")
+            source.write_bytes(self._image_bytes())
             failed = Future()
             failed.set_exception(ValueError("invalid pixels"))
             pool = Mock()

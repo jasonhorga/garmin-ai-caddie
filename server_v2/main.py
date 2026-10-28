@@ -73,6 +73,7 @@ from .geometry import (
 from .garmin_raster import ROUTER as garmin_raster_router, prefetch_holes as prefetch_garmin_rasters
 from .render_backfill import (
     register_router as register_render_backfill_router, start_background as start_render_backfill,
+    stop_background as stop_render_backfill,
     foreground_request_started, foreground_request_finished,
 )
 from .pin_sheet import read_pin_sheet_response
@@ -272,7 +273,10 @@ async def _lifespan(_app: FastAPI):
     # Normal service processes retain all four startup tasks by default.
     if os.environ.get("AI_CADDIE_BOOT_BACKGROUND_WORK", "1") != "0":
         _start_boot_background_work()
-    yield
+    try:
+        yield
+    finally:
+        stop_render_backfill()
 
 
 app = FastAPI(title="AI Caddie v2", version="0.1.0", lifespan=_lifespan)
