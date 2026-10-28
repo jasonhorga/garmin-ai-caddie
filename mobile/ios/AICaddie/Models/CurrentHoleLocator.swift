@@ -84,7 +84,10 @@ struct PrepHoleFollowingState: Equatable {
         pendingSampleCount = 0
     }
 
-    mutating func navigationTarget(currentLocatedHole: Int?, displayedHole: Int) -> Int? {
+    mutating func navigationTarget(
+        currentLocatedHole: Int?, displayedHole: Int,
+        sampledAt: Date = Date(), coordinate: CLLocationCoordinate2D? = nil
+    ) -> Int? {
         guard let currentLocatedHole else {
             // A missing fix cannot confirm a consecutive sample for the pending hole, but it also
             // must not erase the last confirmed hole used by the current screen.

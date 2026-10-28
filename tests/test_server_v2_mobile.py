@@ -3541,6 +3541,35 @@ class ServerV2MobileTests(unittest.TestCase):
             self.assertEqual(response.status_code, 422, response.text)
             self.assertFalse((root / "data" / "mobile_events" / "events.jsonl").exists())
 
+    def test_mobile_start_hole_422_names_actual_round_limit(self) -> None:
+        event = {
+            "schema": "ai-caddie-live-round-event-v1", "eventId": "start-limit",
+            "roundId": "start-limit", "timestamp": "2026-06-20T00:00:00Z", "hole": 1,
+            "kind": "score", "payload": {"strokes": 4},
+        }
+        for limit, loops in [(9, [(55555, "front")]),
+                             (18, [(55555, "front"), (55555, "back")]), (27, None)]:
+            with self.subTest(limit=limit), TemporaryDirectory() as tmp, TestClient(app) as client:
+                root = Path(tmp)
+                if loops is not None:
+                    self._identity_course_package(root, "start-limit", loops)
+                with patch("server_v2.mobile.MOBILE_ROOT", root):
+                    response = client.post(
+                        "/api/v2/mobile/rounds/start-limit/events",
+                        headers={"Idempotency-Key": "start-limit"},
+                        json={"roundId": "start-limit", "events": [{**event, "startHole": limit + 1}]},
+                    )
+                    self.assertEqual(response.status_code, 422, response.text)
+                    self.assertIn(f"本局 {limit} 洞", response.text)
+                    self.assertIn(f"startHole 不能超过 {limit}", response.text)
+                    # Rejection is atomic; retrying a valid start with the same key succeeds.
+                    valid = client.post(
+                        "/api/v2/mobile/rounds/start-limit/events",
+                        headers={"Idempotency-Key": "start-limit"},
+                        json={"roundId": "start-limit", "events": [{**event, "startHole": limit}]},
+                    )
+                    self.assertEqual(valid.status_code, 200, valid.text)
+
     def test_mobile_round_state_projects_authoritative_per_hole_state(self) -> None:
         # round-12 sync spine: GET …/state folds the event log into per-hole state (last-write-wins by
         # serverSequence) and flags fields two distinct clients disagree on.

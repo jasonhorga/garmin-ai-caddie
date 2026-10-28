@@ -103,6 +103,8 @@ targets:
         buildPhase: resources
       - path: tests/product/fixtures/shared/caddie_golden.json
         buildPhase: resources
+      - path: tests/product/fixtures/shared/c120_avoid_zones.json
+        buildPhase: resources
     dependencies:
       - target: AICaddie
     settings:

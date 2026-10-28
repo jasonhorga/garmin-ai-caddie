@@ -103,8 +103,41 @@ final class CurrentHoleLocatorTests: XCTestCase {
 
         _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
         XCTAssertNil(following.navigationTarget(currentLocatedHole: 1, displayedHole: 2))
-        XCTAssertNil(following.navigationTarget(currentLocatedHole: 3, displayedHole: 2))
-        XCTAssertEqual(following.navigationTarget(currentLocatedHole: 3, displayedHole: 2), 3)
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 3, displayedHole: 2,
+                                              sampledAt: Date(timeIntervalSince1970: 100)))
+        XCTAssertEqual(following.navigationTarget(currentLocatedHole: 3, displayedHole: 2,
+                                                sampledAt: Date(timeIntervalSince1970: 105)), 3)
+    }
+
+    func testPrepHoleFollowingRejectsRapidStationaryDriftThenConfirmsAfterWaiting() {
+        var following = PrepHoleFollowingState()
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        let first = Date(timeIntervalSince1970: 100)
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                                              sampledAt: first, coordinate: coordinate(40, 116)))
+        // About 4.4 m in 1 s: plausible noise with LocationProvider's 3 m distance filter.
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                                              sampledAt: first.addingTimeInterval(1),
+                                              coordinate: coordinate(40.00004, 116)))
+        XCTAssertEqual(following.lastLocatedHole, 1)
+        XCTAssertEqual(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                                                sampledAt: first.addingTimeInterval(5),
+                                                coordinate: coordinate(40.00004, 116)), 2)
+    }
+
+    func testPrepHoleFollowingConfirmsRealMovementWithoutWaiting() {
+        var following = PrepHoleFollowingState()
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        let first = Date(timeIntervalSince1970: 100)
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                                              sampledAt: first, coordinate: coordinate(40, 116)))
+        // About 13.3 m exceeds the 10 m drift allowance even before the 5 s interval.
+        XCTAssertEqual(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                                                sampledAt: first.addingTimeInterval(3),
+                                                coordinate: coordinate(40.00012, 116)), 2)
+        XCTAssertEqual(following.lastLocatedHole, 2)
+        // A manual preview still wins after the hole has been confirmed.
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 3))
     }
 
     func testPrepHoleFollowingIgnoresOneFixOfBoundaryJitter() {
