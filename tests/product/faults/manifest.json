@@ -747,7 +747,7 @@
       "id": "tests-product-faults-C135d-05",
       "patch": "tests/product/faults/C135d/05-install-resume-priority.patch",
       "kind": "python",
-      "target": "tests.test_server_v2_mobile",
+      "target": "tests.test_course_install",
       "promise": "C135d.7"
     },
     {
