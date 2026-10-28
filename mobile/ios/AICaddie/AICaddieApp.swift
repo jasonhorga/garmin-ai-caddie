@@ -523,6 +523,13 @@ public final class LiveRoundAppModel: ObservableObject {
             let records = try offlineStore.loadQuarantinedEvents(roundId: recovery.roundId)
             let ids = Set(records.filter { $0.event.hole == recovery.hole }.map { $0.event.eventId })
             guard !ids.isEmpty else { return false }
+            // Advance the local acknowledgement watermark for the explicitly discarded facts so
+            // removing their diagnostics cannot put the old events back into the pending outbox.
+            try offlineStore.appendSyncMarker(
+                roundId: recovery.roundId,
+                timestamp: ISO8601DateFormatter().string(from: Date()),
+                result: SyncResult(accepted: ids.count, duplicate: false, acceptedEventIds: Array(ids))
+            )
             try offlineStore.removeQuarantinedEvents(roundId: recovery.roundId, ids: ids)
             deferredFinishRecovery = nil
             finishErrorMessage = nil
