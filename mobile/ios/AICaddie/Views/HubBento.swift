@@ -94,6 +94,7 @@ struct HubDeferredFinishRecoveryCard: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(HubBentoStyle.deepGreen)
+                .accessibilityIdentifier("home-deferred-finish-recovery-action")
             } else {
                 Text("第 \(recovery.hole) 洞已从当前球局移除，请恢复该九洞后再处理")
                     .font(.subheadline.weight(.semibold))
@@ -103,6 +104,7 @@ struct HubDeferredFinishRecoveryCard: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(HubBentoStyle.clay)
+                .accessibilityIdentifier("home-deferred-finish-recovery-discard")
             }
         }
         .padding(18)
