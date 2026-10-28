@@ -7,6 +7,11 @@ import XCTest
 final class CourseOptionsCacheTests: XCTestCase {
     private var protocolScope: CapturingURLProtocolScope?
 
+    override func setUp() {
+        super.setUp()
+        protocolScope = CapturingURLProtocolScope { _ in throw URLError(.badServerResponse) }
+    }
+
     override func tearDown() {
         protocolScope = nil
         CapturingURLProtocol.requestHandler = nil
@@ -56,7 +61,7 @@ final class CourseOptionsCacheTests: XCTestCase {
     }
 
     private func model(_ store: OfflineStore) -> LiveRoundAppModel {
-        let configuration = protocolScope?.configuration() ?? URLSessionConfiguration.ephemeral
+        let configuration = protocolScope!.configuration()
         return LiveRoundAppModel(
             offlineStore: store,
             apiBaseURL: URL(string: "https://course-options.example.test")!,

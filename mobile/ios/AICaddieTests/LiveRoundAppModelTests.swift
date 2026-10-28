@@ -3683,6 +3683,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         defer {
             releaseResponse.release()
+            withExtendedLifetime(protocolScope) {}
             CapturingURLProtocol.requestHandler = nil
         }
         let model = LiveRoundAppModel(
@@ -3820,6 +3821,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let session = URLSession(configuration: configuration)
         defer {
             releaseHomeRefresh.release()
+            withExtendedLifetime(protocolScope) {}
             CapturingURLProtocol.requestHandler = nil
         }
         let model = LiveRoundAppModel(

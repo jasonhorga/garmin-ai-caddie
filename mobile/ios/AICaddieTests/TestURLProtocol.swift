@@ -12,9 +12,7 @@ func validOnePixelPNGData() -> Data {
     )!
 }
 
-/// Shared URLProtocol stub for client tests: install on an ephemeral `URLSessionConfiguration` and
-/// set `requestHandler` to inspect the outgoing request + return a canned response. Used by
-/// `SyncClientTests` and `AppleAuthClientTests` (so it must not be `private` to one file).
+/// A test-only gate that stays closed until the owning test explicitly releases it.
 final class TestRequestGate: @unchecked Sendable {
     private let condition = NSCondition()
     private var open = false
@@ -33,6 +31,9 @@ final class TestRequestGate: @unchecked Sendable {
     }
 }
 
+/// Shared URLProtocol stub for client tests: install on an ephemeral `URLSessionConfiguration` and
+/// set `requestHandler` to inspect the outgoing request + return a canned response. Used by
+/// `SyncClientTests` and `AppleAuthClientTests` (so it must not be `private` to one file).
 final class CapturingURLProtocol: URLProtocol {
     static let tokenHeader = "X-Codex-Test-Token"
     private static let handlerLock = NSLock()
@@ -118,9 +119,9 @@ final class CapturingURLProtocol: URLProtocol {
         // may deliberately wait on a semaphore; running it here would block every other request
         // in the process and make the next test inherit the stalled request.
         let token = request.value(forHTTPHeaderField: Self.tokenHeader)
-        handlerLock.lock()
+        Self.handlerLock.lock()
         let requestHandler = token.map { Self.scopedHandlers[$0] } ?? Self.storedRequestHandler
-        handlerLock.unlock()
+        Self.handlerLock.unlock()
         guard let requestHandler else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
@@ -238,9 +239,15 @@ final class CapturingURLProtocolTests: XCTestCase {
     /// An unknown token fails closed even while the process-wide compatibility handler is set.
     func testAStaleTestTokenCannotReachTheNextHandler() async throws {
         let staleToken = UUID().uuidString
-        var nextHandlerCalls = 0
+        var globalHandlerCalls = 0
+        CapturingURLProtocol.requestHandler = { request in
+            globalHandlerCalls += 1
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data())
+        }
         let scope = CapturingURLProtocolScope { request in
-            nextHandlerCalls += 1
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil
             )!
@@ -250,12 +257,31 @@ final class CapturingURLProtocolTests: XCTestCase {
         configuration.protocolClasses = [CapturingURLProtocol.self]
         configuration.httpAdditionalHeaders = ["X-Codex-Test-Token": staleToken]
         let session = URLSession(configuration: configuration)
-        _ = scope
         do {
             _ = try await session.data(from: URL(string: "https://protocol.test/stale")!)
             XCTFail("a stale request must fail instead of reaching the next test handler")
         } catch {
-            XCTAssertEqual(nextHandlerCalls, 0)
+            XCTAssertEqual(globalHandlerCalls, 0)
         }
+        _ = scope
+    }
+
+    func testARequestWithItsScopeTokenReachesOnlyItsOwnHandler() async throws {
+        var scopedHandlerCalls = 0
+        var observedToken: String?
+        let scope = CapturingURLProtocolScope { request in
+            scopedHandlerCalls += 1
+            observedToken = request.value(forHTTPHeaderField: CapturingURLProtocol.tokenHeader)
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data("scoped".utf8))
+        }
+        let session = URLSession(configuration: scope.configuration())
+        let (_, body) = try await session.data(from: URL(string: "https://protocol.test/scoped")!)
+
+        XCTAssertEqual(scopedHandlerCalls, 1)
+        XCTAssertEqual(observedToken, scope.token)
+        XCTAssertEqual(body, Data("scoped".utf8))
     }
 }

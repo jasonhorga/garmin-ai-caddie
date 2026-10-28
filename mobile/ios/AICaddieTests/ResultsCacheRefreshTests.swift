@@ -7,6 +7,11 @@ import XCTest
 final class ResultsCacheRefreshTests: XCTestCase {
     private var protocolScope: CapturingURLProtocolScope?
 
+    override func setUp() {
+        super.setUp()
+        protocolScope = CapturingURLProtocolScope { _ in throw URLError(.badServerResponse) }
+    }
+
     override func tearDown() {
         protocolScope = nil
         CapturingURLProtocol.requestHandler = nil
@@ -65,7 +70,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
     }
 
     private func model(_ store: OfflineStore) -> LiveRoundAppModel {
-        let configuration = protocolScope?.configuration() ?? URLSessionConfiguration.ephemeral
+        let configuration = protocolScope!.configuration()
         let model = LiveRoundAppModel(
             offlineStore: store,
             apiBaseURL: URL(string: "https://results-cache.example.test")!,
@@ -330,9 +335,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
         try await waitForRequests(paths, count: 1)
         gate.open()
         model.invalidateResultsCacheAfterGarminPullForTesting()
-        // The pre-pull answers land only now, after the pull invalidated them.
-        gate.open()
-        gate.open()
+        // The held pre-pull request is now released; its stale answer must be discarded.
         await model.waitForResultsCacheRefreshForTesting()
         XCTAssertEqual(try store.loadMobileStats()?.summary?.totalRounds, 2)
         try await Task.sleep(nanoseconds: 300_000_000)
@@ -357,7 +360,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
 
     private func heldClient(_ gate: Gate, into paths: Paths) -> SyncClient {
         serveHeld(gate, into: paths)
-        let configuration = protocolScope?.configuration() ?? URLSessionConfiguration.ephemeral
+        let configuration = protocolScope!.configuration()
         return SyncClient(
             baseURL: URL(string: "https://results-cache.example.test")!,
             session: URLSession(configuration: configuration),

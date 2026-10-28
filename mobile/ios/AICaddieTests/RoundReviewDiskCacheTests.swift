@@ -36,6 +36,7 @@ final class RoundReviewDiskCacheTests: XCTestCase {
         RoundReviewDiskCache.legacyRootOverride = legacyRoot
         let player = self.player
         RoundReviewDiskCache.currentPlayerScope = { player.current }
+        protocolScope = CapturingURLProtocolScope { _ in throw URLError(.badServerResponse) }
     }
 
     override func tearDown() {
@@ -48,9 +49,12 @@ final class RoundReviewDiskCacheTests: XCTestCase {
     }
 
     private func install(
-        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
+        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data),
+        asGlobalHandler: Bool = false
     ) {
-        CapturingURLProtocol.requestHandler = handler
+        if asGlobalHandler {
+            CapturingURLProtocol.requestHandler = handler
+        }
         if let protocolScope {
             protocolScope.replaceHandler(handler)
         } else {
@@ -144,8 +148,12 @@ final class RoundReviewDiskCacheTests: XCTestCase {
 
     // MARK: - Account and cancellation (held responses)
 
-    private func heldClient(release: TestRequestGate, paths: Paths) -> SyncClient {
-        install { request in
+    private func heldClient(
+        release: TestRequestGate,
+        paths: Paths,
+        asGlobalHandler: Bool = false
+    ) -> SyncClient {
+        install({ request in
             let url = try XCTUnwrap(request.url)
             paths.append(url.path)
             release.wait()
@@ -157,8 +165,8 @@ final class RoundReviewDiskCacheTests: XCTestCase {
                 body = Data(#"{"roundRef":"\#(ref)","found":true,"scorecard":[],"phaseSummary":[],"missingData":[]}"#.utf8)
             }
             return (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
-        }
-        let configuration = protocolScope?.configuration() ?? URLSessionConfiguration.ephemeral
+        }, asGlobalHandler: asGlobalHandler)
+        let configuration = protocolScope!.configuration()
         return SyncClient(
             baseURL: URL(string: "https://review-cache.example.test")!,
             session: URLSession(configuration: configuration),
@@ -229,7 +237,7 @@ final class RoundReviewDiskCacheTests: XCTestCase {
         let release = TestRequestGate()
         defer { release.release() }
         let paths = Paths()
-        _ = heldClient(release: release, paths: paths)
+        _ = heldClient(release: release, paths: paths, asGlobalHandler: true)
         URLProtocol.registerClass(CapturingURLProtocol.self)
         defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
         let repository = RoundShotMapRepository(roundRef: ref, apiBaseURL: URL(string: "https://review-cache.example.test")!, adminToken: nil)
@@ -250,7 +258,7 @@ final class RoundReviewDiskCacheTests: XCTestCase {
         let release = TestRequestGate()
         defer { release.release() }
         let paths = Paths()
-        _ = heldClient(release: release, paths: paths)
+        _ = heldClient(release: release, paths: paths, asGlobalHandler: true)
         URLProtocol.registerClass(CapturingURLProtocol.self)
         defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
         let repository = RoundShotMapRepository(roundRef: ref, apiBaseURL: URL(string: "https://review-cache.example.test")!, adminToken: nil)

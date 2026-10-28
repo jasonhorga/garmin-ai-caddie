@@ -5,28 +5,8 @@ import XCTest
 private final class LoopRequests: @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [(loops: String, tee: String)] = []
-    private struct Waiter {
-        let loops: String?
-        let tee: String?
-        let continuation: CheckedContinuation<Void, Never>
-    }
-    private var waiters: [Waiter] = []
-
     func append(loops: String, tee: String) {
-        var ready: [CheckedContinuation<Void, Never>] = []
-        lock.lock()
-        entries.append((loops, tee))
-        var remaining: [Waiter] = []
-        for waiter in waiters {
-            if (waiter.loops == nil || waiter.loops == loops) && (waiter.tee == nil || waiter.tee == tee) {
-                ready.append(waiter.continuation)
-            } else {
-                remaining.append(waiter)
-            }
-        }
-        waiters = remaining
-        lock.unlock()
-        ready.forEach { $0.resume() }
+        lock.withLock { entries.append((loops, tee)) }
     }
     var all: [String] { lock.withLock { entries.map(\.loops) } }
     func contains(loops: String, tee: String) -> Bool {
@@ -34,19 +14,18 @@ private final class LoopRequests: @unchecked Sendable {
     }
     func contains(tee: String) -> Bool { lock.withLock { entries.contains { $0.tee == tee } } }
 
-    func waitFor(loops: String? = nil, tee: String? = nil) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            lock.lock()
-            if entries.contains(where: {
+    func waitFor(loops: String? = nil, tee: String? = nil) async -> Bool {
+        for _ in 0..<500 {
+            if lock.withLock({ entries.contains {
                 (loops == nil || $0.loops == loops) && (tee == nil || $0.tee == tee)
-            }) {
-                lock.unlock()
-                continuation.resume()
-            } else {
-                waiters.append(Waiter(loops: loops, tee: tee, continuation: continuation))
-                lock.unlock()
+            }}) {
+                return true
             }
+            try? await Task.sleep(nanoseconds: 20_000_000)
         }
+        return lock.withLock { entries.contains {
+            (loops == nil || $0.loops == loops) && (tee == nil || $0.tee == tee)
+        }}
     }
 }
 
@@ -57,6 +36,11 @@ private final class LoopRequests: @unchecked Sendable {
 @MainActor
 final class TemplateAcquisitionTests: XCTestCase {
     private var protocolScope: CapturingURLProtocolScope?
+
+    override func setUp() {
+        super.setUp()
+        protocolScope = CapturingURLProtocolScope { _ in throw URLError(.badServerResponse) }
+    }
 
     override func tearDown() {
         protocolScope = nil
@@ -190,7 +174,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         preferredRoundId: String? = nil,
         freshEntryReleaseFallbackNanoseconds: UInt64 = 60_000_000_000
     ) -> LiveRoundAppModel {
-        let configuration = protocolScope?.configuration() ?? URLSessionConfiguration.ephemeral
+        let configuration = protocolScope!.configuration()
         return LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: directory),
             // A test host, not a bundle default: `syncOnForeground` configures the club-bag sync
@@ -318,9 +302,9 @@ final class TemplateAcquisitionTests: XCTestCase {
         let relaunched = acquisitionModel(directory: directory, preferredRoundId: oracle.roundId)
         await relaunched.bootstrap()
         await relaunched.waitForPrepCourseDownloadForTesting()
-        await requests.waitFor(loops: "\(gid):front,\(gid):back")
+        let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back")
         XCTAssertTrue(
-            requests.all.contains("\(gid):front,\(gid):back"),
+            observedWholeCourse,
             "the relaunch resumes the queued whole-course job"
         )
         // The row survives the relaunch, so 备战 lists the course (RealFlowUITests:141). Its final
@@ -362,9 +346,9 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertNil(model.freshEntryReleaseGenerationForTesting, "leaving the entry hole released it")
         for hole in 3...9 { model.setActiveHole(hole) }
         await settleDownloads(model)
-        await requests.waitFor(loops: "\(gid):front,\(gid):back")
+        let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back")
         XCTAssertTrue(
-            requests.all.contains("\(gid):front,\(gid):back"),
+            observedWholeCourse,
             "the canonical whole course is fetched during the first loop, in this session"
         )
         XCTAssertEqual(
@@ -409,8 +393,8 @@ final class TemplateAcquisitionTests: XCTestCase {
         await model.waitForFreshEntryReleaseFallbackForTesting()
         XCTAssertNil(model.freshEntryReleaseGenerationForTesting)
         await settleDownloads(model)
-        await requests.waitFor(loops: "\(gid):front,\(gid):back")
-        XCTAssertTrue(requests.all.contains("\(gid):front,\(gid):back"))
+        let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back")
+        XCTAssertTrue(observedWholeCourse)
         XCTAssertEqual(model.package?.loopKey, "\(gid):back")
     }
 
@@ -439,8 +423,8 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.liveHoleInitialLoadDidFinish()
         XCTAssertNil(model.freshEntryReleaseGenerationForTesting)
         await settleDownloads(model)
-        await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "blue")
-        XCTAssertTrue(requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"))
+        let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "blue")
+        XCTAssertTrue(observedWholeCourse)
     }
 
     /// A 备战 download the player starts during the entry hole runs at once; when that job finishes,
@@ -461,8 +445,8 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         model.downloadPrepCourse(MobileCourseOption(globalId: gid, name: "Prep white", holes: 18, teeBox: "white"))
         await model.waitForPrepCourseDownloadForTesting()
-        await requests.waitFor(tee: "white")
-        XCTAssertTrue(requests.contains(tee: "white"), "the player's own 备战 job is never held behind the gate")
+        let observedPlayerJob = await requests.waitFor(tee: "white")
+        XCTAssertTrue(observedPlayerJob, "the player's own 备战 job is never held behind the gate")
         XCTAssertEqual(model.freshEntryReleaseGenerationForTesting, pending)
         XCTAssertFalse(
             requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
@@ -473,9 +457,9 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.consumePendingLiveHole()
         model.setActiveHole(2)
         await settleDownloads(model)
-        await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "blue")
+        let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "blue")
         XCTAssertTrue(
-            requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
+            observedWholeCourse,
             "after the release the queue continues with the whole-course job"
         )
     }
@@ -506,8 +490,8 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         model.syncOnForeground()
         await model.waitForPrepCourseDownloadForTesting()
-        await requests.waitFor(tee: "white")
-        XCTAssertTrue(requests.contains(tee: "white"), "the resumed requested job makes its request")
+        let observedPlayerJob = await requests.waitFor(tee: "white")
+        XCTAssertTrue(observedPlayerJob, "the resumed requested job makes its request")
         XCTAssertEqual(model.freshEntryReleaseGenerationForTesting, pending, "without releasing the gate")
         XCTAssertFalse(
             requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
@@ -567,8 +551,8 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.releaseFreshEntryForTesting(generation: second)
         XCTAssertNil(model.freshEntryReleaseGenerationForTesting)
         await settleDownloads(model)
-        await requests.waitFor(loops: "\(gid):front,\(gid):back")
-        XCTAssertTrue(requests.all.contains("\(gid):front,\(gid):back"))
+        let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back")
+        XCTAssertTrue(observedWholeCourse)
         XCTAssertEqual(model.package?.roundId, oracle.roundId + "-second")
     }
 
@@ -592,8 +576,8 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertTrue(row.isIntentPrefetch)
         XCTAssertEqual(row.teeBox, "white", "the template is keyed by the Tee Start will use")
         await model.waitForPrepCourseDownloadForTesting()
-        await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "white")
-        XCTAssertTrue(requests.contains(loops: "\(gid):front,\(gid):back", tee: "white"))
+        let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "white")
+        XCTAssertTrue(observedWholeCourse)
         XCTAssertNil(model.package, "an intent never creates a round")
     }
 
@@ -612,8 +596,8 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.prefetchIntendedCourses([course], teeBox: "red")
         XCTAssertEqual(model.prepCourseDownloads.map(\.teeBox), ["red"])
         await model.waitForPrepCourseDownloadForTesting()
-        await requests.waitFor(tee: "red")
-        XCTAssertTrue(requests.contains(tee: "red"))
+        let observedRedIntent = await requests.waitFor(tee: "red")
+        XCTAssertTrue(observedRedIntent)
         XCTAssertFalse(requests.contains(tee: "white"), "the superseded intent never made a request")
     }
 
@@ -663,8 +647,8 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         model.endForegroundCourseRequestForTesting()
         await model.waitForPrepCourseDownloadForTesting()
-        await requests.waitFor(tee: "white")
-        XCTAssertTrue(requests.contains(tee: "white"), "the intent resumes when the last one ends")
+        let observedWhiteIntent = await requests.waitFor(tee: "white")
+        XCTAssertTrue(observedWhiteIntent, "the intent resumes when the last one ends")
     }
 
     /// A 备战 job the player asked for is never held behind a foreground request.
@@ -679,8 +663,8 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.beginForegroundCourseRequestForTesting()
         model.downloadPrepCourse(MobileCourseOption(globalId: gid, name: "Prep", holes: 18, teeBox: "white"))
         await model.waitForPrepCourseDownloadForTesting()
-        await requests.waitFor(tee: "white")
-        XCTAssertTrue(requests.contains(tee: "white"))
+        let observedPlayerJob = await requests.waitFor(tee: "white")
+        XCTAssertTrue(observedPlayerJob)
         model.endForegroundCourseRequestForTesting()
     }
 
@@ -777,9 +761,9 @@ final class TemplateAcquisitionTests: XCTestCase {
         online.liveHoleInitialLoadDidFinish()
         await online.waitForOfflineCourseDownloadForTesting()
         await online.waitForPrepCourseDownloadForTesting()
-        await requestSignal.waitFor(loops: "\(gid):front,\(gid):back")
+        let observedWholeCourse = await requestSignal.waitFor(loops: "\(gid):front,\(gid):back")
         XCTAssertTrue(
-            requestSignal.all.contains("\(gid):front,\(gid):back"),
+            observedWholeCourse,
             "the canonical whole course must be fetched in the background"
         )
         let durable = try XCTUnwrap(
