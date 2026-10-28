@@ -492,7 +492,7 @@ struct RoundReviewContent: View {
             .accessibilityIdentifier("round-review-share")
             .contextMenu {
                 Button("取消分享", role: .destructive) {
-                    revokeShare()
+                    revokeShare(roundRef: detail.roundRef)
                 }
             }
             if let shareMessage {
@@ -530,7 +530,7 @@ struct RoundReviewContent: View {
     }
 
     @MainActor
-    private func revokeShare() {
+    private func revokeShare(roundRef: String) {
         guard let apiBaseURL else {
             shareMessage = "取消分享失败：未配置后端地址"
             return
@@ -538,7 +538,7 @@ struct RoundReviewContent: View {
         Task { @MainActor in
             do {
                 let result = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
-                    .revokeRoundShare(roundRef: detail?.roundRef ?? "")
+                    .revokeRoundShare(roundRef: roundRef)
                 activeShare = nil
                 shareMessage = result.revoked > 0 ? "已取消分享" : "没有可取消的分享"
             } catch {
