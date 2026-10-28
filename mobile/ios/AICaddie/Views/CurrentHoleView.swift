@@ -588,7 +588,7 @@ public struct CurrentHoleView: View {
     private let usesExternalHolePager: Bool
     private let isSelected: Bool
     private let sessionCache: LiveHoleSessionCache
-    private let onPrepLocationChanged: (Int?, Int) -> Int?
+    private let onPrepLocationChanged: (Int?, Int, LocationFix) -> Int?
     private let onLiveHoleInitialLoadDidFinish: () -> Void
     /// Before the first stroke the same screen is a memory-only prep surface.
     private let isPrepMode: Bool
@@ -776,7 +776,7 @@ public struct CurrentHoleView: View {
         usesExternalHolePager: Bool = false,
         isSelected: Bool = true,
         onAdvanceHole: @escaping (Int) -> Void = { _ in },
-        onPrepLocationChanged: @escaping (Int?, Int) -> Int? = { _, _ in nil },
+        onPrepLocationChanged: @escaping (Int?, Int, LocationFix) -> Int? = { _, _, _ in nil },
         onLiveHoleInitialLoadDidFinish: @escaping () -> Void = {},
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
         isPrepMode: Bool = false,
@@ -1159,7 +1159,7 @@ public struct CurrentHoleView: View {
                     package: package,
                     preferredHole: hole.number
                 ).hole
-                if let target = onPrepLocationChanged(locatedHole, hole.number),
+                if let target = onPrepLocationChanged(locatedHole, hole.number, latestFix),
                    package.holes.contains(where: { $0.number == target }) {
                     onAdvanceHole(target)
                 }

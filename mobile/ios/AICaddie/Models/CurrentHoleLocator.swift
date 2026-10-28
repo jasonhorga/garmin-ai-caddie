@@ -72,16 +72,28 @@ enum CurrentHoleLocation: Equatable {
 struct PrepHoleFollowingState: Equatable {
     private(set) var lastLocatedHole: Int?
     private var pendingLocatedHole: Int?
-    private var pendingSampleCount = 0
+    private var pendingSample: Sample?
 
-    /// GPS can straddle two adjacent holes. Require two consecutive fixes before a new hole
-    /// becomes authoritative, while keeping the public following API unchanged.
-    private static let requiredStableSamples = 2
+    // LocationProvider's 3 m distance filter can emit two fixes from 3–6 m stationary drift.
+    // Require either 5 s of persistence or 10 m of real displacement before confirming the
+    // second fix. Walking to the next tee can confirm immediately; standing still can settle.
+    static let minimumConfirmationInterval: TimeInterval = 5
+    static let minimumConfirmationDisplacementM = 10.0
+
+    private struct Sample: Equatable {
+        let sampledAt: Date
+        let latitude: Double?
+        let longitude: Double?
+    }
+
+    private mutating func clearPending() {
+        pendingLocatedHole = nil
+        pendingSample = nil
+    }
 
     mutating func reset() {
         lastLocatedHole = nil
-        pendingLocatedHole = nil
-        pendingSampleCount = 0
+        clearPending()
     }
 
     mutating func navigationTarget(
@@ -91,33 +103,41 @@ struct PrepHoleFollowingState: Equatable {
         guard let currentLocatedHole else {
             // A missing fix cannot confirm a consecutive sample for the pending hole, but it also
             // must not erase the last confirmed hole used by the current screen.
-            pendingLocatedHole = nil
-            pendingSampleCount = 0
+            clearPending()
             return nil
         }
         if currentLocatedHole == lastLocatedHole {
-            pendingLocatedHole = nil
-            pendingSampleCount = 0
+            clearPending()
             return nil
         }
         if lastLocatedHole == nil, currentLocatedHole == displayedHole {
             // A first fix that agrees with the screen cannot move it, so it confirms at once;
             // a later manual preview of another hole is then kept until the fix really changes.
             lastLocatedHole = currentLocatedHole
-            pendingLocatedHole = nil
-            pendingSampleCount = 0
+            clearPending()
             return nil
         }
-        if pendingLocatedHole == currentLocatedHole {
-            pendingSampleCount += 1
-        } else {
+        let validCoordinate = coordinate.flatMap { CLLocationCoordinate2DIsValid($0) ? $0 : nil }
+        guard pendingLocatedHole == currentLocatedHole, let first = pendingSample else {
             pendingLocatedHole = currentLocatedHole
-            pendingSampleCount = 1
+            pendingSample = Sample(sampledAt: sampledAt, latitude: validCoordinate?.latitude,
+                                   longitude: validCoordinate?.longitude)
+            return nil
         }
-        guard pendingSampleCount >= Self.requiredStableSamples else { return nil }
+        // A replay of the same fix is not a second observation. Use the fix's capture time,
+        // not delivery time, so delayed publisher callbacks cannot make old drift look stable.
+        let interval = sampledAt.timeIntervalSince(first.sampledAt)
+        guard interval > 0 else { return nil }
+        let displacement: Double = {
+            guard let latitude = first.latitude, let longitude = first.longitude,
+                  let validCoordinate else { return 0 }
+            return GeoDistance.haversineMetres(latitude, longitude,
+                                              validCoordinate.latitude, validCoordinate.longitude)
+        }()
+        guard interval >= Self.minimumConfirmationInterval
+                || displacement >= Self.minimumConfirmationDisplacementM else { return nil }
         lastLocatedHole = currentLocatedHole
-        pendingLocatedHole = nil
-        pendingSampleCount = 0
+        clearPending()
         return currentLocatedHole == displayedHole ? nil : currentLocatedHole
     }
 }

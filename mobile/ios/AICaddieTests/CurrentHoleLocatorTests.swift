@@ -140,6 +140,24 @@ final class CurrentHoleLocatorTests: XCTestCase {
         XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 3))
     }
 
+    func testPrepHoleFollowingReplayAndMissingFixCannotConfirmPendingHole() {
+        var following = PrepHoleFollowingState()
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        let first = Date(timeIntervalSince1970: 100)
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1, sampledAt: first))
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1, sampledAt: first))
+        XCTAssertEqual(following.lastLocatedHole, 1)
+        // Loss of the fix breaks the confirmation window, including the first sample's age.
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: nil, displayedHole: 1,
+                                              sampledAt: first.addingTimeInterval(4)))
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                                              sampledAt: first.addingTimeInterval(5)))
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                                              sampledAt: first.addingTimeInterval(6)))
+        XCTAssertEqual(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                                                sampledAt: first.addingTimeInterval(10)), 2)
+    }
+
     func testPrepHoleFollowingIgnoresOneFixOfBoundaryJitter() {
         var following = PrepHoleFollowingState()
 
