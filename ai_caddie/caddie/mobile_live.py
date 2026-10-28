@@ -1441,8 +1441,6 @@ def first_hole_lightweight_course_prep(
                 if vector is None and not map_only and (
                     not selected_tee_box or tee_sets.get(source_global_id) is not None
                 ):
-                    if selected_tee_box:
-                        prep_kwargs["tee_set"] = tee_sets.get(source_global_id)
                     prep_call_kwargs = dict(prep_kwargs)
                     if selected_tee_box:
                         prep_call_kwargs["tee_set"] = tee_sets.get(source_global_id)
