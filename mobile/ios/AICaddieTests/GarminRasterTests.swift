@@ -270,7 +270,7 @@ final class GarminRasterTests: XCTestCase {
             next: .precise,
             viewportSize: CGSize(width: 390, height: 844),
             sourceFrame: CGRect(x: 75, y: 100, width: 240, height: 360),
-            destinationFrame: CGRect(x: 75, y: 100, width: 240, height: 360),
+            destinationFrame: CGRect(x: 0, y: 80, width: 390, height: 603),
             sourceOverlay: overlay,
             destinationOverlay: overlay,
             sourceProjection: precise,
