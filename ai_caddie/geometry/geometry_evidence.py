@@ -12,6 +12,7 @@ from ai_caddie.geometry.measure_prodgeometry_distances import (
 )
 
 GeometryCoverage = Literal["ready", "partial", "missing"]
+_SELECTED_COMPONENT_UNSET = object()
 GCJ02_PROVIDERS = {"amap", "amap_gcj02", "gaode", "gaode_gcj02", "tencent", "baidu"}
 MAP_PROVIDERS = {
     "esri_world_imagery": {
@@ -420,7 +421,7 @@ def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: st
                     "surface": {
                         "kind": kind,
                         "source": source,
-                        "id": _surface_id(row, f"{source}-{index + 1}", kind),
+                        "id": _surface_id(row, f"{source}-{source_index + 1}", kind),
                     },
                 }
             )
@@ -482,7 +483,7 @@ def _mesh_triangle_match(point: list[float], rows: list[dict[str, Any]], *, sour
                         "surface": {
                             "kind": kind,
                             "source": source,
-                            "id": _surface_id(row, f"{source}-{index + 1}", kind),
+                            "id": _surface_id(row, f"{source}-{source_index + 1}", kind),
                         },
                     }
                 )
@@ -508,7 +509,7 @@ def _mesh_surface_match(point: list[float], rows: list[dict[str, Any]]) -> dict[
 def _mesh_gir_surface_match(
     point: list[float],
     rows: list[dict[str, Any]],
-    selected_component: dict[str, Any] | None = None,
+    selected_component: dict[str, Any] | None | object = _SELECTED_COMPONENT_UNSET,
 ) -> dict[str, Any] | None:
     """Classify a GIR endpoint using only the green and playable-boundary layers.
 
@@ -522,7 +523,7 @@ def _mesh_gir_surface_match(
         if _surface_kind(row, "mesh") == "green"
     ]
     green = None
-    if selected_component is not None:
+    if isinstance(selected_component, dict):
         triangles = selected_component.get("triangles")
         if isinstance(triangles, list) and any(
             point_in_triangle(tuple(point), *triangle)
@@ -539,7 +540,7 @@ def _mesh_gir_surface_match(
                 "source": "mesh",
                 "id": _surface_id(row, f"mesh-{row_index + 1}", "green"),
             }
-    if green is None and selected_component is None:
+    if green is None and selected_component is _SELECTED_COMPONENT_UNSET:
         green = _mesh_surface_match(point, green_rows)
     if green is not None:
         return green
@@ -597,7 +598,11 @@ def classify_shot_surface(
             mesh_match = _mesh_gir_surface_match(
                 point,
                 rows,
-                selected_component=hazards.get("_selectedGreenComponent"),
+                selected_component=(
+                    hazards["_selectedGreenComponent"]
+                    if "_selectedGreenComponent" in hazards
+                    else _SELECTED_COMPONENT_UNSET
+                ),
             )
         else:
             hazard_match = _surface_match(

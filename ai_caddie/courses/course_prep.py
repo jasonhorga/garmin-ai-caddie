@@ -1446,19 +1446,19 @@ def _hole_playslike(by: dict, route) -> dict:
 
 
 def selected_green_component(by: dict, route) -> dict | None:
-    """Return the connected Green component nearest the selected route endpoint."""
+    """Return the Green component containing, or nearest to, the selected route endpoint."""
     green = (by or {}).get("Green.drc") if isinstance(by, dict) else None
     if not route or not isinstance(green, dict):
         return None
     try:
-        from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
+        from ai_caddie.geometry.measure_prodgeometry_distances import (
+            mesh_components,
+            select_green_component,
+        )
 
         components = mesh_components(green)
         target = (float(route[-1][0]), float(route[-1][1]))
-        return min(
-            components,
-            key=lambda component: math.dist(component["centroid"], target),
-        ) if components else None
+        return select_green_component(components, target)
     except Exception:
         return None
 
