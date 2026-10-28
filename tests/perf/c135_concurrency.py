@@ -40,6 +40,7 @@ class Sample:
     prefetch_ms: float | None
     light_ms: dict[str, float]
     statuses: dict[str, int]
+    cold_package_ms: float | None = None
 
 
 async def _request(client: httpx.AsyncClient, name: str, path: str) -> tuple[str, float, int]:
@@ -67,6 +68,11 @@ async def _sample(client: httpx.AsyncClient, args: argparse.Namespace, index: in
             f"?round_id=prep-library-{args.global_id}-{index}"
             f"&loops={args.global_id}:front,{args.global_id}:back&tee_box={args.tee_box}"
         )
+    cold_path = (
+        f"/api/v2/mobile/courses/{args.global_id}/package"
+        f"?round_id=cold-{args.global_id}-{index}-{uuid.uuid4()}"
+        f"&loops={args.global_id}:front,{args.global_id}:back&tee_box={args.tee_box}"
+    )
     light_paths = {
         "nearby": (
             f"/api/v2/courses/nearby?latitude={args.latitude}&longitude={args.longitude}"
@@ -87,17 +93,21 @@ async def _sample(client: httpx.AsyncClient, args: argparse.Namespace, index: in
     package_task = asyncio.create_task(client.get(package_path))
     prefetch_started = time.perf_counter()
     prefetch_task = asyncio.create_task(client.get(prefetch_path)) if prefetch_path else None
+    cold_started = time.perf_counter()
+    cold_task = asyncio.create_task(client.get(cold_path))
     await asyncio.sleep(args.overlap_delay_ms / 1000.0)
     probe_results = await asyncio.gather(*(
         _request(client, name, path) for name, path in light_paths.items()
     ))
     package_response = await package_task
     prefetch_response = await prefetch_task if prefetch_task is not None else None
+    cold_response = await cold_task
     package_ms = (time.perf_counter() - package_started) * 1000.0
     prefetch_ms = (
         (time.perf_counter() - prefetch_started) * 1000.0
         if prefetch_task is not None else None
     )
+    cold_ms = (time.perf_counter() - cold_started) * 1000.0
     return Sample(
         round_id=round_id,
         package_ms=package_ms,
@@ -106,8 +116,10 @@ async def _sample(client: httpx.AsyncClient, args: argparse.Namespace, index: in
         statuses={
             "package": package_response.status_code,
             **({"prefetch": prefetch_response.status_code} if prefetch_response is not None else {}),
+            "cold_package": cold_response.status_code,
             **{name: status for name, _elapsed, status in probe_results},
         },
+        cold_package_ms=cold_ms,
     )
 
 
@@ -323,6 +335,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             "failureStatuses": {str(status): sum(1 for sample in samples if sample.statuses.get(name) == status) for status in failed_statuses},
         }
     package_values = [sample.package_ms for sample in samples]
+    cold_values = [sample.cold_package_ms for sample in samples if sample.cold_package_ms is not None]
     prefetch_values = [sample.prefetch_ms for sample in samples if sample.prefetch_ms is not None]
     return {
         "label": args.label,
@@ -336,6 +349,16 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             "p50Ms": round(_quantile(package_values, 0.50), 1) if package_values else None,
             "p95Ms": round(_quantile(package_values, 0.95), 1) if package_values else None,
             "valuesMs": [round(value, 1) for value in package_values],
+        },
+        "packageMapOnly": {
+            "p50Ms": round(_quantile(package_values, 0.50), 1) if package_values else None,
+            "p95Ms": round(_quantile(package_values, 0.95), 1) if package_values else None,
+            "valuesMs": [round(value, 1) for value in package_values],
+        },
+        "packageCold": {
+            "p50Ms": round(_quantile(cold_values, 0.50), 1) if cold_values else None,
+            "p95Ms": round(_quantile(cold_values, 0.95), 1) if cold_values else None,
+            "valuesMs": [round(value, 1) for value in cold_values],
         },
         "prefetch": None if not args.prefetch else {
             "p50Ms": round(_quantile(prefetch_values, 0.50), 1) if prefetch_values else None,
