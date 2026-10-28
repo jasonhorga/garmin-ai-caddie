@@ -6383,8 +6383,8 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// The course the player is about to play — selected on 开始一场, or the home's 在这个球场
     /// venue — sends a map-only intent. An explicit 备战/download action owns a separate
-    /// whole-course row and installer.
-    /// offline and every hole opens on its precise map. `courses` are the venue's loops; `teeBox`
+    /// whole-course row and installer. The intent warms the first map while the full row installs
+    /// offline coverage. `courses` are the venue's loops; `teeBox`
     /// is the tee Start will use, because templates are keyed by tee (topo bitmaps are not, so a
     /// later tee change still reuses them). A newer intent drops unfinished rows of an older one;
     /// ready rows stay as downloaded courses. Automatic jobs still wait behind a fresh round entry.
