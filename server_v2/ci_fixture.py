@@ -1220,14 +1220,23 @@ def garmin_raster(global_id: int, hole: int) -> dict[str, object]:
 
 
 @ROUTE.get("/api/v2/mobile/courses/{global_id}/package")
-def course_package(global_id: int, loops: str = Query(...), round_id: str | None = None, tee_box: str | None = None) -> dict:
+def course_package(
+    global_id: int,
+    loops: str = Query(...),
+    round_id: str | None = None,
+    tee_box: str | None = None,
+) -> dict:
     if round_id is None:
         raise HTTPException(status_code=404, detail="fixture round not found")
     return _package(round_id, global_id, _fixture_loops(loops, global_id), tee_box if tee_box is not None else "blue")
 
 
 @ROUTE.get("/api/v2/mobile/rounds/{round_id}/package")
-def round_package(round_id: str, tee_box: str | None = None, global_id: int | None = None) -> dict:
+def round_package(
+    round_id: str,
+    tee_box: str | None = None,
+    global_id: int | None = None,
+) -> dict:
     return _package(round_id, global_id, None, tee_box if tee_box is not None else "blue")
 
 

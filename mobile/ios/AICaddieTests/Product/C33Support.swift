@@ -57,6 +57,31 @@ final class C33FirstMatch {
     }
 }
 
+/// A deterministic clock substitute for the model's 8/20-second progress timers.
+actor C33StartSleepGate {
+    private var waiter: CheckedContinuation<Void, Never>?
+    private var permits = 0
+
+    func wait() async {
+        if permits > 0 {
+            permits -= 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiter = continuation
+        }
+    }
+
+    func release() {
+        if let waiter {
+            waiter.resume()
+            self.waiter = nil
+        } else {
+            permits += 1
+        }
+    }
+}
+
 func c33Query(_ request: URLRequest, _ name: String) -> String? {
     guard let url = request.url else { return nil }
     return URLComponents(url: url, resolvingAgainstBaseURL: false)?

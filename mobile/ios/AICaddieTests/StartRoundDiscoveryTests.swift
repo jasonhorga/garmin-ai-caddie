@@ -194,6 +194,151 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertNil(StartRoundView.roundPreparationFailureMessage(from: "离线地图已准备"))
     }
 
+    /// Product spec 4.2: start failures explain the cause and long waits explain the server work.
+    func testProductSpec42RoundStartExplainsFailureTypeAndSlowProgress() {
+        XCTAssertEqual(RoundStartFailure.timedOut.presentationMessage, "服务器较慢，没能开始，点重试")
+        XCTAssertEqual(RoundStartFailure.unavailable.presentationMessage, "网络不可用，没能开始，点重试")
+        XCTAssertEqual(RoundStartFailure.reauthentication.presentationMessage, "需重新登录后才能开始")
+        XCTAssertNil(RoundStartProgress.message(after: 7.99))
+        XCTAssertEqual(RoundStartProgress.message(after: 8), "服务器在准备球场，稍等…")
+        XCTAssertEqual(RoundStartProgress.message(after: 20), "服务器还在准备，最多再等十几秒")
+    }
+
+    func testProductSpec42AutomaticTeeCorrectionLeavesTheStartActionUsable() {
+        let corrected = StartRoundView.teeAfterRefresh(
+            current: "white",
+            userPicked: false,
+            lastUsed: nil,
+            rows: [CourseTee(teeBox: "blue", name: "Blue", isDefault: true)]
+        )
+        XCTAssertEqual(corrected, "blue")
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
+                failure: .unavailable,
+                selectionMatches: false,
+                isPreparing: false,
+                isOpeningPrep: false
+            ),
+            .message,
+            "4.2: an automatic Tee correction must leave a visible failure explanation"
+        )
+        XCTAssertTrue(StartRoundView.isStartAllowed(
+            isPreparing: false,
+            isLoadingTees: false,
+            roundId: "round-42",
+            courseGlobalId: 32850,
+            teeBox: corrected,
+            selectedCourseRequiresRemoteTees: false,
+            teeOptions: ["blue"],
+            selectedCourseWasManualSearch: false
+        ))
+    }
+
+    func testProductSpec42StartFailurePresentationHasRetryMessageAndHiddenStates() {
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
+                failure: .timedOut, selectionMatches: true, isPreparing: false, isOpeningPrep: false
+            ),
+            .retry
+        )
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
+                failure: .timedOut, selectionMatches: false, isPreparing: false, isOpeningPrep: false
+            ),
+            .message,
+            "4.2: changed Tee/course parameters still show the cause while the primary action retries"
+        )
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
+                failure: .reauthentication, selectionMatches: false, isPreparing: false, isOpeningPrep: false
+            ),
+            .message
+        )
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
+                failure: .unavailable, selectionMatches: true, isPreparing: true, isOpeningPrep: false
+            ),
+            .hidden
+        )
+        let hiddenWhilePreparing = StartRoundView.startFailurePresentation(
+            failure: nil, selectionMatches: true, isPreparing: true, isOpeningPrep: false
+        )
+        let hiddenWhileOpeningPrep = StartRoundView.startFailurePresentation(
+            failure: nil, selectionMatches: true, isPreparing: false, isOpeningPrep: true
+        )
+        let idlePresentation = StartRoundView.startFailurePresentation(
+            failure: nil, selectionMatches: true, isPreparing: false, isOpeningPrep: false
+        )
+        XCTAssertNil(
+            StartRoundPresentation.staleSyncFailureMessage(
+                syncStatus: "服务器较慢，没能开始，点重试", roundStartFailure: nil,
+                failurePresentation: hiddenWhilePreparing, isPreparing: true, isOpeningPrep: false
+            ),
+            "4.2: preparation hides a stale sync failure"
+        )
+        XCTAssertNil(
+            StartRoundPresentation.staleSyncFailureMessage(
+                syncStatus: "服务器较慢，没能开始，点重试", roundStartFailure: nil,
+                failurePresentation: hiddenWhileOpeningPrep, isPreparing: false, isOpeningPrep: true
+            ),
+            "4.2: opening prep hides a stale sync failure"
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.staleSyncFailureMessage(
+                syncStatus: "服务器较慢，没能开始，点重试", roundStartFailure: nil,
+                failurePresentation: idlePresentation, isPreparing: false, isOpeningPrep: false
+            ),
+            "服务器较慢，没能开始，点重试"
+        )
+        XCTAssertEqual(
+            StartRoundPresentation.staleSyncFailureMessage(
+                syncStatus: "网络不可用，没能开始，点重试", roundStartFailure: nil,
+                failurePresentation: idlePresentation, isPreparing: false, isOpeningPrep: false
+            ),
+            "网络不可用，没能开始，点重试"
+        )
+        XCTAssertNil(
+            StartRoundPresentation.staleSyncFailureMessage(
+                syncStatus: "主页就绪", roundStartFailure: nil,
+                failurePresentation: idlePresentation, isPreparing: false, isOpeningPrep: false
+            )
+        )
+    }
+
+    func testProductSpec42TeeRefreshCombinesVenueHistoryBeforeTheDefaultRow() {
+        let rows = [
+            CourseTee(teeBox: "Gold", name: "Gold", isDefault: true),
+            CourseTee(teeBox: "White", name: "White"),
+            CourseTee(teeBox: "Blue", name: "Blue"),
+        ]
+        XCTAssertEqual(
+            StartRoundView.teeAfterRefreshUsingHistory(
+                current: "Blue", userPicked: false,
+                selectedVenue: "黑骑士", recentVenue: "黑骑士", recentTee: "White",
+                callerVenue: "黑骑士", callerTee: "Blue", rows: rows
+            ),
+            "White"
+        )
+        XCTAssertEqual(
+            StartRoundView.teeAfterRefreshUsingHistory(
+                current: "Blue", userPicked: false,
+                selectedVenue: "黑骑士", recentVenue: "北湖", recentTee: "White",
+                callerVenue: nil, callerTee: "Blue", rows: rows
+            ),
+            "Gold",
+            "4.2: without a same-venue last-used Tee, the server default wins"
+        )
+        XCTAssertEqual(
+            StartRoundView.teeAfterRefreshUsingHistory(
+                current: "Blue", userPicked: false,
+                selectedVenue: "黑骑士", recentVenue: nil, recentTee: nil,
+                callerVenue: "黑骑士", callerTee: "White", rows: rows
+            ),
+            "White",
+            "4.2: caller history supplies the Tee when recent history is absent"
+        )
+    }
+
     func testOfflineNearbyFallbackIncludesOnlyCoordinateProvenDownloadedCourses() {
         let near = option(
             globalId: 1,

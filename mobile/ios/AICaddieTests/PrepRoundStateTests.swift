@@ -165,6 +165,8 @@ final class PrepRoundStateTests: XCTestCase {
             try await Task.sleep(nanoseconds: 1_000_000)
         }
         XCTAssertEqual(lock.withLock { priorities }, [5, 6])
+        model.closePrepMode()
+        await model.cancelPrepCourseDownloadForTesting()
     }
 
     func testDownloadedPrepDoesNotRefreshPriorityOrReplaceLocalPackage() async throws {
@@ -250,6 +252,8 @@ final class PrepRoundStateTests: XCTestCase {
         try await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(lock.withLock { packageRequests }, 0)
         XCTAssertEqual(model.prepPackage?.roundId, openedRoundID)
+        model.closePrepMode()
+        await model.cancelPrepCourseDownloadForTesting()
     }
 }
 #endif
