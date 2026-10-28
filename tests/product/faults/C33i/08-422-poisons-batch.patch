@@ -1,11 +1,11 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -4319,7 +4319,7 @@
+@@ -5256,7 +5256,7 @@
                      throw LiveRoundFinishError.incompleteAcknowledgement
                  }
                  return ProbeResult(result: result, invalid: [], allInvalid: false)
 -            } catch SyncClientError.http(status: let status, body: let body) {
 +            } catch SyncClientError.http(status: let status, body: let body) where status != 422 {
                  guard batch.count > 1 else {
-                     guard isSingleEventPayloadValidation422(body) else {
+                     guard Self.isSingleEventPayloadValidation422(body) else {
                          throw SyncClientError.http(status: status, body: body)
