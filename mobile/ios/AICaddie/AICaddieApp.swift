@@ -2405,6 +2405,9 @@ public final class LiveRoundAppModel: ObservableObject {
             activeRoundStartTask,
         ]
         cancelRoundBackgroundWork()
+        // Product finish/discard paths leave the shared prep queue alone; test teardown owns the
+        // process-wide queue too, so cancel it before awaiting the captured task handles.
+        pausePrepCourseDownload()
         for task in running {
             await task?.value
         }
