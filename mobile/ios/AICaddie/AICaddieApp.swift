@@ -3787,7 +3787,9 @@ public final class LiveRoundAppModel: ObservableObject {
 
         do {
             if let blocked = try preferredQuarantineRecord(roundId: package.roundId) {
-                setActiveHole(blocked.event.hole)
+                if package.holes.contains(where: { $0.number == blocked.event.hole }) {
+                    setActiveHole(blocked.event.hole)
+                }
                 let prompt = Self.scoringRejectionPrompt(for: blocked)
                 let suffix = try quarantineFinishSuffix(for: blocked, roundId: package.roundId)
                 finishErrorMessage = "\(prompt)\(suffix)"
