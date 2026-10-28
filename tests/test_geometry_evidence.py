@@ -428,6 +428,16 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual(bounds["surface"]["kind"], "playable_bounds")
         self.assertEqual(id_only["surface"]["kind"], "green")
         self.assertEqual(source_masked["surface"]["kind"], "bunker")
+        self.assertEqual(fairway["surface"]["id"], "fairway")
+        self.assertEqual(rough["surface"]["id"], "rough")
+        self.assertEqual(tee["surface"]["id"], "teebox")
+        self.assertEqual(bounds["surface"]["id"], "playable_bounds")
+        self.assertEqual(id_only["surface"]["id"], "green")
+        self.assertEqual(source_masked["surface"]["id"], "bunker")
+        self.assertNotIn(
+            ".drc",
+            str([fairway["surface"], rough["surface"], tee["surface"], bounds["surface"], id_only["surface"], source_masked["surface"]]),
+        )
 
     def test_classifies_green_from_production_mesh_triangles(self) -> None:
         """Production exports contain Green.drc positions/faces, not polygon rings."""
@@ -453,16 +463,6 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual(inside["surface"]["kind"], "green")
         self.assertEqual(inside["surface"]["source"], "mesh")
         self.assertEqual(outside["surface"]["kind"], "unknown")
-        self.assertEqual(fairway["surface"]["id"], "fairway")
-        self.assertEqual(rough["surface"]["id"], "rough")
-        self.assertEqual(tee["surface"]["id"], "teebox")
-        self.assertEqual(bounds["surface"]["id"], "playable_bounds")
-        self.assertEqual(id_only["surface"]["id"], "green")
-        self.assertEqual(source_masked["surface"]["id"], "bunker")
-        self.assertNotIn(
-            ".drc",
-            str([fairway["surface"], rough["surface"], tee["surface"], bounds["surface"], id_only["surface"], source_masked["surface"]]),
-        )
 
     def test_route_evidence_computes_hazard_carry_clearance_and_landing_window(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -259,8 +259,8 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
         self.assertIs(h["gir"], True)
         self.assertEqual(h["fairway"], "hit")
 
-    def test_ingest_without_geometry_still_succeeds_and_omits_gir(self) -> None:
-        """(e, end-to-end) No geometry -> ingest succeeds; holes carry no gir/fairway keys."""
+    def test_ingest_without_geometry_uses_putts_for_gir_and_omits_fairway(self) -> None:
+        """(e, end-to-end) Putts make GIR deterministic even when landing geometry is absent."""
         empty = self.root / "empty"
         empty.mkdir()
         meta = {"courseGlobalId": GID, "courseName": "Test", "holePars": "4"}
@@ -271,8 +271,8 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
         self.assertEqual(
             hole,
             # scoreSource is the B0 per-hole provenance (source-less legacy events => manual_edit).
-            {"number": 1, "strokes": 4, "putts": 2, "penalties": 0, "scoreSource": "manual_edit"},
-        )  # no gir/fairway when undeterminable
+            {"number": 1, "strokes": 4, "putts": 2, "penalties": 0, "scoreSource": "manual_edit", "gir": True},
+        )  # GIR follows total - putts <= par - 2; fairway remains undeterminable.
 
 
 if __name__ == "__main__":

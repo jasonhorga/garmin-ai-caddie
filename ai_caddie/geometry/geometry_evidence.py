@@ -291,6 +291,13 @@ def _mesh_surface_rows(meshes: dict[str, Any]) -> list[dict[str, Any]]:
         values = meshes.get(key)
         if isinstance(values, list):
             rows.extend(row for row in values if isinstance(row, dict))
+    # Production prodgeometry keeps decoded layers in ``meshes``.  A few older callers and
+    # fixtures pass a name -> mesh mapping instead, so retain that shape without making the
+    # classifier depend on a particular decoder wrapper.
+    if not rows and isinstance(meshes, dict):
+        for name, value in meshes.items():
+            if isinstance(value, dict) and (value.get("positions") is not None or value.get("faces") is not None):
+                rows.append({"name": name, **value})
     return rows
 
 
@@ -420,6 +427,77 @@ def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: st
     return None
 
 
+def _point_in_triangle(point: list[float], first: list[float], second: list[float], third: list[float]) -> bool:
+    """Inclusive 2-D point-in-triangle test in the shared local metre frame."""
+    def cross(a: list[float], b: list[float], p: list[float]) -> float:
+        return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+
+    signs = [
+        cross(first, second, point),
+        cross(second, third, point),
+        cross(third, first, point),
+    ]
+    if max(signs) - min(signs) < 1e-9:
+        # A collinear/degenerate face has no area and must not turn every point into a match.
+        return False
+    return not (any(value < -1e-9 for value in signs) and any(value > 1e-9 for value in signs))
+
+
+def _mesh_triangle_match(point: list[float], rows: list[dict[str, Any]], *, source: str) -> dict[str, Any] | None:
+    matches = []
+    for index, row in enumerate(rows):
+        positions = row.get("positions")
+        faces = row.get("faces")
+        if not isinstance(positions, list) or not isinstance(faces, list):
+            continue
+        for face in faces:
+            if not isinstance(face, (list, tuple)) or len(face) < 3:
+                continue
+            try:
+                vertices = [positions[int(face[n])] for n in range(3)]
+                if not all(isinstance(vertex, (list, tuple)) and len(vertex) >= 2 for vertex in vertices):
+                    continue
+                # Garmin mesh vertices are [-local_x, elevation, local_y].  Two-dimensional
+                # rows are accepted for compact legacy fixtures and already use local x/y.
+                triangle = [
+                    ([-float(vertex[0]), float(vertex[2])] if len(vertex) >= 3 else
+                     [float(vertex[0]), float(vertex[1])])
+                    for vertex in vertices
+                ]
+            except (IndexError, TypeError, ValueError, OverflowError):
+                continue
+            if _point_in_triangle(point, triangle[0], triangle[1], triangle[2]):
+                kind = _surface_kind(row, source)
+                matches.append(
+                    {
+                        "priority": _surface_priority(kind),
+                        "index": index,
+                        "surface": {
+                            "kind": kind,
+                            "source": source,
+                            "id": _surface_id(row, f"{source}-{index + 1}", kind),
+                        },
+                    }
+                )
+                break
+    if matches:
+        return min(matches, key=lambda row: (row["priority"], row["index"]))["surface"]
+    return None
+
+
+def _mesh_surface_match(point: list[float], rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Match polygon fixtures and production triangle meshes with one deterministic priority."""
+    polygon = _surface_match(point, rows, source="mesh")
+    triangle = _mesh_triangle_match(point, rows, source="mesh")
+    if polygon is None:
+        return triangle
+    if triangle is None:
+        return polygon
+    # Green/hazard priority is encoded in the kind; stable row order breaks ties.  The two
+    # paths cannot share a row in production, but comparing priority keeps mixed fixtures sane.
+    return triangle if _surface_priority(triangle["kind"]) < _surface_priority(polygon["kind"]) else polygon
+
+
 def _polygon_ring(points: Any, ref_lat: float | None, ref_lon: float | None) -> list[list[float]]:
     if not isinstance(points, list):
         return []
@@ -454,7 +532,7 @@ def classify_shot_surface(
     surface = {"kind": "unknown", "source": "none", "id": None}
     if point is not None:
         hazard_match = _surface_match(point, [row for row in hazards.get("hazards", []) or [] if isinstance(row, dict)], source="hazard")
-        mesh_match = _surface_match(point, _mesh_surface_rows(meshes), source="mesh")
+        mesh_match = _mesh_surface_match(point, _mesh_surface_rows(meshes))
         if hazard_match:
             surface = hazard_match
         elif mesh_match:

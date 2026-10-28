@@ -76,16 +76,33 @@ class RoundIngestCoreTests(unittest.TestCase):
         # Product GIR specification: total strokes - putts <= par - 2.  For par 4,
         # 4 - 2 = 2, so this is GIR even when no landing geometry is available.
         gir, _fairway = round_ingest._derive_gir_fairway(
-            None, 1, 4, [], 4,
+            None, 1, 4, [], 4, putts=2,
         )
         self.assertTrue(gir)
 
         # The same formula gives 5 - 2 = 3, which is outside regulation and must be
         # False rather than an indeterminate geometry result.
         gir, _fairway = round_ingest._derive_gir_fairway(
-            None, 1, 4, [], 5,
+            None, 1, 4, [], 5, putts=2,
         )
         self.assertFalse(gir)
+
+    def test_gir_can_count_explicit_putter_shots_when_putt_event_is_missing(self) -> None:
+        events = [
+            {"hole": 1, "kind": "club", "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": 47.73, "longitude": 138.89}},
+            {"hole": 1, "kind": "club", "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": 47.7301, "longitude": 138.8901}},
+            {"hole": 1, "kind": "score", "payload": {"strokes": 5}},
+        ]
+        result = round_ingest.ingest_round(
+            "p_friend", events, {"courseName": "Manual", "holePars": "4"},
+            idempotency_key="putter-shots", root=self.root,
+        )
+        card = self._player_dir("p_friend") / "scorecards" / f"{result['id']}.json"
+        hole = json.loads(card.read_text())["scorecardDetails"][0]["scorecard"]["holes"][0]
+        self.assertEqual(hole["putts"], 2)
+        self.assertFalse(hole["gir"])
 
     def test_round_is_consumable_by_load_raw_rounds(self) -> None:
         round_ingest.ingest_round(

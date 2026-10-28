@@ -38,6 +38,7 @@ OWNER_ID = "me"
 _INDEX_SCHEMA = "ai-caddie-ingest-index-v1"
 _SHOT_TYPE_MAP = {"tee": "TEE", "approach": "APPROACH", "recovery": "RECOVERY"}
 _RELEVANT_KINDS = {"club", "location", "score", "putt", "penalty", "note"}
+_PUTTS_UNSET = object()
 
 
 class RoundIngestError(Exception):
@@ -234,11 +235,12 @@ def _as_float(value: Any) -> float | None:
 
 
 class _HoleAccumulator:
-    __slots__ = ("strokes", "putts", "penalties", "fairway", "shots", "notes", "score_source")
+    __slots__ = ("strokes", "putts", "putts_entered", "penalties", "fairway", "shots", "notes", "score_source")
 
     def __init__(self) -> None:
         self.strokes: int | None = None
         self.putts: int = 0
+        self.putts_entered: bool = False
         self.penalties: int = 0
         self.fairway: str | None = None
         self.shots: list[dict[str, Any]] = []
@@ -338,6 +340,7 @@ def _parse_events(events: list[dict]) -> dict[int, _HoleAccumulator]:
             if putts is None or putts < 0:
                 raise RoundIngestError("putt event needs putts >= 0")
             acc.putts = putts
+            acc.putts_entered = True
             acc.score_source = score_source.fold_score_source(acc.score_source, payload.get("source"))
         elif kind == "penalty":
             pen = _as_int(payload.get("penalties"))
@@ -440,10 +443,13 @@ def _build_scorecard(
     for _number, acc, global_id, local_hole, par in scored:
         geometry.plan(global_id, local_hole, par, acc.shots, acc.strokes)
     for number, acc, global_id, local_hole, par in scored:
+        resolved_putts = acc.putts if acc.putts_entered else _shot_putt_count(acc.shots)
         hole_dict: dict[str, Any] = {
             "number": number,
             "strokes": acc.strokes,
-            "putts": acc.putts,
+            # Keep the established zero for a hole with no putt evidence, while allowing
+            # explicit putter shots to supply the count when the client omitted a putt event.
+            "putts": acc.putts if resolved_putts is None else resolved_putts,
             "penalties": acc.penalties,
         }
         if acc.fairway is not None:
@@ -460,6 +466,7 @@ def _build_scorecard(
             par=par,
             shots=acc.shots,
             total_strokes=acc.strokes,
+            putts=resolved_putts,
             geometry=geometry,
         )
         sc_holes.append(hole_dict)
@@ -707,6 +714,27 @@ def _classify_end_kind(
     return str(kind)
 
 
+def _shot_putt_count(shots: list[dict[str, Any]]) -> int | None:
+    """Count only shots whose putter/putt identity is explicit enough to be authoritative."""
+    count = 0
+    for shot in shots:
+        club = shot.get("club") if isinstance(shot, dict) else None
+        if not isinstance(club, dict):
+            continue
+        shot_type = str(club.get("shotType") or club.get("type") or "").strip().lower()
+        club_name = str(club.get("clubName") or club.get("club") or "").strip().lower()
+        lie = str(club.get("lie") or "").strip().lower()
+        if (
+            shot_type in {"putt", "penalty_putt", "putting"}
+            or "putt" in shot_type
+            or club_name in {"putter", "putt", "pt", "推杆"}
+            or "putt" in club_name
+            or (lie == "green" and not club_name and shot_type in {"", "unknown"})
+        ):
+            count += 1
+    return count or None
+
+
 def _geometry_inputs(
     par: int | None, shots: list[dict[str, Any]], total_strokes: int | None
 ) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
@@ -731,13 +759,15 @@ def _derive_gir_fairway(
     shots: list[dict[str, Any]],
     total_strokes: int | None,
     *,
+    putts: int | None = None,
     geometry: _IngestGeometry | None = None,
 ) -> tuple[bool | None, str | None]:
     """REAL green-in-regulation and fairway-hit for one hole. Returns ``(gir, fairway)``.
 
     GIR is NOT ``score <= par`` (that proxy is wrong: par can be made WITHOUT a GIR -- miss
-    green, chip close, 1-putt -- and a GIR can be 3-putted for bogey). Regulation = reaching
-    the green in ``par - 2`` strokes:
+    green, chip close, 1-putt -- and a GIR can be 3-putted for bogey). When ``putts`` is known,
+    the product definition is ``total_strokes - putts <= par - 2``; otherwise regulation means
+    reaching the green in ``par - 2`` strokes:
       * par 3 -> 1 stroke, par 4 -> 2, par 5 -> 3.
       * total hole strokes <= par-2  ->  holed out in regulation-or-better -> gir True.
       * otherwise classify the END surface of the regulation-stroke shot, ``shots[par-3]``
@@ -751,14 +781,24 @@ def _derive_gir_fairway(
     """
     gir: bool | None = None
     fairway: str | None = None
-    if global_id is None or par is None or par < 3:
+    if par is None or par < 3:
+        return gir, fairway
+    # A recorded putt count is enough to apply the product definition, even when this manual
+    # round has no course id and therefore cannot load a landing surface.
+    if putts is not None and total_strokes is not None:
+        gir = total_strokes - putts <= par - 2
+        if global_id is None:
+            return gir, fairway
+    if global_id is None:
         return gir, fairway
     if geometry is None:
         geometry = _IngestGeometry(None)
         geometry.plan(global_id, local_hole, par, shots, total_strokes)
     gir_end, tee_point = _geometry_inputs(par, shots, total_strokes)
 
-    if total_strokes is not None and total_strokes <= par - 2:
+    if putts is not None and total_strokes is not None:
+        gir = total_strokes - putts <= par - 2
+    elif total_strokes is not None and total_strokes <= par - 2:
         # Holed out in <= (par-2) strokes => on/in the green in regulation-or-better.
         gir = True
     else:
@@ -803,12 +843,17 @@ def _enrich_hole_gir_fairway(
     par: int | None,
     shots: list[dict[str, Any]],
     total_strokes: int | None,
+    putts: int | None | object = _PUTTS_UNSET,
     geometry: _IngestGeometry | None = None,
 ) -> dict[str, Any]:
     """Write derived gir/fairway into ``hole`` ONLY when absent and determinable. A value
     already present (a Garmin-authoritative one) is NEVER overwritten; an undeterminable
     (None) value is omitted -- not written -- so ``hole.get(...)`` stays None for the pipeline."""
-    gir, fairway = _derive_gir_fairway(global_id, local_hole, par, shots, total_strokes, geometry=geometry)
+    if putts is _PUTTS_UNSET:
+        putts = _as_int(hole.get("putts"))
+    gir, fairway = _derive_gir_fairway(
+        global_id, local_hole, par, shots, total_strokes, putts=putts, geometry=geometry
+    )
     if gir is not None and hole.get("gir") is None:
         hole["gir"] = gir
     if fairway is not None and hole.get("fairway") is None:
