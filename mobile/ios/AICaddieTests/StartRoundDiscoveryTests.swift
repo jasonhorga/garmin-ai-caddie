@@ -68,10 +68,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(after.fetchedTees, rows)
         XCTAssertEqual(options, ["Blue", "White"])
         XCTAssertTrue(StartRoundView.isStartAllowed(
-            isPreparing: false, isLoadingTees: false,
-            roundId: after.selection.roundId, courseGlobalId: Int(after.selection.globalIdText),
-            teeBox: after.selection.teeBox, selectedCourseRequiresRemoteTees: true,
-            teeOptions: options, selectedCourseWasManualSearch: true
+            isPreparing: false,
+            roundId: after.selection.roundId,
+            courseGlobalId: Int(after.selection.globalIdText),
+            teeBox: after.selection.teeBox
         ))
     }
 
@@ -224,13 +224,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         XCTAssertTrue(StartRoundView.isStartAllowed(
             isPreparing: false,
-            isLoadingTees: false,
             roundId: "round-42",
             courseGlobalId: 32850,
-            teeBox: corrected,
-            selectedCourseRequiresRemoteTees: false,
-            teeOptions: ["blue"],
-            selectedCourseWasManualSearch: false
+            teeBox: corrected
         ))
     }
 
@@ -643,13 +639,9 @@ final class StartRoundDiscoveryTests: XCTestCase {
         let common: (String, Bool) -> Bool = { teeBox, manualSearch in
             StartRoundView.isStartAllowed(
                 isPreparing: false,
-                isLoadingTees: true,
                 roundId: "live-31670-test",
                 courseGlobalId: 31670,
-                teeBox: teeBox,
-                selectedCourseRequiresRemoteTees: true,
-                teeOptions: [],
-                selectedCourseWasManualSearch: manualSearch
+                teeBox: teeBox
             )
         }
 
@@ -683,9 +675,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         XCTAssertEqual(options, ["black", "blue"])
         XCTAssertTrue(StartRoundView.isStartAllowed(
-            isPreparing: false, isLoadingTees: false,
-            roundId: selection.roundId, courseGlobalId: 31794, teeBox: selection.teeBox,
-            selectedCourseRequiresRemoteTees: true, teeOptions: options, selectedCourseWasManualSearch: false
+            isPreparing: false,
+            roundId: selection.roundId,
+            courseGlobalId: 31794,
+            teeBox: selection.teeBox
         ))
 
         let carried = StartRoundPresentation.carriedTees(in: response.matches)
@@ -771,9 +764,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
                 await Task.yield()
                 XCTAssertTrue(loading, "the Tee request remains in flight while Start stays usable")
                 XCTAssertTrue(StartRoundView.isStartAllowed(
-                    isPreparing: false, isLoadingTees: loading, roundId: "fixture-round",
-                    courseGlobalId: 31795, teeBox: "blue", selectedCourseRequiresRemoteTees: false,
-                    teeOptions: ["blue"], selectedCourseWasManualSearch: false
+                    isPreparing: false,
+                    roundId: "fixture-round",
+                    courseGlobalId: 31795,
+                    teeBox: "blue"
                 ), "C134 keeps a concrete Tee startable while authority refreshes")
                 return [CourseTee(teeBox: "blue", name: "Blue")]
             }
@@ -816,9 +810,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
             requiresRemoteTees: true, teeLoadFailed: true, fetchedTees: [], courseTees: courseTees
         ))
         XCTAssertTrue(StartRoundView.isStartAllowed(
-            isPreparing: false, isLoadingTees: false,
-            roundId: selection.roundId, courseGlobalId: 31795, teeBox: selection.teeBox,
-            selectedCourseRequiresRemoteTees: true, teeOptions: options, selectedCourseWasManualSearch: false
+            isPreparing: false,
+            roundId: selection.roundId,
+            courseGlobalId: 31795,
+            teeBox: selection.teeBox
         ))
 
         // No retry before a failure, or once real Tee rows exist (fetched, or carried by the row).
@@ -851,9 +846,10 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         XCTAssertEqual(options, ["unknown"])
         XCTAssertTrue(StartRoundView.isStartAllowed(
-            isPreparing: false, isLoadingTees: true,
-            roundId: selection.roundId, courseGlobalId: 31795, teeBox: selection.teeBox,
-            selectedCourseRequiresRemoteTees: true, teeOptions: options, selectedCourseWasManualSearch: false
+            isPreparing: false,
+            roundId: selection.roundId,
+            courseGlobalId: 31795,
+            teeBox: selection.teeBox
         ))
         let rows = [CourseTee(teeBox: "white", name: "White"), CourseTee(teeBox: "blue", name: "Blue", isDefault: true)]
         XCTAssertEqual(

@@ -233,13 +233,9 @@ public struct StartRoundView: View {
     private var canStart: Bool {
         Self.isStartAllowed(
             isPreparing: isPreparing,
-            isLoadingTees: isLoadingTees,
             roundId: roundId,
             courseGlobalId: courseGlobalId,
-            teeBox: teeBox,
-            selectedCourseRequiresRemoteTees: selectedCourseRequiresRemoteTees,
-            teeOptions: teeOptions,
-            selectedCourseWasManualSearch: selectedCourseWasManualSearch
+            teeBox: teeBox
         )
     }
 
@@ -274,22 +270,15 @@ public struct StartRoundView: View {
     /// server's course default (`unknown`) while the Tee list continues in the background.
     static func isStartAllowed(
         isPreparing: Bool,
-        isLoadingTees: Bool,
         roundId: String,
         courseGlobalId: Int?,
-        teeBox: String,
-        selectedCourseRequiresRemoteTees: Bool,
-        teeOptions: [String],
-        selectedCourseWasManualSearch: Bool
+        teeBox: String
     ) -> Bool {
         let tee = teeBox.trimmingCharacters(in: .whitespacesAndNewlines)
-        let startsWithoutTeeList = !tee.isEmpty
         return !isPreparing
-            && (startsWithoutTeeList || !isLoadingTees)
             && !roundId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && courseGlobalId != nil
             && !tee.isEmpty
-            && (!selectedCourseRequiresRemoteTees || !teeOptions.isEmpty || startsWithoutTeeList)
     }
 
     private static let surface = Color(red: 246 / 255, green: 247 / 255, blue: 248 / 255)
