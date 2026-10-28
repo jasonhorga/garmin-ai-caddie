@@ -2422,7 +2422,9 @@ enum LiveMapDisplayState: Equatable {
             // Keep the screen on its neutral ground until the exact bitmap is decoded. The
             // Garmin descriptor can be ready at this point, but it is not the authority for a
             // hole whose exact local image is already known.
-            return inputs.hasRoute == false ? .waiting : .factualPending
+            // A known precise bitmap with no prep route is still in the neutral decode-pending
+            // frame. Waiting is reserved for the case where neither bitmap nor route is known.
+            return .factualPending
         }
         if !inputs.garminImageFailed,
            inputs.garminImageReady,
@@ -2499,12 +2501,12 @@ enum LiveMapDisplaySelection {
     }
 
     static func gestureScale(for state: LiveMapDisplayState, proposed: CGFloat) -> CGFloat {
-        guard state != .numericPlaceholder else { return 1 }
+        guard state != .numericPlaceholder, state != .waiting else { return 1 }
         return min(max(proposed, 1), 4)
     }
 
     static func gestureOffset(for state: LiveMapDisplayState, proposed: CGSize) -> CGSize {
-        state == .numericPlaceholder ? .zero : proposed
+        (state == .numericPlaceholder || state == .waiting) ? .zero : proposed
     }
 
     static func projection(
@@ -2580,18 +2582,6 @@ enum LiveMapViewportTransition {
         destinationFrame: CGRect,
         interaction: LiveMapViewportInteraction
     ) -> LiveMapViewportInteraction {
-        // Existing implementation placeholder: the later fix makes route transitions explicitly
-        // identity-preserving. Keeping this interface first lets the regression test fail on the
-        // old transfer behaviour rather than merely proving a new symbol exists.
-        if previous == .factual && (next == .precise || next == .garminRaster) {
-            return LiveMapViewportInteraction(
-                scale: 1,
-                offset: .zero,
-                selectedHazardID: interaction.selectedHazardID,
-                targetPixel: interaction.targetPixel,
-                greenPinPixel: interaction.greenPinPixel
-            )
-        }
         _ = sourceFrame
         _ = destinationFrame
         return interaction

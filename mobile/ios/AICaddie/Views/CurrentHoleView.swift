@@ -414,8 +414,12 @@ enum LiveHazardMapFrame {
                 hole: replacingFrame(of: prep, overlay: garminOverlay, projection: garminProjection),
                 row: garminRow
             )
-        case .waiting, .factualPending, .factual, .numericPlaceholder:
+        case .waiting, .factualPending, .numericPlaceholder:
             return .needsMapping(.noMap)
+        case .factual:
+            return LiveTopoAvailability.overlayAllowed(displayState: .precise, hole: hole, prep: prep)
+                ? .drawable(hole: prep, row: row)
+                : .needsMapping(.sameFramePrep)
         }
     }
 
@@ -1348,7 +1352,7 @@ public struct CurrentHoleView: View {
             carryOverMapInteraction(from: previous, to: next)
         }
         .onChange(of: liveMapDisplayState) { previous, next in
-            if next == .numericPlaceholder {
+            if next == .numericPlaceholder || next == .waiting {
                 heroMapScale = 1
                 heroMapOffset = .zero
                 heroMapTransientDragOffset = .zero
@@ -2342,7 +2346,8 @@ public struct CurrentHoleView: View {
                 state = value
             }
             .onEnded { value in
-                guard liveMapDisplayState != .numericPlaceholder else {
+                guard liveMapDisplayState != .numericPlaceholder,
+                      liveMapDisplayState != .waiting else {
                     heroMapScale = 1
                     heroMapOffset = .zero
                     heroMapTransientDragOffset = .zero
@@ -2371,6 +2376,8 @@ public struct CurrentHoleView: View {
                     scale: heroMapScale,
                     pinchScale: heroMapPinchScale
                 ),
+                      liveMapDisplayState != .waiting,
+                      liveMapDisplayState != .numericPlaceholder,
                       !heroTargetDragging,
                       !heroTargetHit(at: value.startLocation, in: viewport) else { return }
                 heroMapTransientDragOffset = value.translation
@@ -2380,6 +2387,8 @@ public struct CurrentHoleView: View {
                     scale: heroMapScale,
                     pinchScale: heroMapPinchScale
                 ),
+                      liveMapDisplayState != .waiting,
+                      liveMapDisplayState != .numericPlaceholder,
                       !heroTargetDragging,
                       !heroTargetHit(at: value.startLocation, in: viewport) else {
                     heroMapTransientDragOffset = .zero
@@ -2420,7 +2429,28 @@ public struct CurrentHoleView: View {
         from previous: LiveMapDisplayState,
         to next: LiveMapDisplayState
     ) {
-        guard (previous == .garminRaster || previous == .factual), next == .precise,
+        if previous == .factual && (next == .precise || next == .garminRaster) {
+            let preserved = LiveMapViewportTransition.preserve(
+                previous: previous,
+                next: next,
+                sourceFrame: liveHeroFrame,
+                destinationFrame: liveHeroFrame,
+                interaction: LiveMapViewportInteraction(
+                    scale: heroMapScale,
+                    offset: heroMapOffset,
+                    selectedHazardID: selectedHazardID,
+                    targetPixel: targetPixel,
+                    greenPinPixel: greenPinPixel
+                )
+            )
+            heroMapScale = preserved.scale
+            heroMapOffset = preserved.offset
+            selectedHazardID = preserved.selectedHazardID
+            targetPixel = preserved.targetPixel
+            greenPinPixel = preserved.greenPinPixel
+            return
+        }
+        guard previous == .garminRaster, next == .precise,
               let sourceProjection = projection(for: previous),
               let destinationProjection = projection(for: next),
               let sourceOverlay = overlay(for: previous),
@@ -2711,6 +2741,33 @@ public struct CurrentHoleView: View {
         )
     }
 
+    /// Keep Garmin image loading/retry alive behind every non-Garmin surface. A descriptor can
+    /// become ready while the route or waiting tier is visible; the next state transition then
+    /// uses the decoded bitmap instead of relying on an incidental redraw.
+    @ViewBuilder private var liveGarminRasterPreloader: some View {
+        if let retryURL = liveGarminRasterURL {
+            GarminRasterStandaloneView(
+                url: retryURL,
+                reloadID: garminRasterImageReloadID,
+                onReady: {
+                    garminRasterImageReady = true
+                    garminRasterImageRetrying = false
+                    garminRasterImageFailed = false
+                },
+                onFailed: {
+                    garminRasterImageReady = false
+                    garminRasterImageRetrying = false
+                    garminRasterImageFailed = true
+                },
+                onVersionConflict: { retryGarminDescriptorAfterVersionConflict(retryURL) },
+                placeholder: liveMapPlaceholder
+            )
+            .opacity(0.001)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+
     /// 球洞俯视图(2D): precise topo first, then Garmin's raster, then a numeric placeholder.
     @ViewBuilder private var liveMapBackdrop: some View {
         if liveMapDisplayState == .factualPending && hasPreciseTopoAvailable {
@@ -2757,13 +2814,19 @@ public struct CurrentHoleView: View {
                 )
                 .transition(.opacity)
         } else if let holePrep, liveMapDisplayState == .factual {
-            liveHoleImageMap(holePrep)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("live-hole-map-partial")
-                .transition(.opacity)
+            ZStack {
+                liveHoleImageMap(holePrep)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("live-hole-map-partial")
+                liveGarminRasterPreloader
+            }
+            .transition(.opacity)
         } else if liveMapDisplayState == .waiting {
-            LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber, par: hole.par, yards: hole.yards)
-                .transition(.opacity)
+            ZStack {
+                LiveMapPreparingSurface(holeNumber: hole.courseHoleNumber, par: hole.par, yards: hole.yards)
+                liveGarminRasterPreloader
+            }
+            .transition(.opacity)
         } else if liveMapDisplayState == .precise, let liveTopoURL {
             TopoHoleBaseImage(topoURL: liveTopoURL, fallback: nil)
                 .accessibilityIdentifier("live-hole-map-precise")
