@@ -828,6 +828,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// whole-course template, but a Start tap can consume the exact package without another request.
     private var intentPrefetchPackages: [String: LiveRoundPackage] = [:]
     private var intentPrefetchTasks: [String: Task<LiveRoundPackage, Error>] = [:]
+    /// The map-only intent belonging to the foreground Start selection. Other intent rows still
+    /// yield to Start and are cancelled with the rest of the prep queue.
+    private var foregroundRoundStartIntentKey: String?
     #if canImport(UIKit)
     private var prepBackgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
     #endif
@@ -940,6 +943,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// invent a demo round: with no configured id bootstrap lands on the normal home package.
     private let preferredRoundId: String?
     private let offlineGeometryRetryDelaysNanoseconds: [UInt64]
+    public nonisolated static let defaultRoundStartIntentWaitNanoseconds: UInt64 = 30_000_000_000
+    private let roundStartIntentWaitNanoseconds: UInt64
     /// C85 开局两段: the wait before each attempt of the background personal package after a
     /// map-only start. The attempts end with the list; the next foreground starts them again.
     var roundEnrichmentRetryDelaysNanoseconds: [UInt64] = [
@@ -981,6 +986,7 @@ public final class LiveRoundAppModel: ObservableObject {
         syncClient: SyncClient? = nil,
         offlineGeometryRetryDelaysNanoseconds: [UInt64] = LiveRoundAppModel.defaultOfflineGeometryRetryDelaysNanoseconds,
         prepStatusProbeRetryDelayNanoseconds: UInt64 = LiveRoundAppModel.defaultPrepStatusProbeRetryDelayNanoseconds,
+        roundStartIntentWaitNanoseconds: UInt64 = LiveRoundAppModel.defaultRoundStartIntentWaitNanoseconds,
         freshEntryReleaseFallbackNanoseconds: UInt64 = 20_000_000_000,
         roundStartProgressSleep: @escaping (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) },
         roundStartNow: @escaping () -> Date = { Date() }
@@ -995,6 +1001,7 @@ public final class LiveRoundAppModel: ObservableObject {
             syncClient: syncClient,
             offlineGeometryRetryDelaysNanoseconds: offlineGeometryRetryDelaysNanoseconds,
             prepStatusProbeRetryDelayNanoseconds: prepStatusProbeRetryDelayNanoseconds,
+            roundStartIntentWaitNanoseconds: roundStartIntentWaitNanoseconds,
             freshEntryReleaseFallbackNanoseconds: freshEntryReleaseFallbackNanoseconds,
             roundStartProgressSleep: roundStartProgressSleep,
             roundStartNow: roundStartNow
@@ -1011,6 +1018,7 @@ public final class LiveRoundAppModel: ObservableObject {
         syncClient: SyncClient? = nil,
         offlineGeometryRetryDelaysNanoseconds: [UInt64] = LiveRoundAppModel.defaultOfflineGeometryRetryDelaysNanoseconds,
         prepStatusProbeRetryDelayNanoseconds: UInt64 = LiveRoundAppModel.defaultPrepStatusProbeRetryDelayNanoseconds,
+        roundStartIntentWaitNanoseconds: UInt64 = LiveRoundAppModel.defaultRoundStartIntentWaitNanoseconds,
         freshEntryReleaseFallbackNanoseconds: UInt64 = 20_000_000_000,
         networkPathObserver: NetworkPathObserving? = NetworkPathObserver.live(),
         roundStartProgressSleep: @escaping (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) },
@@ -1029,6 +1037,7 @@ public final class LiveRoundAppModel: ObservableObject {
             : Self.configuredLiveRoundId()
         self.offlineGeometryRetryDelaysNanoseconds = offlineGeometryRetryDelaysNanoseconds
         self.prepStatusProbeRetryDelayNanoseconds = prepStatusProbeRetryDelayNanoseconds
+        self.roundStartIntentWaitNanoseconds = roundStartIntentWaitNanoseconds
         self.freshEntryReleaseFallbackNanoseconds = freshEntryReleaseFallbackNanoseconds
         self.roundStartProgressSleep = roundStartProgressSleep
         self.roundStartNow = roundStartNow
@@ -1199,6 +1208,7 @@ public final class LiveRoundAppModel: ObservableObject {
         intentPrefetchTasks.removeAll()
         intentPrefetchPackages.removeAll()
         completedIntentPrefetchIDs.removeAll()
+        foregroundRoundStartIntentKey = nil
         // Requested 备战 jobs belong to the previous player's library.
         userRequestedPrepDownloadIDs.removeAll()
         watchFinishedRoundReconciliationTask?.cancel()
@@ -1841,6 +1851,7 @@ public final class LiveRoundAppModel: ObservableObject {
         syncClient?.endRoundStart(token)
         guard roundPreparationToken == token else { return }
         roundPreparationToken = nil
+        foregroundRoundStartIntentKey = nil
         isPreparingRound = false
         stopRoundProgress()
         // Live-course assets keep priority after a successful start or hole-set change: their
@@ -1957,6 +1968,9 @@ public final class LiveRoundAppModel: ObservableObject {
         recordUITestLatency(
             "course-start.begin globalId=\(globalId) loops=\(loopKey) tee=\(teeBox)"
         )
+        foregroundRoundStartIntentKey = PrepCourseDownloadRecord.intentKey(
+            globalId: globalId, teeBox: teeBox
+        )
         let preparationToken = beginRoundPreparation()
         defer {
             recordUITestLatency("course-start.finish.begin globalId=\(globalId)")
@@ -1998,12 +2012,14 @@ public final class LiveRoundAppModel: ObservableObject {
             // change keeps the round's personal facts, so it asks for the ordinary package.
             var fetched: LiveRoundPackage?
             if isNewRound {
-                fetched = await intentPrefetchPackage(
+                let intent = await intentPrefetchPackage(
                     globalId: globalId,
                     teeBox: teeBox,
                     roundId: requestedRoundId,
                     generatedAt: preparedAt
                 )
+                if intent.timedOut { return }
+                fetched = intent.package
             }
             if fetched == nil {
                 fetched = await fetchRemoteCoursePackage(
@@ -2116,25 +2132,43 @@ public final class LiveRoundAppModel: ObservableObject {
             .rebasedForOfflineStart(roundId: roundId, generatedAt: preparedAt)
     }
 
+    private struct IntentPrefetchWaitTimeout: Error {}
+
     /// Consume the selected course's map-only intent without issuing a second package request.
     /// An in-flight intent is awaited by Start; a completed package remains memory-only and is
-    /// rebased to the new round identity before activation.
+    /// rebased to the new round identity before activation. The foreground budget wins over the
+    /// background request: a slow intent becomes a timed-out Start instead of holding the button
+    /// for the background request's 120-second retry ladder.
     private func intentPrefetchPackage(
         globalId: Int,
         teeBox: String,
         roundId: String,
         generatedAt: Date
-    ) async -> LiveRoundPackage? {
+    ) async -> (package: LiveRoundPackage?, timedOut: Bool) {
         let key = PrepCourseDownloadRecord.intentKey(globalId: globalId, teeBox: teeBox)
         if let cached = intentPrefetchPackages[key] {
-            return cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt)
+            return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
         }
-        guard let task = intentPrefetchTasks[key] else { return nil }
+        guard let task = intentPrefetchTasks[key] else { return (nil, false) }
         do {
-            let cached = try await task.value
-            return cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt)
+            let cached = try await withThrowingTaskGroup(of: LiveRoundPackage.self) { group in
+                group.addTask { try await task.value }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: self.roundStartIntentWaitNanoseconds)
+                    throw IntentPrefetchWaitTimeout()
+                }
+                defer { group.cancelAll() }
+                guard let value = try await group.next() else { throw CancellationError() }
+                return value
+            }
+            return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
+        } catch is IntentPrefetchWaitTimeout {
+            task.cancel()
+            roundStartFailure = .timedOut
+            syncStatus = roundStartFailure?.presentationMessage ?? "服务器较慢，没能开始，点重试"
+            return (nil, true)
         } catch {
-            return nil
+            return (nil, false)
         }
     }
 
@@ -4696,6 +4730,9 @@ public final class LiveRoundAppModel: ObservableObject {
         prepCourse = course
         prepTeeOptions = Self.prepTeeOptions(course.tees ?? [], selected: teeBox)
         isOpeningPrepCourse = true
+        foregroundRoundStartIntentKey = PrepCourseDownloadRecord.intentKey(
+            globalId: course.globalId, teeBox: teeBox
+        )
         let preparationToken = beginRoundPreparation()
         activeRoundStartTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -4716,12 +4753,14 @@ public final class LiveRoundAppModel: ObservableObject {
                 requireComplete: false
             )
             if opened == nil {
-                opened = await self.intentPrefetchPackage(
+                let intent = await self.intentPrefetchPackage(
                     globalId: course.globalId,
                     teeBox: teeBox,
                     roundId: roundId,
                     generatedAt: capturedAt
                 )
+                if intent.timedOut { return }
+                opened = intent.package
             }
             if opened == nil {
                 opened = await self.fetchRemoteCoursePackage(
@@ -6642,10 +6681,12 @@ public final class LiveRoundAppModel: ObservableObject {
         if preserveIntentPrefetch,
            let active = activePrepCourseDownloadID,
            prepCourseDownloads.first(where: { $0.id == active })?.isIntentPrefetch == true,
+           active == foregroundRoundStartIntentKey,
            intentPrefetchTasks[active] != nil {
             return
         }
-        if let active = activePrepCourseDownloadID, !preserveIntentPrefetch {
+        if let active = activePrepCourseDownloadID,
+           !preserveIntentPrefetch || active != foregroundRoundStartIntentKey {
             intentPrefetchTasks[active]?.cancel()
         }
         prepCourseDownloadTask?.cancel()
@@ -7209,7 +7250,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 let serverStatus: CourseInstallStatus?
                 let statusProbeFailed: Bool
                 do {
-                    serverStatus = try await syncClient.probeCourseInstallStatusForRevalidation(
+                    serverStatus = try await syncClient.fetchCourseInstallStatusForPolling(
                         globalId: record.course.globalId,
                         teeBox: record.teeBox,
                         loops: fetched.loopEntries

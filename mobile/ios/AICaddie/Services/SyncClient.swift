@@ -905,6 +905,22 @@ public final class SyncClient {
         )
     }
 
+    /// Single-attempt polling used by the resumable prep worker. The worker owns its retry ladder,
+    /// so each status request gets the longer 30-second transport budget without multiplying tries.
+    public func fetchCourseInstallStatusForPolling(
+        globalId: Int,
+        teeBox: String,
+        loops: [RoundLoopEntry]
+    ) async throws -> CourseInstallStatus? {
+        try await fetchCourseInstallStatus(
+            globalId: globalId,
+            teeBox: teeBox,
+            loops: loops,
+            timeoutInterval: Self.courseInstallStatusTimeoutInterval,
+            maximumAttempts: 1
+        )
+    }
+
     /// Fast, best-effort release check used only when opening an already complete local course.
     /// The local package remains usable offline, so this probe must never turn a transient network
     /// interruption into a minute-long blocked tap. Ordinary install polling keeps the longer retry
