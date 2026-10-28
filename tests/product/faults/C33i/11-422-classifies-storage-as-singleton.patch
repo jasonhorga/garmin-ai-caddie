@@ -1,11 +1,11 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -5288,7 +5288,7 @@
+@@ -5322,7 +5322,7 @@
+                 }
                  return ProbeResult(result: result, invalid: [], invalidReasons: [:], allInvalid: false)
              } catch SyncClientError.http(status: let status, body: let body) {
-                 guard batch.count > 1 else {
--                    guard Self.isSingleEventPayloadValidation422(body) else {
-+                    guard status == 422 else {
+-                guard groups.count > 1 else {
++                guard status == 422 else {
+                     guard Self.isSingleEventPayloadValidation422(body) else {
                          throw SyncClientError.http(status: status, body: body)
                      }
-                     return ProbeResult(
