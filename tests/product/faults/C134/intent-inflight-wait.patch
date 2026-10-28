@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -1871,6 +1871,6 @@ public final class LiveRoundAppModel: ObservableObject {
+         if let cached = intentPrefetchPackages[key] {
+             return cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt)
+         }
+-        guard let task = intentPrefetchTasks[key] else { return nil }
++        guard intentPrefetchTasks[key] == nil, let task = intentPrefetchTasks[key] else { return nil }
+         do {
+             let cached = try await task.value

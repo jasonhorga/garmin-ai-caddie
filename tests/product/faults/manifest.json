@@ -1766,6 +1766,20 @@
       "promise": "5f"
     },
     {
+      "id": "tests-product-faults-C134-intent-cache-reuse",
+      "patch": "tests/product/faults/C134/intent-cache-reuse.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testCompletedCourseIntentIsReusedByStart",
+      "promise": "intent-reuse"
+    },
+    {
+      "id": "tests-product-faults-C134-intent-inflight-wait",
+      "patch": "tests/product/faults/C134/intent-inflight-wait.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testInFlightCourseIntentIsAwaitedByStartWithoutDuplicate",
+      "promise": "intent-wait"
+    },
+    {
       "id": "tests-product-faults-C134-block3-map-only",
       "patch": "tests/product/faults/C134/block3-map-only-intent.patch",
       "kind": "native-unit",

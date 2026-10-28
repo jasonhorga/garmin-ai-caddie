@@ -1,0 +1,12 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -1869,9 +1869,6 @@ public final class LiveRoundAppModel: ObservableObject {
+         generatedAt: Date
+     ) async -> LiveRoundPackage? {
+         let key = PrepCourseDownloadRecord.intentKey(globalId: globalId, teeBox: teeBox)
+-        if let cached = intentPrefetchPackages[key] {
+-            return cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt)
+-        }
+         guard let task = intentPrefetchTasks[key] else { return nil }
+         do {
+             let cached = try await task.value

@@ -319,81 +319,77 @@ final class RoundStartTwoStageTests: XCTestCase {
         await model.waitForOfflineCourseDownloadForTesting()
     }
 
-    func testACourseIntentDoesNotRunBesideTheStart() async throws {
-        let host = "c85-intent.example.test"
-        let roundId = "c85-intent"
+    func testCompletedCourseIntentIsReusedByStart() async throws {
+        let host = "c85-intent-complete.example.test"
+        let roundId = "c85-intent-complete"
         let intentId = 31796
-        let mapPackage = try package(roundId: roundId, mapOnly: false)
+        let mapPackage = try package(roundId: roundId, mapOnly: true)
         let mapData = try JSONEncoder().encode(mapPackage)
-        let held = C85HeldRequests()
-        let intentRequests = C85RequestLog()
-        let phase = C85Counter()
+        let requests = C85RequestLog()
         let intentSent = expectation(description: "intent package sent")
-        let intentStopped = expectation(description: "intent package cancelled by the start")
-        let startSent = expectation(description: "start package sent")
-        let resentDuringStart = expectation(description: "intent sent again while the start runs")
-        resentDuringStart.isInverted = true
-        let resentAfterEntry = expectation(description: "intent sent again before the fresh entry is released")
-        resentAfterEntry.isInverted = true
-        let intentSentOnce = C33FirstMatch(), intentStoppedOnce = C33FirstMatch(), startSentOnce = C33FirstMatch()
-        let resentDuringStartOnce = C33FirstMatch(), resentAfterEntryOnce = C33FirstMatch()
+        let intentSentOnce = C33FirstMatch()
         let intentPath = "/api/v2/mobile/courses/\(intentId)/package"
         C33URLProtocol.setHandlers(onStart: { proto in
-            guard proto.request.url?.host == host else { proto.reply(404); return }
-            switch proto.request.url?.path {
-            case intentPath:
-                intentRequests.append(proto.request)
-                held.hold(proto)
-                switch phase.value {
-                case 0: if intentSentOnce.claim() { intentSent.fulfill() }
-                case 1: if resentDuringStartOnce.claim() { resentDuringStart.fulfill() }
-                default: if resentAfterEntryOnce.claim() { resentAfterEntry.fulfill() }
-                }
-            case "/api/v2/mobile/courses/\(c85CourseId)/package":
-                held.hold(proto)
-                if startSentOnce.claim() { startSent.fulfill() }
-            default:
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path == intentPath else { proto.reply(404); return }
+            requests.append(proto.request)
+            if c33Query(proto.request, "map_only") == "true" {
+                if intentSentOnce.claim() { intentSent.fulfill() }
+                proto.reply(200, mapData)
+            } else {
                 proto.reply(404)
             }
-        }, onStop: { request in
-            guard request.url?.host == host else { return }
-            held.forget(request)
-            guard request.url?.path == intentPath else { return }
-            if intentStoppedOnce.claim() { intentStopped.fulfill() }
         })
+        let fixture = makeModel(host: host)
+        let model = fixture.model
+        let intent = MobileCourseOption(globalId: intentId, name: "Intent nine", holes: 9, teeBox: "blue")
+
+        model.prefetchIntendedCourses([intent], teeBox: "blue")
+        await fulfillment(of: [intentSent], timeout: eventWait)
+        await model.waitForPrepCourseDownloadForTesting()
+        await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: mapPackage.loopEntries)
+
+        let mapRequests = requests.all.filter { c33Query($0, "map_only") == "true" }
+        XCTAssertEqual(mapRequests.count, 1, "Start reuses the completed intent package")
+        XCTAssertEqual(model.pendingLiveHole, 1)
+    }
+
+    func testInFlightCourseIntentIsAwaitedByStartWithoutDuplicate() async throws {
+        let host = "c85-intent-flight.example.test"
+        let roundId = "c85-intent-flight"
+        let intentId = 31796
+        let mapPackage = try package(roundId: roundId, mapOnly: true)
+        let mapData = try JSONEncoder().encode(mapPackage)
+        let held = C85HeldRequests()
+        let requests = C85RequestLog()
+        let intentSent = expectation(description: "intent package sent")
+        let intentSentOnce = C33FirstMatch()
+        let intentPath = "/api/v2/mobile/courses/\(intentId)/package"
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path == intentPath else { proto.reply(404); return }
+            requests.append(proto.request)
+            held.hold(proto)
+            if intentSentOnce.claim() { intentSent.fulfill() }
+        }, onStop: { held.forget($0) })
         let fixture = makeModel(host: host, held: held)
         let model = fixture.model
         let intent = MobileCourseOption(globalId: intentId, name: "Intent nine", holes: 9, teeBox: "blue")
 
-        // Choosing the course immediately warms the map-only package; no debounce is required.
         model.prefetchIntendedCourses([intent], teeBox: "blue")
         await fulfillment(of: [intentSent], timeout: eventWait)
-        XCTAssertEqual(
-            intentRequests.all.first.flatMap { c33Query($0, "map_only") },
-            "true",
-            "C134 course selection warms the map-only package before Start"
-        )
-
-        // 开球: the intent request is cancelled and the start is sent.
-        phase.set(1)
         let start = Task {
             await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: mapPackage.loopEntries)
         }
-        defer { start.cancel() }
-        await fulfillment(of: [intentStopped, startSent], timeout: eventWait)
-
-        // The home's 在这个球场 card announces the same intent while the start is still in flight: it
-        // must wait instead of building a whole-course package beside the start.
-        model.prefetchIntendedCourses([intent], teeBox: "blue")
-        await fulfillment(of: [resentDuringStart], timeout: 2)
-
-        phase.set(2)
-        held.releaseStartPackage(path: "/api/v2/mobile/courses/\(c85CourseId)/package", data: mapData)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let mapRequestsBeforeRelease = requests.all.filter { c33Query($0, "map_only") == "true" }
+        XCTAssertEqual(mapRequestsBeforeRelease.count, 1, "Start waits for the in-flight intent instead of sending another map package")
+        held.releaseAll(200, mapData)
         await start.value
+
+        let mapRequests = requests.all.filter { c33Query($0, "map_only") == "true" }
+        XCTAssertEqual(mapRequests.count, 1)
         XCTAssertEqual(model.pendingLiveHole, 1)
-        // Hole 1 still has priority until its first load settles (or the fallback fires).
-        await fulfillment(of: [resentAfterEntry], timeout: 2)
-        await model.cancelPrepCourseDownloadForTesting()
     }
 
     /// Teardown guard (fixture run 40308301959): once the test hook has returned, nothing the round
