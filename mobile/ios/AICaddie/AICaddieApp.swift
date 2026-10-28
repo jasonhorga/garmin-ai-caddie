@@ -1843,6 +1843,9 @@ public final class LiveRoundAppModel: ObservableObject {
         // failed, release the prep-library queue instead of leaving durable jobs paused.
         if deferredOfflineCourseDownloadRevalidation == nil,
            offlineCourseDownloadTask == nil {
+            if prepPackage == nil && !isOpeningPrepCourse {
+                releasePostStartIntentPrefetches()
+            }
             startPrepCourseDownloadQueueIfNeeded()
         }
         // A start that did not leave a live round (failed, or not a new round) gives the results
@@ -4853,6 +4856,7 @@ public final class LiveRoundAppModel: ObservableObject {
         prepEnrichmentTask?.cancel()
         prepEnrichmentTask = nil
         prepEnrichmentRoundID = nil
+        releasePostStartIntentPrefetches()
         isOpeningPrepCourse = false
         prepPackage = nil
         prepCourse = nil
