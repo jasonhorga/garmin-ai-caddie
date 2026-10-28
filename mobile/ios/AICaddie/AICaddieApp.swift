@@ -6414,15 +6414,6 @@ public final class LiveRoundAppModel: ObservableObject {
         var changed = prepCourseDownloads.count != countBefore
         for candidate in candidates {
             if let existing = prepCourseDownloads.first(where: { $0.id == candidate.id }) {
-                if existing.isSpeculative,
-                   let index = prepCourseDownloads.firstIndex(where: { $0.id == candidate.id }) {
-                    // About to be played: it now downloads on any network, ahead of other guesses.
-                    prepCourseDownloads[index].isSpeculative = false
-                    prepCourseDownloads[index].isIntentPrefetch = true
-                    prepCourseDownloads[index].updatedAt = Date()
-                    changed = true
-                    continue
-                }
                 // Queued, running or ready rows (including the player's own) are kept as they are;
                 // only a transient failure is given another go.
                 guard existing.phase == .failed, !existing.isTerminalFailure else { continue }
