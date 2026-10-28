@@ -336,6 +336,131 @@ final class CurrentHoleLocatorTests: XCTestCase {
         }
     }
 
+    /// Product spec 5.13: real transitions must still work between nearby, distinct tees.
+    func testProductSpec513NearbyTeesConfirmThroughLocationEnvelope() {
+        for separation in [20.0, 30.0] {
+            for accuracy in [5.0, 15.0] {
+                let holes = [
+                    parallelHole(1, eastM: 0), parallelHole(2, eastM: separation),
+                ]
+                var following = PrepHoleFollowingState()
+                let start = Date(timeIntervalSince1970: 100)
+                XCTAssertNil(follow(&following, at: localPoint(eastM: 0, northM: 0),
+                                    time: start, accuracy: accuracy, displayedHole: 1, holes: holes))
+                XCTAssertEqual(following.lastLocatedHole, 1)
+                XCTAssertNil(follow(&following, at: localPoint(eastM: separation, northM: 0),
+                                    time: start.addingTimeInterval(1), accuracy: accuracy,
+                                    displayedHole: 1, holes: holes))
+                XCTAssertEqual(follow(&following, at: localPoint(eastM: separation, northM: 0),
+                                      time: start.addingTimeInterval(6), accuracy: accuracy,
+                                      displayedHole: 1, holes: holes), 2,
+                               "5.13: separation \(separation)m, accuracy \(accuracy)m must reach hole 2")
+            }
+        }
+    }
+
+    func testProductSpec513SharedTeeKeepsDisplayedLoopAndConfirmsPackageChoiceAfterFiveSeconds() {
+        let holes = [parallelHole(1, eastM: 0), parallelHole(10, eastM: 0),
+                     parallelHole(9, eastM: -120)]
+        let start = Date(timeIntervalSince1970: 100)
+        for displayed in [1, 10] {
+            var following = PrepHoleFollowingState()
+            for elapsed in [0.0, 6.0] {
+                XCTAssertNil(follow(&following, at: localPoint(eastM: 0, northM: 0),
+                                    time: start.addingTimeInterval(elapsed),
+                                    displayedHole: displayed, holes: holes))
+            }
+            XCTAssertEqual(following.lastLocatedHole, displayed,
+                           "5.13: a shared 1/10 anchor must keep the displayed loop")
+        }
+        var following = PrepHoleFollowingState()
+        _ = follow(&following, at: localPoint(eastM: -120, northM: 0), time: start,
+                   displayedHole: 9, holes: holes)
+        XCTAssertEqual(following.lastLocatedHole, 9)
+        XCTAssertNil(follow(&following, at: localPoint(eastM: 0, northM: 0),
+                            time: start.addingTimeInterval(1), displayedHole: 9, holes: holes))
+        // Movement within a shared start area does not bypass its 5 s time confirmation.
+        XCTAssertNil(follow(&following, at: localPoint(eastM: 0, northM: 12),
+                            time: start.addingTimeInterval(2), displayedHole: 9, holes: holes))
+        XCTAssertEqual(follow(&following, at: localPoint(eastM: 0, northM: 12),
+                              time: start.addingTimeInterval(6), displayedHole: 9, holes: holes), 1)
+    }
+
+    func testProductSpec513NormalGreenToNextTeeRouteConfirmsThroughLocationEnvelope() {
+        let holes = [
+            HoleLocatorGeometry(hole: 5, tee: localPoint(eastM: 0, northM: -360),
+                                green: localPoint(eastM: 0, northM: -60),
+                                fairway: [localRectangle(left: -15, right: 15, bottom: -360, top: -55)]),
+            parallelHole(6, eastM: 0),
+        ]
+        let start = Date(timeIntervalSince1970: 100)
+        var following = PrepHoleFollowingState()
+        XCTAssertNil(follow(&following, at: localPoint(eastM: 0, northM: -60), time: start,
+                            displayedHole: 5, holes: holes))
+        XCTAssertEqual(following.lastLocatedHole, 5)
+        XCTAssertNil(follow(&following, at: localPoint(eastM: 0, northM: -35),
+                            time: start.addingTimeInterval(1), displayedHole: 5, holes: holes))
+        XCTAssertEqual(follow(&following, at: localPoint(eastM: 0, northM: 0),
+                              time: start.addingTimeInterval(3), displayedHole: 5, holes: holes), 6)
+    }
+
+    func testProductSpec513CandidateAreaEdgesDoNotCancelARealTransition() {
+        let holes = [parallelHole(1, eastM: -120), parallelHole(2, eastM: 0)]
+        let start = Date(timeIntervalSince1970: 100)
+        var following = PrepHoleFollowingState()
+        _ = follow(&following, at: localPoint(eastM: -120, northM: 0), time: start,
+                   displayedHole: 1, holes: holes)
+        XCTAssertNil(follow(&following, at: localPoint(eastM: 0, northM: 0),
+                            time: start.addingTimeInterval(1), displayedHole: 1, holes: holes))
+        // Beyond the new tee disc and just 1 m inside its fairway, still far from the old hole.
+        XCTAssertEqual(follow(&following, at: localPoint(eastM: 14, northM: 80),
+                              time: start.addingTimeInterval(2), displayedHole: 1, holes: holes), 2)
+        // Moving from that fairway to the new hole's corridor keeps the same confirmed hole.
+        XCTAssertNil(follow(&following, at: localPoint(eastM: 16, northM: 110),
+                            time: start.addingTimeInterval(3), displayedHole: 2, holes: holes))
+        XCTAssertEqual(following.lastLocatedHole, 2)
+    }
+
+    func testProductSpec513UnrelatedNearbyTeeDoesNotBlockLeavingDisplayedHole() {
+        let holes = [parallelHole(1, eastM: -120), parallelHole(2, eastM: 0),
+                     parallelHole(3, eastM: 12)]
+        let start = Date(timeIntervalSince1970: 100)
+        var following = PrepHoleFollowingState()
+        _ = follow(&following, at: localPoint(eastM: -120, northM: 0), time: start,
+                   displayedHole: 1, holes: holes)
+        XCTAssertNil(follow(&following, at: localPoint(eastM: 0, northM: 0),
+                            time: start.addingTimeInterval(1), displayedHole: 1, holes: holes))
+        XCTAssertEqual(follow(&following, at: localPoint(eastM: 0, northM: 0),
+                              time: start.addingTimeInterval(6), displayedHole: 1, holes: holes), 2)
+    }
+
+    private func follow(
+        _ following: inout PrepHoleFollowingState, at point: CLLocationCoordinate2D, time: Date,
+        accuracy: Double = 5, displayedHole: Int, holes: [HoleLocatorGeometry]
+    ) -> Int? {
+        let locatedHole = CurrentHoleLocator.locate(coordinate: point, horizontalAccuracyM: accuracy,
+                                                   holes: holes, preferredHole: displayedHole).hole
+        return following.navigationTarget(currentLocatedHole: locatedHole, displayedHole: displayedHole,
+            fix: fix(point, at: time, accuracy: accuracy), holes: holes, now: time)
+    }
+
+    private func localPoint(eastM: Double, northM: Double) -> CLLocationCoordinate2D {
+        coordinate(40 + northM / 111_320, 116 + eastM / (111_320 * cos(40 * .pi / 180)))
+    }
+
+    private func localRectangle(left: Double, right: Double, bottom: Double, top: Double)
+        -> [CLLocationCoordinate2D] {
+        [localPoint(eastM: left, northM: bottom), localPoint(eastM: right, northM: bottom),
+         localPoint(eastM: right, northM: top), localPoint(eastM: left, northM: top)]
+    }
+
+    private func parallelHole(_ hole: Int, eastM: Double) -> HoleLocatorGeometry {
+        HoleLocatorGeometry(hole: hole, tee: localPoint(eastM: eastM, northM: 0),
+                            green: localPoint(eastM: eastM, northM: 400),
+                            fairway: [localRectangle(left: eastM - 15, right: eastM + 15,
+                                                     bottom: 0, top: 100)])
+    }
+
     private var confirmationHoles: [HoleLocatorGeometry] {
         [HoleLocatorGeometry(hole: 2, tee: coordinate(40, 116), green: coordinate(40.004, 116))]
     }
