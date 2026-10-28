@@ -579,8 +579,8 @@
       "id": "tests-product-faults-C90ios-01-finish-cancels-before-seal",
       "patch": "tests/product/faults/C90ios/01-finish-cancels-before-seal.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/RoundStartTwoStageTests/testFinishKeepsWholeCourseDownloadRunning",
-      "promise": "C90ios-B5"
+      "target": "AICaddieTests/RoundStartTwoStageTests/testQuarantineBlockedFinishKeepsRoundBackgroundWorkAlive",
+      "promise": "C90ios-B1"
     },
     {
       "id": "tests-product-faults-C90ios-02-clear-cancels-before-check",

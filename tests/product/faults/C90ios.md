@@ -6,9 +6,9 @@ patch 单独 apply 并运行 manifest 中的 target；本机没有 Swift/Xcode�
 
 | promise | mutant | 测试 / 红断言 |
 |---|---|---|
-| B1 | 01、02、03 | `RoundStartTwoStageTests` 的 finish、Watch finish、discard failure 测试：held round request 被取消或 round ownership 被清除 |
+| B1 | 01、02、03 | `testQuarantineBlockedFinishKeepsRoundBackgroundWorkAlive`、`testQuarantineBlockedWatchFinishKeepsRoundBackgroundWorkAlive`、`testDiscardFailureKeepsRoundBackgroundWorkAlive`：held round request 被取消或 round ownership 被清除 |
 | B2 | 04 | `testDiscardLeavesAnotherPrepCourseDownloadRunning`：另一个球场 prep held request 的 stop count 变为 1 |
-| B5 | 01、05 | `testFinishKeepsWholeCourseDownloadRunning`：Save & End 后本局 held whole-course request 被取消 |
+| B5 | 05 | `testFinishKeepsWholeCourseDownloadRunning`：Save & End 后本局 held whole-course request 被取消 |
 | B4 | 06 | `testAStoppedModelSendsNoFurtherRequest`：install/status 在 stop 后到达 `URLProtocol.startLoading`，违反 inverted expectation |
 | B3 | 07 | `testCancelledRequestSamplesTimingBeforeTransportCheck`：取消发生在 gate 后仍必须采到一次 monotonic start |
 | B3 | 08 | `testClientTimingStorePersistsOffCallerQueue`：写盘 observer 在调用队列执行 |
