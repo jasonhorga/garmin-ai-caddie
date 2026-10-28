@@ -69,9 +69,11 @@ final class SyncClientTests: XCTestCase {
         let payload = Data(
             #"{"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}"#.utf8
         )
+        let clock = LockedTimingClock(10)
         CapturingURLProtocol.requestHandler = { request in
             let requestId = try XCTUnwrap(request.value(forHTTPHeaderField: "X-AI-Caddie-Request-ID"))
             XCTAssertNotNil(UUID(uuidString: requestId))
+            clock.advance(by: 4)
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
@@ -81,7 +83,6 @@ final class SyncClientTests: XCTestCase {
             return (response, payload)
         }
         defer { CapturingURLProtocol.requestHandler = nil }
-        let clock = LockedTimingClock(10)
         let client = SyncClient(
             baseURL: try XCTUnwrap(URL(string: "https://example.test")),
             session: session,
@@ -179,6 +180,7 @@ final class SyncClientTests: XCTestCase {
         let (body, headers) = try XCTUnwrap(capture.firstUpload())
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [[String: Any]])
         XCTAssertFalse(json.isEmpty)
+        XCTAssertEqual(json.count, 10)
         XCTAssertLessThanOrEqual(json.count, 50)
         let allowed = Set(["request_id", "path", "client_total_ms", "status", "error", "started_at", "network_type"])
         for record in json {
@@ -264,6 +266,103 @@ final class SyncClientTests: XCTestCase {
         await fulfillment(of: [uploadSeen], timeout: 2)
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertEqual(capture.counts().uploads, 1)
+    }
+
+    /// Product spec 8.4: overlapping begin calls own one global foreground gate.
+    func testProductSpec84OverlappingForegroundOwnersBalanceTheGlobalGate() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let capture = LockedTimingCapture()
+        let uploadSeen = expectation(description: "upload after overlapping start owners end")
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            if request.url?.path == "/api/v2/mobile/client-timing" {
+                capture.recordUpload(body: try CapturingURLProtocol.requestBodyData(from: request), headers: request.allHTTPHeaderFields ?? [:])
+                uploadSeen.fulfill()
+                let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"accepted":10,"rejected":0}"#.utf8))
+            }
+            capture.recordBusiness()
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let clock = LockedTimingClock(100)
+        let store = ClientTimingStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("c90-overlap-\(UUID().uuidString).jsonl"), now: { clock.now() })
+        let client = SyncClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session, retrySleep: { _ in }, monotonicNow: { clock.now() }, timingStore: store)
+        let firstOwner = UUID()
+        let secondOwner = UUID()
+        client.beginRoundStart(firstOwner)
+        client.beginRoundStart(secondOwner)
+        client.endRoundStart(firstOwner)
+        client.endRoundStart(secondOwner)
+        for _ in 0..<10 { _ = try await client.fetchCoursePrep(globalId: 31870, render: false) }
+        await fulfillment(of: [uploadSeen], timeout: 2)
+    }
+
+    /// Product spec 8.4: releasing a client cannot leave the process-wide start gate stuck.
+    func testProductSpec84ReleasedClientClearsForegroundGate() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let capture = LockedTimingCapture()
+        let uploadSeen = expectation(description: "upload after client release")
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            if request.url?.path == "/api/v2/mobile/client-timing" {
+                capture.recordUpload(body: try CapturingURLProtocol.requestBodyData(from: request), headers: request.allHTTPHeaderFields ?? [:])
+                uploadSeen.fulfill()
+                let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"accepted":10,"rejected":0}"#.utf8))
+            }
+            capture.recordBusiness()
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let clock = LockedTimingClock(100)
+        let store = ClientTimingStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("c90-release-\(UUID().uuidString).jsonl"), now: { clock.now() })
+        var client: SyncClient? = SyncClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session, retrySleep: { _ in }, monotonicNow: { clock.now() }, timingStore: store)
+        client?.beginRoundStart(UUID())
+        client = nil
+        let replacement = SyncClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session, retrySleep: { _ in }, monotonicNow: { clock.now() }, timingStore: store)
+        for _ in 0..<10 { _ = try await replacement.fetchCoursePrep(globalId: 31870, render: false) }
+        await fulfillment(of: [uploadSeen], timeout: 2)
+    }
+
+    /// Product spec 8.4: one record waits for the first 60-second interval when below threshold.
+    func testProductSpec84SinglePendingRecordWaitsForInterval() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let capture = LockedTimingCapture()
+        let payload = Data(
+            #"{"schema":"ai-caddie-course-prep-v1","globalId":31870,"holeCount":0,"clubs":[],"holes":[]}"#.utf8
+        )
+        CapturingURLProtocol.requestHandler = { request in
+            if request.url?.path == "/api/v2/mobile/client-timing" {
+                capture.recordUpload(body: try CapturingURLProtocol.requestBodyData(from: request), headers: request.allHTTPHeaderFields ?? [:])
+                let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (response, Data(#"{"accepted":1,"rejected":0}"#.utf8))
+            }
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, payload)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let clock = LockedTimingClock(100)
+        let store = ClientTimingStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("c90-interval-\(UUID().uuidString).jsonl"), now: { clock.now() })
+        let client = SyncClient(baseURL: try XCTUnwrap(URL(string: "https://example.test")), session: session, retrySleep: { _ in }, monotonicNow: { clock.now() }, timingStore: store)
+        _ = try await client.fetchCoursePrep(globalId: 31870, render: false)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(capture.counts().uploads, 0)
     }
 
     func testClientTimingStoreIsBoundedAndThrottled() throws {
