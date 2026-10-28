@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import contextlib
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime
 import hashlib
@@ -2807,6 +2809,7 @@ def _parse_round_loops_or_422(raw: str, global_id: int) -> list[tuple[int, str]]
 def mobile_course_package(
     global_id: int,
     background_tasks: BackgroundTasks,
+    request: Request = None,
     round_id: str | None = None,
     tee_box: str | None = None,
     captured_at: str | None = None,
@@ -2848,7 +2851,28 @@ def mobile_course_package(
             # A map-only start is deliberately inline: its release/courseData cache probe and
             # lightweight projection are the hot path. Cold work uses the shared waiter helper;
             # async adapters can use its cancel_event to implement a 499 disconnect.
-            package = package_workers.build_mobile_package(package_kwargs, background=is_prefetch)
+            cancel_event = threading.Event()
+            waiter = ThreadPoolExecutor(max_workers=1)
+            pending = waiter.submit(
+                package_workers.wait_mobile_package,
+                package_kwargs,
+                background=is_prefetch,
+                cancel_event=cancel_event,
+            )
+            try:
+                while not pending.done():
+                    if request is not None:
+                        try:
+                            disconnected = asyncio.run(request.is_disconnected())
+                        except RuntimeError:
+                            disconnected = False
+                        if disconnected:
+                            cancel_event.set()
+                            raise HTTPException(status_code=499, detail="client disconnected")
+                    time.sleep(0.02)
+                package = pending.result()
+            finally:
+                waiter.shutdown(wait=False, cancel_futures=False)
         else:
             # Fixture/test mode keeps the historical in-process path so monkeypatches and
             # redirected fixture roots remain visible to the request process.
