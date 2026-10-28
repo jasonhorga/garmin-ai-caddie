@@ -103,6 +103,27 @@ class RenderBackfillTests(unittest.TestCase):
             worker.run_to_completion()
             self.assertEqual(calls, [(1, 2), (1, 3), (1, 1)])
 
+    def test_c135b_failure_is_durable_and_does_not_spin_retry(self):
+        # J4.2: a failed background map unit records its reason and waits for an explicit retry.
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            mesh = root / "meshes"
+            mesh.mkdir()
+            (mesh / "gid1_h01_meshes.json").write_text("{}")
+            worker = self._worker(
+                root,
+                raster_version=lambda _gid, _hole: None,
+                render_topo=lambda _gid, _hole: (_ for _ in ()).throw(RuntimeError("bad mesh")),
+            )
+            worker.enqueue_all()
+            self.assertTrue(worker.run_once())
+            self.assertEqual(worker.status()["failed"], 1)
+            self.assertFalse(worker.run_once())
+            restarted = self._worker(root, raster_version=lambda _gid, _hole: None)
+            restarted.enqueue_all()
+            self.assertEqual(restarted.status()["pending"], 0)
+            self.assertEqual(restarted.status()["failed"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
