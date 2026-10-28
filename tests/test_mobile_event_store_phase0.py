@@ -15,7 +15,6 @@ import unittest
 from unittest import mock
 
 from ai_caddie.caddie.mobile_event_store import FileEventStore
-from tests.event_log_io import count_log_reads
 
 
 ROUND_A = "11111111-1111-4111-8111-111111111111"
@@ -54,52 +53,8 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
 
-    def test_j59_append_reads_only_target_round_on_seven_mb_history(self) -> None:
-        """J5.9 durable append/ACK and J4.2 responsiveness: unrelated history is not replayed."""
-        from ai_caddie.core.request_timing import RequestTiming, bind
-        from ai_caddie.rounds.score_invariant import require_possible_appended_scores
-
-        log = self.root / "events.jsonl"
-        unrelated = {"roundId": ROUND_B, "event": {
-            "hole": 1, "kind": "note", "payload": {"text": "x" * 2600},
-        }}
-        log.write_bytes((json.dumps(unrelated, sort_keys=True) + "\n").encode() * 2600)
-        self.assertGreaterEqual(log.stat().st_size, 7_000_000)
-        FileEventStore(self.root).append_batch(
-            ROUND_A, [{**_event("seed"), "hole": 1}], request_key="seed",
-            validate_append=require_possible_appended_scores,
-        )
-        before = log.read_bytes()
-        timing = RequestTiming("append-probe")
-        started = time.perf_counter()
-        with count_log_reads(log) as reads, bind(timing):
-            result = FileEventStore(self.root).append_batch(
-                ROUND_A, [{**_event("next"), "hole": 2}], request_key="next",
-                validate_append=require_possible_appended_scores,
-            )
-        elapsed = time.perf_counter() - started
-        print(f"APPEND_PROBE bytes={len(before)} sha256={hashlib.sha256(before).hexdigest()} "
-              f"elapsed_ms={elapsed * 1000:.3f} read_bytes={reads['bytes']} stages={timing.marks}")
-        self.assertEqual(result[0].status, "accepted")
-        # One small existing target row plus the new tail, with 4KiB slack for boundary checks.
-        self.assertLess(reads["bytes"], 8192)
-        self.assertLess(elapsed, 0.2)
-
-    def test_j59_warm_append_refuses_same_size_prefix_edit_even_with_restored_mtime(self) -> None:
-        """J5.9: a previously acknowledged event cannot silently change before the next ACK."""
-        log = self.root / "events.jsonl"
-        FileEventStore(self.root).append_batch(
-            ROUND_A, [{**_event("original"), "hole": 3}], request_key="original",
-        )
-        original_stat = log.stat()
-        raw = log.read_bytes()
-        log.write_bytes(raw.replace(b'"hole": 3', b'"hole": 9'))
-        os.utime(log, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
-        with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
-            FileEventStore(self.root).append_batch(ROUND_A, [_event("new")], request_key="new")
-        self.assertNotIn("new", (self.root / "request_reservations.json").read_text())
-
     def test_round_index_light_scan_matches_read_rows_with_bad_and_interleaved_logs(self) -> None:
+        """J4.2/J5.9: migration preserves legacy hole coercion and committed v1 events."""
         rows = [
             {"roundId": ROUND_A, "event": {"hole": 1, "kind": "score"}},
             {"roundId": ROUND_B, "event": {"hole": 3, "kind": "score"}},
@@ -108,28 +63,38 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
             {"roundId": ROUND_A, "event": {"hole": "bad", "kind": "invalid"}},
             {"roundId": ROUND_A, "event": {"hole": 2, "kind": "score"}},
             ["non-dict-row"],
-        ]
-        log = self.root / "events.jsonl"
-        log.write_bytes(
-            b"\n".join(json.dumps(row, sort_keys=True).encode("utf-8") for row in rows)
-            + b"\n{broken\n\xff\n"
-        )
-        store = FileEventStore(self.root)
-        expected: dict[str, list[int]] = {}
-        for row in store.read_rows():
-            event = row.get("event")
-            try:
-                hole = int(event.get("hole")) if isinstance(event, dict) else 0
-            except (TypeError, ValueError, OverflowError):
-                continue
-            if hole > 0:
-                expected.setdefault(str(row.get("roundId") or ""), []).append(hole)
-
-        self.assertTrue(store.ensure_round_event_index())
-        payload = json.loads(store.round_index.read_text(encoding="utf-8"))
-        self.assertEqual(payload["rounds"], expected)
-        self.assertEqual(store.round_event_holes(ROUND_A), expected[ROUND_A])
-        self.assertEqual(store.round_event_holes(ROUND_B), expected[ROUND_B])
+        ] + [{"roundId": ROUND_A, "event": {"hole": hole, "kind": "score"}}
+             for hole in ("4", True, 3.7)]
+        raw = b"\n".join(json.dumps(row, sort_keys=True).encode("utf-8") for row in rows)
+        raw += b"\n{broken\n\xff\n" + json.dumps({"roundId": ROUND_B, "event": {"hole": 8}}).encode()
+        for with_marker, final_lf in ((False, False), (False, True), (True, True)):
+            with self.subTest(marker=with_marker, final_lf=final_lf):
+                root = self.root / f"case-{with_marker}-{final_lf}"
+                root.mkdir()
+                (root / "events.jsonl").write_bytes(raw + (b"\n" if final_lf else b""))
+                store = FileEventStore(root)
+                if with_marker:
+                    # Real v1 storage rows after the legacy baseline, with a durable commit marker.
+                    store.append_batch(ROUND_A, [
+                        {**_event(f"typed-{i}"), "hole": hole}
+                        for i, hole in enumerate(("4", True, 3.7))
+                    ], request_key="typed-holes")
+                    store.round_index.unlink()
+                expected: dict[str, list[int]] = {}
+                for row in store.read_rows():
+                    event = row.get("event")
+                    try:
+                        hole = int(event.get("hole")) if isinstance(event, dict) else 0
+                    except (TypeError, ValueError, OverflowError):
+                        continue
+                    if hole > 0:
+                        expected.setdefault(str(row.get("roundId") or ""), []).append(hole)
+                self.assertEqual(expected[ROUND_A], [1, 2, 4, 1, 3] + ([4, 1, 3] if with_marker else []))
+                self.assertTrue(store.ensure_round_event_index())
+                payload = json.loads(store.round_index.read_text(encoding="utf-8"))
+                self.assertEqual(payload["rounds"], expected)
+                self.assertEqual(store.round_event_holes(ROUND_A), expected[ROUND_A])
+                self.assertEqual(store.round_event_holes(ROUND_B), expected[ROUND_B])
 
     def test_round_index_light_scan_rebuilds_six_mb_log_under_one_second(self) -> None:
         row = {

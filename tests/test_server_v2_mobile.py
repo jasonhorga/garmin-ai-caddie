@@ -20,43 +20,10 @@ from ai_caddie.caddie.mobile_live import _hole_issue_label_zh
 from ai_caddie.llm.weather_context import build_weather_snapshot, store_weather_snapshot
 from server_v2.main import app
 from tests.round_loop_authority import fixture_course_authority
+from tests.event_log_io import count_log_reads
 
 
 class ServerV2MobileTests(unittest.TestCase):
-    def test_j59_event_append_persists_request_and_storage_stage_timings(self) -> None:
-        """J5.9: the durable event ACK is observable without recording the event body."""
-        from ai_caddie.core import request_timing
-
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            with (
-                patch("server_v2.mobile.MOBILE_ROOT", root),
-                patch.object(request_timing, "TIMING_ROOT", root / "private"),
-            ):
-                response = TestClient(app).post(
-                    "/api/v2/mobile/rounds/timing-round/events",
-                    headers={"Idempotency-Key": "timing-request", "X-AI-Caddie-Request-ID": "append-timing-test"},
-                    json={"roundId": "timing-round", "events": [{
-                        "schema": "ai-caddie-live-round-event-v1",
-                        "eventId": "private-event-body", "roundId": "timing-round",
-                        "timestamp": "2026-05-25T00:00:00Z", "hole": 1,
-                        "kind": "score", "payload": {"strokes": 4},
-                    }]},
-                )
-                request_timing.flush_timing_writes()
-            self.assertEqual(response.status_code, 200, response.text)
-            rows = [json.loads(line) for path in (root / "private/timing").glob("*.jsonl")
-                    for line in path.read_text().splitlines()]
-            row = next(row for row in rows if row["request_id"] == "append-timing-test")
-            self.assertEqual((row["method"], row["path"], row["status"]),
-                             ("POST", "/api/v2/mobile/rounds/timing-round/events", 200))
-            for stage in ("event_materialization_lock_wait", "event_lock_wait", "event_validate",
-                          "event_parse", "event_write", "event_index"):
-                self.assertIn(stage, response.headers["server-timing"])
-                self.assertIn(stage, row["stages"])
-            self.assertNotIn("private-event-body", json.dumps(rows))
-            self.assertNotIn("timing-request", json.dumps(rows))
-
     def _identity_course_package(self, root: Path, round_id: str, loops: list[tuple[int, str]]):
         from server_v2 import mobile as mobile_service
 
@@ -161,7 +128,9 @@ class ServerV2MobileTests(unittest.TestCase):
                 patch.object(mobile_service, "_refresh_course_release_authority", return_value=[]),
                 patch("ai_caddie.caddie.mobile_live._courseview_segment_resolver", return_value=("Fixture Course", 18)),
                 patch("ai_caddie.courses.course_reference.courseview_par", return_value=[4] * 18),
-                patch.object(FileEventStore, "_stored_log", side_effect=AssertionError("full scan")),
+                patch.object(FileEventStore, "_round_index_from_log_unlocked", autospec=True,
+                             side_effect=FileEventStore._round_index_from_log_unlocked) as scans,
+                count_log_reads(event_log) as reads,
                 patch.object(mobile_round_identity.tempfile, "mkstemp", wraps=mobile_round_identity.tempfile.mkstemp) as make_identity_temp,
             ):
                 with ThreadPoolExecutor(max_workers=2) as executor:
@@ -176,6 +145,8 @@ class ServerV2MobileTests(unittest.TestCase):
                 self.assertEqual(len(list(root.rglob("round_identity/*.json"))), 1)
                 restarted = FileEventStore(root / "data" / "mobile_events")
                 self.assertEqual(restarted.round_event_holes("new-round"), [])
+                self.assertEqual(scans.call_count, 0)
+                self.assertEqual(reads["bytes"], 0)
 
             self.assertEqual(load_mobile_round_identity("new-round", root=root)["roundId"], "new-round")
 

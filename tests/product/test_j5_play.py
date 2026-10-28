@@ -1,7 +1,18 @@
 """J5 backend play promises; all expected scores and routes are hand calculations."""
 import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import time
 import unittest
 from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+from server_v2.main import app
+from ai_caddie.caddie.mobile_event_store import FileEventStore
+from tests.event_log_io import count_log_reads
 
 from ai_caddie.caddie.decision import build_decision_plan
 from ai_caddie.caddie import mobile_live
@@ -9,6 +20,10 @@ from ai_caddie.courses.tee_result import classify_tee_result
 from ai_caddie.geometry import geometry_evidence
 from ai_caddie.rounds import swing_candidates
 from tests.product._support_c16c import HTTPFixture, META, event, golden_context, score_events, vectors
+
+
+ROUND_A = "11111111-1111-4111-8111-111111111111"
+ROUND_B = "22222222-2222-4222-8222-222222222222"
 
 
 class PlayTests(HTTPFixture, unittest.TestCase):
@@ -230,3 +245,94 @@ class DecisionGoldenTests(unittest.TestCase):
         self.assertEqual(missing["sequences"], [])
         self.assertIsNone(missing["selected"])
         self.assertTrue(missing["missingData"])
+
+
+class EventAppendTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    @staticmethod
+    def _event(event_id):
+        return {"eventId": event_id, "clientId": "ios", "roundId": ROUND_A,
+                "kind": "score", "payload": {"strokes": 4}}
+
+    def test_j59_append_reads_only_target_round_on_seven_mb_history(self) -> None:
+        """J5.9 durable append/ACK and J4.2 responsiveness: unrelated history is not replayed."""
+        from ai_caddie.core.request_timing import RequestTiming, bind
+        from ai_caddie.rounds.score_invariant import require_possible_appended_scores
+
+        log = self.root / "events.jsonl"
+        unrelated = {"roundId": ROUND_B, "event": {
+            "hole": 1, "kind": "note", "payload": {"text": "x" * 2600},
+        }}
+        log.write_bytes((json.dumps(unrelated, sort_keys=True) + "\n").encode() * 2600)
+        self.assertGreaterEqual(log.stat().st_size, 7_000_000)
+        FileEventStore(self.root).append_batch(
+            ROUND_A, [{**self._event("seed"), "hole": 1}], request_key="seed",
+            validate_append=require_possible_appended_scores,
+        )
+        before = log.read_bytes()
+        timing = RequestTiming("append-probe")
+        started = time.perf_counter()
+        with count_log_reads(log) as reads, bind(timing):
+            result = FileEventStore(self.root).append_batch(
+                ROUND_A, [{**self._event("next"), "hole": 2}], request_key="next",
+                validate_append=require_possible_appended_scores,
+            )
+        elapsed = time.perf_counter() - started
+        print(f"APPEND_PROBE bytes={len(before)} sha256={hashlib.sha256(before).hexdigest()} "
+              f"elapsed_ms={elapsed * 1000:.3f} read_bytes={reads['bytes']} stages={timing.marks}")
+        self.assertEqual(result[0].status, "accepted")
+        # One small existing target row plus the new tail, with 4KiB slack for boundary checks.
+        self.assertLess(reads["bytes"], 8192)
+        self.assertLess(elapsed, 0.2)
+
+    def test_j59_warm_append_refuses_same_size_prefix_edit_even_with_restored_mtime(self) -> None:
+        """J5.9: a previously acknowledged event cannot silently change before the next ACK."""
+        log = self.root / "events.jsonl"
+        FileEventStore(self.root).append_batch(
+            ROUND_A, [{**self._event("original"), "hole": 3}], request_key="original",
+        )
+        original_stat = log.stat()
+        raw = log.read_bytes()
+        log.write_bytes(raw.replace(b'"hole": 3', b'"hole": 9'))
+        os.utime(log, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+        with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+            FileEventStore(self.root).append_batch(ROUND_A, [self._event("new")], request_key="new")
+        self.assertNotIn("new", (self.root / "request_reservations.json").read_text())
+
+    def test_j59_event_append_persists_request_and_storage_stage_timings(self) -> None:
+        """J5.9: the durable event ACK is observable without recording the event body."""
+        from ai_caddie.core import request_timing
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch("server_v2.mobile.MOBILE_ROOT", root),
+                patch.object(request_timing, "TIMING_ROOT", root / "private"),
+            ):
+                response = TestClient(app).post(
+                    "/api/v2/mobile/rounds/timing-round/events",
+                    headers={"Idempotency-Key": "timing-request", "X-AI-Caddie-Request-ID": "append-timing-test"},
+                    json={"roundId": "timing-round", "events": [{
+                        "schema": "ai-caddie-live-round-event-v1",
+                        "eventId": "private-event-body", "roundId": "timing-round",
+                        "timestamp": "2026-05-25T00:00:00Z", "hole": 1,
+                        "kind": "score", "payload": {"strokes": 4},
+                    }]},
+                )
+                request_timing.flush_timing_writes()
+            self.assertEqual(response.status_code, 200, response.text)
+            rows = [json.loads(line) for path in (root / "private/timing").glob("*.jsonl")
+                    for line in path.read_text().splitlines()]
+            row = next(row for row in rows if row["request_id"] == "append-timing-test")
+            self.assertEqual((row["method"], row["path"], row["status"]),
+                             ("POST", "/api/v2/mobile/rounds/timing-round/events", 200))
+            for stage in ("event_materialization_lock_wait", "event_lock_wait", "event_validate",
+                          "event_parse", "event_write", "event_index"):
+                self.assertIn(stage, response.headers["server-timing"])
+                self.assertIn(stage, row["stages"])
+            self.assertNotIn("private-event-body", json.dumps(rows))
+            self.assertNotIn("timing-request", json.dumps(rows))
