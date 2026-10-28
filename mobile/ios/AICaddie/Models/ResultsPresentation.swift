@@ -300,7 +300,7 @@ struct AnalysisLoadState: Equatable {
 
     /// The range the picker should show while a request is in flight, falling back to the
     /// committed answer after completion or failure.
-    var displayedWindow: String { window }
+    var displayedWindow: String { pendingWindow ?? window }
 
     /// Choose a window: its data is unknown until its own request answers.
     mutating func select(_ newWindow: String) -> Request {

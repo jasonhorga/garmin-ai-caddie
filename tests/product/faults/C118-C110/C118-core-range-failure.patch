@@ -1,18 +1,20 @@
 diff --git a/mobile/ios/AICaddie/Models/ResultsPresentation.swift b/mobile/ios/AICaddie/Models/ResultsPresentation.swift
 --- a/mobile/ios/AICaddie/Models/ResultsPresentation.swift
 +++ b/mobile/ios/AICaddie/Models/ResultsPresentation.swift
-@@ -597,5 +597,6 @@
+@@ -601,6 +601,7 @@
      /// Begin a request for a new range while retaining the currently displayed answer.
      mutating func select(_ newWindow: String) -> Request {
+         let wasRefresh = pendingIsRefresh
 +        window = newWindow
          generation += 1
          isLoading = true
          pendingWindow = newWindow
-@@ -649,6 +649,6 @@
-             phase = .content(stats, notice: nil)
-             failedWindow = nil
+@@ -666,7 +667,7 @@
+             }
          } else if case let .content(current, _) = phase {
              failedWindow = failedWindow ?? request.window
 -            phase = .content(current, notice: notice(for: failedWindow ?? request.window))
 +            phase = .content(current, notice: nil)
          } else {
+             phase = .failed("时间与频率暂时取不到")
+             failedWindow = request.window

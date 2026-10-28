@@ -6,14 +6,14 @@
       "patch": "tests/product/faults/C16e/j2_1.patch",
       "kind": "native-ui",
       "target": "AICaddieUITests/ProductPhoneUITests/test_j2_1_results_entries_remain_enabled_for_zero_one_and_many_rounds",
-      "promise": "j2.1"
+      "promise": "2.1"
     },
     {
       "id": "tests-product-faults-C16e-j2-11",
       "patch": "tests/product/faults/C16e/j2_11.patch",
       "kind": "native-ui",
       "target": "AICaddieUITests/ProductPhoneUITests/test_j2_11_provider_failure_leaves_results_and_review_usable",
-      "promise": "j2.11"
+      "promise": "2.11"
     },
     {
       "id": "tests-product-faults-C16e-j2-2",
@@ -27,77 +27,77 @@
       "patch": "tests/product/faults/C16e/j2_3.patch",
       "kind": "native-ui",
       "target": "AICaddieUITests/ProductPhoneUITests/test_j2_3_quarter_drilldown_opens_only_its_two_real_rounds_then_review",
-      "promise": "j2.3"
+      "promise": "2.3"
     },
     {
       "id": "tests-product-faults-C16e-j2-6",
       "patch": "tests/product/faults/C16e/j2_6.patch",
       "kind": "native-ui",
       "target": "AICaddieUITests/ProductPhoneUITests/test_j2_6_course_sections_fit_and_keep_ordered_combinations_separate",
-      "promise": "j2.6"
+      "promise": "2.6"
     },
     {
       "id": "tests-product-faults-C16e-j2-7",
       "patch": "tests/product/faults/C16e/j2_7.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductPhoneStateTests/test_j2_7_distance_ladder_flags_only_abnormal_gaps",
-      "promise": "j2.7"
+      "promise": "2.7"
     },
     {
       "id": "tests-product-faults-C16e-j2-8",
       "patch": "tests/product/faults/C16e/j2_8.patch",
       "kind": "native-ui",
       "target": "AICaddieUITests/ProductPhoneUITests/test_j2_8_review_cards_missing_metrics_and_share_fit_for_three_round_shapes",
-      "promise": "j2.8"
+      "promise": "2.8"
     },
     {
       "id": "tests-product-faults-C16e-j2-9",
       "patch": "tests/product/faults/C16e/j2_9.patch",
       "kind": "native-ui",
       "target": "AICaddieUITests/ProductPhoneUITests/test_j2_9_landing_labels_hole_switch_zoom_pan_and_visibility",
-      "promise": "j2.9"
+      "promise": "2.9"
     },
     {
       "id": "tests-product-faults-C16e-j3-2",
       "patch": "tests/product/faults/C16e/j3_2.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductPhoneStateTests/test_j3_2_insert_guess_reorder_delete_keeps_continuous_shots",
-      "promise": "j3.2"
+      "promise": "3.2"
     },
     {
       "id": "tests-product-faults-C16e-j4-1",
       "patch": "tests/product/faults/C16e/j4_1.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductPhoneStateTests/test_j4_1_course_sources_merge_into_one_list",
-      "promise": "j4.1"
+      "promise": "4.1"
     },
     {
       "id": "tests-product-faults-C16e-j4-2",
       "patch": "tests/product/faults/C16e/j4_2.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_2_cached_package_lifecycle_and_revision_adoption",
-      "promise": "j4.2"
+      "promise": "4.2"
     },
     {
       "id": "tests-product-faults-C16e-j4-3",
       "patch": "tests/product/faults/C16e/j4_3.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductLoopMapTests/test_j4_3_offline_composition_matches_shared_hole_tables",
-      "promise": "j4.3"
+      "promise": "4.3"
     },
     {
       "id": "tests-product-faults-C16e-j4-5",
       "patch": "tests/product/faults/C16e/j4_5.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_map_degradation_and_upgrade_preserve_physical_points",
-      "promise": "j4.5"
+      "promise": "4.5"
     },
     {
       "id": "tests-product-faults-C16e-j4-6",
       "patch": "tests/product/faults/C16e/j4_6.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductCaddieGoldenTests/test_j4_6_prep_and_live_select_same_independent_plan_for_both_tees",
-      "promise": "j4.6"
+      "promise": "4.6"
     },
     {
       "id": "tests-product-faults-C16e-j5-1",
@@ -111,35 +111,35 @@
       "patch": "tests/product/faults/C16e/j5_10.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductPhoneStateTests/test_j5_10_summary_uses_recorded_holes_and_updates_edits",
-      "promise": "j5.10"
+      "promise": "5.10"
     },
     {
       "id": "tests-product-faults-C16e-j5-11",
       "patch": "tests/product/faults/C16e/j5_11.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductCaddieGoldenTests/test_j5_11_offline_plans_and_projected_landings_match_shared_golden",
-      "promise": "j5.11"
+      "promise": "5.11"
     },
     {
       "id": "tests-product-faults-C16e-j5-2",
       "patch": "tests/product/faults/C16e/j5_2.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductPhoneStateTests/test_j5_2_home_hero_priorities_with_and_without_downloads",
-      "promise": "j5.2"
+      "promise": "5.2"
     },
     {
       "id": "tests-product-faults-C16e-j5-3",
       "patch": "tests/product/faults/C16e/j5_3.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductPhoneStateTests/test_j5_3_home_weather_and_latest_round_strip_are_factual",
-      "promise": "j5.3"
+      "promise": "5.3"
     },
     {
       "id": "tests-product-faults-C16e-j5-4",
       "patch": "tests/product/faults/C16e/j5_4.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_4_green_edges_and_live_position_ranges",
-      "promise": "j5.4"
+      "promise": "5.4"
     },
     {
       "id": "tests-product-faults-C16e-j5-4-realtime",
@@ -153,42 +153,42 @@
       "patch": "tests/product/faults/C16e/j5_5.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_5_saved_gps_and_accuracy_or_unknown_score_position",
-      "promise": "j5.5"
+      "promise": "5.5"
     },
     {
       "id": "tests-product-faults-C16e-j5-6",
       "patch": "tests/product/faults/C16e/j5_6.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductPhoneStateTests/test_j5_6_score_preselection_and_edit_sequence",
-      "promise": "j5.6"
+      "promise": "5.6"
     },
     {
       "id": "tests-product-faults-C16e-j5-8",
       "patch": "tests/product/faults/C16e/j5_8.patch",
       "kind": "native-unit",
       "target": "AICaddieDomainTests/ProductTeeResultTests/test_j5_8_tee_results_match_shared_vectors",
-      "promise": "j5.8"
+      "promise": "5.8"
     },
     {
       "id": "tests-product-faults-C16e-j5-9",
       "patch": "tests/product/faults/C16e/j5_9.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductPhoneStateTests/test_j5_9_queue_survives_restart_replay_and_round_discard",
-      "promise": "j5.9"
+      "promise": "5.9"
     },
     {
       "id": "tests-product-faults-C16e-j6-2",
       "patch": "tests/product/faults/C16e/j6_2.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductWatchHandoffTests/test_j6_2_phone_snapshots_replace_hole_ranges_and_clear_absent_advice",
-      "promise": "j6.2"
+      "promise": "6.2"
     },
     {
       "id": "tests-product-faults-C16e-j8-3",
       "patch": "tests/product/faults/C16e/j8_3.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/ProductMapAndPackageTests/test_j8_3_optional_sections_old_and_future_data_decode_without_losing_facts",
-      "promise": "j8.3"
+      "promise": "8.3"
     },
     {
       "id": "tests-product-faults-C16f-4.5-map-state",

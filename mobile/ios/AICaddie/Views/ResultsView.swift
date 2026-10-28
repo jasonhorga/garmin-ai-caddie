@@ -686,7 +686,7 @@ public struct ResultsTrendView: View {
                     HStack(spacing: 8) {
                         Label(notice, systemImage: "exclamationmark.circle")
                         Spacer(minLength: 8)
-                        Button("重试") { start(load.retry()) }
+                        Button("重试") { retry() }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -694,6 +694,8 @@ public struct ResultsTrendView: View {
                     .accessibilityIdentifier("time-range-notice")
                 }
                 ResultsTimeContent(stats: stats, window: $window, grain: $grain) { destination = $0 }
+                    .environment(\.resultsRangeAccessibilityValue,
+                                 load.isLoading ? "加载中" : "已加载 \(load.window)")
             } else if load.isLoading {
                 ProgressView("载入时间与频率…").frame(maxWidth: .infinity).padding(.top, 40)
             } else {
@@ -752,14 +754,32 @@ public struct ResultsTrendView: View {
         let request = load.refresh()
         start(request)
     }
+
+    @MainActor private func retry() {
+        let request = load.retry()
+        window = load.displayedWindow
+        start(request)
+    }
 }
 
 /// The 时间与频率 page body for one stats payload; pure, so the design snapshots render it.
+fileprivate struct ResultsRangeAccessibilityValueKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+fileprivate extension EnvironmentValues {
+    var resultsRangeAccessibilityValue: String? {
+        get { self[ResultsRangeAccessibilityValueKey.self] }
+        set { self[ResultsRangeAccessibilityValueKey.self] = newValue }
+    }
+}
+
 struct ResultsTimeContent: View {
     let stats: MobileStats
     @Binding var window: String
     @Binding var grain: ResultsTimePresentation.Grain
     var onOpen: (ResultsTrendDestination) -> Void = { _ in }
+    @Environment(\.resultsRangeAccessibilityValue) private var rangeAccessibilityValue
 
     var body: some View {
         let rows = ResultsTimePresentation.chartRows(stats, grain: grain)
@@ -772,6 +792,7 @@ struct ResultsTimeContent: View {
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("time-range")
+            .accessibilityValue(rangeAccessibilityValue ?? window)
             Picker("粒度", selection: $grain) {
                 ForEach(ResultsTimePresentation.Grain.allCases) { option in
                     Text(option.title).tag(option)
