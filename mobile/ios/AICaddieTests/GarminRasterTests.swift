@@ -257,16 +257,125 @@ final class GarminRasterTests: XCTestCase {
             targetPixel: CGPoint(x: 88, y: 141),
             greenPinPixel: CGPoint(x: 91, y: 52)
         )
-        for next in [LiveMapDisplayState.precise, .garminRaster] {
-            let result = LiveMapViewportTransition.preserve(
-                previous: .factual,
-                next: next,
-                sourceFrame: CGRect(x: 0, y: 0, width: 240, height: 360),
-                destinationFrame: CGRect(x: 0, y: 0, width: 560, height: 800),
-                interaction: interaction
+        let overlay = CoursePrepOverlay(
+            w: 240, h: 360, ppm: 1, ln: 300, route: [[120, 330, 0], [120, 30, 300]]
+        )
+        let precise = projection(
+            originPixel: CGPoint(x: 120, y: 330),
+            xPixel: CGPoint(x: 120, y: 30),
+            yPixel: CGPoint(x: 240, y: 330)
+        )
+        let preciseResult = LiveMapViewportTransition.preserve(
+            previous: .factual,
+            next: .precise,
+            viewportSize: CGSize(width: 390, height: 844),
+            sourceFrame: CGRect(x: 75, y: 100, width: 240, height: 360),
+            destinationFrame: CGRect(x: 75, y: 100, width: 240, height: 360),
+            sourceOverlay: overlay,
+            destinationOverlay: overlay,
+            sourceProjection: precise,
+            destinationProjection: precise,
+            targetCoordinate: nil,
+            greenPinCoordinate: nil,
+            interaction: interaction
+        )
+        XCTAssertEqual(preciseResult, interaction, "route → precise")
+    }
+
+    func testRouteTierToGarminRemapsPointsAndKeepsViewportGeography() throws {
+        let sourceProjection = projection(
+            originPixel: CGPoint(x: 120, y: 330),
+            xPixel: CGPoint(x: 120, y: 30),
+            yPixel: CGPoint(x: 240, y: 330)
+        )
+        let destinationProjection = projection(
+            originPixel: CGPoint(x: 80, y: 1740),
+            xPixel: CGPoint(x: 80, y: 140),
+            yPixel: CGPoint(x: 700, y: 1740)
+        )
+        let sourceOverlay = CoursePrepOverlay(
+            w: 240, h: 360, ppm: 1, ln: 300, route: [[120, 330, 0], [120, 30, 300]]
+        )
+        let destinationOverlay = CoursePrepOverlay(
+            w: 1242, h: 1920, ppm: 2, ln: 300, route: [[390, 1740, 0], [390, 140, 300]]
+        )
+        let targetCoordinate = CLLocationCoordinate2D(latitude: 40.0005, longitude: 116.0005)
+        let greenCoordinate = CLLocationCoordinate2D(latitude: 40.0002, longitude: 116.0008)
+        let interaction = LiveMapViewportInteraction(
+            scale: 2,
+            offset: CGSize(width: 12, height: -8),
+            selectedHazardID: "water-0",
+            targetPixel: try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+                latitude: targetCoordinate.latitude,
+                longitude: targetCoordinate.longitude,
+                projection: sourceProjection
+            )),
+            greenPinPixel: try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+                latitude: greenCoordinate.latitude,
+                longitude: greenCoordinate.longitude,
+                projection: sourceProjection
+            ))
+        )
+        let viewport = CGSize(width: 390, height: 844)
+        let sourceFrame = CGRect(x: 75, y: 100, width: 240, height: 360)
+        let destinationFrame = CGRect(x: 0, y: 80, width: 390, height: 603)
+        let result = LiveMapViewportTransition.preserve(
+            previous: .factual,
+            next: .garminRaster,
+            viewportSize: viewport,
+            sourceFrame: sourceFrame,
+            destinationFrame: destinationFrame,
+            sourceOverlay: sourceOverlay,
+            destinationOverlay: destinationOverlay,
+            sourceProjection: sourceProjection,
+            destinationProjection: destinationProjection,
+            targetCoordinate: targetCoordinate,
+            greenPinCoordinate: greenCoordinate,
+            interaction: interaction
+        )
+        let expectedTarget = try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+            latitude: targetCoordinate.latitude,
+            longitude: targetCoordinate.longitude,
+            projection: destinationProjection
+        ))
+        let expectedGreen = try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+            latitude: greenCoordinate.latitude,
+            longitude: greenCoordinate.longitude,
+            projection: destinationProjection
+        ))
+        XCTAssertEqual(result.targetPixel?.x ?? -1, expectedTarget.x, accuracy: 0.001)
+        XCTAssertEqual(result.targetPixel?.y ?? -1, expectedTarget.y, accuracy: 0.001)
+        XCTAssertEqual(result.greenPinPixel?.x ?? -1, expectedGreen.x, accuracy: 0.001)
+        XCTAssertEqual(result.greenPinPixel?.y ?? -1, expectedGreen.y, accuracy: 0.001)
+
+        func centerCoordinate(
+            frame: CGRect,
+            overlay: CoursePrepOverlay,
+            projection: CoursePrepHoleImageProjection,
+            scale: CGFloat,
+            offset: CGSize
+        ) -> CLLocationCoordinate2D? {
+            let center = CGPoint(x: viewport.width / 2, y: viewport.height / 2)
+            let base = CGPoint(
+                x: center.x - offset.width / scale,
+                y: center.y - offset.height / scale
             )
-            XCTAssertEqual(result, interaction, "route → \(next)")
+            let pixel = CGPoint(
+                x: (base.x - frame.minX) / frame.width * CGFloat(overlay.w),
+                y: (base.y - frame.minY) / frame.height * CGFloat(overlay.h)
+            )
+            return GarminRasterProjectionMath.projectFromPixel(pixel, projection: projection)
         }
+        let beforeCenter = try XCTUnwrap(centerCoordinate(
+            frame: sourceFrame, overlay: sourceOverlay, projection: sourceProjection,
+            scale: interaction.scale, offset: interaction.offset
+        ))
+        let afterCenter = try XCTUnwrap(centerCoordinate(
+            frame: destinationFrame, overlay: destinationOverlay, projection: destinationProjection,
+            scale: result.scale, offset: result.offset
+        ))
+        XCTAssertEqual(afterCenter.latitude, beforeCenter.latitude, accuracy: 1e-9)
+        XCTAssertEqual(afterCenter.longitude, beforeCenter.longitude, accuracy: 1e-9)
     }
 
     func testNumericPlaceholderGestureStateResetsScaleAndOffset() {

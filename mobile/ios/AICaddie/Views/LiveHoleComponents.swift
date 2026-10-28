@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreLocation
 import Foundation
 import SwiftUI
 
@@ -2575,6 +2576,36 @@ struct LiveMapViewportInteraction: Equatable {
 }
 
 enum LiveMapViewportTransition {
+    /// Review seam for a tier handoff. The first version deliberately keeps the old identity
+    /// behavior; the product implementation below replaces it with projection-aware transfer.
+    static func preserve(
+        previous: LiveMapDisplayState,
+        next: LiveMapDisplayState,
+        viewportSize: CGSize,
+        sourceFrame: CGRect,
+        destinationFrame: CGRect,
+        sourceOverlay: CoursePrepOverlay?,
+        destinationOverlay: CoursePrepOverlay?,
+        sourceProjection: CoursePrepHoleImageProjection?,
+        destinationProjection: CoursePrepHoleImageProjection?,
+        targetCoordinate: CLLocationCoordinate2D?,
+        greenPinCoordinate: CLLocationCoordinate2D?,
+        interaction: LiveMapViewportInteraction
+    ) -> LiveMapViewportInteraction {
+        _ = previous
+        _ = next
+        _ = viewportSize
+        _ = sourceFrame
+        _ = destinationFrame
+        _ = sourceOverlay
+        _ = destinationOverlay
+        _ = sourceProjection
+        _ = destinationProjection
+        _ = targetCoordinate
+        _ = greenPinCoordinate
+        return interaction
+    }
+
     static func preserve(
         previous: LiveMapDisplayState,
         next: LiveMapDisplayState,
