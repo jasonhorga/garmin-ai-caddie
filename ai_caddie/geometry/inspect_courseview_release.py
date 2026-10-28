@@ -202,6 +202,11 @@ def inspect_release(pb: bytes) -> dict:
                     hole["raster_url"] = sub_value
                 elif sub_no == 8 and sub_wire == 2:
                     hole["geometry_url"] = sub_value
+                elif sub_no == 9 and sub_wire == 2:
+                    # Third Garmin raster URL (the ``_0_.jpg`` variant on current releases).
+                    # It is an asset identity input even though the mobile projection normally
+                    # selects the primary raster_url above.
+                    hole["raster_aux_url"] = sub_value
             info["holes"].append(hole)
     return info
 

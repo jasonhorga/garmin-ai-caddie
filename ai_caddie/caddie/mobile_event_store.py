@@ -534,22 +534,48 @@ class FileEventStore:
             },
         )
 
-    @staticmethod
-    def _round_index_from_rows(rows: Sequence[_StoredRow]) -> dict[str, list[int]]:
+    def _round_index_from_log_unlocked(self, committed_length: int) -> dict[str, list[int]]:
+        """Build the sidecar from committed JSON structure without sanitizing event payloads.
+
+        ``read_rows`` accepts malformed/non-dict rows by skipping them and only considers a
+        legacy-compatible event's positive integer hole. The index needs exactly those structural
+        fields, so parsing the committed prefix avoids the deepcopy/redaction work in ``_stored_log``.
+        """
         rounds: dict[str, list[int]] = {}
-        for stored in rows:
-            row = stored.row
-            event = row.get("event")
-            if not isinstance(event, dict) or not FileEventStore._is_legacy_compatible_event(event):
-                continue
-            try:
-                hole = int(event.get("hole"))
-            except (TypeError, ValueError, OverflowError):
-                continue
-            if hole <= 0:
-                continue
-            round_id = str(row.get("roundId") or "")
-            rounds.setdefault(round_id, []).append(hole)
+        if committed_length <= 0:
+            return rounds
+        try:
+            handle = self.log.open("rb")
+        except FileNotFoundError as exc:
+            raise ValueError("event_commit_store_corrupt") from exc
+        remaining = committed_length
+        try:
+            while remaining > 0:
+                raw_line = handle.readline(remaining)
+                if not raw_line:
+                    raise ValueError("event_commit_store_corrupt")
+                remaining -= len(raw_line)
+                if not raw_line.strip():
+                    continue
+                try:
+                    row = json.loads(raw_line.decode("utf-8"))
+                except (UnicodeDecodeError, ValueError):
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                event = row.get("event")
+                if not self._is_legacy_compatible_event(event):
+                    continue
+                try:
+                    hole = int(event.get("hole"))
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if hole <= 0:
+                    continue
+                round_id = str(row.get("roundId") or "")
+                rounds.setdefault(round_id, []).append(hole)
+        finally:
+            handle.close()
         return rounds
 
     def _record_round_index_after_append(
@@ -563,18 +589,17 @@ class FileEventStore:
     ) -> None:
         rounds = self._load_round_index_unlocked(base_length, base_prefix_sha256)
         if rounds is None:
-            rounds = self._round_index_from_rows(self._stored_log().rows)
-        else:
-            for row in rows:
-                event = row.get("event")
-                if not isinstance(event, dict) or not self._is_legacy_compatible_event(event):
-                    continue
-                try:
-                    hole = int(event.get("hole"))
-                except (TypeError, ValueError, OverflowError):
-                    continue
-                if hole > 0:
-                    rounds.setdefault(str(row.get("roundId") or ""), []).append(hole)
+            rounds = self._round_index_from_log_unlocked(base_length)
+        for row in rows:
+            event = row.get("event")
+            if not isinstance(event, dict) or not self._is_legacy_compatible_event(event):
+                continue
+            try:
+                hole = int(event.get("hole"))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if hole > 0:
+                rounds.setdefault(str(row.get("roundId") or ""), []).append(hole)
         self._write_round_index_unlocked(rounds, committed_length, committed_prefix_sha256)
 
     def ensure_round_event_index(self) -> bool:
@@ -586,7 +611,10 @@ class FileEventStore:
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
             if self._load_round_index_unlocked(committed_length, committed_prefix) is not None:
                 return False
-            rounds = self._round_index_from_rows(self._stored_log().rows)
+            # The light scan skips payload sanitising, not integrity: verify the committed prefix
+            # (sha256, v1 rows, pending intent) before labelling a rebuilt index as trusted.
+            committed_length = self._visible_committed_length_unlocked()
+            rounds = self._round_index_from_log_unlocked(committed_length)
             self._write_round_index_unlocked(rounds, committed_length, committed_prefix)
             return True
 
@@ -607,7 +635,8 @@ class FileEventStore:
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
             rounds = self._load_round_index_unlocked(committed_length, committed_prefix)
             if rounds is None:
-                rounds = self._round_index_from_rows(self._stored_log().rows)
+                committed_length = self._visible_committed_length_unlocked()
+                rounds = self._round_index_from_log_unlocked(committed_length)
                 self._write_round_index_unlocked(rounds, committed_length, committed_prefix)
             return list(rounds.get(str(round_id), ()))
 

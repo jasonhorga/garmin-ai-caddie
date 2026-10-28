@@ -91,6 +91,7 @@ class ServerV2MobileTests(unittest.TestCase):
         from ai_caddie.caddie.mobile_live import append_event_batch
         from ai_caddie.caddie.mobile_round_identity import load_mobile_round_identity
         from ai_caddie.caddie.mobile_event_store import FileEventStore
+        from ai_caddie.caddie import mobile_round_identity
         from server_v2 import mobile as mobile_service
 
         with TemporaryDirectory() as tmp:
@@ -127,11 +128,17 @@ class ServerV2MobileTests(unittest.TestCase):
                 patch("ai_caddie.caddie.mobile_live._courseview_segment_resolver", return_value=("Fixture Course", 18)),
                 patch("ai_caddie.courses.course_reference.courseview_par", return_value=[4] * 18),
                 patch.object(FileEventStore, "_stored_log", side_effect=AssertionError("full scan")),
+                patch.object(mobile_round_identity.tempfile, "mkstemp", wraps=mobile_round_identity.tempfile.mkstemp) as make_identity_temp,
             ):
                 with ThreadPoolExecutor(max_workers=2) as executor:
                     self.assertEqual(sorted(executor.map(lambda _index: register(), range(2))), [
                         "new-round", "new-round",
                     ])
+                identity_writes = [
+                    call for call in make_identity_temp.call_args_list
+                    if call.kwargs.get("prefix") == ".identity-"
+                ]
+                self.assertEqual(len(identity_writes), 1)
                 self.assertEqual(len(list(root.rglob("round_identity/*.json"))), 1)
                 restarted = FileEventStore(root / "data" / "mobile_events")
                 self.assertEqual(restarted.round_event_holes("new-round"), [])

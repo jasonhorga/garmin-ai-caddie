@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -51,6 +52,91 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
+
+    def test_round_index_light_scan_matches_read_rows_with_bad_and_interleaved_logs(self) -> None:
+        rows = [
+            {"roundId": ROUND_A, "event": {"hole": 1, "kind": "score"}},
+            {"roundId": ROUND_B, "event": {"hole": 3, "kind": "score"}},
+            {"roundId": ROUND_A, "event": {"kind": "legacy-note"}},
+            {"roundId": ROUND_B, "event": {"hole": 0, "kind": "invalid"}},
+            {"roundId": ROUND_A, "event": {"hole": "bad", "kind": "invalid"}},
+            {"roundId": ROUND_A, "event": {"hole": 2, "kind": "score"}},
+            ["non-dict-row"],
+        ]
+        log = self.root / "events.jsonl"
+        log.write_bytes(
+            b"\n".join(json.dumps(row, sort_keys=True).encode("utf-8") for row in rows)
+            + b"\n{broken\n\xff\n"
+        )
+        store = FileEventStore(self.root)
+        expected: dict[str, list[int]] = {}
+        for row in store.read_rows():
+            event = row.get("event")
+            try:
+                hole = int(event.get("hole")) if isinstance(event, dict) else 0
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if hole > 0:
+                expected.setdefault(str(row.get("roundId") or ""), []).append(hole)
+
+        self.assertTrue(store.ensure_round_event_index())
+        payload = json.loads(store.round_index.read_text(encoding="utf-8"))
+        self.assertEqual(payload["rounds"], expected)
+        self.assertEqual(store.round_event_holes(ROUND_A), expected[ROUND_A])
+        self.assertEqual(store.round_event_holes(ROUND_B), expected[ROUND_B])
+
+    def test_round_index_light_scan_rebuilds_six_mb_log_under_one_second(self) -> None:
+        row = {
+            "roundId": ROUND_A,
+            "event": {"hole": 1, "kind": "note", "payload": {"text": "x" * 2600}},
+        }
+        encoded = (json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+        log = self.root / "events.jsonl"
+        log.write_bytes(encoded * 2500)
+        self.assertGreaterEqual(log.stat().st_size, 6_000_000)
+        store = FileEventStore(self.root)
+        started = time.perf_counter()
+        self.assertTrue(store.ensure_round_event_index())
+        elapsed = time.perf_counter() - started
+        self.assertLess(elapsed, 1.0, f"light index scan took {elapsed:.3f}s")
+        self.assertEqual(len(store.round_event_holes(ROUND_A)), 2500)
+
+    def test_round_index_append_keeps_rows_when_prior_sidecar_is_stale(self) -> None:
+        store = FileEventStore(self.root)
+        self.assertTrue(store.ensure_round_event_index())
+        store.append_batch(
+            ROUND_A,
+            [{**_event("indexed-hole"), "hole": 7}],
+            request_key="indexed-hole-request",
+        )
+        self.assertEqual(store.round_event_holes(ROUND_A), [7])
+
+    def test_round_index_rebuild_refuses_a_tampered_committed_prefix(self) -> None:
+        # The light scan must still verify the committed prefix before labelling a rebuilt
+        # sidecar with the marker's sha256; otherwise a same-length edit becomes trusted holes.
+        store = FileEventStore(self.root)
+        store.append_batch(
+            ROUND_A,
+            [{**_event("tamper-1"), "hole": 3}, {**_event("tamper-2"), "hole": 3}],
+            request_key="tamper-request",
+        )
+        index = self.root / "round_event_index.json"
+        self.assertTrue(index.exists())
+        index.unlink()
+        log = self.root / "events.jsonl"
+        raw = log.read_bytes()
+        match = re.search(rb'"hole":\s*3', raw)
+        self.assertIsNotNone(match)
+        tampered = raw[: match.end() - 1] + b"9" + raw[match.end():]
+        self.assertEqual(len(tampered), len(raw))
+        log.write_bytes(tampered)
+        for call in (
+            lambda: FileEventStore(self.root).ensure_round_event_index(),
+            lambda: FileEventStore(self.root).round_event_holes(ROUND_A),
+        ):
+            with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+                call()
+        self.assertFalse(index.exists(), "a corrupt log must not produce a trusted sidecar")
 
     def test_crash_after_reservation_before_first_append_is_healed(self) -> None:
         store = FileEventStore(self.root)
