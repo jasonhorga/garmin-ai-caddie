@@ -13,6 +13,7 @@ from typing import Any, Callable, Hashable
 FOREGROUND = 0
 SELECTED_COURSE = 10
 NEARBY = 20
+BACKFILL = 30
 
 
 _CURRENT_PRIORITY: ContextVar[int | None] = ContextVar("work_priority", default=None)

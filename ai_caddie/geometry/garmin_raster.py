@@ -9,7 +9,7 @@ the geometry rules without a Garmin account or network access.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from io import BytesIO
 import json
 import logging
@@ -19,6 +19,7 @@ from pathlib import Path
 import re
 import threading
 from typing import Any
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import numpy as np
@@ -187,15 +188,20 @@ def _raster_path(global_id: int, hole: object, version: str) -> Path:
     return Path(RASTER_CACHE_DIR) / f"gid{int(global_id)}_h{_hole_number(hole):02d}_{_safe_part(version)}.jpg"
 
 
-def fetch_raster(global_id: int, hole: object) -> bytes | None:
+def fetch_raster(
+    global_id: int, hole: object, *, on_error: Callable[[str], None] | None = None,
+) -> bytes | None:
     """Fetch one signed CourseView raster, using a version-keyed disk cache.
 
     A missing URL, an expired session/provider response, malformed bytes, or an
     unavailable release is a normal unavailable result.  The caller decides how
-    that result is represented by the HTTP contract.
+    that result is represented by the HTTP contract. Optional diagnostics report only an HTTP
+    status or exception type, never a signed URL, response body or exception message.
     """
     url, version = _raster_url(int(global_id), hole)
     if not url or not version:
+        if on_error:
+            on_error("raster URL or asset unavailable")
         return None
     path = _raster_path(int(global_id), hole, version)
     lock = _cache_lock(int(global_id), _hole_number(hole), version)
@@ -216,10 +222,14 @@ def fetch_raster(global_id: int, hole: object) -> bytes | None:
         with urlopen(request, timeout=RASTER_TIMEOUT_SECONDS) as response:
             data = response.read()
         if not data:
+            if on_error:
+                on_error("empty response")
             return None
         with Image.open(BytesIO(data)) as decoded:
             decoded.verify()
     except Exception as exc:
+        if on_error:
+            on_error(f"HTTP {exc.code}" if isinstance(exc, HTTPError) else type(exc).__name__)
         logger.warning("garmin raster fetch failed: %s", type(exc).__name__)
         return None
     with lock:
