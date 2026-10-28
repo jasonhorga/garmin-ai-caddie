@@ -3958,7 +3958,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("ResultsCoursePresentation.visits(course, hole: hole)", stats_view)
         self.assertIn("RoundHoleShotMapScreen(", stats_view)
         self.assertIn("frontLoopKey", mobile_stats_model)
-        self.assertIn("ResultsTimeContent(stats: stats, grain: $grain)", results_view)
+        self.assertIn("ResultsTimeContent(stats: stats, window: $window, grain: $grain)", results_view)
         # GolfLive compact stats sections plus the B0d-1 fields the B5 screens read.
         self.assertIn("struct StatsOutcomeBucket", mobile_stats_model)
         self.assertIn("outcomeDistribution", mobile_stats_model)

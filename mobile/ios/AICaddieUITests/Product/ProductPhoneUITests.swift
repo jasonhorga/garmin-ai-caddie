@@ -131,6 +131,35 @@ final class ProductPhoneUITests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 10), .completed, name)
             app.terminate()
         }
+
+        // A cached non-empty home must not survive a server answer that now contains zero rounds.
+        // The app deliberately waits three seconds before refreshing this cold cache (AICaddieApp).
+        var populated = ProductFixtureServer.State(); populated.roundCount = 3
+        server.configure(populated)
+        launch()
+        scores()
+        XCTAssertTrue(element("results-all-rounds").waitForExistence(timeout: 10), "populated cache seed")
+        app.terminate()
+
+        var emptyServer = ProductFixtureServer.State(); emptyServer.roundCount = 0
+        // A CI cold launch can take longer than the app's three-second refresh delay; hold the
+        // zero-round answer so the cached trend is checked before the refresh can replace it.
+        emptyServer.statsResponseDelay = 8
+        server.configure(emptyServer)
+        launch(reset: false)
+        let cachedTrend = element("home-recent-trend")
+        XCTAssertTrue(cachedTrend.waitForExistence(timeout: 2), "reset:false must first show the cached trend")
+        let statsRequest = XCTNSPredicateExpectation(predicate: NSPredicate { [server] _, _ in
+            server?.requestedPaths().contains { $0.hasPrefix("/api/v2/history/stats/mobile") } == true
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [statsRequest], timeout: 10), .completed,
+                       "reset:false must refresh the cached results from the fixture")
+        // Zero rounds hide the home trend entry (as in the fresh empty case above), so the cached
+        // populated entry must disappear once the delayed refresh lands.
+        let trend = element("home-recent-trend")
+        let replaced = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !trend.exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [replaced], timeout: 20), .completed, "server zero rounds replace old cache")
+        app.terminate()
     }
 
     func test_j2_2_range_and_grain_disable_illegal_combinations_without_changing_range() {
@@ -142,9 +171,7 @@ final class ProductPhoneUITests: XCTestCase {
         let identifiedRange = element("time-range")
         let legacyRange = app.segmentedControls.containing(.button, identifier: "近10场").firstMatch
         let range = identifiedRange.exists ? identifiedRange : legacyRange
-        knownRed("C16e J2.2: time page has no independent range control") {
-            XCTAssertTrue(range.exists, "range must be selectable independently of grain")
-        }
+        XCTAssertTrue(range.exists, "range must be selectable independently of grain")
         guard range.exists else { return }
         XCTAssertEqual(range.buttons.count, 4)
         XCTAssertEqual(grain.buttons.count, 4)
@@ -225,10 +252,8 @@ final class ProductPhoneUITests: XCTestCase {
                 let firstIndex = element("live-scorecard-hole-index-1")
                 let tenthIndex = element("live-scorecard-hole-index-10")
                 XCTAssertTrue(firstIndex.exists && tenthIndex.exists, name + " both loop cards exist")
-                knownRed("C16e J2.8: review loses the physical back/front identity") {
-                    XCTAssertEqual(Int(firstIndex.label), 10, name + " first physical hole")
-                    XCTAssertEqual(Int(tenthIndex.label), 1, name + " second loop physical hole")
-                }
+                XCTAssertEqual(Int(firstIndex.label), 10, name + " first physical hole")
+                XCTAssertEqual(Int(tenthIndex.label), 1, name + " second loop physical hole")
             }
             app.terminate()
         }
@@ -314,8 +339,13 @@ final class ProductPhoneUITests: XCTestCase {
         if launchedWithFix {
             // C99 routes every new round through the shared course finder. A nearby course is
             // already the first row, then its tee page is shown before Start.
-            tap("home-new-round")
             let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-")).firstMatch
+            XCTAssertTrue(UITapHelpers.tapAndWaitForElements(
+                element("home-new-round"),
+                destinations: [app.navigationBars["开始一场"], row],
+                timeout: 30,
+                diagnosticName: "home-new-round"
+            ))
             XCTAssertTrue(row.waitForExistence(timeout: 30), "nearby course row")
             row.tap()
             let start = element("start-round-primary-action")
@@ -325,7 +355,12 @@ final class ProductPhoneUITests: XCTestCase {
             return
         }
         // Without a location the home offers search and 开始一场 lists no course: search by name.
-        tap("home-new-round")
+        XCTAssertTrue(UITapHelpers.tapAndWaitForElements(
+            element("home-new-round"),
+            destinations: [app.navigationBars["开始一场"], element("start-round-search-all-courses")],
+            timeout: 30,
+            diagnosticName: "home-new-round"
+        ))
         tap("start-round-search-all-courses")
         let keyword = app.textFields["course-catalog-keyword-field"]
         XCTAssertTrue(keyword.waitForExistence(timeout: 10))
@@ -400,6 +435,10 @@ final class ProductPhoneUITests: XCTestCase {
             if hole == 1 { recordFirstShot() }
             tap("live-score-hole")
             tap("score-save")
+            let trace = element("debug-pager-trace")
+            XCTAssertTrue(trace.waitForExistence(timeout: 5), "pager trace is enabled for hole \(hole)")
+            XCTAssertFalse(trace.label.contains("correction binding bounce"),
+                           "hole \(hole) must not record a correction binding bounce")
         }
         attachPagerEvidence("j5_10-after-nine-scores")
         if element("turn-stop").waitForExistence(timeout: 5) {
@@ -408,6 +447,12 @@ final class ProductPhoneUITests: XCTestCase {
             attachPagerEvidence("j5_10-after-turn-stop-before-turn-go")
             tap("turn-go")
             attachPagerEvidence("j5_10-after-turn-go")
+        }
+        // Per-hole checks cover each save; this one also covers the ninth hole's turn sheet.
+        let finalTrace = element("debug-pager-trace")
+        if finalTrace.exists {
+            XCTAssertFalse(finalTrace.label.contains("correction binding bounce"),
+                           "the turn must not record a correction binding bounce")
         }
         let finished = element("live-finish-to-par").waitForExistence(timeout: 10)
         attachPagerEvidence(finished ? "j5_10-summary-visible" : "j5_10-summary-missing")
@@ -418,6 +463,34 @@ final class ProductPhoneUITests: XCTestCase {
         insideWindow(par, "nine recorded holes")
         XCTAssertEqual(integers(in: par.label), [36, 9, 9], "recorded par, played holes, course holes")
         insideWindow(element("live-finish-save"), "save summary")
+    }
+
+    func test_j5_11_shortcut_start_keeps_actual_club_sheet_after_first_stroke() {
+        launch(latitude: "0")
+        let shortcut = element("home-quick-course-82001")
+        XCTAssertTrue(shortcut.waitForExistence(timeout: 15), "fixture nearby course exposes the shortcut")
+        reveal(shortcut)
+        shortcut.tap()
+        let start = element("start-round-primary-action")
+        XCTAssertTrue(start.waitForExistence(timeout: 15))
+        reveal(start)
+        XCTAssertTrue(start.isEnabled)
+        start.tap()
+        XCTAssertTrue(element("live-hole-title").waitForExistence(timeout: 15))
+
+        tap("live-record-shot")
+        let prompt = app.staticTexts["这一杆用了什么球杆？"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8), "shortcut start must preserve the first-stroke club sheet")
+        // The route upgrade can replace the hole view after the sheet first appears. Let that
+        // transition settle before asserting that the sheet remains presented.
+        Thread.sleep(forTimeInterval: 2.5)
+        XCTAssertTrue(prompt.exists, "the club sheet must survive the settled shortcut route")
+        let skip = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "跳过球杆")).firstMatch
+        XCTAssertTrue(skip.waitForExistence(timeout: 8))
+        skip.tap()
+        let title = element("live-hole-title")
+        XCTAssertTrue(title.waitForExistence(timeout: 8))
+        XCTAssertEqual(title.label, "第 1 洞", "skipping the club must remain on the first hole")
     }
 
     func test_j5_2_home_active_card_replaces_new_round_and_can_resume() {

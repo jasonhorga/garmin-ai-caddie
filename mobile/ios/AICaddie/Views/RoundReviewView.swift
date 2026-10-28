@@ -31,7 +31,7 @@ func roundReviewFairwayLabel(_ raw: String?) -> String {
 }
 
 /// 单场复盘 (B3, `review.html` screen 1): the saved round summary in the same layout as 本场汇总 —
-/// the big to-par, the OUT / IN scorecard (tap a score to open that hole's
+/// the big to-par, the physical front/back scorecard (tap a score to open that hole's
 /// shots), the four tiles, then 分享. Missing data is not called out: a tile without data is simply
 /// not shown. Data comes from /api/v2/history/rounds/{ref}.
 public struct RoundReviewView: View {
@@ -339,7 +339,7 @@ struct RoundReviewContent: View {
             }
             .padding(.horizontal, 4)
             LiveNineCard(
-                label: card.holes.count > 9 ? "OUT" : "合计",
+                label: card.nineLabels?.front ?? "合计",
                 holes: Array(card.holes.prefix(9)),
                 scores: card.scores,
                 onSelect: onSelectHole,
@@ -348,7 +348,7 @@ struct RoundReviewContent: View {
             )
             if card.holes.count > 9 {
                 LiveNineCard(
-                    label: "IN",
+                    label: card.nineLabels?.back ?? "合计",
                     holes: Array(card.holes.dropFirst(9).prefix(9)),
                     scores: card.scores,
                     onSelect: onSelectHole,
@@ -455,7 +455,7 @@ struct RoundReviewContent: View {
         .accessibilityIdentifier("round-review-share")
     }
 
-    /// "黑骑士 · 9月21日\n86 杆（+14）· OUT 43 · IN 43".
+    /// "黑骑士 · 9月21日\n86 杆（+14）· 前九 43 · 后九 43".
     static func shareText(course: String, round: RoundDetailSummary?, card: RoundReviewScorecard) -> String {
         var title = course
         if let date = round?.date, !date.isEmpty { title += " · " + aiCaddieShortDate(date) }
@@ -466,8 +466,10 @@ struct RoundReviewContent: View {
             parts.append(toPar.map { "\(strokes) 杆（\(LiveRoundScoreSummary.toParText($0))）" } ?? "\(strokes) 杆")
         }
         if card.holes.count > 9 {
-            if let out = card.nineTotal(card.holes.prefix(9)) { parts.append("OUT \(out)") }
-            if let back = card.nineTotal(card.holes.dropFirst(9)) { parts.append("IN \(back)") }
+            let labels = card.nineLabels ?? (front: "第一环", back: "第二环")
+            let front = labels.front, back = labels.back
+            if let total = card.nineTotal(card.holes.prefix(9)) { parts.append("\(front) \(total)") }
+            if let total = card.nineTotal(card.holes.dropFirst(9)) { parts.append("\(back) \(total)") }
         }
         return parts.isEmpty ? title : title + "\n" + parts.joined(separator: " · ")
     }
@@ -541,7 +543,9 @@ struct RoundReviewScorecard: Equatable {
         for row in RoundReviewHoles.courseRows(scorecard) {
             let derivedPar = row.score.flatMap { score in row.toPar.map { score - $0 } }
             guard let par = row.par ?? derivedPar else { continue }
-            holes.append(ScorecardHole(number: row.hole, par: par))
+            // `hole` is the round-play key.  `localHole` is the course's physical number and is
+            // what the player sees when a round starts on the back nine or combines loops.
+            holes.append(ScorecardHole(number: row.hole, par: par, displayNumber: row.localHole ?? row.hole))
             if let score = row.score {
                 scores[row.hole] = LiveHoleScore(
                     hole: row.hole, par: par, score: score,
@@ -555,6 +559,19 @@ struct RoundReviewScorecard: Equatable {
     }
 
     func canOpen(_ hole: Int) -> Bool { reviewHoles.canOpen(hole) }
+
+    /// "前九" / "后九" for a physical 18-hole card, by each nine's first physical hole. A card
+    /// whose two halves cannot be identified as front/back keeps the neutral "合计" label.
+    var nineLabels: (front: String, back: String)? {
+        guard holes.count > 9 else { return nil }
+        func half(_ nine: ArraySlice<ScorecardHole>) -> String? {
+            guard let number = nine.first?.displayNumber, number > 0 else { return nil }
+            return number >= 10 ? "后九" : "前九"
+        }
+        guard let first = half(holes.prefix(9)), let second = half(holes.dropFirst(9).prefix(9)),
+              first != second else { return nil }
+        return (first, second)
+    }
 
     var strokes: Int { scores.values.reduce(0) { $0 + $1.score } }
 

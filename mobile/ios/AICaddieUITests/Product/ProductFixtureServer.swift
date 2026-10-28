@@ -16,6 +16,9 @@ final class ProductFixtureServer: @unchecked Sendable {
         var includePutts = false
         var providerFailure = false
         var coverage = "ready"
+        /// Holds `/history/stats/mobile` answers back so a cached screen stays observable however
+        /// long the cold launch takes; the app's own refresh delay is only three seconds.
+        var statsResponseDelay: TimeInterval = 0
     }
     private let queue = DispatchQueue(label: "product-native-fixture")
     private let listener: NWListener
@@ -144,7 +147,10 @@ final class ProductFixtureServer: @unchecked Sendable {
             }
             var response = Data("HTTP/1.1 \(code) \(code == 200 ? "OK" : "Unavailable")\r\nContent-Type: \(contentType)\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
             response.append(body)
-            connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+            let payload = response
+            let send = { connection.send(content: payload, completion: .contentProcessed { _ in connection.cancel() }) }
+            let delay = target.hasPrefix("/api/v2/history/stats/mobile") ? self.state.statsResponseDelay : 0
+            if delay > 0 { self.queue.asyncAfter(deadline: .now() + delay, execute: send) } else { send() }
         }
     }
 

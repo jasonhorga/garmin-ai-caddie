@@ -16,7 +16,8 @@ class NativeVisualParityTests(unittest.TestCase):
         for source in (real_flow, review_edit, tee_selection):
             self.assertIn("continueAfterFailure = false", source)
             self.assertNotIn("continueAfterFailure = true", source)
-        self.assertIn('let openedResults = tapContaining(["成绩", "球局 · 统计"])', real_flow)
+        self.assertIn('let openedResultsTile = app.buttons["home-recent-trend"]', real_flow)
+        self.assertIn("let openedResults = openedResultsTile.waitForExistence(timeout: 60)", real_flow)
         self.assertIn("let resultsReady = openedResults", real_flow)
         self.assertIn("let enteredHistory = resultsReady", real_flow)
         self.assertIn('&& scrollAndTapContaining(["场 ›", "全部球局 ›"])', real_flow)

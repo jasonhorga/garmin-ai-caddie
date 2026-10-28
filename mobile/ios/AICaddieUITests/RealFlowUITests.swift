@@ -265,20 +265,6 @@ final class RealFlowUITests: XCTestCase {
         save("c30-prep-back-picker-after-priority"); dump("c30-prep-back-picker-after-priority")
     }
 
-    /// Save the preselected score of the hole on screen (shown by its course number).
-    private func saveQuickScore(shownHole: Int) throws {
-        let confirm = app.buttons["完成本洞"]
-        XCTAssertTrue(scrollTo(confirm, maxSwipes: 18), "hole \(shownHole) must expose score confirmation")
-        confirm.tap()
-        let saveScore = app.buttons["score-save"]
-        XCTAssertTrue(saveScore.waitForExistence(timeout: 5), "hole \(shownHole) must offer one-tap save")
-        XCTAssertTrue(
-            app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "第 \(shownHole) 洞 · Par")).firstMatch.exists,
-            "the score sheet names the course's own hole \(shownHole)"
-        )
-        saveScore.tap()
-    }
-
     func testCaptureRealAppFlow() throws {
         app.launchEnvironment["UITEST_PAGER_TRACE"] = "1"
         // Read every screen from the live backend, but keep the synthetic simulator round local.
@@ -339,7 +325,6 @@ final class RealFlowUITests: XCTestCase {
 
         // ---- Section 2: 成绩 → 全部球局 → round review → shot-map → review-edit ----
         launchFresh()
-        // Historical contract marker: let openedResults = tapContaining(["成绩", "球局 · 统计"])
         // The production home now exposes the stable home-recent-trend destination directly.
         let openedResultsTile = app.buttons["home-recent-trend"]
         let openedResults = openedResultsTile.waitForExistence(timeout: 60)
@@ -1396,18 +1381,78 @@ final class RealFlowUITests: XCTestCase {
         )
         settle(1); save("09e-new-course-precise-map"); dump("09e-new-course-precise-map")
 
-        // Starting a course opens an in-memory prep package. Without a first stroke, process death
-        // must return to the home entry instead of inventing an in-progress round.
+        // Preparation is deliberately in-memory until the first stroke. Force-quitting here must
+        // return to the new-round entry without manufacturing an in-progress round.
         app.terminate()
-        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LAT")
-        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LON")
-        app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "authorized"
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
-        let newRound = app.buttons["home-new-round"]
-        XCTAssertTrue(newRound.waitForExistence(timeout: 60), "prep-only course must return to the new-round entry")
-        XCTAssertFalse(app.buttons["home-in-progress-round"].exists, "prep-only course must not create an active round")
-        settle(1); save("09f-new-course-prep-only-home"); dump("09f-new-course-prep-only-home")
+        XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 60),
+                      "a prep-only course must return to the new-round entry")
+        XCTAssertFalse(app.buttons["home-in-progress-round"].exists,
+                       "prep-only process death must not create an active round")
+
+        // Re-enter the selected course so the following first-stroke recovery checks remain part
+        // of the same new-course journey.
+        XCTAssertTrue(openStartRound())
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 12))
+        let resumedSegment = selectStartCourse(evidence.globalId)
+        XCTAssertTrue(resumedSegment.exists)
+        let resumedPrimary = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(waitUntilEnabled(resumedPrimary, timeout: 90))
+        XCTAssertTrue(scrollTo(resumedPrimary, maxSwipes: 20))
+        resumedPrimary.tap()
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 90))
+
+        // A new course becomes a real round only after the first stroke.  Force-quit at that point
+        // and prove the persisted card restores the same hole, map and structured caddie route.
+        try recordJourneyShot(selectActualClub: false)
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
+        let inProgress = app.buttons["home-in-progress-round"]
+        XCTAssertTrue(inProgress.waitForExistence(timeout: 30), "the first stroke must create an in-progress card")
+        XCTAssertTrue(app.staticTexts["已打 0 洞"].exists || app.staticTexts["已打 1 洞"].exists)
+        inProgress.tap()
+        XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 30), "the saved first hole must restore")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["topo-hole-base-ready"].firstMatch.waitForExistence(timeout: 90),
+            "the restored new-course round must retain its static map"
+        )
+        _ = openCaddiePlan(timeout: 90)
+
+        // Save the preselection, edit that completed hole to a different score, then explicitly
+        // finish.  This covers the in-progress card's score/edit path and its cleanup.
+        try confirmJourneyHole(
+            hole: 1, par: 4, manual: false, expectedPreselectedScore: 3,
+            fairwayLabel: nil
+        )
+        let scorecard = app.buttons["计分卡"]
+        XCTAssertTrue(scrollTo(scorecard, maxSwipes: 18), "the restored new-course round must expose its scorecard")
+        scorecard.tap()
+        let selectFirstHole = app.buttons["选择第 1 洞"].firstMatch
+        XCTAssertTrue(selectFirstHole.waitForExistence(timeout: 8))
+        selectFirstHole.tap()
+        let editFirstHole = app.buttons["改第 1 洞成绩"]
+        XCTAssertTrue(editFirstHole.waitForExistence(timeout: 8))
+        editFirstHole.tap()
+        let scoreChoice = app.buttons["score-choice-4"]
+        XCTAssertTrue(scoreChoice.waitForExistence(timeout: 8), "the new-course score must be editable")
+        scoreChoice.tap()
+        let editedSave = app.buttons["score-save"]
+        XCTAssertTrue(editedSave.waitForExistence(timeout: 8))
+        editedSave.tap()
+        // As in the historical edit above, 改成绩 swaps the scorecard for the score sheet, so saving
+        // lands back on the live hole rather than on a scorecard that still needs closing.
+        let endRound = app.buttons["live-end-round"]
+        XCTAssertTrue(endRound.waitForExistence(timeout: 8), "saving a scorecard edit must return to the live hole")
+        XCTAssertFalse(app.buttons["关闭计分卡"].exists, "the scorecard must not reappear after the edit is saved")
+        endRound.tap()
+        let finishSave = app.buttons["live-finish-save"]
+        XCTAssertTrue(finishSave.waitForExistence(timeout: 8), "the edited new-course round must be finishable")
+        finishSave.tap()
+        XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 20), "finishing must clear the active card")
+        XCTAssertFalse(app.buttons["home-in-progress-round"].exists, "finished new-course data must be cleaned up")
+
     }
 
     // MARK: - navigation helpers
@@ -1835,14 +1880,6 @@ final class RealFlowUITests: XCTestCase {
             "start-round-course-segment-\(globalId)",
             "start-round-selected-course-\(globalId)"
         )).firstMatch
-    }
-
-    private func waitForCourseSelection(_ tile: XCUIElement, globalId: Int, name: String) -> Bool {
-        guard tile.waitForExistence(timeout: 8) else { return false }
-        if tile.identifier == "start-round-selected-course-\(globalId)" {
-            return (tile.value as? String)?.contains(name) == true
-        }
-        return waitForValue("已选择", on: tile, timeout: 8)
     }
 
     /// Tap the first button/cell/text whose label CONTAINS any of the given fragments.

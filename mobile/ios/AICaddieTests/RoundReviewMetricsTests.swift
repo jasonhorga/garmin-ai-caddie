@@ -25,8 +25,8 @@ final class RoundReviewMetricsTests: XCTestCase {
     private func nineOfEighteen() throws -> [RoundDetailHole] {
         let rows = (1...18).map { hole -> String in
             hole <= 9
-                ? #"{"hole":\#(hole),"par":4,"score":5,"putts":2}"#
-                : #"{"hole":\#(hole),"par":4}"#
+                ? #"{"hole":\#(hole),"localHole":\#(hole + 9),"par":4,"score":5,"putts":2}"#
+                : #"{"hole":\#(hole),"localHole":\#(hole - 9),"par":4}"#
         }
         return try JSONDecoder().decode([RoundDetailHole].self, from: Data("[\(rows.joined(separator: ","))]".utf8))
     }
@@ -42,11 +42,38 @@ final class RoundReviewMetricsTests: XCTestCase {
         XCTAssertFalse(holes.canOpen(18))
 
         let card = RoundReviewScorecard(scorecard)
-        XCTAssertEqual(card.holes.map(\.number), Array(1...18), "the IN card keeps holes 10–18")
+        XCTAssertEqual(card.holes.map(\.number), Array(1...18), "round-hole keys stay in play order")
+        XCTAssertEqual(card.holes.compactMap(\.displayNumber), Array(10...18) + Array(1...9),
+                       "the card displays the physical back/front holes")
+        XCTAssertEqual(card.nineLabels?.front, "后九")
+        XCTAssertEqual(card.nineLabels?.back, "前九")
         XCTAssertEqual(Set(card.scores.keys), Set(1...9))
         XCTAssertTrue(card.canOpen(9))
         XCTAssertFalse(card.canOpen(10))
         XCTAssertEqual(card.strokes, 45)
+    }
+
+    func testTwoLoopCardUsesNeutralLabelsAndShareNamesWhenPhysicalHalvesAreUnknown() throws {
+        let rows = (1...18).map { hole in
+            #"{"hole":\#(hole),"localHole":\#((hole - 1) % 9 + 1),"par":4,"score":4}"#
+        }
+        let scorecard = try JSONDecoder().decode(
+            [RoundDetailHole].self, from: Data("[\(rows.joined(separator: ","))]".utf8)
+        )
+        let card = RoundReviewScorecard(scorecard)
+        XCTAssertNil(card.nineLabels, "two loops that both start at 1 have no front/back identity")
+        let shared = RoundReviewContent.shareText(
+            course: "Example",
+            round: RoundDetailSummary(
+                courseName: "Example", date: nil, score: 72, par: 72, toPar: 0,
+                holesCompleted: 18, holesScored: 18, courseHoles: 18, confidence: nil
+            ),
+            card: card
+        )
+        XCTAssertTrue(shared.contains("第一环 36"))
+        XCTAssertTrue(shared.contains("第二环 36"))
+        XCTAssertFalse(shared.contains("OUT"))
+        XCTAssertFalse(shared.contains("IN"))
     }
 
     func testUnscoredRoundPagesEveryHoleAndTheStripIsCappedAtEighteen() throws {

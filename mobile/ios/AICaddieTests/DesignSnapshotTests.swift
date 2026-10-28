@@ -1458,7 +1458,7 @@ final class DesignSnapshotTests: XCTestCase {
         try captureScreen(
             NavigationStack {
                 ScrollView {
-                    ResultsTimeContent(stats: timeStats, grain: .constant(.quarter))
+                    ResultsTimeContent(stats: timeStats, window: .constant("all"), grain: .constant(.quarter))
                 }
                 .background(HubStyle.grouped)
                 .navigationTitle("时间与频率")
@@ -1469,7 +1469,7 @@ final class DesignSnapshotTests: XCTestCase {
         try captureScreen(
             NavigationStack {
                 ScrollView {
-                    ResultsTimeContent(stats: timeStats, grain: .constant(.quarter))
+                    ResultsTimeContent(stats: timeStats, window: .constant("last10"), grain: .constant(.quarter))
                 }
                 .defaultScrollAnchor(.bottom)
                 .background(HubStyle.grouped)
@@ -1639,7 +1639,7 @@ final class DesignSnapshotTests: XCTestCase {
             VStack(spacing: 12) {
                 Spacer(minLength: 0)
                 LiveNineCard(
-                    label: "IN",
+                    label: "后九",
                     holes: Array(RoundReviewScorecard(partialScorecard).holes.dropFirst(9)),
                     scores: RoundReviewScorecard(partialScorecard).scores,
                     onSelect: { _ in },
