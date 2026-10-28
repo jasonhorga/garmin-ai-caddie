@@ -49,15 +49,16 @@ _SCANNER_THREAD: threading.Thread | None = None
 _STOP = threading.Event()
 _SCAN_ROUND = 0
 _LAST_SCAN_DURATION_S = 0.0
-_CONTENT_HASH_CACHE: dict[str, tuple[int, int, str]] = {}
+_CONTENT_HASH_CACHE: dict[str, tuple[int, int, int, int, str]] = {}
 
 
 def file_content_signature(path: Path | str) -> tuple[int, str] | None:
-    """Return ``(size, sha256)`` while caching bytes by ``(path, mtime, size)``.
+    """Return ``(size, sha256)`` while caching bytes by filesystem identity.
 
     Course release refreshes can replace a file with byte-identical content. Consumers must keep
     their cached facts in that case, so inode/ctime are deliberately absent from the returned
-    signature. The cache still avoids rereading unchanged files on every hot request.
+    signature. The cache key includes mtime, size, ctime, and inode so a same-size rewrite that
+    restores mtime cannot reuse stale bytes.
     """
     target = Path(path)
     key = str(target.resolve(strict=False))
@@ -68,8 +69,9 @@ def file_content_signature(path: Path | str) -> tuple[int, str] | None:
             _CONTENT_HASH_CACHE.pop(key, None)
         return None
     cached = _CONTENT_HASH_CACHE.get(key)
-    if cached is not None and cached[:2] == (stat.st_mtime_ns, stat.st_size):
-        return (stat.st_size, cached[2])
+    cache_key = (stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns, stat.st_ino)
+    if cached is not None and cached[:4] == cache_key:
+        return (stat.st_size, cached[4])
     digest = hashlib.sha256()
     try:
         with target.open("rb") as handle:
@@ -80,7 +82,7 @@ def file_content_signature(path: Path | str) -> tuple[int, str] | None:
             _CONTENT_HASH_CACHE.pop(key, None)
         return None
     with _LOCK:
-        _CONTENT_HASH_CACHE[key] = (stat.st_mtime_ns, stat.st_size, digest.hexdigest())
+        _CONTENT_HASH_CACHE[key] = (*cache_key, digest.hexdigest())
     return (stat.st_size, digest.hexdigest())
 
 

@@ -373,6 +373,13 @@ In priority order:
 
 ## 10. Big files in the repo
 
+### Mobile round event index migration
+
+On API startup, a daemon worker prebuilds the durable `round_event_index.json` sidecar for existing
+mobile event partitions. The worker never blocks startup; a request that reaches an unmigrated
+partition first waits on that partition's event lock while the one-time scan completes, then uses
+the O(1) index path.
+
 - `ScreenRecording_05-08-2026 19-00-09_1.mp4` (120 MB, root) — original analysis of a WeChat mini-program UI. Can be deleted/moved; not referenced by any code.
 - `output/dashboard/` (≈ 60+ MB) — generated HTML + per-course detail pages; rebuilt by `build_dashboard.py`
 - `data/shots/` (17 MB) — raw shot data; needed

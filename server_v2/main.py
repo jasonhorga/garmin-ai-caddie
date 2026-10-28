@@ -235,7 +235,11 @@ def configure_request_timing_logging() -> None:
 
 def _start_boot_background_work() -> None:
     """Start the process-owned warmers and recovery workers once the API can boot."""
+    from ai_caddie.caddie.mobile_event_store import start_round_event_index_migration
+    from . import mobile as mobile_service
+
     warm_stats_cache_in_background()
+    start_round_event_index_migration(mobile_service.MOBILE_ROOT)
     start_render_backfill()
     _garmin_sync_jobs.start(_run_garmin_sync_job)
     threading.Thread(

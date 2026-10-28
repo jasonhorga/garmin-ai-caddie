@@ -55,17 +55,15 @@ _inflight: dict[tuple, threading.Event] = {}
 
 
 def _dir_sig(directory: Path) -> tuple[int, str]:
-    """Per-file manifest fingerprint using memoized content hashes."""
-    files: list[tuple[str, int, str]] = []
+    """Cheap per-file manifest fingerprint for history/player inputs."""
+    files: list[tuple[str, int, int, int]] = []
     for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(directory):
         if name != revisions.REVISION_FILENAME and is_file:
-            signature = revisions.file_content_signature(directory / name)
-            if signature is not None:
-                files.append((name, signature[0], signature[1]))
+            files.append((name, size, mtime_ns, ctime_ns))
     files.sort()  # scandir order is unspecified; sort so the digest is order-independent
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, content_hash in files:
-        digest.update(f"{name}\x00{size}\x00{content_hash}\x00".encode("utf-8"))
+    for name, size, mtime_ns, ctime_ns in files:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
 
 
@@ -81,16 +79,14 @@ def _matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
     already-stable prep for course A.  Course prep reads only ``gid<id>_h*`` geometry,
     so its cache dependency must have the same course boundary.
     """
-    files: list[tuple[str, int, str]] = []
+    files: list[tuple[str, int, int, int]] = []
     for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(directory):
         if name != revisions.REVISION_FILENAME and is_file and fnmatch.fnmatchcase(name, pattern):
-            signature = revisions.file_content_signature(directory / name)
-            if signature is not None:
-                files.append((name, signature[0], signature[1]))
+            files.append((name, size, mtime_ns, ctime_ns))
     files.sort()
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, content_hash in files:
-        digest.update(f"{name}\x00{size}\x00{content_hash}\x00".encode("utf-8"))
+    for name, size, mtime_ns, ctime_ns in files:
+        digest.update(f"{name}\x00{size}\x00{mtime_ns}\x00{ctime_ns}\x00".encode("utf-8"))
     return (len(files), digest.hexdigest())
 
 
@@ -100,8 +96,12 @@ def _cached_matching_dir_sig(directory: Path, pattern: str) -> tuple[int, str]:
     )
 
 
-def _file_sig(path: Path) -> tuple[int, str] | None:
-    return revisions.file_content_signature(path)
+def _file_sig(path: Path) -> tuple[int, int, int] | None:
+    try:
+        stat = path.stat()
+    except (FileNotFoundError, NotADirectoryError, OSError):
+        return None
+    return (stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns)
 
 
 def _manual_bag_sig(player_id: str) -> tuple[int, int] | None:
@@ -131,20 +131,32 @@ def _course_data_sig(global_id: int) -> tuple[int, str]:
 def _scan_course_data_sig(global_id: int) -> tuple[int, str]:
     """Complete scan used on a cold course-data signature."""
     gid = int(global_id)
-    rows: list[tuple[str, int, str]] = []
+    rows: list[tuple[str, object]] = []
+    from ai_caddie.courses.course_reference import courseview_release_signature
+
     for name, is_file, size, mtime_ns, ctime_ns in revisions.directory_entries(_COURSEVIEW_DIR):
         if not is_file or (
             name != f"{gid}_releases.pb"
             and not fnmatch.fnmatchcase(name, f"{gid}_course_data_*.json")
         ):
             continue
-        signature = revisions.file_content_signature(_COURSEVIEW_DIR / name)
+        path = _COURSEVIEW_DIR / name
+        if (
+            name == f"{gid}_releases.pb"
+            and _COURSEVIEW_DIR.name == "courseview"
+            and _COURSEVIEW_DIR.parent.name == "data"
+        ):
+            signature = courseview_release_signature(
+                gid, root=_COURSEVIEW_DIR.parent.parent,
+            )
+        else:
+            signature = _file_sig(path)
         if signature is not None:
-            rows.append((name, signature[0], signature[1]))
+            rows.append((name, signature))
     rows.sort()
     digest = hashlib.blake2b(digest_size=16)
-    for name, size, content_hash in rows:
-        digest.update(f"{name}\x00{size}\x00{content_hash}\x00".encode("utf-8"))
+    for name, signature in rows:
+        digest.update(f"{name}\x00{signature!r}\x00".encode("utf-8"))
     return (len(rows), digest.hexdigest())
 
 
