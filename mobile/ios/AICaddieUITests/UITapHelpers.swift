@@ -4,9 +4,11 @@ import XCTest
 /// accessibility tap.  A disappearing source or an appearing destination acknowledges the first
 /// tap; only an unacknowledged source is tapped a second time.
 enum UITapHelpers {
-    /// Tap only after the element has stayed hittable at the same non-empty frame for two
+    /// Prefer a tap after the element has stayed hittable at the same non-empty frame for two
     /// accessibility polls.  SwiftUI can publish the new button before its transition has
-    /// committed an activation point.
+    /// committed an activation point.  The wait only improves timing: if a busy app exhausts the
+    /// budget while the element still exists, fall back to XCTest's own tap (which waits for idle
+    /// and scrolls), so these helpers never do less than the plain `.tap()` they replaced.
     @discardableResult
     static func tapWhenHittable(
         _ source: XCUIElement,
@@ -14,10 +16,27 @@ enum UITapHelpers {
         timeout: TimeInterval,
         diagnosticName: String
     ) -> Bool {
-        guard waitForStableHittability(source, app: app, timeout: timeout) else {
+        guard tapPreferringStableFrame(source, app: app, timeout: timeout, diagnosticName: diagnosticName) else {
+            return false
+        }
+        return true
+    }
+
+    private static func tapPreferringStableFrame(
+        _ source: XCUIElement,
+        app: XCUIApplication,
+        timeout: TimeInterval,
+        diagnosticName: String
+    ) -> Bool {
+        if waitForStableHittability(source, app: app, timeout: timeout) {
+            source.tap()
+            return true
+        }
+        guard source.exists else {
             print("UI_TAP source-not-ready \(diagnosticName)")
             return false
         }
+        print("UI_TAP fallback \(diagnosticName)")
         source.tap()
         return true
     }
@@ -33,13 +52,12 @@ enum UITapHelpers {
         diagnosticName: String
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
-        guard waitForStableHittability(field, app: app, timeout: timeout) else {
+        guard tapPreferringStableFrame(field, app: app, timeout: timeout, diagnosticName: diagnosticName) else {
             print("UI_TYPE field-not-ready \(diagnosticName)")
             return false
         }
-
-        field.tap()
-        if waitForCondition({ hasKeyboardFocus(field, app: app) }, timeout: max(0, deadline.timeIntervalSinceNow)) {
+        // A fallback tap may have used the whole stability budget; still give focus a short window.
+        if waitForCondition({ hasKeyboardFocus(field, app: app) }, timeout: max(2, deadline.timeIntervalSinceNow)) {
             field.typeText(text)
             return true
         }
@@ -47,6 +65,7 @@ enum UITapHelpers {
         print("UI_TYPE focus-retry \(diagnosticName)")
         guard deadline.timeIntervalSinceNow > 0,
               waitForStableHittability(field, app: app, timeout: max(0, deadline.timeIntervalSinceNow)) else {
+            print("UI_TYPE field-not-ready-after-retry \(diagnosticName)")
             return false
         }
         field.tap()
@@ -68,12 +87,9 @@ enum UITapHelpers {
     ) -> Bool {
         let started = Date()
         let deadline = started.addingTimeInterval(timeout)
-        guard waitForStableHittability(source, app: app, timeout: timeout) else {
-            print("UI_TAP source-not-ready \(diagnosticName)")
+        guard tapPreferringStableFrame(source, app: app, timeout: timeout / 2, diagnosticName: diagnosticName) else {
             return false
         }
-
-        source.tap()
         var acknowledged = false
         let transitionAcknowledged = {
             if !acknowledged {

@@ -1305,13 +1305,12 @@ final class RealFlowUITests: XCTestCase {
 
         let openSearch = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(scrollTo(openSearch, maxSwipes: 20), "start form must expose full-catalogue search")
-        XCTAssertTrue(
-            UITapHelpers.tapWhenHittable(
-                openSearch,
-                app: app,
-                timeout: 5,
-                diagnosticName: "realflow-evidence-search-entry"
-            )
+        // The retry below owns this step's verdict (a live nearby update can swallow the tap).
+        _ = UITapHelpers.tapWhenHittable(
+            openSearch,
+            app: app,
+            timeout: 5,
+            diagnosticName: "realflow-evidence-search-entry"
         )
         let courseSearchNavigationBar = app.navigationBars["找球场"]
         var openedCourseSearch = courseSearchNavigationBar.waitForExistence(timeout: 8)
