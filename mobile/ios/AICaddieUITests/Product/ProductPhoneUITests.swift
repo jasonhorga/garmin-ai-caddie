@@ -257,6 +257,7 @@ final class ProductPhoneUITests: XCTestCase {
 
         var failing = ProductFixtureServer.State()
         failing.statsFailure = true
+        failing.statsResponseDelay = 1
         server.configure(failing)
         range.buttons.element(boundBy: 0).tap()
         let notice = element("time-range-notice")
@@ -267,6 +268,11 @@ final class ProductPhoneUITests: XCTestCase {
         let retry = notice.buttons.firstMatch
         XCTAssertTrue(retry.exists)
         retry.tap()
+        let noticeCleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            return !notice.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [noticeCleared], timeout: 5), .completed,
+                       "retry must clear the old notice while the request is in flight")
         let oneMore = XCTNSPredicateExpectation(predicate: NSPredicate { [server] _, _ in
             server?.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }.count == before + 1
         }, object: nil)
