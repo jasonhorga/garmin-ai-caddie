@@ -2409,7 +2409,6 @@ def _route_evidence_seed(
             selected_tee = _selected_tee(
                 {"globalId": int(global_id), "hazards": hazard_source},
                 tee_box,
-                colour_fallback=False,
             )
             target_position = (hazard_source.get("target") or {}).get("position")
             tee_position = (selected_tee or {}).get("position")

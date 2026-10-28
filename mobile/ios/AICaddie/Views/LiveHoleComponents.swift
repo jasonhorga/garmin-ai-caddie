@@ -2115,7 +2115,8 @@ struct LiveMapPreparingSurface: View {
     var onRetry: (() -> Void)? = nil
 
     var body: some View {
-        HoleMapWaitingPage(holeNumber: holeNumber, par: par, yards: yards, failed: failed, onRetry: onRetry)
+        HoleMapWaitingPage(holeNumber: holeNumber, par: par, yards: yards,
+                           failed: failed, onRetry: onRetry)
             .accessibilityIdentifier("live-map-preparing-surface")
     }
 }
