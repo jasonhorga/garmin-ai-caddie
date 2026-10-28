@@ -72,6 +72,21 @@ class RoundIngestCoreTests(unittest.TestCase):
         self.assertEqual(summary["source"], "manual")
         self.assertFalse(summary["idempotent"])
 
+    def test_gir_uses_recorded_putts_before_surface_fallback(self) -> None:
+        # Product GIR specification: total strokes - putts <= par - 2.  For par 4,
+        # 4 - 2 = 2, so this is GIR even when no landing geometry is available.
+        gir, _fairway = round_ingest._derive_gir_fairway(
+            None, 1, 4, [], 4,
+        )
+        self.assertTrue(gir)
+
+        # The same formula gives 5 - 2 = 3, which is outside regulation and must be
+        # False rather than an indeterminate geometry result.
+        gir, _fairway = round_ingest._derive_gir_fairway(
+            None, 1, 4, [], 5,
+        )
+        self.assertFalse(gir)
+
     def test_round_is_consumable_by_load_raw_rounds(self) -> None:
         round_ingest.ingest_round(
             "p_friend", _events(), _meta(), idempotency_key="rnd-1", root=self.root

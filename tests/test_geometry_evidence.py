@@ -428,6 +428,31 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual(bounds["surface"]["kind"], "playable_bounds")
         self.assertEqual(id_only["surface"]["kind"], "green")
         self.assertEqual(source_masked["surface"]["kind"], "bunker")
+
+    def test_classifies_green_from_production_mesh_triangles(self) -> None:
+        """Production exports contain Green.drc positions/faces, not polygon rings."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h06_hazards.json"
+            mesh = root / "gid31795_h06_meshes.json"
+            hazard.write_text('{"refLat": 22.279, "refLon": 114.162, "hazards": []}', encoding="utf-8")
+            # Mesh coordinates are Garmin's [ -local_x, elevation, local_y ] frame.  This
+            # triangle covers local (1, 1), while (20, 20) is outside it.
+            mesh.write_text(
+                '{"meshes": [{"name": "Green.drc", "positions": '
+                '[[0, 0, 0], [-10, 0, 0], [0, 0, 10]], "faces": [[0, 1, 2]]}]}',
+                encoding="utf-8",
+            )
+            with (
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
+            ):
+                inside = classify_shot_surface(31795, 6, {"ref": "mesh-green", "end": {"x": 1, "y": 1}})
+                outside = classify_shot_surface(31795, 6, {"ref": "mesh-outside", "end": {"x": 20, "y": 20}})
+
+        self.assertEqual(inside["surface"]["kind"], "green")
+        self.assertEqual(inside["surface"]["source"], "mesh")
+        self.assertEqual(outside["surface"]["kind"], "unknown")
         self.assertEqual(fairway["surface"]["id"], "fairway")
         self.assertEqual(rough["surface"]["id"], "rough")
         self.assertEqual(tee["surface"]["id"], "teebox")
