@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from ai_caddie.core.data import atomic_write_json
 from ai_caddie.core import revisions
+from ai_caddie.history import corrected_history
 from ai_caddie.history import stats_cache
 from ai_caddie.history.history import HistoryData
 from ai_caddie.rounds import correction_audit
@@ -84,6 +85,34 @@ class HotPathRevisionTests(unittest.TestCase):
                 before_projection = scandir.call_count
                 stats_cache.correction_projection_inputs(data=data)
                 self.assertEqual(scandir.call_count - before_projection, 0)
+
+    def test_targeted_round_projection_reuses_warmed_history_geometry_signature(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            geometry = root / "geometry"
+            corrections = root / "corrections"
+            geometry.mkdir()
+            corrections.mkdir()
+            (geometry / "gid1_hole.json").write_text("{}")
+            (geometry / "gid2_hole.json").write_text("{}")
+            rounds = [
+                {"id": "front", "courseId": 1, "holes": []},
+                {"id": "back", "courseId": 2, "holes": []},
+            ]
+            data = HistoryData(raw_rounds=list(rounds), rounds=list(rounds), shots=[])
+            with patch.object(stats_cache, "_fingerprint_dirs", return_value=()), \
+                    patch.object(stats_cache, "_GEOMETRY_DIRS", (geometry,)), \
+                    patch.object(stats_cache, "_aux_files", return_value=[]), \
+                    patch.object(stats_cache.round_corrections, "corrections_dir", return_value=corrections), \
+                    patch.object(stats_cache.os, "scandir", wraps=stats_cache.os.scandir) as scandir:
+                corrected_history.corrected_history_data(data, player_id="me")
+                before_share = scandir.call_count
+                corrected_history.corrected_round(data, rounds[0], player_id="me")
+                self.assertEqual(
+                    scandir.call_count,
+                    before_share,
+                    "share detail should reuse the warmed full-history geometry signature",
+                )
 
     def test_write_during_scan_is_not_swallowed(self) -> None:
         with TemporaryDirectory() as tmp:
