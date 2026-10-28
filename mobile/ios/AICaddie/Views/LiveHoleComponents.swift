@@ -2690,6 +2690,7 @@ enum LiveMapViewportTransition {
     /// because the two bitmap frames have different aspect ratios.
     private static func isDefaultViewport(_ interaction: LiveMapViewportInteraction) -> Bool {
         guard interaction.scale.isFinite,
+              interaction.scale >= 1,
               !HeroMapGesturePolicy.isZoomed(scale: interaction.scale),
               interaction.offset.width.isFinite,
               interaction.offset.height.isFinite else { return false }
