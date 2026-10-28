@@ -394,7 +394,8 @@ FileEventStore(sys.argv[1]).append_batch(sys.argv[2], [json.loads(sys.argv[3])],
                     for line in path.read_text().splitlines()]
             row = next(row for row in rows if row["request_id"] == "append-timing-test")
             self.assertEqual((row["method"], row["path"], row["status"]),
-                             ("POST", "/api/v2/mobile/rounds/timing-round/events", 200))
+                             ("POST", "/api/v2/mobile/rounds/{id}/events", 200))
+            self.assertTrue(all("timing-round" not in json.dumps(item) for item in rows))
             for stage in ("event_materialization_lock_wait", "event_lock_wait", "event_validate",
                           "event_parse", "event_write", "event_index"):
                 self.assertIn(stage, response.headers["server-timing"])

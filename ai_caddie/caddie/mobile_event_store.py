@@ -628,8 +628,9 @@ class FileEventStore:
         committed_length: int,
         base_prefix_sha256: str,
         committed_prefix_sha256: str,
+        index: _RoundEventIndex | None = None,
     ) -> None:
-        index = self._load_round_index_unlocked(base_length, base_prefix_sha256)
+        index = index or self._load_round_index_unlocked(base_length, base_prefix_sha256)
         if index is None:
             index = self._round_index_from_log_unlocked(base_length)
         offset = base_length
@@ -642,6 +643,7 @@ class FileEventStore:
 
     def _indexed_round_log_unlocked(
         self, round_id: str, *, handle: BinaryIO | None, rebuild: bool = False,
+        index_sink: list[_RoundEventIndex] | None = None,
     ) -> _StoredLog:
         marker = self._load_commit_marker()
         if marker is None:
@@ -668,7 +670,9 @@ class FileEventStore:
             if not isinstance(parsed, dict) or str(parsed.get("roundId") or "") != round_id:
                 if rebuild:
                     raise ValueError("event_commit_store_corrupt")
-                return self._indexed_round_log_unlocked(round_id, handle=handle, rebuild=True)
+                return self._indexed_round_log_unlocked(
+                    round_id, handle=handle, rebuild=True, index_sink=index_sink,
+                )
             row = dict(parsed)
             raw_event = deepcopy(row.get("event"))
             if isinstance(raw_event, dict):
@@ -677,6 +681,8 @@ class FileEventStore:
                     row["eventHash"] = _sha256(_normalized_event_for_hash(row["event"]))
             row["serverSequence"] = position
             rows.append(_StoredRow(row, raw_event, position, line))
+        if index_sink is not None:
+            index_sink[:] = [index]
         return _StoredLog(tuple(rows), index.high_water)
 
     def ensure_round_event_index(self) -> bool:
@@ -1712,7 +1718,10 @@ class FileEventStore:
                 finally:
                     mark("event_validate")
                 try:
-                    stored_log = self._indexed_round_log_unlocked(round_key, handle=event_log_handle)
+                    index_sink: list[_RoundEventIndex] = []
+                    stored_log = self._indexed_round_log_unlocked(
+                        round_key, handle=event_log_handle, index_sink=index_sink,
+                    )
                 finally:
                     mark("event_parse")
                 stored_rows = list(stored_log.rows)
@@ -1794,10 +1803,14 @@ class FileEventStore:
                     }
                     self._write_reservations(reservations)
 
-                if event_log_handle is None:
-                    self._append_rows(rows_to_append)
-                else:
-                    self._append_rows(rows_to_append, handle=event_log_handle)
+                self._append_index = index_sink[0] if index_sink else None
+                try:
+                    if event_log_handle is None:
+                        self._append_rows(rows_to_append)
+                    else:
+                        self._append_rows(rows_to_append, handle=event_log_handle)
+                finally:
+                    self._append_index = None
                 return AppendBatchResult(tuple(receipts), high_water)
 
     def _is_pristine(self) -> bool:
@@ -1882,6 +1895,7 @@ class FileEventStore:
                 committed_length=target_marker.committed_byte_length,
                 base_prefix_sha256=base_marker.committed_prefix_sha256,
                 committed_prefix_sha256=target_marker.committed_prefix_sha256,
+                index=getattr(self, "_append_index", None),
             )
         except Exception:
             # The event log is authoritative. A failed auxiliary index is rebuilt lazily by the

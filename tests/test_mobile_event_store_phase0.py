@@ -125,6 +125,26 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         )
         self.assertEqual(store.round_event_holes(ROUND_A), [7])
 
+    def test_round_index_offset_for_another_round_rebuilds_before_append(self) -> None:
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [_event("a1")], request_key="a1")
+        store.append_batch(ROUND_B, [_event("b1", round_id=ROUND_B)], request_key="b1")
+
+        payload = json.loads(store.round_index.read_text(encoding="utf-8"))
+        payload["offsets"][ROUND_A] = payload["offsets"][ROUND_B]
+        data = {key: payload[key] for key in ("rounds", "offsets", "highWater", "lineCount")}
+        payload["indexSha256"] = _canonical_hash(data)
+        store.round_index.write_text(json.dumps(payload), encoding="utf-8")
+
+        result = FileEventStore(self.root).append_batch(
+            ROUND_A, [_event("a2")], request_key="a2",
+        )
+        self.assertEqual(result[0].status, "accepted")
+        self.assertEqual(
+            [receipt.event_id for receipt in FileEventStore(self.root).read_events(ROUND_A)],
+            ["a1", "a2"],
+        )
+
     def test_round_index_rebuild_refuses_a_tampered_committed_prefix(self) -> None:
         # The light scan must still verify the committed prefix before labelling a rebuilt
         # sidecar with the marker's sha256; otherwise a same-length edit becomes trusted holes.
