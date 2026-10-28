@@ -289,9 +289,9 @@ final class GarminRasterTests: XCTestCase {
             yPixel: CGPoint(x: 240, y: 330)
         )
         let destinationProjection = projection(
-            originPixel: CGPoint(x: 80, y: 1740),
-            xPixel: CGPoint(x: 80, y: 140),
-            yPixel: CGPoint(x: 700, y: 1740)
+            originPixel: CGPoint(x: 621, y: 960),
+            xPixel: CGPoint(x: 621, y: 0),
+            yPixel: CGPoint(x: 1242, y: 960)
         )
         let sourceOverlay = CoursePrepOverlay(
             w: 240, h: 360, ppm: 1, ln: 300, route: [[120, 330, 0], [120, 30, 300]]
