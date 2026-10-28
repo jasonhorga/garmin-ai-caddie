@@ -171,9 +171,16 @@ private struct RoundShareSheetPayload: Identifiable {
 
 private struct RoundShareActivityView: UIViewControllerRepresentable {
     let text: String
+    let onComplete: () -> Void
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, _, _, _ in
+            DispatchQueue.main.async {
+                onComplete()
+            }
+        }
+        return controller
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
@@ -219,8 +226,7 @@ struct RoundReviewContent: View {
     let globalId: Int?
     var onSelectHole: (Int) -> Void
     var onRetry: () -> Void
-    @State private var shareGate = RoundShareRequestGate()
-    @State private var activeShare: RoundShare?
+    @State private var shareFlow: RoundShareFlow?
     @State private var shareSheet: RoundShareSheetPayload?
     @State private var shareMessage: String?
 
@@ -282,7 +288,10 @@ struct RoundReviewContent: View {
         .padding(.bottom, 28)
         .frame(maxWidth: .infinity, alignment: .leading)
         .sheet(item: $shareSheet) { payload in
-            RoundShareActivityView(text: payload.text)
+            RoundShareActivityView(text: payload.text) {
+                shareSheet = nil
+            }
+            .presentationDetents([.medium, .large])
         }
     }
 
@@ -472,8 +481,6 @@ struct RoundReviewContent: View {
     // MARK: share
 
     private func shareButton(_ detail: RoundDetail, card: RoundReviewScorecard) -> some View {
-        // Product spec 9.5 keeps the existing share contract (`ShareLink(item: Self.shareText(`)
-        // as the plain-text fallback while the button requests the optional read-only URL.
         VStack(alignment: .leading, spacing: 4) {
             Button {
                 beginShare(detail, card: card)
@@ -486,7 +493,7 @@ struct RoundReviewContent: View {
                     .background(LiveScoreStyle.primaryFill, in: Capsule())
             }
             .buttonStyle(.plain)
-            // The button stays enabled while the request is active; beginShare's gate ignores a
+            // The button stays enabled while the request is active; RoundShareFlow ignores a
             // repeated tap without presenting a second token request.
             .padding(.top, 4)
             .accessibilityIdentifier("round-review-share")
@@ -506,43 +513,54 @@ struct RoundReviewContent: View {
 
     @MainActor
     private func beginShare(_ detail: RoundDetail, card: RoundReviewScorecard) {
-        guard shareGate.begin() else { return }
         let fallback = Self.shareText(course: courseName(detail.round), round: detail.round, card: card)
-        shareMessage = nil
+        let flow: RoundShareFlow
+        if let existing = shareFlow, existing.baseURL == apiBaseURL {
+            flow = existing
+        } else {
+            let configuredBaseURL = apiBaseURL
+            let configuredAdminToken = adminToken
+            let created = RoundShareFlow(
+                create: { roundRef in
+                    guard let configuredBaseURL else { throw URLError(.badURL) }
+                    return try await SyncClient(
+                        baseURL: configuredBaseURL, adminToken: configuredAdminToken
+                    ).createRoundShare(roundRef: roundRef)
+                },
+                fallbackText: fallback,
+                baseURL: configuredBaseURL
+            )
+            shareFlow = created
+            flow = created
+        }
+        flow.update(fallbackText: fallback)
+        shareMessage = "正在生成链接…"
         Task { @MainActor in
-            defer { shareGate.finish() }
-            guard let apiBaseURL else {
-                presentShare(.plainText(fallback))
+            guard let presentation = await flow.share(roundRef: detail.roundRef) else {
                 return
             }
-            do {
-                let share = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
-                    .createRoundShare(roundRef: detail.roundRef)
-                activeShare = share
-                presentShare(.resolve(fallbackText: fallback, share: share, baseURL: apiBaseURL))
-            } catch {
-                activeShare = nil
-                // Offline and local-only rounds retain the old text share path without blocking the
-                // user on an error from the optional server-side link.
-                presentShare(.plainText(fallback))
-            }
+            shareMessage = nil
+            presentShare(presentation)
         }
     }
 
     @MainActor
     private func revokeShare(roundRef: String) {
         guard let apiBaseURL else {
-            shareMessage = "取消分享失败：未配置后端地址"
+            shareMessage = "取消分享失败：网络或服务暂不可用"
             return
         }
         Task { @MainActor in
             do {
                 let result = try await SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
                     .revokeRoundShare(roundRef: roundRef)
-                activeShare = nil
                 shareMessage = result.revoked > 0 ? "已取消分享" : "没有可取消的分享"
             } catch {
-                shareMessage = "取消分享失败：\(error.localizedDescription)"
+                if case let SyncClientError.http(status, _) = error, status == 404 {
+                    shareMessage = "取消分享失败：这场还没上传"
+                } else {
+                    shareMessage = "取消分享失败：网络或服务暂不可用"
+                }
             }
         }
     }

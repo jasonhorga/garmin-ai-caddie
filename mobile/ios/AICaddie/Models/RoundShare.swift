@@ -50,21 +50,39 @@ public enum RoundSharePresentation: Equatable {
     }
 }
 
-/// Main-actor view state uses the same one-shot rule. A second tap while a request is active is
-/// ignored instead of starting a second token creation request.
-public struct RoundShareRequestGate: Equatable {
+/// Main-actor share orchestration keeps the request gate beside the injected transport. This lets
+/// the view use the same flow instance for every tap while tests exercise failures without UIKit.
+@MainActor
+public final class RoundShareFlow {
+    public typealias Create = (String) async throws -> RoundShare
+
+    private let create: Create
+    public let baseURL: URL?
+    public private(set) var fallbackText: String
     public private(set) var isInFlight = false
 
-    public init() {}
-
-    @discardableResult
-    public mutating func begin() -> Bool {
-        guard !isInFlight else { return false }
-        isInFlight = true
-        return true
+    public init(create: @escaping Create, fallbackText: String, baseURL: URL?) {
+        self.create = create
+        self.fallbackText = fallbackText
+        self.baseURL = baseURL
     }
 
-    public mutating func finish() {
-        isInFlight = false
+    public func update(fallbackText: String) {
+        self.fallbackText = fallbackText
+    }
+
+    public func share(roundRef: String) async -> RoundSharePresentation? {
+        guard !isInFlight else { return nil }
+        isInFlight = true
+        let fallback = fallbackText
+        defer { isInFlight = false }
+        do {
+            let share = try await create(roundRef)
+            return RoundSharePresentation.resolve(
+                fallbackText: fallback, share: share, baseURL: baseURL
+            )
+        } catch {
+            return .plainText(fallback)
+        }
     }
 }

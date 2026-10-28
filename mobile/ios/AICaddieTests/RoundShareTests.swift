@@ -61,23 +61,53 @@ final class RoundShareTests: XCTestCase {
         XCTAssertEqual(captured?.value(forHTTPHeaderField: "X-AI-Caddie-Admin-Token"), "admin-secret")
     }
 
-    func testProductSpec95InvalidOrFailedShareFallsBackToPlainText() {
+    @MainActor
+    func testProductSpec95AbsolutePageURLsFallBackToPlainText() {
         let fallback = "球场 · 10月28日\n72 杆（+0）"
-        XCTAssertEqual(
-            RoundSharePresentation.resolve(fallbackText: fallback, share: nil, baseURL: baseURL),
-            .plainText(fallback)
+        for pageURL in ["https://evil.test/s/token", "//evil.test/s/token"] {
+            let share = RoundShare(
+                schema: "ai-caddie-round-share-v1", url: "/api/v2/share/token", pageUrl: pageURL,
+                expiresAt: "2026-11-27T00:00:00Z", shareId: "share-1"
+            )
+            XCTAssertEqual(
+                RoundSharePresentation.resolve(fallbackText: fallback, share: share, baseURL: baseURL),
+                .plainText(fallback)
+            )
+        }
+    }
+
+    @MainActor
+    func testProductSpec95ShareFlow201UsesAbsolutePageURL() async throws {
+        let payload = #"{"schema":"ai-caddie-round-share-v1","url":"/api/v2/share/token","pageUrl":"/s/token","expiresAt":"2026-11-27T00:00:00Z","shareId":"share-1"}"#
+        CapturingURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 201, httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data(payload.utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let client = SyncClient(
+            baseURL: baseURL, adminToken: "admin-secret", session: URLSession(configuration: configuration)
         )
-        let malicious = RoundShare(
-            schema: "ai-caddie-round-share-v1", url: "/api/v2/share/t", pageUrl: "https://evil.test/s/t",
-            expiresAt: "2026-11-27T00:00:00Z", shareId: "s1"
+        let fallback = "球场 · 10月28日\n72 杆（+0）"
+        let flow = RoundShareFlow(
+            create: { try await client.createRoundShare(roundRef: $0) },
+            fallbackText: fallback,
+            baseURL: baseURL
         )
+
+        let presentation = await flow.share(roundRef: "round-1")
+
         XCTAssertEqual(
-            RoundSharePresentation.resolve(fallbackText: fallback, share: malicious, baseURL: baseURL),
-            .plainText(fallback)
+            presentation,
+            .activityText(fallback + "\nhttps://api.example.test/s/token")
         )
     }
 
-    func testProductSpec95ShareRequestUsesFiveSecondTimeoutAndTimeoutFallsBack() async throws {
+    @MainActor
+    func testProductSpec95ShareFlow503AndTimeoutFallBackToPlainText() async throws {
+        let fallback = "本场复盘"
         var timeout: TimeInterval?
         CapturingURLProtocol.requestHandler = { request in
             timeout = request.timeoutInterval
@@ -91,26 +121,73 @@ final class RoundShareTests: XCTestCase {
         let client = SyncClient(
             baseURL: baseURL, adminToken: "admin-secret", session: URLSession(configuration: configuration)
         )
-        let fallback = "本场复盘"
+        let failedFlow = RoundShareFlow(
+            create: { try await client.createRoundShare(roundRef: $0) },
+            fallbackText: fallback,
+            baseURL: baseURL
+        )
 
-        do {
-            _ = try await client.createRoundShare(roundRef: "round-1")
-            XCTFail("a failed share request must throw so the view can use plain text")
-        } catch {
-            XCTAssertEqual(try XCTUnwrap(timeout), 5, accuracy: 0.001)
-            XCTAssertEqual(
-                RoundSharePresentation.resolve(fallbackText: fallback, share: nil, baseURL: baseURL),
-                .plainText(fallback)
-            )
-        }
+        let failedPresentation = await failedFlow.share(roundRef: "round-1")
+
+        XCTAssertEqual(failedPresentation, .plainText(fallback))
+        XCTAssertEqual(try XCTUnwrap(timeout), 5, accuracy: 0.001)
+
+        let timedOutFlow = RoundShareFlow(
+            create: { _ in throw URLError(.timedOut) },
+            fallbackText: fallback,
+            baseURL: baseURL
+        )
+        let timedOutPresentation = await timedOutFlow.share(roundRef: "round-1")
+        XCTAssertEqual(timedOutPresentation, .plainText(fallback))
     }
 
-    func testProductSpec95DuplicateShareTapIsIgnoredWhileRequestIsInFlight() {
-        var gate = RoundShareRequestGate()
-        XCTAssertTrue(gate.begin())
-        XCTAssertFalse(gate.begin(), "the second tap must not create a second share token")
-        XCTAssertTrue(gate.isInFlight)
-        gate.finish()
-        XCTAssertTrue(gate.begin(), "a later tap may retry after the first request completes")
+    @MainActor
+    func testProductSpec95ShareFlowDuplicateTapsMakeOneRequest() async throws {
+        let entered = expectation(description: "the first share request entered the protocol")
+        entered.assertForOverFulfill = false
+        let release = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var requestCount = 0
+        let payload = #"{"schema":"ai-caddie-round-share-v1","url":"/api/v2/share/token","pageUrl":"/s/token","expiresAt":"2026-11-27T00:00:00Z","shareId":"share-1"}"#
+        CapturingURLProtocol.requestHandler = { request in
+            lock.lock()
+            requestCount += 1
+            lock.unlock()
+            entered.fulfill()
+            _ = release.wait(timeout: .now() + 5)
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 201, httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data(payload.utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let client = SyncClient(
+            baseURL: baseURL, adminToken: "admin-secret", session: URLSession(configuration: configuration)
+        )
+        let fallback = "本场复盘"
+        let flow = RoundShareFlow(
+            create: { try await client.createRoundShare(roundRef: $0) },
+            fallbackText: fallback,
+            baseURL: baseURL
+        )
+        let first = Task { @MainActor in
+            await flow.share(roundRef: "round-1")
+        }
+
+        await fulfillment(of: [entered], timeout: 1)
+        let second = await flow.share(roundRef: "round-1")
+        XCTAssertNil(second)
+        release.signal()
+        let firstPresentation = await first.value
+
+        lock.lock()
+        let count = requestCount
+        lock.unlock()
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(
+            firstPresentation,
+            .activityText(fallback + "\nhttps://api.example.test/s/token")
+        )
     }
 }
