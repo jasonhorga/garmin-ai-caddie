@@ -269,16 +269,17 @@ final class C33EventTests: XCTestCase {
         }
         await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
         for index in 1...5 {
+            let eventKind = invalidKind == .score || index == 3 ? invalidKind : .club
             try store.appendEvent(LiveRoundEvent(
                 eventId: "e\(index)", roundId: package.roundId, timestamp: "2026-01-01T00:00:00Z",
                 // Scores sit on distinct holes: an accepted score for the same hole would
                 // legitimately supersede (un-quarantine) the rejected one.
-                hole: invalidKind == .score ? index : 1, kind: invalidKind,
-                payload: invalidKind == .score
+                hole: eventKind == .score ? index : 1, kind: eventKind,
+                payload: eventKind == .score
                     ? ["strokes": .number(2)]
-                : (invalidKind == .putt
+                : (eventKind == .putt
                     ? ["putts": .number(index == 3 ? 2 : 1)]
-                    : (invalidKind == .penalty
+                    : (eventKind == .penalty
                         ? ["penalties": .number(index == 3 ? 1 : 0)]
                         : ["clubName": .string("7I"), "strategyMode": .string(index == 3 ? "unknown-route" : "stock")]))
             ))
