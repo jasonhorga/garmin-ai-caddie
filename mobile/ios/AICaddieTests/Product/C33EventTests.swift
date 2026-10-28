@@ -693,6 +693,76 @@ final class C33EventTests: XCTestCase {
         XCTAssertTrue(finished)
     }
 
+    /// Product spec 5.9 / C145-5b: a Watch closure with no pending tail must keep the concrete
+    /// rejected-hole prompt when local cleanup is blocked by quarantine.
+    func testProductSpec59WatchClosureWithoutPendingPreservesRejectedHolePrompt() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c145-watch-direct.example.test")!, session: session)
+        let model = c33Model(store, client)
+        let package = try c33Package()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            if proto.request.url?.path.hasSuffix("/package") == true {
+                proto.reply(200, try! JSONEncoder().encode(package))
+            } else { proto.reply(404) }
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        let rejected = LiveRoundEvent(eventId: "watch-direct-rejected", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 3, kind: .score, payload: ["strokes": .number(3)])
+        try store.appendEvent(rejected)
+        try store.appendSyncMarker(roundId: package.roundId, timestamp: "2026-01-01T00:00:01Z",
+            result: SyncResult(accepted: 1, duplicate: false, acceptedEventIds: [rejected.eventId]))
+        try store.quarantineEvent(rejected, status: 422, reason: "bad score")
+        model.handleWatchRoundClosure(WatchRoundClosurePayload(roundId: package.roundId, disposition: .finished))
+        await model.waitForWatchRoundClosureReconciliationForTesting()
+        XCTAssertTrue(model.finishErrorMessage?.contains("第 3 洞成绩被服务器拒绝") == true)
+    }
+
+    /// Product spec 5.9 / C145-5b: the reconciliation path also preserves the concrete prompt
+    /// after it uploads a late local tail.
+    func testProductSpec59WatchReconciliationPreservesRejectedHolePrompt() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c145-watch-reconcile.example.test")!, session: session)
+        let model = c33Model(store, client)
+        let package = try c33Package()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/package") { proto.reply(200, try! JSONEncoder().encode(package)); return }
+            if path.hasSuffix("/events") {
+                let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
+                proto.reply(200, try! JSONEncoder().encode(SyncResult(
+                    accepted: batch.events.count, duplicate: false, acceptedEventIds: batch.events.map(\.eventId)
+                )))
+                return
+            }
+            proto.reply(404)
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        let rejected = LiveRoundEvent(eventId: "watch-reconcile-rejected", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 3, kind: .score, payload: ["strokes": .number(3)])
+        try store.appendEvent(rejected)
+        try store.appendSyncMarker(roundId: package.roundId, timestamp: "2026-01-01T00:00:01Z",
+            result: SyncResult(accepted: 1, duplicate: false, acceptedEventIds: [rejected.eventId]))
+        try store.quarantineEvent(rejected, status: 422, reason: "bad score")
+        try store.appendEvent(LiveRoundEvent(eventId: "watch-late-club", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:02Z", hole: 3, kind: .club,
+            payload: ["clubName": .string("7I")]))
+        model.handleWatchRoundClosure(WatchRoundClosurePayload(roundId: package.roundId, disposition: .finished))
+        await model.waitForWatchRoundClosureReconciliationForTesting()
+        XCTAssertTrue(model.finishErrorMessage?.contains("第 3 洞成绩被服务器拒绝") == true)
+    }
+
     func testReplacementPuttClearsQuarantineAndAllowsFinish() async throws {
         try await assertReplacementScoringEventAllowsFinish(
             kind: .putt, payload: ["putts": .number(2)], replacement: ["putts": .number(1)]
@@ -796,6 +866,192 @@ final class C33EventTests: XCTestCase {
         XCTAssertFalse(model.finishErrorMessage?.contains("/") == true)
     }
 
+    /// Product spec 5.9 / C145-3: an online blocked finish actively uploads its queued replacement;
+    /// the test waits on the model's explicit sync hook instead of racing a Task scheduled by UI code.
+    func testProductSpec59BlockedFinishUploadsPendingReplacementOnline() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let observer = C33NetworkObserver()
+        let client = SyncClient(baseURL: URL(string: "https://c145-sync.example.test")!, session: session)
+        let model = LiveRoundAppModel(
+            offlineStore: store, apiBaseURL: client.baseURL, watchBridge: nil,
+            garminSessionStore: nil, syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [], networkPathObserver: observer
+        )
+        let package = try c33Package()
+        let lock = NSLock()
+        var uploadedIDs: [String] = []
+        C33URLProtocol.setHandlers(onStart: { proto in
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/package") { proto.reply(200, try! JSONEncoder().encode(package)); return }
+            if path.hasSuffix("/events") {
+                let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
+                lock.lock(); uploadedIDs.append(contentsOf: batch.events.map(\.eventId)); lock.unlock()
+                proto.reply(200, try! JSONEncoder().encode(SyncResult(
+                    accepted: batch.events.count, duplicate: false, acceptedEventIds: batch.events.map(\.eventId)
+                )))
+                return
+            }
+            proto.reply(404)
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        model.setNetworkStateForTesting(SpeculativeNetworkState(
+            isSatisfied: true, isExpensive: false, isConstrained: false
+        ))
+        let rejected = LiveRoundEvent(eventId: "online-rejected", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 1, kind: .score, payload: ["strokes": .number(3)])
+        try store.appendEvent(rejected)
+        try store.quarantineEvent(rejected, status: 422, reason: "bad score")
+        try store.appendEvent(LiveRoundEvent(eventId: "online-replacement", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:01Z", hole: 1, kind: .score, payload: ["strokes": .number(5)]))
+        let blocked = await model.finishActiveRound()
+        XCTAssertFalse(blocked)
+        await model.waitForPendingReplacementSyncForTesting()
+        lock.lock(); let uploaded = uploadedIDs; lock.unlock()
+        XCTAssertTrue(uploaded.contains("online-replacement"))
+        XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
+    }
+
+    /// Product spec 5.9 / C143-2: a deferred rejection from round A must coexist with an active
+    /// round B. Recovery must refuse to switch the durable pointer or erase B's score draft.
+    func testProductSpec59DeferredRecoveryDoesNotOverwriteAnotherLiveRound() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c143-two-rounds.example.test")!, session: session)
+        let model = c33Model(store, client)
+        let packageA = try c33Package()
+        let packageB = packageA.rebasedForOfflineStart(roundId: "c143-round-b")
+        let lock = NSLock()
+        var finishRequests = 0
+        C33URLProtocol.setHandlers(onStart: { proto in
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/package") {
+                let requested = c33Query(proto.request, "round_id")
+                proto.reply(200, try! JSONEncoder().encode(requested == packageB.roundId ? packageB : packageA))
+                return
+            }
+            if path.hasSuffix("/events") {
+                let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
+                if batch.events.contains(where: { $0.hole == 3 }) {
+                    proto.reply(422, Data(#"{"detail":{"code":"event_invalid","message":"hole 3 rejected"}}"#.utf8))
+                } else {
+                    proto.reply(200, try! JSONEncoder().encode(SyncResult(
+                        accepted: batch.events.count, duplicate: false,
+                        acceptedEventIds: batch.events.map(\.eventId)
+                    )))
+                }
+                return
+            }
+            if path.hasSuffix("/finish") {
+                lock.lock(); finishRequests += 1; lock.unlock()
+                proto.reply(200); return
+            }
+            proto.reply(404)
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        await model.prepareCourseRound(roundId: packageA.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        try store.appendEvent(LiveRoundEvent(eventId: "round-a-rejected", roundId: packageA.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 3, kind: .score, payload: ["strokes": .number(3)]))
+        XCTAssertTrue(await model.finishActiveRound())
+        await model.waitForDeferredRoundFinishesForTesting()
+        XCTAssertEqual(model.deferredFinishRecovery?.roundId, packageA.roundId)
+
+        // Seed B's durable pointer and draft before entering it. This models a player starting the
+        // next round while A's deferred finish is still awaiting recovery.
+        try store.saveRoundPackage(packageB)
+        try store.saveRoundStart(roundId: packageB.roundId, startHole: 2)
+        try store.saveLiveScoreDraft(roundId: packageB.roundId, draft: LiveScoreDraft(
+            hole: 2, par: 4, phoneShotCount: 2
+        ))
+        await model.prepareCourseRound(roundId: packageB.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        let beforePackage = try XCTUnwrap(try store.loadRoundPackage(roundId: packageB.roundId))
+        let beforeDraft = try XCTUnwrap(try store.loadLiveScoreDraft(roundId: packageB.roundId))
+        let beforeState = try XCTUnwrap(model.liveRoundState)
+        XCTAssertEqual(beforeState.roundId, packageB.roundId)
+        XCTAssertEqual(beforeState.activeHole, 2)
+
+        XCTAssertFalse(model.resumeDeferredFinishForEditing())
+        XCTAssertEqual(model.liveRoundState, beforeState)
+        XCTAssertEqual(try store.loadRoundPackage(roundId: packageB.roundId), beforePackage)
+        XCTAssertEqual(try store.loadLiveScoreDraft(roundId: packageB.roundId), beforeDraft)
+        XCTAssertEqual(model.package?.roundId, packageB.roundId)
+        XCTAssertTrue(model.finishErrorMessage?.contains("另一场进行中的球局") == true)
+        lock.lock(); let finishes = finishRequests; lock.unlock()
+        XCTAssertEqual(finishes, 0)
+    }
+
+    /// Product spec 5.9 / C145-5a: removing a rejected hole must leave a later Watch event in the
+    /// append-only tail so the deferred finish can upload it before completing.
+    func testProductSpec59DiscardRemovedRecoveryUploadsLatePendingEvent() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c145-discard-tail.example.test")!, session: session)
+        let model = c33Model(store, client)
+        let package = try c33Package()
+        let lock = NSLock()
+        var uploadedIDs: [String] = []
+        var finishRequests = 0
+        C33URLProtocol.setHandlers(onStart: { proto in
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/package") { proto.reply(200, try! JSONEncoder().encode(package)); return }
+            if path.hasSuffix("/events") {
+                let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
+                lock.lock(); uploadedIDs.append(contentsOf: batch.events.map(\.eventId)); lock.unlock()
+                if batch.events.contains(where: { $0.hole == 10 }) {
+                    proto.reply(422, Data(#"{"detail":{"code":"event_invalid","message":"hole 10 removed"}}"#.utf8))
+                } else {
+                    proto.reply(200, try! JSONEncoder().encode(SyncResult(
+                        accepted: batch.events.count, duplicate: false,
+                        acceptedEventIds: batch.events.map(\.eventId)
+                    )))
+                }
+                return
+            }
+            if path.hasSuffix("/finish") {
+                lock.lock(); finishRequests += 1; lock.unlock()
+                proto.reply(200); return
+            }
+            proto.reply(404)
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        try store.appendEvent(LiveRoundEvent(eventId: "removed-hole-score", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 10, kind: .score, payload: ["strokes": .number(3)]))
+        XCTAssertTrue(await model.finishActiveRound())
+        await model.waitForDeferredRoundFinishesForTesting()
+        XCTAssertEqual(model.deferredFinishRecovery?.hole, 10)
+        XCTAssertEqual(model.deferredFinishRecovery?.holeAvailable, false)
+
+        try store.appendEvent(LiveRoundEvent(eventId: "late-watch-tail", roundId: package.roundId,
+            timestamp: "2026-01-01T00:01:00Z", hole: 1, kind: .club,
+            payload: ["clubName": .string("7I")]))
+        XCTAssertTrue(model.discardRemovedDeferredFinishRejection())
+        await model.waitForDeferredRoundFinishesForTesting()
+        lock.lock(); let uploaded = uploadedIDs; let finishes = finishRequests; lock.unlock()
+        XCTAssertTrue(uploaded.contains("late-watch-tail"))
+        XCTAssertEqual(finishes, 1)
+        XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
+        XCTAssertTrue(try store.loadPendingRoundFinishes().isEmpty)
+        XCTAssertTrue(try store.loadPendingEvents(roundId: package.roundId).isEmpty)
+        XCTAssertNil(try store.loadRoundPackage(roundId: package.roundId))
+        XCTAssertNil(model.deferredFinishRecovery)
+    }
+
     private func assertReplacementScoringEventAllowsFinish(
         kind: LiveRoundEventKind, payload: [String: JSONValue], replacement: [String: JSONValue]
     ) async throws {
@@ -880,7 +1136,8 @@ final class C33EventTests: XCTestCase {
                 var strokes = 5
                 var putts = 2
                 var penalties = 2
-                for event in batch.events where event.hole == 1 {
+                let scoringHole = batch.events.first?.hole ?? 1
+                for event in batch.events where event.hole == scoringHole {
                     switch event.kind {
                     case .score: if case let .number(value) = event.payload["strokes"] { strokes = Int(value) }
                     case .putt: if case let .number(value) = event.payload["putts"] { putts = Int(value) }
@@ -889,7 +1146,7 @@ final class C33EventTests: XCTestCase {
                     }
                 }
                 if strokes < putts + penalties + 1 {
-                    let reason = "hole 1: total \(strokes) is less than putts \(putts) + penalties \(penalties) + 1"
+                    let reason = "hole \(scoringHole): total \(strokes) is less than putts \(putts) + penalties \(penalties) + 1"
                     proto.reply(422, Data(#"{"detail":{"code":"event_invalid","message":"\#(reason)"}}"#.utf8))
                 } else {
                     proto.reply(200, try! JSONEncoder().encode(SyncResult(
@@ -914,26 +1171,27 @@ final class C33EventTests: XCTestCase {
         // Save & End while the score is still queued: sealing succeeds, and the upload, its 422
         // and the server finish all happen later in the deferred finish pass.
         try store.appendEvent(LiveRoundEvent(eventId: "accepted-score", roundId: package.roundId,
-            timestamp: "2026-01-01T00:00:00Z", hole: 1, kind: .score,
+            timestamp: "2026-01-01T00:00:00Z", hole: 3, kind: .score,
             payload: ["strokes": .number(3)]))
         let sealed = await model.finishActiveRound()
         XCTAssertTrue(sealed)
         await model.waitForDeferredRoundFinishesForTesting()
         XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).map { $0.event.eventId }, ["accepted-score"])
-        XCTAssertEqual(model.deferredFinishRecovery?.hole, 1)
-        XCTAssertTrue(model.deferredFinishRecovery?.prompt.contains("第 1 洞记分被服务器拒绝") == true)
+        XCTAssertEqual(model.deferredFinishRecovery?.hole, 3)
+        XCTAssertTrue(model.deferredFinishRecovery?.prompt.contains("第 3 洞记分被服务器拒绝") == true)
         finishLock.lock(); let blockedFinishes = finishRequests; finishLock.unlock()
         // The server round must stay open until the rejected hole is re-entered.
         XCTAssertEqual(blockedFinishes, 0)
         XCTAssertEqual(try store.loadPendingRoundFinishes().map(\.roundId), [package.roundId])
 
         XCTAssertTrue(model.resumeDeferredFinishForEditing())
-        XCTAssertEqual(model.liveRoundState?.activeHole, 1)
+        XCTAssertEqual(model.liveRoundState?.activeHole, 3)
+        XCTAssertEqual(model.pendingLiveHole, 3)
         XCTAssertNil(model.deferredFinishRecovery)
         XCTAssertTrue(try store.loadPendingRoundFinishes().isEmpty)
 
         try store.appendEvent(LiveRoundEvent(eventId: "bad-score", roundId: package.roundId,
-            timestamp: "2026-01-01T00:01:00Z", hole: 1, kind: .score,
+            timestamp: "2026-01-01T00:01:00Z", hole: 3, kind: .score,
             payload: ["strokes": .number(5)]))
         await model.syncPendingEvents()
         let resealed = await model.finishActiveRound()
@@ -947,26 +1205,28 @@ final class C33EventTests: XCTestCase {
         XCTAssertNil(model.deferredFinishRecovery)
     }
 
-    /// Product spec 5.9 / C143-4: a pending finish with no server rejection never invents a Hub
-    /// recovery entry (offline/transport state alone is insufficient).
+    /// Product spec 5.9 / C143-4: transport failure alone keeps the sealed round retryable and
+    /// hidden; after transport recovers, a real server rejection creates the recovery entry.
     func testProductSpec59DeferredFinishRecoveryRequiresServerRejection() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = OfflineStore(directoryURL: directory)
         let session = C33URLProtocol.session()
-        let client = SyncClient(baseURL: URL(string: "https://c143-no-rejection.example.test")!, session: session)
+        let client = SyncClient(baseURL: URL(string: "https://c143-recovery.example.test")!, session: session)
         let model = c33Model(store, client)
         let package = try c33Package()
+        let packageData = try JSONEncoder().encode(package)
+        let lock = NSLock()
+        var recoveredTransport = false
         C33URLProtocol.setHandlers(onStart: { proto in
             let path = proto.request.url?.path ?? ""
-            if path.hasSuffix("/package") { proto.reply(200, try! JSONEncoder().encode(package)); return }
-            if path.hasSuffix("/finish") { proto.reply(200); return }
+            if path.hasSuffix("/package") { proto.reply(200, packageData); return }
             if path.hasSuffix("/events") {
-                let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
-                proto.reply(200, try! JSONEncoder().encode(SyncResult(
-                    accepted: batch.events.count, duplicate: false, acceptedEventIds: batch.events.map(\.eventId)
-                )))
+                lock.lock(); let recovered = recoveredTransport; lock.unlock()
+                if !recovered { proto.reply(500); return }
+                proto.reply(422, Data(#"{"detail":{"code":"event_invalid","message":"hole 3: total 3 is less than putts 2 + penalties 2 + 1"}}"#.utf8))
                 return
             }
+            if path.hasSuffix("/finish") { proto.reply(200); return }
             proto.reply(404)
         })
         defer {
@@ -974,11 +1234,21 @@ final class C33EventTests: XCTestCase {
             try? FileManager.default.removeItem(at: directory)
         }
         await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        try store.appendEvent(LiveRoundEvent(eventId: "transport-score", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 3, kind: .score,
+            payload: ["strokes": .number(3)]))
         let sealed = await model.finishActiveRound()
         XCTAssertTrue(sealed)
-        XCTAssertNil(model.deferredFinishRecovery)
         await model.waitForDeferredRoundFinishesForTesting()
         XCTAssertNil(model.deferredFinishRecovery)
+        XCTAssertTrue(try store.loadPendingRoundFinishes().contains { $0.roundId == package.roundId })
+
+        lock.lock(); recoveredTransport = true; lock.unlock()
+        model.syncOnForeground()
+        await model.waitForDeferredRoundFinishesForTesting()
+        XCTAssertEqual(model.deferredFinishRecovery?.hole, 3)
+        XCTAssertTrue(model.deferredFinishRecovery?.prompt.contains("第 3 洞记分被服务器拒绝") == true)
     }
+
 }
 #endif

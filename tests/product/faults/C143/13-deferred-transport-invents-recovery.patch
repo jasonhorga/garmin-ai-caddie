@@ -1,0 +1,15 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3981,5 +3981,11 @@
+                 if let finishError = error as? LiveRoundFinishError,
+                    case .blockedByQuarantine = finishError {
+                     // Preserve the actionable score rejection text set by the guard above.
+                 } else {
++                    deferredFinishRecovery = DeferredFinishRecovery(
++                        roundId: record.roundId,
++                        hole: 3,
++                        prompt: "mutant",
++                        holeAvailable: true
++                    )
+                     syncStatus = "已保存 · 等待网络同步"
+                 }

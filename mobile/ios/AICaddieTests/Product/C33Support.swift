@@ -129,4 +129,17 @@ func c33Model(_ store: OfflineStore, _ client: SyncClient) -> LiveRoundAppModel 
         offlineGeometryRetryDelaysNanoseconds: [], networkPathObserver: nil
     )
 }
+
+@MainActor
+final class C33NetworkObserver: NetworkPathObserving {
+    private var handler: (@MainActor (SpeculativeNetworkState) -> Void)?
+
+    func start(_ onChange: @escaping @MainActor (SpeculativeNetworkState) -> Void) {
+        handler = onChange
+    }
+
+    func publish(_ state: SpeculativeNetworkState) {
+        handler?(state)
+    }
+}
 #endif

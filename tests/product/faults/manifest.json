@@ -1008,6 +1008,55 @@
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59RemovedRejectedHoleShowsRecoveryInstruction",
       "promise": "C145-5"
+    },
+    {
+      "id": "tests-product-faults-C143-10",
+      "patch": "tests/product/faults/C143/10-recovery-overwrites-active-round.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredRecoveryDoesNotOverwriteAnotherLiveRound",
+      "promise": "C143-2"
+    },
+    {
+      "id": "tests-product-faults-C143-11",
+      "patch": "tests/product/faults/C143/11-resume-hole-pointer.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
+      "promise": "C143-2"
+    },
+    {
+      "id": "tests-product-faults-C143-12",
+      "patch": "tests/product/faults/C143/12-discard-writes-marker.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DiscardRemovedRecoveryUploadsLatePendingEvent",
+      "promise": "C145-5a"
+    },
+    {
+      "id": "tests-product-faults-C143-13",
+      "patch": "tests/product/faults/C143/13-deferred-transport-invents-recovery.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredFinishRecoveryRequiresServerRejection",
+      "promise": "C143-4"
+    },
+    {
+      "id": "tests-product-faults-C143-14",
+      "patch": "tests/product/faults/C143/14-blocked-finish-skips-replacement-sync.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59BlockedFinishUploadsPendingReplacementOnline",
+      "promise": "C145-3"
+    },
+    {
+      "id": "tests-product-faults-C143-15",
+      "patch": "tests/product/faults/C143/15-watch-direct-overwrites-rejection.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59WatchClosureWithoutPendingPreservesRejectedHolePrompt",
+      "promise": "C145-5b"
+    },
+    {
+      "id": "tests-product-faults-C143-16",
+      "patch": "tests/product/faults/C143/16-watch-reconcile-overwrites-rejection.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59WatchReconciliationPreservesRejectedHolePrompt",
+      "promise": "C145-5b"
     }
   ]
 }

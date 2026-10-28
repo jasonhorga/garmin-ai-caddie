@@ -1,11 +1,17 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -3881,6 +3881,8 @@
+@@ -3924,14 +3924,8 @@
+                 if let blockedHole = try blockingQuarantineHole(roundId: record.roundId) {
+                     let blocked = try preferredQuarantineRecord(roundId: record.roundId)
+                     let prompt = blocked.map(Self.scoringRejectionPrompt)
                          ?? "第 \(blockedHole) 洞记分记录上传被拒"
                      let suffix = try quarantineFinishSuffix(for: blocked, roundId: record.roundId)
                      syncStatus = "结束已暂停 · \(prompt)\(suffix)"
-+                    // mutant: the deferred rejection never reaches the Hub recovery state.
-+                    deferredFinishRecovery = nil
-                     deferredFinishRecovery = DeferredFinishRecovery(
-                         roundId: record.roundId,
-                         hole: blockedHole,
+-                    deferredFinishRecovery = DeferredFinishRecovery(
+-                        roundId: record.roundId,
+-                        hole: blockedHole,
+-                        prompt: prompt,
+-                        holeAvailable: finishedPackage?.holes.contains(where: { $0.number == blockedHole }) == true
+-                    )
+                     throw LiveRoundFinishError.blockedByQuarantine
+                 }
