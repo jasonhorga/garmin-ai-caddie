@@ -123,7 +123,17 @@ final class C33EventTests: XCTestCase {
         )
     }
 
-    private func assertOneInvalidEventIsQuarantined(responseBody: String) async throws {
+    /// Product spec J5.9: a rejected score remains visible with the server's reason while siblings sync.
+    func testProductSpec57ScoreInvariantCodeQuarantinesWithReasonAndShowsScorePrompt() async throws {
+        try await assertOneInvalidEventIsQuarantined(
+            responseBody: #"{"detail":{"code":"event_invalid","message":"hole 1: total 2 is less than putts 2 + penalties 0 + 1"}}"#,
+            invalidKind: .score
+        )
+    }
+
+    private func assertOneInvalidEventIsQuarantined(
+        responseBody: String, invalidKind: LiveRoundEventKind = .club
+    ) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = OfflineStore(directoryURL: directory)
         let session = C33URLProtocol.session()
@@ -166,7 +176,10 @@ final class C33EventTests: XCTestCase {
         for index in 1...5 {
             try store.appendEvent(LiveRoundEvent(
                 eventId: "e\(index)", roundId: package.roundId, timestamp: "2026-01-01T00:00:00Z",
-                hole: 1, kind: .club, payload: ["clubName": .string("7I"), "strategyMode": .string(index == 3 ? "unknown-route" : "stock")]
+                hole: 1, kind: invalidKind,
+                payload: invalidKind == .score
+                    ? ["strokes": .number(2)]
+                    : ["clubName": .string("7I"), "strategyMode": .string(index == 3 ? "unknown-route" : "stock")]
             ))
         }
         await model.syncPendingEvents()
@@ -178,6 +191,11 @@ final class C33EventTests: XCTestCase {
         XCTAssertEqual(quarantined.first?.status, 422)
         XCTAssertEqual(quarantined.first?.event.payload["strategyMode"], .string("unknown-route"))
         XCTAssertFalse(quarantined.first?.reason.isEmpty ?? true)
+        if invalidKind == .score {
+            XCTAssertTrue(quarantined.first?.reason.contains("hole 1: total 2") == true)
+            XCTAssertEqual(model.syncStatus, "第 1 洞成绩被服务器拒绝（hole 1: total 2 is less than putts 2 + penalties 0 + 1）")
+            XCTAssertEqual(model.localEventUploadStatus, "第 1 洞成绩被服务器拒绝（hole 1: total 2 is less than putts 2 + penalties 0 + 1）")
+        }
         XCTAssertEqual(try OfflineStore(directoryURL: directory).loadQuarantinedEvents(roundId: package.roundId), quarantined)
         XCTAssertEqual(try store.loadEvents().filter { $0.kind != .syncMarker }.count, 5)
         XCTAssertEqual(model.pendingEventCount, 0)
