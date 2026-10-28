@@ -695,7 +695,7 @@ public struct ResultsTrendView: View {
                 }
                 ResultsTimeContent(stats: stats, window: $window, grain: $grain) { destination = $0 }
                     .environment(\.resultsRangeAccessibilityValue,
-                                 load.isLoading ? "加载中" : "已加载 \(load.window)")
+                                 load.accessibilityValue)
             } else if load.isLoading {
                 ProgressView("载入时间与频率…").frame(maxWidth: .infinity).padding(.top, 40)
             } else {
@@ -756,13 +756,10 @@ public struct ResultsTrendView: View {
     }
 
     @MainActor private func retry() {
-        let request = load.retry()
         window = load.displayedWindow
-        start(request)
     }
 }
 
-/// The 时间与频率 page body for one stats payload; pure, so the design snapshots render it.
 fileprivate struct ResultsRangeAccessibilityValueKey: EnvironmentKey {
     static let defaultValue: String? = nil
 }
@@ -774,6 +771,7 @@ fileprivate extension EnvironmentValues {
     }
 }
 
+/// The 时间与频率 page body for one stats payload; pure, so the design snapshots render it.
 struct ResultsTimeContent: View {
     let stats: MobileStats
     @Binding var window: String

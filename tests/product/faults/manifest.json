@@ -580,7 +580,7 @@
       "patch": "tests/product/faults/c16c_mutants.py",
       "kind": "python-script",
       "target": "python tests/product/faults/c16c_mutants.py",
-      "promise": "C16c"
+      "promise": "8.1"
     },
     {
       "id": "tests-product-faults-C118-C110-j2-2-range-switch-back",

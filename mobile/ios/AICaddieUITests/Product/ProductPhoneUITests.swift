@@ -189,7 +189,8 @@ final class ProductPhoneUITests: XCTestCase {
             }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 10), .completed, window + " sample loaded")
             let committed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                (range.value as? String) == "已加载 \(window)"
+                let title = ["last10": "近 10 场", "last20": "近 20 场", "12m": "近一年", "all": "全部"][window]!
+                (range.value as? String) == "\(title) · 已加载"
             }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 10), .completed,
                            window + " range committed before changing grain")
@@ -211,6 +212,64 @@ final class ProductPhoneUITests: XCTestCase {
                 XCTAssertEqual(server.lastSample()?.roundIDs.count, 3, window + " sample count")
             }
         }
+    }
+
+    func test_j2_2_grain_selected_while_range_request_is_in_flight_survives_commit() {
+        launch(); scores(); tap("results-entry-time")
+        let range = element("time-range")
+        let grain = element("time-grain")
+        XCTAssertTrue(range.waitForExistence(timeout: 10))
+        XCTAssertTrue(grain.waitForExistence(timeout: 10))
+
+        let allLoaded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (range.value as? String) == "全部 · 已加载"
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [allLoaded], timeout: 10), .completed)
+
+        var delayed = ProductFixtureServer.State()
+        delayed.statsResponseDelay = 2
+        server.configure(delayed)
+        range.buttons.element(boundBy: 0).tap()
+        let request = XCTNSPredicateExpectation(predicate: NSPredicate { [server] _, _ in
+            server?.requestedPaths().contains { $0.contains("/api/v2/history/stats/mobile") && $0.contains("window=last10") } == true
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [request], timeout: 10), .completed)
+
+        grain.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(grain.buttons.element(boundBy: 0).isSelected, "the grain tap must land while the range request is in flight")
+        let committed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (range.value as? String) == "近 10 场 · 已加载"
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 10), .completed)
+        XCTAssertTrue(grain.buttons.element(boundBy: 0).isSelected, "range commit must not reset the selected grain")
+    }
+
+    func test_j2_2_retry_sends_one_request_for_the_failed_range() {
+        launch(); scores(); tap("results-entry-time")
+        let range = element("time-range")
+        XCTAssertTrue(range.waitForExistence(timeout: 10))
+        let allLoaded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (range.value as? String) == "全部 · 已加载"
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [allLoaded], timeout: 10), .completed)
+
+        var failing = ProductFixtureServer.State()
+        failing.statsFailure = true
+        server.configure(failing)
+        range.buttons.element(boundBy: 0).tap()
+        let notice = element("time-range-notice")
+        XCTAssertTrue(notice.waitForExistence(timeout: 10))
+        let before = server.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }.count
+        XCTAssertGreaterThanOrEqual(before, 1)
+
+        let retry = notice.buttons.firstMatch
+        XCTAssertTrue(retry.exists)
+        retry.tap()
+        let oneMore = XCTNSPredicateExpectation(predicate: NSPredicate { [server] _, _ in
+            server?.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }.count == before + 1
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [oneMore], timeout: 10), .completed,
+                       "retry must produce exactly one stats request")
     }
 
     func test_j2_3_quarter_drilldown_opens_only_its_two_real_rounds_then_review() {

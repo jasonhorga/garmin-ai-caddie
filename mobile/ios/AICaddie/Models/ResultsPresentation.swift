@@ -298,10 +298,6 @@ struct AnalysisLoadState: Equatable {
     /// The request that loads the current window (the first appearance).
     var currentRequest: Request { Request(window: window, generation: generation) }
 
-    /// The range the picker should show while a request is in flight, falling back to the
-    /// committed answer after completion or failure.
-    var displayedWindow: String { pendingWindow ?? window }
-
     /// Choose a window: its data is unknown until its own request answers.
     mutating func select(_ newWindow: String) -> Request {
         window = newWindow
@@ -602,6 +598,25 @@ struct ResultsTimeLoadState: Equatable {
 
     var currentRequest: Request { Request(window: window, generation: generation) }
 
+    /// The range picker follows the request while it is in flight, then falls back to the
+    /// committed answer after completion or failure.
+    var displayedWindow: String { pendingWindow ?? window }
+
+    /// A VoiceOver value for the range control. It names the range in user-facing language and
+    /// never exposes the `/stats/mobile` query key.
+    var accessibilityValue: String {
+        guard !isLoading else { return "加载中" }
+        let title: String
+        switch window {
+        case "last10": title = "近 10 场"
+        case "last20": title = "近 20 场"
+        case "12m": title = "近一年"
+        case "all": title = "全部"
+        default: title = window
+        }
+        return "\(title) · 已加载"
+    }
+
     /// Begin a request for a new range while retaining the currently displayed answer.
     mutating func select(_ newWindow: String) -> Request {
         let wasRefresh = pendingIsRefresh
@@ -610,7 +625,7 @@ struct ResultsTimeLoadState: Equatable {
         pendingWindow = newWindow
         failedWindow = nil
         pendingIsRefresh = false
-        refreshInvalidatedBySelection = wasRefresh && newWindow != window
+        refreshInvalidatedBySelection = refreshInvalidatedBySelection || (wasRefresh && newWindow != window)
         if case let .content(current, _) = phase {
             phase = .content(current, notice: nil)
         }
@@ -624,7 +639,6 @@ struct ResultsTimeLoadState: Equatable {
         guard requestedWindow == window else { return select(requestedWindow) }
         guard pendingWindow != nil else { return nil }
         if refreshInvalidatedBySelection {
-            refreshInvalidatedBySelection = false
             return restartRefresh()
         }
         generation += 1
@@ -688,6 +702,7 @@ struct ResultsTimeLoadState: Equatable {
         isLoading = true
         pendingWindow = nil
         pendingIsRefresh = true
+        refreshInvalidatedBySelection = false
         return currentRequest
     }
 }
