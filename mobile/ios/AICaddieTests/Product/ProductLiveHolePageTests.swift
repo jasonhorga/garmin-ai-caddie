@@ -7,6 +7,102 @@ import XCTest
 /// not calls to ==. Twenty current-hole club events must request zero adjacent bodies.
 @MainActor
 final class ProductLiveHolePageTests: XCTestCase {
+    #if !SWIFT_PACKAGE
+    /// Drive the callbacks used by CurrentHoleView with the real first-stroke model and store.
+    /// Deliberately do not refresh the rendered callback Value between starting and dismissal.
+    private func withPrepSession(
+        _ exercise: (LiveRoundAppModel, LiveRoundPackage, OfflineStore, LiveHolePageNavigationProbe) throws -> Void
+    ) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://page-navigation.example.test")!, session: session)
+        let model = LiveRoundAppModel(
+            offlineStore: store, apiBaseURL: client.baseURL, watchBridge: nil,
+            garminSessionStore: nil, syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [], networkPathObserver: nil
+        )
+        await model.stopRoundBackgroundWorkForTesting()
+        defer {
+            session.invalidateAndCancel()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let package = try ProductInputs.package().rebasedForOfflineStart(roundId: UUID().uuidString)
+        model.enterPrepMode(with: package, hole: 4)
+        let probe = LiveHolePageNavigationProbe()
+        let view = RoundHomeView(
+            package: model.package, offlineStore: store, sessionStore: nil,
+            liveRoundState: model.liveRoundState,
+            onEvent: model.handleEvent, onSetActiveHole: model.setActiveHole,
+            prepPackage: model.prepPackage, onPrepHoleChanged: model.prioritizePrepHole,
+            onStartRoundFromFirstStroke: { model.startRoundFromFirstStroke(startHole: $0) }
+        ).observingHolePageNavigationForTesting(
+            probe, initialPath: [.startCourse(globalId: package.course.globalId, teeBox: nil), .hole(4)]
+        )
+        let host = UIHostingController(rootView: view)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            probe.starts.removeAll()
+            probe.dismissals.removeAll()
+            probe.path = nil
+            probe.callbacks = nil
+        }
+        for _ in 0..<200 where probe.starts[4] == nil { settle(host) }
+        XCTAssertNotNil(probe.starts[4], "the actual RHV hole destination must mount")
+        try exercise(model, package, store, probe)
+    }
+
+    func test_j5_2_first_stroke_sheet_dismissal_replaces_prep_base_before_callback_refresh() async throws {
+        try await withPrepSession { model, package, store, probe in
+            let path = try XCTUnwrap(probe.path)
+            let start = try XCTUnwrap(probe.starts[4])
+            let dismiss = try XCTUnwrap(probe.dismissals[4])
+            let callbacks = try XCTUnwrap(probe.callbacks)
+            XCTAssertEqual(path.wrappedValue,
+                           [.startCourse(globalId: package.course.globalId, teeBox: nil), .hole(4)])
+            XCTAssertNil(model.liveRoundState)
+            XCTAssertTrue(start(4))
+            XCTAssertEqual(model.liveRoundState?.activeHole, 4)
+            XCTAssertEqual(try store.inProgressRoundId(), package.roundId)
+            XCTAssertFalse(callbacks.value.hasLiveRound, "no body/callback refresh has occurred")
+            dismiss()
+            // J5.2: Back dismisses one destination. Only the live hole may remain above home.
+            XCTAssertEqual(path.wrappedValue, [.hole(4)])
+            path.wrappedValue.removeLast()
+            XCTAssertTrue(path.wrappedValue.isEmpty, "Back must reach home, not the same prep hole")
+            XCTAssertNotNil(model.liveRoundState, "returning home must retain the active-round hero")
+        }
+    }
+
+    func test_j5_2_unstarted_sheet_dismissal_keeps_the_prep_base() async throws {
+        try await withPrepSession { _, package, _, probe in
+            let path = try XCTUnwrap(probe.path)
+            let dismiss = try XCTUnwrap(probe.dismissals[4])
+            let expected: [HubRoute] = [.startCourse(globalId: package.course.globalId, teeBox: nil), .hole(4)]
+            dismiss()
+            XCTAssertEqual(path.wrappedValue, expected, "a failed/unstarted round must keep its prep navigation")
+        }
+    }
+
+    func test_j5_10_started_round_stops_prep_following_and_persists_live_cursor_before_refresh() async throws {
+        try await withPrepSession { model, package, _, probe in
+            let callbacks = try XCTUnwrap(probe.callbacks)
+            let start = try XCTUnwrap(probe.starts[4])
+            XCTAssertNotNil(callbacks.prepPackage(displayed: package, wasPrep: true))
+            XCTAssertTrue(start(4))
+            XCTAssertNil(callbacks.prepPackage(displayed: package, wasPrep: true),
+                         "a cached prep flag must not let GPS move a now-live round")
+            callbacks.persistActiveHole(5, displayed: package, wasPrep: true)
+            XCTAssertEqual(model.liveRoundState?.activeHole, 5,
+                           "the same cached prep flag must not swallow a live page advance")
+        }
+    }
+    #endif
+
     private final class Probe {
         var bodies: [Int: Int] = [:]
         var events: [(Int, LiveRoundEvent)] = []
