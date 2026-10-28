@@ -189,19 +189,28 @@ final class CurrentHoleLocatorTests: XCTestCase {
 
     /// Product spec 5.13: GPS drift must not turn a hole preview into a different playing hole.
     func testProductSpec513ShallowBoundaryDriftDoesNotConfirmAfterFiveSeconds() {
-        var following = PrepHoleFollowingState()
-        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
         let start = Date(timeIntervalSince1970: 100)
-        // A straight corridor is 50 m wide on each side; 48 m from its centre is only 2 m inside.
-        let point = coordinate(40.002, 116 + 48 / (111_320 * cos(40.002 * .pi / 180)))
-        XCTAssertEqual(CurrentHoleLocator.locate(coordinate: point, horizontalAccuracyM: 5,
-                                                holes: confirmationHoles), .onHole(2))
-        for elapsed in [0.0, 6.0, 12.0] {
-            let now = start.addingTimeInterval(elapsed)
-            XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
-                fix: fix(point, at: now, accuracy: 5), holes: confirmationHoles, now: now))
+        // The new corridor wins, but the fix is only 2 m, 8 m, or 0 m outside the old corridor.
+        // Even a centreline lead of 16–20 m cannot replace distance from the old area's edge.
+        let longitudePerMetre = 1 / (111_320 * cos(40.002 * .pi / 180))
+        for (separation, offset) in [(100.0, 48.0), (100.0, 42.0), (80.0, 30.0)] {
+            var following = PrepHoleFollowingState()
+            _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+            let holes = [
+                HoleLocatorGeometry(hole: 1, tee: coordinate(40, 116 + separation * longitudePerMetre),
+                                    green: coordinate(40.004, 116 + separation * longitudePerMetre)),
+                HoleLocatorGeometry(hole: 2, tee: coordinate(40, 116), green: coordinate(40.004, 116)),
+            ]
+            let point = coordinate(40.002, 116 + offset * longitudePerMetre)
+            XCTAssertEqual(CurrentHoleLocator.locate(coordinate: point, horizontalAccuracyM: 5,
+                                                    holes: holes), .onHole(2))
+            for elapsed in [0.0, 6.0, 12.0] {
+                let now = start.addingTimeInterval(elapsed)
+                XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                    fix: fix(point, at: now, accuracy: 5), holes: holes, now: now))
+            }
+            XCTAssertEqual(following.lastLocatedHole, 1)
         }
-        XCTAssertEqual(following.lastLocatedHole, 1)
     }
 
     func testProductSpec513PoorAccuracyNeverConfirmsHoleChange() {
@@ -236,15 +245,18 @@ final class CurrentHoleLocatorTests: XCTestCase {
     func testProductSpec513FractionalSecondsDoNotRoundFourSecondsUpToFive() throws {
         var following = PrepHoleFollowingState()
         _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
-        let first = Date(timeIntervalSince1970: 100.9)
+        let first = Date(timeIntervalSince1970: 100.5)
         let point = coordinate(40.002, 116)
         XCTAssertEqual(try XCTUnwrap(PrepHoleFollowingState.sampleDate(fix(point, at: first).capturedAt))
-            .timeIntervalSince1970, 100.9, accuracy: 0.001)
+            .timeIntervalSince1970, 100.5, accuracy: 0.002)
         XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
             fix: fix(point, at: first), holes: confirmationHoles, now: first))
-        let second = Date(timeIntervalSince1970: 105.1) // 4.2 s, even though integer seconds differ by 5.
-        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
-            fix: fix(point, at: second), holes: confirmationHoles, now: second))
+        // Keep the 4.2 s case, plus 4.5 s whose integer timestamps differ by 5.
+        for timestamp in [104.7, 105.0] {
+            let second = Date(timeIntervalSince1970: timestamp)
+            XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                fix: fix(point, at: second), holes: confirmationHoles, now: second))
+        }
         XCTAssertEqual(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
             fix: fix(point, at: first.addingTimeInterval(5)), holes: confirmationHoles,
             now: first.addingTimeInterval(5)), 2)
@@ -305,23 +317,26 @@ final class CurrentHoleLocatorTests: XCTestCase {
         XCTAssertEqual(following.lastLocatedHole, 1)
     }
 
-    func testProductSpec513FairwayAndTeeEntryDepthUseTheirOwnBoundaries() {
-        let centre = coordinate(40.002, 116)
-        let fairway = [coordinate(40.0015, 115.999), coordinate(40.0025, 115.999),
-                       coordinate(40.0025, 116.001), coordinate(40.0015, 116.001)]
-        let holes = [HoleLocatorGeometry(hole: 2, tee: coordinate(40, 116),
-                                        green: coordinate(40.004, 116), fairway: [fairway])]
-        XCTAssertGreaterThan(CurrentHoleLocator.entryDepthM(hole: 2, coordinate: centre, holes: holes), 50)
-        let edge = coordinate(40.00151, 116)
-        XCTAssertLessThan(CurrentHoleLocator.entryDepthM(hole: 2, coordinate: edge, holes: holes), 2)
-        XCTAssertEqual(CurrentHoleLocator.entryDepthM(hole: 2, coordinate: coordinate(40, 116),
-                                                     holes: holes), CurrentHoleLocator.teeRadiusM,
-                       accuracy: 0.001)
+    func testProductSpec513DepthComparesOnlyTheDisplayedHole() {
+        let holes = [parallelHole(1, eastM: -20), parallelHole(2, eastM: 0),
+                     parallelHole(3, eastM: 12)]
+        XCTAssertEqual(CurrentHoleLocator.entryDepthM(hole: 2,
+            coordinate: localPoint(eastM: 0, northM: 0), holes: holes, preferredHole: 1),
+            20, accuracy: 0.1)
+        // One metre from the new fairway edge is fine when the old corridor is 84 m away.
+        let separated = [parallelHole(1, eastM: -120), parallelHole(2, eastM: 0)]
+        XCTAssertGreaterThan(CurrentHoleLocator.entryDepthM(hole: 2,
+            coordinate: localPoint(eastM: 14, northM: 80), holes: separated, preferredHole: 1), 83)
     }
 
     func testProductSpec513DepthMustExceedAccuracyAndThirtyMetreAccuracyIsAllowed() {
         let longitudePerMetre = 1 / (111_320 * cos(40.002 * .pi / 180))
-        // At 28 m from the centre the 22 m interior margin does not beat a 25 m uncertainty.
+        let holes = [
+            HoleLocatorGeometry(hole: 1, tee: coordinate(40, 116 + 100 * longitudePerMetre),
+                                green: coordinate(40.004, 116 + 100 * longitudePerMetre)),
+            HoleLocatorGeometry(hole: 2, tee: coordinate(40, 116), green: coordinate(40.004, 116)),
+        ]
+        // At 28 m from the new line, the old 50 m corridor is 22 m away: lead < 25 m accuracy.
         let cases: [(Double, Double, Int?)] = [(28, 25, nil), (0, 30, 2)]
         for (offset, accuracy, expected) in cases {
             var following = PrepHoleFollowingState()
@@ -329,10 +344,10 @@ final class CurrentHoleLocatorTests: XCTestCase {
             let now = Date(timeIntervalSince1970: 100)
             let point = coordinate(40.002, 116 + offset * longitudePerMetre)
             XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
-                fix: fix(point, at: now, accuracy: accuracy), holes: confirmationHoles, now: now))
+                fix: fix(point, at: now, accuracy: accuracy), holes: holes, now: now))
             XCTAssertEqual(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
                 fix: fix(point, at: now.addingTimeInterval(5), accuracy: accuracy),
-                holes: confirmationHoles, now: now.addingTimeInterval(5)), expected)
+                holes: holes, now: now.addingTimeInterval(5)), expected)
         }
     }
 
@@ -462,7 +477,8 @@ final class CurrentHoleLocatorTests: XCTestCase {
     }
 
     private var confirmationHoles: [HoleLocatorGeometry] {
-        [HoleLocatorGeometry(hole: 2, tee: coordinate(40, 116), green: coordinate(40.004, 116))]
+        [parallelHole(1, eastM: -120),
+         HoleLocatorGeometry(hole: 2, tee: coordinate(40, 116), green: coordinate(40.004, 116))]
     }
 
     private func fix(_ point: CLLocationCoordinate2D, at date: Date, accuracy: Double = 5) -> LocationFix {

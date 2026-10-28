@@ -67,7 +67,7 @@ class MobileEventInvalidCodeTests(unittest.TestCase):
     def test_product_spec_59_store_and_batch_failures_are_not_quarantinable(self):
         for error in ["event_commit_store_corrupt", "request_reservation_store_corrupt",
                       "idempotency_key_body_mismatch", "identity_envelope_mismatch",
-                      "hole score must be at least putts + penalties + 1"]:
+                      "hole 1: total 2 is less than putts 2 + penalties 0 + 1"]:
             with self.subTest(error=error), TemporaryDirectory() as tmp, patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)), patch("server_v2.mobile.append_event_batch", side_effect=ValueError(error)):
                 response = self.post([self.event])
                 self.assertEqual(response.status_code, 422)
