@@ -483,8 +483,7 @@ public final class SyncClient {
     static let courseDiscoveryRequestTimeoutInterval: TimeInterval = 15
     static let courseDiscoveryForegroundBudgetInterval: TimeInterval = 25
     static let courseDiscoveryMaximumAttempts = 2
-    // Temporary red-test value; C28c fixes this to the product's five-second share budget.
-    static let roundShareTimeoutInterval: TimeInterval = 60
+    static let roundShareTimeoutInterval: TimeInterval = 5
     static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
 
     /// The configured API base (e.g. `https://caddie…ts.net`). Public so views can build the
