@@ -148,8 +148,7 @@ final class ProductLiveHolePageTests: XCTestCase {
                 onEvent: model.handleEvent, onSetActiveHole: model.setActiveHole,
                 pendingLiveHole: model.pendingLiveHole,
                 onConsumePendingLiveHole: model.consumePendingLiveHole,
-                prepPackage: model.prepPackage, onPrepHoleChanged: model.prioritizePrepHole,
-                onClosePrep: model.closePrepMode,
+                prepPackage: model.prepPackage,
                 onOpenPrepCourse: { course in
                     guard course.globalId == preparedPackage.course.globalId else { return false }
                     // Inject only the already-loaded course package; route changes and first-stroke
@@ -157,6 +156,8 @@ final class ProductLiveHolePageTests: XCTestCase {
                     model.enterPrepMode(with: preparedPackage, hole: 1)
                     return true
                 },
+                onPrepHoleChanged: model.prioritizePrepHole,
+                onClosePrep: model.closePrepMode,
                 onStartRoundFromFirstStroke: { model.startRoundFromFirstStroke(startHole: $0) }
             ).observingHolePageNavigationForTesting(probe, initialPath: [.start])
         }
