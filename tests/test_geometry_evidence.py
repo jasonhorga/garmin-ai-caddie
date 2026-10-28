@@ -648,6 +648,9 @@ class GeometryEvidenceTests(unittest.TestCase):
                 "name": "Green.drc",
                 "positions": [[-200, 0, 200], [-210, 0, 200], [-200, 0, 210]],
                 "faces": [[0, 1, 2]],
+            }, {
+                "name": "PlayableBounds.drc",
+                "polygon": [[180, 180], [230, 180], [230, 230], [180, 230]],
             }],
         }
         with patch(

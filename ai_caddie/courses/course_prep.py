@@ -1545,7 +1545,7 @@ def _green_distances(by: dict, route, md: dict | None = None) -> dict:
     lives in ``playsLike``). ``measure_prodgeometry_distances.mesh_components`` returns components
     whose triangles/centroid are ALREADY in the ``(-mesh_x, mesh_z)`` frame (same as ``route``), so
     no re-projection. A Green.drc tile can include neighbour-hole greens, so we pick the component
-    whose centroid is nearest ``route[-1]`` (the dogleg/green endpoint). Front = nearest green
+    containing ``route[-1]``, otherwise the component nearest that endpoint. Front = nearest green
     boundary point to the tee, Back = farthest, Middle = the chosen component's centroid. The
     additive ``frontRouteM``/``backRouteM`` fields project that same boundary onto the playable
     route; they are the planning coordinate, while straight-line F/M/B remain GPS/display facts.

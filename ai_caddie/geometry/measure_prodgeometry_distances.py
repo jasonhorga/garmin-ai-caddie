@@ -113,19 +113,18 @@ def select_green_component(
         return containing
     if not components:
         return None
-    nearest = min(
-        components,
-        key=lambda component: min(
-            point_triangle_distance(target, triangle)
-            for triangle in component["triangles"]
+    nearest, nearest_distance = min(
+        (
+            (
+                component,
+                min(point_triangle_distance(target, triangle) for triangle in component["triangles"]),
+            )
+            for component in components
         ),
+        key=lambda item: item[1],
     )
     if max_distance_m is not None:
-        distance = min(
-            point_triangle_distance(target, triangle)
-            for triangle in nearest["triangles"]
-        )
-        if distance > max_distance_m:
+        if nearest_distance > max_distance_m:
             return None
     return nearest
 
@@ -312,11 +311,22 @@ def bind_selected_green_target(
         )
         target_name, target = target_point(decoded["hole"], green_components)
     except (IndexError, KeyError, TypeError, ValueError, OverflowError):
-        if include_selected_component and isinstance(decoded.get("hole"), dict):
+        if not include_selected_component and isinstance(decoded.get("hole"), dict):
+            try:
+                fallback_components = (
+                    mesh_components(by_name["Green.drc"])
+                    if "Green.drc" in by_name
+                    else []
+                )
+                target_name, target = target_point(decoded["hole"], fallback_components)
+            except (IndexError, KeyError, TypeError, ValueError, OverflowError):
+                return hazards
+        elif include_selected_component and isinstance(decoded.get("hole"), dict):
             rebound = dict(hazards)
             rebound["_selectedGreenComponent"] = None
             return rebound
-        return hazards
+        else:
+            return hazards
 
     selected_component = (
         select_green_component(green_components, target, max_distance_m=10.0)
