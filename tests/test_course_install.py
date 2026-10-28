@@ -223,7 +223,7 @@ class CourseInstallJournalTests(unittest.TestCase):
         self.assertEqual(enqueue.call_args.kwargs["ready"], {123: [2]})
         self.assertEqual(enqueue.call_args.kwargs["refs"][1]["geometryRevision"], "revision-2")
         self.assertEqual(enqueue.call_args.kwargs["loop_key"], "123:all")
-        self.assertEqual(enqueue.call_args.kwargs["priority"], server_main.NEARBY)
+        self.assertEqual(enqueue.call_args.kwargs.get("priority", server_main.SELECTED_COURSE), server_main.NEARBY)
 
     def test_enqueue_is_idempotent_and_public_state_has_no_player_identity(self) -> None:
         from server_v2 import course_install
