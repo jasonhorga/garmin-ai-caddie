@@ -15,7 +15,9 @@ public struct AICaddieApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var usesDarkLiveChrome = false
 
-    public init() {}
+    public init() {
+        ClientTimingStore.prepareAtLaunch()
+    }
 
     /// Only an explicit DEBUG UI-test launch may bypass Apple sign-in. Ordinary DEBUG launches use
     /// the same session gate as Release so local development cannot accidentally run in another

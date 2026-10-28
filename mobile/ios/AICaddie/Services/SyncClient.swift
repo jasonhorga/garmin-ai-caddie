@@ -514,6 +514,7 @@ public final class SyncClient {
     private let decoder: JSONDecoder
     private let retrySleep: (UInt64) async throws -> Void
     private let monotonicNow: () -> TimeInterval
+    private let timingStore: ClientTimingStore
 
     deinit {
         roundStartSessionLock.lock()
@@ -533,6 +534,7 @@ public final class SyncClient {
         self.decoder = JSONDecoder()
         self.retrySleep = { try await Task.sleep(nanoseconds: $0) }
         self.monotonicNow = { ProcessInfo.processInfo.systemUptime }
+        self.timingStore = ClientTimingStore()
     }
 
     init(
@@ -555,6 +557,7 @@ public final class SyncClient {
         self.decoder = JSONDecoder()
         self.retrySleep = retrySleep
         self.monotonicNow = monotonicNow
+        self.timingStore = timingStore
     }
 
     /// Called synchronously before any start work. Cancelling producers releases even a held
@@ -592,11 +595,147 @@ public final class SyncClient {
     #endif
 
     /// Every request of this client goes through here.
-    private func requestData(for request: URLRequest, in urlSession: URLSession) async throws -> (Data, URLResponse) {
+    private func requestData(
+        for request: URLRequest,
+        in urlSession: URLSession,
+        recordTiming: Bool = true
+    ) async throws -> (Data, URLResponse) {
         #if DEBUG
         if roundStartSessionLock.withLock({ invalidatedForTesting }) { throw CancellationError() }
         #endif
-        return try await urlSession.data(for: request)
+        var timedRequest = request
+        let requestId = UUID().uuidString
+        timedRequest.setValue(requestId, forHTTPHeaderField: "X-AI-Caddie-Request-ID")
+        guard recordTiming else {
+            return try await urlSession.data(for: timedRequest)
+        }
+        let startedAt = ISO8601DateFormatter().string(from: Date())
+        let started = monotonicNow()
+        do {
+            let result = try await urlSession.data(for: timedRequest)
+            recordClientTiming(
+                request: timedRequest,
+                requestId: requestId,
+                startedAt: startedAt,
+                elapsed: max(0, monotonicNow() - started),
+                response: result.1,
+                error: nil
+            )
+            return result
+        } catch {
+            recordClientTiming(
+                request: timedRequest,
+                requestId: requestId,
+                startedAt: startedAt,
+                elapsed: max(0, monotonicNow() - started),
+                response: nil,
+                error: error
+            )
+            throw error
+        }
+    }
+
+    private func recordClientTiming(
+        request: URLRequest,
+        requestId: String,
+        startedAt: String,
+        elapsed: TimeInterval,
+        response: URLResponse?,
+        error: Error?
+    ) {
+        let status = (response as? HTTPURLResponse)?.statusCode
+        let serverTotalMs = Self.serverTotalMilliseconds(response)
+        let timingError: String?
+        if let error {
+            timingError = Self.timingErrorCode(error)
+        } else if let status, status >= 400 {
+            timingError = "http_\(status)"
+        } else if status == nil {
+            timingError = "not_http"
+        } else {
+            timingError = nil
+        }
+        let record = ClientTimingRecord(
+            requestId: requestId,
+            path: request.url?.path ?? "/",
+            clientTotalMs: elapsed * 1_000,
+            status: status,
+            error: timingError,
+            startedAt: startedAt,
+            networkType: nil,
+            serverTotalMs: serverTotalMs
+        )
+        timingStore.record(record)
+        if elapsed >= 3 {
+            AICaddieLog.net.notice(
+                "Slow request \(record.path, privacy: .public) \(record.clientTotalMs, privacy: .public)ms request_id=\(requestId, privacy: .public) server_total_ms=\(serverTotalMs ?? -1, privacy: .public)"
+            )
+        } else {
+            AICaddieLog.net.debug(
+                "Request \(record.path, privacy: .public) \(record.clientTotalMs, privacy: .public)ms request_id=\(requestId, privacy: .public)"
+            )
+        }
+        Task { [weak self] in
+            await self?.flushClientTimingIfDue()
+        }
+    }
+
+    private func flushClientTimingIfDue() async {
+        let foregroundRunning = packageWorkLock.withLock { roundStartOwner != nil }
+        guard let batch = timingStore.takeBatchIfDue(
+            now: monotonicNow(),
+            foregroundStartRunning: foregroundRunning
+        ) else { return }
+        defer { timingStore.finishUpload() }
+        guard let body = try? encoder.encode(batch.map(\.uploadValue)) else { return }
+        var request = URLRequest(url: endpointURL("/api/v2/mobile/client-timing"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        applyAuth(to: &request)
+        do {
+            let (_, response) = try await requestData(for: request, in: session, recordTiming: false)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                AICaddieLog.net.debug("Client timing upload rejected")
+                return
+            }
+        } catch {
+            // The batch was intentionally removed before the request. Timing must never retry or
+            // affect the business request that triggered this best-effort upload.
+            AICaddieLog.net.debug("Client timing upload dropped: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private static func serverTotalMilliseconds(_ response: URLResponse?) -> Double? {
+        guard let value = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Server-Timing") else {
+            return nil
+        }
+        for metric in value.split(separator: ",") {
+            let fields = metric.split(separator: ";", omittingEmptySubsequences: true)
+            guard fields.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "total" else { continue }
+            for field in fields.dropFirst() {
+                let pair = field.split(separator: "=", maxSplits: 1).map(String.init)
+                if pair.count == 2, pair[0].trimmingCharacters(in: .whitespaces) == "dur",
+                   let duration = Double(pair[1].trimmingCharacters(in: .whitespaces)) {
+                    return duration
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func timingErrorCode(_ error: Error) -> String {
+        if error is CancellationError { return "cancelled" }
+        if let syncError = error as? SyncClientError {
+            switch syncError {
+            case .notHTTPResponse: return "not_http"
+            case let .http(status, _): return "http_\(status)"
+            }
+        }
+        if let urlError = error as? URLError {
+            return "url_\(urlError.code.rawValue)"
+        }
+        return "client_error"
     }
 
     private func coursePackageData(_ request: URLRequest, foregroundStart: Bool, requestKind: PackageRequestKind = .background, maximumAttempts: Int = SyncClient.courseAssetMaximumAttempts) async throws -> Data {
