@@ -4,21 +4,92 @@ import XCTest
 /// accessibility tap.  A disappearing source or an appearing destination acknowledges the first
 /// tap; only an unacknowledged source is tapped a second time.
 enum UITapHelpers {
+    /// Prefer a tap after the element has stayed hittable at the same non-empty frame for two
+    /// accessibility polls.  SwiftUI can publish the new button before its transition has
+    /// committed an activation point.  The wait only improves timing: if a busy app exhausts the
+    /// budget while the element still exists, fall back to XCTest's own tap (which waits for idle
+    /// and scrolls), so these helpers never do less than the plain `.tap()` they replaced.
+    @discardableResult
+    static func tapWhenHittable(
+        _ source: XCUIElement,
+        app: XCUIApplication,
+        timeout: TimeInterval,
+        diagnosticName: String
+    ) -> Bool {
+        guard tapPreferringStableFrame(source, app: app, timeout: timeout, diagnosticName: diagnosticName) else {
+            return false
+        }
+        return true
+    }
+
+    private static func tapPreferringStableFrame(
+        _ source: XCUIElement,
+        app: XCUIApplication,
+        timeout: TimeInterval,
+        diagnosticName: String
+    ) -> Bool {
+        if waitForStableHittability(source, app: app, timeout: timeout) {
+            source.tap()
+            return true
+        }
+        guard source.exists else {
+            print("UI_TAP source-not-ready \(diagnosticName)")
+            return false
+        }
+        print("UI_TAP fallback \(diagnosticName)")
+        source.tap()
+        return true
+    }
+
+    /// Focus a text field before typing.  A sheet can be visible while the first tap is still
+    /// being committed; retry the focus tap once before allowing text input to proceed.
+    @discardableResult
+    static func focusAndTypeText(
+        _ field: XCUIElement,
+        text: String,
+        app: XCUIApplication,
+        timeout: TimeInterval,
+        diagnosticName: String
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        guard tapPreferringStableFrame(field, app: app, timeout: timeout, diagnosticName: diagnosticName) else {
+            print("UI_TYPE field-not-ready \(diagnosticName)")
+            return false
+        }
+        // A fallback tap may have used the whole stability budget; still give focus a short window.
+        if waitForCondition({ hasKeyboardFocus(field, app: app) }, timeout: max(2, deadline.timeIntervalSinceNow)) {
+            field.typeText(text)
+            return true
+        }
+
+        print("UI_TYPE focus-retry \(diagnosticName)")
+        guard deadline.timeIntervalSinceNow > 0,
+              waitForStableHittability(field, app: app, timeout: max(0, deadline.timeIntervalSinceNow)) else {
+            print("UI_TYPE field-not-ready-after-retry \(diagnosticName)")
+            return false
+        }
+        field.tap()
+        guard waitForCondition({ hasKeyboardFocus(field, app: app) }, timeout: max(0, deadline.timeIntervalSinceNow)) else {
+            print("UI_TYPE focus-not-ready \(diagnosticName)")
+            return false
+        }
+        field.typeText(text)
+        return true
+    }
+
     @discardableResult
     static func tapAndWaitForElements(
         _ source: XCUIElement,
+        app: XCUIApplication,
         destinations: [XCUIElement],
         timeout: TimeInterval,
         diagnosticName: String
     ) -> Bool {
         let started = Date()
         let deadline = started.addingTimeInterval(timeout)
-        guard waitForCondition({ source.exists && source.isHittable }, timeout: timeout) else {
-            print("UI_TAP source-not-ready \(diagnosticName)")
+        guard tapPreferringStableFrame(source, app: app, timeout: timeout / 2, diagnosticName: diagnosticName) else {
             return false
         }
-
-        source.tap()
         var acknowledged = false
         let transitionAcknowledged = {
             if !acknowledged {
@@ -36,7 +107,8 @@ enum UITapHelpers {
                 attachment.lifetime = .keepAlways
                 activity.add(attachment)
             }
-            if source.exists && source.isHittable, deadline.timeIntervalSinceNow > 0 {
+            if deadline.timeIntervalSinceNow > 0,
+               waitForStableHittability(source, app: app, timeout: max(0, deadline.timeIntervalSinceNow)) {
                 source.tap()
             }
         }
@@ -48,6 +120,54 @@ enum UITapHelpers {
             print("UI_TAP destination-not-ready \(diagnosticName) elapsed=\(Date().timeIntervalSince(started))")
         }
         return ready
+    }
+
+    private static func hasKeyboardFocus(_ field: XCUIElement, app: XCUIApplication) -> Bool {
+        let keyboardVisible = app.keyboards.firstMatch.exists
+        let fieldHasFocus = (field.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
+        return keyboardVisible && (fieldHasFocus || app.textFields.allElementsBoundByIndex.filter { $0.exists }.count == 1)
+    }
+
+    /// `isHittable` can itself fail when XCTest has an element with an empty or off-screen frame.
+    /// Check geometry and window intersection first so transient accessibility snapshots are only
+    /// treated as "not ready" and never become a test failure.
+    static func isSafelyHittable(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard element.exists else { return false }
+        let frame = element.frame
+        let windowFrame = app.windows.firstMatch.frame
+        guard frame.width > 0, frame.height > 0,
+              windowFrame.width > 0, windowFrame.height > 0,
+              frame.intersects(windowFrame) else { return false }
+        return element.isHittable
+    }
+
+    private static func waitForStableHittability(
+        _ element: XCUIElement,
+        app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> Bool {
+        var previousFrame: CGRect?
+        return waitForCondition({
+            guard isSafelyHittable(element, in: app) else {
+                previousFrame = nil
+                return false
+            }
+            let frame = element.frame
+            guard !frame.isEmpty else {
+                previousFrame = nil
+                return false
+            }
+            guard let oldFrame = previousFrame else {
+                previousFrame = frame
+                return false
+            }
+            let stable = abs(frame.minX - oldFrame.minX) < 0.5
+                && abs(frame.minY - oldFrame.minY) < 0.5
+                && abs(frame.width - oldFrame.width) < 0.5
+                && abs(frame.height - oldFrame.height) < 0.5
+            previousFrame = frame
+            return stable
+        }, timeout: timeout)
     }
 
     private static func waitForCondition(_ condition: @escaping () -> Bool, timeout: TimeInterval) -> Bool {

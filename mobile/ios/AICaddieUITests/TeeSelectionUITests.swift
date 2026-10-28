@@ -293,7 +293,7 @@ final class TeeSelectionUITests: XCTestCase {
         ]
         let allow = allowedLabels.lazy
             .map { locationAlert.buttons[$0] }
-            .first { $0.exists && $0.isHittable }
+            .first { UITapHelpers.isSafelyHittable($0, in: app) }
         XCTAssertNotNil(allow, "the real location sheet must expose its while-in-use approval")
         allow?.tap()
 
@@ -340,7 +340,7 @@ final class TeeSelectionUITests: XCTestCase {
         )
         let search = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(
-            search.waitForExistence(timeout: 5) && search.isHittable,
+            search.waitForExistence(timeout: 5) && UITapHelpers.isSafelyHittable(search, in: app),
             "denied GPS must never strand the player without city/name search"
         )
         assertCoursePickerHasNoSelection()
@@ -401,7 +401,7 @@ final class TeeSelectionUITests: XCTestCase {
         )
         let search = app.buttons["start-round-search-all-courses"]
         XCTAssertTrue(
-            search.waitForExistence(timeout: 5) && search.isHittable,
+            search.waitForExistence(timeout: 5) && UITapHelpers.isSafelyHittable(search, in: app),
             "waiting for a GPS fix must never block city/name search"
         )
         assertCoursePickerHasNoSelection()
@@ -459,7 +459,7 @@ final class TeeSelectionUITests: XCTestCase {
             .matching(identifier: "live-open-map-from-hero")
             .firstMatch
         XCTAssertTrue(
-            openMap.waitForExistence(timeout: 8) && openMap.isHittable,
+            openMap.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(openMap, in: app),
             "the full-screen hole map must be the Touch Target surface"
         )
         let targetMarker = app.descendants(matching: .any)
@@ -501,7 +501,7 @@ final class TeeSelectionUITests: XCTestCase {
         // active drag loupe remains a video/device-evidence concern because XCTest cannot snapshot a
         // transient, held gesture without mislabelling a post-release frame.
         let greenEditor = app.buttons["live-open-green-from-hero"]
-        if greenEditor.waitForExistence(timeout: 8), !greenEditor.isHittable {
+        if greenEditor.waitForExistence(timeout: 8), !UITapHelpers.isSafelyHittable(greenEditor, in: app) {
             // Diagnostics for the real-simulator log: what covers the green entry's hit point.
             let point = CGPoint(x: greenEditor.frame.midX, y: greenEditor.frame.midY)
             print("DIAG live-open-green-from-hero frame=\(greenEditor.frame) window=\(app.windows.firstMatch.frame)")
@@ -510,7 +510,7 @@ final class TeeSelectionUITests: XCTestCase {
                 print("DIAG covering id=\(element.identifier) type=\(element.elementType.rawValue) frame=\(element.frame)")
             }
         }
-        XCTAssertTrue(greenEditor.waitForExistence(timeout: 8) && greenEditor.isHittable)
+        XCTAssertTrue(greenEditor.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(greenEditor, in: app))
         greenEditor.tap()
         // View Green opens on the focused, centered putting surface. There is no redundant
         // plus-button: pinch/drag is reserved for deliberate precision interaction.
@@ -518,7 +518,7 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(greenPanel.waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["live-green-zoom-in"].exists)
         let closeGreen = app.buttons["关闭果岭地图"]
-        XCTAssertTrue(closeGreen.waitForExistence(timeout: 5) && closeGreen.isHittable)
+        XCTAssertTrue(closeGreen.waitForExistence(timeout: 5) && UITapHelpers.isSafelyHittable(closeGreen, in: app))
         closeGreen.tap()
 
         // The live hole image itself pages between adjacent holes. This exercises the actual SwiftUI
@@ -526,13 +526,13 @@ final class TeeSelectionUITests: XCTestCase {
         let firstHero = app.descendants(matching: .any)
             .matching(identifier: "live-open-map-from-hero")
             .firstMatch
-        XCTAssertTrue(firstHero.waitForExistence(timeout: 8) && firstHero.isHittable)
+        XCTAssertTrue(firstHero.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(firstHero, in: app))
         firstHero.swipeLeft()
         XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 30))
         let secondHero = app.descendants(matching: .any)
             .matching(identifier: "live-open-map-from-hero")
             .firstMatch
-        XCTAssertTrue(secondHero.waitForExistence(timeout: 30) && secondHero.isHittable)
+        XCTAssertTrue(secondHero.waitForExistence(timeout: 30) && UITapHelpers.isSafelyHittable(secondHero, in: app))
         secondHero.swipeRight()
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 30))
     }
@@ -552,7 +552,7 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(openStartRound())
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
         let search = app.buttons["start-round-search-all-courses"]
-        XCTAssertTrue(search.waitForExistence(timeout: 8) && search.isHittable)
+        XCTAssertTrue(search.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(search, in: app))
         search.tap()
         XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
         try searchAndSelectBeijingPalace(field: "course-catalog-keyword-field", text: "北京丽宫")
@@ -588,7 +588,7 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(openStartRound())
         XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
         let search = app.buttons["start-round-search-all-courses"]
-        XCTAssertTrue(search.waitForExistence(timeout: 8) && search.isHittable)
+        XCTAssertTrue(search.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(search, in: app))
         search.tap()
         XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
         try searchAndSelectBeijingPalace(field: "course-catalog-keyword-field", text: "北京丽宫")
@@ -634,7 +634,7 @@ final class TeeSelectionUITests: XCTestCase {
         save("empty-nearby-01-start-round"); dump("empty-nearby-01-start-round")
 
         let search = app.buttons["start-round-search-all-courses"]
-        XCTAssertTrue(search.exists && search.isHittable)
+        XCTAssertTrue(search.exists && UITapHelpers.isSafelyHittable(search, in: app))
         search.tap()
         XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
         try searchAndSelectBeijingPalace(field: "course-catalog-city-field", text: "北京")
@@ -669,7 +669,7 @@ final class TeeSelectionUITests: XCTestCase {
         save("nearby-failure-01-start-round"); dump("nearby-failure-01-start-round")
 
         let search = app.buttons["start-round-search-all-courses"]
-        XCTAssertTrue(search.exists && search.isHittable)
+        XCTAssertTrue(search.exists && UITapHelpers.isSafelyHittable(search, in: app))
         search.tap()
         XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
         try searchAndSelectBeijingPalace(field: "course-catalog-keyword-field", text: "北京丽宫")
@@ -850,8 +850,8 @@ final class TeeSelectionUITests: XCTestCase {
             waitUntilEnabled(start, timeout: 20),
             "a downloaded course must remain startable without any live metadata request"
         )
-        if !start.isHittable { app.swipeUp() }
-        XCTAssertTrue(start.isHittable)
+        if !UITapHelpers.isSafelyHittable(start, in: app) { app.swipeUp() }
+        XCTAssertTrue(UITapHelpers.isSafelyHittable(start, in: app))
         start.tap()
 
         XCTAssertTrue(
@@ -879,7 +879,7 @@ final class TeeSelectionUITests: XCTestCase {
     private func showCoursePage() {
         if app.descendants(matching: .any)["start-round-page-setup"].exists {
             let back = app.buttons["start-round-back-to-courses"]
-            XCTAssertTrue(back.waitForExistence(timeout: 8) && back.isHittable)
+            XCTAssertTrue(back.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(back, in: app))
             back.tap()
         }
         XCTAssertTrue(app.descendants(matching: .any)["start-round-page-course"].waitForExistence(timeout: 8))
@@ -1009,7 +1009,7 @@ final class TeeSelectionUITests: XCTestCase {
 
     private func bringIntoView(_ element: XCUIElement, maxSwipes: Int) -> Bool {
         for _ in 0..<maxSwipes {
-            if element.exists, element.isHittable, fullyVisible(element) { return true }
+            if element.exists, UITapHelpers.isSafelyHittable(element, in: app), fullyVisible(element) { return true }
             if element.exists, element.frame.minY < visibleSafeRect().minY {
                 app.swipeDown()
             } else {
@@ -1017,7 +1017,7 @@ final class TeeSelectionUITests: XCTestCase {
             }
             settle(0.6)
         }
-        return element.exists && element.isHittable && fullyVisible(element)
+        return element.exists && UITapHelpers.isSafelyHittable(element, in: app) && fullyVisible(element)
     }
 
     /// SwiftUI can report a row at the bottom edge as hittable even when its tap point is under the
@@ -1106,7 +1106,7 @@ final class TeeSelectionUITests: XCTestCase {
             app.descendants(matching: .any)["start-round-page-setup"].waitForExistence(timeout: 8),
             "tapping a venue opens the loop and tee setup page"
         )
-        if tile.waitForExistence(timeout: 8), tile.identifier != "start-round-selected-course-\(globalId)", tile.isHittable {
+        if tile.waitForExistence(timeout: 8), tile.identifier != "start-round-selected-course-\(globalId)", UITapHelpers.isSafelyHittable(tile, in: app) {
             tile.tap()
         }
         return tile
@@ -1116,7 +1116,7 @@ final class TeeSelectionUITests: XCTestCase {
     @discardableResult
     private func openStartRound() -> Bool {
         let entry = app.buttons["home-new-round"]
-        if entry.waitForExistence(timeout: 4), entry.isHittable {
+        if entry.waitForExistence(timeout: 4), UITapHelpers.isSafelyHittable(entry, in: app) {
             entry.tap()
             return true
         }
@@ -1129,18 +1129,18 @@ final class TeeSelectionUITests: XCTestCase {
     private func discardActiveRoundForEvidence() {
         guard app.state == .runningForeground else { return }
         let greenClose = app.buttons["关闭果岭地图"]
-        if greenClose.exists, greenClose.isHittable { greenClose.tap() }
+        if greenClose.exists, UITapHelpers.isSafelyHittable(greenClose, in: app) { greenClose.tap() }
         let mapClose = app.buttons["关闭详细地图"]
-        if mapClose.exists, mapClose.isHittable { mapClose.tap() }
+        if mapClose.exists, UITapHelpers.isSafelyHittable(mapClose, in: app) { mapClose.tap() }
         // 结束本场 on the live map opens the finish page; its 放弃本场 asks once.
         let endRound = app.buttons["live-end-round"]
-        guard endRound.waitForExistence(timeout: 5), endRound.isHittable else { return }
+        guard endRound.waitForExistence(timeout: 5), UITapHelpers.isSafelyHittable(endRound, in: app) else { return }
         endRound.tap()
         let discard = app.buttons["live-finish-discard"]
-        guard discard.waitForExistence(timeout: 8), discard.isHittable else { return }
+        guard discard.waitForExistence(timeout: 8), UITapHelpers.isSafelyHittable(discard, in: app) else { return }
         discard.tap()
         let confirm = app.buttons["放弃本场"]
-        if confirm.waitForExistence(timeout: 5), confirm.isHittable { confirm.tap() }
+        if confirm.waitForExistence(timeout: 5), UITapHelpers.isSafelyHittable(confirm, in: app) { confirm.tap() }
         _ = app.buttons["home-new-round"].waitForExistence(timeout: 10)
     }
 
@@ -1151,7 +1151,7 @@ final class TeeSelectionUITests: XCTestCase {
             let predicate = NSPredicate(format: "label CONTAINS %@", fragment)
             for query in [app.buttons, app.cells, app.staticTexts, app.otherElements] {
                 let match = query.matching(predicate).firstMatch
-                if match.waitForExistence(timeout: 4), match.isHittable { match.tap(); return true }
+                if match.waitForExistence(timeout: 4), UITapHelpers.isSafelyHittable(match, in: app) { match.tap(); return true }
             }
         }
         return false

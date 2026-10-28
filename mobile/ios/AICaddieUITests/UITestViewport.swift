@@ -71,7 +71,11 @@ enum UITestViewport {
             guard area.exists else { continue }
             let owns = element.map { $0.exists && isDescendant($0, of: area) } ?? false
             // Hit-testing the band's own hit point: under a presented sheet it lands on the sheet.
-            pinned.append(PinnedArea(frame: area.frame, ownsTarget: owns, isCovered: !area.isHittable))
+            pinned.append(PinnedArea(
+                frame: area.frame,
+                ownsTarget: owns,
+                isCovered: !UITapHelpers.isSafelyHittable(area, in: app)
+            ))
         }
         let bottom = usableBottom(windowMaxY: window.maxY, pinnedAreas: pinned)
         return CGRect(
