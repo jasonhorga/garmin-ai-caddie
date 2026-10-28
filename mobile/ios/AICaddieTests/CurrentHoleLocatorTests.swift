@@ -374,6 +374,66 @@ final class CurrentHoleLocatorTests: XCTestCase {
         }
     }
 
+    /// Product spec 5.13: tees no more than 10 m apart need time rather than an impossible depth.
+    func testProductSpec513EightMetreTeesConfirmOnlyAfterFiveSeconds() {
+        for separation in [8.0, 10.0] {
+            let holes = [parallelHole(1, eastM: 0), parallelHole(2, eastM: separation)]
+            let start = Date(timeIntervalSince1970: 100)
+            var following = PrepHoleFollowingState()
+            _ = follow(&following, at: localPoint(eastM: 0, northM: 0), time: start,
+                       displayedHole: 1, holes: holes)
+            XCTAssertEqual(following.lastLocatedHole, 1)
+            XCTAssertNil(follow(&following, at: localPoint(eastM: separation, northM: 0),
+                                time: start.addingTimeInterval(1), displayedHole: 1, holes: holes))
+            // A 12 m move away from the old tee must not bypass time confirmation.
+            XCTAssertNil(follow(&following, at: localPoint(eastM: separation + 12, northM: 0),
+                                time: start.addingTimeInterval(2), displayedHole: 1, holes: holes))
+            XCTAssertNil(follow(&following, at: localPoint(eastM: separation, northM: 0),
+                                time: start.addingTimeInterval(5), displayedHole: 1, holes: holes))
+            XCTAssertEqual(following.lastLocatedHole, 1)
+            XCTAssertEqual(follow(&following, at: localPoint(eastM: separation, northM: 0),
+                                  time: start.addingTimeInterval(6), displayedHole: 1, holes: holes), 2)
+        }
+    }
+
+    /// Product spec 5.13: incomplete geometry must not prevent following a known next hole.
+    func testProductSpec513DisplayedHoleWithoutGeometryCanFollowTheNextTee() {
+        let next = parallelHole(2, eastM: 0)
+        for holes in [[HoleLocatorGeometry(hole: 1, tee: nil, green: nil), next], [next]] {
+            let start = Date(timeIntervalSince1970: 100)
+            let point = localPoint(eastM: 0, northM: 0)
+            var following = PrepHoleFollowingState()
+            XCTAssertNil(follow(&following, at: point, time: start, displayedHole: 1, holes: holes))
+            XCTAssertNil(follow(&following, at: point, time: start.addingTimeInterval(4),
+                                displayedHole: 1, holes: holes))
+            XCTAssertEqual(follow(&following, at: point, time: start.addingTimeInterval(5),
+                                  displayedHole: 1, holes: holes), 2)
+        }
+    }
+
+    /// Product spec 5.13: a fix drifting 1.5 m into the next tee disc cannot end the old hole.
+    func testProductSpec513DriftFromGreenIntoNextTeeEdgeDoesNotConfirm() {
+        let holes = [
+            HoleLocatorGeometry(hole: 1, tee: localPoint(eastM: 0, northM: -360),
+                                green: localPoint(eastM: 0, northM: -46),
+                                fairway: [localRectangle(left: -15, right: 15, bottom: -360, top: -41)]),
+            parallelHole(2, eastM: 0),
+        ]
+        let start = Date(timeIntervalSince1970: 100)
+        var following = PrepHoleFollowingState()
+        _ = follow(&following, at: localPoint(eastM: 0, northM: -46), time: start,
+                   displayedHole: 1, holes: holes)
+        XCTAssertEqual(following.lastLocatedHole, 1)
+        let drift = localPoint(eastM: 0, northM: -43.5)
+        XCTAssertEqual(CurrentHoleLocator.locate(coordinate: drift, horizontalAccuracyM: 5,
+                                                holes: holes, preferredHole: 1), .onHole(2))
+        for elapsed in [1.0, 7.0, 13.0] {
+            XCTAssertNil(follow(&following, at: drift, time: start.addingTimeInterval(elapsed),
+                                displayedHole: 1, holes: holes))
+        }
+        XCTAssertEqual(following.lastLocatedHole, 1)
+    }
+
     func testProductSpec513SharedTeeKeepsDisplayedLoopAndConfirmsPackageChoiceAfterFiveSeconds() {
         let holes = [parallelHole(1, eastM: 0), parallelHole(10, eastM: 0),
                      parallelHole(9, eastM: -120)]
