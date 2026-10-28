@@ -1,6 +1,6 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1890,23 +1890,7 @@
+@@ -1892,23 +1892,7 @@
          }
          guard let task = intentPrefetchTasks[key] else { return (nil, false) }
          do {

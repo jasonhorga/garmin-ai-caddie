@@ -1,6 +1,6 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1888,7 +1888,7 @@
+@@ -1890,7 +1890,7 @@
          if let cached = intentPrefetchPackages[key] {
              return (cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt), false)
          }

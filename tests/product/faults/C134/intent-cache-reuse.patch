@@ -1,7 +1,7 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1885,9 +1885,6 @@
-         generatedAt: Date
+@@ -1887,9 +1887,6 @@
+         preparationToken: UUID
      ) async -> (package: LiveRoundPackage?, timedOut: Bool) {
          let key = PrepCourseDownloadRecord.intentKey(globalId: globalId, teeBox: teeBox)
 -        if let cached = intentPrefetchPackages[key] {
