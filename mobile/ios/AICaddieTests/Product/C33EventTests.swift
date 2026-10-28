@@ -131,6 +131,99 @@ final class C33EventTests: XCTestCase {
         )
     }
 
+    /// Product spec J5.9: putts and penalties are score facts and need the same actionable prompt.
+    func testProductSpec57RejectedPuttShowsHolePrompt() async throws {
+        try await assertOneInvalidEventIsQuarantined(
+            responseBody: #"{"detail":{"code":"event_invalid","message":"hole 1: total 2 is less than putts 2 + penalties 0 + 1"}}"#,
+            invalidKind: .putt
+        )
+    }
+
+    func testProductSpec57RejectedPenaltyShowsHolePrompt() async throws {
+        try await assertOneInvalidEventIsQuarantined(
+            responseBody: #"{"detail":{"code":"event_invalid","message":"hole 1: total 2 is less than putts 2 + penalties 1 + 1"}}"#,
+            invalidKind: .penalty
+        )
+    }
+
+    /// Product spec J5.9: scoring facts for one hole are an atomic retry unit during bisection.
+    func testProductSpec59SameHoleScoringEventsStayTogetherWhenAnotherEventIsRejected() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://c137-hole-group.example.test")!, session: session)
+        let model = c33Model(store, client)
+        let package = try c33Package()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/package") { proto.reply(200, try! JSONEncoder().encode(package)); return }
+            guard path.hasSuffix("/events") else { proto.reply(404); return }
+            let ids = (try? JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request)))?.events.map(\.eventId) ?? []
+            let scoring = ids.filter { ["score-1", "putt-1", "penalty-1"].contains($0) }
+            if ids.contains("bad-club") || (!scoring.isEmpty && scoring.count != 3) {
+                proto.reply(422, Data(#"{"detail":{"code":"event_invalid","message":"invalid batch"}}"#.utf8))
+            } else {
+                proto.reply(200, try! JSONEncoder().encode(SyncResult(
+                    accepted: ids.count, duplicate: false, acceptedEventIds: ids
+                )))
+            }
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        try store.appendEvent(LiveRoundEvent(eventId: "score-1", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 1, kind: .score, payload: ["strokes": .number(5)]))
+        try store.appendEvent(LiveRoundEvent(eventId: "putt-1", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:01Z", hole: 1, kind: .putt, payload: ["putts": .number(2)]))
+        try store.appendEvent(LiveRoundEvent(eventId: "penalty-1", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:02Z", hole: 1, kind: .penalty, payload: ["penalties": .number(0)]))
+        try store.appendEvent(LiveRoundEvent(eventId: "bad-club", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:03Z", hole: 1, kind: .club, payload: ["clubName": .string("7I")]))
+        await model.syncPendingEvents()
+        XCTAssertTrue(try store.loadPendingEvents(roundId: package.roundId).isEmpty)
+        XCTAssertEqual(try store.loadEvents().filter { $0.kind == .syncMarker }.count, 1)
+        XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).map { $0.event.eventId }, ["bad-club"])
+    }
+
+    /// Product spec J5.9: a later server rejection cannot erase an earlier local rejection.
+    func testProductSpec59LaterRejectedScoreRemainsVisibleAfterEarlierScoreAccepted() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let syncClient = SyncClient(baseURL: URL(string: "https://c137-order.example.test")!, session: session)
+        let package = try c33Package()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/package") { proto.reply(200, try! JSONEncoder().encode(package)); return }
+            guard path.hasSuffix("/events") else { proto.reply(404); return }
+            let ids = (try? JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request)))?.events.map(\.eventId) ?? []
+            if ids.contains("older-score") {
+                proto.reply(422, Data(#"{"detail":{"code":"event_invalid","message":"older score rejected"}}"#.utf8))
+            } else {
+                proto.reply(200, try! JSONEncoder().encode(SyncResult(
+                    accepted: ids.count, duplicate: false, acceptedEventIds: ids
+                )))
+            }
+        })
+        defer {
+            syncClient.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        // This test intentionally uses the model's client session; the same URLProtocol handler
+        // serves the package and event calls.
+        let model = c33Model(store, syncClient)
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        try store.appendEvent(LiveRoundEvent(eventId: "older-score", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 1, kind: .score, payload: ["strokes": .number(5)]))
+        try store.appendEvent(LiveRoundEvent(eventId: "newer-score", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:01Z", hole: 1, kind: .score, payload: ["strokes": .number(4)]))
+        await model.syncPendingEvents()
+        XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).map { $0.event.eventId }, ["older-score"])
+        XCTAssertEqual(model.syncStatus, "第 1 洞成绩被服务器拒绝（older score rejected）")
+    }
+
     private func assertOneInvalidEventIsQuarantined(
         responseBody: String, invalidKind: LiveRoundEventKind = .club
     ) async throws {
@@ -181,7 +274,11 @@ final class C33EventTests: XCTestCase {
                 hole: invalidKind == .score ? index : 1, kind: invalidKind,
                 payload: invalidKind == .score
                     ? ["strokes": .number(2)]
-                    : ["clubName": .string("7I"), "strategyMode": .string(index == 3 ? "unknown-route" : "stock")]
+                : (invalidKind == .putt
+                    ? ["putts": .number(index == 3 ? 2 : 1)]
+                    : (invalidKind == .penalty
+                        ? ["penalties": .number(index == 3 ? 1 : 0)]
+                        : ["clubName": .string("7I"), "strategyMode": .string(index == 3 ? "unknown-route" : "stock")]))
             ))
         }
         await model.syncPendingEvents()
@@ -193,14 +290,19 @@ final class C33EventTests: XCTestCase {
         XCTAssertEqual(quarantined.first?.status, 422)
         if invalidKind == .score {
             XCTAssertEqual(quarantined.first?.event.payload["strokes"], .number(2))
-        } else {
+        } else if invalidKind == .club {
             XCTAssertEqual(quarantined.first?.event.payload["strategyMode"], .string("unknown-route"))
         }
         XCTAssertFalse(quarantined.first?.reason.isEmpty ?? true)
-        if invalidKind == .score {
-            XCTAssertTrue(quarantined.first?.reason.contains("hole 3: total 2") == true)
-            XCTAssertEqual(model.syncStatus, "第 3 洞成绩被服务器拒绝（hole 3: total 2 is less than putts 2 + penalties 0 + 1）")
-            XCTAssertEqual(model.localEventUploadStatus, "第 3 洞成绩被服务器拒绝（hole 3: total 2 is less than putts 2 + penalties 0 + 1）")
+        if invalidKind == .score || invalidKind == .putt || invalidKind == .penalty {
+            let label = invalidKind == .score ? "成绩" : (invalidKind == .putt ? "推杆" : "罚杆")
+            let hole = invalidKind == .score ? 3 : 1
+            let message = invalidKind == .penalty
+                ? "hole 1: total 2 is less than putts 2 + penalties 1 + 1"
+                : "hole \(hole): total 2 is less than putts 2 + penalties 0 + 1"
+            XCTAssertTrue(quarantined.first?.reason.contains("hole \(hole): total 2") == true)
+            XCTAssertEqual(model.syncStatus, "第 \(hole) 洞\(label)被服务器拒绝（\(message)）")
+            XCTAssertEqual(model.localEventUploadStatus, "第 \(hole) 洞\(label)被服务器拒绝（\(message)）")
         }
         XCTAssertEqual(try OfflineStore(directoryURL: directory).loadQuarantinedEvents(roundId: package.roundId), quarantined)
         XCTAssertEqual(try store.loadEvents().filter { $0.kind != .syncMarker }.count, 5)
