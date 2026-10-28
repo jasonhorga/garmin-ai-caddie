@@ -2168,8 +2168,8 @@ public struct StartRoundView: View {
     }
 
     /// Nearby discovery starts with a small, fast query. An empty or transiently failed first
-    /// pass expands to the catalogue radius; each radius gets one view-level retry so a timeout
-    /// cannot immediately paint the terminal failure state.
+    /// pass expands to the catalogue radius; the two-pass flow keeps a first timeout from painting
+    /// the terminal failure state while avoiding duplicate view-layer transport retries.
     static let nearbyInitialRadiusKm = 5
     static let nearbyExpandedRadiusKm = 50
     /// SyncClient owns transport retries. The view makes one 5 km request and, if needed, one
