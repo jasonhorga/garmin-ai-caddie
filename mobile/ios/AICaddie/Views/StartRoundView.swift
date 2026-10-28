@@ -30,12 +30,14 @@ public struct StartRoundView: View {
     public let isPreparing: Bool
     public let roundStartFailure: RoundStartFailure?
     public let roundStartProgressMessage: String?
+    public let roundStartSelection: RoundStartSelection?
     public let apiBaseURL: URL?
     public let adminTokenConfigured: Bool
     public let onPrepareRound: (String) -> Void
     /// Start a round: (roundId, teeBox, ordered loops) — B4b-2 `loops=`, one entry here.
     public let onPrepareCourseRound: (String, String, [RoundLoopEntry]) -> Void
     public let onRetryRoundStart: () async -> Void
+    public let onClearRoundStartFailure: () -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
     /// 还没有球场时的「连接 Garmin」CTA:由 app 注入(打开 Garmin 连接流程),拉取球场后就能记分。
@@ -109,11 +111,13 @@ public struct StartRoundView: View {
         isPreparing: Bool = false,
         roundStartFailure: RoundStartFailure? = nil,
         roundStartProgressMessage: String? = nil,
+        roundStartSelection: RoundStartSelection? = nil,
         apiBaseURL: URL? = nil,
         adminTokenConfigured: Bool = false,
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
         onRetryRoundStart: @escaping () async -> Void = {},
+        onClearRoundStartFailure: @escaping () -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onConnectGarmin: @escaping () -> Void = {},
@@ -157,11 +161,13 @@ public struct StartRoundView: View {
         self.isPreparing = isPreparing
         self.roundStartFailure = roundStartFailure
         self.roundStartProgressMessage = roundStartProgressMessage
+        self.roundStartSelection = roundStartSelection
         self.apiBaseURL = apiBaseURL
         self.adminTokenConfigured = adminTokenConfigured
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
         self.onRetryRoundStart = onRetryRoundStart
+        self.onClearRoundStartFailure = onClearRoundStartFailure
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onConnectGarmin = onConnectGarmin
@@ -233,6 +239,21 @@ public struct StartRoundView: View {
             teeOptions: teeOptions,
             selectedCourseWasManualSearch: selectedCourseWasManualSearch
         )
+    }
+
+    private var currentRoundStartSelection: RoundStartSelection? {
+        guard let selectedSegment else { return nil }
+        let course = selectedSegment.replacingTeeBox(teeBox)
+        let loops = usesCombinedLoops
+            ? StartRoundPresentation.combinedLoopEntries(selected: course)
+            : PrepCourseDownloadRecord(course: course).loops
+        return RoundStartSelection(globalId: course.globalId, teeBox: teeBox, loops: loops)
+    }
+
+    private var canRetryRoundStart: Bool {
+        roundStartFailure != nil
+            && roundStartFailure != .reauthentication
+            && currentRoundStartSelection == roundStartSelection
     }
 
     /// The primary action is independent of GPS. A manually searched course has explicit player
@@ -1058,6 +1079,7 @@ public struct StartRoundView: View {
         guard let first = StartRoundPresentation.preselectedLoop(
             in: row.segments, current: selectedSegment, recent: recentResolvedCourseOption
         ) else { return }
+        onClearRoundStartFailure()
         prepValidationFailed = false
         userPickedVenue = true
         selectedCourseWasManualSearch = Self.preservesManualSearchProvenance(
@@ -1210,6 +1232,7 @@ public struct StartRoundView: View {
 
     private func selectLoop(_ segment: MobileCourseOption) {
         guard String(segment.globalId) != courseGlobalIdText else { return }
+        onClearRoundStartFailure()
         prepValidationFailed = false
         userPickedVenue = true
         selectedCourseWasManualSearch = Self.preservesManualSearchProvenance(
@@ -1268,6 +1291,7 @@ public struct StartRoundView: View {
                 // Tee authority failed: the course default still starts; retry is an icon.
                 HStack(spacing: 12) {
                     Button {
+                        onClearRoundStartFailure()
                         prepValidationFailed = false
                         teeBox = "unknown"
                     } label: {
@@ -1321,6 +1345,7 @@ public struct StartRoundView: View {
     private func teeChip(_ tee: String) -> some View {
         let selected = tee.caseInsensitiveCompare(teeBox) == .orderedSame
         return Button {
+            onClearRoundStartFailure()
             prepValidationFailed = false
             teeBox = tee
             userPickedTee = true
@@ -1459,7 +1484,8 @@ public struct StartRoundView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("start-round-preparation-progress")
             }
-            if !isPreparing, !isOpeningPrepCourse, let roundStartFailure {
+            if !isPreparing, !isOpeningPrepCourse, canRetryRoundStart,
+               let roundStartFailure {
                 HStack(spacing: 10) {
                     Label(roundStartFailure.presentationMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
@@ -1474,6 +1500,14 @@ public struct StartRoundView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("start-round-preparation-error")
             } else if !isPreparing, !isOpeningPrepCourse,
+                      let roundStartFailure,
+                      roundStartFailure == .reauthentication {
+                Label(roundStartFailure.presentationMessage, systemImage: "person.crop.circle.badge.exclamationmark")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("start-round-preparation-error")
+            } else if !isPreparing, !isOpeningPrepCourse, roundStartFailure == nil,
                       let failure = Self.roundPreparationFailureMessage(from: syncStatus) {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
@@ -1603,6 +1637,7 @@ public struct StartRoundView: View {
     }
 
     private func applySelectedCourse(_ option: MobileCourseOption) {
+        onClearRoundStartFailure()
         if option.globalId != courseGlobalId {
             prepValidationFailed = false
         }
@@ -2228,6 +2263,7 @@ public struct StartRoundView: View {
 
     private func clearAutomaticSelection() {
         guard !userPickedVenue else { return }
+        onClearRoundStartFailure()
         courseGlobalIdText = ""
         roundId = defaultRoundId
         teeBox = ""

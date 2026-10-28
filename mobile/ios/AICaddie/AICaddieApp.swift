@@ -91,6 +91,7 @@ public struct AICaddieApp: App {
                         isPreparingRound: model.isPreparingRound,
                         roundStartFailure: model.roundStartFailure,
                         roundStartProgressMessage: model.roundStartProgressMessage,
+                        roundStartSelection: model.roundStartSelection,
                         isFinishingRound: model.isFinishingRound,
                         finishErrorMessage: model.finishErrorMessage,
                         onEvent: model.handleEvent,
@@ -106,6 +107,9 @@ public struct AICaddieApp: App {
                         },
                         onRetryRoundStart: {
                             await model.retryRoundStart()
+                        },
+                        onClearRoundStartFailure: {
+                            model.clearRoundStartFailure()
                         },
                         onSetSecondLoop: { entry, roundId in
                             Task {
@@ -319,20 +323,34 @@ public final class PrepCourseDownloadPresentationState: ObservableObject {
 public enum RoundStartFailure: Equatable {
     case timedOut
     case unavailable
+    case reauthentication
 
     public var presentationMessage: String {
         switch self {
         case .timedOut: return "服务器较慢，没能开始，点重试"
         case .unavailable: return "网络不可用，没能开始，点重试"
+        case .reauthentication: return "需重新登录后才能开始"
         }
     }
 }
 
 public enum RoundStartProgress {
     public static func message(after elapsed: TimeInterval) -> String? {
-        if elapsed >= 20 { return "服务器仍在准备，马上就好…" }
+        if elapsed >= 20 { return "服务器还在准备，最多再等十几秒" }
         if elapsed >= 8 { return "服务器在准备球场，稍等…" }
         return nil
+    }
+}
+
+public struct RoundStartSelection: Equatable {
+    public let globalId: Int
+    public let teeBox: String
+    public let loopsKey: String
+
+    public init(globalId: Int, teeBox: String, loops: [RoundLoopEntry]) {
+        self.globalId = globalId
+        self.teeBox = teeBox.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        self.loopsKey = RoundLoopEntry.loopKey(loops)
     }
 }
 
@@ -342,6 +360,11 @@ public final class LiveRoundAppModel: ObservableObject {
         if let urlError = error as? URLError, urlError.code == .timedOut {
             return .timedOut
         }
+        if case let SyncClientError.http(status, _) = error {
+            if status == 401 { return .reauthentication }
+            if (500...599).contains(status) { return .timedOut }
+        }
+        if error is DecodingError { return .timedOut }
         return .unavailable
     }
 
@@ -403,6 +426,7 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var adminToken: String?
     @Published public private(set) var roundStartFailure: RoundStartFailure?
     @Published public private(set) var roundStartProgressMessage: String?
+    @Published public private(set) var roundStartSelection: RoundStartSelection?
     @Published public private(set) var isPreparingRound = false
     @Published public private(set) var isFinishingRound = false
     @Published public private(set) var finishErrorMessage: String?
@@ -444,17 +468,45 @@ public final class LiveRoundAppModel: ObservableObject {
 
     private func completeRoundStartRequest() {
         pendingRoundStartRequest = nil
+        roundStartSelection = nil
+    }
+
+    public func clearRoundStartFailure() {
+        let hadRoundStartState = roundStartFailure != nil || roundStartSelection != nil
+        roundStartFailure = nil
+        pendingRoundStartRequest = nil
+        roundStartSelection = nil
+        if hadRoundStartState { syncStatus = "请选择球场后开始" }
+    }
+
+    private func reusableCapturedAt(for request: RoundStartRequest) -> Date {
+        let now = roundStartNow()
+        return now.timeIntervalSince(request.capturedAt) < 120 ? request.capturedAt : now
+    }
+
+    private func rememberRoundStartRequest(_ request: RoundStartRequest) {
+        pendingRoundStartRequest = request
+        roundStartSelection = request.selection
     }
 
     /// Retry the last failed request with its original round identity, tee, loops and capturedAt.
     public func retryRoundStart() async {
         guard let request = pendingRoundStartRequest else { return }
+        let capturedAt = reusableCapturedAt(for: request)
         switch request {
-        case let .course(globalId, roundId, teeBox, loops, capturedAt):
+        case let .course(globalId, roundId, teeBox, loops, _):
+            let request = RoundStartRequest.course(
+                globalId: globalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
+            )
+            rememberRoundStartRequest(request)
             await prepareCourseRound(
                 globalId: globalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
             )
-        case let .prep(course, roundId, teeBox, loops, capturedAt, hole):
+        case let .prep(course, roundId, teeBox, loops, _, hole):
+            let request = RoundStartRequest.prep(
+                course: course, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, hole: hole
+            )
+            rememberRoundStartRequest(request)
             _ = startPrepCourse(
                 course, roundId: roundId, teeBox: teeBox, loops: loops,
                 capturedAt: capturedAt, hole: hole
@@ -571,9 +623,26 @@ public final class LiveRoundAppModel: ObservableObject {
     private var roundStartProgressTask: Task<Void, Never>?
     private var activeRoundStartTask: Task<Void, Never>?
     private let roundStartProgressSleep: (UInt64) async throws -> Void
+    private let roundStartNow: () -> Date
     private enum RoundStartRequest {
         case course(globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date)
         case prep(course: MobileCourseOption, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date, hole: Int?)
+
+        var selection: RoundStartSelection {
+            switch self {
+            case let .course(globalId, _, teeBox, loops, _):
+                return RoundStartSelection(globalId: globalId, teeBox: teeBox, loops: loops)
+            case let .prep(course, _, teeBox, loops, _, _):
+                return RoundStartSelection(globalId: course.globalId, teeBox: teeBox, loops: loops)
+            }
+        }
+
+        var capturedAt: Date {
+            switch self {
+            case let .course(_, _, _, _, capturedAt), let .prep(_, _, _, _, capturedAt, _):
+                return capturedAt
+            }
+        }
     }
     private var pendingRoundStartRequest: RoundStartRequest?
     /// Courses picked on 开始一场 / 在这个球场 in this launch. Storage eviction keeps them even when
@@ -655,7 +724,8 @@ public final class LiveRoundAppModel: ObservableObject {
         syncClient: SyncClient? = nil,
         offlineGeometryRetryDelaysNanoseconds: [UInt64] = LiveRoundAppModel.defaultOfflineGeometryRetryDelaysNanoseconds,
         freshEntryReleaseFallbackNanoseconds: UInt64 = 20_000_000_000,
-        roundStartProgressSleep: @escaping (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
+        roundStartProgressSleep: @escaping (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) },
+        roundStartNow: @escaping () -> Date = { Date() }
     ) {
         self.init(
             offlineStore: offlineStore,
@@ -667,7 +737,8 @@ public final class LiveRoundAppModel: ObservableObject {
             syncClient: syncClient,
             offlineGeometryRetryDelaysNanoseconds: offlineGeometryRetryDelaysNanoseconds,
             freshEntryReleaseFallbackNanoseconds: freshEntryReleaseFallbackNanoseconds,
-            roundStartProgressSleep: roundStartProgressSleep
+            roundStartProgressSleep: roundStartProgressSleep,
+            roundStartNow: roundStartNow
         )
     }
 
@@ -682,7 +753,8 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineGeometryRetryDelaysNanoseconds: [UInt64] = LiveRoundAppModel.defaultOfflineGeometryRetryDelaysNanoseconds,
         freshEntryReleaseFallbackNanoseconds: UInt64 = 20_000_000_000,
         networkPathObserver: NetworkPathObserving? = NetworkPathObserver.live(),
-        roundStartProgressSleep: @escaping (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
+        roundStartProgressSleep: @escaping (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) },
+        roundStartNow: @escaping () -> Date = { Date() }
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
         let resolvedAdminToken = adminToken ?? Self.defaultAdminToken()
@@ -698,6 +770,7 @@ public final class LiveRoundAppModel: ObservableObject {
         self.offlineGeometryRetryDelaysNanoseconds = offlineGeometryRetryDelaysNanoseconds
         self.freshEntryReleaseFallbackNanoseconds = freshEntryReleaseFallbackNanoseconds
         self.roundStartProgressSleep = roundStartProgressSleep
+        self.roundStartNow = roundStartNow
         self.networkPathObserver = networkPathObserver
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map {
@@ -865,6 +938,10 @@ public final class LiveRoundAppModel: ObservableObject {
         clearFreshEntryRelease()
         roundPreparationToken = nil
         isPreparingRound = false
+        roundStartFailure = nil
+        pendingRoundStartRequest = nil
+        roundStartSelection = nil
+        stopRoundProgress()
         offlineStore.bindAccount(
             playerId: session.playerId,
             migrateLegacyData: migrateLegacyData
@@ -1494,6 +1571,7 @@ public final class LiveRoundAppModel: ObservableObject {
             syncStatus = "无法开始这一场,请重试"
             return
         }
+        clearRoundStartFailure()
         let preparedAt = Date()
         let preparationToken = beginRoundPreparation()
         defer { finishRoundPreparation(preparationToken) }
@@ -1552,12 +1630,24 @@ public final class LiveRoundAppModel: ObservableObject {
             syncStatus = "无法开始这一场,请重试"
             return
         }
-        let capturedAt = Date()
-        pendingRoundStartRequest = .course(
-            globalId: globalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
-        )
+        let selection = RoundStartSelection(globalId: globalId, teeBox: teeBox, loops: loops)
+        let now = roundStartNow()
+        let reusable: (roundId: String, capturedAt: Date)? = {
+            guard let pending = pendingRoundStartRequest,
+                  pending.selection == selection,
+                  now.timeIntervalSince(pending.capturedAt) < 120 else { return nil }
+            if case let .course(_, pendingRoundId, _, _, capturedAt) = pending {
+                return (pendingRoundId, capturedAt)
+            }
+            return nil
+        }()
+        let capturedAt = reusable?.capturedAt ?? now
+        let effectiveRoundId = reusable?.roundId ?? roundId
+        rememberRoundStartRequest(.course(
+            globalId: globalId, roundId: effectiveRoundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
+        ))
         await prepareCourseRound(
-            globalId: globalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
+            globalId: globalId, roundId: effectiveRoundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
         )
     }
 
@@ -1666,6 +1756,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 } else {
                     beginOfflineCourseDownload(revalidatePackage: true)
                 }
+                completeRoundStartRequest()
             } else if let local = installedRoundProjection(
                 loops,
                 roundId: requestedRoundId,
@@ -3475,6 +3566,7 @@ public final class LiveRoundAppModel: ObservableObject {
         let teeBox = current.course.teeBox
         let loops = [first.entry] + (entry.map { [$0] } ?? [])
         guard RoundLoopEntry.loopKey(loops) != current.loopKey else { return }
+        clearRoundStartFailure()
         let preparationToken = beginRoundPreparation()
         defer { finishRoundPreparation(preparationToken) }
         do {
@@ -3759,6 +3851,7 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingEventCount = 0
         quarantinedEventCount = 0
         finishErrorMessage = nil
+        clearRoundStartFailure()
         syncStatus = "本场已保存"
         if notifyWatch {
             watchBridge?.sendRoundClosureToWatch(
@@ -4043,6 +4136,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 pendingEventCount = 0
                 quarantinedEventCount = 0
                 finishErrorMessage = nil
+                clearRoundStartFailure()
                 syncStatus = "本场已放弃"
             }
         } catch {
@@ -4065,9 +4159,20 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         let record = PrepCourseDownloadRecord(course: course)
         let loops = record.loops
-        let roundId = StartRoundView.freshLiveRoundId(globalId: course.globalId)
-        let capturedAt = Date()
-        pendingRoundStartRequest = .prep(
+        let selection = RoundStartSelection(globalId: course.globalId, teeBox: record.teeBox, loops: loops)
+        let now = roundStartNow()
+        let reusable: (roundId: String, capturedAt: Date)? = {
+            guard let pending = pendingRoundStartRequest,
+                  pending.selection == selection,
+                  now.timeIntervalSince(pending.capturedAt) < 120 else { return nil }
+            if case let .prep(_, pendingRoundId, _, _, capturedAt, _) = pending {
+                return (pendingRoundId, capturedAt)
+            }
+            return nil
+        }()
+        let roundId = reusable?.roundId ?? StartRoundView.freshLiveRoundId(globalId: course.globalId)
+        let capturedAt = reusable?.capturedAt ?? now
+        rememberRoundStartRequest(.prep(
             course: course, roundId: roundId, teeBox: record.teeBox, loops: loops,
             capturedAt: capturedAt, hole: hole
         )
@@ -4099,9 +4204,12 @@ public final class LiveRoundAppModel: ObservableObject {
         let preparationToken = beginRoundPreparation()
         activeRoundStartTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            var preparationFinished = false
             defer {
                 self.isOpeningPrepCourse = false
-                self.finishRoundPreparation(preparationToken)
+                if !preparationFinished {
+                    self.finishRoundPreparation(preparationToken)
+                }
             }
             var opened = self.installedRoundProjection(
                 loops,
@@ -4118,7 +4226,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     loops: loops,
                     capturedAt: capturedAt,
                     preparationToken: preparationToken,
-                    priorityHole: hole ?? 1
+                    priorityHole: hole ?? 1,
+                    mapOnly: true
                 )
             }
             guard generation == self.prepOpenGeneration else { return }
@@ -4133,6 +4242,11 @@ public final class LiveRoundAppModel: ObservableObject {
             self.prepPriorityHole = hole ?? opened.holes.first?.number ?? 1
             self.prioritizePrepHole(hole ?? opened.holes.first?.number ?? 1)
             self.completeRoundStartRequest()
+            // Entering the map-only package is the foreground contract. Tee authority may continue
+            // in the background and must never keep the Start spinner or block the hole screen.
+            self.isOpeningPrepCourse = false
+            self.finishRoundPreparation(preparationToken)
+            preparationFinished = true
             let tees = await self.loadCourseTees(globalId: course.globalId)
             guard generation == self.prepOpenGeneration, !tees.isEmpty else { return }
             self.prepTeeOptions = Self.prepTeeOptions(tees.map(\.teeBox), selected: teeBox)
@@ -4168,7 +4282,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 teeBox: course.teeBox ?? prep.course.teeBox,
                 loops: prep.loopEntries,
                 capturedAt: Date(),
-                priorityHole: hole
+                priorityHole: hole,
+                mapOnly: true
             )
             guard !Task.isCancelled,
                   generation == self.prepOpenGeneration,
@@ -5334,10 +5449,23 @@ public final class LiveRoundAppModel: ObservableObject {
         mapOnly: Bool = false
     ) async -> LiveRoundPackage? {
         #if DEBUG
+        // Native UI coverage can hold the same foreground request long enough to exercise the
+        // truthful 8/20-second progress copy without changing production networking.
+        if preparationToken != nil,
+           let rawDelay = ProcessInfo.processInfo.environment["UITEST_COURSE_PACKAGE_DELAY_MS"],
+           let delayMilliseconds = UInt64(rawDelay),
+           delayMilliseconds > 0 {
+            do {
+                try await Task.sleep(nanoseconds: delayMilliseconds * 1_000_000)
+            } catch {
+                return nil
+            }
+        }
+        #endif
+        #if DEBUG
         // The course-package failure hook covers a start; a turn request (two loops) keeps
         // reaching the fixture server unless the whole live network is failed.
-        if (loops.count == 1
-            && ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] == "1")
+        if ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] == "1"
             || ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             if preparationToken == nil || preparationToken == roundPreparationToken {
                 if preparationToken != nil {
