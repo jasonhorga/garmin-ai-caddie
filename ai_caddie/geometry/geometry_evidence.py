@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 import math
+from collections import OrderedDict
 from typing import Any, Iterable, Literal
 
 from ai_caddie.core.data import ROOT, hazard_path, local_to_wgs84, mesh_path, read_json, wgs84_to_local
-from ai_caddie.geometry.measure_prodgeometry_distances import bind_selected_green_target
+from ai_caddie.geometry.measure_prodgeometry_distances import (
+    bind_selected_green_target,
+    mesh_point_to_local,
+    point_in_triangle,
+)
 
 GeometryCoverage = Literal["ready", "partial", "missing"]
 GCJ02_PROVIDERS = {"amap", "amap_gcj02", "gaode", "gaode_gcj02", "tencent", "baidu"}
@@ -59,6 +64,8 @@ SURFACE_KIND_ALIASES = {
 SURFACE_PRIORITY = ["water", "bunker", "green", "fairway", "rough", "tree_area", "teebox", "playable_bounds"]
 GENERIC_SURFACE_KINDS = {"mesh", "hazard", "surface", "feature"}
 ROUTE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
+_MESH_BBOX_CACHE: OrderedDict[tuple[int, int, int], tuple[float, float, float, float]] = OrderedDict()
+_MESH_BBOX_CACHE_LIMIT = 512
 
 
 def _display_path(path: Path) -> str:
@@ -291,13 +298,6 @@ def _mesh_surface_rows(meshes: dict[str, Any]) -> list[dict[str, Any]]:
         values = meshes.get(key)
         if isinstance(values, list):
             rows.extend(row for row in values if isinstance(row, dict))
-    # Production prodgeometry keeps decoded layers in ``meshes``.  A few older callers and
-    # fixtures pass a name -> mesh mapping instead, so retain that shape without making the
-    # classifier depend on a particular decoder wrapper.
-    if not rows and isinstance(meshes, dict):
-        for name, value in meshes.items():
-            if isinstance(value, dict) and (value.get("positions") is not None or value.get("faces") is not None):
-                rows.append({"name": name, **value})
     return rows
 
 
@@ -427,20 +427,36 @@ def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: st
     return None
 
 
-def _point_in_triangle(point: list[float], first: list[float], second: list[float], third: list[float]) -> bool:
-    """Inclusive 2-D point-in-triangle test in the shared local metre frame."""
-    def cross(a: list[float], b: list[float], p: list[float]) -> float:
-        return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
-
-    signs = [
-        cross(first, second, point),
-        cross(second, third, point),
-        cross(third, first, point),
-    ]
-    if max(signs) - min(signs) < 1e-9:
-        # A collinear/degenerate face has no area and must not turn every point into a match.
-        return False
-    return not (any(value < -1e-9 for value in signs) and any(value > 1e-9 for value in signs))
+def _mesh_row_bbox(row: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    positions = row.get("positions")
+    if not isinstance(positions, list):
+        return None
+    key = (id(row), id(positions), len(positions))
+    cached = _MESH_BBOX_CACHE.get(key)
+    if cached is not None:
+        _MESH_BBOX_CACHE.move_to_end(key)
+        return cached
+    projected = []
+    for vertex in positions:
+        if not isinstance(vertex, (list, tuple)) or len(vertex) < 3:
+            continue
+        try:
+            projected.append(mesh_point_to_local(vertex))
+        except (TypeError, ValueError, OverflowError):
+            continue
+    if not projected:
+        return None
+    bbox = (
+        min(point[0] for point in projected),
+        min(point[1] for point in projected),
+        max(point[0] for point in projected),
+        max(point[1] for point in projected),
+    )
+    _MESH_BBOX_CACHE[key] = bbox
+    _MESH_BBOX_CACHE.move_to_end(key)
+    while len(_MESH_BBOX_CACHE) > _MESH_BBOX_CACHE_LIMIT:
+        _MESH_BBOX_CACHE.popitem(last=False)
+    return bbox
 
 
 def _mesh_triangle_match(point: list[float], rows: list[dict[str, Any]], *, source: str) -> dict[str, Any] | None:
@@ -450,23 +466,20 @@ def _mesh_triangle_match(point: list[float], rows: list[dict[str, Any]], *, sour
         faces = row.get("faces")
         if not isinstance(positions, list) or not isinstance(faces, list):
             continue
+        bbox = _mesh_row_bbox(row)
+        if bbox is None or not (bbox[0] - 1e-9 <= point[0] <= bbox[2] + 1e-9 and bbox[1] - 1e-9 <= point[1] <= bbox[3] + 1e-9):
+            continue
         for face in faces:
             if not isinstance(face, (list, tuple)) or len(face) < 3:
                 continue
             try:
                 vertices = [positions[int(face[n])] for n in range(3)]
-                if not all(isinstance(vertex, (list, tuple)) and len(vertex) >= 2 for vertex in vertices):
+                if not all(isinstance(vertex, (list, tuple)) and len(vertex) >= 3 for vertex in vertices):
                     continue
-                # Garmin mesh vertices are [-local_x, elevation, local_y].  Two-dimensional
-                # rows are accepted for compact legacy fixtures and already use local x/y.
-                triangle = [
-                    ([-float(vertex[0]), float(vertex[2])] if len(vertex) >= 3 else
-                     [float(vertex[0]), float(vertex[1])])
-                    for vertex in vertices
-                ]
+                triangle = [mesh_point_to_local(vertex) for vertex in vertices]
             except (IndexError, TypeError, ValueError, OverflowError):
                 continue
-            if _point_in_triangle(point, triangle[0], triangle[1], triangle[2]):
+            if point_in_triangle(tuple(point), triangle[0], triangle[1], triangle[2]):
                 kind = _surface_kind(row, source)
                 matches.append(
                     {
@@ -519,7 +532,6 @@ def classify_shot_surface(
     meshes: dict[str, Any] | None = None,
     include_mesh_triangles: bool = False,
 ) -> dict[str, Any]:
-    del include_mesh_triangles  # C51-r2 wires the GIR-only path in the follow-up fix.
     hazards, meshes = _load_hole_sources(global_id, local_hole, meshes)
     ref_lat = hazards.get("refLat")
     ref_lon = hazards.get("refLon")
@@ -538,7 +550,12 @@ def classify_shot_surface(
     surface = {"kind": "unknown", "source": "none", "id": None}
     if point is not None:
         hazard_match = _surface_match(point, [row for row in hazards.get("hazards", []) or [] if isinstance(row, dict)], source="hazard")
-        mesh_match = _mesh_surface_match(point, _mesh_surface_rows(meshes))
+        rows = _mesh_surface_rows(meshes)
+        mesh_match = (
+            _mesh_surface_match(point, rows)
+            if include_mesh_triangles
+            else _surface_match(point, rows, source="mesh")
+        )
         if hazard_match:
             surface = hazard_match
         elif mesh_match:

@@ -101,7 +101,9 @@ class RoundIngestCoreTests(unittest.TestCase):
         )
         card = self._player_dir("p_friend") / "scorecards" / f"{result['id']}.json"
         hole = json.loads(card.read_text())["scorecardDetails"][0]["scorecard"]["holes"][0]
-        self.assertEqual(hole["putts"], 2)
+        # Shot-derived putts are used for GIR only; the scorecard putts cell remains
+        # absent because no putt event was entered (product spec 2.8).
+        self.assertNotIn("putts", hole)
         self.assertFalse(hole["gir"])
 
     def test_missing_putts_do_not_fill_zero_when_gir_is_undeterminable(self) -> None:
