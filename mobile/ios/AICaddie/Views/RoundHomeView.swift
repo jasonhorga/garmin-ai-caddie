@@ -1826,46 +1826,24 @@ public struct RoundHomeView: View {
     /// durable score/shot state, so the new-round entry only exists when neither state does.
     @ViewBuilder private var playSection: some View {
         if let deferredFinishRecovery {
-            HubDeferredFinishRecoveryCard(
-                recovery: deferredFinishRecovery,
-                onResume: onResumeDeferredFinish,
-                onDiscardRemoved: onDiscardRemovedDeferredFinish
-            )
+            VStack(alignment: .leading, spacing: 10) {
+                HubDeferredFinishRecoveryCard(
+                    recovery: deferredFinishRecovery,
+                    canResume: liveRoundState == nil || liveRoundState?.roundId == deferredFinishRecovery.roundId,
+                    onResume: onResumeDeferredFinish,
+                    onDiscardRemoved: onDiscardRemovedDeferredFinish
+                )
+                if liveRoundState != nil, liveRoundState?.roundId != deferredFinishRecovery.roundId {
+                    Text("当前还有另一场进行中的球局，请先结束后再重录第 \(deferredFinishRecovery.hole) 洞")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    inProgressPlayCard
+                }
+            }
         } else {
             switch heroState {
         case .inProgress:
-            if let liveRoundState, let package {
-                let activeHole = package.holes.contains(where: { $0.number == liveRoundState.activeHole })
-                    ? liveRoundState.activeHole
-                    : (package.holes.first?.number ?? liveRoundState.activeHole)
-                let scored = recordedScoreHoles
-                NavigationLink(value: HubRoute.hole(activeHole)) {
-                    HubInProgressCard(
-                        courseName: localizedCourseDisplayName(
-                            package.course.venueDisplayName,
-                            globalId: package.course.globalId
-                        ),
-                        // "继续第 N 洞" names the course's own hole (B4b-2 courseHoleNumber).
-                        activeHole: package.courseHoleNumber(forRoundHole: activeHole),
-                        recorded: scored.count,
-                        toPar: liveToPar(scoredHoles: scored),
-                        dots: HubHoleDot.loopDots(
-                            roundHoles: package.holes.map(\.number),
-                            activeHole: activeHole
-                        ) { hole in
-                            guard scored.contains(hole),
-                                  let state = liveRoundState.holeState(for: hole) else { return nil }
-                            return state.score - state.par
-                        }
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("home-in-progress-round")
-            } else if liveRoundState != nil {
-                // An active round whose package has not loaded yet (first launch, slow backend):
-                // keep the card and say so; the round's own card replaces it when the package lands.
-                HubInProgressLoadingCard()
-            }
+            inProgressPlayCard
         case .pendingWatch:
             if let pendingWatchRoundStart {
                 HubPendingWatchCard(
@@ -1878,6 +1856,38 @@ public struct RoundHomeView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home-new-round")
             }
+        }
+    }
+
+    @ViewBuilder private var inProgressPlayCard: some View {
+        if let liveRoundState, let package {
+            let activeHole = package.holes.contains(where: { $0.number == liveRoundState.activeHole })
+                ? liveRoundState.activeHole
+                : (package.holes.first?.number ?? liveRoundState.activeHole)
+            let scored = recordedScoreHoles
+            NavigationLink(value: HubRoute.hole(activeHole)) {
+                HubInProgressCard(
+                    courseName: localizedCourseDisplayName(
+                        package.course.venueDisplayName,
+                        globalId: package.course.globalId
+                    ),
+                    activeHole: package.courseHoleNumber(forRoundHole: activeHole),
+                    recorded: scored.count,
+                    toPar: liveToPar(scoredHoles: scored),
+                    dots: HubHoleDot.loopDots(
+                        roundHoles: package.holes.map(\.number),
+                        activeHole: activeHole
+                    ) { hole in
+                        guard scored.contains(hole),
+                              let state = liveRoundState.holeState(for: hole) else { return nil }
+                        return state.score - state.par
+                    }
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("home-in-progress-round")
+        } else if liveRoundState != nil {
+            HubInProgressLoadingCard()
         }
     }
 

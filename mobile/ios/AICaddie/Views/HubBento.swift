@@ -73,6 +73,7 @@ struct HubStartPlayCard: View {
 /// Recovery card for a deferred finish rejected after the round left the live screen.
 struct HubDeferredFinishRecoveryCard: View {
     let recovery: DeferredFinishRecovery
+    let canResume: Bool
     let onResume: () -> Bool
     let onDiscardRemoved: () -> Bool
     @State private var showingDiscardConfirmation = false
@@ -82,21 +83,27 @@ struct HubDeferredFinishRecoveryCard: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(HubBentoStyle.clay)
-                Text("第 \(recovery.hole) 洞记分被拒 · 去重录")
+                Text(recovery.holeAvailable
+                    ? "第 \(recovery.hole) 洞记分被拒 · 去重录"
+                    : "第 \(recovery.hole) 洞记分被拒 · 需处理")
                     .font(.title3.weight(.heavy))
             }
             Text(recovery.prompt)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            if recovery.holeAvailable {
+            if recovery.holeAvailable && canResume {
                 Button("去重录") {
                     _ = onResume()
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(HubBentoStyle.deepGreen)
                 .accessibilityIdentifier("home-deferred-finish-recovery-action")
+            } else if recovery.holeAvailable {
+                Text("当前还有另一场进行中的球局，请先结束后再重录")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
             } else {
-                Text("第 \(recovery.hole) 洞已从当前球局移除，请恢复该九洞后再处理")
+                Text("第 \(recovery.hole) 洞已从当前球局移除，该洞成绩不会上传")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(HubBentoStyle.clay)
                 Button("丢弃该洞被拒记录") {
@@ -111,10 +118,9 @@ struct HubDeferredFinishRecoveryCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("home-deferred-finish-recovery")
         .confirmationDialog(
-            "丢弃第 \(recovery.hole) 洞被拒记录？",
+            "丢弃第 \(recovery.hole) 洞被拒记录？该洞成绩不会上传，继续结束本场？",
             isPresented: $showingDiscardConfirmation,
             titleVisibility: .visible
         ) {

@@ -476,6 +476,15 @@ public final class LiveRoundAppModel: ObservableObject {
     @discardableResult
     public func resumeDeferredFinishForEditing() -> Bool {
         guard let recovery = deferredFinishRecovery else { return false }
+        if let active = liveRoundState, active.roundId != recovery.roundId {
+            finishErrorMessage = "当前还有另一场进行中的球局，请先结束后再重录"
+            syncStatus = finishErrorMessage ?? "请先结束当前球局"
+            return false
+        }
+        deferredRoundFinishRetryRequested = false
+        deferredRoundFinishTask?.cancel()
+        deferredRoundFinishTask = nil
+        deferredRoundFinishGeneration = UUID()
         do {
             guard let sealed = try offlineStore.loadRoundPackage(roundId: recovery.roundId) else {
                 throw URLError(.fileDoesNotExist)
@@ -484,8 +493,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 // A deliberate nine-hole edit may have removed the rejected hole. Do not call
                 // setActiveHole (which would silently no-op); leave the ledger sealed and explain
                 // the required recovery to the player.
-                finishErrorMessage = "第 \(recovery.hole) 洞已从当前球局移除，请恢复该九洞后再处理"
-                syncStatus = finishErrorMessage ?? "请恢复该九洞后再处理"
+                finishErrorMessage = "第 \(recovery.hole) 洞已从当前球局移除，该洞成绩不会上传"
+                syncStatus = finishErrorMessage ?? "该洞成绩不会上传"
                 return false
             }
             let restored = try offlineStore.resumeDeferredRoundFinish(roundId: recovery.roundId)
@@ -523,13 +532,9 @@ public final class LiveRoundAppModel: ObservableObject {
             let records = try offlineStore.loadQuarantinedEvents(roundId: recovery.roundId)
             let ids = Set(records.filter { $0.event.hole == recovery.hole }.map { $0.event.eventId })
             guard !ids.isEmpty else { return false }
-            // Advance the local acknowledgement watermark for the explicitly discarded facts so
-            // removing their diagnostics cannot put the old events back into the pending outbox.
-            try offlineStore.appendSyncMarker(
-                roundId: recovery.roundId,
-                timestamp: ISO8601DateFormatter().string(from: Date()),
-                result: SyncResult(accepted: ids.count, duplicate: false, acceptedEventIds: Array(ids))
-            )
+            // The rejected facts already sit before the durable sync marker that quarantined them.
+            // Removing only the diagnostics preserves any later pending tail (including late Watch
+            // facts) for the deferred uploader.
             try offlineStore.removeQuarantinedEvents(roundId: recovery.roundId, ids: ids)
             deferredFinishRecovery = nil
             finishErrorMessage = nil
@@ -674,6 +679,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private var deferredRoundFinishTask: Task<Void, Never>?
     private var deferredRoundFinishGeneration: UUID?
     private var deferredRoundFinishRetryRequested = false
+    private var pendingReplacementSyncTask: Task<Void, Never>?
     private var offlineCourseDownloadTask: Task<Void, Never>?
     /// Package-level geometry retries are server-scheduled by `retryAfterEpoch`; they never spin
     /// while a hole is pending and are cancelled as soon as the active round changes.
@@ -1057,6 +1063,8 @@ public final class LiveRoundAppModel: ObservableObject {
         deferredRoundFinishTask = nil
         deferredRoundFinishGeneration = nil
         deferredRoundFinishRetryRequested = false
+        pendingReplacementSyncTask?.cancel()
+        pendingReplacementSyncTask = nil
         cancelGarminLifecycleTasks()
         abandonResultsCacheRefresh(retryLater: false)
         resultsCacheRefreshPending = false
@@ -2500,6 +2508,8 @@ public final class LiveRoundAppModel: ObservableObject {
     /// in an invalidated session raises NSGenericException and takes the whole test process down).
     func stopRoundBackgroundWorkForTesting() async {
         roundBackgroundWorkStoppedForTesting = true
+        pendingReplacementSyncTask?.cancel()
+        pendingReplacementSyncTask = nil
         let running = [
             roundEnrichmentTask,
             prepEnrichmentTask,
@@ -3920,6 +3930,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 let finishedPackage = try offlineStore.loadRoundPackage(roundId: record.roundId)
                 _ = try await syncPendingMedia(roundId: record.roundId)
                 guard !Task.isCancelled, boundPlayerId == playerScope else { return }
+                guard try offlineStore.isRoundPendingFinish(record.roundId) else { continue }
                 guard try offlineStore.loadPendingMedia(roundId: record.roundId).isEmpty else {
                     throw LiveRoundFinishError.pendingMedia
                 }
@@ -3932,6 +3943,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     )
                 }
                 guard !Task.isCancelled, boundPlayerId == playerScope else { return }
+                guard try offlineStore.isRoundPendingFinish(record.roundId) else { continue }
                 guard try offlineStore.loadPendingEvents(roundId: record.roundId).isEmpty,
                       try offlineStore.loadPendingMedia(roundId: record.roundId).isEmpty else {
                     throw LiveRoundFinishError.incompleteAcknowledgement
@@ -3955,6 +3967,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     metadata: record.metadata
                 )
                 guard !Task.isCancelled, boundPlayerId == playerScope else { return }
+                guard try offlineStore.isRoundPendingFinish(record.roundId) else { continue }
                 let refreshedHome: LiveRoundPackage? = if let finishedPackage,
                     let loops = finishedPackage.wholeCourseEntries(
                         globalId: finishedPackage.course.globalId
@@ -4115,11 +4128,19 @@ public final class LiveRoundAppModel: ObservableObject {
         let status = networkState.isSatisfied ? "正在同步" : "等待联网"
         syncStatus = status
         localEventUploadStatus = status
-        Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             await Task.yield()
             await self?.syncPendingEvents()
         }
+        pendingReplacementSyncTask = task
     }
+
+    #if DEBUG
+    func waitForPendingReplacementSyncForTesting() async {
+        await pendingReplacementSyncTask?.value
+        pendingReplacementSyncTask = nil
+    }
+    #endif
 
     /// Activate a round created on the Watch even when the phone was asleep or the Watch had no
     /// qualified GPS fix. The Watch's compact start fact is idempotent; the phone owns the richer
@@ -4301,7 +4322,9 @@ public final class LiveRoundAppModel: ObservableObject {
             }
         } catch {
             AICaddieLog.storage.error("Watch-finished round cleanup failed: \(String(describing: error), privacy: .public)")
-            finishErrorMessage = "手表已结束，本机记录仍保留"
+            if !(error is LiveRoundFinishError) {
+                finishErrorMessage = "手表已结束，本机记录仍保留"
+            }
         }
     }
 
@@ -4352,8 +4375,7 @@ public final class LiveRoundAppModel: ObservableObject {
             try clearFinishedRoundLocally(roundId: roundId, notifyWatch: false)
         } catch {
             AICaddieLog.storage.error("Watch-finished round reconciliation failed: \(String(describing: error), privacy: .public)")
-            if !(error is LiveRoundFinishError),
-               finishErrorMessage?.contains("被服务器拒绝") != true {
+            if !(error is LiveRoundFinishError) {
                 finishErrorMessage = "手表已结束，本机记录仍保留"
             }
         }
@@ -6502,6 +6524,12 @@ public final class LiveRoundAppModel: ObservableObject {
         networkState = state
         applySpeculativeDownloadPolicy()
     }
+
+    #if DEBUG
+    func setNetworkStateForTesting(_ state: SpeculativeNetworkState) {
+        networkStateChanged(state)
+    }
+    #endif
 
     /// 设置 → "用蜂窝网络预下载球场" changed.
     public func speculativePrefetchSettingChanged() {
