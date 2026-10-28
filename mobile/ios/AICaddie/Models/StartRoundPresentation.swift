@@ -33,6 +33,12 @@ enum StartRoundPresentation {
         return downloads.filter { seen.insert($0.course.globalId).inserted }
     }
 
+    /// Visible offline rows. C134 fills in venue-level cleanup; this initial implementation keeps
+    /// the pre-card global-id behaviour so the product test is a genuine behavioural red.
+    static func offlineRows(_ downloads: [PrepCourseDownloadRecord]) -> [PrepCourseDownloadRecord] {
+        recentRows(downloads.filter { !$0.isSpeculative })
+    }
+
     static func recentRowSubtitle(_ download: PrepCourseDownloadRecord) -> String {
         guard let tee = teeShortLabel(download.teeBox) else {
             return download.course.segmentDisplayTitle

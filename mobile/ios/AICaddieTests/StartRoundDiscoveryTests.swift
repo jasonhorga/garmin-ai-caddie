@@ -657,8 +657,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertTrue(common("blue", true))
         // C87: the course default needs no Tee list, so a nearby course starts on it as well.
         XCTAssertTrue(common("unknown", false))
-        // A concrete colour on a nearby course still waits for the Tee list that names it.
-        XCTAssertFalse(common("blue", false))
+        // C134: a concrete cached/default colour must keep Start usable while /tees is slow.
+        XCTAssertTrue(common("blue", false))
     }
 
     func testNearbyRowCarryingTeesShowsThemAtOnceWithoutATeesRequest() throws {
@@ -1275,6 +1275,30 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertEqual(rows[0].holes, 27)
         XCTAssertEqual(rows[1].holes, 18)
         XCTAssertEqual(rows[0].id, 9101)
+    }
+
+    /// J4.1/C134: the offline section is one physical venue even when old rows used one global id
+    /// per loop.  A ready row is the useful representative for the visible status.
+    func testOfflineRowsCollapseLoopsByPhysicalVenue() {
+        let first = PrepCourseDownloadRecord(
+            course: loop(9101, venue: "愉景灣高爾夫球會", label: "A"),
+            teeBox: "blue", phase: .downloading, downloadedHoles: 3, totalHoles: 9,
+            updatedAt: Date(timeIntervalSince1970: 200)
+        )
+        let second = PrepCourseDownloadRecord(
+            course: loop(9102, venue: "愉景灣高爾夫球會", label: "B"),
+            teeBox: "blue", phase: .ready, preparedHoles: 9, downloadedHoles: 9, totalHoles: 9,
+            updatedAt: Date(timeIntervalSince1970: 100)
+        )
+        let orphan = PrepCourseDownloadRecord(
+            course: loop(9103, venue: "奥地利球场", label: "A"),
+            teeBox: "blue", phase: .queued, isSpeculative: true,
+            updatedAt: Date(timeIntervalSince1970: 300)
+        )
+        let rows = StartRoundPresentation.offlineRows([first, second, orphan])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.course.venueDisplayName, "愉景灣高爾夫球會")
+        XCTAssertEqual(rows.first?.phase, .ready)
     }
 
     func testCourseListKeepsTheRecentCourseWhenNearbyOmitsIt() {
