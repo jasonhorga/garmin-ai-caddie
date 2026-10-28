@@ -1530,9 +1530,12 @@ public struct StartRoundView: View {
             if failurePresentation == .retry,
                let roundStartFailure {
                 HStack(spacing: 10) {
+                    // The identifier sits on the Label, not the HStack: a stack is not an
+                    // accessibility element, so its identifier would overwrite the retry button's.
                     Label(roundStartFailure.presentationMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
+                        .accessibilityIdentifier("start-round-preparation-error")
                     Spacer(minLength: 0)
                     Button("重试") {
                         Task { await onRetryRoundStart() }
@@ -1541,7 +1544,6 @@ public struct StartRoundView: View {
                     .accessibilityIdentifier("start-round-retry")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("start-round-preparation-error")
             } else if failurePresentation == .message,
                       let roundStartFailure {
                 Label(
