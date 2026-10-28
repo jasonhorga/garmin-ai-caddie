@@ -189,7 +189,11 @@ final class C33EventTests: XCTestCase {
         let quarantined = try store.loadQuarantinedEvents(roundId: package.roundId)
         XCTAssertEqual(quarantined.map { $0.event.eventId }, ["e3"])
         XCTAssertEqual(quarantined.first?.status, 422)
-        XCTAssertEqual(quarantined.first?.event.payload["strategyMode"], .string("unknown-route"))
+        if invalidKind == .score {
+            XCTAssertEqual(quarantined.first?.event.payload["strokes"], .number(2))
+        } else {
+            XCTAssertEqual(quarantined.first?.event.payload["strategyMode"], .string("unknown-route"))
+        }
         XCTAssertFalse(quarantined.first?.reason.isEmpty ?? true)
         if invalidKind == .score {
             XCTAssertTrue(quarantined.first?.reason.contains("hole 1: total 2") == true)
