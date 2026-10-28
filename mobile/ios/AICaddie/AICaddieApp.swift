@@ -3696,8 +3696,9 @@ public final class LiveRoundAppModel: ObservableObject {
             if let blocked = quarantined.first(where: { Self.isScoringEvent($0.event) }) {
                 setActiveHole(blocked.event.hole)
                 let prompt = Self.scoringRejectionPrompt(for: blocked)
-                finishErrorMessage = "\(prompt)，请重新录入后再结束球局"
-                syncStatus = "结束已暂停 · \(prompt)"
+                let suffix = try quarantineFinishSuffix(for: blocked, roundId: package.roundId)
+                finishErrorMessage = "\(prompt)\(suffix)"
+                syncStatus = "结束已暂停 · \(prompt)\(suffix)"
                 return false
             }
             let events = try offlineStore.loadEvents().filter { $0.roundId == package.roundId }
@@ -3807,7 +3808,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 if let blockedHole = try blockingQuarantineHole(roundId: record.roundId) {
                     let blocked = try offlineStore.loadQuarantinedEvents(roundId: record.roundId)
                         .first(where: { Self.isScoringEvent($0.event) && $0.event.hole == blockedHole })
-                    syncStatus = "结束已暂停 · \(blocked.map(Self.scoringRejectionPrompt) ?? "第 \(blockedHole) 洞记分记录上传被拒，请重新录入")"
+                    let prompt = blocked.map(Self.scoringRejectionPrompt)
+                        ?? "第 \(blockedHole) 洞记分记录上传被拒"
+                    let suffix = try quarantineFinishSuffix(for: blocked, roundId: record.roundId)
+                    syncStatus = "结束已暂停 · \(prompt)\(suffix)"
                     throw LiveRoundFinishError.blockedByQuarantine
                 }
                 try await syncClient.finishRound(
@@ -3828,7 +3832,10 @@ public final class LiveRoundAppModel: ObservableObject {
                 if let blockedHole = try blockingQuarantineHole(roundId: record.roundId) {
                     let blocked = try offlineStore.loadQuarantinedEvents(roundId: record.roundId)
                         .first(where: { Self.isScoringEvent($0.event) && $0.event.hole == blockedHole })
-                    syncStatus = "结束已暂停 · \(blocked.map(Self.scoringRejectionPrompt) ?? "第 \(blockedHole) 洞记分记录上传被拒，请重新录入")"
+                    let prompt = blocked.map(Self.scoringRejectionPrompt)
+                        ?? "第 \(blockedHole) 洞记分记录上传被拒"
+                    let suffix = try quarantineFinishSuffix(for: blocked, roundId: record.roundId)
+                    syncStatus = "结束已暂停 · \(prompt)\(suffix)"
                     throw LiveRoundFinishError.blockedByQuarantine
                 }
                 try offlineStore.discardRound(roundId: record.roundId)
@@ -3864,8 +3871,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 .first(where: { Self.isScoringEvent($0.event) && $0.event.hole == blockedHole })
             if let blocked { setActiveHole(blocked.event.hole) }
             let prompt = blocked.map(Self.scoringRejectionPrompt) ?? "第 \(blockedHole) 洞记分记录上传被拒"
-            finishErrorMessage = "\(prompt)，请重新录入后再结束球局"
-            syncStatus = "结束已暂停 · \(prompt)"
+            let suffix = try quarantineFinishSuffix(for: blocked, roundId: roundId)
+            finishErrorMessage = "\(prompt)\(suffix)"
+            syncStatus = "结束已暂停 · \(prompt)\(suffix)"
             throw LiveRoundFinishError.blockedByQuarantine
         }
         let homePackage = package
@@ -3899,6 +3907,28 @@ public final class LiveRoundAppModel: ObservableObject {
         try offlineStore.loadQuarantinedEvents(roundId: roundId).first {
             Self.isScoringEvent($0.event)
         }?.event.hole
+    }
+
+    private func quarantineFinishSuffix(
+        for record: QuarantinedLiveEvent?, roundId: String
+    ) throws -> String {
+        guard let record, Self.isScoringEvent(record.event) else {
+            return "，请重新录入后再结束球局"
+        }
+        let eventOrder = try localEventOrder()
+        let rejectedPosition = eventOrder[record.event.eventId]
+        let hasPendingReplacement = try offlineStore.loadPendingEvents(roundId: roundId).contains { event in
+            guard Self.isScoringEvent(event), event.hole == record.event.hole,
+                  event.kind == record.event.kind else { return false }
+            if let acceptedPosition = eventOrder[event.eventId],
+               let rejectedPosition = rejectedPosition {
+                return acceptedPosition > rejectedPosition
+            }
+            return event.timestamp > record.event.timestamp
+        }
+        return hasPendingReplacement
+            ? "，正在同步/等待联网后再结束球局"
+            : "，请重新录入后再结束球局"
     }
 
     /// Activate a round created on the Watch even when the phone was asleep or the Watch had no
@@ -5134,17 +5164,15 @@ public final class LiveRoundAppModel: ObservableObject {
         // a durable position even when device timestamps tie or arrive out of wall-clock order.
         let acceptedIDs = Set(result.acceptedEventIds + result.duplicateEventIds)
         if !acceptedIDs.isEmpty {
-            let eventOrder = Dictionary(
-                uniqueKeysWithValues: (try offlineStore.loadEvents()).enumerated().map { ($0.element.eventId, $0.offset) }
-            )
+            let eventOrder = try localEventOrder()
             let acceptedScoring = events.filter {
                 acceptedIDs.contains($0.eventId) && Self.isScoringEvent($0)
             }
             let replacementIDs = Set(try offlineStore.loadQuarantinedEvents(roundId: roundId)
                 .filter { rejected in
                     guard Self.isScoringEvent(rejected.event),
-                          let accepted = acceptedScoring.first(where: {
-                              $0.hole == rejected.event.hole
+                          let accepted = acceptedScoring.last(where: {
+                              $0.hole == rejected.event.hole && $0.kind == rejected.event.kind
                           }) else { return false }
                     if let acceptedPosition = eventOrder[accepted.eventId],
                        let rejectedPosition = eventOrder[rejected.event.eventId] {
@@ -5184,6 +5212,13 @@ public final class LiveRoundAppModel: ObservableObject {
             result: result
         )
         return result
+    }
+
+    private func localEventOrder() throws -> [String: Int] {
+        Dictionary(
+            (try offlineStore.loadEvents()).enumerated().map { ($0.element.eventId, $0.offset) },
+            uniquingKeysWith: { _, latest in latest }
+        )
     }
 
     private func retrySanitizedQuarantine(
@@ -5306,7 +5341,7 @@ public final class LiveRoundAppModel: ObservableObject {
         struct ProbeResult {
             let result: SyncResult
             let invalid: [LiveRoundEvent]
-                    let invalidReasons: [String: String]
+            let invalidReasons: [String: String]
             let allInvalid: Bool
         }
         func probe(_ groups: [[LiveRoundEvent]]) async throws -> ProbeResult {
@@ -5329,8 +5364,13 @@ public final class LiveRoundAppModel: ObservableObject {
                     return ProbeResult(
                         result: SyncResult(accepted: 0, duplicate: false),
                         invalid: batch,
-                        invalidReasons: [batch[0].eventId: Self.singleEventValidationMessage(body)
-                            ?? "单条事件 payload 校验失败"],
+                        invalidReasons: Dictionary(
+                            batch.map { event in
+                                (event.eventId, Self.singleEventValidationMessage(body)
+                                    ?? "单条事件 payload 校验失败")
+                            },
+                            uniquingKeysWith: { _, latest in latest }
+                        ),
                         allInvalid: true
                     )
                 }
