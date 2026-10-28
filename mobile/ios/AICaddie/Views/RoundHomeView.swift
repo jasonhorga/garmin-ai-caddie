@@ -653,6 +653,7 @@ public struct RoundHomeView: View {
     public let onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void
     public let onFinishRound: () async -> Bool
     public let onResumeDeferredFinish: () -> Bool
+    public let onDiscardRemovedDeferredFinish: () -> Bool
     public let onDiscardRound: () -> Void
     public let onSetActiveHole: (Int) -> Void
     public let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
@@ -794,6 +795,7 @@ public struct RoundHomeView: View {
         onContinueIntoSecondLoop: @escaping (RoundLoopEntry, String) -> Void = { _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
         onResumeDeferredFinish: @escaping () -> Bool = { false },
+        onDiscardRemovedDeferredFinish: @escaping () -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
@@ -877,6 +879,7 @@ public struct RoundHomeView: View {
         self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
         self.onFinishRound = onFinishRound
         self.onResumeDeferredFinish = onResumeDeferredFinish
+        self.onDiscardRemovedDeferredFinish = onDiscardRemovedDeferredFinish
         self.onDiscardRound = onDiscardRound
         self.onSetActiveHole = onSetActiveHole
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
@@ -1825,7 +1828,8 @@ public struct RoundHomeView: View {
         if let deferredFinishRecovery {
             HubDeferredFinishRecoveryCard(
                 recovery: deferredFinishRecovery,
-                onResume: onResumeDeferredFinish
+                onResume: onResumeDeferredFinish,
+                onDiscardRemoved: onDiscardRemovedDeferredFinish
             )
         } else {
             switch heroState {

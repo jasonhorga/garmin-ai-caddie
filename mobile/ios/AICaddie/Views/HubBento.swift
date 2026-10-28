@@ -74,6 +74,8 @@ struct HubStartPlayCard: View {
 struct HubDeferredFinishRecoveryCard: View {
     let recovery: DeferredFinishRecovery
     let onResume: () -> Bool
+    let onDiscardRemoved: () -> Bool
+    @State private var showingDiscardConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -96,6 +98,11 @@ struct HubDeferredFinishRecoveryCard: View {
                 Text("第 \(recovery.hole) 洞已从当前球局移除，请恢复该九洞后再处理")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(HubBentoStyle.clay)
+                Button("丢弃该洞被拒记录") {
+                    showingDiscardConfirmation = true
+                }
+                .buttonStyle(.bordered)
+                .tint(HubBentoStyle.clay)
             }
         }
         .padding(18)
@@ -104,6 +111,16 @@ struct HubDeferredFinishRecoveryCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("home-deferred-finish-recovery")
+        .confirmationDialog(
+            "丢弃第 \(recovery.hole) 洞被拒记录？",
+            isPresented: $showingDiscardConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("丢弃记录", role: .destructive) {
+                _ = onDiscardRemoved()
+            }
+            Button("取消", role: .cancel) {}
+        }
     }
 }
 

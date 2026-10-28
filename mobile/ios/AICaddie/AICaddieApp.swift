@@ -128,6 +128,9 @@ public struct AICaddieApp: App {
                         onResumeDeferredFinish: {
                             model.resumeDeferredFinishForEditing()
                         },
+                        onDiscardRemovedDeferredFinish: {
+                            model.discardRemovedDeferredFinishRejection()
+                        },
                         onDiscardRound: {
                             model.discardActiveRound()
                         },
@@ -506,6 +509,28 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.storage.error("Deferred finish recovery failed: \(String(describing: error), privacy: .public)")
             finishErrorMessage = "本场暂时无法恢复，请稍后重试"
             syncStatus = finishErrorMessage ?? "本场暂时无法恢复"
+            return false
+        }
+    }
+
+    /// Explicitly discard a rejected scoring diagnostic whose hole was removed from the current
+    /// nine-hole package. This is confirmation-gated in the Hub because it lets the deferred finish
+    /// proceed without that hole's rejected fact.
+    @discardableResult
+    public func discardRemovedDeferredFinishRejection() -> Bool {
+        guard let recovery = deferredFinishRecovery, !recovery.holeAvailable else { return false }
+        do {
+            let records = try offlineStore.loadQuarantinedEvents(roundId: recovery.roundId)
+            let ids = Set(records.filter { $0.event.hole == recovery.hole }.map { $0.event.eventId })
+            guard !ids.isEmpty else { return false }
+            try offlineStore.removeQuarantinedEvents(roundId: recovery.roundId, ids: ids)
+            deferredFinishRecovery = nil
+            finishErrorMessage = nil
+            syncStatus = "已丢弃第 \(recovery.hole) 洞被拒记录，正在结束球局"
+            retryDeferredRoundFinishes()
+            return true
+        } catch {
+            finishErrorMessage = "被拒记录暂时无法丢弃，请稍后重试"
             return false
         }
     }
