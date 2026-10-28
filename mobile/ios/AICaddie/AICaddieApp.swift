@@ -5194,6 +5194,14 @@ public final class LiveRoundAppModel: ObservableObject {
         guard let body else { return false }
         if let data = body.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let detail = object["detail"] as? [String: Any],
+           detail.keys.contains("code") {
+            // A present code is authoritative, even if unknown/null and the message says payload.
+            return detail["code"] as? String == "event_invalid"
+        }
+        // Legacy fallback: remove after this server change has been deployed for one TF version.
+        if let data = body.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let details = object["detail"] as? [[String: Any]] {
             guard !details.isEmpty else { return false }
             return details.allSatisfy { item in

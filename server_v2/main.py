@@ -405,6 +405,26 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
             {"path": ".".join(str(part) for part in row["loc"]), "type": row["type"]}
             for row in detail
         ])
+        # A record-local schema/payload error is isolatable. Header, batch, and round identity
+        # failures remain batch errors, including requests containing both error categories.
+        body = exc.body if isinstance(exc.body, dict) else {}
+        path_round = _request.path_params.get("round_id")
+        events = body.get("events")
+        same_round = body.get("roundId") == path_round and isinstance(events, list) and all(
+            not isinstance(event, dict) or event.get("roundId") == path_round for event in events
+        )
+        if same_round and detail and all(
+            len(row["loc"]) >= 3
+            and row["loc"][:2] == ["body", "events"]
+            and type(row["loc"][2]) is int
+            and "roundId" not in row["loc"][3:]
+            for row in detail
+        ):
+            return JSONResponse({"detail": {
+                "code": "event_invalid",
+                "message": "; ".join(str(row["msg"]) for row in detail),
+                "errors": detail,
+            }}, status_code=422)
     return JSONResponse({"detail": detail}, status_code=422)
 
 

@@ -31,7 +31,10 @@ class MobileEventInvalidCodeTests(unittest.TestCase):
             {"kind": "club", "payload": {"clubName": "7I", "targetLatitude": 40}},
             {"kind": "club", "payload": {"clubName": "7I", "targetLatitude": 91,
                                          "targetLongitude": 0, "targetKind": "pin"}},
-            {"eventId": ""}, {"timestamp": "not-a-date"}, {"hole": 0},
+            {"kind": "photo", "payload": {"mediaId": "photo-1", "mediaType": "video"}},
+            {"kind": "club", "payload": {"clubName": "7I", "actualShot": "not-an-object"}},
+            {"kind": "sync_marker", "payload": {"status": "synced", "acceptedEventIds": "event-1"}},
+            {"schema": "unknown"}, {"eventId": ""}, {"timestamp": "not-a-date"}, {"hole": 0},
             {"kind": "unknown"}, {"payload": []}, {"startHole": 28},
         ]
         for changes in cases:
@@ -51,6 +54,9 @@ class MobileEventInvalidCodeTests(unittest.TestCase):
             ([{**self.event, "roundId": "other-round"}], None, "code-round"),
             ([{**self.event, "roundId": ""}], None, "code-round"),
             ([{**self.event, "payload": {}}], {}, "code-round"),
+            ([{**self.event, "payload": {}}], None, "other-round"),
+            ([{**self.event, "roundId": "other-round", "payload": {}}], None, "code-round"),
+            (None, None, "code-round"),
         ]:
             with self.subTest(events=events, headers=headers, round_id=round_id), TemporaryDirectory() as tmp, patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)):
                 response = self.post(events, headers=headers, round_id=round_id)

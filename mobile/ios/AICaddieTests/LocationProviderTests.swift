@@ -70,6 +70,18 @@ final class LocationProviderTests: XCTestCase {
         XCTAssertNil(provider.latestFix)
     }
 
+    func testProductSpec513CaptureRetainsMillisecondsThroughTheProvider() throws {
+        let provider = LocationProvider()
+        let timestamp = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 1 + 0.375)
+        provider.locationManager(CLLocationManager(), didUpdateLocations: [CLLocation(
+            coordinate: CLLocationCoordinate2D(latitude: 40, longitude: 116),
+            altitude: 0, horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: timestamp
+        )])
+        let fix = try XCTUnwrap(provider.latestFix)
+        let decoded = try XCTUnwrap(PrepHoleFollowingState.sampleDate(fix.capturedAt))
+        XCTAssertEqual(decoded.timeIntervalSince1970, timestamp.timeIntervalSince1970, accuracy: 0.001)
+    }
+
     private func location(
         latitude: Double = 40,
         longitude: Double = 116,

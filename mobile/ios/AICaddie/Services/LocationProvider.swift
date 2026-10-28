@@ -11,7 +11,13 @@ public struct LocationFix {
 
 public final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager: CLLocationManager
-    private let formatter = ISO8601DateFormatter()
+    private let formatter = LocationProvider.makeCaptureFormatter()
+
+    private static func makeCaptureFormatter() -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }
     private var wantsLocationUpdates = false
 
     @Published public private(set) var latestFix: LocationFix?
@@ -56,7 +62,7 @@ public final class LocationProvider: NSObject, ObservableObject, CLLocationManag
                 coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
                 horizontalAccuracyM: 5,
                 altitudeM: env["UITEST_GPS_ALT"].flatMap(Double.init),
-                capturedAt: ISO8601DateFormatter().string(from: Date())
+                capturedAt: Self.makeCaptureFormatter().string(from: Date())
             )
         } else {
             injectedFix = nil

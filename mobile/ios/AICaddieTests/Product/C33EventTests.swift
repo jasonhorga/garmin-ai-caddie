@@ -112,10 +112,23 @@ final class C33EventTests: XCTestCase {
     }
 
     func testOne422IsQuarantinedAndOtherFourEventsUpload() async throws {
+        try await assertOneInvalidEventIsQuarantined(
+            responseBody: #"{"detail":[{"type":"enum","loc":["body","events",0,"payload","strategyMode"],"msg":"Input should be one of attack, protect_score, stock"}]}"#
+        )
+    }
+
+    func testProductSpec59ChangedMessageWithEventInvalidCodeStillQuarantinesOnlyOneEvent() async throws {
+        try await assertOneInvalidEventIsQuarantined(
+            responseBody: #"{"detail":{"code":"event_invalid","message":"记录内容不符合约定"}}"#
+        )
+    }
+
+    private func assertOneInvalidEventIsQuarantined(responseBody: String) async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = OfflineStore(directoryURL: directory)
         let session = C33URLProtocol.session()
-        let client = SyncClient(baseURL: URL(string: "https://c33-events.example.test")!, session: session)
+        let host = "c33-events-\(UUID().uuidString.lowercased()).example.test"
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session)
         let model = c33Model(store, client)
         let package = try c33Package()
         let packageData = try JSONEncoder().encode(package)
@@ -123,6 +136,7 @@ final class C33EventTests: XCTestCase {
         var accepted = Set<String>()
         var keysByRoster: [String: String] = [:]
         C33URLProtocol.onStart = { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
             if proto.request.url!.path.hasSuffix("/package") { proto.reply(200, packageData); return }
             guard proto.request.httpMethod == "POST", proto.request.url!.path.hasSuffix("/events") else {
                 proto.reply(404); return
@@ -137,7 +151,7 @@ final class C33EventTests: XCTestCase {
                 if !ids.contains("e3") { accepted.formUnion(ids) }
                 lock.unlock()
                 if ids.contains("e3") {
-                    proto.reply(422, Data(#"{"detail":[{"type":"enum","loc":["body","events",0,"payload","strategyMode"],"msg":"Input should be one of attack, protect_score, stock"}]}"#.utf8)); return
+                    proto.reply(422, Data(responseBody.utf8)); return
                 }
                 proto.reply(200, try JSONEncoder().encode(SyncResult(accepted: ids.count, duplicate: false, acceptedEventIds: ids)))
             } catch { XCTFail("\(error)"); proto.reply(500) }
@@ -168,6 +182,7 @@ final class C33EventTests: XCTestCase {
         XCTAssertEqual(try store.loadEvents().filter { $0.kind != .syncMarker }.count, 5)
         XCTAssertEqual(model.pendingEventCount, 0)
         XCTAssertEqual(try store.loadEvents().filter { $0.kind == .syncMarker }.count, 1)
+        await model.stopRoundBackgroundWorkForTesting()
     }
 
     func testStoreOrIdempotency422KeepsWholeBatchRetryable() async throws {

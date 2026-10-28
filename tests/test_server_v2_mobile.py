@@ -3563,9 +3563,19 @@ class ServerV2MobileTests(unittest.TestCase):
                     self.assertIn(f"startHole must be <= {limit}", response.text)
                     self.assertEqual(response.json()["detail"]["code"], "event_invalid")
                     if limit != 27:
-                        # iOS isSingleEventPayloadValidation422 只认 "must be " 等英文子串；去掉会把单条坏事件
-                        # 变成整批 422、整局同步卡死。27 档走 pydantic 列表 detail，客户端本来就不按单条处理。
+                        # Preserve the human-readable package-proven limit alongside event_invalid.
                         self.assertIn(f"本局洞号最大 {limit}", response.text)
+                    # A second batch-wide fault must not inherit the event-local code.
+                    mixed = client.post(
+                        "/api/v2/mobile/rounds/start-limit/events",
+                        headers={"Idempotency-Key": "start-limit"},
+                        json={"roundId": "start-limit", "events": [
+                            {**event, "roundId": "other-round", "startHole": limit + 1},
+                        ]},
+                    )
+                    self.assertEqual(mixed.status_code, 422, mixed.text)
+                    mixed_detail = mixed.json()["detail"]
+                    self.assertFalse(isinstance(mixed_detail, dict) and mixed_detail.get("code") == "event_invalid")
                     # Rejection is atomic; retrying a valid start with the same key succeeds.
                     valid = client.post(
                         "/api/v2/mobile/rounds/start-limit/events",

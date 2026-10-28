@@ -5188,6 +5188,10 @@ def _client_ack_sequence(round_id: str, client_id: str, *, root: Path | str | No
     return open_mobile_event_store(path.parent).read_ack(str(round_id), str(client_id))
 
 
+class InvalidEventError(ValueError):
+    """A record's content is invalid; batch/store/identity failures never use this type."""
+
+
 def append_event_batch(
     round_id: str,
     events: list[dict[str, Any]],
@@ -5215,8 +5219,7 @@ def append_event_batch(
     for event in events:
         start_hole = event.get("startHole") if isinstance(event, dict) else None
         if type(start_hole) is int and start_hole > maximum_start_hole:
-            # 保留英文 "must be "：iOS isSingleEventPayloadValidation422 靠它把这条坏事件隔离，而不是整批 422 卡住同步。
-            raise ValueError(f"startHole must be <= {maximum_start_hole} for this round（本局洞号最大 {maximum_start_hole}）")
+            raise InvalidEventError(f"startHole must be <= {maximum_start_hole} for this round（本局洞号最大 {maximum_start_hole}）")
     path = mobile_event_log(root, player_id=player_id)
     store = open_mobile_event_store(path.parent)
     # The hook is opt-in; without one the store keeps its established call shape.

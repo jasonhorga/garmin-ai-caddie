@@ -96,12 +96,34 @@ struct PrepHoleFollowingState: Equatable {
         clearPending()
     }
 
-    /// Location-envelope entry point; confirmation policy is exercised through real geometry/fixes.
+    static let maximumConfirmationAccuracyM = 30.0
+    static let maximumCachedSampleAge: TimeInterval = 30
+
+    /// Only fresh, precise fixes well inside the candidate area may contribute time/distance.
     mutating func navigationTarget(
         currentLocatedHole: Int?, displayedHole: Int, fix: LocationFix,
         holes: [HoleLocatorGeometry], now: Date = Date()
     ) -> Int? {
-        guard let sampledAt = Self.sampleDate(fix.capturedAt) else { return nil }
+        guard let sampledAt = Self.sampleDate(fix.capturedAt), let currentLocatedHole else {
+            clearPending()
+            return nil
+        }
+        guard now.timeIntervalSince(sampledAt) <= Self.maximumCachedSampleAge else {
+            // CoreLocation may deliver an old cache entry first. It can replace the candidate,
+            // but the next usable observation must start its own clock and displacement baseline.
+            pendingLocatedHole = currentLocatedHole
+            pendingSample = nil
+            return nil
+        }
+        let accuracy = fix.horizontalAccuracyM
+        guard accuracy.isFinite, (0...Self.maximumConfirmationAccuracyM).contains(accuracy),
+              CurrentHoleLocator.entryDepthM(
+                hole: currentLocatedHole, coordinate: fix.coordinate, holes: holes,
+                preferredHole: displayedHole
+              ) > max(accuracy, Self.minimumConfirmationDisplacementM) else {
+            clearPending()
+            return nil
+        }
         return navigationTarget(currentLocatedHole: currentLocatedHole, displayedHole: displayedHole,
                                 sampledAt: sampledAt, coordinate: fix.coordinate)
     }
@@ -109,10 +131,7 @@ struct PrepHoleFollowingState: Equatable {
     static func sampleDate(_ capturedAt: String) -> Date? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = fractional.date(from: capturedAt)
-            ?? ISO8601DateFormatter().date(from: capturedAt) else { return nil }
-        // Preserve the old provider's whole-second precision in the red-test interface.
-        return Date(timeIntervalSince1970: floor(date.timeIntervalSince1970))
+        return fractional.date(from: capturedAt) ?? ISO8601DateFormatter().date(from: capturedAt)
     }
 
     mutating func navigationTarget(
@@ -146,7 +165,9 @@ struct PrepHoleFollowingState: Equatable {
         // A replay of the same fix is not a second observation. Use the fix's capture time,
         // not delivery time, so delayed publisher callbacks cannot make old drift look stable.
         let interval = sampledAt.timeIntervalSince(first.sampledAt)
-        guard interval > 0 else { return nil }
+        guard interval >= 0,
+              interval > 0 || first.latitude != validCoordinate?.latitude
+                || first.longitude != validCoordinate?.longitude else { return nil }
         let displacement: Double = {
             guard let latitude = first.latitude, let longitude = first.longitude,
                   let validCoordinate else { return 0 }
@@ -240,6 +261,59 @@ enum CurrentHoleLocator {
             .map { metres(coordinate, $0) }
             .min() ?? .infinity
         return nearestAnchor <= courseRadiusM ? .atCourse : .awayFromCourse
+    }
+
+    /// Distance inside the same area that `locate` selected: tee disc, fairway outline, or
+    /// rounded tee→green corridor. Competing tees/corridors also bound the winning margin, so
+    /// crossing their overlap's halfway line by a metre cannot count as deep entry.
+    static func entryDepthM(
+        hole: Int, coordinate: CLLocationCoordinate2D, holes: [HoleLocatorGeometry],
+        preferredHole: Int? = nil
+    ) -> Double {
+        guard locate(coordinate: coordinate, horizontalAccuracyM: 0, holes: holes,
+                     preferredHole: preferredHole) == .onHole(hole),
+              let row = holes.first(where: { $0.hole == hole }) else { return 0 }
+        let tees = holes.compactMap { row in
+            row.tee.map { (hole: row.hole, distance: metres(coordinate, $0)) }
+        }
+        if tees.contains(where: { $0.distance <= teeRadiusM }),
+           let selected = tees.first(where: { $0.hole == hole }) {
+            let margin = tees.filter { $0.hole != hole }.map {
+                max(0, ($0.distance - selected.distance - sharedTeeToleranceM) / 2)
+            }.min() ?? .infinity
+            return min(teeRadiusM - selected.distance, margin)
+        }
+        // Tee areas always outrank fairways/corridors. A sample just outside a different tee
+        // must also clear its boundary before it can count toward a new hole.
+        let teeExclusionDepth = tees.filter { $0.hole != hole }
+            .map { $0.distance - teeRadiusM }.min() ?? .infinity
+        let polygonDepths = row.fairway.filter { pointInPolygon(coordinate, polygon: $0) }
+            .map { distanceToPolygonBoundary(coordinate, polygon: $0) }
+        if let depth = polygonDepths.max() {
+            // Package order owns overlapping fairways. Clear the earlier areas' boundaries too.
+            let earlier = holes.prefix { $0.hole != hole }
+            let earlierBoundary = earlier.flatMap { $0.fairway }.map {
+                distanceToPolygonBoundary(coordinate, polygon: $0)
+            }.min() ?? .infinity
+            return min(depth, min(teeExclusionDepth, earlierBoundary))
+        }
+        let distance = distanceToHoleLine(coordinate, tee: row.tee, green: row.green)
+        let margin = holes.filter { $0.hole != hole }.map {
+            max(0, (distanceToHoleLine(coordinate, tee: $0.tee, green: $0.green) - distance) / 2)
+        }.min() ?? .infinity
+        let fairwayBoundary = holes.filter { $0.hole != hole }.flatMap { $0.fairway }.map {
+            distanceToPolygonBoundary(coordinate, polygon: $0)
+        }.min() ?? .infinity
+        return min(corridorHalfWidthM - distance, min(margin, min(teeExclusionDepth, fairwayBoundary)))
+    }
+
+    private static func distanceToPolygonBoundary(
+        _ point: CLLocationCoordinate2D, polygon: [CLLocationCoordinate2D]
+    ) -> Double {
+        guard polygon.count >= 3 else { return .infinity }
+        return polygon.indices.map { index in
+            distanceToHoleLine(point, tee: polygon[index], green: polygon[(index + 1) % polygon.count])
+        }.min() ?? .infinity
     }
 
     static func locate(fix: LocationFix?, package: LiveRoundPackage) -> CurrentHoleLocation {
