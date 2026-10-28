@@ -4013,6 +4013,7 @@ def _geometry_only_course_template(
             selected_tee = _selected_tee(
                 {"hazards": _load_mobile_hazards(int(global_id), local_hole)},
                 tee_box,
+                colour_fallback=False,
             )
             target_distance_m = float((selected_tee or {}).get("target_distance_m"))
             if target_distance_m > 0:
