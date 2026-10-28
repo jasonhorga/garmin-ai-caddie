@@ -128,14 +128,9 @@ final class PrepDegradationUITests: XCTestCase {
             "a valid keyword must enable catalogue search",
             "b4c-search-button-not-ready"
         )
-        XCTAssertTrue(
-            UITapHelpers.tapWhenHittable(
-                search,
-                app: app,
-                timeout: 5,
-                diagnosticName: "b4c-search-submit"
-            )
-        )
+        // The keyboard may still overlap this control's hit test; it is already enabled above and
+        // a direct tap is what reliably submitted before C131.
+        search.tap()
         let result = app.buttons["course-catalog-result-\(degradedCourseGlobalId)"]
         assertAndCapture(
             scrollIntoView(result, maxSwipes: 12),

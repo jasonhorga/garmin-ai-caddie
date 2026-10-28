@@ -1555,6 +1555,15 @@ final class RealFlowUITests: XCTestCase {
         )
         XCTAssertTrue(editFirstHole.waitForExistence(timeout: 8))
         let scoreChoice = app.buttons["score-choice-4"]
+        XCTAssertTrue(
+            UITapHelpers.tapAndWaitForElements(
+                editFirstHole,
+                app: app,
+                destinations: [scoreChoice],
+                timeout: 8,
+                diagnosticName: "realflow-restored-scorecard-edit-hole"
+            )
+        )
         XCTAssertTrue(scoreChoice.waitForExistence(timeout: 8), "the new-course score must be editable")
         scoreChoice.tap()
         let editedSave = app.buttons["score-save"]
