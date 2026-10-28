@@ -816,6 +816,13 @@ public final class LiveRoundAppModel: ObservableObject {
     private var prepCourseDownloadTask: Task<Void, Never>?
     private var prepCourseDownloadGeneration: UUID?
     private var activePrepCourseDownloadID: String?
+    /// Consecutive failures of the optional install-status probe. A failed probe is not evidence
+    /// that the server is still working forever; after the bounded ladder the row becomes retryable.
+    private var prepStatusProbeFailures: [String: Int] = [:]
+    private static let prepStatusProbeMaxFailures = 3
+    private static let prepStatusProbeRetryDelayNanoseconds: UInt64 = 15_000_000_000
+    private var prefetchedTopoURLs = Set<String>()
+    private var completedIntentPrefetchIDs = Set<String>()
     #if canImport(UIKit)
     private var prepBackgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
     #endif
@@ -2113,9 +2120,11 @@ public final class LiveRoundAppModel: ObservableObject {
         guard let client = syncClient,
               let first = snapshot.holes.first else { return }
         let prep = snapshot.coursePrep?.holes.first(where: { $0.hole == first.number })
-        TopoHoleImageStore.prefetch(LiveTopoAvailability.url(
+        guard let url = LiveTopoAvailability.url(
             hole: first, prep: prep, localURL: nil, baseURL: client.baseURL
-        ))
+        ) else { return }
+        guard prefetchedTopoURLs.insert(url.absoluteString).inserted else { return }
+        TopoHoleImageStore.prefetch(url)
         #endif
     }
 
@@ -2535,16 +2544,21 @@ public final class LiveRoundAppModel: ObservableObject {
             var candidate = PrepCourseDownloadRecord(
                 course: MobileCourseOption(
                     globalId: loop.globalId,
+                    courseKey: option?.courseKey ?? (isCurrentLoop ? snapshot.course.courseKey : nil),
                     name: option?.name ?? fallbackName,
                     holes: holes,
                     teeBox: snapshot.course.teeBox,
                     venueName: option?.venueName ?? snapshot.course.venueName,
                     venueNameSource: option?.venueNameSource ?? snapshot.course.venueNameSource,
                     segmentLabel: option?.segmentLabel ?? fallbackSegmentLabel,
-                    segmentHoles: option?.segmentHoles ?? holes
+                    segmentHoles: option?.segmentHoles ?? holes,
+                    latitude: option?.latitude ?? (isCurrentLoop ? snapshot.course.latitude : nil),
+                    longitude: option?.longitude ?? (isCurrentLoop ? snapshot.course.longitude : nil),
+                    tees: option?.tees
                 ),
                 teeBox: snapshot.course.teeBox,
-                totalHoles: holes
+                totalHoles: holes,
+                isRoundPrefetch: true
             )
             if let queueGroupID, let queuePosition = catalogueLoopPositions[loop.globalId] {
                 candidate.queueGroupID = queueGroupID
@@ -4615,7 +4629,14 @@ public final class LiveRoundAppModel: ObservableObject {
         let generation = prepOpenGeneration
         activeRoundStartTask?.cancel()
         activeRoundStartTask = nil
-        if let token = roundPreparationToken { finishRoundPreparation(token) }
+        if let token = roundPreparationToken {
+            // Replace an older start transaction without running its finish path. Finishing here
+            // clears the shared progress state and briefly releases the queue, which made the
+            // explanatory timeout disappear while the new Start button kept spinning.
+            syncClient?.endRoundStart(token)
+            roundPreparationToken = nil
+            isPreparingRound = false
+        }
         prepPriorityTask?.cancel()
         prepPriorityTask = nil
         prepEnrichmentTask?.cancel()
@@ -6124,7 +6145,12 @@ public final class LiveRoundAppModel: ObservableObject {
         // has no player who can resume it, so retaining it creates the stale "正在准备/继续下载"
         // rows seen in the offline picker. Ready speculative templates remain useful cache and are
         // still eligible for the normal downloaded-course reconciliation.
-        let restored = loaded.filter { !$0.isSpeculative || $0.phase == .ready }
+        let restored = loaded.filter { record in
+            guard record.phase != .ready else { return true }
+            // Automatic round/template and intent rows have no user who asked to resume them.
+            // Drop them once at migration; explicit rows remain visible and retryable.
+            return !record.isSpeculative && !record.isIntentPrefetch && !record.isRoundPrefetch
+        }
         prepCourseDownloads = restored.map { record in
             var resumable = record
             // A ready row is only a convenience index; the revision-bound facts and every topo
@@ -6281,12 +6307,14 @@ public final class LiveRoundAppModel: ObservableObject {
         let id = candidate.id
         // The player opened this course in 备战 (选了就进).
         offlineStore.recordCourseUse(globalId: course.globalId, teeBox: candidate.teeBox)
-        if prepCourseDownloads.first(where: { $0.id == id })?.yieldsToForeground == true {
+        if prepCourseDownloads.first(where: { $0.id == id })?.yieldsToForeground == true
+            || prepCourseDownloads.first(where: { $0.id == id })?.isRoundPrefetch == true {
             // The player now asked for this course themselves: a later intent must not drop it, and
             // a speculative row stops waiting for Wi-Fi.
             updatePrepCourseDownload(id: id) { record in
                 record.isIntentPrefetch = false
                 record.isSpeculative = false
+                record.isRoundPrefetch = false
             }
         }
         if let existing = prepCourseDownloads.first(where: { $0.id == id }) {
@@ -6305,9 +6333,19 @@ public final class LiveRoundAppModel: ObservableObject {
                 // Already running: keep its progress, but it is now the player's request, so a
                 // pause/requeue during a fresh entry does not hold it behind the gate.
                 userRequestedPrepDownloadIDs.insert(id)
+                updatePrepCourseDownload(id: id) { record in
+                    record.errorText = roundPreparationToken == nil
+                        ? nil
+                        : "开局中，进洞后继续"
+                }
                 return
             }
             if existing.phase == .queued {
+                if roundPreparationToken != nil || deferredOfflineCourseDownloadRevalidation != nil {
+                    updatePrepCourseDownload(id: id) { record in
+                        record.errorText = "开局中，进洞后继续"
+                    }
+                }
                 startPrepCourseDownloadQueueIfNeeded(userRequested: id)
                 return
             }
@@ -6352,6 +6390,7 @@ public final class LiveRoundAppModel: ObservableObject {
         let candidates = courses
             .filter { $0.globalId > 0 && !liveGlobalIds.contains($0.globalId) }
             .map { PrepCourseDownloadRecord(course: $0, teeBox: tee, isIntentPrefetch: true) }
+            .filter { !completedIntentPrefetchIDs.contains($0.id) }
             .filter { seen.insert($0.id).inserted }
         let wanted = Set(candidates.map(\.id))
         if let active = activePrepCourseDownloadID, !wanted.contains(active),
@@ -6429,6 +6468,7 @@ public final class LiveRoundAppModel: ObservableObject {
     public func retryPrepCourseDownload(id: String) {
         guard let existing = prepCourseDownloads.first(where: { $0.id == id }),
               !existing.isTerminalFailure else { return }
+        prepStatusProbeFailures[id] = 0
         updatePrepCourseDownload(id: id) { record in
             record.phase = .queued
             record.errorText = nil
@@ -6631,7 +6671,10 @@ public final class LiveRoundAppModel: ObservableObject {
         let eligible = prepCourseDownloads
             .filter { $0.phase == .queued }
             .filter { !startWindowActive }
-            .filter { foregroundCourseRequestCount == 0 }
+            .filter {
+                foregroundCourseRequestCount == 0
+                    || userRequestedPrepDownloadIDs.contains($0.id)
+            }
             .filter { !$0.isSpeculative || speculativeJobMayStart }
         // Every job the player or a round asked for goes before a speculative one. The stable
         // catalogue ordering is then applied inside that priority class.
@@ -7027,6 +7070,17 @@ public final class LiveRoundAppModel: ObservableObject {
             if !replacingExisting {
                 try offlineStore.saveCourseTemplate(canonicalFetched)
             }
+            if record.isIntentPrefetch {
+                // Selection prefetch is deliberately map-only: the template makes the next Start
+                // immediate and hole 1's topo is warmed above. The live round's own pipeline owns
+                // the complete personal/topo package after entry; do not launch a second 18-hole
+                // asset pass here.
+                prepCourseDownloads.removeAll { $0.id == id }
+                completedIntentPrefetchIDs.insert(id)
+                persistPrepCourseDownloads()
+                refreshDownloadedCourseOptions()
+                return
+            }
             updatePrepCourseDownload(id: id, generation: generation) { state in
                 state.totalHoles = max(1, canonicalFetched.holes.count)
                 // A Garmin release can move again while the replacement is downloading. Bind this
@@ -7054,6 +7108,7 @@ public final class LiveRoundAppModel: ObservableObject {
             if (!replacingExisting || replacementCompleted),
                let current = prepCourseDownloads.first(where: { $0.id == id }),
                readyPrepTemplate(for: current) != nil {
+                prepStatusProbeFailures[id] = 0
                 updatePrepCourseDownload(id: id, generation: generation) { state in
                     state.phase = .ready
                     state.preparedHoles = state.totalHoles
@@ -7088,11 +7143,31 @@ public final class LiveRoundAppModel: ObservableObject {
                         "Course install status deferred for \(record.course.globalId, privacy: .public): \(String(describing: error), privacy: .public)"
                     )
                 }
-                let serverIsProgressing = serverStatus.map {
-                    $0.phase.caseInsensitiveCompare("queued") == .orderedSame
-                        || $0.phase.caseInsensitiveCompare("running") == .orderedSame
-                } ?? statusProbeFailed
-                if serverIsProgressing {
+                if statusProbeFailed {
+                    let failures = (prepStatusProbeFailures[id] ?? 0) + 1
+                    prepStatusProbeFailures[id] = failures
+                    if failures >= Self.prepStatusProbeMaxFailures {
+                        updatePrepCourseDownload(id: id, generation: generation) { state in
+                            state.phase = .failed
+                            state.errorText = "服务器状态暂时无法确认，点重试"
+                        }
+                    } else {
+                        updatePrepCourseDownload(id: id, generation: generation) { state in
+                            state.phase = state.downloadedHoles > 0 ? .downloading : .preparing
+                            state.errorText = "服务器状态暂时无法确认，稍后自动重试（\(failures)/\(Self.prepStatusProbeMaxFailures)）"
+                        }
+                        try await Task.sleep(nanoseconds: Self.prepStatusProbeRetryDelayNanoseconds)
+                        guard !Task.isCancelled,
+                              prepCourseDownloadGeneration == generation else { throw CancellationError() }
+                        updatePrepCourseDownload(id: id, generation: generation) { state in
+                            state.phase = .queued
+                            state.errorText = nil
+                        }
+                    }
+                } else if let serverStatus,
+                          (serverStatus.phase.caseInsensitiveCompare("queued") == .orderedSame
+                            || serverStatus.phase.caseInsensitiveCompare("running") == .orderedSame) {
+                    prepStatusProbeFailures[id] = 0
                     // The server is still making durable progress; do not turn an ordinary cold
                     // 18-hole render into a red failure row. Keep the app-scoped worker attached and
                     // retry at a low cadence, resuming only missing revision-keyed files.
@@ -7100,7 +7175,7 @@ public final class LiveRoundAppModel: ObservableObject {
                         state.phase = state.downloadedHoles > 0 ? .downloading : .preparing
                         state.errorText = nil
                     }
-                    try await Task.sleep(nanoseconds: 15_000_000_000)
+                    try await Task.sleep(nanoseconds: Self.prepStatusProbeRetryDelayNanoseconds)
                     guard !Task.isCancelled,
                           prepCourseDownloadGeneration == generation else { throw CancellationError() }
                     updatePrepCourseDownload(id: id, generation: generation) { state in

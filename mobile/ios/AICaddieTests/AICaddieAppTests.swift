@@ -66,10 +66,11 @@ final class AICaddieAppTests: XCTestCase {
 
     /// Device feedback: the same 黑骑士 A 场 prepared with two tees showed as two identical rows.
     func testRecentPrepListsEachCourseOnceWithItsTee() {
-        let a = MobileCourseOption(globalId: 31794, name: "黑骑士 ~ A", holes: 9, venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9)
-        let b = MobileCourseOption(globalId: 31795, name: "黑骑士 ~ B", holes: 9, venueName: "黑骑士", segmentLabel: "B", segmentHoles: 9)
+        let a = MobileCourseOption(globalId: 31794, courseKey: "black-knight", name: "黑骑士 ~ A", holes: 9, venueName: "黑骑士", segmentLabel: "A", segmentHoles: 9)
+        let b = MobileCourseOption(globalId: 31795, courseKey: "black-knight", name: "黑骑士 ~ B", holes: 9, venueName: "黑骑士", segmentLabel: "B", segmentHoles: 9)
         let sameDisplayDifferentCourse = MobileCourseOption(
             globalId: 31796,
+            courseKey: "other-black-knight",
             name: "黑骑士 ~ A",
             holes: 9,
             venueName: "黑骑士",
@@ -83,7 +84,7 @@ final class AICaddieAppTests: XCTestCase {
             PrepCourseDownloadRecord(course: sameDisplayDifferentCourse, teeBox: "red"),
         ]
         let rows = StartRoundPresentation.recentRows(newestFirst)
-        XCTAssertEqual(rows.map(\.id), [newestFirst[0].id], "J4.1 groups all loops/tees by physical venue")
+        XCTAssertEqual(rows.map(\.id), [newestFirst[0].id, newestFirst[3].id], "J4.1 groups loops/tees by course identity")
         XCTAssertEqual(StartRoundPresentation.recentRowSubtitle(rows[0]), "A 场 · 白 T")
     }
 

@@ -365,7 +365,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         let model = fixture.model
         let intent = MobileCourseOption(globalId: intentId, name: "Intent nine", holes: 9, teeBox: "blue")
 
-        // 1.5 s after the Tee is chosen, the venue's other nine starts installing.
+        // Choosing the course immediately warms the map-only package; no debounce is required.
         model.prefetchIntendedCourses([intent], teeBox: "blue")
         await fulfillment(of: [intentSent], timeout: eventWait)
         XCTAssertEqual(

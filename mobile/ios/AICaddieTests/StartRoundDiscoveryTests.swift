@@ -1278,7 +1278,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
     }
 
     /// J4.1/C134: the offline section is one physical venue even when old rows used one global id
-    /// per loop.  A ready row is the useful representative for the visible status.
+    /// per loop; unfinished automatic rows disappear while an explicitly requested row remains.
     func testOfflineRowsCollapseLoopsByPhysicalVenue() {
         let first = PrepCourseDownloadRecord(
             course: loop(9101, venue: "愉景灣高爾夫球會", label: "A"),
@@ -1295,10 +1295,19 @@ final class StartRoundDiscoveryTests: XCTestCase {
             teeBox: "blue", phase: .queued,
             updatedAt: Date(timeIntervalSince1970: 300), isSpeculative: true
         )
-        let rows = StartRoundPresentation.offlineRows([first, second, orphan])
-        XCTAssertEqual(rows.count, 1)
+        let roundOwned = PrepCourseDownloadRecord(
+            course: loop(9104, venue: "沙河", label: "A"),
+            teeBox: "blue", phase: .queued, isRoundPrefetch: true
+        )
+        let explicitlyRequested = PrepCourseDownloadRecord(
+            course: loop(9105, venue: "北湖", label: "A"),
+            teeBox: "blue", phase: .queued
+        )
+        let rows = StartRoundPresentation.offlineRows([first, second, orphan, roundOwned, explicitlyRequested])
+        XCTAssertEqual(rows.count, 2)
         XCTAssertEqual(rows.first?.course.venueDisplayName, "愉景灣高爾夫球會")
         XCTAssertEqual(rows.first?.phase, .ready)
+        XCTAssertEqual(rows.last?.course.venueDisplayName, "北湖")
     }
 
     func testCourseListKeepsTheRecentCourseWhenNearbyOmitsIt() {

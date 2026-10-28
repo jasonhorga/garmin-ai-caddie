@@ -429,7 +429,7 @@ final class TemplateAcquisitionTests: XCTestCase {
 
     /// C134: a 备战 download the player starts during the entry hole is queued with every other
     /// background job. The map package owns the connection until the fresh entry is released.
-    func testAPrepWorkerTakesOnlyThePlayersJobUntilTheFreshEntryIsReleased() async throws {
+    func testAPrepWorkerWaitsForFreshEntryBeforeTakingAnyBackgroundJob() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
         let requests = LoopRequests()
@@ -454,16 +454,15 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.consumePendingLiveHole()
         model.setActiveHole(2)
         await settleDownloads(model)
+        let observedWhite = await requests.waitFor(tee: "white")
+        XCTAssertTrue(observedWhite, "after the release the queue continues with the player's pending job")
         let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "blue")
-        XCTAssertTrue(
-            observedWholeCourse || requests.contains(tee: "white"),
-            "after the release the queue continues with a pending job"
-        )
+        XCTAssertTrue(observedWholeCourse, "the round's automatic template follows the player's job")
     }
 
     /// C134: a requested 备战 job paused in the background during the entry hole stays paused on
-    /// the real foreground hook; both it and the round's row wait for the entry release.
-    func testARequestedJobPausedAndResumedDuringTheEntryHoleKeepsItsExemption() async throws {
+    /// the real foreground hook, then resumes after the entry hole is released.
+    func testARequestedJobPausedDuringEntryResumesAfterTheEntryHole() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
         let requests = LoopRequests()
@@ -492,6 +491,10 @@ final class TemplateAcquisitionTests: XCTestCase {
             requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
             "the round's automatic row still waits"
         )
+        model.consumePendingLiveHole()
+        model.setActiveHole(2)
+        let observedWhite = await requests.waitFor(tee: "white")
+        XCTAssertTrue(observedWhite, "the requested row resumes after leaving the entry hole")
     }
 
     /// Requested-job intent is account-scoped: a rebind drops it with the previous library.

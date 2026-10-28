@@ -37,7 +37,11 @@ enum StartRoundPresentation {
     /// unfinished hint is removed during restore and never appears here. The same venue can still
     /// retain multiple internal template rows (A/B/C), but the picker presents one physical venue.
     static func offlineRows(_ downloads: [PrepCourseDownloadRecord]) -> [PrepCourseDownloadRecord] {
-        deduplicatedVenueRows(downloads.filter { !$0.isSpeculative })
+        deduplicatedVenueRows(downloads.filter {
+            !$0.isSpeculative
+                && !$0.isIntentPrefetch
+                && !($0.isRoundPrefetch && $0.phase != .ready)
+        })
     }
 
     private static func deduplicatedVenueRows(
@@ -46,10 +50,24 @@ enum StartRoundPresentation {
         var selected: [String: PrepCourseDownloadRecord] = [:]
         var order: [String] = []
         for row in downloads {
-            let key = row.course.venueDisplayName
+            let venue = row.course.venueDisplayName
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            guard !key.isEmpty else { continue }
+            guard !venue.isEmpty else { continue }
+            // A display name is presentation data, not physical identity. Prefer the provider's
+            // stable course key; coordinate fallback keeps two same-named venues apart when the
+            // catalogue has not supplied a key. Legacy rows without either retain venue grouping.
+            let key: String
+            if let courseKey = row.course.courseKey?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !courseKey.isEmpty {
+                key = "course:\(courseKey.lowercased())"
+            } else if let latitude = row.course.latitude, let longitude = row.course.longitude {
+                let latKey = Int((latitude * 10_000).rounded())
+                let lonKey = Int((longitude * 10_000).rounded())
+                key = "coordinate:\(venue):\(latKey):\(lonKey)"
+            } else {
+                key = "venue:\(venue)"
+            }
             guard let current = selected[key] else {
                 selected[key] = row
                 order.append(key)

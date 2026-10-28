@@ -90,6 +90,7 @@ public struct StartRoundView: View {
     @State private var nearbyStatusText: String?
     @State private var nearbyDiscoveryFailed = false
     @State private var nearbyRetryToken = 0
+    @State private var announcedIntentGlobalIDs = Set<Int>()
     @State private var teeRequestToken: UUID?
     @State private var nearbyRequestToken: UUID?
     @State private var page: Page
@@ -426,6 +427,10 @@ public struct StartRoundView: View {
     }
 
     private func downloadStatus(_ row: PrepCourseDownloadRecord) -> String {
+        if let message = row.errorText,
+           row.phase == .preparing || row.phase == .downloading || row.phase == .queued {
+            return message
+        }
         switch row.phase {
         case .queued: return "等待下载"
         case .preparing: return "正在准备"
@@ -454,6 +459,8 @@ public struct StartRoundView: View {
     private func announceCourseIntent() async {
         guard !courseIntentKey.isEmpty else { return }
         guard !Task.isCancelled, !courseIntentKey.isEmpty else { return }
+        guard let globalId = courseGlobalId,
+              announcedIntentGlobalIDs.insert(globalId).inserted else { return }
         onCourseIntent(selectedVenueLoops, teeBox)
     }
 
@@ -555,8 +562,17 @@ public struct StartRoundView: View {
     /// that can desync from courseGlobalIdText). An unavailable id stays blank rather than showing
     /// the first row's venue, which used to display one course while starting another.
     private var selectedVenueName: String {
-        selectedSegment.map(Self.courseVenueName)
-            ?? ""
+        if let selectedSegment {
+            return Self.courseVenueName(selectedSegment)
+        }
+        // A catalogue refresh can briefly remove the selected loop while its id remains in the
+        // selection state (沙河 31832). Keep the title and the start request tied to that id rather
+        // than falling back to the first nearby venue.
+        guard let globalId = courseGlobalId else { return "球场" }
+        return courseRows
+            .flatMap(\.segments)
+            .first(where: { $0.globalId == globalId })
+            .map(Self.courseVenueName) ?? "球场"
     }
 
     static func roundDisplayName(
@@ -1604,8 +1620,16 @@ public struct StartRoundView: View {
     @MainActor
     private func startSelectedCourse() async {
         guard let courseGlobalId else { return }
-        let course = (selectedSegment
-            ?? MobileCourseOption(globalId: courseGlobalId, name: "", holes: 18))
+        let fallback = courseRows
+            .flatMap(\.segments)
+            .first(where: { $0.globalId == courseGlobalId })
+            ?? MobileCourseOption(
+                globalId: courseGlobalId,
+                name: selectedVenueName,
+                holes: 18,
+                venueName: selectedVenueName
+            )
+        let course = (selectedSegment ?? fallback)
             .replacingTeeBox(teeBox)
         prepValidationFailed = false
         if let record = prepCourseDownloads.first(where: {
@@ -2143,12 +2167,7 @@ public struct StartRoundView: View {
 
     /// A retry changes the task identity even when the GPS bucket is unchanged.
     private var nearbyDiscoveryTaskKey: String {
-        let downloadedIDs = downloadedCourseOptions
-            .map(\.globalId)
-            .sorted()
-            .map(String.init)
-            .joined(separator: ",")
-        return "\(locationDiscoveryKey)#downloads-\(downloadedIDs)#retry-\(nearbyRetryToken)"
+        "\(locationDiscoveryKey)#retry-\(nearbyRetryToken)"
     }
 
     /// Nearby is a 50 km catalogue query, so restarting it for every 3–11 m Core Location update
@@ -2164,7 +2183,9 @@ public struct StartRoundView: View {
     /// cannot immediately paint the terminal failure state.
     static let nearbyInitialRadiusKm = 5
     static let nearbyExpandedRadiusKm = 50
-    static let nearbyAutomaticRetryCount = 1
+    /// SyncClient owns transport retries. The view makes one 5 km request and, if needed, one
+    /// 50 km expansion, keeping catalogue traffic bounded at two requests per discovery.
+    static let nearbyAutomaticRetryCount = 0
 
     static func shouldApplyNearbyDiscoveryResult(
         isCancelled: Bool,
@@ -2297,7 +2318,8 @@ public struct StartRoundView: View {
                     guard !Task.isCancelled else { return }
                     lastError = error
                     attempts += 1
-                    if attempts <= Self.nearbyAutomaticRetryCount {
+                    if attempts <= Self.nearbyAutomaticRetryCount,
+                       index == 0 {
                         nearbyStatusText = "附近球场连接较慢，正在重试…"
                     }
                 }
