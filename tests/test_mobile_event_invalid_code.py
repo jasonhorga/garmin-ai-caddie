@@ -67,9 +67,24 @@ class MobileEventInvalidCodeTests(unittest.TestCase):
 
     def test_product_spec_59_store_and_batch_failures_are_not_quarantinable(self):
         for error in [ValueError("event_commit_store_corrupt"), ValueError("request_reservation_store_corrupt"),
-                      ValueError("idempotency_key_body_mismatch"), ValueError("identity_envelope_mismatch"),
-                      ScoreInvariantError("hole 1: total 2 is less than putts 2 + penalties 0 + 1")]:
+                      ValueError("idempotency_key_body_mismatch"), ValueError("identity_envelope_mismatch")]:
             with self.subTest(error=error), TemporaryDirectory() as tmp, patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)), patch("server_v2.mobile.append_event_batch", side_effect=error):
                 response = self.post([self.event])
                 self.assertEqual(response.status_code, 422)
-                self.assertEqual(response.json()["detail"], str(error))
+                detail = response.json()["detail"]
+                self.assertEqual(detail, str(error))
+
+    def test_product_spec_57_score_invariant_is_event_invalid_and_retryable_sibling_writes(self):
+        putt = {**self.event, "eventId": "putt-2", "kind": "putt", "payload": {"putts": 2}}
+        with TemporaryDirectory() as tmp, patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)):
+            self.assertEqual(self.post([putt]).status_code, 200)
+            bad_score = {**self.event, "eventId": "bad-score", "payload": {"strokes": 2}}
+            response = self.post([bad_score], headers={"Idempotency-Key": "bad-score"})
+            self.assertEqual(response.status_code, 422, response.text)
+            self.assertEqual(response.json()["detail"]["code"], "event_invalid")
+            self.assertIn("hole 1: total 2 is less than putts 2", response.json()["detail"]["message"])
+            event_log = Path(tmp) / "data/mobile_events/events.jsonl"
+            self.assertNotIn("bad-score", event_log.read_text(encoding="utf-8"))
+            good_score = {**self.event, "eventId": "good-score", "payload": {"strokes": 3}}
+            retry = self.post([good_score], headers={"Idempotency-Key": "good-score"})
+            self.assertEqual(retry.status_code, 200, retry.text)
