@@ -1,11 +1,17 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -4186,7 +4186,7 @@
-         // A newly accepted score supersedes a rejected score for the same hole. Keep the original
-         // event in the append-only log for diagnostics, but remove its quarantine record so the
-         // player can finish after re-entering that hole's score.
+@@ -5159,13 +5159,13 @@
+             duplicateEventIds: uploadedResult.duplicateEventIds,
+             serverSequence: uploadedResult.serverSequence
+         )
+         // A later accepted scoring fact supersedes only an earlier rejected scoring fact for the
+         // same hole. The append-only local event log is the ordering authority: it gives each event
+         // a durable position even when device timestamps tie or arrive out of wall-clock order.
 -        let acceptedIDs = Set(result.acceptedEventIds + result.duplicateEventIds)
 +        let acceptedIDs: Set<String> = []
          if !acceptedIDs.isEmpty {
-             let replacementHoles = Set(events.filter {
-                 acceptedIDs.contains($0.eventId) && $0.kind == .score
+             let eventOrder = try localEventOrder()
+             let acceptedScoring = events.filter {
+                 acceptedIDs.contains($0.eventId) && Self.isScoringEvent($0)
+             }
+             let replacementIDs = Set(try offlineStore.loadQuarantinedEvents(roundId: roundId)
