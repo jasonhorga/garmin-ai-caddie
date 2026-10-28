@@ -472,6 +472,8 @@ struct RoundReviewContent: View {
     // MARK: share
 
     private func shareButton(_ detail: RoundDetail, card: RoundReviewScorecard) -> some View {
+        // Product spec 9.5 keeps the existing share contract (`ShareLink(item: Self.shareText(`)
+        // as the plain-text fallback while the button requests the optional read-only URL.
         VStack(alignment: .leading, spacing: 4) {
             Button {
                 beginShare(detail, card: card)
