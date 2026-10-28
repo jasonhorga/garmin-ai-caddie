@@ -1795,14 +1795,10 @@ public final class LiveRoundAppModel: ObservableObject {
         cancelGarminRasterDownload()
         abandonResultsCacheRefresh(retryLater: true)
         clearFreshEntryRelease()
-        // An intent prefetch yields to the start it anticipated: the package request must not queue
-        // behind its batches. Whatever it already installed is reused (`carryingInstalledPrecisePrep`,
-        // revision-keyed topo), and the row resumes after the round's own assets. A speculative
-        // (可能会打) job yields the same way.
-        if let active = activePrepCourseDownloadID,
-           prepCourseDownloads.first(where: { $0.id == active })?.yieldsToForeground == true {
-            pausePrepCourseDownload()
-        }
+        // The start window owns the network until the first hole is visible. Pause every prep
+        // worker here, including ordinary explicit downloads: the old yieldsToForeground check
+        // spared a prep-library row such as 28242 and let it consume the connection beside Start.
+        pausePrepCourseDownload()
         isPreparingRound = true
         startRoundProgress()
         return token
@@ -6123,7 +6119,12 @@ public final class LiveRoundAppModel: ObservableObject {
     // MARK: - Prep course library / resumable downloads
 
     private func restorePrepCourseDownloadsFromDisk() {
-        let restored = (try? offlineStore.loadPrepCourseDownloads()) ?? []
+        let loaded = (try? offlineStore.loadPrepCourseDownloads()) ?? []
+        // Speculative rows are app-owned cache hints. A queued/preparing hint from an older build
+        // has no player who can resume it, so retaining it creates the stale "正在准备/继续下载"
+        // rows seen in the offline picker. Ready speculative templates remain useful cache and are
+        // still eligible for the normal downloaded-course reconciliation.
+        let restored = loaded.filter { !$0.isSpeculative || $0.phase == .ready }
         prepCourseDownloads = restored.map { record in
             var resumable = record
             // A ready row is only a convenience index; the revision-bound facts and every topo
@@ -6556,14 +6557,18 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// Automatic starts (foreground resume, configuration, preparation end) wait for a pending
-    /// fresh-entry release, so a durable row queued at round start never competes with the first
-    /// live hole. A 备战 action the player takes (`userRequested`) is never held behind it; the
-    /// worker then runs only the jobs the player asked for until the release.
+    /// foreground Start/fresh-entry release, so no durable row competes with the first live hole.
+    /// A 备战 action records `userRequested` while the gate is raised and resumes afterward.
     private func startPrepCourseDownloadQueueIfNeeded(userRequested id: String? = nil) {
         #if DEBUG
         guard !roundBackgroundWorkStoppedForTesting else { return }
         #endif
         if let id { userRequestedPrepDownloadIDs.insert(id) }
+        // A queued button tap is remembered above, but no background request may begin while the
+        // foreground Start window owns the connection. This is deliberately independent of the
+        // row's provenance (ordinary, intent, or speculative).
+        guard roundPreparationToken == nil,
+              deferredOfflineCourseDownloadRevalidation == nil else { return }
         // A cold course can keep the worker for minutes; a job someone asked for does not wait behind
         // a guess, and a guess stops when its network no longer allows it.
         if let active = activePrepCourseDownloadID,
@@ -6573,8 +6578,9 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         guard prepCourseDownloadTask == nil, syncClient != nil,
               prepCourseDownloads.contains(where: { $0.phase == .queued }) else { return }
-        // The worker's own dequeue rule: with a fresh entry pending, only a queued job the player
-        // asked for may start it — including one paused in the background and resumed here.
+        // The worker's own dequeue rule: the whole queue is paused from the Start tap through the
+        // first-hole release. A player tap during this interval only records intent and resumes
+        // after the map package is visible.
         guard nextPrepCourseDownloadJob() != nil else {
             recordUITestLatency("prep-queue.start-deferred fresh-entry-pending")
             return
@@ -6616,18 +6622,16 @@ public final class LiveRoundAppModel: ObservableObject {
         }
     }
 
-    /// The next queued job the worker may take. While a fresh entry is pending only jobs the player
-    /// asked for run; the round's own durable rows and other automatic jobs wait for the release,
-    /// which restarts the worker (`beginOfflineCourseDownload` → `startPrepCourseDownloadQueueIfNeeded`).
+    /// The next queued job the worker may take. While a Start window or fresh entry is pending no
+    /// row runs; releasing the first hole restarts the worker
+    /// (`beginOfflineCourseDownload` → `startPrepCourseDownloadQueueIfNeeded`).
     private func nextPrepCourseDownloadJob() -> PrepCourseDownloadRecord? {
-        let freshEntryPending = deferredOfflineCourseDownloadRevalidation != nil
+        let startWindowActive = roundPreparationToken != nil
+            || deferredOfflineCourseDownloadRevalidation != nil
         let eligible = prepCourseDownloads
             .filter { $0.phase == .queued }
-            .filter { !freshEntryPending || userRequestedPrepDownloadIDs.contains($0.id) }
-            .filter { foregroundCourseRequestCount == 0 || !$0.yieldsToForeground }
-            // C85: an intent (or guess) never builds a whole-course package beside a start in
-            // flight; it waits for the start's first stage, then for the fresh-entry release.
-            .filter { roundPreparationToken == nil || !$0.yieldsToForeground }
+            .filter { !startWindowActive }
+            .filter { foregroundCourseRequestCount == 0 }
             .filter { !$0.isSpeculative || speculativeJobMayStart }
         // Every job the player or a round asked for goes before a speculative one. The stable
         // catalogue ordering is then applied inside that priority class.
@@ -6999,10 +7003,18 @@ public final class LiveRoundAppModel: ObservableObject {
                 loops: record.loops,
                 ensureGeometry: false,
                 backgroundGeometry: true,
+                // Selecting a course is a latency hint, not a request for the player's whole
+                // history. The first intent response is the same map-only package used by Start;
+                // its first-hole topo is warmed immediately and the full library job can continue
+                // after the foreground window releases.
+                mapOnly: record.isIntentPrefetch,
                 includeEventCursor: false,
                 requestKind: .userDownload
             )
             let canonicalFetched = fetched
+            if record.isIntentPrefetch {
+                prefetchFirstHoleTopo(in: canonicalFetched)
+            }
             guard !Task.isCancelled,
                   prepCourseDownloadGeneration == generation else { throw CancellationError() }
             // Keep the previous template available for an offline live round until this

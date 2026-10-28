@@ -137,6 +137,18 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertFalse(decoded.yieldsToForeground)
     }
 
+    /// J4.1/C134: a speculative row interrupted before completion has no owner after relaunch and
+    /// is migrated out of the visible/durable prep list.
+    func testInterruptedSpeculativeRowsAreRemovedDuringRestore() throws {
+        let guess = PrepCourseDownloadRecord(
+            course: course(99, rounds: 3), teeBox: "blue", phase: .downloading,
+            downloadedHoles: 2, totalHoles: 18, isSpeculative: true
+        )
+        let restored = try model(rows: [guess])
+        XCTAssertTrue(restored.prepCourseDownloads.isEmpty)
+        XCTAssertTrue((try restored.offlineStore.loadPrepCourseDownloads()).isEmpty)
+    }
+
     // MARK: Queue
 
     private func model(rows: [PrepCourseDownloadRecord]) throws -> LiveRoundAppModel {
@@ -281,10 +293,10 @@ final class SpeculativePrefetchTests: XCTestCase {
         model.finishRoundPreparationForTesting(token)
         XCTAssertEqual(model.nextPrepCourseDownloadJobIDForTesting, guess.id)
 
-        // A 备战 download the player asked for keeps its existing rules during preparation.
+        // C134: a 备战 tap records intent but every background download waits for the map entry.
         let playerModel = try self.model(rows: [asked])
         let playerToken = playerModel.beginRoundPreparationForTesting()
-        XCTAssertEqual(playerModel.nextPrepCourseDownloadJobIDForTesting, asked.id)
+        XCTAssertNil(playerModel.nextPrepCourseDownloadJobIDForTesting)
         playerModel.finishRoundPreparationForTesting(playerToken)
     }
 

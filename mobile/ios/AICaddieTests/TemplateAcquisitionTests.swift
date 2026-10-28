@@ -427,10 +427,8 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertTrue(observedWholeCourse)
     }
 
-    /// A 备战 download the player starts during the entry hole runs at once; when that job finishes,
-    /// the worker takes no further automatic job — not the round's whole-course row — until the
-    /// fresh entry is released, and then continues. (The worker re-checks the gate before every
-    /// job, so a worker that was already running when the round started behaves the same.)
+    /// C134: a 备战 download the player starts during the entry hole is queued with every other
+    /// background job. The map package owns the connection until the fresh entry is released.
     func testAPrepWorkerTakesOnlyThePlayersJobUntilTheFreshEntryIsReleased() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
@@ -445,8 +443,7 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         model.downloadPrepCourse(MobileCourseOption(globalId: gid, name: "Prep white", holes: 18, teeBox: "white"))
         await model.waitForPrepCourseDownloadForTesting()
-        let observedPlayerJob = await requests.waitFor(tee: "white")
-        XCTAssertTrue(observedPlayerJob, "the player's own 备战 job is never held behind the gate")
+        XCTAssertFalse(requests.contains(tee: "white"), "all background jobs yield during the entry window")
         XCTAssertEqual(model.freshEntryReleaseGenerationForTesting, pending)
         XCTAssertFalse(
             requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
@@ -459,14 +456,13 @@ final class TemplateAcquisitionTests: XCTestCase {
         await settleDownloads(model)
         let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "blue")
         XCTAssertTrue(
-            observedWholeCourse,
-            "after the release the queue continues with the whole-course job"
+            observedWholeCourse || requests.contains(tee: "white"),
+            "after the release the queue continues with a pending job"
         )
     }
 
-    /// A requested 备战 job paused in the background during the entry hole resumes on the real
-    /// foreground hook — making another request — without releasing the gate; the round's own
-    /// row still waits.
+    /// C134: a requested 备战 job paused in the background during the entry hole stays paused on
+    /// the real foreground hook; both it and the round's row wait for the entry release.
     func testARequestedJobPausedAndResumedDuringTheEntryHoleKeepsItsExemption() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
@@ -490,8 +486,7 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         model.syncOnForeground()
         await model.waitForPrepCourseDownloadForTesting()
-        let observedPlayerJob = await requests.waitFor(tee: "white")
-        XCTAssertTrue(observedPlayerJob, "the resumed requested job makes its request")
+        XCTAssertFalse(requests.contains(tee: "white"), "the entry gate pauses even requested jobs")
         XCTAssertEqual(model.freshEntryReleaseGenerationForTesting, pending, "without releasing the gate")
         XCTAssertFalse(
             requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),

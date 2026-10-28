@@ -326,6 +326,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         let mapPackage = try package(roundId: roundId, mapOnly: false)
         let mapData = try JSONEncoder().encode(mapPackage)
         let held = C85HeldRequests()
+        let intentRequests = C85RequestLog()
         let phase = C85Counter()
         let intentSent = expectation(description: "intent package sent")
         let intentStopped = expectation(description: "intent package cancelled by the start")
@@ -341,6 +342,7 @@ final class RoundStartTwoStageTests: XCTestCase {
             guard proto.request.url?.host == host else { proto.reply(404); return }
             switch proto.request.url?.path {
             case intentPath:
+                intentRequests.append(proto.request)
                 held.hold(proto)
                 switch phase.value {
                 case 0: if intentSentOnce.claim() { intentSent.fulfill() }
@@ -366,6 +368,11 @@ final class RoundStartTwoStageTests: XCTestCase {
         // 1.5 s after the Tee is chosen, the venue's other nine starts installing.
         model.prefetchIntendedCourses([intent], teeBox: "blue")
         await fulfillment(of: [intentSent], timeout: eventWait)
+        XCTAssertEqual(
+            intentRequests.all.first.flatMap { c33Query($0, "map_only") },
+            "true",
+            "C134 course selection warms the map-only package before Start"
+        )
 
         // 开球: the intent request is cancelled and the start is sent.
         phase.set(1)

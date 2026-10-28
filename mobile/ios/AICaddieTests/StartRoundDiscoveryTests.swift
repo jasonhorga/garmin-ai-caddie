@@ -762,19 +762,19 @@ final class StartRoundDiscoveryTests: XCTestCase {
     }
 
     @MainActor
-    func testRemoteTeeLookupKeepsConcreteColourStartGatedAcrossItsAwait() async {
+    func testRemoteTeeLookupKeepsConcreteColourStartableAcrossItsAwait() async {
         var loading = true
         let rows = await StartRoundView.courseTeeRows(
             globalId: 31795, carried: [:], setLoading: { loading = $0 },
             request: { _ in
                 XCTAssertTrue(loading, "no frame may release the gate before the remote request")
                 await Task.yield()
-                XCTAssertTrue(loading, "the gate remains raised while the request is suspended")
-                XCTAssertFalse(StartRoundView.isStartAllowed(
+                XCTAssertTrue(loading, "the Tee request remains in flight while Start stays usable")
+                XCTAssertTrue(StartRoundView.isStartAllowed(
                     isPreparing: false, isLoadingTees: loading, roundId: "fixture-round",
                     courseGlobalId: 31795, teeBox: "blue", selectedCourseRequiresRemoteTees: false,
                     teeOptions: ["blue"], selectedCourseWasManualSearch: false
-                ))
+                ), "C134 keeps a concrete Tee startable while authority refreshes")
                 return [CourseTee(teeBox: "blue", name: "Blue")]
             }
         )

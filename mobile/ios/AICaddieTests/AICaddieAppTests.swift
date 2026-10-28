@@ -83,7 +83,7 @@ final class AICaddieAppTests: XCTestCase {
             PrepCourseDownloadRecord(course: sameDisplayDifferentCourse, teeBox: "red"),
         ]
         let rows = StartRoundPresentation.recentRows(newestFirst)
-        XCTAssertEqual(rows.map(\.id), [newestFirst[0].id, newestFirst[1].id, newestFirst[3].id])
+        XCTAssertEqual(rows.map(\.id), [newestFirst[0].id], "J4.1 groups all loops/tees by physical venue")
         XCTAssertEqual(StartRoundPresentation.recentRowSubtitle(rows[0]), "A 场 · 白 T")
     }
 

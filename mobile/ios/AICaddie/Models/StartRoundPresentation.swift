@@ -26,17 +26,44 @@ struct StartCourseListRow: Equatable, Identifiable {
 /// Pure copy and list rules for 开始一场 and the home hero, kept out of the views so they are
 /// unit-testable without a SwiftUI host.
 enum StartRoundPresentation {
-    /// The download library is newest-first; show one row per course while retaining the newest
-    /// Tee/package identity for that course.
+    /// The download library is newest-first; show one row per physical venue while retaining the
+    /// newest useful Tee/package identity for that venue. Older builds created one row per loop,
+    /// so globalId alone is not a sufficient visible key.
     static func recentRows(_ downloads: [PrepCourseDownloadRecord]) -> [PrepCourseDownloadRecord] {
-        var seen = Set<Int>()
-        return downloads.filter { seen.insert($0.course.globalId).inserted }
+        deduplicatedVenueRows(downloads)
     }
 
-    /// Visible offline rows. C134 fills in venue-level cleanup; this initial implementation keeps
-    /// the pre-card global-id behaviour so the product test is a genuine behavioural red.
+    /// Visible offline rows. Speculative rows are cache hints, not user-owned downloads; an
+    /// unfinished hint is removed during restore and never appears here. The same venue can still
+    /// retain multiple internal template rows (A/B/C), but the picker presents one physical venue.
     static func offlineRows(_ downloads: [PrepCourseDownloadRecord]) -> [PrepCourseDownloadRecord] {
-        recentRows(downloads.filter { !$0.isSpeculative })
+        deduplicatedVenueRows(downloads.filter { !$0.isSpeculative })
+    }
+
+    private static func deduplicatedVenueRows(
+        _ downloads: [PrepCourseDownloadRecord]
+    ) -> [PrepCourseDownloadRecord] {
+        var selected: [String: PrepCourseDownloadRecord] = [:]
+        var order: [String] = []
+        for row in downloads {
+            let key = row.course.venueDisplayName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            guard !key.isEmpty else { continue }
+            guard let current = selected[key] else {
+                selected[key] = row
+                order.append(key)
+                continue
+            }
+            let rowReady = row.phase == .ready
+            let currentReady = current.phase == .ready
+            // Both callers receive the durable list newest-first. Keep that first representative;
+            // only a ready package can supersede an in-flight row when old ordering is ambiguous.
+            if rowReady && !currentReady {
+                selected[key] = row
+            }
+        }
+        return order.compactMap { selected[$0] }
     }
 
     static func recentRowSubtitle(_ download: PrepCourseDownloadRecord) -> String {
