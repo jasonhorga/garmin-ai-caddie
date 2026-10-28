@@ -170,6 +170,44 @@ class GreenCoordinatesTest(unittest.TestCase):
 
 
 class DualGreenTargetAuthorityTest(unittest.TestCase):
+    def test_legacy_target_binding_skips_component_decomposition_without_gir_scope(self):
+        """Product spec 2.8: non-GIR target binding does not pay for component selection."""
+        hole = {
+            "GlobalId": 38059,
+            "HoleNumber": 5,
+            "RefLat": 40.0,
+            "RefLon": 116.0,
+            "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 200.0}]}],
+        }
+        hazards = {"target": {"position": [0.0, 200.0]}, "tees": [], "hazards": []}
+        decoded = {
+            "hole": hole,
+            "meshes": [{
+                "name": "Green.drc",
+                "positions": [[0, 0, 0], [-10, 0, 0], [0, 0, 10]],
+                "faces": [[0, 1, 2]],
+            }],
+        }
+        with patch("ai_caddie.geometry.measure_prodgeometry_distances.mesh_components", side_effect=AssertionError):
+            rebound = bind_selected_green_target(hazards, decoded)
+        self.assertNotIn("_selectedGreenComponent", rebound)
+
+    def test_legacy_target_binding_keeps_largest_green_fallback_without_route(self):
+        """Product spec 2.8: target binding still falls back when no route or dogleg exists."""
+        hole = {"GlobalId": 38059, "HoleNumber": 5}
+        hazards = {"target": {}, "tees": [], "hazards": []}
+        decoded = {
+            "hole": hole,
+            "meshes": [{
+                "name": "Green.drc",
+                "positions": [[0, 0, 0], [-10, 0, 0], [0, 0, 10]],
+                "faces": [[0, 1, 2]],
+            }],
+        }
+        with patch.object(courseview_core, "load_cached_hole_route", return_value=[]):
+            rebound = bind_selected_green_target(hazards, decoded)
+        self.assertEqual(rebound["target"]["name"], "Largest green component centroid")
+
     def test_target_and_legacy_hazard_cache_follow_selected_course_data_green(self):
         ref_lat, ref_lon = 40.0, 116.0
         selected_world = [

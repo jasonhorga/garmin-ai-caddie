@@ -608,6 +608,64 @@ class GeometryEvidenceTests(unittest.TestCase):
         self.assertEqual(selected["surface"]["kind"], "green")
         self.assertNotEqual(other["surface"]["kind"], "green")
 
+    def test_product_spec_2_8_gir_surface_id_keeps_original_mesh_layer_index(self) -> None:
+        """Product spec 2.8: filtered GIR layers retain their original mesh surface id."""
+        rows = [{"name": "Fairway.drc", "polygon": [[-1, -1], [1, -1], [1, 1], [-1, 1]]} for _ in range(9)]
+        rows.append({"name": "PlayableBounds.drc", "polygon": [[-2, -2], [2, -2], [2, 2], [-2, 2]]})
+        result = classify_shot_surface(
+            31795,
+            10,
+            {"end": {"x": 0, "y": 0}},
+            meshes={"meshes": rows},
+            include_mesh_triangles=True,
+        )
+        self.assertEqual(result["surface"]["kind"], "playable_bounds")
+        self.assertEqual(result["surface"]["id"], "mesh-10")
+
+    def test_product_spec_2_8_triangle_surface_id_keeps_original_mesh_layer_index(self) -> None:
+        """Product spec 2.8: filtered triangle layers retain their original mesh surface id."""
+        rows = [{"name": "Fairway.drc", "polygon": [[-1, -1], [1, -1], [1, 1], [-1, 1]]} for _ in range(9)]
+        rows.append({
+            "name": "Green.drc",
+            "positions": [[0, 0, 0], [-10, 0, 0], [0, 0, 10]],
+            "faces": [[0, 1, 2]],
+        })
+        result = classify_shot_surface(
+            31795,
+            10,
+            {"end": {"x": 10 / 3, "y": 10 / 3}},
+            meshes={"meshes": rows},
+            include_mesh_triangles=True,
+        )
+        self.assertEqual(result["surface"]["kind"], "green")
+        self.assertEqual(result["surface"]["id"], "mesh-10")
+
+    def test_product_spec_2_8_missing_local_green_does_not_use_distant_green(self) -> None:
+        """Product spec 2.8: a distant neighbour green leaves GIR undetermined."""
+        mesh = {
+            "hole": {"Doglegs": [{"Line": [{"X": 0, "Y": 0}, {"X": 5, "Y": 5}]}]},
+            "meshes": [{
+                "name": "Green.drc",
+                "positions": [[-200, 0, 200], [-210, 0, 200], [-200, 0, 210]],
+                "faces": [[0, 1, 2]],
+            }, {
+                "name": "PlayableBounds.drc",
+                "polygon": [[180, 180], [230, 180], [230, 230], [180, 230]],
+            }],
+        }
+        with patch(
+            "ai_caddie.geometry.geometry_evidence.hazard_path",
+            return_value=Path("/tmp/c125-missing-green-hazards.json"),
+        ):
+            result = classify_shot_surface(
+                31795,
+                11,
+                {"end": {"x": 203 + 1 / 3, "y": 203 + 1 / 3}},
+                meshes=mesh,
+                include_mesh_triangles=True,
+            )
+        self.assertEqual(result["surface"]["kind"], "unknown")
+
     def test_product_spec_2_8_green_centres_are_stable_across_mesh_reads(self) -> None:
         """Product spec 2.8: each independently decoded mesh classifies its own centre."""
         with TemporaryDirectory() as tmp:

@@ -191,6 +191,30 @@ class GirFairwayDerivationTests(unittest.TestCase):
         self.assertIsNone(gir)
         self.assertIsNone(fairway)
 
+    def test_product_spec_2_8_missing_local_green_inside_bounds_keeps_gir_unknown(self) -> None:
+        """Product spec 2.8: a bounds hit without the selected local green yields GIR None."""
+        mesh = {
+            "hole": {"Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 5.0, "Y": 5.0}]}]},
+            "meshes": [
+                {
+                    "name": "Green.drc",
+                    "positions": [[-200, 0, 200], [-210, 0, 200], [-200, 0, 210]],
+                    "faces": [[0, 1, 2]],
+                },
+                {"name": "PlayableBounds.drc", "polygon": [[180, 180], [230, 180], [230, 230], [180, 230]]},
+            ],
+        }
+        (self.geo_dir / f"gid{GID}_h02_meshes.json").write_text(json.dumps(mesh))
+        (self.geo_dir / f"gid{GID}_h02_hazards.json").write_text(
+            json.dumps({"refLat": REF_LAT, "refLon": REF_LON, "hazards": []})
+        )
+        shots = [_shot(TEE_C), _shot(FAIRWAY_C, target_local=(203.0, 203.0))]
+        with _patch_geometry(self.geo_dir):
+            gir, _fairway = round_ingest._derive_gir_fairway(
+                GID, 2, 4, shots, total_strokes=5
+            )
+        self.assertIsNone(gir)
+
     def test_missing_global_id_or_par_yields_none(self) -> None:
         shots = [_shot(TEE_C), _shot(FAIRWAY_C, target_local=GREEN_C)]
         with _patch_geometry(self.geo_dir):

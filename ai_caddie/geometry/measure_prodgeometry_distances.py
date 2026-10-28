@@ -89,6 +89,46 @@ def point_triangle_distance(p: Point, tri: tuple[Point, Point, Point]) -> float:
     )
 
 
+def select_green_component(
+    components: list[dict[str, Any]],
+    target: Point,
+    *,
+    max_distance_m: float | None = None,
+) -> dict[str, Any] | None:
+    """Select the Green.drc component containing ``target``, else the nearest triangle.
+
+    ``max_distance_m`` lets callers reject a target whose nearest decoded green is clearly from
+    another hole.  The course-prep and hazard-binding paths share this rule so a dual-green or
+    tiled Green.drc cannot make their selected component drift apart.
+    """
+    containing = next(
+        (
+            component
+            for component in components
+            if any(point_in_triangle(target, *triangle) for triangle in component["triangles"])
+        ),
+        None,
+    )
+    if containing is not None:
+        return containing
+    if not components:
+        return None
+    nearest, nearest_distance = min(
+        (
+            (
+                component,
+                min(point_triangle_distance(target, triangle) for triangle in component["triangles"]),
+            )
+            for component in components
+        ),
+        key=lambda item: item[1],
+    )
+    if max_distance_m is not None:
+        if nearest_distance > max_distance_m:
+            return None
+    return nearest
+
+
 def triangle_area(a: Point, b: Point, c: Point) -> float:
     return abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2.0
 
@@ -266,40 +306,42 @@ def bind_selected_green_target(
         }
         green_components = (
             mesh_components(by_name["Green.drc"])
-            if "Green.drc" in by_name
+            if include_selected_component and "Green.drc" in by_name
             else []
         )
         target_name, target = target_point(decoded["hole"], green_components)
     except (IndexError, KeyError, TypeError, ValueError, OverflowError):
-        return hazards
+        if not include_selected_component and isinstance(decoded.get("hole"), dict):
+            try:
+                fallback_components = (
+                    mesh_components(by_name["Green.drc"])
+                    if "Green.drc" in by_name
+                    else []
+                )
+                target_name, target = target_point(decoded["hole"], fallback_components)
+            except (IndexError, KeyError, TypeError, ValueError, OverflowError):
+                return hazards
+        elif include_selected_component and isinstance(decoded.get("hole"), dict):
+            rebound = dict(hazards)
+            rebound["_selectedGreenComponent"] = None
+            return rebound
+        else:
+            return hazards
 
-    selected_component = None
-    if green_components:
-        selected_component = next(
-            (
-                component
-                for component in green_components
-                if any(point_in_triangle(target, *triangle) for triangle in component["triangles"])
-            ),
-            None,
-        )
-        if selected_component is None:
-            selected_component = min(
-                green_components,
-                key=lambda component: min(
-                    point_triangle_distance(target, triangle)
-                    for triangle in component["triangles"]
-                ),
-            )
+    selected_component = (
+        select_green_component(green_components, target, max_distance_m=10.0)
+        if include_selected_component
+        else None
+    )
 
     def with_selected_component(value: dict[str, Any]) -> dict[str, Any]:
-        if not include_selected_component or selected_component is None:
+        if not include_selected_component:
             return value
         enriched = dict(value)
         enriched["_selectedGreenComponent"] = {
             "name": "Green.drc",
             "triangles": selected_component["triangles"],
-        }
+        } if selected_component is not None else None
         return enriched
 
     rounded_target = rounded_point(target)

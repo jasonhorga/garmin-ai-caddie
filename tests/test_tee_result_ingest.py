@@ -154,8 +154,7 @@ class TeeResultIngestTest(unittest.TestCase):
         self.assertEqual(reads, [f"gid{GID}_h01_meshes.json"])
 
     def retained(self, events: list[dict], key: str, **meta) -> tuple[list[str | None], list, list[int], list[str]]:
-        """Ingest ``events`` and observe the ingest's mesh store: the (gid, hole) keys it still
-        holds after each scored hole, its size after every insert, and every mesh file read."""
+        """Product spec 2.8: observe retained mesh keys, peak cache size, and file reads."""
         after_hole: list[tuple[int, set]] = []
         sizes: list[int] = []
         reads: list[str] = []
@@ -163,16 +162,25 @@ class TeeResultIngestTest(unittest.TestCase):
         init = round_ingest._IngestGeometry.__init__
         enrich = round_ingest._enrich_hole_gir_fairway
         read_text = Path.read_text
+        active_geometry = None
 
         def recording_init(geometry, *args, **kwargs):
+            nonlocal active_geometry
             init(geometry, *args, **kwargs)
+            active_geometry = geometry
+            class Recording(dict):
+                def __setitem__(self, item, value):
+                    super().__setitem__(item, value)
+                    sizes.append(len(self))
+            geometry._meshes = Recording()
+            sizes.append(0)
 
         read_mesh = round_ingest._IngestGeometry._read
 
         def recording_read(key):
             value = read_mesh(key)
-            if value is not None:
-                sizes.append(1)
+            if value is not None and active_geometry is not None:
+                sizes.append(len(active_geometry._meshes) + 1)
             return value
 
         def observed_enrich(hole, **kwargs):

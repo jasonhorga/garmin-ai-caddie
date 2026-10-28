@@ -12,6 +12,7 @@ from ai_caddie.geometry.measure_prodgeometry_distances import (
 )
 
 GeometryCoverage = Literal["ready", "partial", "missing"]
+_SELECTED_COMPONENT_UNSET = object()
 GCJ02_PROVIDERS = {"amap", "amap_gcj02", "gaode", "gaode_gcj02", "tencent", "baidu"}
 MAP_PROVIDERS = {
     "esri_world_imagery": {
@@ -235,7 +236,11 @@ def _load_json_if_ready(path: Path) -> dict[str, Any] | None:
 
 
 def _load_hole_sources(
-    global_id: int, local_hole: int, meshes: dict[str, Any] | None = None
+    global_id: int,
+    local_hole: int,
+    meshes: dict[str, Any] | None = None,
+    *,
+    include_selected_component: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Load geometry and bind any legacy hazard target to the selected layout.
 
@@ -246,7 +251,7 @@ def _load_hole_sources(
     rebound = bind_selected_green_target(
         hazards,
         meshes,
-        include_selected_component=True,
+        include_selected_component=include_selected_component,
     )
     return (rebound or {}, meshes)
 
@@ -420,7 +425,7 @@ def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: st
                     "surface": {
                         "kind": kind,
                         "source": source,
-                        "id": _surface_id(row, f"{source}-{index + 1}", kind),
+                        "id": _surface_id(row, f"{source}-{source_index + 1}", kind),
                     },
                 }
             )
@@ -482,7 +487,7 @@ def _mesh_triangle_match(point: list[float], rows: list[dict[str, Any]], *, sour
                         "surface": {
                             "kind": kind,
                             "source": source,
-                            "id": _surface_id(row, f"{source}-{index + 1}", kind),
+                            "id": _surface_id(row, f"{source}-{source_index + 1}", kind),
                         },
                     }
                 )
@@ -508,7 +513,7 @@ def _mesh_surface_match(point: list[float], rows: list[dict[str, Any]]) -> dict[
 def _mesh_gir_surface_match(
     point: list[float],
     rows: list[dict[str, Any]],
-    selected_component: dict[str, Any] | None = None,
+    selected_component: dict[str, Any] | None | object = _SELECTED_COMPONENT_UNSET,
 ) -> dict[str, Any] | None:
     """Classify a GIR endpoint using only the green and playable-boundary layers.
 
@@ -522,7 +527,7 @@ def _mesh_gir_surface_match(
         if _surface_kind(row, "mesh") == "green"
     ]
     green = None
-    if selected_component is not None:
+    if isinstance(selected_component, dict):
         triangles = selected_component.get("triangles")
         if isinstance(triangles, list) and any(
             point_in_triangle(tuple(point), *triangle)
@@ -539,10 +544,12 @@ def _mesh_gir_surface_match(
                 "source": "mesh",
                 "id": _surface_id(row, f"mesh-{row_index + 1}", "green"),
             }
-    if green is None and selected_component is None:
+    if green is None and selected_component is _SELECTED_COMPONENT_UNSET:
         green = _mesh_surface_match(point, green_rows)
     if green is not None:
         return green
+    if selected_component is None:
+        return None
     boundary_rows = [
         {**row, "_sourceIndex": index}
         for index, row in enumerate(rows)
@@ -572,7 +579,12 @@ def classify_shot_surface(
     meshes: dict[str, Any] | None = None,
     include_mesh_triangles: bool = False,
 ) -> dict[str, Any]:
-    hazards, meshes = _load_hole_sources(global_id, local_hole, meshes)
+    hazards, meshes = _load_hole_sources(
+        global_id,
+        local_hole,
+        meshes,
+        include_selected_component=include_mesh_triangles,
+    )
     ref_lat = hazards.get("refLat")
     ref_lon = hazards.get("refLon")
     ref_lat_float = float(ref_lat) if ref_lat is not None else None
@@ -597,7 +609,11 @@ def classify_shot_surface(
             mesh_match = _mesh_gir_surface_match(
                 point,
                 rows,
-                selected_component=hazards.get("_selectedGreenComponent"),
+                selected_component=(
+                    hazards["_selectedGreenComponent"]
+                    if "_selectedGreenComponent" in hazards
+                    else _SELECTED_COMPONENT_UNSET
+                ),
             )
         else:
             hazard_match = _surface_match(

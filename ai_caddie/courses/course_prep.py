@@ -1446,19 +1446,19 @@ def _hole_playslike(by: dict, route) -> dict:
 
 
 def selected_green_component(by: dict, route) -> dict | None:
-    """Return the connected Green component nearest the selected route endpoint."""
+    """Return the Green component containing, or nearest to, the selected route endpoint."""
     green = (by or {}).get("Green.drc") if isinstance(by, dict) else None
     if not route or not isinstance(green, dict):
         return None
     try:
-        from ai_caddie.geometry.measure_prodgeometry_distances import mesh_components
+        from ai_caddie.geometry.measure_prodgeometry_distances import (
+            mesh_components,
+            select_green_component,
+        )
 
         components = mesh_components(green)
         target = (float(route[-1][0]), float(route[-1][1]))
-        return min(
-            components,
-            key=lambda component: math.dist(component["centroid"], target),
-        ) if components else None
+        return select_green_component(components, target)
     except Exception:
         return None
 
@@ -1545,7 +1545,7 @@ def _green_distances(by: dict, route, md: dict | None = None) -> dict:
     lives in ``playsLike``). ``measure_prodgeometry_distances.mesh_components`` returns components
     whose triangles/centroid are ALREADY in the ``(-mesh_x, mesh_z)`` frame (same as ``route``), so
     no re-projection. A Green.drc tile can include neighbour-hole greens, so we pick the component
-    whose centroid is nearest ``route[-1]`` (the dogleg/green endpoint). Front = nearest green
+    containing ``route[-1]``, otherwise the component nearest that endpoint. Front = nearest green
     boundary point to the tee, Back = farthest, Middle = the chosen component's centroid. The
     additive ``frontRouteM``/``backRouteM`` fields project that same boundary onto the playable
     route; they are the planning coordinate, while straight-line F/M/B remain GPS/display facts.
