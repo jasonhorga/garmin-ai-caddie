@@ -101,6 +101,16 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertLess(elapsed, 1.0, f"light index scan took {elapsed:.3f}s")
         self.assertEqual(len(store.round_event_holes(ROUND_A)), 2500)
 
+    def test_round_index_append_keeps_rows_when_prior_sidecar_is_stale(self) -> None:
+        store = FileEventStore(self.root)
+        self.assertTrue(store.ensure_round_event_index())
+        store.append_batch(
+            ROUND_A,
+            [{**_event("indexed-hole"), "hole": 7}],
+            request_key="indexed-hole-request",
+        )
+        self.assertEqual(store.round_event_holes(ROUND_A), [7])
+
     def test_crash_after_reservation_before_first_append_is_healed(self) -> None:
         store = FileEventStore(self.root)
         events = [_event("e1"), _event("e2")]
