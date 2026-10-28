@@ -591,7 +591,6 @@ struct ResultsTimeLoadState: Equatable {
 
     /// Begin a request for a new range while retaining the currently displayed answer.
     mutating func select(_ newWindow: String) -> Request {
-        window = newWindow
         generation += 1
         isLoading = true
         return Request(window: newWindow, generation: generation)
@@ -614,7 +613,7 @@ struct ResultsTimeLoadState: Equatable {
             window = request.window
             phase = .content(stats, notice: nil)
         } else if case let .content(current, _) = phase {
-            phase = .content(current, notice: nil)
+            phase = .content(current, notice: "未更新，可重试")
         } else {
             phase = .failed("时间与频率暂时取不到")
         }
