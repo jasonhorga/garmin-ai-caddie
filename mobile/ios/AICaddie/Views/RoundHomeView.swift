@@ -54,6 +54,9 @@ struct LiveHolePageInput: Equatable {
     let adminToken: String?
     let offlineStore: ObjectIdentifier?
     let watchBridge: ObjectIdentifier?
+    // Prefetch decoding does not publish image readiness to an unselected page. A drag begins
+    // one fresh cache read before that page slides into view; ordinary events keep this stable.
+    let interactionRevision: Int
 }
 
 /// The closure is intentionally outside equality. Selected pages always consume the new inputs.
@@ -654,6 +657,7 @@ public struct RoundHomeView: View {
     @State private var pagerPresentationRequested = false
     @GestureState private var pagerTouchIsActive = false
     @State private var pagerGestureStarted = false
+    @State private var holePageInteractionRevision = 0
     private var holePagerSelection: Int? { holePager.selection }
     @State private var holePagerNavigationLock: LiveHoleNavigationLock?
     @State private var holePagerScrollDisabled = false
@@ -1141,7 +1145,8 @@ public struct RoundHomeView: View {
                 isPrepMode: isPrepHoleScreen, prepTeeOptions: prepTeeOptions,
                 apiBaseURL: apiBaseURL, adminToken: adminToken,
                 offlineStore: offlineStore.map { ObjectIdentifier($0) },
-                watchBridge: watchBridge.map { ObjectIdentifier($0) }
+                watchBridge: watchBridge.map { ObjectIdentifier($0) },
+                interactionRevision: holePageInteractionRevision
             )
             LiveHolePage(input: input) {
                 // round-11: forward the round-management closures so 球局调整(加打/减九洞/结束本场)lives
@@ -1387,6 +1392,9 @@ public struct RoundHomeView: View {
     }
 
     private func sendPager(_ event: LiveHolePagerState.Event, source: String) {
+        if event == .touchBegan {
+            holePageInteractionRevision &+= 1
+        }
         let oldSelection = holePager.selection
         let oldPending = holePager.pendingTarget
         let oldActive = holePager.activeHole

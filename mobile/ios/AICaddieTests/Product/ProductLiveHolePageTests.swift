@@ -73,7 +73,7 @@ final class ProductLiveHolePageTests: XCTestCase {
                 courseOptions: NineLoopTurn.loopCatalogue(network: [], downloaded: downloadedCourseOptions),
                 isPreparingRound: false, isFinishingRound: false, finishErrorMessage: nil,
                 isPrepMode: false, prepTeeOptions: [], apiBaseURL: nil, adminToken: nil,
-                offlineStore: nil, watchBridge: nil
+                offlineStore: nil, watchBridge: nil, interactionRevision: interactionRevision
             )
         }
     }

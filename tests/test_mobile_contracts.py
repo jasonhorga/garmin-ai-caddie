@@ -2701,6 +2701,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertGreaterEqual(sheet.count(".disabled(isPreparing)"), 4)
         # Offline: the live hole resolves its loops from the network catalogue plus installed
         # templates, so the turn appears without course discovery.
+        self.assertIn("let catalogue = NineLoopTurn.loopCatalogue(network: courseOptions, downloaded: downloadedCourseOptions)", round_home)
+        # Inspect the hole-page arguments too: the same catalogue also appears in its equality
+        # input, which must not hide a regression back to the raw network-only page catalogue.
+        hole_page_arguments = round_home.split("CurrentHoleView(", 1)[1].split("sessionCache:", 1)[0]
+        self.assertIn("courseOptions: catalogue,", hole_page_arguments)
         self.assertIn("NineLoopTurn.candidateLoops(package: package, catalogue: courseOptions)", current_hole)
         # A coarse same-id network row (18 holes / no loop label) never masks the installed loop.
         self.assertIn("guard let local = installed[row.globalId], isFactualLoop(local), !isFactualLoop(row) else { return row }", turn)
