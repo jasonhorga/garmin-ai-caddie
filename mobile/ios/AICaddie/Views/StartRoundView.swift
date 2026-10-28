@@ -28,11 +28,14 @@ public struct StartRoundView: View {
     public let recentCourseOption: MobileCourseOption?
     public let syncStatus: String
     public let isPreparing: Bool
+    public let roundStartFailure: RoundStartFailure?
+    public let roundStartProgressMessage: String?
     public let apiBaseURL: URL?
     public let adminTokenConfigured: Bool
     public let onPrepareRound: (String) -> Void
     /// Start a round: (roundId, teeBox, ordered loops) — B4b-2 `loops=`, one entry here.
     public let onPrepareCourseRound: (String, String, [RoundLoopEntry]) -> Void
+    public let onRetryRoundStart: () async -> Void
     public let onSaveBackendConfiguration: (String, String?) -> Void
     public let onClearBackendConfiguration: () -> Void
     /// 还没有球场时的「连接 Garmin」CTA:由 app 注入(打开 Garmin 连接流程),拉取球场后就能记分。
@@ -104,10 +107,13 @@ public struct StartRoundView: View {
         recentCourseOption: MobileCourseOption? = nil,
         syncStatus: String = "Offline ready",
         isPreparing: Bool = false,
+        roundStartFailure: RoundStartFailure? = nil,
+        roundStartProgressMessage: String? = nil,
         apiBaseURL: URL? = nil,
         adminTokenConfigured: Bool = false,
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
+        onRetryRoundStart: @escaping () async -> Void = {},
         onSaveBackendConfiguration: @escaping (String, String?) -> Void = { _, _ in },
         onClearBackendConfiguration: @escaping () -> Void = {},
         onConnectGarmin: @escaping () -> Void = {},
@@ -149,10 +155,13 @@ public struct StartRoundView: View {
         self.recentCourseOption = recentCourseOption
         self.syncStatus = syncStatus
         self.isPreparing = isPreparing
+        self.roundStartFailure = roundStartFailure
+        self.roundStartProgressMessage = roundStartProgressMessage
         self.apiBaseURL = apiBaseURL
         self.adminTokenConfigured = adminTokenConfigured
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
+        self.onRetryRoundStart = onRetryRoundStart
         self.onSaveBackendConfiguration = onSaveBackendConfiguration
         self.onClearBackendConfiguration = onClearBackendConfiguration
         self.onConnectGarmin = onConnectGarmin
@@ -1443,7 +1452,29 @@ public struct StartRoundView: View {
 
     private var startCard: some View {
         VStack(spacing: 8) {
-            if !isPreparing, let failure = Self.roundPreparationFailureMessage(from: syncStatus) {
+            if let roundStartProgressMessage, isPreparing || isOpeningPrepCourse {
+                Text(roundStartProgressMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("start-round-preparation-progress")
+            }
+            if !isPreparing, !isOpeningPrepCourse, let roundStartFailure {
+                HStack(spacing: 10) {
+                    Label(roundStartFailure.presentationMessage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    Spacer(minLength: 0)
+                    Button("重试") {
+                        Task { await onRetryRoundStart() }
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("start-round-retry")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("start-round-preparation-error")
+            } else if !isPreparing, !isOpeningPrepCourse,
+                      let failure = Self.roundPreparationFailureMessage(from: syncStatus) {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
@@ -1517,6 +1548,7 @@ public struct StartRoundView: View {
         let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines)
         let failurePrefixes = [
             "无法开始", "暂时无法开始", "开始失败", "未联网", "离线中",
+            "网络不可用", "服务器较慢",
         ]
         return failurePrefixes.contains(where: { normalized.hasPrefix($0) }) ? normalized : nil
     }

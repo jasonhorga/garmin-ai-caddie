@@ -470,12 +470,15 @@ public struct RoundHomeView: View {
     public let liveCourseDownloadProgress: LiveCourseDownloadProgress?
     public let offlineStorageUsage: OfflineStorageUsage?
     public let isPreparingRound: Bool
+    public let roundStartFailure: RoundStartFailure?
+    public let roundStartProgressMessage: String?
     public let isFinishingRound: Bool
     public let finishErrorMessage: String?
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
     /// Start a round: (roundId, teeBox, ordered loops) — B4b-2 `loops=`.
     public let onPrepareCourseRound: (String, String, [RoundLoopEntry]) -> Void
+    public let onRetryRoundStart: () async -> Void
     /// Set, change or drop (nil) the second loop before it is played: (entry, roundId).
     public let onSetSecondLoop: (RoundLoopEntry?, String) -> Void
     /// B4 turn: add the chosen second loop and open its first hole (the model navigates).
@@ -593,11 +596,14 @@ public struct RoundHomeView: View {
         liveCourseDownloadProgress: LiveCourseDownloadProgress? = nil,
         offlineStorageUsage: OfflineStorageUsage? = nil,
         isPreparingRound: Bool = false,
+        roundStartFailure: RoundStartFailure? = nil,
+        roundStartProgressMessage: String? = nil,
         isFinishingRound: Bool = false,
         finishErrorMessage: String? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
+        onRetryRoundStart: @escaping () async -> Void = {},
         onSetSecondLoop: @escaping (RoundLoopEntry?, String) -> Void = { _, _ in },
         onContinueIntoSecondLoop: @escaping (RoundLoopEntry, String) -> Void = { _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
@@ -669,11 +675,14 @@ public struct RoundHomeView: View {
         self.liveCourseDownloadProgress = liveCourseDownloadProgress
         self.offlineStorageUsage = offlineStorageUsage
         self.isPreparingRound = isPreparingRound
+        self.roundStartFailure = roundStartFailure
+        self.roundStartProgressMessage = roundStartProgressMessage
         self.isFinishingRound = isFinishingRound
         self.finishErrorMessage = finishErrorMessage
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
+        self.onRetryRoundStart = onRetryRoundStart
         self.onSetSecondLoop = onSetSecondLoop
         self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
         self.onFinishRound = onFinishRound
@@ -1424,10 +1433,13 @@ public struct RoundHomeView: View {
             recentCourseOption: recentCourseOption,
             syncStatus: syncStatus,
             isPreparing: isPreparingRound,
+            roundStartFailure: roundStartFailure,
+            roundStartProgressMessage: roundStartProgressMessage,
             apiBaseURL: apiBaseURL,
             adminTokenConfigured: adminTokenConfigured,
             onPrepareRound: onPrepareRound,
             onPrepareCourseRound: onPrepareCourseRound,
+            onRetryRoundStart: onRetryRoundStart,
             onSaveBackendConfiguration: onSaveBackendConfiguration,
             onClearBackendConfiguration: onClearBackendConfiguration,
             onConnectGarmin: { showSettings = true },

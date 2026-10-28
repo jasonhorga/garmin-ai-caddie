@@ -89,6 +89,8 @@ public struct AICaddieApp: App {
                         liveCourseDownloadProgress: model.liveCourseDownloadProgress,
                         offlineStorageUsage: model.offlineStorageUsage,
                         isPreparingRound: model.isPreparingRound,
+                        roundStartFailure: model.roundStartFailure,
+                        roundStartProgressMessage: model.roundStartProgressMessage,
                         isFinishingRound: model.isFinishingRound,
                         finishErrorMessage: model.finishErrorMessage,
                         onEvent: model.handleEvent,
@@ -101,6 +103,9 @@ public struct AICaddieApp: App {
                             Task {
                                 await model.prepareCourseRound(roundId: roundId, teeBox: teeBox, loops: loops)
                             }
+                        },
+                        onRetryRoundStart: {
+                            await model.retryRoundStart()
                         },
                         onSetSecondLoop: { entry, roundId in
                             Task {
@@ -317,21 +322,29 @@ public enum RoundStartFailure: Equatable {
 
     public var presentationMessage: String {
         switch self {
-        case .timedOut: return "开始超时（30 秒），请重试"
-        case .unavailable: return "暂时无法开始,稍后重试"
+        case .timedOut: return "服务器较慢，没能开始，点重试"
+        case .unavailable: return "网络不可用，没能开始，点重试"
         }
     }
 }
 
 public enum RoundStartProgress {
     public static func message(after elapsed: TimeInterval) -> String? {
-        // C114 red-test seam: the old start path has no explanatory progress copy.
-        nil
+        if elapsed >= 20 { return "服务器仍在准备，马上就好…" }
+        if elapsed >= 8 { return "服务器在准备球场，稍等…" }
+        return nil
     }
 }
 
 @MainActor
 public final class LiveRoundAppModel: ObservableObject {
+    private static func roundStartFailure(for error: Error) -> RoundStartFailure {
+        if let urlError = error as? URLError, urlError.code == .timedOut {
+            return .timedOut
+        }
+        return .unavailable
+    }
+
     @Published public private(set) var package: LiveRoundPackage? {
         didSet {
             if oldValue?.roundId != package?.roundId {
@@ -404,9 +417,50 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingLiveHole = nil
     }
 
-    /// C114 red-test seam. A failed start will retain its request and provide a retry action.
+    private func startRoundProgress() {
+        roundStartProgressGeneration &+= 1
+        let generation = roundStartProgressGeneration
+        roundStartProgressTask?.cancel()
+        roundStartProgressMessage = nil
+        roundStartProgressTask = Task { @MainActor [weak self] in
+            do {
+                guard let self else { return }
+                try await self.roundStartProgressSleep(8_000_000_000)
+                guard self.roundStartProgressGeneration == generation else { return }
+                self.roundStartProgressMessage = RoundStartProgress.message(after: 8)
+                try await self.roundStartProgressSleep(12_000_000_000)
+                guard self.roundStartProgressGeneration == generation else { return }
+                self.roundStartProgressMessage = RoundStartProgress.message(after: 20)
+            } catch { return }
+        }
+    }
+
+    private func stopRoundProgress() {
+        roundStartProgressGeneration &+= 1
+        roundStartProgressTask?.cancel()
+        roundStartProgressTask = nil
+        roundStartProgressMessage = nil
+    }
+
+    private func completeRoundStartRequest() {
+        pendingRoundStartRequest = nil
+    }
+
+    /// Retry the last failed request with its original round identity, tee, loops and capturedAt.
     public func retryRoundStart() async {
-        // Old behavior: the Start button had no retry operation.
+        guard let request = pendingRoundStartRequest else { return }
+        switch request {
+        case let .course(globalId, roundId, teeBox, loops, capturedAt):
+            await prepareCourseRound(
+                globalId: globalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
+            )
+        case let .prep(course, roundId, teeBox, loops, capturedAt, hole):
+            _ = startPrepCourse(
+                course, roundId: roundId, teeBox: teeBox, loops: loops,
+                capturedAt: capturedAt, hole: hole
+            )
+            await activeRoundStartTask?.value
+        }
     }
     /// 备战 on the hole screen (design 2026-10-23 §2): the course package the screen shows while no
     /// round exists. Memory only — never a round package, cursor, event or upload. The first stroke
@@ -513,6 +567,15 @@ public final class LiveRoundAppModel: ObservableObject {
     private var userRequestedPrepDownloadIDs = Set<String>()
     private var roundPreparationToken: UUID?
     private var roundPreparationGeneration: UInt64 = 0
+    private var roundStartProgressGeneration: UInt64 = 0
+    private var roundStartProgressTask: Task<Void, Never>?
+    private var activeRoundStartTask: Task<Void, Never>?
+    private let roundStartProgressSleep: (UInt64) async throws -> Void
+    private enum RoundStartRequest {
+        case course(globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date)
+        case prep(course: MobileCourseOption, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date, hole: Int?)
+    }
+    private var pendingRoundStartRequest: RoundStartRequest?
     /// Courses picked on 开始一场 / 在这个球场 in this launch. Storage eviction keeps them even when
     /// their row is already ready, because picking a course does not count as a use.
     private var intendedGlobalIds = Set<Int>()
@@ -591,7 +654,8 @@ public final class LiveRoundAppModel: ObservableObject {
         preferredRoundId: String? = nil,
         syncClient: SyncClient? = nil,
         offlineGeometryRetryDelaysNanoseconds: [UInt64] = LiveRoundAppModel.defaultOfflineGeometryRetryDelaysNanoseconds,
-        freshEntryReleaseFallbackNanoseconds: UInt64 = 20_000_000_000
+        freshEntryReleaseFallbackNanoseconds: UInt64 = 20_000_000_000,
+        roundStartProgressSleep: @escaping (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
     ) {
         self.init(
             offlineStore: offlineStore,
@@ -602,7 +666,8 @@ public final class LiveRoundAppModel: ObservableObject {
             preferredRoundId: preferredRoundId,
             syncClient: syncClient,
             offlineGeometryRetryDelaysNanoseconds: offlineGeometryRetryDelaysNanoseconds,
-            freshEntryReleaseFallbackNanoseconds: freshEntryReleaseFallbackNanoseconds
+            freshEntryReleaseFallbackNanoseconds: freshEntryReleaseFallbackNanoseconds,
+            roundStartProgressSleep: roundStartProgressSleep
         )
     }
 
@@ -616,7 +681,8 @@ public final class LiveRoundAppModel: ObservableObject {
         syncClient: SyncClient? = nil,
         offlineGeometryRetryDelaysNanoseconds: [UInt64] = LiveRoundAppModel.defaultOfflineGeometryRetryDelaysNanoseconds,
         freshEntryReleaseFallbackNanoseconds: UInt64 = 20_000_000_000,
-        networkPathObserver: NetworkPathObserving? = NetworkPathObserver.live()
+        networkPathObserver: NetworkPathObserving? = NetworkPathObserver.live(),
+        roundStartProgressSleep: @escaping (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
     ) {
         let resolvedAPIBaseURL = apiBaseURL ?? Self.defaultAPIBaseURL()
         let resolvedAdminToken = adminToken ?? Self.defaultAdminToken()
@@ -631,6 +697,7 @@ public final class LiveRoundAppModel: ObservableObject {
             : Self.configuredLiveRoundId()
         self.offlineGeometryRetryDelaysNanoseconds = offlineGeometryRetryDelaysNanoseconds
         self.freshEntryReleaseFallbackNanoseconds = freshEntryReleaseFallbackNanoseconds
+        self.roundStartProgressSleep = roundStartProgressSleep
         self.networkPathObserver = networkPathObserver
         self.syncClient = syncClient ?? resolvedAPIBaseURL.map { SyncClient(baseURL: $0, adminToken: resolvedAdminToken) }
         self.mediaUploadClient = resolvedAPIBaseURL.map {
@@ -1395,6 +1462,7 @@ public final class LiveRoundAppModel: ObservableObject {
             pausePrepCourseDownload()
         }
         isPreparingRound = true
+        startRoundProgress()
         return token
     }
 
@@ -1407,6 +1475,7 @@ public final class LiveRoundAppModel: ObservableObject {
         guard roundPreparationToken == token else { return }
         roundPreparationToken = nil
         isPreparingRound = false
+        stopRoundProgress()
         // Live-course assets keep priority after a successful start or hole-set change: their
         // installer is deferred until the replacement live surface has settled. If preparation
         // failed, release the prep-library queue instead of leaving durable jobs paused.
@@ -1466,12 +1535,12 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
             } else {
                 roundStartFailure = roundStartFailure ?? .unavailable
-                syncStatus = roundStartFailure == .timedOut ? "开始超时（30 秒），请重试" : "暂时无法开始,稍后重试"
+                syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
             }
         } catch {
             AICaddieLog.network.error("Round package prepare failed: \(String(describing: error), privacy: .public)")
-            roundStartFailure = .unavailable
-            syncStatus = "开始失败,稍后重试"
+            roundStartFailure = Self.roundStartFailure(for: error)
+            syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
         }
     }
 
@@ -1479,10 +1548,26 @@ public final class LiveRoundAppModel: ObservableObject {
     /// `G:front` / `G:back` of an 18-hole course), two for a full round in play order. The same
     /// round id re-prepares that round (e.g. after a failed start) and keeps its identity.
     public func prepareCourseRound(roundId: String, teeBox: String, loops: [RoundLoopEntry]) async {
+        guard let globalId = loops.first?.globalId else {
+            syncStatus = "无法开始这一场,请重试"
+            return
+        }
+        let capturedAt = Date()
+        pendingRoundStartRequest = .course(
+            globalId: globalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
+        )
+        await prepareCourseRound(
+            globalId: globalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt
+        )
+    }
+
+    private func prepareCourseRound(
+        globalId: Int, roundId: String, teeBox: String, loops: [RoundLoopEntry], capturedAt: Date
+    ) async {
         let requestedRoundId = roundId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requestedRoundId.isEmpty,
               (1...2).contains(loops.count),
-              let globalId = loops.first?.globalId else {
+              loops.first?.globalId == globalId else {
             syncStatus = "无法开始这一场,请重试"
             return
         }
@@ -1500,7 +1585,7 @@ public final class LiveRoundAppModel: ObservableObject {
         // `liveRoundState`, not package identity, therefore decides whether Start must enter hole 1.
         let isNewRound = liveRoundState?.roundId != requestedRoundId
         let isIntentionalHoleSetChange = !isNewRound && package?.loopKey != loopKey
-        let preparedAt = Date()
+        let preparedAt = capturedAt
 
         do {
             // A course advertised as downloaded already has the exact Tee facts and every precise
@@ -1521,6 +1606,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 // Enter immediately from local facts, then verify the Garmin release in the
                 // background. Matching revisions reuse every byte; changed holes refresh only
                 // their prep/topo while a network failure leaves this playable snapshot intact.
+                completeRoundStartRequest()
                 return
             }
 
@@ -1565,6 +1651,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 } else {
                     beginOfflineCourseDownload()
                 }
+                completeRoundStartRequest()
                 return
             }
             if let cachedPackage = try offlineStore.loadRoundPackage(roundId: requestedRoundId),
@@ -1596,14 +1683,15 @@ public final class LiveRoundAppModel: ObservableObject {
                 } else {
                     beginOfflineCourseDownload(revalidatePackage: true)
                 }
+                completeRoundStartRequest()
             } else {
                 roundStartFailure = roundStartFailure ?? .unavailable
-                syncStatus = roundStartFailure == .timedOut ? "开始超时（30 秒），请重试" : "暂时无法开始,稍后重试"
+                syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
             }
         } catch {
             AICaddieLog.network.error("Course package prepare failed: \(String(describing: error), privacy: .public)")
-            roundStartFailure = .unavailable
-            syncStatus = "开始失败,稍后重试"
+            roundStartFailure = Self.roundStartFailure(for: error)
+            syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
         }
     }
 
@@ -3978,6 +4066,27 @@ public final class LiveRoundAppModel: ObservableObject {
         let record = PrepCourseDownloadRecord(course: course)
         let loops = record.loops
         let roundId = StartRoundView.freshLiveRoundId(globalId: course.globalId)
+        let capturedAt = Date()
+        pendingRoundStartRequest = .prep(
+            course: course, roundId: roundId, teeBox: record.teeBox, loops: loops,
+            capturedAt: capturedAt, hole: hole
+        )
+        return startPrepCourse(
+            course, roundId: roundId, teeBox: record.teeBox, loops: loops,
+            capturedAt: capturedAt, hole: hole
+        )
+    }
+
+    @discardableResult
+    private func startPrepCourse(
+        _ course: MobileCourseOption,
+        roundId: String,
+        teeBox: String,
+        loops: [RoundLoopEntry],
+        capturedAt: Date,
+        hole: Int?
+    ) -> Bool {
+        guard liveRoundState == nil else { return false }
         prepOpenGeneration &+= 1
         let generation = prepOpenGeneration
         prepPriorityTask?.cancel()
@@ -3985,42 +4094,48 @@ public final class LiveRoundAppModel: ObservableObject {
         prepPriorityRoundID = roundId
         prepPriorityHole = hole ?? 1
         prepCourse = course
-        prepTeeOptions = Self.prepTeeOptions(course.tees ?? [], selected: record.teeBox)
+        prepTeeOptions = Self.prepTeeOptions(course.tees ?? [], selected: teeBox)
         isOpeningPrepCourse = true
-        Task { @MainActor [weak self] in
+        let preparationToken = beginRoundPreparation()
+        activeRoundStartTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let preparedAt = Date()
+            defer {
+                self.isOpeningPrepCourse = false
+                self.finishRoundPreparation(preparationToken)
+            }
             var opened = self.installedRoundProjection(
                 loops,
                 roundId: roundId,
-                teeBox: record.teeBox,
-                preparedAt: preparedAt,
+                teeBox: teeBox,
+                preparedAt: capturedAt,
                 requireComplete: false
             )
             if opened == nil {
                 opened = await self.fetchRemoteCoursePackage(
                     globalId: course.globalId,
                     roundId: roundId,
-                    teeBox: record.teeBox,
+                    teeBox: teeBox,
                     loops: loops,
-                    capturedAt: preparedAt,
+                    capturedAt: capturedAt,
+                    preparationToken: preparationToken,
                     priorityHole: hole ?? 1
                 )
             }
             guard generation == self.prepOpenGeneration else { return }
-            self.isOpeningPrepCourse = false
             guard self.liveRoundState == nil else { return }
             guard let opened else {
-                self.syncStatus = "暂时打不开这个球场，稍后重试"
+                self.roundStartFailure = self.roundStartFailure ?? .unavailable
+                self.syncStatus = self.roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
                 return
             }
             self.enterPrepMode(with: opened, hole: hole)
             self.prepPriorityRoundID = opened.roundId
             self.prepPriorityHole = hole ?? opened.holes.first?.number ?? 1
             self.prioritizePrepHole(hole ?? opened.holes.first?.number ?? 1)
+            self.completeRoundStartRequest()
             let tees = await self.loadCourseTees(globalId: course.globalId)
             guard generation == self.prepOpenGeneration, !tees.isEmpty else { return }
-            self.prepTeeOptions = Self.prepTeeOptions(tees.map(\.teeBox), selected: record.teeBox)
+            self.prepTeeOptions = Self.prepTeeOptions(tees.map(\.teeBox), selected: teeBox)
         }
         return true
     }
@@ -5183,7 +5298,12 @@ public final class LiveRoundAppModel: ObservableObject {
     ) async -> LiveRoundPackage? {
         guard let syncClient else {
             if preparationToken == nil || preparationToken == roundPreparationToken {
-                syncStatus = "未联网,稍后同步"
+                if preparationToken != nil {
+                    roundStartFailure = .unavailable
+                    syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
+                } else {
+                    syncStatus = "未联网,稍后同步"
+                }
             }
             return nil
         }
@@ -5193,9 +5313,11 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.network.error("Round package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {
                 if preparationToken != nil {
-                    roundStartFailure = (error as? URLError)?.code == .timedOut ? .timedOut : .unavailable
+                    roundStartFailure = Self.roundStartFailure(for: error)
+                    syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
+                } else {
+                    syncStatus = "离线中,使用已保存数据"
                 }
-                syncStatus = "离线中,使用已保存数据"
             }
             return nil
         }
@@ -5218,14 +5340,24 @@ public final class LiveRoundAppModel: ObservableObject {
             && ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] == "1")
             || ProcessInfo.processInfo.environment["UITEST_FORCE_LIVE_NETWORK_FAILURE"] == "1" {
             if preparationToken == nil || preparationToken == roundPreparationToken {
-                syncStatus = "离线中,使用已保存数据"
+                if preparationToken != nil {
+                    roundStartFailure = .unavailable
+                    syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
+                } else {
+                    syncStatus = "离线中,使用已保存数据"
+                }
             }
             return nil
         }
         #endif
         guard let syncClient else {
             if preparationToken == nil || preparationToken == roundPreparationToken {
-                syncStatus = "未联网,稍后同步"
+                if preparationToken != nil {
+                    roundStartFailure = .unavailable
+                    syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
+                } else {
+                    syncStatus = "未联网,稍后同步"
+                }
             }
             return nil
         }
@@ -5237,9 +5369,11 @@ public final class LiveRoundAppModel: ObservableObject {
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {
                 if preparationToken != nil {
-                    roundStartFailure = (error as? URLError)?.code == .timedOut ? .timedOut : .unavailable
+                    roundStartFailure = Self.roundStartFailure(for: error)
+                    syncStatus = roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
+                } else {
+                    syncStatus = "离线中,使用已保存数据"
                 }
-                syncStatus = "离线中,使用已保存数据"
             }
             return nil
         }
