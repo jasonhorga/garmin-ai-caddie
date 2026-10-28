@@ -1,9 +1,296 @@
 import CoreLocation
+import Foundation
 import XCTest
 @testable import AICaddie
 import AICaddieDomain
 
+#if !SWIFT_PACKAGE
+private final class C136Counter {
+    private let lock = NSLock()
+    private var storage = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func increment() {
+        lock.lock()
+        storage += 1
+        lock.unlock()
+    }
+}
+
+private actor C136Gate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func wait() async {
+        if released { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        released = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+#endif
+
+@MainActor
 final class ProductMapAndPackageTests: XCTestCase {
+#if !SWIFT_PACKAGE
+    private let productEventWait: TimeInterval = 10
+
+    override func tearDown() {
+        C33URLProtocol.setHandlers(onStart: nil)
+        super.tearDown()
+    }
+
+    private func c136Package(
+        garmin: Bool = false,
+        pendingHole: Int? = nil
+    ) throws -> LiveRoundPackage {
+        var root = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: JSONEncoder().encode(try c33Package())
+            ) as? [String: Any]
+        )
+        var holes = try XCTUnwrap(root["holes"] as? [[String: Any]])
+        for index in holes.indices {
+            let number = (holes[index]["number"] as? Int) ?? (index + 1)
+            if garmin {
+                holes[index]["garminRaster"] = [
+                    "imageUrl": "/api/v2/courses/32850/holes/\(number)/garmin-raster.jpg?v=c136",
+                    "metadataUrl": "/api/v2/courses/32850/holes/\(number)/garmin-raster.json?v=c136",
+                ]
+            }
+            if number == pendingHole {
+                holes[index]["geometryCoverage"] = "partial"
+                holes[index]["geometryState"] = "pending"
+                holes[index]["retryAfterEpoch"] = 0.0
+            }
+        }
+        root["holes"] = holes
+        return try ProductSharedVectors.decode(root)
+    }
+
+    private func c136Model(host: String, package: LiveRoundPackage) -> (
+        model: LiveRoundAppModel, client: SyncClient, session: URLSession, directory: URL
+    ) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("c136-\(UUID().uuidString)", isDirectory: true)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [C33URLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session)
+        let model = c33Model(OfflineStore(directoryURL: directory), client)
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            guard proto.request.url?.path == "/api/v2/mobile/courses/\(package.course.globalId)/package" else {
+                proto.reply(404)
+                return
+            }
+            proto.reply(200, (try? JSONEncoder().encode(package)) ?? Data())
+        })
+        return (model, client, session, directory)
+    }
+
+    /// C136/J4: disabling Garmin is an end-to-end gate. The model receives a package carrying
+    /// raster URLs, but its real preload pass must issue zero raster URL requests.
+    func test_j4_5_garmin_disabled_model_sends_no_raster_request() async throws {
+        let package = try c136Package(garmin: true)
+        let host = "c136-garmin-off.example.test"
+        let fixture = c136Model(host: host, package: package)
+        let rasterRequests = C136Counter()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            if proto.request.url?.path.contains("/garmin-raster") == true {
+                rasterRequests.increment()
+            }
+            if proto.request.url?.path == "/api/v2/mobile/courses/\(package.course.globalId)/package" {
+                proto.reply(200, (try? JSONEncoder().encode(package)) ?? Data())
+            } else {
+                proto.reply(200)
+            }
+        })
+        fixture.model.garminRasterPreloadingEnabled = { false }
+        fixture.model.garminRasterDownloader = { url in
+            let request = URLRequest(url: url)
+            _ = try? await fixture.session.data(for: request)
+            return true
+        }
+        defer {
+            fixture.client.invalidateForTesting()
+            fixture.session.invalidateAndCancel()
+            try? FileManager.default.removeItem(at: fixture.directory)
+        }
+
+        await fixture.model.prepareCourseRound(
+            roundId: package.roundId, teeBox: package.course.teeBox, loops: package.loopEntries
+        )
+        await fixture.model.waitForGarminRasterDownloadForTesting()
+        XCTAssertEqual(rasterRequests.value, 0, "disabled Garmin must not reach /garmin-raster")
+        XCTAssertEqual(fixture.model.pendingLiveHole, package.holes.first?.number)
+        await fixture.model.stopRoundBackgroundWorkForTesting()
+    }
+
+    /// C136/J4: a slow/failed raster pass is independent of the playable first hole. The test holds
+    /// the actual downloader, calls the same initial-load callback used by CurrentHoleView, and
+    /// proves the model can publish and persist the active hole before releasing the raster.
+    func test_j4_5_slow_failed_garmin_does_not_block_first_hole_or_scoring() async throws {
+        let package = try c136Package(garmin: true)
+        let host = "c136-garmin-slow.example.test"
+        let fixture = c136Model(host: host, package: package)
+        let started = expectation(description: "raster preload started")
+        let gate = C136Gate()
+        fixture.model.garminRasterPreloadingEnabled = { true }
+        fixture.model.garminRasterDownloader = { _ in
+            started.fulfill()
+            await gate.wait()
+            return false
+        }
+        defer {
+            fixture.client.invalidateForTesting()
+            fixture.session.invalidateAndCancel()
+            try? FileManager.default.removeItem(at: fixture.directory)
+        }
+
+        await fixture.model.prepareCourseRound(
+            roundId: package.roundId, teeBox: package.course.teeBox, loops: package.loopEntries
+        )
+        await fulfillment(of: [started], timeout: productEventWait)
+        XCTAssertEqual(fixture.model.pendingLiveHole, 1, "first hole publishes while raster is held")
+        fixture.model.liveHoleInitialLoadDidFinish()
+        fixture.model.setActiveHole(1)
+        XCTAssertEqual(fixture.model.liveRoundState?.activeHole, 1, "scoring cursor is usable")
+        await gate.release()
+        await fixture.model.waitForGarminRasterDownloadForTesting()
+        XCTAssertEqual(fixture.model.pendingLiveHole, 1)
+        await fixture.model.stopRoundBackgroundWorkForTesting()
+    }
+
+    /// C136/J4: geometry refresh after moving to a pending hole is map-only. The initial full
+    /// package is counted separately, then switching holes must add only `map_only=true` traffic.
+    func test_j4_2_switching_holes_uses_map_only_without_full_package() async throws {
+        let pending = try c136Package(pendingHole: 2)
+        let ready = try c136Package()
+        let host = "c136-map-only.example.test"
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("c136-\(UUID().uuidString)", isDirectory: true)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [C33URLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session)
+        let model = c33Model(OfflineStore(directoryURL: directory), client)
+        let fullRequests = C136Counter(), mapOnlyRequests = C136Counter()
+        let roundPackageRequests = C136Counter()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else {
+                proto.reply(404); return
+            }
+            if proto.request.url?.path.contains("/mobile/rounds/") == true {
+                roundPackageRequests.increment()
+                proto.reply(404)
+                return
+            }
+            guard proto.request.url?.path == "/api/v2/mobile/courses/\(pending.course.globalId)/package" else {
+                proto.reply(404)
+                return
+            }
+            if c33Query(proto.request, "map_only") == "true" {
+                mapOnlyRequests.increment()
+                proto.reply(200, (try? JSONEncoder().encode(ready)) ?? Data())
+            } else {
+                fullRequests.increment()
+                proto.reply(200, (try? JSONEncoder().encode(pending)) ?? Data())
+            }
+        })
+        defer {
+            client.invalidateForTesting()
+            session.invalidateAndCancel()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        await model.prepareCourseRound(
+            roundId: pending.roundId, teeBox: pending.course.teeBox, loops: pending.loopEntries
+        )
+        model.setActiveHole(2)
+        let deadline = ProcessInfo.processInfo.systemUptime + productEventWait
+        while mapOnlyRequests.value == 0, ProcessInfo.processInfo.systemUptime < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(fullRequests.value, 1, "hole change does not refetch the personal package")
+        XCTAssertEqual(roundPackageRequests.value, 0, "hole change never fetches a complete round package")
+        XCTAssertGreaterThanOrEqual(mapOnlyRequests.value, 1)
+        XCTAssertEqual(model.liveRoundState?.activeHole, 2, "local map and cursor are immediate")
+        await model.stopRoundBackgroundWorkForTesting()
+    }
+
+    /// C136/J4: a held prep request cannot replace the factual route/numeric first frame with the
+    /// full-screen waiting page. The fetch is the real live prep publication seam and is released
+    /// only after the visible state has been asserted.
+    func test_j4_5_hanging_prep_keeps_route_and_numeric_surface_visible() async throws {
+        let gate = C136Gate()
+        let started = expectation(description: "prep request held")
+        let task = Task { @MainActor () -> CoursePrepHole? in
+            await LiveHolePrepPublication.run(
+                fetch: {
+                    started.fulfill()
+                    await gate.wait()
+                    return nil
+                },
+                publish: { _ in true },
+                pushWatch: {}
+            )
+        }
+        await fulfillment(of: [started], timeout: productEventWait)
+        let state = LiveMapDisplayState.resolveLive(.init(
+            coverage: "partial", preciseTopoImageReady: false, garminRaster: nil,
+            garminImageReady: false, garminImageFailed: true, hasCachedPreciseTopo: false,
+            hasRoute: true
+        ))
+        XCTAssertEqual(state, .factual, "route facts draw while /prep is held")
+        XCTAssertEqual(
+            HoleMapWaitingPage(holeNumber: 2, par: 4, yards: 241).subtitle,
+            "241 码 · 图到了自动出来"
+        )
+        await gate.release()
+        _ = await task.value
+    }
+
+    /// C136/J4: both successful and terminally failed prep requests clear the pending state. This
+    /// drives the production probe and then resolves the same map state used by CurrentHoleView.
+    func test_j4_5_map_spinner_stops_after_prep_success_or_failure() async throws {
+        let partial = try ProductInputs.prep(coverage: "partial")
+        let ready = try ProductInputs.prep(coverage: "ready")
+        let success = await LiveHolePrepProbe.run(
+            fetch: { ready }, publishInterim: { _ in }, wait: { _ in }
+        )
+        XCTAssertEqual(LiveMapDisplayState.resolve(prep: partial, pending: true), .factualPending)
+        XCTAssertEqual(
+            LiveMapDisplayState.resolve(prep: success, pending: false), .precise,
+            "successful prep ends the spinner and promotes the map"
+        )
+
+        var failedInput = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(partial)) as? [String: Any]
+        )
+        failedInput["missingData"] = [["label": "hazards", "state": "failed"]]
+        let failed: CoursePrepHole = try ProductSharedVectors.decode(failedInput)
+        let terminal = await LiveHolePrepProbe.run(
+            fetch: { failed }, publishInterim: { _ in }, wait: { _ in }
+        )
+        XCTAssertNil(terminal)
+        XCTAssertEqual(
+            LiveMapDisplayState.resolve(prep: failed, pending: false), .factual,
+            "terminal failure ends the spinner while retaining route facts"
+        )
+    }
+#endif
+
     func test_j4_5_garmin_disabled_gate_has_no_raster_request_or_surface() {
         XCTAssertFalse(LiveGarminRasterPolicy.shouldFetch(enabled: false, requestStarted: false))
         XCTAssertNil(LiveGarminRasterPolicy.displayedRaster(
@@ -180,21 +467,33 @@ final class ProductMapAndPackageTests: XCTestCase {
     }
 
     /// C136: the selected Tee is the single distance origin for the static card and the caddie
-    /// before the first stroke. These values are calculated from the fixture coordinates rather
-    /// than copied from a screenshot or a server response.
+    /// before the first stroke. The test drives the prep/package request path.
     func test_j5_4_selected_tee_static_golden_and_atomic_live_fallback() throws {
-        let tee = CLLocationCoordinate2D(latitude: 40.0000, longitude: 116.0000)
-        let front = CLLocationCoordinate2D(latitude: 40.0018, longitude: 116.0000)
-        let middle = CLLocationCoordinate2D(latitude: 40.0027, longitude: 116.0000)
-        let back = CLLocationCoordinate2D(latitude: 40.0036, longitude: 116.0000)
-        let staticRange = LiveGreenRangeYards(
-            front: GeoDistance.yards(from: tee.latitude, tee.longitude, to: front.latitude, front.longitude),
-            middle: GeoDistance.yards(from: tee.latitude, tee.longitude, to: middle.latitude, middle.longitude),
-            back: GeoDistance.yards(from: tee.latitude, tee.longitude, to: back.latitude, back.longitude)
+        var prepInput = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(try ProductInputs.prep())) as? [String: Any]
         )
-        XCTAssertEqual(staticRange.front, 219)
-        XCTAssertEqual(staticRange.middle, 328)
-        XCTAssertEqual(staticRange.back, 438)
+        prepInput["greenDistances"] = [
+            "available": true, "frontM": 236.0, "middleM": 241.0, "backM": 246.0,
+            "frontRouteM": 236.0, "backRouteM": 246.0,
+        ]
+        let prep: CoursePrepHole = try ProductSharedVectors.decode(prepInput)
+        let package = try ProductInputs.package()
+        let hole = try XCTUnwrap(package.holes.first)
+        let staticRange = LiveGreenRangeYards(
+            front: CoursePrepRoute.yards(fromMetres: try XCTUnwrap(prep.greenDistances?.frontM)),
+            middle: CoursePrepRoute.yards(fromMetres: try XCTUnwrap(prep.greenDistances?.middleM)),
+            back: CoursePrepRoute.yards(fromMetres: try XCTUnwrap(prep.greenDistances?.backM))
+        )
+        let firstFrame = LiveCaddieInput.firstFrameTee(greenDistances: prep.greenDistances, holeYards: hole.yards)
+        XCTAssertEqual(firstFrame.distanceToPinM, prep.greenDistances?.middleM)
+        XCTAssertEqual(
+            LiveCaddieDistance.planningDistance(
+                recordedShotCount: 0, isTeeShotOffTheHole: false, manualM: nil,
+                liveMiddleM: 999, staticMiddleM: prep.greenDistances?.middleM, holeYards: hole.yards
+            ),
+            prep.greenDistances?.middleM,
+            "opening AI planning uses the same selected-Tee prep middle as the factual card"
+        )
         XCTAssertEqual(
             LiveGreenRangePresentation.resolve(
                 live: LiveGreenRangeYards(front: 220, middle: nil, back: 437),

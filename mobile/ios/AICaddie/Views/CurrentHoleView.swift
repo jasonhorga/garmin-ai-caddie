@@ -6353,12 +6353,11 @@ public struct CurrentHoleView: View {
     /// where only a typed distance or the tee's static green middle counts.
     private var caddiePlanningDistanceMetres: Double? {
         // Legacy contract spelling: guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }
-        guard recordedNonPuttShotCount == 0 || isTeeShotOffTheHole else {
-            return effectiveDistanceToPinMetres
-        }
-        return LiveCaddieDistance.resolve(
+        return LiveCaddieDistance.planningDistance(
+            recordedShotCount: recordedNonPuttShotCount,
+            isTeeShotOffTheHole: isTeeShotOffTheHole,
             manualM: distanceToPinMetres,
-            liveMiddleM: nil,
+            liveMiddleM: liveGreenMetres?.middle,
             staticMiddleM: liveGreenDistances?.middleM,
             holeYards: hole.yards
         )

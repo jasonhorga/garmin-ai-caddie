@@ -24,6 +24,33 @@ public enum LiveCaddieDistance {
         if let staticMiddleM, staticMiddleM.isFinite, staticMiddleM > 0 { return staticMiddleM }
         return nil
     }
+
+    /// The live view's opening-shot planning source. Before the first shot (or when the fix is
+    /// explicitly off-hole), manual input may win but a GPS middle distance never replaces the
+    /// selected Tee's static prep middle. This is shared with product tests and request builders.
+    public static func planningDistance(
+        recordedShotCount: Int,
+        isTeeShotOffTheHole: Bool,
+        manualM: Double?,
+        liveMiddleM: Double?,
+        staticMiddleM: Double?,
+        holeYards: Int?
+    ) -> Double? {
+        guard recordedShotCount == 0 || isTeeShotOffTheHole else {
+            return resolve(
+                manualM: manualM,
+                liveMiddleM: liveMiddleM,
+                staticMiddleM: staticMiddleM,
+                holeYards: holeYards
+            )
+        }
+        return resolve(
+            manualM: manualM,
+            liveMiddleM: nil,
+            staticMiddleM: staticMiddleM,
+            holeYards: holeYards
+        )
+    }
 }
 
 public struct LiveCaddieInput {

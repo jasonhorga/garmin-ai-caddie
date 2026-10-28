@@ -136,6 +136,48 @@ _load_mobile_hazards.cache_clear = _load_mobile_hazards_cached.cache_clear
 _load_mobile_hazards.cache_info = _load_mobile_hazards_cached.cache_info
 
 
+def _release_selected_tee_anchor(
+    global_id: int | None,
+    local_hole: int | None,
+    tee_box: str | None,
+) -> tuple[float, float, float] | None:
+    """Return the selected release Tee's WGS84 anchor and route length.
+
+    A live package can be built from an old Garmin scorecard template. Its ``teeLatitude`` and
+    ``yards`` are historical facts and may describe Blue even when today's package was requested
+    for Black/White/Red. ``course_prep.derive_route(md, tee_set)`` is the same release authority
+    used by ``/prep``; deriving both values here keeps the package and prep distance origins equal.
+    """
+    if not global_id or not local_hole or not tee_box:
+        return None
+    requested = str(tee_box).strip().lower()
+    if requested in {"", "unknown"}:
+        return None
+    try:
+        from ai_caddie.caddie.analysis import tee_set_for_box
+
+        tee_set = tee_set_for_box(int(global_id), requested)
+        if tee_set is None:
+            return None
+        md, _ = course_prep.hole_render.load_mesh(int(global_id), int(local_hole))
+        route, route_length = course_prep.derive_route(md, tee_set)
+        if not route or not route_length or len(route[0]) < 2:
+            return None
+        hole_meta = md.get("hole") or {}
+        ref_lat = float(hole_meta["RefLat"])
+        ref_lon = float(hole_meta["RefLon"])
+        latitude, longitude = local_to_world(
+            float(route[0][0]), float(route[0][1]), ref_lat=ref_lat, ref_lon=ref_lon
+        )
+        if not all(math.isfinite(value) for value in (latitude, longitude, route_length)):
+            return None
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            return None
+        return latitude, longitude, float(route_length)
+    except (OSError, KeyError, TypeError, ValueError, OverflowError, AttributeError):
+        return None
+
+
 def _event_cursor(
     round_id: str,
     *,
@@ -1171,6 +1213,12 @@ def _package_holes(
                         tee_longitude = longitude
             except (OSError, TypeError, ValueError, OverflowError):
                 pass
+            # The scorecard template above is allowed to be from an earlier Tee. Rebind the
+            # package anchor and nominal length to the same release route that /prep uses whenever
+            # that geometry is available; the compact hazard export remains the fallback only.
+            if release_anchor := _release_selected_tee_anchor(source_gid, source_local, tee_box):
+                tee_latitude, tee_longitude, selected_route_length = release_anchor
+                yards = int(round(selected_route_length * 1.09361))
         # A prior round's `ready` describes what existed when that round was ingested; it is not
         # authority for today's Garmin release.  Resolve the physical hole against the current
         # current cached release before advertising precise facts to a live client.

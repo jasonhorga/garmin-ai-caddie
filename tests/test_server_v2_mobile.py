@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -329,6 +330,81 @@ class ServerV2MobileTests(unittest.TestCase):
             1,
             require_current_authority=True,
         )
+
+    def test_package_selected_tee_anchor_and_prep_distances_share_release_route(self) -> None:
+        """C136: an old Blue scorecard template must not poison a Black package Tee anchor."""
+        from ai_caddie.caddie import mobile_live
+        from ai_caddie.courses import course_prep
+        from ai_caddie.geometry import shot_projection
+
+        md = {
+            "hole": {
+                "RefLat": 40.0,
+                "RefLon": 116.0,
+                "TeeLocations": [
+                    {"Sets": [2], "X": 0.0, "Y": 0.0},
+                    {"Sets": [1], "X": 0.0, "Y": 40.0},
+                ],
+                "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 320.0}]}],
+            }
+        }
+        green_mesh = {
+            "Green.drc": {
+                "positions": [
+                    [-3.0, 5.0, 276.0], [3.0, 5.0, 276.0],
+                    [3.0, 5.0, 286.0], [-3.0, 5.0, 286.0],
+                ],
+                "faces": [[0, 1, 2], [0, 2, 3]],
+            }
+        }
+        source = {
+            "globalId": 31832,
+            # Deliberately the historical Blue anchor: today's request is Black.
+            "holes": [{"number": 2, "par": 4, "teeLatitude": 40.0, "teeLongitude": 116.0, "yards": 552}],
+        }
+        with (
+            patch("ai_caddie.caddie.analysis.tee_set_for_box", return_value=1),
+            patch.object(course_prep.hole_render, "load_mesh", return_value=(md, green_mesh)),
+            patch.object(mobile_live, "_load_mobile_hazards", return_value={}),
+            patch.object(mobile_live, "geometry_coverage_for_hole", return_value={"coverage": "partial"}),
+        ):
+            package_hole = mobile_live._package_holes(
+                source, {"holes": []}, course_key="", hole_numbers=[2], tee_box="black"
+            )[0]
+
+        black_route, _ = course_prep.derive_route(md, 1)
+        green = course_prep._green_distances(green_mesh, black_route, md)
+        tee_local = shot_projection.world_to_local(
+            package_hole["teeLatitude"], package_hole["teeLongitude"], ref_lat=40.0, ref_lon=116.0
+        )
+        middle_local = shot_projection.world_to_local(
+            green["middleLat"], green["middleLon"], ref_lat=40.0, ref_lon=116.0
+        )
+        package_to_middle = math.dist(tee_local, middle_local)
+        self.assertAlmostEqual(package_to_middle, green["middleM"], delta=0.05)
+        self.assertEqual(package_hole["yards"], 306)
+        self.assertNotAlmostEqual(package_hole["teeLatitude"], 40.0, delta=0.00001)
+
+        # The selected Blue release remains stable when its geometry agrees with the historical
+        # template: the same route authority preserves the old 552-yard package facts.
+        blue_md = {
+            "hole": {
+                **md["hole"],
+                "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 504.4}]}],
+            }
+        }
+        with (
+            patch("ai_caddie.caddie.analysis.tee_set_for_box", return_value=2),
+            patch.object(course_prep.hole_render, "load_mesh", return_value=(blue_md, green_mesh)),
+            patch.object(mobile_live, "_load_mobile_hazards", return_value={}),
+            patch.object(mobile_live, "geometry_coverage_for_hole", return_value={"coverage": "partial"}),
+        ):
+            blue_hole = mobile_live._package_holes(
+                source, {"holes": []}, course_key="", hole_numbers=[2], tee_box="blue"
+            )[0]
+        self.assertEqual(blue_hole["yards"], 552)
+        self.assertAlmostEqual(blue_hole["teeLatitude"], 40.0, delta=0.00001)
+        self.assertAlmostEqual(blue_hole["teeLongitude"], 116.0, delta=0.00001)
 
     def test_mobile_geometry_context_keeps_only_caddie_risk_surfaces(self) -> None:
         from ai_caddie.caddie.mobile_live import _hazards_from_geometry
