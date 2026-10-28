@@ -96,6 +96,25 @@ struct PrepHoleFollowingState: Equatable {
         clearPending()
     }
 
+    /// Location-envelope entry point; confirmation policy is exercised through real geometry/fixes.
+    mutating func navigationTarget(
+        currentLocatedHole: Int?, displayedHole: Int, fix: LocationFix,
+        holes: [HoleLocatorGeometry], now: Date = Date()
+    ) -> Int? {
+        guard let sampledAt = Self.sampleDate(fix.capturedAt) else { return nil }
+        return navigationTarget(currentLocatedHole: currentLocatedHole, displayedHole: displayedHole,
+                                sampledAt: sampledAt, coordinate: fix.coordinate)
+    }
+
+    static func sampleDate(_ capturedAt: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = fractional.date(from: capturedAt)
+            ?? ISO8601DateFormatter().date(from: capturedAt) else { return nil }
+        // Preserve the old provider's whole-second precision in the red-test interface.
+        return Date(timeIntervalSince1970: floor(date.timeIntervalSince1970))
+    }
+
     mutating func navigationTarget(
         currentLocatedHole: Int?, displayedHole: Int,
         sampledAt: Date = Date(), coordinate: CLLocationCoordinate2D? = nil

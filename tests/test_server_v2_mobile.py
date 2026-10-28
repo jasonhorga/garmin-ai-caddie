@@ -3561,6 +3561,7 @@ class ServerV2MobileTests(unittest.TestCase):
                     )
                     self.assertEqual(response.status_code, 422, response.text)
                     self.assertIn(f"startHole must be <= {limit}", response.text)
+                    self.assertEqual(response.json()["detail"]["code"], "event_invalid")
                     if limit != 27:
                         # iOS isSingleEventPayloadValidation422 只认 "must be " 等英文子串；去掉会把单条坏事件
                         # 变成整批 422、整局同步卡死。27 档走 pydantic 列表 detail，客户端本来就不按单条处理。

@@ -5,6 +5,22 @@ import XCTest
 
 @MainActor
 final class C33EventTests: XCTestCase {
+    /// Product spec 5.9: quarantine eligibility follows the wire code, independent of wording.
+    func testProductSpec59EventInvalidCodeOverridesLegacyWording() {
+        let cases: [(String, Bool)] = [
+            (#"{"detail":{"code":"event_invalid","message":"记录内容不符合约定"}}"#, true),
+            (#"{"detail":{"code":"event_invalid","message":"payload rejected"}}"#, true),
+            (#"{"detail":{"code":"batch_invalid","message":"payload must be valid"}}"#, false),
+            (#"{"detail":{"code":null,"message":"payload must be valid"}}"#, false),
+            (#"{"detail":"club payload field strategyMode must be one of stock, attack"}"#, true),
+            (#"{"detail":"roundId does not match path"}"#, false),
+            (#"{"detail":[{"loc":["body","events",0,"payload"],"msg":"Invalid object"}]}"#, true),
+        ]
+        for (body, expected) in cases {
+            XCTAssertEqual(LiveRoundAppModel.isSingleEventPayloadValidation422(body), expected, body)
+        }
+    }
+
     func testEveryRouteTokenProducesOnlyServerStrategyEnumsOrOmission() throws {
         // Server _LIVE_EVENT_PAYLOAD_ENUMS is the authority, not another client mapper.
         let allowed: Set<String> = ["protect_score", "stock", "attack"]

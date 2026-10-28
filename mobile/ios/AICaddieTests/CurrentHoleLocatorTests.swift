@@ -187,6 +187,90 @@ final class CurrentHoleLocatorTests: XCTestCase {
         XCTAssertEqual(following.lastLocatedHole, 1)
     }
 
+    /// Product spec 5.13: GPS drift must not turn a hole preview into a different playing hole.
+    func testProductSpec513ShallowBoundaryDriftDoesNotConfirmAfterFiveSeconds() {
+        var following = PrepHoleFollowingState()
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        let start = Date(timeIntervalSince1970: 100)
+        // A straight corridor is 50 m wide on each side; 48 m from its centre is only 2 m inside.
+        let point = coordinate(40.002, 116 + 48 / (111_320 * cos(40.002 * .pi / 180)))
+        XCTAssertEqual(CurrentHoleLocator.locate(coordinate: point, horizontalAccuracyM: 5,
+                                                holes: confirmationHoles), .onHole(2))
+        for elapsed in [0.0, 6.0, 12.0] {
+            let now = start.addingTimeInterval(elapsed)
+            XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                fix: fix(point, at: now, accuracy: 5), holes: confirmationHoles, now: now))
+        }
+        XCTAssertEqual(following.lastLocatedHole, 1)
+    }
+
+    func testProductSpec513PoorAccuracyNeverConfirmsHoleChange() {
+        for accuracy in [-1.0, 31.0, Double.nan, Double.infinity] {
+            var following = PrepHoleFollowingState()
+            _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+            for elapsed in [0.0, 6.0] {
+                let now = Date(timeIntervalSince1970: 100 + elapsed)
+                XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+                    fix: fix(coordinate(40.002, 116), at: now, accuracy: accuracy),
+                    holes: confirmationHoles, now: now))
+            }
+            XCTAssertEqual(following.lastLocatedHole, 1)
+        }
+    }
+
+    func testProductSpec513CachedFirstFixDoesNotStartConfirmationClock() {
+        var following = PrepHoleFollowingState()
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        let now = Date(timeIntervalSince1970: 100)
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+            fix: fix(coordinate(40.001, 116), at: now.addingTimeInterval(-31)),
+            holes: confirmationHoles, now: now))
+        // Even displacement from the cached fix must not count as real observed movement.
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+            fix: fix(coordinate(40.002, 116), at: now), holes: confirmationHoles, now: now))
+        XCTAssertEqual(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+            fix: fix(coordinate(40.002, 116), at: now.addingTimeInterval(5)),
+            holes: confirmationHoles, now: now.addingTimeInterval(5)), 2)
+    }
+
+    func testProductSpec513FractionalSecondsDoNotRoundFourSecondsUpToFive() throws {
+        var following = PrepHoleFollowingState()
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        let first = Date(timeIntervalSince1970: 100.9)
+        let point = coordinate(40.002, 116)
+        XCTAssertEqual(try XCTUnwrap(PrepHoleFollowingState.sampleDate(fix(point, at: first).capturedAt))
+            .timeIntervalSince1970, 100.9, accuracy: 0.001)
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+            fix: fix(point, at: first), holes: confirmationHoles, now: first))
+        let second = Date(timeIntervalSince1970: 105.1) // 4.2 s, even though integer seconds differ by 5.
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+            fix: fix(point, at: second), holes: confirmationHoles, now: second))
+        XCTAssertEqual(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+            fix: fix(point, at: first.addingTimeInterval(5)), holes: confirmationHoles,
+            now: first.addingTimeInterval(5)), 2)
+    }
+
+    func testProductSpec513SameTimestampDifferentCoordinatesAreNotReplay() {
+        var following = PrepHoleFollowingState()
+        _ = following.navigationTarget(currentLocatedHole: 1, displayedHole: 1)
+        let now = Date(timeIntervalSince1970: 100)
+        XCTAssertNil(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+            fix: fix(coordinate(40.001, 116), at: now), holes: confirmationHoles, now: now))
+        XCTAssertEqual(following.navigationTarget(currentLocatedHole: 2, displayedHole: 1,
+            fix: fix(coordinate(40.002, 116), at: now), holes: confirmationHoles, now: now), 2)
+    }
+
+    private var confirmationHoles: [HoleLocatorGeometry] {
+        [HoleLocatorGeometry(hole: 2, tee: coordinate(40, 116), green: coordinate(40.004, 116))]
+    }
+
+    private func fix(_ point: CLLocationCoordinate2D, at date: Date, accuracy: Double = 5) -> LocationFix {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return LocationFix(coordinate: point, horizontalAccuracyM: accuracy, altitudeM: nil,
+                           capturedAt: formatter.string(from: date))
+    }
+
     private func coordinate(_ latitude: Double, _ longitude: Double) -> CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
