@@ -43,7 +43,7 @@ from ai_caddie.core.data import (
     evidence_root,
 )
 from ai_caddie.caddie.decision import decision_audit_file
-from ai_caddie.history.history import OWNER_ID
+from ai_caddie.history.history import OWNER_ID, history_data_fingerprint
 from ai_caddie.history.history import load_history_data as _load_history_data
 from ai_caddie.history.history_stats import build_history_stats as _build_history_stats
 from ai_caddie.history.history_stats import windowed_history_data as _windowed_history_data
@@ -76,6 +76,7 @@ _GEOMETRY_SIG_TTL_S = 1.5
 
 _lock = threading.Lock()
 _cache: dict[tuple, tuple[Any, Any]] = {}
+_CORRECTED_CACHE: dict[tuple, Any] = {}
 _load_cache: dict[str, tuple[Any, Any]] = {}
 # Loading the scorecard/shot files is itself expensive on a cold process. Share that read among
 # simultaneous package, history, and sync consumers before the stats single-flight starts.
@@ -438,9 +439,13 @@ def _data_signature(data) -> tuple:
 
 
 def _fingerprint(data, roots: dict[str, Any], player_id: str = OWNER_ID) -> tuple:
+    return (_data_signature(data), *_fingerprint_files(data, roots, player_id))
+
+
+def _fingerprint_files(data, roots: dict[str, Any], player_id: str) -> tuple:
+    """Stat-only inputs; the data digest and corrected projection are reused while these match."""
     global_ids = _history_global_ids(data)
     return (
-        _data_signature(data),
         tuple(_cached_dir_sig(d) for d in _fingerprint_dirs(player_id)),
         tuple(_history_geometry_dir_sig(d, global_ids) for d in _GEOMETRY_DIRS),
         tuple(_file_sig(f) for f in _aux_files(player_id=player_id, **roots)),
@@ -448,6 +453,34 @@ def _fingerprint(data, roots: dict[str, Any], player_id: str = OWNER_ID) -> tupl
         # appended event changes this signature and the next read rebuilds (spec 3.1).
         _cached_dir_sig(round_corrections.corrections_dir(player_id)),
     )
+
+
+def _stats_projection(data, roots: dict[str, Any], player_id: str) -> tuple[Any, tuple]:
+    from ai_caddie.history.corrected_history import corrected_history_data
+
+    # Production loaders attach a digest to every immutable snapshot. Unversioned injected data
+    # still needs a content digest so two different datasets (or an edited fixture) cannot alias.
+    key = (
+        player_id, getattr(data, "source_fingerprint", None) or history_data_fingerprint(data),
+        getattr(data, "corrected", False), getattr(data, "correction_fingerprint", None),
+        tuple((name, str(path)) for name, path in roots.items()),
+    )
+    inputs = _fingerprint_files(data, roots, player_id)
+    with _lock:
+        hit = _CORRECTED_CACHE.get(key)
+    if hit is not None and hit[0] == inputs:
+        return hit[1], hit[2]
+    corrected = corrected_history_data(
+        data, player_id=player_id, annotations_root=roots["annotations_root"],
+    )
+    fingerprint = _fingerprint(corrected, roots, player_id)
+    # Never label a projection with a revision that arrived during its build.
+    if inputs == _fingerprint_files(data, roots, player_id):
+        with _lock:
+            _CORRECTED_CACHE[key] = (inputs, corrected, fingerprint)
+            if len(_CORRECTED_CACHE) > 8:
+                _CORRECTED_CACHE.pop(next(iter(_CORRECTED_CACHE)))
+    return corrected, fingerprint
 
 
 def clear(player_id: str | None = None) -> None:
@@ -459,11 +492,14 @@ def clear(player_id: str | None = None) -> None:
     with _lock:
         if player_id is None:
             _cache.clear()
+            _CORRECTED_CACHE.clear()
             _load_cache.clear()
             # Do not wake or remove an active leader. It will publish normally; callers that arrive
             # after clear() still compare the current fingerprint before accepting that value.
             return
         _load_cache.pop(player_id, None)
+        for key in [k for k in _CORRECTED_CACHE if k and k[0] == player_id]:
+            _CORRECTED_CACHE.pop(key, None)
         for key in [k for k in _cache if isinstance(k, tuple) and k and k[0] == player_id]:
             _cache.pop(key, None)
 
@@ -541,9 +577,6 @@ def cached_build_history_stats(
     # Warmers/history routes supply raw history; mobile packages and prep supply its corrected
     # view. Normalize before fingerprinting so an added/deleted shot does not make these readers
     # evict one another's otherwise identical projection on every request.
-    from ai_caddie.history.corrected_history import corrected_history_data
-
-    data = corrected_history_data(data, player_id=player_id, annotations_root=annotations_root)
     roots = {
         "annotations_root": annotations_root,
         "weather_root": weather_root,
@@ -563,8 +596,9 @@ def cached_build_history_stats(
         str(decision_audit_root),
         window,
     )
+    source = data
     while True:
-        fingerprint = _fingerprint(data, roots, player_id)
+        data, fingerprint = _stats_projection(source, roots, player_id)
         mark("stats_revision")
         persistent_path = _persistent_cache_path(key)
         with _lock:

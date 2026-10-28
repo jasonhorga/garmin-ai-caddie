@@ -1,0 +1,11 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2869,7 +2869,7 @@
+         refs=refs,
+         requested=requested,
+         ready=ready,
+-        priority=NEARBY,
++        priority=SELECTED_COURSE,
+         priority_hole=priority_hole,
+     )
+     mark_request_stage("background_enqueue")

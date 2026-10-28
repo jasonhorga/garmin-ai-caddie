@@ -2388,6 +2388,10 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
     if not round_id:
         return
     with _ACTIVE_ROUNDS_LOCK:
+        for stale, deadline in list(_ACTIVE_ROUNDS.items()):
+            if deadline <= time.monotonic():
+                _ACTIVE_ROUNDS.pop(stale, None)
+                _ACTIVE_COURSES.pop(stale, None)
         key = (str(player_id), str(round_id))
         if finished:
             _ACTIVE_ROUNDS.pop(key, None)
@@ -2406,6 +2410,8 @@ def nearby_work_blocked() -> bool:
         for key, deadline in list(_ACTIVE_ROUNDS.items()):
             if deadline <= now:
                 _ACTIVE_ROUNDS.pop(key, None)
+                _ACTIVE_COURSES.pop(key, None)
+        course_install.set_current_course_ids({gid for values in _ACTIVE_COURSES.values() for gid in values})
         if _ACTIVE_ROUNDS:
             return True
     with course_install._LOCK:
@@ -2863,9 +2869,7 @@ def mobile_course_package(
         refs=refs,
         requested=requested,
         ready=ready,
-        priority=(SELECTED_COURSE if (round_id and global_id in {
-            gid for values in _ACTIVE_COURSES.values() for gid in values
-        }) else NEARBY),
+        priority=NEARBY,
         priority_hole=priority_hole,
     )
     mark_request_stage("background_enqueue")
