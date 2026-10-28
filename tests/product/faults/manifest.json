@@ -583,6 +583,13 @@
       "promise": "C90ios-B1"
     },
     {
+      "id": "tests-product-faults-C90ios-09-finish-cancels-before-quarantine-check",
+      "patch": "tests/product/faults/C90ios/09-finish-cancels-before-quarantine-check.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testQuarantineBlockedFinishKeepsRoundBackgroundWorkAlive",
+      "promise": "C90ios-B1"
+    },
+    {
       "id": "tests-product-faults-C90ios-02-clear-cancels-before-check",
       "patch": "tests/product/faults/C90ios/02-clear-cancels-before-check.patch",
       "kind": "native-unit",
