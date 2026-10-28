@@ -111,6 +111,33 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         )
         self.assertEqual(store.round_event_holes(ROUND_A), [7])
 
+    def test_round_index_rebuild_refuses_a_tampered_committed_prefix(self) -> None:
+        # The light scan must still verify the committed prefix before labelling a rebuilt
+        # sidecar with the marker's sha256; otherwise a same-length edit becomes trusted holes.
+        store = FileEventStore(self.root)
+        store.append_batch(
+            ROUND_A,
+            [{**_event("tamper-1"), "hole": 3}, {**_event("tamper-2"), "hole": 3}],
+            request_key="tamper-request",
+        )
+        index = self.root / "round_event_index.json"
+        self.assertTrue(index.exists())
+        index.unlink()
+        log = self.root / "events.jsonl"
+        raw = log.read_bytes()
+        match = re.search(rb'"hole":\s*3', raw)
+        self.assertIsNotNone(match)
+        tampered = raw[: match.end() - 1] + b"9" + raw[match.end():]
+        self.assertEqual(len(tampered), len(raw))
+        log.write_bytes(tampered)
+        for call in (
+            lambda: FileEventStore(self.root).ensure_round_event_index(),
+            lambda: FileEventStore(self.root).round_event_holes(ROUND_A),
+        ):
+            with self.assertRaisesRegex(ValueError, "^event_commit_store_corrupt$"):
+                call()
+        self.assertFalse(index.exists(), "a corrupt log must not produce a trusted sidecar")
+
     def test_crash_after_reservation_before_first_append_is_healed(self) -> None:
         store = FileEventStore(self.root)
         events = [_event("e1"), _event("e2")]

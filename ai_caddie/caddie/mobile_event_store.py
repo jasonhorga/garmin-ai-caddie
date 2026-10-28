@@ -611,6 +611,9 @@ class FileEventStore:
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
             if self._load_round_index_unlocked(committed_length, committed_prefix) is not None:
                 return False
+            # The light scan skips payload sanitising, not integrity: verify the committed prefix
+            # (sha256, v1 rows, pending intent) before labelling a rebuilt index as trusted.
+            committed_length = self._visible_committed_length_unlocked()
             rounds = self._round_index_from_log_unlocked(committed_length)
             self._write_round_index_unlocked(rounds, committed_length, committed_prefix)
             return True
@@ -632,6 +635,7 @@ class FileEventStore:
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
             rounds = self._load_round_index_unlocked(committed_length, committed_prefix)
             if rounds is None:
+                committed_length = self._visible_committed_length_unlocked()
                 rounds = self._round_index_from_log_unlocked(committed_length)
                 self._write_round_index_unlocked(rounds, committed_length, committed_prefix)
             return list(rounds.get(str(round_id), ()))

@@ -134,7 +134,11 @@ class ServerV2MobileTests(unittest.TestCase):
                     self.assertEqual(sorted(executor.map(lambda _index: register(), range(2))), [
                         "new-round", "new-round",
                     ])
-                self.assertEqual(make_identity_temp.call_count, 1)
+                identity_writes = [
+                    call for call in make_identity_temp.call_args_list
+                    if call.kwargs.get("prefix") == ".identity-"
+                ]
+                self.assertEqual(len(identity_writes), 1)
                 self.assertEqual(len(list(root.rglob("round_identity/*.json"))), 1)
                 restarted = FileEventStore(root / "data" / "mobile_events")
                 self.assertEqual(restarted.round_event_holes("new-round"), [])
