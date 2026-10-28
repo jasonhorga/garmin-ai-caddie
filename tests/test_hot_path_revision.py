@@ -100,7 +100,8 @@ class HotPathRevisionTests(unittest.TestCase):
                 {"id": "back", "courseId": 2, "holes": []},
             ]
             data = HistoryData(raw_rounds=list(rounds), rounds=list(rounds), shots=[])
-            with patch.object(stats_cache, "_fingerprint_dirs", return_value=()), \
+            with patch.object(revisions.time, "time_ns", return_value=0), \
+                    patch.object(stats_cache, "_fingerprint_dirs", return_value=()), \
                     patch.object(stats_cache, "_GEOMETRY_DIRS", (geometry,)), \
                     patch.object(stats_cache, "_aux_files", return_value=[]), \
                     patch.object(stats_cache.round_corrections, "corrections_dir", return_value=corrections), \
