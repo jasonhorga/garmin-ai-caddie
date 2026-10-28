@@ -113,4 +113,50 @@ final class J2_2ResultsRangeFailureTests: XCTestCase {
         XCTAssertEqual(state.window, "all")
         XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
     }
+
+    func test_j2_2_refresh_invalidation_survives_multiple_selection_hops() throws {
+        let all = try stats(31)
+        let refreshedAll = try stats(32)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let refresh = state.refresh()
+
+        _ = state.select("last10")
+        _ = state.select("last20")
+        let restarted = try XCTUnwrap(state.choose("all"))
+
+        XCTAssertEqual(restarted.window, "all")
+        XCTAssertFalse(state.complete(refresh, stats: all))
+        XCTAssertTrue(state.complete(restarted, stats: refreshedAll))
+        XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
+    }
+
+    func test_j2_2_selection_then_second_refresh_keeps_original_refresh_invalidated() throws {
+        let all = try stats(31)
+        let refreshedAll = try stats(32)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let firstRefresh = state.refresh()
+
+        _ = state.select("last10")
+        let secondRefresh = state.refresh()
+        XCTAssertEqual(secondRefresh.window, "last10")
+        let restarted = try XCTUnwrap(state.choose("all"))
+
+        XCTAssertEqual(restarted.window, "all")
+        XCTAssertFalse(state.complete(firstRefresh, stats: all))
+        XCTAssertFalse(state.complete(secondRefresh, stats: all))
+        XCTAssertTrue(state.complete(restarted, stats: refreshedAll))
+        XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
+    }
+
+    func test_j2_2_grain_selected_while_range_is_loading_survives_commit() throws {
+        let all = try stats(31)
+        let ten = try stats(10)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        var grain = ResultsTimePresentation.Grain.quarter
+        let request = state.select("last10")
+
+        grain = .year
+        XCTAssertTrue(state.complete(request, stats: ten))
+        XCTAssertEqual(grain, .year, "committing a range must not reset the independently selected grain")
+    }
 }
