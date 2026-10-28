@@ -369,6 +369,16 @@ final class GarminRasterTests: XCTestCase {
             XCTAssertEqual(result.targetPixel?.y ?? -1, expectedTarget.y, accuracy: 0.001, "\(previous) → \(next) target y")
             XCTAssertEqual(result.greenPinPixel?.x ?? -1, expectedGreen.x, accuracy: 0.001, "\(previous) → \(next) green x")
             XCTAssertEqual(result.greenPinPixel?.y ?? -1, expectedGreen.y, accuracy: 0.001, "\(previous) → \(next) green y")
+            let targetAfter = try XCTUnwrap(GarminRasterProjectionMath.projectFromPixel(
+                try XCTUnwrap(result.targetPixel), projection: destinationProjection
+            ))
+            let greenAfter = try XCTUnwrap(GarminRasterProjectionMath.projectFromPixel(
+                try XCTUnwrap(result.greenPinPixel), projection: destinationProjection
+            ))
+            XCTAssertEqual(targetAfter.latitude, targetCoordinate.latitude, accuracy: 1e-9, "\(previous) → \(next) target latitude")
+            XCTAssertEqual(targetAfter.longitude, targetCoordinate.longitude, accuracy: 1e-9, "\(previous) → \(next) target longitude")
+            XCTAssertEqual(greenAfter.latitude, greenCoordinate.latitude, accuracy: 1e-9, "\(previous) → \(next) green latitude")
+            XCTAssertEqual(greenAfter.longitude, greenCoordinate.longitude, accuracy: 1e-9, "\(previous) → \(next) green longitude")
         }
 
         let sameSpaceInteraction = LiveMapViewportInteraction(
