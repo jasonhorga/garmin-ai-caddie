@@ -5,6 +5,24 @@ import XCTest
 /// rewrites those files in the background, not only when 成绩 itself is opened.
 @MainActor
 final class ResultsCacheRefreshTests: XCTestCase {
+    private var protocolScope: CapturingURLProtocolScope?
+
+    override func tearDown() {
+        protocolScope = nil
+        CapturingURLProtocol.requestHandler = nil
+        super.tearDown()
+    }
+
+    private func install(
+        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
+    ) {
+        if let protocolScope {
+            protocolScope.replaceHandler(handler)
+        } else {
+            protocolScope = CapturingURLProtocolScope(handler: handler)
+        }
+    }
+
     private final class Paths: @unchecked Sendable {
         private let lock = NSLock()
         private var paths: [String] = []
@@ -29,7 +47,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
     """.utf8)
 
     private func serve(into paths: Paths, failing: Bool = false) {
-        CapturingURLProtocol.requestHandler = { request in
+        install { request in
             let url = try XCTUnwrap(request.url)
             paths.append(url.path)
             let body: Data
@@ -47,8 +65,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
     }
 
     private func model(_ store: OfflineStore) -> LiveRoundAppModel {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let configuration = protocolScope?.configuration() ?? URLSessionConfiguration.ephemeral
         let model = LiveRoundAppModel(
             offlineStore: store,
             apiBaseURL: URL(string: "https://results-cache.example.test")!,
@@ -133,7 +150,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
         """.utf8)
         let detail = Data(#"{"roundRef":"\#(roundRef)","found":true,"scorecard":[],"phaseSummary":[],"missingData":[]}"#.utf8)
         let paths = Paths()
-        CapturingURLProtocol.requestHandler = { request in
+        install { request in
             let url = try XCTUnwrap(request.url)
             paths.append(url.path)
             let body: Data
@@ -171,8 +188,8 @@ final class ResultsCacheRefreshTests: XCTestCase {
         """.utf8)
         let detail = Data(#"{"roundRef":"\#(roundRef)","found":true,"scorecard":[],"phaseSummary":[],"missingData":[]}"#.utf8)
         let paths = Paths()
-        let release = DispatchSemaphore(value: 0)
-        CapturingURLProtocol.requestHandler = { request in
+        let release = TestRequestGate()
+        install { request in
             let url = try XCTUnwrap(request.url)
             paths.append(url.path)
             let body: Data
@@ -180,14 +197,17 @@ final class ResultsCacheRefreshTests: XCTestCase {
             case "/api/v2/history/stats/mobile": body = Self.statsPayload
             case "/api/v2/history/rounds": body = archive
             case "/api/v2/history/rounds/\(roundRef)":
-                _ = release.wait(timeout: .now() + 5)
+                release.wait()
                 body = detail
             default:
                 return (HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
             }
             return (HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
         }
-        defer { CapturingURLProtocol.requestHandler = nil }
+        defer {
+            release.release()
+            CapturingURLProtocol.requestHandler = nil
+        }
         let model = model(freshStore())
 
         model.refreshResultsCacheForTesting()
@@ -196,7 +216,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
         }
         XCTAssertTrue(paths.all.contains("/api/v2/history/rounds/\(roundRef)"), "the prefetch asked for the scorecard")
         model.beginForegroundCourseRequestForTesting()
-        release.signal()
+        release.release()
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertNil(RoundReviewDiskCache.loadDetail(roundRef: roundRef), "the abandoned prefetch saves nothing")
         model.endForegroundCourseRequestForTesting()
@@ -218,11 +238,24 @@ final class ResultsCacheRefreshTests: XCTestCase {
     // MARK: - Codex review of #395: abandoned refreshes, late answers, notification ordering
 
     private final class Gate: @unchecked Sendable {
-        private let lock = NSLock()
+        private let condition = NSCondition()
         private var holding = true
-        let release = DispatchSemaphore(value: 0)
-        var isHolding: Bool { lock.withLock { holding } }
-        func open() { lock.withLock { holding = false } }
+        var isHolding: Bool {
+            condition.lock()
+            defer { condition.unlock() }
+            return holding
+        }
+        func wait() {
+            condition.lock()
+            while holding { condition.wait() }
+            condition.unlock()
+        }
+        func open() {
+            condition.lock()
+            holding = false
+            condition.broadcast()
+            condition.unlock()
+        }
     }
 
     private static func statsPayload(rounds: Int) -> Data {
@@ -232,11 +265,11 @@ final class ResultsCacheRefreshTests: XCTestCase {
     /// While `gate` holds, answers are the old snapshot (1 round) and wait for `release`; after
     /// `open()` every request answers the new snapshot (2 rounds) at once.
     private func serveHeld(_ gate: Gate, into paths: Paths) {
-        CapturingURLProtocol.requestHandler = { request in
+        install { request in
             let url = try XCTUnwrap(request.url)
             paths.append(url.path)
             let held = gate.isHolding
-            if held { _ = gate.release.wait(timeout: .now() + 5) }
+            if held { gate.wait() }
             let body: Data
             switch url.path {
             case "/api/v2/history/stats/mobile": body = Self.statsPayload(rounds: held ? 1 : 2)
@@ -260,6 +293,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
     /// them; their late answer is never written, and the refresh runs again once the request ends.
     func testAForegroundRequestAbandonsARefreshInFlightAndItRunsAgainAfterwards() async throws {
         let gate = Gate()
+        defer { gate.open() }
         let paths = Paths()
         serveHeld(gate, into: paths)
         defer { CapturingURLProtocol.requestHandler = nil }
@@ -271,8 +305,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
         model.beginForegroundCourseRequestForTesting()
         XCTAssertTrue(model.resultsCacheRefreshPendingForTesting)
         gate.open()
-        gate.release.signal()
-        gate.release.signal()
+        gate.open()
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertNil(try store.loadMobileStats(), "the abandoned answer is never written")
 
@@ -286,6 +319,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
     /// dropped and the new snapshot is what ends up on disk.
     func testAGarminPullDropsARefreshThatReadThePrePullData() async throws {
         let gate = Gate()
+        defer { gate.open() }
         let paths = Paths()
         serveHeld(gate, into: paths)
         defer { CapturingURLProtocol.requestHandler = nil }
@@ -297,8 +331,8 @@ final class ResultsCacheRefreshTests: XCTestCase {
         gate.open()
         model.invalidateResultsCacheAfterGarminPullForTesting()
         // The pre-pull answers land only now, after the pull invalidated them.
-        gate.release.signal()
-        gate.release.signal()
+        gate.open()
+        gate.open()
         await model.waitForResultsCacheRefreshForTesting()
         XCTAssertEqual(try store.loadMobileStats()?.summary?.totalRounds, 2)
         try await Task.sleep(nanoseconds: 300_000_000)
@@ -323,8 +357,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
 
     private func heldClient(_ gate: Gate, into paths: Paths) -> SyncClient {
         serveHeld(gate, into: paths)
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let configuration = protocolScope?.configuration() ?? URLSessionConfiguration.ephemeral
         return SyncClient(
             baseURL: URL(string: "https://results-cache.example.test")!,
             session: URLSession(configuration: configuration),
@@ -337,6 +370,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
     func testAStatsAnswerForAPreviousAccountIsNeitherWrittenNorPublished() async throws {
         for bHasCache in [false, true] {
             let gate = Gate()
+            defer { gate.open() }
             let paths = Paths()
             let client = heldClient(gate, into: paths)
             defer { CapturingURLProtocol.requestHandler = nil }
@@ -349,7 +383,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
             let pending = Task { @MainActor in await ResultsFreshLoad.stats(client, store: store) }
             try await waitForRequests(paths, count: 1)
             store.bindAccount(playerId: "player-b", migrateLegacyData: false)
-            gate.release.signal()
+            gate.open()
             let outcome = await pending.value
 
             guard case .staleAccount = outcome else {
@@ -361,6 +395,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
 
     func testAnArchiveAnswerForAPreviousAccountIsNeitherWrittenNorPublished() async throws {
         let gate = Gate()
+        defer { gate.open() }
         let paths = Paths()
         let client = heldClient(gate, into: paths)
         defer { CapturingURLProtocol.requestHandler = nil }
@@ -370,7 +405,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
         let pending = Task { @MainActor in await ResultsFreshLoad.archive(client, store: store) }
         try await waitForRequests(paths, count: 1)
         store.bindAccount(playerId: "player-b", migrateLegacyData: false)
-        gate.release.signal()
+        gate.open()
         let outcome = await pending.value
 
         guard case .staleAccount = outcome else { return XCTFail("A's archive must not be published under B") }
@@ -383,6 +418,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
     func testACancelledReloadNeverCommitsAnAnswerThatStillArrived() async throws {
         for section in ["stats", "archive"] {
             let gate = Gate()
+            defer { gate.open() }
             let paths = Paths()
             let client = heldClient(gate, into: paths)
             defer { CapturingURLProtocol.requestHandler = nil }
@@ -398,7 +434,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
                 return false
             }
             try await waitForRequests(paths, count: 1)
-            gate.release.signal()
+            gate.open()
             // Hold the main actor while the answer is delivered, then cancel before the
             // continuation can run.
             Thread.sleep(forTimeInterval: 0.3)
@@ -428,6 +464,7 @@ final class ResultsCacheRefreshTests: XCTestCase {
     /// after the model binds B.
     func testTheBackgroundRefreshNeverWritesAPreviousAccountsAnswer() async throws {
         let gate = Gate()
+        defer { gate.open() }
         let paths = Paths()
         serveHeld(gate, into: paths)
         defer { CapturingURLProtocol.requestHandler = nil }
@@ -446,8 +483,8 @@ final class ResultsCacheRefreshTests: XCTestCase {
             AppSession(token: "token", playerId: "player-b", expiresAt: Date().addingTimeInterval(600)),
             migrateLegacyData: false
         )
-        gate.release.signal()
-        gate.release.signal()
+        gate.open()
+        gate.open()
         try await Task.sleep(nanoseconds: 300_000_000)
         XCTAssertNil(try store.loadMobileStats())
         XCTAssertNil(try store.loadHistoryRoundsArchive())

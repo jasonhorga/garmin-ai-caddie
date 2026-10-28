@@ -5,12 +5,49 @@ import XCTest
 private final class LoopRequests: @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [(loops: String, tee: String)] = []
-    func append(loops: String, tee: String) { lock.withLock { entries.append((loops, tee)) } }
+    private struct Waiter {
+        let loops: String?
+        let tee: String?
+        let continuation: CheckedContinuation<Void, Never>
+    }
+    private var waiters: [Waiter] = []
+
+    func append(loops: String, tee: String) {
+        var ready: [CheckedContinuation<Void, Never>] = []
+        lock.lock()
+        entries.append((loops, tee))
+        var remaining: [Waiter] = []
+        for waiter in waiters {
+            if (waiter.loops == nil || waiter.loops == loops) && (waiter.tee == nil || waiter.tee == tee) {
+                ready.append(waiter.continuation)
+            } else {
+                remaining.append(waiter)
+            }
+        }
+        waiters = remaining
+        lock.unlock()
+        ready.forEach { $0.resume() }
+    }
     var all: [String] { lock.withLock { entries.map(\.loops) } }
     func contains(loops: String, tee: String) -> Bool {
         lock.withLock { entries.contains { $0.loops == loops && $0.tee == tee } }
     }
     func contains(tee: String) -> Bool { lock.withLock { entries.contains { $0.tee == tee } } }
+
+    func waitFor(loops: String? = nil, tee: String? = nil) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if entries.contains(where: {
+                (loops == nil || $0.loops == loops) && (tee == nil || $0.tee == tee)
+            }) {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                waiters.append(Waiter(loops: loops, tee: tee, continuation: continuation))
+                lock.unlock()
+            }
+        }
+    }
 }
 
 /// B4b-2 offline acquisition acceptance. Not pre-seeded: the store starts with no v2 cache, the
@@ -19,6 +56,14 @@ private final class LoopRequests: @unchecked Sendable {
 /// opposite half (后→前) and the same half (后→后) — each equal to the server's table.
 @MainActor
 final class TemplateAcquisitionTests: XCTestCase {
+    private var protocolScope: CapturingURLProtocolScope?
+
+    override func tearDown() {
+        protocolScope = nil
+        CapturingURLProtocol.requestHandler = nil
+        super.tearDown()
+    }
+
     private struct Row: Decodable, Equatable {
         let number: Int
         let sourceGlobalId: Int
@@ -118,7 +163,7 @@ final class TemplateAcquisitionTests: XCTestCase {
     /// Online oracle server; the prep download asks for its own `prep-library-…` round id.
     private func serveOracle(_ oracle: Oracle, into requests: LoopRequests) {
         let gid = oracle.globalId
-        CapturingURLProtocol.requestHandler = { request in
+        protocolScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
             guard url.path == "/api/v2/mobile/courses/\(gid)/package" else {
                 return try Self.response(request, status: 404, body: Data(#"{"detail":"not found"}"#.utf8))
@@ -145,8 +190,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         preferredRoundId: String? = nil,
         freshEntryReleaseFallbackNanoseconds: UInt64 = 60_000_000_000
     ) -> LiveRoundAppModel {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let configuration = protocolScope?.configuration() ?? URLSessionConfiguration.ephemeral
         return LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: directory),
             // A test host, not a bundle default: `syncOnForeground` configures the club-bag sync
@@ -198,7 +242,7 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         // Every request now hangs until released, then fails as offline.
         let gate = DispatchSemaphore(value: 0)
-        CapturingURLProtocol.requestHandler = { _ in
+        protocolScope?.replaceHandler { _ in
             _ = gate.wait(timeout: .now() + 10)
             throw URLError(.notConnectedToInternet)
         }
@@ -274,6 +318,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         let relaunched = acquisitionModel(directory: directory, preferredRoundId: oracle.roundId)
         await relaunched.bootstrap()
         await relaunched.waitForPrepCourseDownloadForTesting()
+        await requests.waitFor(loops: "\(gid):front,\(gid):back")
         XCTAssertTrue(
             requests.all.contains("\(gid):front,\(gid):back"),
             "the relaunch resumes the queued whole-course job"
@@ -317,6 +362,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertNil(model.freshEntryReleaseGenerationForTesting, "leaving the entry hole released it")
         for hole in 3...9 { model.setActiveHole(hole) }
         await settleDownloads(model)
+        await requests.waitFor(loops: "\(gid):front,\(gid):back")
         XCTAssertTrue(
             requests.all.contains("\(gid):front,\(gid):back"),
             "the canonical whole course is fetched during the first loop, in this session"
@@ -340,7 +386,7 @@ final class TemplateAcquisitionTests: XCTestCase {
             ))
         }
         let requestsBeforeOffline = requests.all.count
-        CapturingURLProtocol.requestHandler = { _ in throw URLError(.notConnectedToInternet) }
+        protocolScope?.replaceHandler { _ in throw URLError(.notConnectedToInternet) }
         await model.continueIntoSecondLoop(RoundLoopEntry(globalId: gid, half: "front"), roundId: roundId)
         XCTAssertEqual(model.package?.loopKey, "\(gid):back+\(gid):front")
         XCTAssertEqual(rows(model.package), oracle.tables["\(gid):back+\(gid):front"]?.holes)
@@ -363,6 +409,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         await model.waitForFreshEntryReleaseFallbackForTesting()
         XCTAssertNil(model.freshEntryReleaseGenerationForTesting)
         await settleDownloads(model)
+        await requests.waitFor(loops: "\(gid):front,\(gid):back")
         XCTAssertTrue(requests.all.contains("\(gid):front,\(gid):back"))
         XCTAssertEqual(model.package?.loopKey, "\(gid):back")
     }
@@ -392,6 +439,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.liveHoleInitialLoadDidFinish()
         XCTAssertNil(model.freshEntryReleaseGenerationForTesting)
         await settleDownloads(model)
+        await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "blue")
         XCTAssertTrue(requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"))
     }
 
@@ -413,6 +461,7 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         model.downloadPrepCourse(MobileCourseOption(globalId: gid, name: "Prep white", holes: 18, teeBox: "white"))
         await model.waitForPrepCourseDownloadForTesting()
+        await requests.waitFor(tee: "white")
         XCTAssertTrue(requests.contains(tee: "white"), "the player's own 备战 job is never held behind the gate")
         XCTAssertEqual(model.freshEntryReleaseGenerationForTesting, pending)
         XCTAssertFalse(
@@ -424,6 +473,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.consumePendingLiveHole()
         model.setActiveHole(2)
         await settleDownloads(model)
+        await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "blue")
         XCTAssertTrue(
             requests.contains(loops: "\(gid):front,\(gid):back", tee: "blue"),
             "after the release the queue continues with the whole-course job"
@@ -456,6 +506,7 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         model.syncOnForeground()
         await model.waitForPrepCourseDownloadForTesting()
+        await requests.waitFor(tee: "white")
         XCTAssertTrue(requests.contains(tee: "white"), "the resumed requested job makes its request")
         XCTAssertEqual(model.freshEntryReleaseGenerationForTesting, pending, "without releasing the gate")
         XCTAssertFalse(
@@ -516,6 +567,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.releaseFreshEntryForTesting(generation: second)
         XCTAssertNil(model.freshEntryReleaseGenerationForTesting)
         await settleDownloads(model)
+        await requests.waitFor(loops: "\(gid):front,\(gid):back")
         XCTAssertTrue(requests.all.contains("\(gid):front,\(gid):back"))
         XCTAssertEqual(model.package?.roundId, oracle.roundId + "-second")
     }
@@ -540,6 +592,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertTrue(row.isIntentPrefetch)
         XCTAssertEqual(row.teeBox, "white", "the template is keyed by the Tee Start will use")
         await model.waitForPrepCourseDownloadForTesting()
+        await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "white")
         XCTAssertTrue(requests.contains(loops: "\(gid):front,\(gid):back", tee: "white"))
         XCTAssertNil(model.package, "an intent never creates a round")
     }
@@ -559,6 +612,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.prefetchIntendedCourses([course], teeBox: "red")
         XCTAssertEqual(model.prepCourseDownloads.map(\.teeBox), ["red"])
         await model.waitForPrepCourseDownloadForTesting()
+        await requests.waitFor(tee: "red")
         XCTAssertTrue(requests.contains(tee: "red"))
         XCTAssertFalse(requests.contains(tee: "white"), "the superseded intent never made a request")
     }
@@ -609,6 +663,7 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         model.endForegroundCourseRequestForTesting()
         await model.waitForPrepCourseDownloadForTesting()
+        await requests.waitFor(tee: "white")
         XCTAssertTrue(requests.contains(tee: "white"), "the intent resumes when the last one ends")
     }
 
@@ -624,6 +679,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         model.beginForegroundCourseRequestForTesting()
         model.downloadPrepCourse(MobileCourseOption(globalId: gid, name: "Prep", holes: 18, teeBox: "white"))
         await model.waitForPrepCourseDownloadForTesting()
+        await requests.waitFor(tee: "white")
         XCTAssertTrue(requests.contains(tee: "white"))
         model.endForegroundCourseRequestForTesting()
     }
@@ -670,41 +726,29 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertTrue(try store.loadCourseTemplates().isEmpty, "the run starts with no v2 cache")
 
         // Online: the package route answers exactly the `loops=` it is asked for.
-        let lock = NSLock()
-        var requestedLoops: [String] = []
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        CapturingURLProtocol.requestHandler = { request in
+        let requestSignal = LoopRequests()
+        protocolScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
             if url.path == "/api/v2/mobile/courses/\(gid)/package" {
                 let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
                 let loops = queryItems.first { $0.name == "loops" }?.value ?? ""
-                lock.withLock { requestedLoops.append(loops) }
+                requestSignal.append(loops: loops, tee: queryItems.first { $0.name == "tee_box" }?.value ?? "")
                 if let body = oracle.responses[loops] {
-                    // Every oracle package carries the oracle round id; the server answers with
-                    // the round the request names (the background prep download asks for its own
-                    // `prep-library-…` id and must never claim the live round's id).
                     guard serverEchoesRequestedRoundId,
                           let requestedRoundId = queryItems.first(where: { $0.name == "round_id" })?.value,
                           !requestedRoundId.isEmpty else {
                         return try Self.response(request, status: 200, body: body)
                     }
-                    var object = try XCTUnwrap(
-                        JSONSerialization.jsonObject(with: body) as? [String: Any]
-                    )
+                    var object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
                     object["roundId"] = requestedRoundId
-                    return try Self.response(
-                        request,
-                        status: 200,
-                        body: try JSONSerialization.data(withJSONObject: object)
-                    )
+                    return try Self.response(request, status: 200, body: try JSONSerialization.data(withJSONObject: object))
                 }
                 return try Self.response(request, status: 422, body: Data(#"{"detail":"loops"}"#.utf8))
             }
             return try Self.response(request, status: 404, body: Data(#"{"detail":"not found"}"#.utf8))
         }
-        defer { CapturingURLProtocol.requestHandler = nil }
+        let configuration = protocolScope!.configuration()
+        let session = URLSession(configuration: configuration)
         let online = LiveRoundAppModel(
             offlineStore: store,
             apiBaseURL: nil,
@@ -733,8 +777,9 @@ final class TemplateAcquisitionTests: XCTestCase {
         online.liveHoleInitialLoadDidFinish()
         await online.waitForOfflineCourseDownloadForTesting()
         await online.waitForPrepCourseDownloadForTesting()
+        await requestSignal.waitFor(loops: "\(gid):front,\(gid):back")
         XCTAssertTrue(
-            lock.withLock { requestedLoops }.contains("\(gid):front,\(gid):back"),
+            requestSignal.all.contains("\(gid):front,\(gid):back"),
             "the canonical whole course must be fetched in the background"
         )
         let durable = try XCTUnwrap(
@@ -763,8 +808,8 @@ final class TemplateAcquisitionTests: XCTestCase {
         }
 
         // Network gone; the app restarts from disk.
-        let offlineRequestsBefore = lock.withLock { requestedLoops.count }
-        CapturingURLProtocol.requestHandler = { _ in throw URLError(.notConnectedToInternet) }
+        let offlineRequestsBefore = requestSignal.all.count
+        protocolScope?.replaceHandler { _ in throw URLError(.notConnectedToInternet) }
         let offline = LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: directory),
             apiBaseURL: nil,
@@ -801,7 +846,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertEqual(offline.package?.roundLoops, oracle.tables["\(gid):back+\(gid):back"]?.roundLoops)
         XCTAssertEqual(rows(offline.package), oracle.tables["\(gid):back+\(gid):back"]?.holes)
         XCTAssertEqual(
-            lock.withLock { requestedLoops.count },
+            requestSignal.all.count,
             offlineRequestsBefore,
             "no package request can have succeeded offline"
         )

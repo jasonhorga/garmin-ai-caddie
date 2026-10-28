@@ -5,6 +5,24 @@ import XCTest
 /// the home have loop names and tees before the network answers.
 @MainActor
 final class CourseOptionsCacheTests: XCTestCase {
+    private var protocolScope: CapturingURLProtocolScope?
+
+    override func tearDown() {
+        protocolScope = nil
+        CapturingURLProtocol.requestHandler = nil
+        super.tearDown()
+    }
+
+    private func install(
+        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
+    ) {
+        if let protocolScope {
+            protocolScope.replaceHandler(handler)
+        } else {
+            protocolScope = CapturingURLProtocolScope(handler: handler)
+        }
+    }
+
     private final class Paths: @unchecked Sendable {
         private let lock = NSLock()
         private var paths: [String] = []
@@ -22,14 +40,14 @@ final class CourseOptionsCacheTests: XCTestCase {
 
     /// Every courses/options request answers `name`, waiting for one `release` signal first when
     /// `held` is set.
-    private func serve(_ name: String, into paths: Paths, held: DispatchSemaphore? = nil) {
-        CapturingURLProtocol.requestHandler = { request in
+    private func serve(_ name: String, into paths: Paths, held: TestRequestGate? = nil) {
+        install { request in
             let url = try XCTUnwrap(request.url)
             paths.append(url.path)
             guard url.path == "/api/v2/mobile/courses/options" else {
                 return (HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
             }
-            if let held { _ = held.wait(timeout: .now() + 5) }
+            held?.wait()
             return (
                 HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!,
                 Self.catalogue(name)
@@ -38,8 +56,7 @@ final class CourseOptionsCacheTests: XCTestCase {
     }
 
     private func model(_ store: OfflineStore) -> LiveRoundAppModel {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let configuration = protocolScope?.configuration() ?? URLSessionConfiguration.ephemeral
         return LiveRoundAppModel(
             offlineStore: store,
             apiBaseURL: URL(string: "https://course-options.example.test")!,
@@ -253,14 +270,15 @@ final class CourseOptionsCacheTests: XCTestCase {
         await model.refreshCourseOptions()
         XCTAssertEqual(model.courseOptions.map(\.name), ["A's course"])
 
-        let release = DispatchSemaphore(value: 0)
+        let release = TestRequestGate()
+        defer { release.release() }
         serve("A's late course", into: paths, held: release)
         let requestsBefore = paths.all.count
         let refresh = Task { await model.refreshCourseOptions() }
         try await waitForRequests(paths, count: requestsBefore + 1)
         model.activateSession(session("player-b"), migrateLegacyData: false)
         XCTAssertTrue(model.courseOptions.isEmpty, "B has no cached catalogue; A's must not linger")
-        release.signal()
+        release.release()
         await refresh.value
 
         XCTAssertTrue(model.courseOptions.isEmpty)

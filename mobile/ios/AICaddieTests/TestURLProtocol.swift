@@ -34,8 +34,10 @@ final class TestRequestGate: @unchecked Sendable {
 }
 
 final class CapturingURLProtocol: URLProtocol {
+    static let tokenHeader = "X-Codex-Test-Token"
     private static let handlerLock = NSLock()
     private static var storedRequestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    private static var scopedHandlers: [String: ((URLRequest) throws -> (HTTPURLResponse, Data))] = [:]
     /// Keep the existing assignment API while making handler capture atomic across URL sessions.
     static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))? {
         get {
@@ -48,6 +50,33 @@ final class CapturingURLProtocol: URLProtocol {
             storedRequestHandler = newValue
             handlerLock.unlock()
         }
+    }
+
+    static func installScopedHandler(
+        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
+    ) -> String {
+        let token = UUID().uuidString
+        handlerLock.lock()
+        scopedHandlers[token] = handler
+        handlerLock.unlock()
+        return token
+    }
+
+    static func removeScopedHandler(_ token: String) {
+        handlerLock.lock()
+        scopedHandlers.removeValue(forKey: token)
+        handlerLock.unlock()
+    }
+
+    static func replaceScopedHandler(
+        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data),
+        for token: String
+    ) {
+        handlerLock.lock()
+        if scopedHandlers[token] != nil {
+            scopedHandlers[token] = handler
+        }
+        handlerLock.unlock()
     }
 
     /// URLSession may hand a custom URLProtocol the encoded request body either as `httpBody` or
@@ -88,7 +117,11 @@ final class CapturingURLProtocol: URLProtocol {
         // Capture the handler before leaving URLProtocol's serial callback queue.  A test handler
         // may deliberately wait on a semaphore; running it here would block every other request
         // in the process and make the next test inherit the stalled request.
-        guard let requestHandler = Self.requestHandler else {
+        let token = request.value(forHTTPHeaderField: Self.tokenHeader)
+        handlerLock.lock()
+        let requestHandler = token.map { Self.scopedHandlers[$0] } ?? Self.storedRequestHandler
+        handlerLock.unlock()
+        guard let requestHandler else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }
@@ -106,6 +139,33 @@ final class CapturingURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+/// A handler token belongs to one test's URLSession. Requests carrying an old token fail closed
+/// after that scope is released, so a delayed request can never enter the next test's handler.
+final class CapturingURLProtocolScope {
+    let token: String
+
+    init(handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)) {
+        token = CapturingURLProtocol.installScopedHandler(handler)
+    }
+
+    func configuration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.httpAdditionalHeaders = [CapturingURLProtocol.tokenHeader: token]
+        return configuration
+    }
+
+    func replaceHandler(
+        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)
+    ) {
+        CapturingURLProtocol.replaceScopedHandler(handler, for: token)
+    }
+
+    deinit {
+        CapturingURLProtocol.removeScopedHandler(token)
+    }
 }
 
 final class CapturingURLProtocolTests: XCTestCase {
@@ -175,14 +235,12 @@ final class CapturingURLProtocolTests: XCTestCase {
     }
 
     /// A request queued by the previous test must not be answered by the next test's handler.
-    /// The token is deliberately attached to the request before the handler is replaced; the
-    /// current process-wide handler implementation has no way to reject this stale request yet.
+    /// An unknown token fails closed even while the process-wide compatibility handler is set.
     func testAStaleTestTokenCannotReachTheNextHandler() async throws {
         let staleToken = UUID().uuidString
         var nextHandlerCalls = 0
-        CapturingURLProtocol.requestHandler = { request in
+        let scope = CapturingURLProtocolScope { request in
             nextHandlerCalls += 1
-            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Codex-Test-Token"), "next")
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil
             )!
@@ -192,6 +250,7 @@ final class CapturingURLProtocolTests: XCTestCase {
         configuration.protocolClasses = [CapturingURLProtocol.self]
         configuration.httpAdditionalHeaders = ["X-Codex-Test-Token": staleToken]
         let session = URLSession(configuration: configuration)
+        _ = scope
         do {
             _ = try await session.data(from: URL(string: "https://protocol.test/stale")!)
             XCTFail("a stale request must fail instead of reaching the next test handler")
