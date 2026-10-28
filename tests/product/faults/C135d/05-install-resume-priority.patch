@@ -1,10 +1,13 @@
-diff --git a/server_v2/course_install.py b/server_v2/course_install.py
+diff --git a/server_v2/course_install.py b/tmp/course_install_mut.py
+index cf284f03..3de5802d 100644
 --- a/server_v2/course_install.py
-+++ b/server_v2/course_install.py
-@@ -510,5 +510,5 @@ def _launch(identifier: str) -> None:
++++ b/tmp/course_install_mut.py
+@@ -513,7 +513,7 @@ def _launch(identifier: str) -> None:
+             gid = int(state.get("globalId") or 0)
          except (TypeError, ValueError):
              gid = 0
 -        if gid and gid not in _CURRENT_COURSE_IDS:
 +        if False and gid and gid not in _CURRENT_COURSE_IDS:
-             state["priority"] = max(int(state.get("priority", SELECTED_COURSE)), 20)
+             state["priority"] = max(int(state.get("priority", SELECTED_COURSE)), NEARBY)
              _write(state)
+         launch_priority = int(state.get("priority", SELECTED_COURSE))
