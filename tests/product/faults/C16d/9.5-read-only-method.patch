@@ -1,0 +1,8 @@
+diff --git a/server_v2/share_api.py b/server_v2/share_api.py
+--- a/server_v2/share_api.py
++++ b/server_v2/share_api.py
+@@ -260,3 +260,3 @@
+     router.add_api_route(
+-        "/share/{token}", _reject_share_write, methods=[_method.upper()], include_in_schema=False,
++        "/share/{token}", read_round_share, methods=[_method.upper()], include_in_schema=False,
+     )

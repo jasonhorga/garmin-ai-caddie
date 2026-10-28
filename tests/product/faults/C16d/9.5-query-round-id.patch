@@ -1,0 +1,19 @@
+diff --git a/server_v2/share_api.py b/server_v2/share_api.py
+--- a/server_v2/share_api.py
++++ b/server_v2/share_api.py
+@@ -229,5 +229,7 @@
+ @router.get("/share/{token}", response_model=SharedRoundResponse)
+-def read_round_share(token: str, response: Response) -> SharedRoundResponse:
++def read_round_share(
++    token: str, response: Response, roundId: str | None = None,
++) -> SharedRoundResponse:
+     if not round_shares.token_format_ok(token):
+         raise _not_found()
+     row = round_shares.find_share(token)
+@@ -238,4 +241,6 @@
+     key = "token:" + str(row.get("tokenHash"))
+     if not _read_window.allow(key, limit=TOKEN_READ_LIMIT, window=TOKEN_READ_WINDOW_SECONDS):
+         raise _too_many()
++    if roundId:
++        row = {**row, "roundRef": roundId}
+     payload = _shared_payload(row)

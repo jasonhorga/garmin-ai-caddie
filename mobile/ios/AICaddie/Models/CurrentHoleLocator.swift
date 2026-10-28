@@ -71,18 +71,51 @@ enum CurrentHoleLocation: Equatable {
 /// preview wins until the location actually changes to another hole.
 struct PrepHoleFollowingState: Equatable {
     private(set) var lastLocatedHole: Int?
+    private var pendingLocatedHole: Int?
+    private var pendingSampleCount = 0
+
+    /// GPS can straddle two adjacent holes. Require two consecutive fixes before a new hole
+    /// becomes authoritative, while keeping the public following API unchanged.
+    private static let requiredStableSamples = 2
 
     mutating func reset() {
         lastLocatedHole = nil
+        pendingLocatedHole = nil
+        pendingSampleCount = 0
     }
 
     mutating func navigationTarget(currentLocatedHole: Int?, displayedHole: Int) -> Int? {
-        guard let currentLocatedHole else { return nil }
-        let target = currentLocatedHole != lastLocatedHole && currentLocatedHole != displayedHole
-            ? currentLocatedHole
-            : nil
+        guard let currentLocatedHole else {
+            // A missing fix cannot confirm a consecutive sample for the pending hole, but it also
+            // must not erase the last confirmed hole used by the current screen.
+            pendingLocatedHole = nil
+            pendingSampleCount = 0
+            return nil
+        }
+        if currentLocatedHole == lastLocatedHole {
+            pendingLocatedHole = nil
+            pendingSampleCount = 0
+            return nil
+        }
+        if lastLocatedHole == nil, currentLocatedHole == displayedHole {
+            // A first fix that agrees with the screen cannot move it, so it confirms at once;
+            // a later manual preview of another hole is then kept until the fix really changes.
+            lastLocatedHole = currentLocatedHole
+            pendingLocatedHole = nil
+            pendingSampleCount = 0
+            return nil
+        }
+        if pendingLocatedHole == currentLocatedHole {
+            pendingSampleCount += 1
+        } else {
+            pendingLocatedHole = currentLocatedHole
+            pendingSampleCount = 1
+        }
+        guard pendingSampleCount >= Self.requiredStableSamples else { return nil }
         lastLocatedHole = currentLocatedHole
-        return target
+        pendingLocatedHole = nil
+        pendingSampleCount = 0
+        return currentLocatedHole == displayedHole ? nil : currentLocatedHole
     }
 }
 

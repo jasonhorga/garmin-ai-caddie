@@ -38,16 +38,20 @@ final class C89HoleMapFrameTests: XCTestCase {
     /// `hazardExport` adds the `/prep` obstacle-export row in its geometry_evidence.py shape:
     /// `{"label": "hazards", "reason": "prodgeometry hazard export <state>", "state": <state>}`,
     /// where the state is "pending" or "failed" (derivatives status `failed`).
-    private func sameFrameRow(coverage: String = "partial", hazardExport: String? = nil) throws -> CoursePrepHole {
+    private func sameFrameRow(
+        coverage: String = "partial", hazardExport: String? = nil, retryAfterEpoch: Double? = nil
+    ) throws -> CoursePrepHole {
         let prep = try XCTUnwrap(c33Package().coursePrep?.holes.first)
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(prep)) as? [String: Any])
         json["geometryCoverage"] = coverage
         if let hazardExport {
-            json["missingData"] = [[
+            var missing: [String: Any] = [
                 "label": "hazards",
                 "reason": "prodgeometry hazard export \(hazardExport)",
                 "state": hazardExport,
-            ]]
+            ]
+            if let retryAfterEpoch { missing["retryAfterEpoch"] = retryAfterEpoch }
+            json["missingData"] = [missing]
         }
         let bunker: [String: Any] = [
             "kind": "bunker", "frontM": 200.0, "backM": 215.0, "frontRouteM": 200.0, "backRouteM": 215.0,
@@ -329,6 +333,7 @@ final class C89HoleMapFrameTests: XCTestCase {
         for phase in [ScenePhase.inactive, .background, .active] {
             var isActive = true
             let updated = expectation(description: "initial scene phase: \(phase)")
+            updated.assertForOverFulfill = false
             let root = Color.clear
                 .modifier(LiveHoleSceneActivity(isActive: Binding(
                     get: { isActive }, set: { isActive = $0; updated.fulfill() }
@@ -369,6 +374,37 @@ final class C89HoleMapFrameTests: XCTestCase {
         XCTAssertNil(ready)
         XCTAssertEqual(fetches, 1, "the failed export is final: no further /prep requests")
         XCTAssertEqual(interim, 1, "the row it returned is still offered to the screen")
+    }
+
+    func testFailedObstacleExportWaitsForFutureRetryThenBecomesTerminal() throws {
+        let now = Date().timeIntervalSince1970
+        let future = try sameFrameRow(hazardExport: "failed", retryAfterEpoch: now + 3600)
+        XCTAssertFalse(LiveHolePrepUpgradePolicy.hazardExportFailed(future, nowEpoch: now))
+        XCTAssertTrue(LiveHolePrepUpgradePolicy.shouldWaitForPreciseHoleMap(prep: future))
+        XCTAssertTrue(LiveHolePrepUpgradePolicy.hazardExportFailed(future, nowEpoch: now + 3601))
+    }
+
+    func testProbeSleepsUntilScheduledRetryBeforeFetchingAgain() async throws {
+        var now = 100.0
+        let future = try sameFrameRow(hazardExport: "failed", retryAfterEpoch: 200)
+        let ready = try sameFrameRow(coverage: "ready")
+        var fetches = 0
+        var waits: [UInt64] = []
+        let result = await LiveHolePrepProbe.run(
+            fetch: {
+                fetches += 1
+                return fetches == 1 ? future : ready
+            },
+            publishInterim: { _ in },
+            wait: { seconds in
+                waits.append(seconds)
+                now += Double(seconds)
+            },
+            nowEpoch: { now }
+        )
+        XCTAssertEqual(result?.geometryCoverage, "ready")
+        XCTAssertEqual(fetches, 2)
+        XCTAssertEqual(waits, [2, 98], "the second request is held until retryAfterEpoch")
     }
 
     func testAPendingExportBacksOffToOnceAMinute() async throws {

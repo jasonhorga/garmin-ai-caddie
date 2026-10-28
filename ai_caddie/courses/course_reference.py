@@ -279,6 +279,10 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
             seen_venue_keys.add(key)
             seen_venue_order.append(key)
 
+    def canonical_loop_name(venue: str, label: object, fallback: object) -> str:
+        segment = normalize_course_text(label) if label is not None else None
+        return f"{venue} ~ {segment}" if segment else venue
+
     for match in matches or ():
         try:
             gid = int(match.global_id)
@@ -303,26 +307,34 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
                 "loops": [],
                 "lastSeenAt": 0,
             })
+            group["venueKey"] = key
+            group["venueName"] = venue
             # Provider discovery is authoritative for the physical grouping. If an earlier
-            # history-only row put this gid under a different spelling, move that gid into the
-            # provider group while leaving unrelated siblings in their old group.
+            # history-only row put this gid under a different spelling, move the entire old venue
+            # group into the provider group. A venue spelling applies to all of its A/B/C loops;
+            # leaving siblings behind would make later round-loop resolution split one venue.
             for old_key in containing:
                 if old_key == key:
                     continue
                 old_group = venues.get(old_key)
                 if old_group is None:
                     continue
-                moved = [item for item in old_group["loops"] if int(item.get("globalId") or 0) == gid]
-                old_group["loops"] = [item for item in old_group["loops"] if int(item.get("globalId") or 0) != gid]
+                moved = old_group["loops"]
                 for item in moved:
+                    item = dict(item)
+                    moved_gid = int(item.get("globalId") or 0)
+                    item["name"] = canonical_loop_name(venue, item.get("segmentLabel"), item.get("name"))
                     if not any(
-                        int(existing.get("globalId") or 0) == gid
+                        int(existing.get("globalId") or 0) == moved_gid
                         and existing.get("segmentLabel") == item.get("segmentLabel")
                         for existing in group["loops"]
                     ):
                         group["loops"].append(item)
-                if not old_group["loops"]:
-                    venues.pop(old_key, None)
+                venues.pop(old_key, None)
+            # Rows already in the destination group also inherit the provider's current venue
+            # spelling. This keeps the persisted display names coherent after a partial refresh.
+            for item in group["loops"]:
+                item["name"] = canonical_loop_name(venue, item.get("segmentLabel"), item.get("name"))
             mark_seen(key)
             # A discovery hit is evidence that this venue is still active even when its
             # particular loop row was already indexed. Refresh at most daily to avoid rewriting
@@ -333,6 +345,10 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
                           if int(item.get("globalId") or 0) == gid
                           and item.get("segmentLabel") == label), None)
             if prior is not None:
+                unified_name = canonical_loop_name(venue, label, name)
+                if prior.get("name") != unified_name:
+                    prior["name"] = unified_name
+                    group["lastSeenAt"] = now
                 continue
             try:
                 pars = courseview_par(gid, allow_fetch=False) or []
@@ -341,7 +357,13 @@ def _record_courseview_venue_loops(matches: object, *, root: Path = ROOT) -> Non
                 # an otherwise explicit venue row from the durable index.
                 pars = []
             par = sum(int(value) for value in pars if isinstance(value, (int, float))) if len(pars) == 9 else None
-            row = {"globalId": gid, "name": name, "segmentLabel": label, "holeCount": 9, "par": par}
+            row = {
+                "globalId": gid,
+                "name": canonical_loop_name(venue, label, name),
+                "segmentLabel": label,
+                "holeCount": 9,
+                "par": par,
+            }
             if prior != row:
                 group["loops"] = [item for item in group["loops"] if int(item.get("globalId") or 0) != gid]
                 group["loops"].append(row)

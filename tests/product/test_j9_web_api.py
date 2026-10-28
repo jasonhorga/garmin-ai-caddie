@@ -171,8 +171,8 @@ class J9WebApiTests(unittest.TestCase):
         self.assertEqual((cookie.read_bytes(), csrf.read_bytes()), before)
 
     def _create_share_url(self, round_id: str) -> str:
-        # Proposed HTTP contract for the missing J9.5 feature. /p/<member-token> is a
-        # full member login, not a share link. Keep this seam explicit until implemented.
+        # /p/<member-token> is a full member login, not a share link. The API share URL is
+        # intentionally separate so recipients never receive a player capability.
         response = self.client.post(
             f"/api/v2/history/rounds/{round_id}/share", headers=self._auth(self.alice["token"]),
         )
@@ -182,7 +182,6 @@ class J9WebApiTests(unittest.TestCase):
         self.assertTrue(url)
         return url
 
-    @unittest.expectedFailure
     def test_j9_5_share_link_is_anonymous_read_only_and_round_scoped(self) -> None:
         round_id = self._ingest(self.alice, "Shared fixture round")
         other_id = self._ingest(self.alice, "Unshared fixture round")

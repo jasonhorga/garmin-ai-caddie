@@ -215,23 +215,6 @@ public struct WatchRoundSetupView: View {
         .padding(.bottom, 6)
     }
 
-    private var setupFooter: some View {
-        VStack(spacing: 3) {
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(hasCachedVersion ? AICaddieDesignTokens.par : .orange)
-                    .frame(width: 5, height: 5)
-                Text("\(availabilityText) · \(availabilityDetail)")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.68)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 3)
-        }
-    }
-
     /// Exactly what 开始 submits: the first loop or, for an 18-hole course, one ordered half
     /// (`G:front` / `G:back`); the second half is chosen at the turn.
     var startSelection: WatchCourseSelection {
@@ -456,21 +439,6 @@ public struct WatchRoundSetupView: View {
         return result
     }
 
-    private var configuredFront: WatchCourseOption {
-        teeOptions.isEmpty
-            ? selectedPrimary
-            : selectedPrimary.withTees(teeOptions, selectedTee: selectedTee)
-    }
-
-    private var selectionSummary: String {
-        let teeSummary = teeOptions.isEmpty ? "发球台待加载" : selectedTeeSummary
-        return "\(teeSummary) · \(front.playableHoleCount) 洞"
-    }
-
-    private var selectedTeeSummary: String {
-        teeChoices.first(where: \.isSelected)?.title ?? teeSummary(selectedTee)
-    }
-
     private func venueName(_ option: WatchCourseOption) -> String {
         GarminCourseNameAuthority.canonicalVenueName(
             providerName: option.name,
@@ -548,10 +516,6 @@ public struct WatchRoundSetupView: View {
             return "unknown"
         }
         return course.preferredTee
-    }
-
-    private func teeSummary(_ tee: String) -> String {
-        tee.caseInsensitiveCompare("unknown") == .orderedSame ? "球场默认 T" : "\(tee) T"
     }
 
     @MainActor

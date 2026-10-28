@@ -4,6 +4,7 @@ import { issueLabel } from '../issueLabels'
 import { annotationKindZh, confidenceZh, coverageZh, phaseZh, stateZh } from '../zhLabels'
 import { useDiagnostics } from '../diagnosticsContext'
 import { SourceRefs } from './SourceRefs'
+import { ScorecardGrid } from './ScorecardGrid'
 
 // Reformat the backend round title ("Kawana Hotel Golf Course ~ Oshima Left -
 // 2025-09-02T08:47:59+09:00") into product copy: friendly date (strip time/zone),
@@ -194,66 +195,6 @@ function RoundFacts({ data, diagnostics }: { data: HistoryRoundDetailResponse; d
           <b>{value}</b>
         </div>
       ))}
-    </section>
-  )
-}
-
-function ScorecardGrid({ data, onSelectRef }: { data: HistoryRoundDetailResponse; onSelectRef?: (sourceRef: string) => void }) {
-  if (data.scorecard.length === 0) return null
-  const front = data.scorecard.filter((cell) => cell.hole <= 9)
-  const back = data.scorecard.filter((cell) => cell.hole > 9)
-  const renderNine = (label: '前九' | '后九', cells: typeof data.scorecard) => {
-    if (cells.length === 0) return null
-    return (
-      <div className="round-detail-nine" aria-label={`${label}记分卡`}>
-        <span className="round-detail-nine-label">{label}</span>
-        <div className="round-detail-nine-grid">
-          {cells.map((cell) => {
-            const content = (
-              <>
-                <span>H{cell.hole}</span>
-                <b className="round-detail-score-mark">{cell.score ?? '-'}</b>
-                <small>
-                  Par {cell.par ?? '-'} · {toParText(cell.toPar)}
-                </small>
-                <em>
-                  {cell.putts === null ? '推杆 —' : `${cell.putts}推`}
-                  {cell.penalties == null ? '' : ` · 罚${cell.penalties}`}
-                </em>
-              </>
-            )
-            return onSelectRef ? (
-              <button
-                key={cell.holeRef}
-                type="button"
-                className={`round-detail-cell score-${cell.className}`}
-                onClick={() => onSelectRef(cell.holeRef)}
-                aria-label={`第${cell.hole}洞详情`}
-              >
-                {content}
-              </button>
-            ) : (
-              <div key={cell.holeRef} className={`round-detail-cell score-${cell.className}`}>
-                {content}
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-  return (
-    <section className="round-detail-section" aria-label="记分卡">
-      <div className="section-head">
-        <div>
-          <h3>记分卡</h3>
-          <p>逐洞成绩、推杆数、罚杆数、果岭击球率、球道命中</p>
-        </div>
-      </div>
-      <div className="round-detail-scorecard">
-        {renderNine('前九', front)}
-        {renderNine('后九', back)}
-      </div>
     </section>
   )
 }
@@ -717,7 +658,7 @@ export function HistoryRoundDetailPanel({
 
       {data.found ? <RoundFacts data={data} diagnostics={diagnostics} /> : null}
       {data.found ? <IssueTags annotations={data.annotations ?? []} /> : null}
-      <ScorecardGrid data={data} onSelectRef={diagnostics ? onSelectRef : undefined} />
+      <ScorecardGrid scorecard={data.scorecard} onSelectRef={diagnostics ? onSelectRef : undefined} />
       {data.found ? <ShotSummary data={data} diagnostics={diagnostics} /> : null}
       {data.found ? (
         <RoundAiReview

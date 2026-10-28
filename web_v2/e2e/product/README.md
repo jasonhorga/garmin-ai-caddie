@@ -33,7 +33,7 @@ Numbering follows `docs/product/2026-10-23-product-test-spec.md`.
 | 9.2 | `j9_2_corrections_use_same_fixed_projection` | 4 | Web deletion, App-originated saved snapshot, rejected save, already-loaded statistics after saving. |
 | 9.3 | `j9_3_session_import_preserves_sync_state` | 3 | Successful import enables sync; failed first import stays disabled; failed replacement preserves usable sync. |
 | 9.4 | `j9_4_diagnostics_are_owner_only` | 4 | Owner default/opt-in, member with a forged diagnostic flag, legacy player link with a forged flag. |
-| 9.5 | `j9_5_review_has_single_round_share_entry` | 1 | Requires the actual review Share button; current product lacks this entrypoint. |
+| 9.5 | `j9_5_review_has_single_round_share_entry` | 1 | Creates a round share, opens its page in a fresh unauthenticated context, and checks the fixed read-only scorecard. |
 
 This is the W layer. API projections are synthetic, including the snapshot
 representing a prior App correction. They establish page behavior against an
@@ -44,17 +44,12 @@ yet been substituted. The first prep/sandbox hole matches C16c's new shared
 `h1_tee_0` golden for distance and opening clubs/carries. The second hole is a
 small independent navigation fixture, not C16c's second hole.
 
-The read-only share view is unimplemented: Web has no entrypoint, the backend
-has no single-round share token/API, and App's `ShareLink` sends text only.
-The legacy `/p/<player-token>` is a
-player capability, not a round share. Its diagnostic check is supplementary
-coverage for 9.4; it cannot satisfy the share-view row. The 9.5 test deliberately
-stops at the missing Share button rather than inventing an endpoint or mocking
-an authorization success. After a share contract exists, extend the same test
-to capture the UI-issued URL, open it in a fresh unauthenticated context, assert
-the fixed 72/Par72/18-hole snapshot, absence of diagnostics and mutation controls,
-and refusal to display another fixture round. Actual scope enforcement also
-requires backend coverage. These downstream checks remain unimplemented.
+The read-only share view uses the C28a token contract. The review button creates
+the token-backed `/s/<t>` page URL, and the 9.5 test opens that URL in a fresh
+unauthenticated context. It checks the fixed 72/Par72/18-hole snapshot, absence of
+diagnostics and mutation controls, and refusal to display the 90-stroke fixture
+round. The legacy `/p/<player-token>` remains a player capability, not a round
+share; backend scope enforcement is covered by C28a.
 
 ## Handwritten oracle
 
@@ -97,7 +92,7 @@ text. Chinese labels locate controls; explanatory prose is not a golden.
 ## Known red and verification limits
 
 See `tests/product/known-red/C16g.md` for the reproduced gaps (9.2
-cached-statistics is fixed; 9.5 share-entry remains open).
+cached-statistics is fixed; 9.5 share-entry is covered here).
 Expected-failure annotations occur immediately
 before the specific failing assertion, after review/edit setup succeeds. A
 fixed assertion produces an unexpected pass so the annotation must be removed.

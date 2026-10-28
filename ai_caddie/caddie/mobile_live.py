@@ -5197,6 +5197,25 @@ def append_event_batch(
     player_id: str = OWNER_ID,
     validate_append: Callable[[list[dict[str, Any]], list[dict[str, Any]]], None] | None = None,
 ) -> dict[str, Any]:
+    # Pydantic caps API envelopes at the compatibility maximum.  Once a package identity is
+    # durable, use its actual display-hole count as the stronger bound so a 9-hole round cannot
+    # accept a forged start at hole 10 or beyond.  Legacy/offline rounds have no identity yet and
+    # retain the 27-hole ceiling until their package proves the layout.
+    from ai_caddie.caddie.mobile_round_identity import load_mobile_round_identity
+
+    identity = load_mobile_round_identity(str(round_id), root=root, player_id=player_id)
+    if identity is None:
+        maximum_start_hole = 27
+    else:
+        identity_holes = identity.get("holes") or []
+        maximum_start_hole = max(
+            (int(row.get("number") or 0) for row in identity_holes if isinstance(row, dict)),
+            default=27,
+        )
+    for event in events:
+        start_hole = event.get("startHole") if isinstance(event, dict) else None
+        if type(start_hole) is int and start_hole > maximum_start_hole:
+            raise ValueError(f"startHole must be <= {maximum_start_hole} for this round")
     path = mobile_event_log(root, player_id=player_id)
     store = open_mobile_event_store(path.parent)
     # The hook is opt-in; without one the store keeps its established call shape.

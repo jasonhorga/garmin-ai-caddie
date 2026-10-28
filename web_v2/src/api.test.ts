@@ -58,6 +58,8 @@ import {
   updateAdminPlayer,
   rotateAdminPlayerToken,
   deleteAdminPlayer,
+  createRoundShare,
+  revokeRoundShare,
   topoImageUrl,
 } from './api'
 import { readPlayerToken } from './playerContext'
@@ -90,6 +92,33 @@ describe('release-revalidated topo asset URL', () => {
     expect(topoImageUrl(31793, 1, 'abc123')).toBe(
       '/api/v2/courses/31793/holes/1/topo.png?v=topo-v12&r=abc123',
     )
+  })
+})
+
+describe('round share writes', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('creates and revokes a token-backed share with the authenticated review credential', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ schema: 'ai-caddie-round-share-v1', url: '/api/v2/share/t', pageUrl: '/s/t', expiresAt: '2026-06-19T00:00:00Z', shareId: 's1' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ revoked: 1 }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await createRoundShare('round/one', 'admin-secret')
+    await revokeRoundShare('round/one', 'admin-secret')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v2/history/rounds/round%2Fone/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+      body: '{}',
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v2/history/rounds/round%2Fone/share', {
+      method: 'DELETE',
+      headers: { 'X-AI-Caddie-Admin-Token': 'admin-secret' },
+    })
   })
 })
 

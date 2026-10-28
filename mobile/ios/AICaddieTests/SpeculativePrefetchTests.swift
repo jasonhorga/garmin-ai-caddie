@@ -457,8 +457,6 @@ final class SpeculativePrefetchTests: XCTestCase {
         Set(model.prepCourseDownloads.filter { $0.isSpeculative && $0.course.globalId != 900 }.map(\.course.globalId))
     }
 
-    /// The real path: a nearby answer somewhere new reads the Tees and queues the blue-Tee courses as
-    /// guesses, anchors the area, and the same area does not ask again.
     func testCarriedTeeOptionsSkipLookupsIncludingNoBlueAndEmptyOffers() async throws {
         // Three nearest rows are authoritative; only row 103 lacks teeOptions (C91 / C92①).
         let (model, lookups) = try newAreaModel(
@@ -485,6 +483,8 @@ final class SpeculativePrefetchTests: XCTestCase {
         await model.cancelPrepCourseDownloadForTesting()
     }
 
+    /// The real path: a nearby answer somewhere new reads the Tees and queues the blue-Tee courses as
+    /// guesses, anchors the area, and the same area does not ask again.
     func testANearbyAnswerSomewhereNewQueuesItsBlueTeeCourses() async throws {
         let (model, lookups) = try newAreaModel(
             nearby: [(11, 0.4, 18), (12, 1.0, 18), (13, 2.0, 9), (14, 3.0, 18)],

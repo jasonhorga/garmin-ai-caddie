@@ -754,9 +754,36 @@ public final class WatchCourseLibrary: ObservableObject {
     /// never `round.json` and never the round's `loopKey`. Skipped when a complete template for the
     /// course and Tee is already installed; a failed install simply ends and may run again later.
     public func enqueueWholeCourseTemplate(for selection: WatchCourseSelection, config: WatchRoundConfig) {
-        guard selection.firstHalf != nil else { return }
-        let whole = WatchCourseSelection(front: selection.front, teeBox: selection.teeBox)
-        guard whole.loopKey != selection.loopKey else { return }
+        if selection.firstHalf != nil {
+            let whole = WatchCourseSelection(
+                front: selection.front,
+                teeBox: selection.teeBox,
+                ensureGeometry: selection.ensureGeometry
+            )
+            enqueueWholeCourseTemplate(whole, config: config)
+            return
+        }
+
+        // A nine-hole venue may continue on a different factual loop. Queue each sibling's
+        // canonical `G:all` template while the active loop is fresh, so the turn can work offline.
+        guard selection.front.playableHoleCount == 9 else { return }
+        for sibling in nineLoopSiblings(of: selection.front.globalId)
+            where sibling.globalId != selection.front.globalId {
+            enqueueWholeCourseTemplate(
+                WatchCourseSelection(
+                    front: sibling,
+                    teeBox: selection.teeBox,
+                    ensureGeometry: selection.ensureGeometry
+                ),
+                config: config
+            )
+        }
+    }
+
+    private func enqueueWholeCourseTemplate(
+        _ whole: WatchCourseSelection,
+        config: WatchRoundConfig
+    ) {
         let key = WatchCourseTemplate.cacheKey(loopKey: whole.loopKey, teeBox: whole.teeBox)
         guard wholeTemplateTasks[key] == nil,
               wholeTemplateInstallState(whole) != .assetsInstalled else { return }

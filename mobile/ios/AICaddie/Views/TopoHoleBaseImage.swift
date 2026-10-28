@@ -82,6 +82,11 @@ final class TopoHoleImageStore: ObservableObject {
 
     static func ensureLoaded(_ url: URL?) async -> Bool {
         guard let url else { return false }
+        // A local file is already the exact revision-bound asset. Retrying a corrupt or
+        // half-written PNG only strands the hole on neutral ground for roughly 20 seconds.
+        if url.isFileURL {
+            return await image(for: url) != nil
+        }
         let firstAttempt = retryAttemptByURL[url] ?? 0
         for attempt in firstAttempt..<retryDelaysNanoseconds.count {
             if Task.isCancelled {

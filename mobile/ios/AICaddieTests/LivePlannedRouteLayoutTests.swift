@@ -353,10 +353,11 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
         // the frame is 551.1 x 852 with the route centred: x0 = 196.5 - 80 * 0.44375 = 161.0.
         XCTAssertEqual(frame.minX, 161.0, accuracy: 0.5)
         XCTAssertEqual(frame.width, 551.1, accuracy: 0.5)
-        // The plain clamp (precise map, 备战) still demands cover: 0 -> -161.0, the route at x 35.5.
+        // The clamp uses the visible portion (frame ∩ screen). At rest the overhanging frame is
+        // already clipped, so dragging toward that edge cannot expose a second black band.
         XCTAssertEqual(
             LivePlayMapOverlayLayout.clampedOffset(.zero, mapFrame: frame, viewportSize: phone, scale: 1).width,
-            -161.0,
+            0,
             accuracy: 0.5
         )
         func clamped(_ proposed: CGSize, scale: CGFloat) -> CGSize {
@@ -367,9 +368,10 @@ final class LivePlannedRouteLayoutTests: XCTestCase {
         // The framed map rests where it was framed, also when zoomed in place.
         XCTAssertEqual(clamped(.zero, scale: 1), .zero)
         XCTAssertEqual(clamped(.zero, scale: 2), .zero)
-        // Panning is still bounded: at rest x may go from 393 - 712.1 = -319.1 up to 0.
+        // The visible intersection is narrower than the viewport at this scale, so horizontal
+        // movement is intentionally disabled while the frame is overhanging.
         XCTAssertEqual(clamped(CGSize(width: 500, height: 0), scale: 1).width, 0, accuracy: 0.5)
-        XCTAssertEqual(clamped(CGSize(width: -1000, height: 0), scale: 1).width, -319.1, accuracy: 0.5)
+        XCTAssertEqual(clamped(CGSize(width: -1000, height: 0), scale: 1).width, 0, accuracy: 0.5)
     }
 
     /// C17: Garmin's 1242 x 1920 raster shown before any CourseView route can be drawn on it (its

@@ -405,6 +405,67 @@ final class WatchHalfStartTurnTests: XCTestCase {
         XCTAssertEqual(table(relaunched.round?.holeStates ?? []), try serverTable("31795:back,31795:back"))
     }
 
+    func testNineHoleStartQueuesSiblingLoopTemplate() async throws {
+        let directory = makeDirectory("watch-nine-sibling-template")
+        let log = RequestLog()
+        let options = [
+            WatchCourseOption(globalId: 31795, name: "Nine Club ~ A", holes: 9,
+                              teeBox: "blue", venueName: "Nine Club", segmentLabel: "A", segmentHoles: 9),
+            WatchCourseOption(globalId: 31796, name: "Nine Club ~ B", holes: 9,
+                              teeBox: "blue", venueName: "Nine Club", segmentLabel: "B", segmentHoles: 9),
+        ]
+        let library = WatchCourseLibrary(
+            store: WatchCourseStore(directoryURL: directory),
+            imageStore: WatchHoleImageStore(directoryURL: directory),
+            makeRoundId: { "watch-nine-sibling" },
+            now: { "2026-09-29T00:00:00Z" },
+            clientFactory: { config in
+                WatchBackendClient(
+                    baseURL: config.baseURL,
+                    sessionToken: config.sessionToken,
+                    dataLoader: { request in
+                        let url = try XCTUnwrap(request.url)
+                        let response = HTTPURLResponse(
+                            url: url, statusCode: 200, httpVersion: nil,
+                            headerFields: ["Content-Type": "application/json"]
+                        )!
+                        if url.path.hasSuffix("/options") {
+                            return (try JSONEncoder().encode(["courses": options]), response)
+                        }
+                        guard url.path.hasSuffix("/package"),
+                              let loops = Self.query(request, "loops"),
+                              let firstLoop = loops.split(separator: ":").first,
+                              let globalId = Int(String(firstLoop)) else {
+                            return (Data(), HTTPURLResponse(url: url, statusCode: 404,
+                                                            httpVersion: nil, headerFields: nil)!)
+                        }
+                        log.requests.append(request)
+                        let course = "{\"globalId\":\(globalId),\"name\":\"Nine Club\",\"teeBox\":\"blue\"}"
+                        return (
+                            WatchPackageFixture.packageData(
+                                roundId: Self.query(request, "round_id") ?? "watch-nine-sibling",
+                                course: course,
+                                loops: [WatchPackageFixture.Loop(globalId, "all")]
+                            ),
+                            response
+                        )
+                    },
+                    retrySleep: { _ in }
+                )
+            }
+        )
+        await library.refresh(config: Self.config)
+
+        let selection = WatchCourseSelection(front: options[0], teeBox: "blue")
+        library.enqueueWholeCourseTemplate(for: selection, config: Self.config)
+        await library.waitForWholeCourseTemplateInstalls()
+
+        XCTAssertTrue(
+            log.templateRequests.contains { Self.query($0, "loops") == "31796:all" },
+            "a nine-hole start prefetches the sibling loop's canonical template"
+        )
+    }
+
     func testOfflineTurnFromBackToFrontProjectsTheInstalledWholeCourseTemplate() async throws {
         let directory = makeDirectory("watch-turn-offline")
         let store = WatchCourseStore(directoryURL: directory)

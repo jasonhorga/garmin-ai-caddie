@@ -512,6 +512,41 @@ export interface HistoryRoundDetailResponse {
   corrections?: AnnotationRecord[]
 }
 
+export interface RoundShareResponse {
+  schema: 'ai-caddie-round-share-v1'
+  url: string
+  pageUrl: string
+  expiresAt: string
+  shareId: string
+}
+
+export interface SharedRoundScorecardCell {
+  hole: number
+  par: number | null
+  score: number | null
+  toPar: number | null
+  putts: number | null
+  penalties: number | null
+  gir: boolean | null
+  fairway: string | null
+}
+
+export interface SharedRoundResponse {
+  schema: 'ai-caddie-shared-round-v1'
+  found: boolean
+  expiresAt: string | null
+  round: {
+    id: string
+    date: string | null
+    courseName: string
+    score: number | null
+    par: number | null
+    toPar: number | null
+    holesScored: number | null
+  } | null
+  scorecard: SharedRoundScorecardCell[]
+}
+
 // 复盘逐洞落点图 (round review shot map): one hole of a played round, with the
 // round's ACTUAL shots projected onto the same 2D hole render the 备战/实战 maps
 // use. `map.overlay.route` is the ideal playing line (the caddie-recommended

@@ -665,6 +665,56 @@ final class RoundEditModelTests: XCTestCase {
         XCTAssertNil(model.saveError)
     }
 
+    func testCancelFollowsScorecardValuesThatArrivedWhileEditing() async throws {
+        let model = makeModel(score: 5, putts: 3) { request in
+            Self.response(request, status: request.httpMethod == "POST" ? 201 : 503, body: #"{"stored":{}}"#)
+        }
+
+        model.enterEdit()
+        model.adoptRecordedScorecard(score: 4, putts: 2)
+        model.cancelEdit()
+
+        XCTAssertEqual(model.putts, 2, "cancel must follow the current scorecard row, including putts")
+    }
+
+    func testLandingOnlySaveAdoptsTheRefreshedTotalAndPutts() async throws {
+        let model = makeModel(score: 5, putts: 3) { request in
+            Self.response(request, status: request.httpMethod == "POST" ? 201 : 503, body: #"{"stored":{}}"#)
+        }
+
+        model.enterEdit()
+        model.adoptRecordedScorecard(score: 6, putts: 4)
+        model.move(shotId: "shot-1", px: [46, 49])
+
+        let firstSave = await model.save()
+        XCTAssertTrue(firstSave)
+        XCTAssertEqual(model.putts, 4, "a landing-only save writes no putts, so the server's newer count stands")
+
+        model.enterEdit()
+        XCTAssertEqual(model.putts, 4)
+        model.setPenalty(1) // The refreshed total 6 permits 4 putts + 1 penalty + 1.
+        let secondSave = await model.save()
+        XCTAssertTrue(secondSave)
+    }
+
+    func testScorecardTotalThatArrivesDuringEditingStillRejectsAnImpossibleSave() async throws {
+        let unexpectedRequest = expectation(description: "a refreshed impossible total must make no request")
+        unexpectedRequest.isInverted = true
+        let model = makeModel(score: 5, putts: 3) { request in
+            unexpectedRequest.fulfill()
+            return Self.response(request, status: 201, body: #"{"stored":{}}"#)
+        }
+
+        model.enterEdit()
+        model.adoptRecordedScorecard(score: 4, putts: 3)
+        model.setPenalty(1) // 4 < 3 putts + 1 penalty + 1.
+
+        let saved = await model.save()
+        XCTAssertFalse(saved)
+        XCTAssertEqual(model.saveError, "总杆不得低于推杆+罚杆+1，草稿仍在；请调整后重试")
+        await fulfillment(of: [unexpectedRequest], timeout: 0.25)
+    }
+
     func testScorecardRefreshPreservesBothTotalsAndPuttsWhileAnyDraftIsOpen() async throws {
         // adoptRecordedPutts protects every open draft, including one with no changes yet.
         for manuallyChangedPutts in [false, true] {
@@ -678,10 +728,19 @@ final class RoundEditModelTests: XCTestCase {
 
             XCTAssertEqual(model.putts, manuallyChangedPutts ? 2 : 3)
             XCTAssertEqual(model.hasUnsavedChanges, manuallyChangedPutts)
-            // C20: both drafts require 5 (2+2+1 or 3+1+1), so adopting 4 would reject them.
+            // C79: validation uses the total that takes effect after saving (the queued 4), so
+            // drafts needing 5 (2+2+1 or 3+1+1) are rejected and stay open instead of storing an
+            // impossible row.
             model.setPenalty(manuallyChangedPutts ? 2 : 1)
+            let rejected = await model.save()
+            XCTAssertFalse(rejected, "a draft impossible under the queued total must not save")
+            XCTAssertNotNil(model.saveError)
+            XCTAssertTrue(model.isEditing, "the rejected draft stays open")
+            XCTAssertEqual(model.putts, manuallyChangedPutts ? 2 : 3)
+
+            model.setPenalty(manuallyChangedPutts ? 1 : 0)
             let saved = await model.save()
-            XCTAssertTrue(saved, "an open draft must keep its original scorecard baseline")
+            XCTAssertTrue(saved, "a draft that fits the queued total saves")
             XCTAssertNil(model.saveError)
         }
     }

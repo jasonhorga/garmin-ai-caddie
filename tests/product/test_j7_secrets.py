@@ -19,6 +19,8 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from ai_caddie.connectors.base import ConnectorRunResult
+from ai_caddie.history import history, stats_cache
+from ai_caddie.core.config import get_settings
 from ai_caddie.rounds import players
 from server_v2 import reports as reports_api
 from server_v2 import session as session_api
@@ -50,9 +52,12 @@ class J7SecretTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         patches = [
             mock.patch.object(players, "ROOT", self.root),
+            mock.patch.object(history, "ROOT", self.root),
+            mock.patch.object(stats_cache, "_PLAYERS_DIR", self.root / "data" / "players"),
             mock.patch.object(session_api, "SESSION_ROOT", self.root),
             mock.patch.object(main_api, "SYNC_ROOT", self.root),
             mock.patch.object(reports_api, "REPORT_ROOT", self.root),
+            mock.patch.object(main_api, "_prepare_recent_bg"),
             mock.patch.dict(
                 os.environ,
                 {"AI_CADDIE_ADMIN_TOKEN": ADMIN, "AI_CADDIE_DATA_MODE": "fixture"},
@@ -61,6 +66,11 @@ class J7SecretTests(unittest.TestCase):
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
+        # Settings are lru_cached; another module may have cached a different AI_CADDIE_DATA_MODE.
+        get_settings.cache_clear()
+        self.addCleanup(get_settings.cache_clear)
+        stats_cache.clear()
+        self.addCleanup(stats_cache.clear)
         # Every sensitive sample is fresh per test process; no fixture or source-text value is
         # reused as the oracle.
         self.cookie = f"JWT_WEB=runtime-cookie-{secrets.token_hex(8)}"
@@ -81,7 +91,7 @@ class J7SecretTests(unittest.TestCase):
             self.assertNotIn(secret, joined, f"secret leaked: {secret}")
 
     def test_j7_3_member_link_response_and_runtime_files_do_not_contain_token(self) -> None:
-        # /p/<token> authenticates a member. A true anonymous share view is missing (J9.5).
+        # /p/<token> authenticates a member; it is distinct from the anonymous share capability.
         response = self.client.get(
             "/api/v2/history/rounds",
             headers={"Authorization": f"Bearer {self.member_player['token']}"},
@@ -90,6 +100,34 @@ class J7SecretTests(unittest.TestCase):
         self._assert_secret_free(
             response.text, *self.log_messages, _data_tree_text(self.root),
             extra=(str(self.member_player["token"]),),
+        )
+
+    def test_j7_3_share_token_never_persists_or_logs(self) -> None:
+        """A share capability is delivered once, then absent from reads, logs and disk."""
+        round_id = "900001"
+        created = self.client.post(
+            f"/api/v2/history/rounds/{round_id}/share", headers={"X-AI-Caddie-Admin-Token": ADMIN},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        share_token = created.json()["url"].rsplit("/", 1)[-1]
+        read = self.client.get(created.json()["url"])
+        self.assertEqual(read.status_code, 200, read.text)
+        keyed = self.client.get(created.json()["url"] + "?key=" + self.member_player["token"])
+        self.assertEqual(keyed.status_code, 200, keyed.text)
+        self._assert_secret_free(
+            read.text, keyed.text, *self.log_messages, _data_tree_text(self.root),
+            extra=(str(self.member_player["token"]), share_token),
+        )
+        revoked = self.client.delete(
+            f"/api/v2/history/rounds/{round_id}/share",
+            headers={"X-AI-Caddie-Admin-Token": ADMIN},
+        )
+        self.assertEqual(revoked.status_code, 200, revoked.text)
+        after = self.client.get(created.json()["url"])
+        self.assertEqual(after.status_code, 404)
+        self._assert_secret_free(
+            after.text, *self.log_messages, _data_tree_text(self.root),
+            extra=(str(self.member_player["token"]), share_token),
         )
 
     def _invalid_import_rows(self):
