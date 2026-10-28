@@ -1,0 +1,15 @@
+--- a/mobile/ios/AICaddie/Views/RoundHomeView.swift
++++ b/mobile/ios/AICaddie/Views/RoundHomeView.swift
+@@ -123,10 +123,7 @@
+     func persistActiveHole(_ hole: Int, displayed: LiveRoundPackage, wasPrep: Bool) {
+-        switch currentMode(displayed: displayed, wasPrep: wasPrep) {
+-        case .some(.prep):
++        if value.isPrepMode {
+             value.onPrepHoleChanged(hole)
+-        case .some(.live):
++        } else {
+             value.onSetActiveHole(hole)
+-        case .none:
+-            break
+         }
+     }

@@ -104,7 +104,9 @@ final class LiveHolePageCallbacks {
     func onEvent(_ event: LiveRoundEvent) { value.onEvent(event) }
 
     func firstStrokeClubPromptDismissed(hole: Int, roundId: String, path: Binding<[HubRoute]>) {
-        guard value.hasLiveRound,
+        // Starting a round persists progress before returning. The rendered Value may still be
+        // prep while the club sheet closes; query that authority at action time, not body time.
+        guard (try? value.currentLiveRoundId()) == roundId,
               path.wrappedValue.first.map({ LiveHoleRoutePath.isPrepBase($0) }) == true else { return }
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -112,15 +114,35 @@ final class LiveHolePageCallbacks {
     }
 
     func prepPackage(displayed: LiveRoundPackage, wasPrep: Bool) -> LiveRoundPackage? {
-        guard value.isPrepMode else { return nil }
-        return value.package
+        guard currentMode(displayed: displayed, wasPrep: wasPrep) == .prep else { return nil }
+        // Geometry belongs to the displayed, equatable page input. A package change already
+        // invalidates that page; never substitute another round/tee from the callback cache.
+        return displayed
     }
 
     func persistActiveHole(_ hole: Int, displayed: LiveRoundPackage, wasPrep: Bool) {
-        if value.isPrepMode {
+        switch currentMode(displayed: displayed, wasPrep: wasPrep) {
+        case .some(.prep):
             value.onPrepHoleChanged(hole)
-        } else {
+        case .some(.live):
             value.onSetActiveHole(hole)
+        case .none:
+            break
+        }
+    }
+
+    private enum Mode: Equatable { case prep, live }
+
+    private func currentMode(displayed: LiveRoundPackage, wasPrep: Bool) -> Mode? {
+        do {
+            if let roundId = try value.currentLiveRoundId() {
+                return roundId == displayed.roundId ? .live : nil
+            }
+            // A removed/finished live destination may still have a queued callback. Only an
+            // actually displayed prep page can issue prep navigation when no live round exists.
+            return wasPrep ? .prep : nil
+        } catch {
+            return nil
         }
     }
 

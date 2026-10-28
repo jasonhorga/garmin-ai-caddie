@@ -101,6 +101,35 @@ final class ProductLiveHolePageTests: XCTestCase {
                            "the same cached prep flag must not swallow a live page advance")
         }
     }
+
+    func test_j5_10_prep_geometry_belongs_to_the_displayed_page_not_cached_package() async throws {
+        try await withPrepSession { _, package, _, probe in
+            let callbacks = try XCTUnwrap(probe.callbacks)
+            // The retained page must not borrow another tee/round's geometry from a later body.
+            callbacks.value.package = package.rebasedForOfflineStart(roundId: UUID().uuidString)
+            let prep = try XCTUnwrap(callbacks.prepPackage(displayed: package, wasPrep: true))
+            XCTAssertEqual(prep, package)
+        }
+    }
+
+    func test_j5_2_old_page_cannot_promote_or_move_a_different_active_round() async throws {
+        try await withPrepSession { model, package, _, probe in
+            let callbacks = try XCTUnwrap(probe.callbacks)
+            let path = try XCTUnwrap(probe.path)
+            let dismiss = try XCTUnwrap(probe.dismissals[4])
+            let previousPath = path.wrappedValue
+            let other = package.rebasedForOfflineStart(roundId: UUID().uuidString)
+            model.enterPrepMode(with: other, hole: 4)
+            XCTAssertTrue(model.startRoundFromFirstStroke(startHole: 4))
+            dismiss()
+            XCTAssertEqual(path.wrappedValue, previousPath)
+            XCTAssertNil(callbacks.prepPackage(displayed: package, wasPrep: true))
+            callbacks.persistActiveHole(5, displayed: package, wasPrep: true)
+            XCTAssertEqual(model.liveRoundState?.roundId, other.roundId)
+            XCTAssertEqual(model.liveRoundState?.activeHole, 4,
+                           "the outgoing page cannot write the new round's cursor")
+        }
+    }
     #endif
 
     private final class Probe {
