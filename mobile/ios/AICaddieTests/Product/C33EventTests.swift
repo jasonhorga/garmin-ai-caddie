@@ -199,13 +199,9 @@ final class C33EventTests: XCTestCase {
             if path.hasSuffix("/package") { proto.reply(200, try! JSONEncoder().encode(package)); return }
             guard path.hasSuffix("/events") else { proto.reply(404); return }
             let ids = (try? JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request)))?.events.map(\.eventId) ?? []
-            if ids.contains("older-score") {
-                proto.reply(422, Data(#"{"detail":{"code":"event_invalid","message":"older score rejected"}}"#.utf8))
-            } else {
-                proto.reply(200, try! JSONEncoder().encode(SyncResult(
-                    accepted: ids.count, duplicate: false, acceptedEventIds: ids
-                )))
-            }
+            proto.reply(200, try! JSONEncoder().encode(SyncResult(
+                accepted: ids.count, duplicate: false, acceptedEventIds: ids
+            )))
         })
         defer {
             syncClient.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
@@ -219,9 +215,15 @@ final class C33EventTests: XCTestCase {
             timestamp: "2026-01-01T00:00:00Z", hole: 1, kind: .score, payload: ["strokes": .number(5)]))
         try store.appendEvent(LiveRoundEvent(eventId: "newer-score", roundId: package.roundId,
             timestamp: "2026-01-01T00:00:01Z", hole: 1, kind: .score, payload: ["strokes": .number(4)]))
+        try store.quarantineEvent(
+            LiveRoundEvent(eventId: "newer-score", roundId: package.roundId,
+                timestamp: "2026-01-01T00:00:01Z", hole: 1, kind: .score,
+                payload: ["strokes": .number(4)]),
+            status: 422, reason: "later score rejected"
+        )
         await model.syncPendingEvents()
-        XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).map { $0.event.eventId }, ["older-score"])
-        XCTAssertEqual(model.syncStatus, "第 1 洞成绩被服务器拒绝（older score rejected）")
+        XCTAssertEqual(try store.loadQuarantinedEvents(roundId: package.roundId).map { $0.event.eventId }, ["newer-score"])
+        XCTAssertEqual(model.syncStatus, "第 1 洞成绩被服务器拒绝（later score rejected）")
     }
 
     private func assertOneInvalidEventIsQuarantined(
