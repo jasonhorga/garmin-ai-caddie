@@ -175,9 +175,15 @@ final class C33EventTests: XCTestCase {
                     break
                 }
             }
+            // Mirror require_possible_appended_scores: the server already stores 5/2/2, so a
+            // singleton score=3 is rejected even though the complete 3/1/1 append is valid.
             let violatesInvariant = strokes < putts + penalties + 1
             if ids.contains("bad-club") || violatesInvariant {
-                proto.reply(422, Data(#"{"detail":{"code":"event_invalid","message":"invalid batch"}}"#.utf8))
+                let message = violatesInvariant
+                    ? "hole 1: total \(strokes) is less than putts \(putts) + penalties \(penalties) + 1"
+                    : "invalid batch"
+                let body = #"{"detail":{"code":"event_invalid","message":"\#(message)"}}"#
+                proto.reply(422, Data(body.utf8))
             } else {
                 proto.reply(200, try! JSONEncoder().encode(SyncResult(
                     accepted: ids.count, duplicate: false, acceptedEventIds: ids
