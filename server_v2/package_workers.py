@@ -15,8 +15,10 @@ import hashlib
 import os
 import pickle
 import threading
+import time
 from typing import Any
 from .worker_executor import SubprocessExecutor
+from .timing import mark as mark_request_stage
 
 
 _POOL_LOCK = threading.Lock()
@@ -26,6 +28,7 @@ _INFLIGHT_LOCK = threading.Lock()
 class _Flight:
     result: Future[Any]
     worker: Future[Any] | None = None
+    waiters: int = 0
 
 
 _INFLIGHT: dict[tuple[bool, bytes], _Flight] = {}
@@ -128,6 +131,7 @@ def submit_mobile_package(kwargs: dict[str, Any], *, background: bool) -> Future
                 if error is not None:
                     flight.result.set_exception(error)
                 else:
+                    setattr(flight.result, "worker_stages", getattr(done, "worker_stages", ()))
                     flight.result.set_result(done.result())
         finally:
             with _INFLIGHT_LOCK:
@@ -158,7 +162,46 @@ def cancel_mobile_package(kwargs: dict[str, Any], *, background: bool) -> bool:
 
 def build_mobile_package(kwargs: dict[str, Any], *, background: bool) -> Any:
     """Build a package in the selected process lane, or inline when lanes are disabled."""
-    return submit_mobile_package(kwargs, background=background).result()
+    shared = submit_mobile_package(kwargs, background=background)
+    value = shared.result()
+    for stage in getattr(shared, "worker_stages", ()):
+        mark_request_stage(f"worker.{stage}")
+    return value
+
+
+def wait_mobile_package(kwargs: dict[str, Any], *, background: bool, cancel_event=None) -> Any:
+    """Wait for a shared package while allowing one disconnected request to leave.
+
+    A leader/follower pair owns one worker future.  Leaving only removes this request's waiter;
+    the worker is cancelled only when the last waiter has gone and it has not started yet.
+    """
+    shared = submit_mobile_package(kwargs, background=background)
+    key = _key(kwargs, background)
+    with _INFLIGHT_LOCK:
+        flight = _INFLIGHT.get(key) if key is not None else None
+        if flight is not None:
+            flight.waiters += 1
+    try:
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                if flight is not None:
+                    with _INFLIGHT_LOCK:
+                        flight.waiters = max(0, flight.waiters - 1)
+                        last = flight.waiters == 0
+                    if last and flight.worker is not None:
+                        cancel_mobile_package(kwargs, background=background)
+                raise RuntimeError("mobile package request disconnected")
+            try:
+                value = shared.result(timeout=0.05)
+                for stage in getattr(shared, "worker_stages", ()):
+                    mark_request_stage(f"worker.{stage}")
+                return value
+            except TimeoutError:
+                continue
+    finally:
+        if flight is not None and not (cancel_event is not None and cancel_event.is_set()):
+            with _INFLIGHT_LOCK:
+                flight.waiters = max(0, flight.waiters - 1)
 
 
 @atexit.register

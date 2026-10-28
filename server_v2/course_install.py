@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 _LOCK = threading.RLock()
 _ACTIVE: set[str] = set()
+_CURRENT_COURSE_IDS: set[int] = set()
 _RESUME_BACKLOG: list[str] = []
 # A transient Garmin authority outage must not turn a queued job into a hot loop.  Timers are
 # deliberately process-local: the journal remains the durable source of truth, and a restart will
@@ -64,6 +65,19 @@ _DERIVATIVE_FIELDS = (
 # One job coordinator at a time keeps a four-core shared homeserver from multiplying the existing
 # two-hole geometry pool and one-hole topo pipeline across simultaneous course selections.
 _WORKER = PriorityExecutor(max_workers=1, name="course-install-job")
+
+
+def set_current_course_ids(global_ids: set[int] | list[int] | tuple[int, ...]) -> None:
+    """Update the live-play course set used when resuming durable install jobs."""
+    with _LOCK:
+        _CURRENT_COURSE_IDS.clear()
+        for value in global_ids:
+            try:
+                gid = int(value)
+            except (TypeError, ValueError):
+                continue
+            if gid > 0:
+                _CURRENT_COURSE_IDS.add(gid)
 
 
 def _root() -> Path:
@@ -493,7 +507,17 @@ def _launch(identifier: str) -> None:
         if not state or state.get("phase") in _TERMINAL_PHASES or state.get("cancelRequested"):
             return
         _ACTIVE.add(identifier)
-    _WORKER.submit(_run, identifier, priority=int(state.get("priority", SELECTED_COURSE)))
+        # Startup recovery and generation retries reuse the persisted priority.  A job for a
+        # different course must yield to live play even when its old row said foreground (10).
+        try:
+            gid = int(state.get("globalId") or 0)
+        except (TypeError, ValueError):
+            gid = 0
+        if gid and gid not in _CURRENT_COURSE_IDS:
+            state["priority"] = max(int(state.get("priority", SELECTED_COURSE)), 20)
+            _write(state)
+        launch_priority = int(state.get("priority", SELECTED_COURSE))
+    _WORKER.submit(_run, identifier, priority=launch_priority)
 
 
 def _schedule_retry(identifier: str) -> None:

@@ -2403,18 +2403,26 @@ def _current_geometry_revision(global_id: int, hole: int) -> str | None:
 # Real play remains active for thirty minutes after its last package/event activity.
 # Explicit finish releases it; a lost/offline client expires without a resident timer.
 _ACTIVE_ROUNDS: dict[tuple[str, str], float] = {}
+_ACTIVE_COURSES: dict[tuple[str, str], tuple[int, ...]] = {}
 _ACTIVE_ROUNDS_LOCK = threading.Lock()
 
 
-def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False, has_events: bool = False) -> None:
+def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False, has_events: bool = False,
+                           global_ids: list[int] | tuple[int, ...] | None = None) -> None:
     if not round_id:
         return
     with _ACTIVE_ROUNDS_LOCK:
         key = (str(player_id), str(round_id))
         if finished:
             _ACTIVE_ROUNDS.pop(key, None)
+            _ACTIVE_COURSES.pop(key, None)
         elif has_events or key in _ACTIVE_ROUNDS or not str(round_id).startswith(("home-", "prep-library-")):
             _ACTIVE_ROUNDS[key] = time.monotonic() + 30 * 60
+            if global_ids:
+                _ACTIVE_COURSES[key] = tuple(sorted({int(value) for value in global_ids if int(value) > 0}))
+        course_install.set_current_course_ids(
+            {gid for values in _ACTIVE_COURSES.values() for gid in values}
+        )
 
 
 def nearby_work_blocked() -> bool:
@@ -2832,11 +2840,14 @@ def mobile_course_package(
             "loops": round_loops,
             "player_id": player_id,
         }
-        if package_workers.enabled():
+        if package_workers.enabled() and not map_only:
             # Cold package projections are Python/GIL-heavy. Keep foreground starts and
             # prep-library prefetches on independent process lanes, while the parent remains
             # available for health, Tee, and cached map requests.
             is_prefetch = str(round_id or "").startswith("prep-library-")
+            # A map-only start is deliberately inline: its release/courseData cache probe and
+            # lightweight projection are the hot path. Cold work uses the shared waiter helper;
+            # async adapters can use its cancel_event to implement a 499 disconnect.
             package = package_workers.build_mobile_package(package_kwargs, background=is_prefetch)
         else:
             # Fixture/test mode keeps the historical in-process path so monkeypatches and
@@ -2845,7 +2856,8 @@ def mobile_course_package(
     except RoundLoopError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     _record_round_activity(player_id, round_id,
-                           has_events=bool((getattr(package, "eventCursor", None) or {}).get("serverSequence")))
+                           has_events=bool((getattr(package, "eventCursor", None) or {}).get("serverSequence")),
+                           global_ids=[global_id])
     mark_request_stage("package_route")
     if not background_geometry or ensure_geometry:
         return package
@@ -2893,7 +2905,9 @@ def mobile_course_package(
         # Package-triggered whole-course installs are enrichment. The current-hole map lane is
         # queued separately at foreground/selected-course priority, so a stale/offline package
         # cannot make another course's 18-hole install compete with live play.
-        priority=NEARBY,
+        priority=(SELECTED_COURSE if (round_id and global_id in {
+            gid for values in _ACTIVE_COURSES.values() for gid in values
+        }) else NEARBY),
         priority_hole=priority_hole,
     )
     mark_request_stage("background_enqueue")
