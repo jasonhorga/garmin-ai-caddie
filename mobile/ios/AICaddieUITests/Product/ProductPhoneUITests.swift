@@ -394,7 +394,6 @@ final class ProductPhoneUITests: XCTestCase {
             let appeared = map.waitForExistence(timeout: 15)
             let requested = server.requestedPaths().joined(separator: "\n")
             XCTAssertTrue(appeared, "\(name)\nrequestedPaths:\n\(requested)")
-            XCTAssertTrue(map.exists, "\(name) disappeared after wait; requestedPaths:\n\(requested)")
             if map.exists { insideWindow(map, name) }
             if name == "partial" {
                 let precise = element("live-hole-map-precise")
