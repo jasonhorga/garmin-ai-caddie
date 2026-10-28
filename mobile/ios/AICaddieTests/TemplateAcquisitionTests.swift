@@ -46,6 +46,7 @@ final class TemplateAcquisitionTests: XCTestCase {
     override func tearDown() {
         protocolScope = nil
         CapturingURLProtocol.requestHandler = nil
+        CapturingURLProtocol.stopLoadingHandler = nil
         super.tearDown()
     }
 
@@ -173,7 +174,8 @@ final class TemplateAcquisitionTests: XCTestCase {
     private func acquisitionModel(
         directory: URL,
         preferredRoundId: String? = nil,
-        freshEntryReleaseFallbackNanoseconds: UInt64 = 60_000_000_000
+        freshEntryReleaseFallbackNanoseconds: UInt64 = 60_000_000_000,
+        prepStatusProbeRetryDelayNanoseconds: UInt64 = LiveRoundAppModel.defaultPrepStatusProbeRetryDelayNanoseconds
     ) -> LiveRoundAppModel {
         let configuration = protocolScope!.configuration()
         return LiveRoundAppModel(
@@ -190,6 +192,7 @@ final class TemplateAcquisitionTests: XCTestCase {
                 retrySleep: { _ in }
             ),
             offlineGeometryRetryDelaysNanoseconds: [],
+            prepStatusProbeRetryDelayNanoseconds: prepStatusProbeRetryDelayNanoseconds,
             freshEntryReleaseFallbackNanoseconds: freshEntryReleaseFallbackNanoseconds
         )
     }
@@ -531,9 +534,11 @@ final class TemplateAcquisitionTests: XCTestCase {
         let gid = oracle.globalId
         let gate = TestRequestGate()
         let started = expectation(description: "ordinary prep request started")
+        let cancelled = expectation(description: "ordinary prep request cancelled")
         let lock = NSLock()
         var prepRequestCount = 0
         var firstPrepRequest = true
+        var cancellationReported = false
         protocolScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
             let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
@@ -551,12 +556,20 @@ final class TemplateAcquisitionTests: XCTestCase {
             if !roundID.isEmpty { object["roundId"] = roundID }
             return try Self.response(request, status: 200, body: try JSONSerialization.data(withJSONObject: object))
         }
+        CapturingURLProtocol.stopLoadingHandler = { request in
+            guard request.url?.path == "/api/v2/mobile/courses/\(gid)/package" else { return }
+            lock.lock()
+            let shouldSignal = !cancellationReported
+            cancellationReported = true
+            lock.unlock()
+            if shouldSignal { cancelled.fulfill() }
+        }
         let model = acquisitionModel(directory: freshDirectory())
         let course = MobileCourseOption(globalId: gid, name: "In flight", holes: 18, teeBox: "white")
         model.downloadPrepCourse(course)
         await fulfillment(of: [started], timeout: 5)
         XCTAssertTrue(model.openPrepCourse(course))
-        for _ in 0..<20 { await Task.yield() }
+        await fulfillment(of: [cancelled], timeout: 5)
         XCTAssertEqual(lock.withLock { prepRequestCount }, 1, "Start cancels the in-flight ordinary request")
         gate.release()
         for _ in 0..<500 {
@@ -625,8 +638,10 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertNil(model.package, "an intent never creates a round")
     }
 
-    /// C134/N5: the Start tap's map-only intent remains durable and is promoted to a complete
-    /// whole-course library download after the first prep hole is visible.
+    /// C134/N5: the Start tap's map-only intent is followed by an independent whole-course job.
+    /// The shared oracle (see `oracle` above) has no `/prep` or topo responses, so this test proves
+    /// the full package request and whole-course template enter the install flow rather than
+    /// asserting the unreachable `.ready` state.
     func testStartPrepIntentContinuesAsWholeCourseOfflineDownload() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
@@ -634,7 +649,10 @@ final class TemplateAcquisitionTests: XCTestCase {
         serveOracle(oracle, into: requests)
         defer { CapturingURLProtocol.requestHandler = nil }
 
-        let model = acquisitionModel(directory: freshDirectory())
+        let model = acquisitionModel(
+            directory: freshDirectory(),
+            prepStatusProbeRetryDelayNanoseconds: 0
+        )
         let course = MobileCourseOption(globalId: gid, name: "Start intent", holes: 18, teeBox: "white")
         model.prefetchIntendedCourses([course], teeBox: "white")
         let sawIntentRequest = await requests.waitFor(tee: "white")
@@ -642,20 +660,20 @@ final class TemplateAcquisitionTests: XCTestCase {
         await model.waitForPrepCourseDownloadForTesting()
         XCTAssertTrue(model.openPrepCourse(course))
         model.liveHoleInitialLoadDidFinish()
-        for _ in 0..<500 {
-            if requests.mapOnlyValues.contains(nil), model.prepCourseDownloads.first(where: { !$0.isIntentPrefetch && $0.course.globalId == gid })?.phase == .ready { break }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await settleDownloads(model)
         XCTAssertTrue(requests.mapOnlyValues.contains("true"), "the opening request is map-only")
         XCTAssertTrue(requests.mapOnlyValues.contains(nil), "the same selection must later request the full package")
+        XCTAssertEqual(requests.mapOnlyValues.filter { $0 == "true" }.count, 1)
         let row = try XCTUnwrap(model.prepCourseDownloads.first { !$0.isIntentPrefetch && $0.course.globalId == gid })
         XCTAssertFalse(row.isIntentPrefetch)
-        XCTAssertEqual(row.phase, .ready)
-        XCTAssertTrue(try model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")?.hasCompleteOfflineCoursePrep == true)
+        XCTAssertNotEqual(row.phase, .ready, "this oracle has no per-hole prep/topo responses")
+        XCTAssertTrue(try XCTUnwrap(model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")).isWholeCourseTemplate)
     }
 
     /// C134/挡3: a user download gets its own full-course row while the selected-course map intent
     /// is still in flight; releasing the intent must never persist its lightweight package as ready.
+    /// The oracle has no per-hole prep/topo responses, so the reachable assertion is the independent
+    /// whole-course request/template, with retry delay injected to zero.
     func testDownloadWhileMapOnlyIntentIsInFlightUsesAnIndependentFullPackage() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
@@ -665,6 +683,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         let lock = NSLock()
         var mapOnly = 0
         var full = 0
+        let fullStartedOnce = C33FirstMatch()
         protocolScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
             let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
@@ -676,14 +695,17 @@ final class TemplateAcquisitionTests: XCTestCase {
                 gate.wait()
             } else {
                 lock.withLock { full += 1 }
-                fullStarted.fulfill()
+                if fullStartedOnce.claim() { fullStarted.fulfill() }
             }
             guard let body = oracle.responses[loops] else {
                 return try Self.response(request, status: 404, body: Data())
             }
             return try Self.response(request, status: 200, body: body)
         }
-        let model = acquisitionModel(directory: freshDirectory())
+        let model = acquisitionModel(
+            directory: freshDirectory(),
+            prepStatusProbeRetryDelayNanoseconds: 0
+        )
         let course = MobileCourseOption(globalId: gid, name: "Independent full", holes: 18, teeBox: "white")
         model.prefetchIntendedCourses([course], teeBox: "white")
         await fulfillment(of: [intentStarted], timeout: 5)
@@ -696,8 +718,8 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertEqual(lock.withLock { mapOnly }, 1)
         XCTAssertGreaterThanOrEqual(lock.withLock { full }, 1)
         let row = try XCTUnwrap(model.prepCourseDownloads.first { !$0.isIntentPrefetch && $0.course.globalId == gid })
-        XCTAssertEqual(row.phase, .ready)
-        XCTAssertTrue(try XCTUnwrap(model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")).hasCompleteOfflineCoursePrep)
+        XCTAssertNotEqual(row.phase, .ready, "this oracle has no per-hole prep/topo responses")
+        XCTAssertTrue(try XCTUnwrap(model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")).isWholeCourseTemplate)
     }
 
     /// Tapping through the list: a newer intent drops the older one's unfinished row, so only the

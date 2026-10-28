@@ -1769,7 +1769,7 @@
       "id": "tests-product-faults-C134-block3-map-only",
       "patch": "tests/product/faults/C134/block3-map-only-intent.patch",
       "kind": "native-unit",
-      "target": "AICaddieTests/TemplateAcquisitionTests/testStartPrepIntentContinuesAsWholeCourseOfflineDownload",
+      "target": "AICaddieTests/TemplateAcquisitionTests/testDownloadWhileMapOnlyIntentIsInFlightUsesAnIndependentFullPackage",
       "promise": "挡3"
     },
     {

@@ -476,7 +476,7 @@ public final class SyncClient {
     static let courseTopoTimeoutInterval: TimeInterval = 60
     static let garminRasterTimeoutInterval: TimeInterval = 20
     static let courseCoverageTimeoutInterval: TimeInterval = 15
-    static let courseInstallRevalidationTimeoutInterval: TimeInterval = 30
+    static let courseInstallRevalidationTimeoutInterval: TimeInterval = 8
     static let courseInstallStatusTimeoutInterval: TimeInterval = 30
     static let courseReleaseMaximumAttempts = 3
     static let courseAssetMaximumAttempts = 2

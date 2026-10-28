@@ -824,6 +824,10 @@ public final class LiveRoundAppModel: ObservableObject {
     var prepStatusProbeRetryDelayNanoseconds: UInt64
     private var prefetchedTopoURLs = Set<String>()
     private var completedIntentPrefetchIDs = Set<String>()
+    /// Map-only intent packages are a memory-only warm cache. They are never persisted as a
+    /// whole-course template, but a Start tap can consume the exact package without another request.
+    private var intentPrefetchPackages: [String: LiveRoundPackage] = [:]
+    private var intentPrefetchTasks: [String: Task<LiveRoundPackage, Error>] = [:]
     #if canImport(UIKit)
     private var prepBackgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
     #endif
@@ -1191,6 +1195,10 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingGeometryRetryAttempt = 0
         pendingGeometryRefreshExecuting = false
         pausePrepCourseDownload()
+        intentPrefetchTasks.values.forEach { $0.cancel() }
+        intentPrefetchTasks.removeAll()
+        intentPrefetchPackages.removeAll()
+        completedIntentPrefetchIDs.removeAll()
         // Requested 备战 jobs belong to the previous player's library.
         userRequestedPrepDownloadIDs.removeAll()
         watchFinishedRoundReconciliationTask?.cancel()
@@ -1814,7 +1822,7 @@ public final class LiveRoundAppModel: ObservableObject {
         // The start window owns the network until the first hole is visible. Pause every prep
         // worker here, including ordinary explicit downloads: the old yieldsToForeground check
         // spared a prep-library row such as 28242 and let it consume the connection beside Start.
-        pausePrepCourseDownload()
+        pausePrepCourseDownload(preserveIntentPrefetch: true)
         isPreparingRound = true
         // Re-entering Start replaces the request token but keeps the same user-visible operation;
         // resetting the timer here used to erase the slow-server explanation while the button kept
@@ -1988,15 +1996,26 @@ public final class LiveRoundAppModel: ObservableObject {
             // against 5–24 s for the personal package) and enters hole 1 on it. Clubs, history and
             // caddie seeds follow in the background (`beginRoundEnrichmentIfNeeded`). A hole-set
             // change keeps the round's personal facts, so it asks for the ordinary package.
-            let fetched = await fetchRemoteCoursePackage(
-                globalId: globalId,
-                roundId: requestedRoundId,
-                teeBox: teeBox,
-                loops: loops,
-                capturedAt: preparedAt,
-                preparationToken: preparationToken,
-                mapOnly: isNewRound
-            )
+            var fetched: LiveRoundPackage?
+            if isNewRound {
+                fetched = await intentPrefetchPackage(
+                    globalId: globalId,
+                    teeBox: teeBox,
+                    roundId: requestedRoundId,
+                    generatedAt: preparedAt
+                )
+            }
+            if fetched == nil {
+                fetched = await fetchRemoteCoursePackage(
+                    globalId: globalId,
+                    roundId: requestedRoundId,
+                    teeBox: teeBox,
+                    loops: loops,
+                    capturedAt: preparedAt,
+                    preparationToken: preparationToken,
+                    mapOnly: isNewRound
+                )
+            }
             recordUITestLatency(
                 "course-start.fetch.end globalId=\(globalId) found=\(fetched != nil)"
             )
@@ -2095,6 +2114,28 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         return LiveRoundPackage.projecting(loops, templates: templates, roundId: roundId)?
             .rebasedForOfflineStart(roundId: roundId, generatedAt: preparedAt)
+    }
+
+    /// Consume the selected course's map-only intent without issuing a second package request.
+    /// An in-flight intent is awaited by Start; a completed package remains memory-only and is
+    /// rebased to the new round identity before activation.
+    private func intentPrefetchPackage(
+        globalId: Int,
+        teeBox: String,
+        roundId: String,
+        generatedAt: Date
+    ) async -> LiveRoundPackage? {
+        let key = PrepCourseDownloadRecord.intentKey(globalId: globalId, teeBox: teeBox)
+        if let cached = intentPrefetchPackages[key] {
+            return cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt)
+        }
+        guard let task = intentPrefetchTasks[key] else { return nil }
+        do {
+            let cached = try await task.value
+            return cached.rebasedForOfflineStart(roundId: roundId, generatedAt: generatedAt)
+        } catch {
+            return nil
+        }
     }
 
     /// After a fresh round is prepared, point the UI at its first hole so it enters the live screen.
@@ -4675,6 +4716,14 @@ public final class LiveRoundAppModel: ObservableObject {
                 requireComplete: false
             )
             if opened == nil {
+                opened = await self.intentPrefetchPackage(
+                    globalId: course.globalId,
+                    teeBox: teeBox,
+                    roundId: roundId,
+                    generatedAt: capturedAt
+                )
+            }
+            if opened == nil {
                 opened = await self.fetchRemoteCoursePackage(
                     globalId: course.globalId,
                     roundId: roundId,
@@ -6327,6 +6376,12 @@ public final class LiveRoundAppModel: ObservableObject {
         // The player opened this course in 备战 (选了就进).
         offlineStore.recordCourseUse(globalId: course.globalId, teeBox: candidate.teeBox)
         if let existing = prepCourseDownloads.first(where: { $0.id == id }) {
+            if existing.isSpeculative || existing.isRoundPrefetch {
+                updatePrepCourseDownload(id: id) { record in
+                    record.isSpeculative = false
+                    record.isRoundPrefetch = false
+                }
+            }
             if readyPrepTemplate(for: existing) != nil {
                 updatePrepCourseDownload(id: id) { record in
                     record.phase = .ready
@@ -6583,7 +6638,16 @@ public final class LiveRoundAppModel: ObservableObject {
         startPrepCourseDownloadQueueIfNeeded()
     }
 
-    private func pausePrepCourseDownload() {
+    private func pausePrepCourseDownload(preserveIntentPrefetch: Bool = false) {
+        if preserveIntentPrefetch,
+           let active = activePrepCourseDownloadID,
+           prepCourseDownloads.first(where: { $0.id == active })?.isIntentPrefetch == true,
+           intentPrefetchTasks[active] != nil {
+            return
+        }
+        if let active = activePrepCourseDownloadID, !preserveIntentPrefetch {
+            intentPrefetchTasks[active]?.cancel()
+        }
         prepCourseDownloadTask?.cancel()
         prepCourseDownloadTask = nil
         prepCourseDownloadGeneration = nil
@@ -6671,7 +6735,7 @@ public final class LiveRoundAppModel: ObservableObject {
             || deferredOfflineCourseDownloadRevalidation != nil
         let eligible = prepCourseDownloads
             .filter { $0.phase == .queued }
-            .filter { !startWindowActive }
+            .filter { _ in !startWindowActive }
             .filter {
                 foregroundCourseRequestCount == 0
                     || userRequestedPrepDownloadIDs.contains($0.id)
@@ -7040,19 +7104,36 @@ public final class LiveRoundAppModel: ObservableObject {
                 try await Task.sleep(nanoseconds: min(delayMilliseconds, 30_000) * 1_000_000)
             }
             #endif
-            let fetched = try await syncClient.fetchCoursePackage(
-                globalId: record.course.globalId,
-                roundId: "prep-library-\(record.course.globalId)",
-                teeBox: record.teeBox,
-                loops: record.loops,
-                ensureGeometry: false,
-                backgroundGeometry: true,
-                // Selecting a course is a latency hint. Intent rows only warm the map and never
-                // become the player's whole-course offline install.
-                mapOnly: record.isIntentPrefetch,
-                includeEventCursor: false,
-                requestKind: .userDownload
-            )
+            let fetched: LiveRoundPackage
+            if record.isIntentPrefetch {
+                let task = Task { try await syncClient.fetchCoursePackage(
+                    globalId: record.course.globalId,
+                    roundId: "prep-library-\(record.course.globalId)",
+                    teeBox: record.teeBox,
+                    loops: record.loops,
+                    ensureGeometry: false,
+                    backgroundGeometry: true,
+                    mapOnly: true,
+                    includeEventCursor: false,
+                    requestKind: .userDownload
+                ) }
+                intentPrefetchTasks[id] = task
+                defer { intentPrefetchTasks[id] = nil }
+                fetched = try await task.value
+                intentPrefetchPackages[id] = fetched
+            } else {
+                fetched = try await syncClient.fetchCoursePackage(
+                    globalId: record.course.globalId,
+                    roundId: "prep-library-\(record.course.globalId)",
+                    teeBox: record.teeBox,
+                    loops: record.loops,
+                    ensureGeometry: false,
+                    backgroundGeometry: true,
+                    mapOnly: false,
+                    includeEventCursor: false,
+                    requestKind: .userDownload
+                )
+            }
             let canonicalFetched = fetched
             let isIntentPrefetch = record.isIntentPrefetch
             if isIntentPrefetch {

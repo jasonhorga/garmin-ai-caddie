@@ -953,12 +953,16 @@ final class LiveRoundAppModelTests: XCTestCase {
     }
 
     func testReenteringStartKeepsTheExistingProgressTimer() async throws {
+        let gate = C33StartSleepGate()
         let model = LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
             apiBaseURL: nil, watchBridge: nil, garminSessionStore: nil, syncClient: nil,
-            offlineGeometryRetryDelaysNanoseconds: [], roundStartProgressSleep: { _ in }
+            offlineGeometryRetryDelaysNanoseconds: [],
+            roundStartProgressSleep: { _ in await gate.wait() }
         )
         let first = model.beginRoundPreparationForTesting()
+        for _ in 0..<4 { await Task.yield() }
+        await gate.release()
         for _ in 0..<4 { await Task.yield() }
         XCTAssertEqual(model.roundStartProgressMessage, "服务器在准备球场，稍等…")
         let second = model.beginRoundPreparationForTesting()
