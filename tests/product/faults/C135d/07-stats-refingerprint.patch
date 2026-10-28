@@ -1,0 +1,11 @@
+--- a/ai_caddie/history/stats_cache.py
++++ b/ai_caddie/history/stats_cache.py
+@@ -469,7 +469,7 @@
+     with _lock:
+         hit = _CORRECTED_CACHE.get(key)
+     if hit is not None and hit[0] == inputs:
+-        return hit[1], hit[2]
++        return hit[1], _fingerprint(hit[1], roots, player_id)
+     corrected = corrected_history_data(
+         data, player_id=player_id, annotations_root=roots["annotations_root"],
+     )

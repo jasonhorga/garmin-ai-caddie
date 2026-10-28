@@ -749,6 +749,20 @@
       "kind": "python",
       "target": "tests.test_course_install",
       "promise": "C135d.2"
+    },
+    {
+      "id": "tests-product-faults-C135d-06",
+      "patch": "tests/product/faults/C135d/06-stats-stale-annotation.patch",
+      "kind": "python",
+      "target": "tests.test_corrected_history_cache",
+      "promise": "C135d.4"
+    },
+    {
+      "id": "tests-product-faults-C135d-07",
+      "patch": "tests/product/faults/C135d/07-stats-refingerprint.patch",
+      "kind": "python",
+      "target": "tests.test_corrected_history_cache",
+      "promise": "C135d.4"
     }
   ]
 }
