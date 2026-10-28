@@ -2631,6 +2631,15 @@ enum LiveMapViewportTransition {
             source: sourceProjection,
             destination: destinationProjection
         )
+        if isDefaultViewport(interaction) {
+            return withPoints(
+                interaction,
+                scale: 1,
+                offset: .zero,
+                targetPixel: mappedTarget,
+                greenPinPixel: mappedGreenPin
+            )
+        }
         guard let viewportSize = validViewport(viewportSize),
               let sourceFrame,
               let destinationFrame,
@@ -2674,6 +2683,18 @@ enum LiveMapViewportTransition {
             return nil
         }
         return size
+    }
+
+    /// A fitted map has no user viewport to preserve. Keeping it fitted after a raster handoff
+    /// lets the normal hole pager keep receiving horizontal swipes and avoids zooming a map merely
+    /// because the two bitmap frames have different aspect ratios.
+    private static func isDefaultViewport(_ interaction: LiveMapViewportInteraction) -> Bool {
+        guard interaction.scale.isFinite,
+              !HeroMapGesturePolicy.isZoomed(scale: interaction.scale),
+              interaction.offset.width.isFinite,
+              interaction.offset.height.isFinite else { return false }
+        return abs(interaction.offset.width) <= 0.5
+            && abs(interaction.offset.height) <= 0.5
     }
 
     private static func remapPoint(
