@@ -1,13 +1,17 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -3728,10 +3728,8 @@
-                 holesCompleted: completedHoles.count,
-                 courseGlobalId: package.course.globalId
-             )
+@@ -3712,6 +3712,7 @@
+         #endif
+
+         do {
 +            cancelRoundBackgroundWork()
+             let quarantined = try offlineStore.loadQuarantinedEvents(roundId: package.roundId)
+             if quarantined.contains(where: { [.score, .putt, .penalty].contains($0.event.kind) }) {
+                 finishErrorMessage = "本场有异常的记分记录仍在隔离区，请联网同步后再结束球局"
+@@ -3731,7 +3732,6 @@
              try offlineStore.sealRoundForDeferredFinish(package: package, metadata: metadata)
--            // Seal first: quarantine/media failures above must leave every round-owned task alive
--            // so the player can repair the round and its interrupted downloads can resume.
+             // Seal first: quarantine/media failures above must leave every round-owned task alive
+             // so the player can repair the round and its interrupted downloads can resume.
 -            cancelRoundBackgroundWork(keepOfflineCourseDownload: true)
              try leaveSealedRoundLocally(package: package)
              watchBridge?.sendRoundClosureToWatch(
