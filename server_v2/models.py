@@ -1256,7 +1256,7 @@ class LiveRoundEventRecord(BaseModel):
         # Keep the schema's strict integer/range checks; give an out-of-range integer the
         # same actionable wording as the tighter, package-proven limit at append time.
         if type(value) is int and value > 27:
-            raise ValueError("本局 27 洞，startHole 不能超过 27")
+            raise ValueError("startHole must be <= 27（兼容上限）")
         return value
 
     @field_validator("timestamp")
