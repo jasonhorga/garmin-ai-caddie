@@ -188,6 +188,11 @@ final class ProductPhoneUITests: XCTestCase {
                 server?.lastSample()?.window == window
             }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 10), .completed, window + " sample loaded")
+            let committed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                (range.value as? String) == "已加载 \(window)"
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 10), .completed,
+                           window + " range committed before changing grain")
             for index in 0..<grain.buttons.count {
                 let button = grain.buttons.element(boundBy: index)
                 let before = grain.buttons.allElementsBoundByIndex.map { $0.isSelected }

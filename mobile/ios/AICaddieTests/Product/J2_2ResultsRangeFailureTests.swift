@@ -64,4 +64,53 @@ final class J2_2ResultsRangeFailureTests: XCTestCase {
         XCTAssertEqual(state.stats?.summary?.totalRounds, 10)
         XCTAssertNil(state.notice)
     }
+
+    func test_j2_2_refresh_success_keeps_unrelated_failed_range_notice() throws {
+        let all = try stats(31)
+        let refreshedAll = try stats(32)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let failedTen = state.select("last10")
+        XCTAssertTrue(state.complete(failedTen, stats: nil))
+
+        let refresh = state.refresh()
+        XCTAssertEqual(refresh.window, "all")
+        XCTAssertTrue(state.complete(refresh, stats: refreshedAll))
+
+        XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
+        XCTAssertEqual(state.notice, "10 场未更新，可重试")
+        XCTAssertEqual(state.retry().window, "last10")
+    }
+
+    func test_j2_2_retry_exposes_failed_range_while_request_is_in_flight() throws {
+        let all = try stats(31)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let failedTen = state.select("last10")
+        XCTAssertTrue(state.complete(failedTen, stats: nil))
+
+        let retry = state.retry()
+
+        XCTAssertEqual(retry.window, "last10")
+        XCTAssertEqual(state.pendingWindow, "last10")
+        XCTAssertEqual(state.displayedWindow, "last10")
+        XCTAssertTrue(state.isLoading)
+        XCTAssertEqual(state.window, "all", "the committed answer remains all until retry succeeds")
+    }
+
+    func test_j2_2_switching_back_to_committed_window_restarts_an_in_flight_refresh() throws {
+        let all = try stats(31)
+        let refreshedAll = try stats(32)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let refresh = state.refresh()
+
+        let restarted = state.choose("last10")
+        XCTAssertNotNil(restarted)
+        XCTAssertEqual(restarted?.window, "last10")
+        let refreshedAgain = state.choose("all")
+        XCTAssertEqual(refreshedAgain?.window, "all")
+        XCTAssertTrue(state.isLoading)
+        XCTAssertTrue(state.complete(refresh, stats: all) == false)
+        XCTAssertTrue(state.complete(try XCTUnwrap(refreshedAgain), stats: refreshedAll))
+        XCTAssertEqual(state.window, "all")
+        XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
+    }
 }

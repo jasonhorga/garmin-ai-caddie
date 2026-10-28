@@ -298,6 +298,10 @@ struct AnalysisLoadState: Equatable {
     /// The request that loads the current window (the first appearance).
     var currentRequest: Request { Request(window: window, generation: generation) }
 
+    /// The range the picker should show while a request is in flight, falling back to the
+    /// committed answer after completion or failure.
+    var displayedWindow: String { window }
+
     /// Choose a window: its data is unknown until its own request answers.
     mutating func select(_ newWindow: String) -> Request {
         window = newWindow
@@ -567,6 +571,8 @@ struct ResultsTimeLoadState: Equatable {
     private(set) var isLoading = false
     private(set) var pendingWindow: String?
     private(set) var failedWindow: String?
+    private var pendingIsRefresh = false
+    private var refreshInvalidatedBySelection = false
 
     init(window: String = "all", stats: MobileStats? = nil) {
         self.window = window
@@ -578,6 +584,8 @@ struct ResultsTimeLoadState: Equatable {
         isLoading = stats == nil
         pendingWindow = nil
         failedWindow = nil
+        pendingIsRefresh = false
+        refreshInvalidatedBySelection = false
     }
 
     var stats: MobileStats? {
@@ -596,10 +604,13 @@ struct ResultsTimeLoadState: Equatable {
 
     /// Begin a request for a new range while retaining the currently displayed answer.
     mutating func select(_ newWindow: String) -> Request {
+        let wasRefresh = pendingIsRefresh
         generation += 1
         isLoading = true
         pendingWindow = newWindow
         failedWindow = nil
+        pendingIsRefresh = false
+        refreshInvalidatedBySelection = wasRefresh && newWindow != window
         if case let .content(current, _) = phase {
             phase = .content(current, notice: nil)
         }
@@ -612,10 +623,15 @@ struct ResultsTimeLoadState: Equatable {
     mutating func choose(_ requestedWindow: String) -> Request? {
         guard requestedWindow == window else { return select(requestedWindow) }
         guard pendingWindow != nil else { return nil }
+        if refreshInvalidatedBySelection {
+            refreshInvalidatedBySelection = false
+            return restartRefresh()
+        }
         generation += 1
         isLoading = false
         failedWindow = nil
         pendingWindow = nil
+        pendingIsRefresh = false
         if case let .content(current, _) = phase {
             phase = .content(current, notice: nil)
         }
@@ -627,9 +643,7 @@ struct ResultsTimeLoadState: Equatable {
         if let pendingWindow {
             return select(pendingWindow)
         }
-        generation += 1
-        isLoading = true
-        return currentRequest
+        return restartRefresh()
     }
 
     /// Retry the range whose request was last rejected; otherwise refresh the committed range.
@@ -644,10 +658,16 @@ struct ResultsTimeLoadState: Equatable {
         guard request.generation == generation else { return false }
         isLoading = false
         pendingWindow = nil
+        pendingIsRefresh = false
+        refreshInvalidatedBySelection = false
         if let stats {
             window = request.window
-            phase = .content(stats, notice: nil)
-            failedWindow = nil
+            if let failedWindow, failedWindow != request.window {
+                phase = .content(stats, notice: notice(for: failedWindow))
+            } else {
+                phase = .content(stats, notice: nil)
+                self.failedWindow = nil
+            }
         } else if case let .content(current, _) = phase {
             failedWindow = failedWindow ?? request.window
             phase = .content(current, notice: notice(for: failedWindow ?? request.window))
@@ -661,5 +681,13 @@ struct ResultsTimeLoadState: Equatable {
     private func notice(for window: String) -> String {
         let title = AnalysisLoadState.windows.first { $0.id == window }?.title ?? window
         return "\(title)未更新，可重试"
+    }
+
+    private mutating func restartRefresh() -> Request {
+        generation += 1
+        isLoading = true
+        pendingWindow = nil
+        pendingIsRefresh = true
+        return currentRequest
     }
 }
