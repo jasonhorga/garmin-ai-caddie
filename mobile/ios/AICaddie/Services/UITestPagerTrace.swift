@@ -26,6 +26,20 @@ final class UITestPagerTrace {
     private var totals: [String: Double] = [:]
     private var taskCounts: [String: Int] = [:]
     private var views: [WeakTraceView] = []
+    private var pageBodies: [Int: (selected: Bool, lastRecorded: TimeInterval, count: Int)] = [:]
+
+    func pageBody(hole: Int, selected: Bool) {
+        guard enabled else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let previous = pageBodies[hole]
+        let count = (previous?.count ?? 0) + 1
+        let shouldRecord = previous == nil || previous?.selected != selected
+            || now - (previous?.lastRecorded ?? 0) >= 1
+        pageBodies[hole] = (selected, shouldRecord ? now : (previous?.lastRecorded ?? now), count)
+        if shouldRecord {
+            record("page body hole=\(hole) selected=\(selected) count=\(count)")
+        }
+    }
 
     func record(_ message: String) {
         guard enabled else { return }

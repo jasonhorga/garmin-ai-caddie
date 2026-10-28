@@ -161,6 +161,9 @@ final class LiveHolePageNavigationProbe {
     var callbacks: LiveHolePageCallbacks?
     var starts: [Int: (Int) -> Bool] = [:]
     var dismissals: [Int: () -> Void] = [:]
+    var backs: [Int: () -> Void] = [:]
+    var selected: [Int: Bool] = [:]
+    var openPrepCourse: ((MobileCourseOption) -> Bool)?
 }
 #endif
 
@@ -1075,6 +1078,7 @@ public struct RoundHomeView: View {
             reconcileLiveHoleRouteWithPackage()
         }
         .onChange(of: path) { previousRoutes, routes in
+            tracePager("path change old=\(previousRoutes) new=\(routes)")
             if let screenPackage = holeScreenPackage {
                 let ordered = RoundPlayOrder.holes(
                     screenPackage.holes.map(\.number),
@@ -1256,6 +1260,7 @@ public struct RoundHomeView: View {
                     // The persisted model cursor is the safe initial selection so the visible page
                     // starts location updates before the delayed native binding acknowledgement.
                     isSelected: selected,
+                    onBackToHome: nil,
                     onAdvanceHole: { next in
                         // The retained page reads the live State binding, not its creation-time lock.
                         callbacks.advance(from: number, to: next, navigationLock: $holePagerNavigationLock) { _, next in
@@ -1297,6 +1302,7 @@ public struct RoundHomeView: View {
                     onEvent: callbacks.onEvent
                 )
                 #if DEBUG
+                .observingNavigationForTesting(holePageNavigationProbe)
                 .onAppear {
                     holePageNavigationProbe?.starts[number] = startFirstStroke
                     holePageNavigationProbe?.dismissals[number] = dismissFirstStrokePrompt
@@ -1655,7 +1661,10 @@ public struct RoundHomeView: View {
     }
 
     private func startRoundView(globalId: Int?, teeBox: String?) -> some View {
-        StartRoundView(
+        #if DEBUG
+        holePageNavigationProbe?.openPrepCourse = onOpenPrepCourse
+        #endif
+        return StartRoundView(
             defaultCourseGlobalId: globalId,
             defaultTeeBox: teeBox ?? "unknown",
             // 换球场或组合 carries the course-here venue's provider loops (already fetched here).

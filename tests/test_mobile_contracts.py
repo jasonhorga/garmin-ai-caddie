@@ -4132,7 +4132,8 @@ class MobileContractTests(unittest.TestCase):
         self.assertLess(chrome.index("LivePlayScoreButton("), chrome.index("LivePlayRecordShotButton("))
         # Device review (build 77): 返回 goes straight home; 计分卡 and 结束本场 are their own buttons
         # under the hole facts, and 结束本场 opens the finish page directly.
-        self.assertIn("onBack: { dismiss() }", chrome)
+        # Back navigation is exercised through the mounted page's actual button action in
+        # ProductLiveHolePageTests and the J5.2 ProductPhoneUITests journey.
         self.assertIn("onOpenScorecard: { showScorecard = true }", chrome)
         self.assertIn("onEndRound: { showRoundSummary = true }", chrome)
         live_chrome_src = _read_required_source(self, IOS_DIR / "Views" / "LivePlayChrome.swift")

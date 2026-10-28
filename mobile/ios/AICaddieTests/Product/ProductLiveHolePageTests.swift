@@ -48,10 +48,13 @@ final class ProductLiveHolePageTests: XCTestCase {
             window.rootViewController = nil
             probe.starts.removeAll()
             probe.dismissals.removeAll()
+            probe.backs.removeAll()
+            probe.openPrepCourse = nil
             probe.path = nil
             probe.callbacks = nil
         }
-        for _ in 0..<200 where probe.starts[4] == nil { settle(host) }
+        let mounted = try await waitForHostedState(host) { probe.starts[4] != nil }
+        XCTAssertTrue(mounted, "the actual RHV destination must mount before the deadline")
         XCTAssertNotNil(probe.starts[4], "the actual RHV hole destination must mount")
         try exercise(model, package, store, probe)
     }
@@ -130,7 +133,104 @@ final class ProductLiveHolePageTests: XCTestCase {
                            "the outgoing page cannot write the new round's cursor")
         }
     }
+
+    private struct ObservedHome: View {
+        @ObservedObject var model: LiveRoundAppModel
+        let preparedPackage: LiveRoundPackage
+        let probe: LiveHolePageNavigationProbe
+
+        var body: some View {
+            RoundHomeView(
+                package: model.package, offlineStore: model.offlineStore, sessionStore: nil,
+                liveRoundState: model.liveRoundState,
+                courseOptions: [ProductInputs.course(preparedPackage.course.globalId, venue: "Example", holes: 18)],
+                onEvent: model.handleEvent, onSetActiveHole: model.setActiveHole,
+                pendingLiveHole: model.pendingLiveHole,
+                onConsumePendingLiveHole: model.consumePendingLiveHole,
+                prepPackage: model.prepPackage, onPrepHoleChanged: model.prioritizePrepHole,
+                onClosePrep: model.closePrepMode,
+                onOpenPrepCourse: { course in
+                    guard course.globalId == preparedPackage.course.globalId else { return false }
+                    // Inject only the already-loaded course package; route changes and first-stroke
+                    // activation still run through the real RHV/model, observed as in the app.
+                    model.enterPrepMode(with: preparedPackage, hole: 1)
+                    return true
+                },
+                onStartRoundFromFirstStroke: { model.startRoundFromFirstStroke(startHole: $0) }
+            ).observingHolePageNavigationForTesting(probe, initialPath: [.start])
+        }
+    }
+
+    func test_j5_2_new_round_route_back_action_reaches_home_after_first_stroke() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://page-navigation.example.test")!, session: session)
+        let model = LiveRoundAppModel(
+            offlineStore: store, apiBaseURL: client.baseURL, watchBridge: nil,
+            garminSessionStore: nil, syncClient: client,
+            offlineGeometryRetryDelaysNanoseconds: [], networkPathObserver: nil
+        )
+        await model.stopRoundBackgroundWorkForTesting()
+        let package = try ProductInputs.package().rebasedForOfflineStart(roundId: UUID().uuidString)
+        let probe = LiveHolePageNavigationProbe()
+        let host = UIHostingController(rootView: ObservedHome(model: model, preparedPackage: package, probe: probe))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+            probe.starts.removeAll()
+            probe.dismissals.removeAll()
+            probe.backs.removeAll()
+            probe.openPrepCourse = nil
+            probe.path = nil
+            probe.callbacks = nil
+            session.invalidateAndCancel()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let pickerMounted = try await waitForHostedState(host) { probe.openPrepCourse != nil }
+        XCTAssertTrue(pickerMounted)
+        let path = try XCTUnwrap(probe.path)
+        XCTAssertEqual(path.wrappedValue, [.start])
+        let open = try XCTUnwrap(probe.openPrepCourse)
+        XCTAssertTrue(open(ProductInputs.course(package.course.globalId, venue: "Example", holes: 18)))
+        let prepMounted = try await waitForHostedState(host) {
+            path.wrappedValue == [.hole(1)] && probe.starts[1] != nil && probe.selected[1] == true
+        }
+        XCTAssertTrue(prepMounted, "normal new-round entry must replace .start with one selected hole")
+        XCTAssertNil(model.liveRoundState)
+        let start = try XCTUnwrap(probe.starts[1])
+        XCTAssertTrue(start(1))
+        let liveRendered = try await waitForHostedState(host) { probe.callbacks?.value.hasLiveRound == true }
+        XCTAssertTrue(liveRendered, "unlike the shortcut race fixture, this home observes model publication")
+        let sheetDismissed = try XCTUnwrap(probe.dismissals[1])
+        sheetDismissed()
+        XCTAssertEqual(path.wrappedValue, [.hole(1)], "the shortcut prep-base guard is irrelevant on this route")
+        XCTAssertEqual(probe.selected[1], true)
+        let back = try XCTUnwrap(probe.backs[1]) // Exact action passed to LivePlayTopInfo's Button.
+        back()
+        let reachedHome = try await waitForHostedState(host) { path.wrappedValue.isEmpty }
+        XCTAssertTrue(reachedHome, "J5.2: the actual Back action must reach home, not just mutate a test array")
+        XCTAssertEqual(model.liveRoundState?.roundId, package.roundId)
+        XCTAssertEqual(try store.inProgressRoundId(), package.roundId, "the resumable round must remain intact")
+    }
     #endif
+
+    private func waitForHostedState(
+        _ host: UIViewController, until condition: () -> Bool
+    ) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(10)
+        while !condition(), Date() < deadline {
+            host.view.setNeedsLayout()
+            host.view.layoutIfNeeded()
+            await Task.yield()
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return condition()
+    }
 
     private final class Probe {
         var bodies: [Int: Int] = [:]
