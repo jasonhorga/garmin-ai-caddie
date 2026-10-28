@@ -1,11 +1,17 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -5322,7 +5322,7 @@
+@@ -5355,13 +5355,13 @@
+                 guard Set(acknowledged) == Set(expected), acknowledged.count == expected.count else {
+                     throw LiveRoundFinishError.incompleteAcknowledgement
                  }
                  return ProbeResult(result: result, invalid: [], invalidReasons: [:], allInvalid: false)
              } catch SyncClientError.http(status: let status, body: let body) {
--                guard groups.count > 1 else {
-+                guard status == 422 else {
-                     guard Self.isSingleEventPayloadValidation422(body) else {
+                 guard groups.count > 1 else {
+-                    guard Self.isSingleEventPayloadValidation422(body) else {
++                    guard status == 422 else {
                          throw SyncClientError.http(status: status, body: body)
                      }
+                     return ProbeResult(
+                         result: SyncResult(accepted: 0, duplicate: false),
+                         invalid: batch,
+                         invalidReasons: Dictionary(

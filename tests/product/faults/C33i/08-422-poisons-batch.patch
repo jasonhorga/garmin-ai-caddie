@@ -1,6 +1,9 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -5321,7 +5321,7 @@
+@@ -5353,13 +5353,13 @@
+                 let expected = batch.map(\.eventId)
+                 let acknowledged = result.acceptedEventIds + result.duplicateEventIds
+                 guard Set(acknowledged) == Set(expected), acknowledged.count == expected.count else {
                      throw LiveRoundFinishError.incompleteAcknowledgement
                  }
                  return ProbeResult(result: result, invalid: [], invalidReasons: [:], allInvalid: false)
@@ -9,3 +12,6 @@
                  guard groups.count > 1 else {
                      guard Self.isSingleEventPayloadValidation422(body) else {
                          throw SyncClientError.http(status: status, body: body)
+                     }
+                     return ProbeResult(
+                         result: SyncResult(accepted: 0, duplicate: false),
