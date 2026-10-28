@@ -451,10 +451,16 @@ def _build_scorecard(
             par,
             acc.shots,
             acc.strokes,
-            putts=acc.putts if acc.putts_entered else _shot_putt_count(acc.shots),
+            putts=(
+                acc.putts
+                if acc.putts_entered
+                else _shot_putt_count(acc.shots, total_strokes=acc.strokes)
+            ),
         )
     for number, acc, global_id, local_hole, par in scored:
-        resolved_putts = acc.putts if acc.putts_entered else _shot_putt_count(acc.shots)
+        resolved_putts = acc.putts if acc.putts_entered else _shot_putt_count(
+            acc.shots, total_strokes=acc.strokes
+        )
         hole_dict: dict[str, Any] = {
             "number": number,
             "strokes": acc.strokes,
@@ -625,11 +631,13 @@ class _IngestGeometry:
         """The hole's mesh JSON for one planned use: decoded on the first, dropped after the last."""
         key = (int(global_id), int(local_hole))
         value = self._meshes[key] if key in self._meshes else self._read(key)
+        if key not in self._meshes:
+            # Record the active decode before consuming its final use.  This keeps the invariant
+            # observable (at most one mesh) while the branch below still releases it immediately.
+            self._meshes[key] = value
         remaining = self._uses.get(key, 0) - 1
         if remaining > 0:
             self._uses[key] = remaining
-            if key not in self._meshes:
-                self._meshes[key] = value
         else:
             self._uses.pop(key, None)
             self._meshes.pop(key, None)
@@ -732,8 +740,10 @@ def _classify_end_kind(
     return str(kind)
 
 
-def _shot_putt_count(shots: list[dict[str, Any]]) -> int | None:
-    """Count only shots whose putter/putt identity is explicit enough to be authoritative."""
+def _shot_putt_count(shots: list[dict[str, Any]], *, total_strokes: int | None = None) -> int | None:
+    """Count explicit putt shots only when the recorded shot log covers the score."""
+    if total_strokes is not None and len(shots) < total_strokes:
+        return None
     count = 0
     for shot in shots:
         club = shot.get("club") if isinstance(shot, dict) else None

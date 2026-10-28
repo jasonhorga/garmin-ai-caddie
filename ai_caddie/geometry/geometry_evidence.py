@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import math
-from collections import OrderedDict
 from typing import Any, Iterable, Literal
 
 from ai_caddie.core.data import ROOT, hazard_path, local_to_wgs84, mesh_path, read_json, wgs84_to_local
@@ -43,6 +42,10 @@ SURFACE_KIND_ALIASES = {
     "water_edge": "water_edge",
     "green": "green",
     "greendrc": "green",
+    "vfxgreena": "green",
+    "vfxgreenadrc": "green",
+    "vfxgreenb": "green",
+    "vfxgreenbdrc": "green",
     "puttinggreen": "green",
     "fairway": "fairway",
     "fairwaydrc": "fairway",
@@ -64,8 +67,6 @@ SURFACE_KIND_ALIASES = {
 SURFACE_PRIORITY = ["water", "bunker", "green", "fairway", "rough", "tree_area", "teebox", "playable_bounds"]
 GENERIC_SURFACE_KINDS = {"mesh", "hazard", "surface", "feature"}
 ROUTE_RISK_KINDS = {"bunker", "water", "water_edge", "tree_area"}
-_MESH_BBOX_CACHE: OrderedDict[tuple[int, int, int], tuple[float, float, float, float]] = OrderedDict()
-_MESH_BBOX_CACHE_LIMIT = 512
 
 
 def _display_path(path: Path) -> str:
@@ -431,11 +432,6 @@ def _mesh_row_bbox(row: dict[str, Any]) -> tuple[float, float, float, float] | N
     positions = row.get("positions")
     if not isinstance(positions, list):
         return None
-    key = (id(row), id(positions), len(positions))
-    cached = _MESH_BBOX_CACHE.get(key)
-    if cached is not None:
-        _MESH_BBOX_CACHE.move_to_end(key)
-        return cached
     projected = []
     for vertex in positions:
         if not isinstance(vertex, (list, tuple)) or len(vertex) < 3:
@@ -452,10 +448,6 @@ def _mesh_row_bbox(row: dict[str, Any]) -> tuple[float, float, float, float] | N
         max(point[0] for point in projected),
         max(point[1] for point in projected),
     )
-    _MESH_BBOX_CACHE[key] = bbox
-    _MESH_BBOX_CACHE.move_to_end(key)
-    while len(_MESH_BBOX_CACHE) > _MESH_BBOX_CACHE_LIMIT:
-        _MESH_BBOX_CACHE.popitem(last=False)
     return bbox
 
 
@@ -511,6 +503,21 @@ def _mesh_surface_match(point: list[float], rows: list[dict[str, Any]]) -> dict[
     return triangle if _surface_priority(triangle["kind"]) < _surface_priority(polygon["kind"]) else polygon
 
 
+def _mesh_gir_surface_match(point: list[float], rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Classify a GIR endpoint using only the green and playable-boundary layers.
+
+    Green is the only positive GIR evidence.  PlayableBounds is the small enclosing layer used
+    to distinguish a known miss from a point outside the course; bunker/fairway/rough meshes are
+    deliberately excluded because they are large and do not change the GIR answer.
+    """
+    green_rows = [row for row in rows if _surface_kind(row, "mesh") == "green"]
+    green = _mesh_surface_match(point, green_rows)
+    if green is not None:
+        return green
+    boundary_rows = [row for row in rows if _surface_kind(row, "mesh") == "playable_bounds"]
+    return _mesh_surface_match(point, boundary_rows)
+
+
 def _polygon_ring(points: Any, ref_lat: float | None, ref_lon: float | None) -> list[list[float]]:
     if not isinstance(points, list):
         return []
@@ -549,13 +556,19 @@ def classify_shot_surface(
 
     surface = {"kind": "unknown", "source": "none", "id": None}
     if point is not None:
-        hazard_match = _surface_match(point, [row for row in hazards.get("hazards", []) or [] if isinstance(row, dict)], source="hazard")
         rows = _mesh_surface_rows(meshes)
-        mesh_match = (
-            _mesh_surface_match(point, rows)
-            if include_mesh_triangles
-            else _surface_match(point, rows, source="mesh")
-        )
+        if include_mesh_triangles:
+            # GIR deliberately asks only whether the endpoint is on the green.  The mesh path
+            # uses Green/VfxGreen plus the tiny playable boundary; hazard layers are irrelevant.
+            hazard_match = None
+            mesh_match = _mesh_gir_surface_match(point, rows)
+        else:
+            hazard_match = _surface_match(
+                point,
+                [row for row in hazards.get("hazards", []) or [] if isinstance(row, dict)],
+                source="hazard",
+            )
+            mesh_match = _surface_match(point, rows, source="mesh")
         if hazard_match:
             surface = hazard_match
         elif mesh_match:

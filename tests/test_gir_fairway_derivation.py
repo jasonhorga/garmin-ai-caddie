@@ -66,6 +66,7 @@ def _write_geometry(geo_dir: Path, *, gid: int = GID, hole: int = 1) -> None:
     hazard = {"refLat": REF_LAT, "refLon": REF_LON, "hazards": []}
     mesh = {
         "surfaces": [
+            {"id": "playable-bounds", "kind": "playable_bounds", "polygon": _square((0.0, 0.0), 100.0)},
             {"id": "green-1", "kind": "green", "polygon": _square(GREEN_C)},
             {"id": "fairway-1", "kind": "fairway", "polygon": _square(FAIRWAY_C)},
             {"id": "rough-1", "kind": "rough", "polygon": _square(ROUGH_C)},
