@@ -741,11 +741,15 @@ def append_mobile_events_response(
     idempotency_key: str,
     player_id: str = OWNER_ID,
 ) -> LiveRoundEventBatchResponse:
+    from ai_caddie.core.request_timing import mark
+
+    mark("event_request")
     if request.roundId != round_id:
         logger.warning("mobile_events validation_failed status=422 path=body.roundId type=path_mismatch")
         raise HTTPException(status_code=422, detail="roundId does not match path")
     events = [event.model_dump(by_alias=True) for event in request.events]
     with _mobile_materialization_lock(player_id):
+        mark("event_materialization_lock_wait")
         try:
             result = append_event_batch(
                 round_id,

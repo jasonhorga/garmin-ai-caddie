@@ -19,6 +19,7 @@ import threading
 from typing import Any, BinaryIO, Callable, Iterator
 
 from ai_caddie.llm.llm_providers import redact_secret_text
+from ai_caddie.core.request_timing import mark
 
 logger = logging.getLogger(__name__)
 
@@ -1567,6 +1568,7 @@ class FileEventStore:
         round_key = str(round_id)
         idempotency_key = str(request_key)
         with self._locked(self.event_lock):
+            mark("event_lock_wait")
             event_log_context = (
                 self.log.open("r+b") if self.log.exists() else nullcontext(None)
             )
@@ -1589,7 +1591,9 @@ class FileEventStore:
                     # refused first request leaves no store file behind.
                     validate_append([], self._new_events_without_store(prepared))
                 self._recover_event_log_unlocked(handle=event_log_handle)
+                mark("event_validate")
                 stored_log = self._stored_log(handle=event_log_handle)
+                mark("event_parse")
                 stored_rows = list(stored_log.rows)
                 reservations = self._load_reservations()
                 request_preexisting = self._preflight_request(
@@ -1658,6 +1662,7 @@ class FileEventStore:
                     )
 
                 reservation_key = self._reservation_key(round_key, idempotency_key)
+                mark("event_validate")
                 if reservation_key not in reservations:
                     reservations[reservation_key] = {
                         "roundId": round_key,
@@ -1753,6 +1758,7 @@ class FileEventStore:
             target_marker=target_marker,
         )
         self._clear_pending_commit()
+        mark("event_write")
         try:
             self._record_round_index_after_append(
                 rows,
@@ -1770,6 +1776,8 @@ class FileEventStore:
                 self.root,
                 exc_info=True,
             )
+        finally:
+            mark("event_index")
 
     def _load_acks(self, *, strict: bool) -> tuple[dict[str, dict[str, Any]], bytes | None]:
         if not self.acks.exists():
