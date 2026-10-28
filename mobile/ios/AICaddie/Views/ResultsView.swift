@@ -692,6 +692,7 @@ public struct ResultsTrendView: View {
                     .foregroundStyle(.secondary)
                     .padding(16)
                     .accessibilityIdentifier("time-range-notice")
+                    .accessibilityElement(children: .contain)
                 }
                 ResultsTimeContent(stats: stats, window: $window, grain: $grain) { destination = $0 }
                     .environment(\.resultsRangeAccessibilityValue,
@@ -746,6 +747,9 @@ public struct ResultsTrendView: View {
             guard !Task.isCancelled else { return }
             if load.complete(request, stats: loaded) {
                 window = load.window
+                if load.isLoading {
+                    start(load.currentRequest)
+                }
             }
         }
     }
@@ -756,7 +760,12 @@ public struct ResultsTrendView: View {
     }
 
     @MainActor private func retry() {
-        window = load.retryWindow
+        let target = load.retryWindow
+        if target == window {
+            start(load.retry())
+        } else {
+            window = target
+        }
     }
 }
 
@@ -780,15 +789,7 @@ struct ResultsTimeContent: View {
     @Environment(\.resultsRangeAccessibilityValue) private var rangeAccessibilityValue
 
     private var defaultRangeAccessibilityValue: String {
-        let title: String
-        switch window {
-        case "last10": title = "近 10 场"
-        case "last20": title = "近 20 场"
-        case "12m": title = "近一年"
-        case "all": title = "全部"
-        default: title = "统计范围"
-        }
-        return "\(title) · 已加载"
+        return "\(AnalysisLoadState.windowTitle(window)) · 已加载"
     }
 
     var body: some View {

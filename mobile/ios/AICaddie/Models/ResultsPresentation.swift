@@ -346,11 +346,16 @@ struct AnalysisLoadState: Equatable {
     }
 
     static let windows = [
-        WindowOption(id: "last10", title: "10 场", comparison: "和前 10 场比"),
-        WindowOption(id: "last20", title: "20 场", comparison: "和前 20 场比"),
+        WindowOption(id: "last10", title: "近 10 场", comparison: "和前 10 场比"),
+        WindowOption(id: "last20", title: "近 20 场", comparison: "和前 20 场比"),
         WindowOption(id: "12m", title: "近一年", comparison: "和前一年比"),
         WindowOption(id: "all", title: "全部", comparison: nil),
     ]
+
+    /// The one user-facing name shared by range controls, notices and accessibility.
+    static func windowTitle(_ window: String) -> String {
+        windows.first { $0.id == window }?.title ?? "统计范围"
+    }
 
     static func comparisonLabel(_ window: String) -> String? {
         windows.first { $0.id == window }?.comparison
@@ -598,28 +603,15 @@ struct ResultsTimeLoadState: Equatable {
 
     var currentRequest: Request { Request(window: window, generation: generation) }
 
-    /// The range picker follows the request while it is in flight, then falls back to the
-    /// committed answer after completion or failure.
-    var displayedWindow: String { pendingWindow ?? window }
-
-    /// The range the retry action should put back into the picker. It is deliberately separate
-    /// from `displayedWindow`: after a failed switch the committed answer remains visible until
-    /// the user explicitly retries the failed range.
+    /// The range the retry action should put back into the picker. After a failed switch the
+    /// committed answer remains visible until the user explicitly retries the failed range.
     var retryWindow: String { failedWindow ?? window }
 
     /// A VoiceOver value for the range control. It names the range in user-facing language and
     /// never exposes the `/stats/mobile` query key.
     var accessibilityValue: String {
         guard !isLoading else { return "加载中" }
-        let title: String
-        switch window {
-        case "last10": title = "近 10 场"
-        case "last20": title = "近 20 场"
-        case "12m": title = "近一年"
-        case "all": title = "全部"
-        default: title = window
-        }
-        return "\(title) · 已加载"
+        return "\(AnalysisLoadState.windowTitle(window)) · 已加载"
     }
 
     /// Begin a request for a new range while retaining the currently displayed answer.
@@ -678,8 +670,8 @@ struct ResultsTimeLoadState: Equatable {
         isLoading = false
         pendingWindow = nil
         pendingIsRefresh = false
-        refreshInvalidatedBySelection = false
         if let stats {
+            refreshInvalidatedBySelection = false
             window = request.window
             if let failedWindow, failedWindow != request.window {
                 phase = .content(stats, notice: notice(for: failedWindow))
@@ -690,16 +682,19 @@ struct ResultsTimeLoadState: Equatable {
         } else if case let .content(current, _) = phase {
             failedWindow = failedWindow ?? request.window
             phase = .content(current, notice: notice(for: failedWindow ?? request.window))
+            if refreshInvalidatedBySelection {
+                _ = restartRefresh()
+            }
         } else {
             phase = .failed("时间与频率暂时取不到")
             failedWindow = request.window
+            refreshInvalidatedBySelection = false
         }
         return true
     }
 
     private func notice(for window: String) -> String {
-        let title = AnalysisLoadState.windows.first { $0.id == window }?.title ?? window
-        return "\(title)未更新，可重试"
+        return "\(AnalysisLoadState.windowTitle(window))未更新，可重试"
     }
 
     private mutating func restartRefresh() -> Request {
