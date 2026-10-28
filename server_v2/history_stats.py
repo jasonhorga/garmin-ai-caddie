@@ -24,7 +24,7 @@ _WARM_LOCK = threading.Lock()
 _WARM_THREADS: dict[str, threading.Thread] = {}
 
 
-def _load_history_stats_response_inline(window: str = "all", *, player_id: str = OWNER_ID) -> HistoryStatsResponse:
+def load_history_stats_response(window: str = "all", *, player_id: str = OWNER_ID) -> HistoryStatsResponse:
     data, mode = load_history_data_for_mode(player_id=player_id)
     return HistoryStatsResponse(
         **cached_build_history_stats(
@@ -38,16 +38,6 @@ def _load_history_stats_response_inline(window: str = "all", *, player_id: str =
             window=window,
         )
     )
-
-
-def load_history_stats_response(window: str = "all", *, player_id: str = OWNER_ID) -> HistoryStatsResponse:
-    # A cold stats_revision is CPU-heavy. Production sends it to a child process; tests and
-    # fixture callers keep the inline path so their monkeypatches and temporary roots stay local.
-    from . import stats_workers
-
-    if stats_workers.enabled():
-        return stats_workers.build_history_stats(window=window, player_id=player_id)
-    return _load_history_stats_response_inline(window=window, player_id=player_id)
 
 
 def load_history_summary_response(*, player_id: str = OWNER_ID) -> HistoryStatsSummaryResponse:

@@ -10,12 +10,12 @@ from ai_caddie.courses.prep_work import cancellation
 from .timing import mark
 
 
-async def run_prep(request: Request, build: Callable, process_build: Callable | None = None):
+async def run_prep(request: Request, build: Callable):
     cancelled = threading.Event()
 
     def work():
         with cancellation(cancelled):
-            return process_build(cancelled) if process_build is not None else build()
+            return build()
 
     async def watch_disconnect():
         # is_disconnected() cancels its own receive scope and can lose the disconnect under

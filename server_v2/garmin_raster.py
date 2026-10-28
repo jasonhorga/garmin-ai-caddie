@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from concurrent.futures import Future, ThreadPoolExecutor
-import atexit
 from io import BytesIO
 import logging
 import os
@@ -23,7 +22,6 @@ from PIL import Image
 from ai_caddie.geometry import garmin_raster
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
 from ai_caddie.core.request_timing import mark
-from .worker_executor import SubprocessExecutor
 
 
 ROUTER = APIRouter()
@@ -39,34 +37,6 @@ _DETERMINISTIC_REASONS = {
 logger = logging.getLogger(__name__)
 _INFLIGHT_LOCK = threading.Lock()
 _INFLIGHT: dict[tuple[int, int, str], Future] = {}
-_REGISTER_POOL: SubprocessExecutor | None = None
-
-
-def _register_process_enabled() -> bool:
-    try:
-        return int(os.environ.get("AI_CADDIE_RASTER_REGISTER_PROCESSES", "0")) > 0
-    except ValueError:
-        return False
-
-
-def _register_pool() -> SubprocessExecutor:
-    global _REGISTER_POOL
-    with _INFLIGHT_LOCK:
-        if _REGISTER_POOL is None:
-            _REGISTER_POOL = SubprocessExecutor(
-                max_workers=max(1, int(os.environ.get("AI_CADDIE_RASTER_REGISTER_PROCESSES", "1"))),
-                max_tasks_per_child=32,
-            )
-        return _REGISTER_POOL
-
-
-@atexit.register
-def _shutdown_register_pool() -> None:
-    global _REGISTER_POOL
-    with _INFLIGHT_LOCK:
-        pool, _REGISTER_POOL = _REGISTER_POOL, None
-    if pool is not None:
-        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _register_lock(global_id: int, hole: int, version: str) -> threading.RLock:
@@ -353,12 +323,7 @@ def course_hole_garmin_raster(
             fetched = None
         mark("raster_fetch")
         with lock:
-            if _register_process_enabled():
-                result = _register_pool().submit(
-                    _register_one, global_id, hole, version, fetched
-                ).result()
-            else:
-                result = _register_one(global_id, hole, version, fetched)
+            result = _register_one(global_id, hole, version, fetched)
             mark("raster_register")
             if _registration_settled(result):
                 garmin_raster.save_projection_cache(global_id, hole, version, result)

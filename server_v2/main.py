@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime
 import hashlib
@@ -206,7 +204,6 @@ from . import timing_api
 from .share_api import router as share_router
 from ai_caddie.core import request_timing
 from .sync_jobs import CancelledSyncJob, GarminSyncJobStore, RetrySyncJob
-from . import package_workers
 
 
 # Background course progress visible in production logs at INFO. Volume per course install: the
@@ -1455,28 +1452,10 @@ async def course_prep_nine(
     player_id: str = Depends(current_player_id),
 ) -> dict:
     from .prep_work import run_prep
-    from . import prep_workers
-
-    prep_kwargs = {
-        "global_id": global_id,
-        "holes": holes,
-        "render": render,
-        "include_shots": include_shots,
-        "tee": tee,
-        "player_id": player_id,
-    }
-    process_builder = None
-    # Keep the common factual cache-hit path in the API thread. A cold render/shot projection is
-    # the CPU-heavy lane; render=false without shots is normally a per-hole cache read and paying
-    # for a fresh interpreter would make the light prep route slower than the work itself.
-    if prep_workers.enabled() and (render or include_shots):
-        process_builder = lambda cancelled: prep_workers.build_course_prep(
-            prep_kwargs, cancel_event=cancelled
-        )
 
     return await run_prep(request, lambda: _build_course_prep_nine(
         global_id, holes, render, include_shots, tee, player_id,
-    ), process_build=process_builder)
+    ))
 
 
 def _build_course_prep_nine(global_id, holes, render, include_shots, tee, player_id) -> dict:
@@ -1814,17 +1793,12 @@ def course_nearby_endpoint(
     player_id: str = Depends(current_player_id),
 ) -> dict:
     """List provider-wide Garmin catalogue rows around a coordinate; metadata only."""
-    from . import nearby_workers
-
     try:
-        if nearby_workers.enabled():
-            nearby_result = nearby_workers.courseview_nearby(
-                latitude=latitude, longitude=longitude, radius_km=radius_km,
-            )
-        else:
-            nearby_result = course_search.courseview_nearby(
-                latitude=latitude, longitude=longitude, radius_km=radius_km,
-            )
+        nearby_result = course_search.courseview_nearby(
+            latitude=latitude,
+            longitude=longitude,
+            radius_km=radius_km,
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Garmin course catalogue unavailable") from exc
     # Keep accepting a plain list from test/adaptor callers while the production
@@ -2422,9 +2396,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
             _ACTIVE_ROUNDS[key] = time.monotonic() + 30 * 60
             if global_ids:
                 _ACTIVE_COURSES[key] = tuple(sorted({int(value) for value in global_ids if int(value) > 0}))
-        course_install.set_current_course_ids(
-            {gid for values in _ACTIVE_COURSES.values() for gid in values}
-        )
+        course_install.set_current_course_ids({gid for values in _ACTIVE_COURSES.values() for gid in values})
 
 
 def nearby_work_blocked() -> bool:
@@ -2809,7 +2781,6 @@ def _parse_round_loops_or_422(raw: str, global_id: int) -> list[tuple[int, str]]
 def mobile_course_package(
     global_id: int,
     background_tasks: BackgroundTasks,
-    request: Request = None,
     round_id: str | None = None,
     tee_box: str | None = None,
     captured_at: str | None = None,
@@ -2829,54 +2800,20 @@ def mobile_course_package(
     if not 1 <= effective_priority_hole <= len(round_loops) * 9:
         raise HTTPException(status_code=422, detail="priority_hole is outside the selected round")
     try:
-        package_kwargs = {
-            "global_id": global_id,
-            "round_id": round_id,
-            "tee_box": tee_box,
-            "captured_at": captured_at,
-            "client_id": client_id,
-            "ensure_geometry": ensure_geometry,
-            "include_event_cursor": include_event_cursor,
-            "prepare_map": (background_geometry or map_only) and not ensure_geometry,
-            "priority_hole": effective_priority_hole,
-            "map_only": map_only,
-            "loops": round_loops,
-            "player_id": player_id,
-        }
-        if package_workers.enabled() and not map_only:
-            # Cold package projections are Python/GIL-heavy. Keep foreground starts and
-            # prep-library prefetches on independent process lanes, while the parent remains
-            # available for health, Tee, and cached map requests.
-            is_prefetch = str(round_id or "").startswith("prep-library-")
-            # A map-only start is deliberately inline: its release/courseData cache probe and
-            # lightweight projection are the hot path. Cold work uses the shared waiter helper;
-            # async adapters can use its cancel_event to implement a 499 disconnect.
-            cancel_event = threading.Event()
-            waiter = ThreadPoolExecutor(max_workers=1)
-            pending = waiter.submit(
-                package_workers.wait_mobile_package,
-                package_kwargs,
-                background=is_prefetch,
-                cancel_event=cancel_event,
-            )
-            try:
-                while not pending.done():
-                    if request is not None:
-                        try:
-                            disconnected = asyncio.run(request.is_disconnected())
-                        except RuntimeError:
-                            disconnected = False
-                        if disconnected:
-                            cancel_event.set()
-                            raise HTTPException(status_code=499, detail="client disconnected")
-                    time.sleep(0.02)
-                package = pending.result()
-            finally:
-                waiter.shutdown(wait=False, cancel_futures=False)
-        else:
-            # Fixture/test mode keeps the historical in-process path so monkeypatches and
-            # redirected fixture roots remain visible to the request process.
-            package = build_mobile_course_package_response(**package_kwargs)
+        package = build_mobile_course_package_response(
+            global_id,
+            round_id=round_id,
+            tee_box=tee_box,
+            captured_at=captured_at,
+            client_id=client_id,
+            ensure_geometry=ensure_geometry,
+            include_event_cursor=include_event_cursor,
+            prepare_map=(background_geometry or map_only) and not ensure_geometry,
+            priority_hole=effective_priority_hole,
+            map_only=map_only,
+            loops=round_loops,
+            player_id=player_id,
+        )
     except RoundLoopError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     _record_round_activity(player_id, round_id,
@@ -2926,9 +2863,6 @@ def mobile_course_package(
         refs=refs,
         requested=requested,
         ready=ready,
-        # Package-triggered whole-course installs are enrichment. The current-hole map lane is
-        # queued separately at foreground/selected-course priority, so a stale/offline package
-        # cannot make another course's 18-hole install compete with live play.
         priority=(SELECTED_COURSE if (round_id and global_id in {
             gid for values in _ACTIVE_COURSES.values() for gid in values
         }) else NEARBY),
