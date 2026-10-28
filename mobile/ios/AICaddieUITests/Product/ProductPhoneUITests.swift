@@ -391,24 +391,16 @@ final class ProductPhoneUITests: XCTestCase {
             var state = ProductFixtureServer.State(); state.coverage = name
             server.configure(state); launch(); startRound()
             let map = element(expected)
+            XCTAssertTrue(
+                map.waitForExistence(timeout: 15),
+                "\(name)\nrequestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))"
+            )
             let requested = server.requestedPaths().joined(separator: "\n")
-            XCTAssertTrue(map.waitForExistence(timeout: 15), "\(name)\nrequestedPaths:\n\(requested)")
+            XCTAssertTrue(map.exists, "\(name) disappeared after wait; requestedPaths:\n\(requested)")
             if map.exists { insideWindow(map, name) }
             if name == "partial" {
                 let precise = element("live-hole-map-precise")
-                let afterTwoSeconds = Date().addingTimeInterval(2)
-                let settled = XCTNSPredicateExpectation(
-                    predicate: NSPredicate { _, _ in
-                        Date() >= afterTwoSeconds && map.exists && !precise.exists
-                    },
-                    object: nil
-                )
-                let result = XCTWaiter.wait(for: [settled], timeout: 3)
-                XCTAssertEqual(
-                    result,
-                    .completed,
-                    "partial map must remain route-only for 2s; requestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))"
-                )
+                Thread.sleep(forTimeInterval: 2)
                 XCTAssertTrue(map.exists, "partial route map disappeared; requestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))")
                 XCTAssertFalse(precise.exists, "partial fixture unexpectedly promoted to precise; requestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))")
             }

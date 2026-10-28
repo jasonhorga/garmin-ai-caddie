@@ -249,7 +249,7 @@ final class GarminRasterTests: XCTestCase {
     }
 
     /// Product spec 4.5: bitmap replacement keeps the complete viewport interaction state.
-    func testRouteTierViewportTransitionPreservesStateForPreciseAndGarmin() {
+    func testRouteTierViewportTransitionPreservesStateForPrecise() {
         let interaction = LiveMapViewportInteraction(
             scale: 2.4,
             offset: CGSize(width: 31, height: -12),
@@ -280,6 +280,186 @@ final class GarminRasterTests: XCTestCase {
             interaction: interaction
         )
         XCTAssertEqual(preciseResult, interaction, "route → precise")
+    }
+
+    func testViewportTransitionPixelSpaceMatrixRemapsCrossSpaceAndKeepsSameSpaceIdentity() throws {
+        let preciseProjection = CoursePrepHoleImageProjection(
+            available: true,
+            widthPx: 240,
+            heightPx: 360,
+            refs: [
+                CoursePrepProjectionRef(lat: 40.0000, lon: 116.0000, px: 120, py: 330),
+                CoursePrepProjectionRef(lat: 40.0000, lon: 116.0010, px: 120, py: 30),
+                CoursePrepProjectionRef(lat: 40.0010, lon: 116.0000, px: 240, py: 330),
+            ]
+        )
+        let garminProjection = CoursePrepHoleImageProjection(
+            available: true,
+            widthPx: 1242,
+            heightPx: 1920,
+            refs: [
+                CoursePrepProjectionRef(lat: 40.0000, lon: 116.0000, px: 621, py: 1740),
+                CoursePrepProjectionRef(lat: 40.0000, lon: 116.0010, px: 621, py: 140),
+                CoursePrepProjectionRef(lat: 40.0010, lon: 116.0000, px: 1242, py: 1740),
+            ]
+        )
+        let preciseOverlay = CoursePrepOverlay(
+            w: 240, h: 360, ppm: 1, ln: 300, route: [[120, 330, 0], [120, 30, 300]]
+        )
+        let garminOverlay = CoursePrepOverlay(
+            w: 1242, h: 1920, ppm: 2, ln: 300, route: [[621, 1740, 0], [621, 140, 300]]
+        )
+        let targetCoordinate = CLLocationCoordinate2D(latitude: 40.0005, longitude: 116.0005)
+        let greenCoordinate = CLLocationCoordinate2D(latitude: 40.0002, longitude: 116.0008)
+        let preciseFrame = CGRect(x: 75, y: 100, width: 240, height: 360)
+        let garminFrame = CGRect(x: 0, y: 80, width: 390, height: 603)
+        let transitions: [(LiveMapDisplayState, LiveMapDisplayState)] = [
+            (.factualPending, .garminRaster),
+            (.factual, .garminRaster),
+            (.precise, .garminRaster),
+            (.garminRaster, .factual),
+            (.garminRaster, .factualPending),
+            (.garminRaster, .precise),
+        ]
+        for (previous, next) in transitions {
+            let sourceProjection = previous == .garminRaster ? garminProjection : preciseProjection
+            let destinationProjection = next == .garminRaster ? garminProjection : preciseProjection
+            let sourceOverlay = previous == .garminRaster ? garminOverlay : preciseOverlay
+            let destinationOverlay = next == .garminRaster ? garminOverlay : preciseOverlay
+            let interaction = LiveMapViewportInteraction(
+                scale: 2,
+                offset: CGSize(width: 12, height: -8),
+                selectedHazardID: "water-0",
+                targetPixel: try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+                    latitude: targetCoordinate.latitude,
+                    longitude: targetCoordinate.longitude,
+                    projection: sourceProjection
+                )),
+                greenPinPixel: try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+                    latitude: greenCoordinate.latitude,
+                    longitude: greenCoordinate.longitude,
+                    projection: sourceProjection
+                ))
+            )
+            let result = LiveMapViewportTransition.preserve(
+                previous: previous,
+                next: next,
+                viewportSize: CGSize(width: 390, height: 844),
+                sourceFrame: previous == .garminRaster ? garminFrame : preciseFrame,
+                destinationFrame: next == .garminRaster ? garminFrame : preciseFrame,
+                sourceOverlay: sourceOverlay,
+                destinationOverlay: destinationOverlay,
+                sourceProjection: sourceProjection,
+                destinationProjection: destinationProjection,
+                targetCoordinate: targetCoordinate,
+                greenPinCoordinate: greenCoordinate,
+                interaction: interaction
+            )
+            let expectedTarget = try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+                latitude: targetCoordinate.latitude,
+                longitude: targetCoordinate.longitude,
+                projection: destinationProjection
+            ))
+            let expectedGreen = try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+                latitude: greenCoordinate.latitude,
+                longitude: greenCoordinate.longitude,
+                projection: destinationProjection
+            ))
+            XCTAssertEqual(result.targetPixel?.x ?? -1, expectedTarget.x, accuracy: 0.001, "\(previous) → \(next) target x")
+            XCTAssertEqual(result.targetPixel?.y ?? -1, expectedTarget.y, accuracy: 0.001, "\(previous) → \(next) target y")
+            XCTAssertEqual(result.greenPinPixel?.x ?? -1, expectedGreen.x, accuracy: 0.001, "\(previous) → \(next) green x")
+            XCTAssertEqual(result.greenPinPixel?.y ?? -1, expectedGreen.y, accuracy: 0.001, "\(previous) → \(next) green y")
+        }
+
+        let sameSpaceInteraction = LiveMapViewportInteraction(
+            scale: 2.4,
+            offset: CGSize(width: 31, height: -12),
+            selectedHazardID: "bunker-0",
+            targetPixel: CGPoint(x: 88, y: 141),
+            greenPinPixel: CGPoint(x: 91, y: 52)
+        )
+        for (previous, next) in [
+            (LiveMapDisplayState.factual, LiveMapDisplayState.factualPending),
+            (.factualPending, .precise),
+            (.precise, .factual),
+            (.waiting, .factualPending),
+        ] {
+            let result = LiveMapViewportTransition.preserve(
+                previous: previous,
+                next: next,
+                viewportSize: .zero,
+                sourceFrame: nil,
+                destinationFrame: nil,
+                sourceOverlay: nil,
+                destinationOverlay: nil,
+                sourceProjection: nil,
+                destinationProjection: nil,
+                targetCoordinate: nil,
+                greenPinCoordinate: nil,
+                interaction: sameSpaceInteraction
+            )
+            XCTAssertEqual(result, sameSpaceInteraction, "same pixel space \(previous) → \(next)")
+        }
+    }
+
+    func testCrossSpaceTransitionKeepsMappedPointsBeforeFramesAreMeasured() throws {
+        let preciseProjection = projection(
+            originPixel: CGPoint(x: 120, y: 330),
+            xPixel: CGPoint(x: 120, y: 30),
+            yPixel: CGPoint(x: 240, y: 330)
+        )
+        let garminProjection = projection(
+            originPixel: CGPoint(x: 621, y: 1740),
+            xPixel: CGPoint(x: 621, y: 140),
+            yPixel: CGPoint(x: 1242, y: 1740)
+        )
+        let targetCoordinate = CLLocationCoordinate2D(latitude: 40.0005, longitude: 116.0005)
+        let greenCoordinate = CLLocationCoordinate2D(latitude: 40.0002, longitude: 116.0008)
+        let interaction = LiveMapViewportInteraction(
+            scale: 2,
+            offset: CGSize(width: 12, height: -8),
+            selectedHazardID: "water-0",
+            targetPixel: try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+                latitude: targetCoordinate.latitude,
+                longitude: targetCoordinate.longitude,
+                projection: preciseProjection
+            )),
+            greenPinPixel: try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+                latitude: greenCoordinate.latitude,
+                longitude: greenCoordinate.longitude,
+                projection: preciseProjection
+            ))
+        )
+        let result = LiveMapViewportTransition.preserve(
+            previous: .factualPending,
+            next: .garminRaster,
+            viewportSize: .zero,
+            sourceFrame: nil,
+            destinationFrame: nil,
+            sourceOverlay: nil,
+            destinationOverlay: nil,
+            sourceProjection: preciseProjection,
+            destinationProjection: garminProjection,
+            targetCoordinate: targetCoordinate,
+            greenPinCoordinate: greenCoordinate,
+            interaction: interaction
+        )
+        let expectedTarget = try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+            latitude: targetCoordinate.latitude,
+            longitude: targetCoordinate.longitude,
+            projection: garminProjection
+        ))
+        let expectedGreen = try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+            latitude: greenCoordinate.latitude,
+            longitude: greenCoordinate.longitude,
+            projection: garminProjection
+        ))
+        XCTAssertEqual(result.scale, interaction.scale)
+        XCTAssertEqual(result.offset, interaction.offset)
+        XCTAssertEqual(result.targetPixel?.x ?? -1, expectedTarget.x, accuracy: 0.001)
+        XCTAssertEqual(result.targetPixel?.y ?? -1, expectedTarget.y, accuracy: 0.001)
+        XCTAssertEqual(result.greenPinPixel?.x ?? -1, expectedGreen.x, accuracy: 0.001)
+        XCTAssertEqual(result.greenPinPixel?.y ?? -1, expectedGreen.y, accuracy: 0.001)
     }
 
     func testRouteTierToGarminRemapsPointsAndKeepsViewportGeography() throws {
