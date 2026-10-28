@@ -23,6 +23,7 @@ final class ProductLiveHolePageTests: XCTestCase {
         @Published var state: LiveRoundStateSnapshot
         @Published var selected = 1
         @Published var downloadedCourseOptions: [MobileCourseOption] = []
+        @Published var interactionRevision = 0
         var generation = 0
         var navigationLock: LiveHoleNavigationLock? = LiveHoleNavigationLock(currentHole: 1)
 
@@ -227,6 +228,28 @@ final class ProductLiveHolePageTests: XCTestCase {
             settle(host)
             XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 1)
             XCTAssertEqual(model.probe.inputs[2]?.round?.ownHole?.selectedClub, "club-1")
+        }
+    }
+
+    func test_j5_10_drag_begin_refreshes_frozen_adjacent_once_without_event_churn() throws {
+        try withHost { model, host in
+            let baseline = model.probe.bodies[2, default: 0]
+            for _ in 0..<20 { model.update(hole: 1); settle(host) }
+            XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 0)
+
+            // J5.10: decoding a prefetched image does not publish to a nonselected page.
+            // Each new drag must request one body so it can read the now-ready image cache.
+            model.interactionRevision += 1
+            settle(host)
+            XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 1)
+
+            for _ in 0..<20 { model.update(hole: 1); settle(host) }
+            XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 1,
+                           "an unchanged interaction signal must still skip unrelated events")
+            model.interactionRevision += 1
+            settle(host)
+            XCTAssertEqual(model.probe.bodies[2, default: 0] - baseline, 2,
+                           "a later drag also refreshes the adjacent page before selection")
         }
     }
 }
