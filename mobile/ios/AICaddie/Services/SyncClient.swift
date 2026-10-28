@@ -483,6 +483,8 @@ public final class SyncClient {
     static let courseDiscoveryRequestTimeoutInterval: TimeInterval = 15
     static let courseDiscoveryForegroundBudgetInterval: TimeInterval = 25
     static let courseDiscoveryMaximumAttempts = 2
+    // Temporary red-test value; C28c fixes this to the product's five-second share budget.
+    static let roundShareTimeoutInterval: TimeInterval = 60
     static let transientCourseReleaseHTTPStatuses: Set<Int> = [408, 425, 429, 500, 502, 503, 504]
 
     /// The configured API base (e.g. `https://caddie…ts.net`). Public so views can build the
@@ -1158,6 +1160,30 @@ public final class SyncClient {
         request.httpBody = try encoder.encode(op)
         let (data, response) = try await requestData(for: request, in: session)
         try validate(response: response, data: data)
+    }
+
+    public func createRoundShare(roundRef: String) async throws -> RoundShare {
+        let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
+        var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)/share"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.roundShareTimeoutInterval
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(to: &request)
+        request.httpBody = Data("{}".utf8)
+        let (data, response) = try await requestData(for: request, in: session)
+        try validate(response: response, data: data)
+        return try decoder.decode(RoundShare.self, from: data)
+    }
+
+    public func revokeRoundShare(roundRef: String) async throws -> RoundShareRevocation {
+        let encoded = roundRef.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? roundRef
+        var request = URLRequest(url: endpointURL("/api/v2/history/rounds/\(encoded)/share"))
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = Self.roundShareTimeoutInterval
+        applyAuth(to: &request)
+        let (data, response) = try await requestData(for: request, in: session)
+        try validate(response: response, data: data)
+        return try decoder.decode(RoundShareRevocation.self, from: data)
     }
 
     /// Correct one hole's putts from the review editor (`POST /api/v2/annotations`, `putt_correction`).
