@@ -48,6 +48,7 @@ final class TeeSelectionUITests: XCTestCase {
             "UITEST_FORCE_COURSE_PACKAGE_FAILURE",
             "UITEST_FORCE_LIVE_NETWORK_FAILURE",
             "UITEST_COURSE_TEES_DELAY_MS",
+            "UITEST_COURSE_PACKAGE_DELAY_MS",
             "UITEST_LOCATION_AUTHORIZATION",
             "UITEST_RESET_ACTIVE_ROUND",
             "UITEST_DISABLE_EVENT_SYNC",
@@ -534,6 +535,75 @@ final class TeeSelectionUITests: XCTestCase {
         XCTAssertTrue(secondHero.waitForExistence(timeout: 30) && secondHero.isHittable)
         secondHero.swipeRight()
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 30))
+    }
+
+    /// Product spec 4.2: a failed start stays on the chosen setup and exposes a same-parameter
+    /// retry instead of silently returning to the setup card.
+    func testProductSpec42StartFailureShowsRetryAndKeepsEvidence() throws {
+        try XCTSkipUnless(cfg("AI_CADDIE_FIXTURE_MODE") == "1", "requires the deterministic fixture")
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LAT")
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LON")
+        app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "denied"
+        app.launchEnvironment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] = "1"
+        app.launchEnvironment["UITEST_RESET_COURSE_LIBRARY"] = "1"
+        launchFresh(resetActiveRound: true)
+        app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
+
+        XCTAssertTrue(openStartRound())
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        let search = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(search.waitForExistence(timeout: 8) && search.isHittable)
+        search.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
+        try searchAndSelectBeijingPalace(field: "course-catalog-keyword-field", text: "北京丽宫")
+        let start = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(waitUntilEnabled(start, timeout: 30))
+        bringIntoView(start, maxSwipes: 20)
+        start.tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["start-round-preparation-error"].waitForExistence(timeout: 15),
+            "4.2 must explain why the start failed at the start card"
+        )
+        XCTAssertTrue(
+            app.buttons["start-round-retry"].waitForExistence(timeout: 5),
+            "4.2 must offer retry for the unchanged selection"
+        )
+        save("c114-start-failure")
+        dump("c114-start-failure")
+    }
+
+    /// Product spec 4.2: once the foreground request has lasted eight seconds, the card says what
+    /// the server is doing while the map package is still allowed to finish.
+    func testProductSpec42StartProgressShowsWhatTheServerIsDoing() throws {
+        try XCTSkipUnless(cfg("AI_CADDIE_FIXTURE_MODE") == "1", "requires the deterministic fixture")
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LAT")
+        app.launchEnvironment.removeValue(forKey: "UITEST_GPS_LON")
+        app.launchEnvironment["UITEST_LOCATION_AUTHORIZATION"] = "denied"
+        app.launchEnvironment["UITEST_COURSE_PACKAGE_DELAY_MS"] = "12000"
+        app.launchEnvironment["UITEST_RESET_COURSE_LIBRARY"] = "1"
+        launchFresh(resetActiveRound: true)
+        app.launchEnvironment.removeValue(forKey: "UITEST_RESET_COURSE_LIBRARY")
+
+        XCTAssertTrue(openStartRound())
+        XCTAssertTrue(app.navigationBars["开始一场"].waitForExistence(timeout: 8))
+        let search = app.buttons["start-round-search-all-courses"]
+        XCTAssertTrue(search.waitForExistence(timeout: 8) && search.isHittable)
+        search.tap()
+        XCTAssertTrue(app.navigationBars["找球场"].waitForExistence(timeout: 8))
+        try searchAndSelectBeijingPalace(field: "course-catalog-keyword-field", text: "北京丽宫")
+        let start = app.buttons["start-round-primary-action"]
+        XCTAssertTrue(waitUntilEnabled(start, timeout: 30))
+        bringIntoView(start, maxSwipes: 20)
+        start.tap()
+
+        let progress = app.descendants(matching: .any)["start-round-preparation-progress"]
+        XCTAssertTrue(
+            progress.waitForExistence(timeout: 20),
+            "4.2 must explain the wait after eight seconds"
+        )
+        save("c114-start-progress")
+        dump("c114-start-progress")
     }
 
     func testNoCourseWithinFiftyKilometresStillOffersCompleteCatalogueFallback() throws {

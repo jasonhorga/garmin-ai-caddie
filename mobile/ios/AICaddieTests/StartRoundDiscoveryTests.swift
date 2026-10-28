@@ -194,12 +194,14 @@ final class StartRoundDiscoveryTests: XCTestCase {
         XCTAssertNil(StartRoundView.roundPreparationFailureMessage(from: "离线地图已准备"))
     }
 
-    func testRoundStartExplainsFailureTypeAndSlowProgress() {
+    /// Product spec 4.2: start failures explain the cause and long waits explain the server work.
+    func testProductSpec42RoundStartExplainsFailureTypeAndSlowProgress() {
         XCTAssertEqual(RoundStartFailure.timedOut.presentationMessage, "服务器较慢，没能开始，点重试")
         XCTAssertEqual(RoundStartFailure.unavailable.presentationMessage, "网络不可用，没能开始，点重试")
+        XCTAssertEqual(RoundStartFailure.reauthentication.presentationMessage, "需重新登录后才能开始")
         XCTAssertNil(RoundStartProgress.message(after: 7.99))
         XCTAssertEqual(RoundStartProgress.message(after: 8), "服务器在准备球场，稍等…")
-        XCTAssertEqual(RoundStartProgress.message(after: 20), "服务器仍在准备，马上就好…")
+        XCTAssertEqual(RoundStartProgress.message(after: 20), "服务器还在准备，最多再等十几秒")
     }
 
     func testOfflineNearbyFallbackIncludesOnlyCoordinateProvenDownloadedCourses() {

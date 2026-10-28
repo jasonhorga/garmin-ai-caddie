@@ -283,11 +283,16 @@ final class C33StartTests: XCTestCase {
         let package = try c33Package()
         let packageData = try JSONEncoder().encode(package)
         let session = C33URLProtocol.session()
+        var now = Date(timeIntervalSince1970: 1_900_000_000)
         let client = SyncClient(
             baseURL: URL(string: "https://\(host)")!, session: session,
             roundStartTimeoutInterval: 0.05
         )
-        let model = c33Model(OfflineStore(directoryURL: directory), client)
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
+            watchBridge: nil, garminSessionStore: nil, syncClient: client,
+            roundStartProgressSleep: { _ in }, roundStartNow: { now }
+        )
         let firstSent = expectation(description: "first package start")
         let lock = NSLock()
         var requests: [URLRequest] = []
@@ -299,6 +304,8 @@ final class C33StartTests: XCTestCase {
             lock.lock(); requests.append(proto.request); let count = requests.count; lock.unlock()
             if count == 1 {
                 firstSent.fulfill()
+            } else if count == 2 {
+                proto.reply(503)
             } else {
                 proto.reply(200, packageData)
             }
@@ -313,6 +320,7 @@ final class C33StartTests: XCTestCase {
         await fulfillment(of: [firstSent], timeout: 5)
         XCTAssertEqual(model.roundStartFailure, .timedOut)
 
+        now = now.addingTimeInterval(60)
         await model.retryRoundStart()
         lock.lock(); let observed = requests; lock.unlock()
         XCTAssertEqual(observed.count, 2)
@@ -320,7 +328,114 @@ final class C33StartTests: XCTestCase {
         for name in ["round_id", "tee_box", "loops", "captured_at"] {
             XCTAssertEqual(c33Query(observed[0], name), c33Query(observed[1], name), name)
         }
+        XCTAssertEqual(model.roundStartFailure, .timedOut)
+
+        // Product spec 4.2: a retry one minute later remains on the same server single-flight
+        // bucket, while a retry after three minutes takes a fresh captured_at bucket.
+        now = now.addingTimeInterval(180)
+        await model.retryRoundStart()
+        lock.lock(); let afterExpiry = requests; lock.unlock()
+        XCTAssertEqual(afterExpiry.count, 3)
+        if afterExpiry.count == 3 {
+            XCTAssertNotEqual(c33Query(afterExpiry[0], "captured_at"), c33Query(afterExpiry[2], "captured_at"))
+        }
         XCTAssertNil(model.roundStartFailure)
+    }
+
+    func testProductSpec42ProgressCopyAdvancesAndClearsAfterSuccessfulStart() async throws {
+        let host = "c114-progress.example.test"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let package = try c33Package()
+        let packageData = try JSONEncoder().encode(package)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(
+            baseURL: URL(string: "https://\(host)")!, session: session,
+            roundStartTimeoutInterval: 30
+        )
+        let gate = C33StartSleepGate()
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
+            watchBridge: nil, garminSessionStore: nil, syncClient: client,
+            roundStartProgressSleep: { _ in await gate.wait() }
+        )
+        let sent = expectation(description: "slow package start reached server")
+        let lock = NSLock()
+        var heldRequest: C33URLProtocol?
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host else { proto.reply(404); return }
+            lock.lock(); heldRequest = proto; lock.unlock()
+            sent.fulfill()
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let eight = expectation(description: "4.2 eight-second progress copy")
+        let twenty = expectation(description: "4.2 twenty-second progress copy")
+        let cleared = expectation(description: "4.2 progress clears after start")
+        var sawEight = false
+        var sawTwenty = false
+        let progressSubscription = model.$roundStartProgressMessage.sink { message in
+            if message == "服务器在准备球场，稍等…" {
+                sawEight = true
+                eight.fulfill()
+            }
+            if message == "服务器还在准备，最多再等十几秒" {
+                sawTwenty = true
+                twenty.fulfill()
+            }
+            if message == nil, sawEight, sawTwenty { cleared.fulfill() }
+        }
+        defer { progressSubscription.cancel() }
+
+        let start = Task { await model.prepareCourseRound(
+            roundId: package.roundId, teeBox: "blue", loops: [.init(globalId: package.course.globalId, half: "all")]
+        ) }
+        defer { start.cancel() }
+        await fulfillment(of: [sent], timeout: eventWait)
+        await gate.release()
+        await fulfillment(of: [eight], timeout: eventWait)
+        await gate.release()
+        await fulfillment(of: [twenty], timeout: eventWait)
+        lock.lock(); let request = heldRequest; lock.unlock()
+        request?.reply(200, packageData)
+        await fulfillment(of: [cleared], timeout: eventWait)
+        XCTAssertNil(model.roundStartProgressMessage)
+        XCTAssertNil(model.roundStartFailure)
+    }
+
+    func testProductSpec42PrepTimeoutShowsRetryableFailure() async throws {
+        let host = "c114-prep-timeout.example.test"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(
+            baseURL: URL(string: "https://\(host)")!, session: session,
+            roundStartTimeoutInterval: 0.05
+        )
+        let model = c33Model(OfflineStore(directoryURL: directory), client)
+        let sent = expectation(description: "prep package start reached server")
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path.contains("/api/v2/mobile/courses/32850/package") == true else {
+                proto.reply(404); return
+            }
+            sent.fulfill() // Intentionally never reply: the injected foreground budget must end it.
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel()
+            C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let finished = expectation(description: "prep spinner ended")
+        let subscription = model.$isOpeningPrepCourse.dropFirst().filter { !$0 }.first().sink { _ in finished.fulfill() }
+        defer { subscription.cancel() }
+        let course = MobileCourseOption(globalId: 32850, name: "C114 prep timeout", teeBox: "blue", tees: ["blue"])
+        XCTAssertTrue(model.openPrepCourse(course))
+        await fulfillment(of: [sent, finished], timeout: eventWait)
+        XCTAssertEqual(model.roundStartFailure, .timedOut)
+        XCTAssertNil(model.roundStartProgressMessage)
     }
 }
 #endif
