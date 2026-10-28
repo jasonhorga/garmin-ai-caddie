@@ -544,7 +544,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
             host: "c90-discard-failure.example.test", roundId: "c90-discard-failure"
         )
-        try Data("{corrupt".utf8).write(
+        try Data("{broken}\n".utf8).write(
             to: fixture.directory.appendingPathComponent("events.jsonl"), options: [.atomic]
         )
         fixture.model.discardActiveRound()
