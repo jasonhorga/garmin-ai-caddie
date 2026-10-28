@@ -10,10 +10,11 @@ enum UITapHelpers {
     @discardableResult
     static func tapWhenHittable(
         _ source: XCUIElement,
+        app: XCUIApplication,
         timeout: TimeInterval,
         diagnosticName: String
     ) -> Bool {
-        guard waitForStableHittability(source, timeout: timeout) else {
+        guard waitForStableHittability(source, app: app, timeout: timeout) else {
             print("UI_TAP source-not-ready \(diagnosticName)")
             return false
         }
@@ -32,7 +33,7 @@ enum UITapHelpers {
         diagnosticName: String
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
-        guard waitForStableHittability(field, timeout: timeout) else {
+        guard waitForStableHittability(field, app: app, timeout: timeout) else {
             print("UI_TYPE field-not-ready \(diagnosticName)")
             return false
         }
@@ -45,7 +46,7 @@ enum UITapHelpers {
 
         print("UI_TYPE focus-retry \(diagnosticName)")
         guard deadline.timeIntervalSinceNow > 0,
-              waitForStableHittability(field, timeout: max(0, deadline.timeIntervalSinceNow)) else {
+              waitForStableHittability(field, app: app, timeout: max(0, deadline.timeIntervalSinceNow)) else {
             return false
         }
         field.tap()
@@ -60,13 +61,14 @@ enum UITapHelpers {
     @discardableResult
     static func tapAndWaitForElements(
         _ source: XCUIElement,
+        app: XCUIApplication,
         destinations: [XCUIElement],
         timeout: TimeInterval,
         diagnosticName: String
     ) -> Bool {
         let started = Date()
         let deadline = started.addingTimeInterval(timeout)
-        guard waitForStableHittability(source, timeout: timeout) else {
+        guard waitForStableHittability(source, app: app, timeout: timeout) else {
             print("UI_TAP source-not-ready \(diagnosticName)")
             return false
         }
@@ -90,7 +92,7 @@ enum UITapHelpers {
                 activity.add(attachment)
             }
             if deadline.timeIntervalSinceNow > 0,
-               waitForStableHittability(source, timeout: max(0, deadline.timeIntervalSinceNow)) {
+               waitForStableHittability(source, app: app, timeout: max(0, deadline.timeIntervalSinceNow)) {
                 source.tap()
             }
         }
@@ -105,13 +107,32 @@ enum UITapHelpers {
     }
 
     private static func hasKeyboardFocus(_ field: XCUIElement, app: XCUIApplication) -> Bool {
-        field.hasKeyboardFocus || app.keyboards.firstMatch.exists
+        let keyboardVisible = app.keyboards.firstMatch.exists
+        let fieldHasFocus = (field.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
+        return keyboardVisible && (fieldHasFocus || app.textFields.allElementsBoundByIndex.filter { $0.exists }.count == 1)
     }
 
-    private static func waitForStableHittability(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+    /// `isHittable` can itself fail when XCTest has an element with an empty or off-screen frame.
+    /// Check geometry and window intersection first so transient accessibility snapshots are only
+    /// treated as "not ready" and never become a test failure.
+    static func isSafelyHittable(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard element.exists else { return false }
+        let frame = element.frame
+        let windowFrame = app.windows.firstMatch.frame
+        guard frame.width > 0, frame.height > 0,
+              windowFrame.width > 0, windowFrame.height > 0,
+              frame.intersects(windowFrame) else { return false }
+        return element.isHittable
+    }
+
+    private static func waitForStableHittability(
+        _ element: XCUIElement,
+        app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> Bool {
         var previousFrame: CGRect?
         return waitForCondition({
-            guard element.exists, element.isHittable else {
+            guard isSafelyHittable(element, in: app) else {
                 previousFrame = nil
                 return false
             }

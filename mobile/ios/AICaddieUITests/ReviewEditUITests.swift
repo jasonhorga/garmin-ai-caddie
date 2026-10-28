@@ -63,7 +63,7 @@ final class ReviewEditUITests: XCTestCase {
         settle(2)
         save("00-home"); dump("00-home")
 
-        guard historyTile.isHittable else {
+        guard UITapHelpers.isSafelyHittable(historyTile, in: app) else {
             save("nohistory"); dump("nohistory")
             XCTFail("review-edit evidence must expose the history entry")
             return
@@ -233,7 +233,7 @@ final class ReviewEditUITests: XCTestCase {
         XCTAssertFalse(app.navigationBars["改这一杆"].exists, "selection must not cover the map with the old sheet")
         let deleteShot = app.buttons["round-edit-delete"]
         XCTAssertTrue(
-            deleteShot.waitForExistence(timeout: 5) && deleteShot.isHittable,
+            deleteShot.waitForExistence(timeout: 5) && UITapHelpers.isSafelyHittable(deleteShot, in: app),
             "the destructive action must be visible and tappable in the bottom bar"
         )
         XCTAssertLessThanOrEqual(
@@ -323,7 +323,7 @@ final class ReviewEditUITests: XCTestCase {
             waitForLabel(selectedShot, prefixed: "第 \(addedNumber) 杆", timeout: 5),
             "a tap on the added handle must select it instead of adding another shot"
         )
-        XCTAssertTrue(deleteShot.waitForExistence(timeout: 5) && deleteShot.isHittable)
+        XCTAssertTrue(deleteShot.waitForExistence(timeout: 5) && UITapHelpers.isSafelyHittable(deleteShot, in: app))
         deleteShot.tap()
         XCTAssertTrue(
             waitForLabel(editMap, containing: "共 \(reviewEvidence.shotCount) 杆", timeout: 5),
@@ -361,7 +361,7 @@ final class ReviewEditUITests: XCTestCase {
         let finalAction = app.descendants(matching: .any).matching(
             identifier: allowWrites ? "round-edit-save" : "round-edit-cancel"
         ).firstMatch
-        XCTAssertTrue(finalAction.waitForExistence(timeout: 5) && finalAction.isHittable)
+        XCTAssertTrue(finalAction.waitForExistence(timeout: 5) && UITapHelpers.isSafelyHittable(finalAction, in: app))
         finalAction.tap()
         XCTAssertTrue(
             app.buttons["round-edit-begin"].waitForExistence(timeout: 12),
@@ -485,12 +485,12 @@ final class ReviewEditUITests: XCTestCase {
     @discardableResult
     private func tapButton(_ label: String) -> Bool {
         let button = app.buttons[label]
-        if button.waitForExistence(timeout: 5), button.isHittable { button.tap(); return true }
+        if button.waitForExistence(timeout: 5), UITapHelpers.isSafelyHittable(button, in: app) { button.tap(); return true }
         // Fallback: any element whose label EQUALS the target.
         let predicate = NSPredicate(format: "label == %@", label)
         for query in [app.buttons, app.staticTexts, app.otherElements] {
             let match = query.matching(predicate).firstMatch
-            if match.waitForExistence(timeout: 3), match.isHittable { match.tap(); return true }
+            if match.waitForExistence(timeout: 3), UITapHelpers.isSafelyHittable(match, in: app) { match.tap(); return true }
         }
         return false
     }
@@ -501,7 +501,7 @@ final class ReviewEditUITests: XCTestCase {
             let predicate = NSPredicate(format: "label CONTAINS %@", fragment)
             for query in [app.buttons, app.cells, app.staticTexts, app.otherElements] {
                 let match = query.matching(predicate).firstMatch
-                if match.waitForExistence(timeout: 4), match.isHittable { match.tap(); return true }
+                if match.waitForExistence(timeout: 4), UITapHelpers.isSafelyHittable(match, in: app) { match.tap(); return true }
             }
         }
         return false
@@ -521,11 +521,11 @@ final class ReviewEditUITests: XCTestCase {
     @discardableResult
     private func bringIntoView(_ element: XCUIElement, maxSwipes: Int) -> Bool {
         for _ in 0..<maxSwipes {
-            if element.exists, element.isHittable { return true }
+            if element.exists, UITapHelpers.isSafelyHittable(element, in: app) { return true }
             app.swipeUp()
             settle(0.6)
         }
-        return element.exists && element.isHittable
+        return element.exists && UITapHelpers.isSafelyHittable(element, in: app)
     }
 
     /// Acknowledgement and readiness are different: a disappearing source or any arriving
@@ -561,7 +561,7 @@ final class ReviewEditUITests: XCTestCase {
             // hittability. Recheck after the wait too; querying accessibility itself takes time.
             let retryBudget = max(0, deadline.timeIntervalSinceNow) / 2
             let retryReady = waitForCondition({
-                acknowledged() || (source.exists && source.isHittable)
+                acknowledged() || (source.exists && UITapHelpers.isSafelyHittable(source, in: app))
             }, timeout: retryBudget)
             if retryReady, !acknowledged(), deadline.timeIntervalSinceNow > 0 {
                 print("REVIEW_EDIT_TAP retry \(diagnosticName) elapsed=\(Date().timeIntervalSince(started))")
@@ -583,11 +583,14 @@ final class ReviewEditUITests: XCTestCase {
     }
 
     private func waitUntilHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-        waitForCondition({ element.exists && element.isHittable }, timeout: timeout)
+        waitForCondition({ element.exists && UITapHelpers.isSafelyHittable(element, in: app) }, timeout: timeout)
     }
 
     private func waitForAllReady(_ elements: [XCUIElement], timeout: TimeInterval) -> Bool {
-        waitForCondition({ elements.allSatisfy { $0.exists && $0.isHittable } }, timeout: timeout)
+        waitForCondition(
+            { elements.allSatisfy { UITapHelpers.isSafelyHittable($0, in: app) } },
+            timeout: timeout
+        )
     }
 
     private func waitForCondition(_ condition: @escaping () -> Bool, timeout: TimeInterval) -> Bool {
@@ -614,11 +617,11 @@ final class ReviewEditUITests: XCTestCase {
         let states = destinations.enumerated().map { index, destination -> String in
             let exists = destination.exists
             let identifier = exists ? destination.identifier : "destination-\(index)"
-            return "\(identifier):exists=\(exists),hittable=\(exists && destination.isHittable)"
+            return "\(identifier):exists=\(exists),hittable=\(exists && UITapHelpers.isSafelyHittable(destination, in: app))"
         }.joined(separator: ";")
         print(
             "REVIEW_EDIT_TAP \(phase) \(name) elapsed=\(Date().timeIntervalSince(started)) "
-                + "sourceExists=\(sourceExists) sourceHittable=\(sourceExists && source.isHittable) destinations=\(states)"
+                + "sourceExists=\(sourceExists) sourceHittable=\(sourceExists && UITapHelpers.isSafelyHittable(source, in: app)) destinations=\(states)"
         )
     }
 

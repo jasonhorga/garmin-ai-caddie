@@ -91,6 +91,7 @@ final class PrepDegradationUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 openSearch,
+                app: app,
                 timeout: 5,
                 diagnosticName: "b4c-search-entry"
             )
@@ -130,6 +131,7 @@ final class PrepDegradationUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 search,
+                app: app,
                 timeout: 5,
                 diagnosticName: "b4c-search-submit"
             )
@@ -184,7 +186,7 @@ final class PrepDegradationUITests: XCTestCase {
 
         let back = app.buttons["live-back-home"]
         assertAndCapture(
-            back.waitForExistence(timeout: 8) && back.isHittable,
+            back.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(back, in: app),
             "prep hole must expose a back-home control",
             "b4c-prep-back-missing"
         )
@@ -238,11 +240,11 @@ final class PrepDegradationUITests: XCTestCase {
 
     private func scrollIntoView(_ element: XCUIElement, maxSwipes: Int) -> Bool {
         guard element.waitForExistence(timeout: 20) else { return false }
-        for _ in 0..<maxSwipes where !element.isHittable {
+        for _ in 0..<maxSwipes where !UITapHelpers.isSafelyHittable(element, in: app) {
             app.swipeUp()
             _ = element.waitForExistence(timeout: 1)
         }
-        return element.isHittable
+        return UITapHelpers.isSafelyHittable(element, in: app)
     }
 
     private func waitUntilEnabled(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

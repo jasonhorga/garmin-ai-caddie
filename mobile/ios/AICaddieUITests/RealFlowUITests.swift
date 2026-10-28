@@ -113,7 +113,7 @@ final class RealFlowUITests: XCTestCase {
                 "c99-back-nine-hole-\(hole)-missing"
             )
             assertAndCapture(
-                map.waitForExistence(timeout: 15) && map.isHittable,
+                map.waitForExistence(timeout: 15) && UITapHelpers.isSafelyHittable(map, in: app),
                 "hole \(hole) must expose its map navigation control",
                 "c99-back-nine-hole-\(hole)-map-missing"
             )
@@ -139,7 +139,7 @@ final class RealFlowUITests: XCTestCase {
         )
         let record = app.buttons["live-record-shot"]
         assertAndCapture(
-            record.waitForExistence(timeout: 10) && record.isHittable,
+            record.waitForExistence(timeout: 10) && UITapHelpers.isSafelyHittable(record, in: app),
             "hole 10 must expose a tappable record control",
             "c99-back-nine-record-missing"
         )
@@ -210,6 +210,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 openSearch,
+                app: app,
                 timeout: 5,
                 diagnosticName: "realflow-course-search-entry"
             )
@@ -231,6 +232,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 search,
+                app: app,
                 timeout: 5,
                 diagnosticName: "realflow-course-search-submit"
             )
@@ -248,7 +250,7 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("c30-prep-before-start"); dump("c30-prep-before-start")
 
         let record = app.buttons["live-record-shot"]
-        XCTAssertTrue(record.waitForExistence(timeout: 10) && record.isHittable)
+        XCTAssertTrue(record.waitForExistence(timeout: 10) && UITapHelpers.isSafelyHittable(record, in: app))
         record.tap()
         let skipClub = app.buttons["跳过球杆（位置已记录）"]
         XCTAssertTrue(skipClub.waitForExistence(timeout: 8), "the first-stroke club sheet must be dismissed before undo")
@@ -266,7 +268,7 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("c30-prep-after-undo"); dump("c30-prep-after-undo")
 
         let map = app.descendants(matching: .any)["live-open-map-from-hero"]
-        XCTAssertTrue(map.waitForExistence(timeout: 10) && map.isHittable)
+        XCTAssertTrue(map.waitForExistence(timeout: 10) && UITapHelpers.isSafelyHittable(map, in: app))
         map.swipeLeft()
         XCTAssertTrue(app.staticTexts["第 2 洞"].waitForExistence(timeout: 20), "prep hole navigation must move to hole 2")
         XCTAssertEqual(
@@ -277,7 +279,7 @@ final class RealFlowUITests: XCTestCase {
         settle(1); save("c30-prep-hole-2"); dump("c30-prep-hole-2")
 
         let back = app.buttons["live-back-home"]
-        XCTAssertTrue(back.waitForExistence(timeout: 8) && back.isHittable)
+        XCTAssertTrue(back.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(back, in: app))
         back.tap()
         XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 10))
         app.buttons["home-new-round"].tap()
@@ -326,7 +328,7 @@ final class RealFlowUITests: XCTestCase {
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Unknown course")).firstMatch.exists,
             "UI-test bootstrap must load the real home course, not auto-activate the implicit DEBUG round 900001"
         )
-        XCTAssertTrue(resultsTile.isHittable, "the loaded home results tile must be tappable")
+        XCTAssertTrue(UITapHelpers.isSafelyHittable(resultsTile, in: app), "the loaded home results tile must be tappable")
         resultsTile.tap()
         XCTAssertTrue(resultsRoot.waitForExistence(timeout: 15))
         settle(3); save("02-results"); dump("02-results")
@@ -402,7 +404,7 @@ final class RealFlowUITests: XCTestCase {
                     ["全部球局", "球场回顾"].contains(historyBackButton.label),
                     "round review must return to the archive or the bounded evidence fallback"
                 )
-                XCTAssertTrue(historyBackButton.isHittable)
+                XCTAssertTrue(UITapHelpers.isSafelyHittable(historyBackButton, in: app))
                 let holeRow = app.buttons["round-review-hole-\(reviewEvidence.hole)"]
                 let loadedRound = holeRow.waitForExistence(timeout: 60)
                 XCTAssertTrue(loadedRound, "the real round must load its verified evidence hole")
@@ -459,7 +461,7 @@ final class RealFlowUITests: XCTestCase {
                         }
                         let labelsControl = app.buttons["round-map-labels"]
                         XCTAssertTrue(
-                            labelsControl.waitForExistence(timeout: 5) && labelsControl.isHittable,
+                            labelsControl.waitForExistence(timeout: 5) && UITapHelpers.isSafelyHittable(labelsControl, in: app),
                             "the review map must expose its show / hide labels control on the map"
                         )
                         XCTAssertEqual(labelsControl.label, "隐藏标签", "shot labels must start visible")
@@ -520,10 +522,10 @@ final class RealFlowUITests: XCTestCase {
                         settle(2); save("04b-shot-map"); dump("04b-shot-map")
                     }
                     XCTAssertTrue(
-                        editButton.isHittable,
+                        UITapHelpers.isSafelyHittable(editButton, in: app),
                         "the loaded real shot map must expose a tappable edit action"
                     )
-                    if loadedShotMap, editButton.isHittable {
+                    if loadedShotMap, UITapHelpers.isSafelyHittable(editButton, in: app) {
                         editButton.tap()
                         let editTopoReady = app.descendants(matching: .any)
                             .matching(identifier: "topo-hole-base-ready").firstMatch
@@ -546,7 +548,7 @@ final class RealFlowUITests: XCTestCase {
                             )
                             let cancelDraft = app.descendants(matching: .any)
                                 .matching(identifier: "round-edit-cancel").firstMatch
-                            XCTAssertTrue(cancelDraft.waitForExistence(timeout: 5) && cancelDraft.isHittable)
+                            XCTAssertTrue(cancelDraft.waitForExistence(timeout: 5) && UITapHelpers.isSafelyHittable(cancelDraft, in: app))
                             cancelDraft.tap()
                             XCTAssertTrue(
                                 app.buttons["round-edit-begin"].waitForExistence(timeout: 12),
@@ -562,7 +564,7 @@ final class RealFlowUITests: XCTestCase {
         // ---- Section 3: last-round review shortcut from home ----
         launchFresh()
         let lastRound = app.buttons.matching(identifier: "home-last-round").firstMatch
-        let tappedLastRound = lastRound.waitForExistence(timeout: 8) && lastRound.isHittable
+        let tappedLastRound = lastRound.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(lastRound, in: app)
         XCTAssertTrue(tappedLastRound, "home must expose a stable last-round link")
         if tappedLastRound {
             lastRound.tap()
@@ -607,6 +609,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 openSearch,
+                app: app,
                 timeout: 5,
                 diagnosticName: "realflow-prep-search-entry"
             )
@@ -636,6 +639,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 prepSearch,
+                app: app,
                 timeout: 5,
                 diagnosticName: "realflow-prep-search-submit"
             )
@@ -666,7 +670,7 @@ final class RealFlowUITests: XCTestCase {
 
         // The course download belongs to the app. Going back keeps the retained row and its state.
         let prepBack = app.buttons["live-back-home"]
-        XCTAssertTrue(prepBack.waitForExistence(timeout: 8) && prepBack.isHittable)
+        XCTAssertTrue(prepBack.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(prepBack, in: app))
         prepBack.tap()
         XCTAssertTrue(app.buttons["home-new-round"].waitForExistence(timeout: 8))
         app.buttons["home-new-round"].tap()
@@ -949,7 +953,7 @@ final class RealFlowUITests: XCTestCase {
         cancelScore.tap()
         XCTAssertTrue(app.staticTexts["第 1 洞"].waitForExistence(timeout: 5))
         XCTAssertEqual(recordShotButton.value as? String, "已记第 1 杆")
-        XCTAssertTrue(saveHoleButton.waitForExistence(timeout: 5) && saveHoleButton.isHittable)
+        XCTAssertTrue(saveHoleButton.waitForExistence(timeout: 5) && UITapHelpers.isSafelyHittable(saveHoleButton, in: app))
         settle(1); save("12b-score-cancelled"); dump("12b-score-cancelled")
         saveHoleButton.tap()
         XCTAssertTrue(acceptRecommendation.waitForExistence(timeout: 5))
@@ -1002,6 +1006,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapAndWaitForElements(
                 scorecard,
+                app: app,
                 destinations: [scorecardHole],
                 timeout: 8,
                 diagnosticName: "realflow-scorecard"
@@ -1027,6 +1032,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapAndWaitForElements(
                 selectFirstHole,
+                app: app,
                 destinations: [editFirstHole],
                 timeout: 8,
                 diagnosticName: "realflow-scorecard-hole-selection"
@@ -1066,6 +1072,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapAndWaitForElements(
                 scorecard,
+                app: app,
                 destinations: [scorecardAfterEdit],
                 timeout: 8,
                 diagnosticName: "realflow-scorecard-after-edit"
@@ -1096,7 +1103,7 @@ final class RealFlowUITests: XCTestCase {
         )
         // 结束本场 on the map opens the finish page directly.
         let endRound = app.buttons["live-end-round"]
-        XCTAssertTrue(endRound.waitForExistence(timeout: 5) && endRound.isHittable, "the live map must expose 结束本场")
+        XCTAssertTrue(endRound.waitForExistence(timeout: 5) && UITapHelpers.isSafelyHittable(endRound, in: app), "the live map must expose 结束本场")
         endRound.tap()
         XCTAssertTrue(
             app.buttons["live-finish-save"].waitForExistence(timeout: 5),
@@ -1301,6 +1308,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 openSearch,
+                app: app,
                 timeout: 5,
                 diagnosticName: "realflow-evidence-search-entry"
             )
@@ -1314,6 +1322,7 @@ final class RealFlowUITests: XCTestCase {
             settle(1)
             _ = UITapHelpers.tapWhenHittable(
                 openSearch,
+                app: app,
                 timeout: 5,
                 diagnosticName: "realflow-evidence-search-entry-retry"
             )
@@ -1393,6 +1402,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 openSearch,
+                app: app,
                 timeout: 5,
                 diagnosticName: "realflow-evidence-search-entry-repeat"
             )
@@ -1414,6 +1424,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapWhenHittable(
                 manualSearch,
+                app: app,
                 timeout: 5,
                 diagnosticName: "realflow-evidence-search-submit"
             )
@@ -1526,6 +1537,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapAndWaitForElements(
                 scorecard,
+                app: app,
                 destinations: [selectFirstHole],
                 timeout: 8,
                 diagnosticName: "realflow-restored-scorecard"
@@ -1535,6 +1547,7 @@ final class RealFlowUITests: XCTestCase {
         XCTAssertTrue(
             UITapHelpers.tapAndWaitForElements(
                 selectFirstHole,
+                app: app,
                 destinations: [editFirstHole],
                 timeout: 8,
                 diagnosticName: "realflow-restored-scorecard-hole-selection"
@@ -1588,7 +1601,7 @@ final class RealFlowUITests: XCTestCase {
     @discardableResult
     private func tapBackButton(_ label: String) -> Bool {
         let button = app.navigationBars.buttons[label].firstMatch
-        guard button.waitForExistence(timeout: 6), button.isHittable else { return false }
+        guard button.waitForExistence(timeout: 6), UITapHelpers.isSafelyHittable(button, in: app) else { return false }
         button.tap()
         settle(2)
         return true
@@ -1600,7 +1613,7 @@ final class RealFlowUITests: XCTestCase {
     @discardableResult
     private func scrollTo(_ element: XCUIElement, maxSwipes: Int) -> Bool {
         for _ in 0..<maxSwipes {
-            if element.exists, element.isHittable, fullyVisible(element) { return true }
+            if element.exists, UITapHelpers.isSafelyHittable(element, in: app), fullyVisible(element) { return true }
             if element.exists, element.frame.minY < visibleSafeRect().minY {
                 app.swipeDown()
             } else {
@@ -1608,7 +1621,7 @@ final class RealFlowUITests: XCTestCase {
             }
             settle(0.6)
         }
-        return element.exists && element.isHittable && fullyVisible(element)
+        return element.exists && UITapHelpers.isSafelyHittable(element, in: app) && fullyVisible(element)
     }
 
     /// The tappable viewport, shared with TeeSelectionUITests: it also excludes the pinned 开始一场
@@ -1937,7 +1950,7 @@ final class RealFlowUITests: XCTestCase {
     @discardableResult
     private func openStartRound() -> Bool {
         let entry = app.buttons["home-new-round"]
-        if entry.waitForExistence(timeout: 4), entry.isHittable {
+        if entry.waitForExistence(timeout: 4), UITapHelpers.isSafelyHittable(entry, in: app) {
             entry.tap()
             return true
         }
@@ -1947,7 +1960,7 @@ final class RealFlowUITests: XCTestCase {
     private func showStartCoursePage() {
         if app.descendants(matching: .any)["start-round-page-setup"].exists {
             let back = app.buttons["start-round-back-to-courses"]
-            XCTAssertTrue(back.waitForExistence(timeout: 8) && back.isHittable)
+            XCTAssertTrue(back.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(back, in: app))
             back.tap()
         }
         XCTAssertTrue(app.descendants(matching: .any)["start-round-page-course"].waitForExistence(timeout: 8))
@@ -1998,7 +2011,7 @@ final class RealFlowUITests: XCTestCase {
                 guard match.waitForExistence(timeout: 4) else { continue }
                 let frame = match.frame
                 guard !frame.isNull, !frame.isEmpty else { continue }
-                if match.isHittable { match.tap(); return true }
+                if UITapHelpers.isSafelyHittable(match, in: app) { match.tap(); return true }
             }
         }
         return false

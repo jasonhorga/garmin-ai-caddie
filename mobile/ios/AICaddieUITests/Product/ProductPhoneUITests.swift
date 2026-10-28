@@ -47,10 +47,10 @@ final class ProductPhoneUITests: XCTestCase {
 
     private func reveal(_ target: XCUIElement) {
         for _ in 0..<7 {
-            if target.exists && target.isHittable { return }
+            if target.exists && UITapHelpers.isSafelyHittable(target, in: app) { return }
             app.swipeUp()
         }
-        XCTAssertTrue(target.exists && target.isHittable, "reachable control \(target.identifier)")
+        XCTAssertTrue(target.exists && UITapHelpers.isSafelyHittable(target, in: app), "reachable control \(target.identifier)")
     }
 
     private func tap(_ id: String) {
@@ -342,6 +342,7 @@ final class ProductPhoneUITests: XCTestCase {
             let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "start-round-venue-")).firstMatch
             XCTAssertTrue(UITapHelpers.tapAndWaitForElements(
                 element("home-new-round"),
+                app: app,
                 destinations: [app.navigationBars["开始一场"], row],
                 timeout: 30,
                 diagnosticName: "home-new-round"
@@ -357,6 +358,7 @@ final class ProductPhoneUITests: XCTestCase {
         // Without a location the home offers search and 开始一场 lists no course: search by name.
         XCTAssertTrue(UITapHelpers.tapAndWaitForElements(
             element("home-new-round"),
+            app: app,
             destinations: [app.navigationBars["开始一场"], element("start-round-search-all-courses")],
             timeout: 30,
             diagnosticName: "home-new-round"
