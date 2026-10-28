@@ -512,7 +512,6 @@ final class RoundStartTwoStageTests: XCTestCase {
         let result = await fixture.model.finishActiveRound()
         XCTAssertFalse(result)
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
-        XCTAssertNil(fixture.model.interruptedOfflineCourseDownloadRoundIdForTesting)
         XCTAssertEqual(held.stopCount, 0, "the held background request was not cancelled")
     }
 
@@ -561,7 +560,9 @@ final class RoundStartTwoStageTests: XCTestCase {
         let roundData = try JSONEncoder().encode(roundPackage)
         let targetHeld = C85HeldRequests()
         let targetStarted = expectation(description: "another prep course request started")
+        let targetRetried = expectation(description: "another prep course request retried after release")
         let targetOnce = C33FirstMatch()
+        let targetRequests = C85Counter()
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host else { proto.reply(404); return }
             let path = proto.request.url?.path ?? ""
@@ -569,7 +570,9 @@ final class RoundStartTwoStageTests: XCTestCase {
                 proto.reply(200, roundData)
             } else if path == "/api/v2/mobile/courses/31800/package" {
                 targetHeld.hold(proto)
+                let count = targetRequests.increment()
                 if targetOnce.claim() { targetStarted.fulfill() }
+                if count == 2 { targetRetried.fulfill() }
             } else {
                 proto.reply(503)
             }
@@ -588,6 +591,11 @@ final class RoundStartTwoStageTests: XCTestCase {
         )
         await fulfillment(of: [targetStarted], timeout: eventWait)
         model.discardActiveRound()
+        let target = try XCTUnwrap(model.prepCourseDownloads.first { $0.course.globalId == 31800 })
+        XCTAssertNotEqual(target.phase, .queued, "discard must not requeue the shared prep job")
+        XCTAssertEqual(model.activePrepCourseDownloadIDForTesting, target.id)
+        targetHeld.releaseAll(503)
+        await fulfillment(of: [targetRetried], timeout: eventWait)
         XCTAssertEqual(targetHeld.stopCount, 0, "discard must not pause the shared prep queue")
     }
 
@@ -600,6 +608,26 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertTrue(result)
         XCTAssertEqual(held.stopCount, 0, "Save & End must not cancel the whole-course download")
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
+        held.releaseAll(200)
+        await fixture.model.waitForOfflineCourseDownloadForTesting()
+        XCTAssertNil(fixture.model.offlineCourseDownloadRoundIdForTesting)
+        XCTAssertNotNil(try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue"))
+    }
+
+    /// J4.2: a seal failure keeps the live round and its background downloads resumable.
+    func testSealFailureKeepsRoundBackgroundWorkAlive() async throws {
+        let (fixture, package, held) = try await startRoundWithHeldBackgroundWork(
+            host: "c90-seal-failure.example.test", roundId: "c90-seal-failure"
+        )
+        try FileManager.default.createDirectory(
+            at: fixture.directory.appendingPathComponent("pending_round_finishes.backup.json"),
+            withIntermediateDirectories: true
+        )
+        let result = await fixture.model.finishActiveRound()
+        XCTAssertFalse(result)
+        XCTAssertEqual(fixture.model.liveRoundState?.roundId, package.roundId)
+        XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
+        XCTAssertEqual(held.stopCount, 0, "a failed seal must not cancel the held round request")
     }
 
     /// A first stroke starts a deferred map-only round even when the hole screen has not called
@@ -698,6 +726,10 @@ final class RoundStartTwoStageTests: XCTestCase {
             if proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package" {
                 proto.reply(200, data)
             } else {
+                if proto.request.value(forHTTPHeaderField: "Accept")?.hasPrefix("image/") == true {
+                    proto.reply(404)
+                    return
+                }
                 held.hold(proto)
                 if requestOnce.claim() { requestStarted.fulfill() }
             }

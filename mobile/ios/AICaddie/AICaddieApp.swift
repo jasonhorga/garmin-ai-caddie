@@ -2169,6 +2169,8 @@ public final class LiveRoundAppModel: ObservableObject {
 
     var userRequestedPrepDownloadIDsForTesting: Set<String> { userRequestedPrepDownloadIDs }
 
+    var activePrepCourseDownloadIDForTesting: String? { activePrepCourseDownloadID }
+
     var offlineCourseDownloadRoundIdForTesting: String? { offlineCourseDownloadRoundId }
 
     func evictIdleCoursesForTesting(_ plan: OfflineStorageEvictionPlan, for scope: OfflineStorageScope) {
