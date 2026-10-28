@@ -6,7 +6,7 @@ import pickle
 import struct
 import sys
 
-from .timing import RequestTiming, bind, current as current_timing
+from .timing import RequestTiming, bind
 
 
 def _read_exact(size: int) -> bytes:
