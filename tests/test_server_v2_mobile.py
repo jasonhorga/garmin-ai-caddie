@@ -337,25 +337,15 @@ class ServerV2MobileTests(unittest.TestCase):
         from ai_caddie.courses import course_prep
         from ai_caddie.geometry import shot_projection
 
-        md = {
-            "hole": {
-                "RefLat": 40.0,
-                "RefLon": 116.0,
-                "TeeLocations": [
-                    {"Sets": [2], "X": 0.0, "Y": 0.0},
-                    {"Sets": [1], "X": 0.0, "Y": 40.0},
-                ],
-                "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 320.0}]}],
-            }
-        }
-        green_mesh = {
-            "Green.drc": {
-                "positions": [
-                    [-3.0, 5.0, 276.0], [3.0, 5.0, 276.0],
-                    [3.0, 5.0, 286.0], [-3.0, 5.0, 286.0],
-                ],
-                "faces": [[0, 1, 2], [0, 2, 3]],
-            }
+        hazards = {
+            "globalId": 31832,
+            "refLat": 40.0,
+            "refLon": 116.0,
+            "target": {"position": [0.0, 321.0]},
+            "tees": [
+                {"sets": [2], "position": [0.0, 0.0], "target_distance_m": 321.0},
+                {"sets": [1], "position": [0.0, 40.0], "target_distance_m": 281.0},
+            ],
         }
         source = {
             "globalId": 31832,
@@ -363,46 +353,34 @@ class ServerV2MobileTests(unittest.TestCase):
             "holes": [{"number": 2, "par": 4, "teeLatitude": 40.0, "teeLongitude": 116.0, "yards": 552}],
         }
         with (
-            patch("ai_caddie.caddie.analysis.tee_set_for_box", return_value=1),
-            patch.object(course_prep.hole_render, "load_mesh", return_value=(md, green_mesh)),
-            patch.object(mobile_live, "_load_mobile_hazards", return_value={}),
+            patch.object(mobile_live, "_load_mobile_hazards", return_value=hazards),
             patch.object(mobile_live, "geometry_coverage_for_hole", return_value={"coverage": "partial"}),
+            patch.object(course_prep.hole_render, "load_mesh", side_effect=AssertionError("map-only package decoded mesh")),
+            patch.object(course_prep.course_reference, "courseview_tees", return_value=[
+                {"name": "Black", "index": 1}, {"name": "Blue", "index": 2}
+            ]),
         ):
             package_hole = mobile_live._package_holes(
                 source, {"holes": []}, course_key="", hole_numbers=[2], tee_box="black"
             )[0]
 
-        black_route, _ = course_prep.derive_route(md, 1)
-        green = course_prep._green_distances(green_mesh, black_route, md)
         tee_local = shot_projection.world_to_local(
             package_hole["teeLatitude"], package_hole["teeLongitude"], ref_lat=40.0, ref_lon=116.0
         )
-        middle_local = shot_projection.world_to_local(
-            green["middleLat"], green["middleLon"], ref_lat=40.0, ref_lon=116.0
-        )
-        package_to_middle = math.dist(tee_local, middle_local)
-        self.assertAlmostEqual(package_to_middle, green["middleM"], delta=0.05)
-        self.assertEqual(package_hole["yards"], 306)
+        self.assertAlmostEqual(tee_local[0], 0.0, places=6)
+        self.assertAlmostEqual(tee_local[1], 40.0, places=6)
+        self.assertEqual(package_hole["yards"], round(281.0 * 1.09361))
         self.assertNotAlmostEqual(package_hole["teeLatitude"], 40.0, delta=0.00001)
-
-        # The selected Blue release remains stable when its geometry agrees with the historical
-        # template: the same route authority preserves the old 552-yard package facts.
-        blue_md = {
-            "hole": {
-                **md["hole"],
-                "Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 0.0, "Y": 504.4}]}],
-            }
-        }
         with (
-            patch("ai_caddie.caddie.analysis.tee_set_for_box", return_value=2),
-            patch.object(course_prep.hole_render, "load_mesh", return_value=(blue_md, green_mesh)),
-            patch.object(mobile_live, "_load_mobile_hazards", return_value={}),
-            patch.object(mobile_live, "geometry_coverage_for_hole", return_value={"coverage": "partial"}),
+            patch.object(mobile_live, "_load_mobile_hazards", return_value=hazards),
+            patch.object(course_prep.course_reference, "courseview_tees", return_value=[
+                {"name": "Black", "index": 1}, {"name": "Blue", "index": 2}
+            ]),
         ):
             blue_hole = mobile_live._package_holes(
                 source, {"holes": []}, course_key="", hole_numbers=[2], tee_box="blue"
             )[0]
-        self.assertEqual(blue_hole["yards"], 552)
+        self.assertEqual(blue_hole["yards"], round(321.0 * 1.09361))
         self.assertAlmostEqual(blue_hole["teeLatitude"], 40.0, delta=0.00001)
         self.assertAlmostEqual(blue_hole["teeLongitude"], 116.0, delta=0.00001)
 
@@ -2702,8 +2680,8 @@ class ServerV2MobileTests(unittest.TestCase):
         self.assertEqual(result["holes"][0]["map"]["overlay"]["w"], 678)
         fallback.assert_not_called()
 
-    def test_lightweight_seed_rejects_degenerate_route_even_with_projection(self) -> None:
-        """A cold non-blue Tee can draw a valid blue cache despite degenerate catalogue data."""
+    def test_lightweight_seed_keeps_missing_selected_tee_pending(self) -> None:
+        """A cold selected Tee never silently substitutes a blue cache."""
         from ai_caddie.caddie import mobile_live
         from ai_caddie.courses import course_prep
 
@@ -2737,8 +2715,7 @@ class ServerV2MobileTests(unittest.TestCase):
                 patch.object(course_prep, "precise_route_seed_hole") as fallback:
             result = mobile_live.first_hole_lightweight_course_prep(package, player_id="member-a")
 
-        self.assertIsNotNone(result)
-        self.assertEqual(result["holes"][0]["route"], precise["route"])
+        self.assertIsNone(result)
         fallback.assert_not_called()
 
     def test_mobile_course_package_caps_nine_hole_loop_to_nine_holes(self) -> None:

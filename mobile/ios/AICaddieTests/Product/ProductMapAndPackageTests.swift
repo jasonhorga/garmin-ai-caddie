@@ -235,7 +235,7 @@ final class ProductMapAndPackageTests: XCTestCase {
     func test_j4_5_hanging_prep_keeps_route_and_numeric_surface_visible() async throws {
         let gate = C136Gate()
         let started = expectation(description: "prep request held")
-        let task = Task { @MainActor () -> CoursePrepHole? in
+        let task = Task { @MainActor in
             await LiveHolePrepPublication.run(
                 fetch: {
                     started.fulfill()

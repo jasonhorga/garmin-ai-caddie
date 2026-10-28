@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index e2bf9d79..cf631f57 100644
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -2856,7 +2856,7 @@ public struct CurrentHoleView: View {
+                     holeNumber: hole.courseHoleNumber,
+                     par: hole.par,
+                     yards: hole.yards,
+-                    failed: holeMapLoadFailed || preciseMapTimedOut || (holePrep == nil && !liveHasRoute),
++                    failed: holeMapLoadFailed || preciseMapTimedOut,
+                     onRetry: {
+                         holeMapLoadFailed = false
+                         preciseMapTimedOut = false

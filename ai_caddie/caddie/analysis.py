@@ -153,7 +153,12 @@ def tee_set_for_box(
     return tee_set
 
 
-def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[str, Any] | None:
+def _selected_tee(
+    geometry: dict[str, Any],
+    tee_box: str | None = None,
+    *,
+    colour_fallback: bool = True,
+) -> dict[str, Any] | None:
     hazards = geometry.get("hazards") or {}
     tees = hazards.get("tees") or []
     tees = [t for t in tees if t.get("position")]
@@ -162,7 +167,11 @@ def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[
 
     requested = str(tee_box or "").strip().lower()
     global_id = hazards.get("globalId") or geometry.get("globalId")
-    tee_set = tee_set_for_box(global_id, tee_box) if requested else None
+    tee_set = (
+        tee_set_for_box(global_id, tee_box, colour_fallback=colour_fallback)
+        if requested
+        else None
+    )
     if tee_set is not None:
         match = next((t for t in tees if tee_set in (t.get("sets") or [])), None)
         if match:
@@ -171,6 +180,8 @@ def _selected_tee(geometry: dict[str, Any], tee_box: str | None = None) -> dict[
     if requested == "unknown":
         return None
 
+    if not colour_fallback:
+        return None
     return max(tees, key=lambda t: float(t.get("target_distance_m") or 0.0))
 
 

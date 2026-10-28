@@ -2805,8 +2805,6 @@ public struct CurrentHoleView: View {
     /// fix it is the selected tee; after one, it is the live player position. This prevents a static
     /// tee readout and a live readout from appearing as two competing distance sources.
     private var displayedGreenRangeYards: LiveGreenRangeYards {
-        // Legacy contract spelling: ?? greenYards(liveGreenDistances?.frontM) (the current
-        // implementation chooses the complete static group atomically below).
         let staticFallback = LiveGreenRangeYards(
             front: greenYards(liveGreenDistances?.frontM),
             middle: greenYards(liveGreenDistances?.middleM),
@@ -2906,7 +2904,7 @@ public struct CurrentHoleView: View {
                     holeNumber: hole.courseHoleNumber,
                     par: hole.par,
                     yards: hole.yards,
-                    failed: holeMapLoadFailed || preciseMapTimedOut,
+                    failed: holeMapLoadFailed || preciseMapTimedOut || (holePrep == nil && !liveHasRoute),
                     onRetry: {
                         holeMapLoadFailed = false
                         preciseMapTimedOut = false
@@ -3826,7 +3824,7 @@ public struct CurrentHoleView: View {
     private var hasPlausibleLiveFix: Bool {
         guard let fix = locationProvider.latestFix else { return false }
         guard fix.horizontalAccuracyM.isFinite,
-              (0...CurrentHoleLocator.maximumConfirmationAccuracyM).contains(fix.horizontalAccuracyM) else {
+              (0...PrepHoleFollowingState.maximumConfirmationAccuracyM).contains(fix.horizontalAccuracyM) else {
             return false
         }
         if gpsHoleCandidate?.hole == hole.number { return true }
@@ -6352,7 +6350,6 @@ public struct CurrentHoleView: View {
     /// The distance the caddie plans from: the live answer, except before the tee shot off the hole,
     /// where only a typed distance or the tee's static green middle counts.
     private var caddiePlanningDistanceMetres: Double? {
-        // Legacy contract spelling: guard isTeeShotOffTheHole else { return effectiveDistanceToPinMetres }
         return LiveCaddieDistance.planningDistance(
             recordedShotCount: recordedNonPuttShotCount,
             isTeeShotOffTheHole: isTeeShotOffTheHole,

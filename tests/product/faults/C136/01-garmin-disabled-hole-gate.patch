@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index 99aed291..f4ff2c03 100644
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -1990,7 +1990,7 @@ public final class LiveRoundAppModel: ObservableObject {
+         // Garmin is an opt-in visual layer. The factual CourseView route/topo remains usable while
+         // this pass is disabled, and a later hole screen starts its own descriptor request when the
+         // player turns the switch on.
+-        guard garminRasterPreloadingEnabled() else { return }
++        guard true else { return }
+         guard let snapshot = package,
+               let baseURL = apiBaseURL ?? syncClient?.baseURL,
+               liveRoundState?.roundId == snapshot.roundId else { return }

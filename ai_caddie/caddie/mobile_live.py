@@ -141,12 +141,11 @@ def _release_selected_tee_anchor(
     local_hole: int | None,
     tee_box: str | None,
 ) -> tuple[float, float, float] | None:
-    """Return the selected release Tee's WGS84 anchor and route length.
+    """Return the selected release Tee's WGS84 anchor and target distance.
 
-    A live package can be built from an old Garmin scorecard template. Its ``teeLatitude`` and
-    ``yards`` are historical facts and may describe Blue even when today's package was requested
-    for Black/White/Red. ``course_prep.derive_route(md, tee_set)`` is the same release authority
-    used by ``/prep``; deriving both values here keeps the package and prep distance origins equal.
+    Package construction is map-only and must not decode a mesh. The compact hazard export is
+    the same release authority used by ``/prep`` and carries the selected Tee position and route
+    length, so it is sufficient for the package anchor and nominal yards.
     """
     if not global_id or not local_hole or not tee_box:
         return None
@@ -156,18 +155,20 @@ def _release_selected_tee_anchor(
     try:
         from ai_caddie.caddie.analysis import tee_set_for_box
 
-        tee_set = tee_set_for_box(int(global_id), requested)
+        tee_set = tee_set_for_box(int(global_id), requested, colour_fallback=False)
         if tee_set is None:
             return None
-        md, _ = course_prep.hole_render.load_mesh(int(global_id), int(local_hole))
-        route, route_length = course_prep.derive_route(md, tee_set)
-        if not route or not route_length or len(route[0]) < 2:
+        hazards = _load_mobile_hazards(int(global_id), int(local_hole))
+        tees = hazards.get("tees") if isinstance(hazards, dict) else None
+        selected = next((row for row in (tees or []) if tee_set in (row.get("sets") or [])), None)
+        position = selected.get("position") if isinstance(selected, dict) else None
+        route_length = float((selected or {}).get("target_distance_m") or 0.0)
+        if not isinstance(position, (list, tuple)) or len(position) < 2 or route_length <= 0:
             return None
-        hole_meta = md.get("hole") or {}
-        ref_lat = float(hole_meta["RefLat"])
-        ref_lon = float(hole_meta["RefLon"])
+        ref_lat = float(hazards["refLat"])
+        ref_lon = float(hazards["refLon"])
         latitude, longitude = local_to_world(
-            float(route[0][0]), float(route[0][1]), ref_lat=ref_lat, ref_lon=ref_lon
+            float(position[0]), float(position[1]), ref_lat=ref_lat, ref_lon=ref_lon
         )
         if not all(math.isfinite(value) for value in (latitude, longitude, route_length)):
             return None
@@ -1195,7 +1196,7 @@ def _package_holes(
             )
             try:
                 geometry = {"hazards": _load_mobile_hazards(int(source_gid), int(source_local))}
-                selected_tee = _selected_tee(geometry, tee_box)
+                selected_tee = _selected_tee(geometry, tee_box, colour_fallback=False)
                 target_distance_m = float((selected_tee or {}).get("target_distance_m"))
                 if target_distance_m > 0:
                     yards = int(round(target_distance_m * 1.09361))
@@ -1396,6 +1397,7 @@ def first_hole_lightweight_course_prep(
     prep_kwargs: dict[str, Any] = {"player_id": player_id}
     if ladder:
         prep_kwargs["ladder"] = ladder
+    selected_tee_box = str(course.get("teeBox") or "").strip()
 
     # Composite rounds can show the same physical local hole twice (A+A). Build it once and
     # renumber the returned factual row for each display hole instead of doing duplicate work.
@@ -1421,27 +1423,31 @@ def first_hole_lightweight_course_prep(
                     from ai_caddie.caddie.analysis import tee_set_for_box
 
                     if source_global_id not in tee_sets:
-                        tee_sets[source_global_id] = tee_set_for_box(
-                            source_global_id, str(course.get("teeBox") or "blue"), colour_fallback=False,
+                        requested_box = str(course.get("teeBox") or "").strip()
+                        tee_sets[source_global_id] = (
+                            tee_set_for_box(source_global_id, requested_box, colour_fallback=False)
+                            if requested_box
+                            else tee_set_for_box(source_global_id, "blue")
                         )
-                    vector = cached_vector_hole(
-                        source_global_id, source_local_hole, tee_set=tee_sets[source_global_id],
-                        build_if_missing=False,
-                    )
-                    if not _has_drawable_route_seed(vector):
-                        blue_tee = tee_set_for_box(source_global_id, "blue", colour_fallback=False)
-                        if blue_tee != tee_sets[source_global_id]:
-                            vector = cached_vector_hole(source_global_id, source_local_hole,
-                                                        tee_set=blue_tee, build_if_missing=False)
+                    if tee_sets[source_global_id] is not None:
+                        vector = cached_vector_hole(
+                            source_global_id, source_local_hole, tee_set=tee_sets[source_global_id],
+                            build_if_missing=False,
+                        )
                 except Exception:
                     pass
             try:
                 by_source[source_key] = vector
-                if vector is None and not map_only:
+                if vector is None and not map_only and (
+                    not selected_tee_box or tee_sets.get(source_global_id) is not None
+                ):
+                    if selected_tee_box:
+                        prep_kwargs["tee_set"] = tee_sets.get(source_global_id)
+                    prep_call_kwargs = dict(prep_kwargs)
+                    if selected_tee_box:
+                        prep_call_kwargs["tee_set"] = tee_sets.get(source_global_id)
                     by_source[source_key] = course_prep.lightweight_prep_hole(
-                        source_global_id,
-                        source_local_hole,
-                        **prep_kwargs,
+                        source_global_id, source_local_hole, **prep_call_kwargs
                     )
             except Exception:
                 # A missing CourseView cache is a per-hole degradation. Do not throw away routes
@@ -2403,6 +2409,7 @@ def _route_evidence_seed(
             selected_tee = _selected_tee(
                 {"globalId": int(global_id), "hazards": hazard_source},
                 tee_box,
+                colour_fallback=False,
             )
             target_position = (hazard_source.get("target") or {}).get("position")
             tee_position = (selected_tee or {}).get("position")
@@ -2514,10 +2521,13 @@ def _minimal_live_course_facts(
     ]
     prep_facts: dict[str, Any] = {}
     try:
+        from ai_caddie.caddie.analysis import tee_set_for_box
+        resolved_tee_set = tee_set_for_box(int(global_id), tee_box, colour_fallback=False)
         prep = course_prep.lightweight_prep_hole(
             int(global_id),
             int(local_hole),
             ladder=ladder or None,
+            tee_set=resolved_tee_set,
             player_id=player_id,
         )
     except Exception:

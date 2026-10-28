@@ -1729,6 +1729,55 @@
       "kind": "python",
       "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_refused_no_during_deploy_leaves_no_second_on_failure_release",
       "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C136-01",
+      "patch": "tests/product/faults/C136/01-garmin-disabled-hole-gate.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_garmin_disabled_model_sends_no_raster_request",
+      "promise": "C136-1"
+    },
+    {
+      "id": "tests-product-faults-C136-02",
+      "patch": "tests/product/faults/C136/02-garmin-slow-blocks-hole.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_slow_failed_garmin_does_not_block_first_hole_or_scoring",
+      "promise": "C136-2"
+    },
+    {
+      "id": "tests-product-faults-C136-03",
+      "patch": "tests/product/faults/C136/03-hole-switch-full-package.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_2_switching_holes_uses_map_only_without_full_package",
+      "promise": "C136-3"
+    },
+    {
+      "id": "tests-product-faults-C136-04",
+      "patch": "tests/product/faults/C136/04-prep-hang-waits.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_hanging_prep_keeps_route_and_numeric_surface_visible",
+      "promise": "C136-4"
+    },
+    {
+      "id": "tests-product-faults-C136-05",
+      "patch": "tests/product/faults/C136/05-map-spinner-never-terminal.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j4_5_map_spinner_stops_after_prep_success_or_failure",
+      "promise": "C136-5"
+    },
+    {
+      "id": "tests-product-faults-C136-06",
+      "patch": "tests/product/faults/C136/06-planning-distance-static-after-shot.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/ProductMapAndPackageTests/test_j5_4_selected_tee_static_golden_and_atomic_live_fallback",
+      "promise": "C136-6"
+    },
+    {
+      "id": "tests-product-faults-C136-07",
+      "patch": "tests/product/faults/C136/07-package-anchor-decodes-mesh.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile.ServerV2MobileTests.test_package_selected_tee_anchor_and_prep_distances_share_release_route",
+      "promise": "C136-7"
     }
   ]
 }

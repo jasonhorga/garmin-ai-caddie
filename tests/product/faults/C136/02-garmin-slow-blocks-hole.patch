@@ -1,0 +1,13 @@
+diff --git a/mobile/ios/AICaddie/Views/CurrentHoleView.swift b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+index e2bf9d79..b39d0d8a 100644
+--- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
++++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
+@@ -4245,7 +4245,7 @@ public struct CurrentHoleView: View {
+             // The package already contains the factual route/F-M-B context. Start the refresh in
+             // parallel, but let the first caddie response use that context immediately instead of
+             // making the player wait for a second prep GET/render request.
+-            async let mapResult = loadHoleMap()
++            let mapResult = await loadHoleMap()
+             await loadCaddieDecision(syncClub: syncClub, allowCachedDecision: true)
+             _ = await mapResult
+         } else {

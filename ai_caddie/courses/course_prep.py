@@ -2444,6 +2444,7 @@ def lightweight_prep_hole(
     *,
     ladder=None,
     par_record=None,
+    tee_set: int | None = None,
     player_id: str = OWNER_ID,
 ) -> dict | None:
     """Build the factual CourseView-only map without touching precise mesh geometry.
@@ -2461,6 +2462,7 @@ def lightweight_prep_hole(
         ladder=resolved_ladder,
         par_record=resolved_par,
         render=True,
+        tee_set=tee_set,
     )
     return value if isinstance(value, dict) else None
 
