@@ -1,7 +1,9 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -3544,7 +3544,7 @@
-         watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
+@@ -4165,7 +4165,7 @@
+     public func discardActiveRound() {
+         guard let package, liveRoundState?.roundId == package.roundId else { return }
+         pendingGeometryLastAttemptEpoch = nil
          do {
              try offlineStore.discardRound(roundId: package.roundId)
 -            try? offlineStore.removeQuarantinedEvents(roundId: package.roundId)

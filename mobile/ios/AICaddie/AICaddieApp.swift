@@ -4203,7 +4203,6 @@ public final class LiveRoundAppModel: ObservableObject {
     public func discardActiveRound() {
         guard let package, liveRoundState?.roundId == package.roundId else { return }
         pendingGeometryLastAttemptEpoch = nil
-        watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
         do {
             try offlineStore.discardRound(roundId: package.roundId)
             try? offlineStore.removeQuarantinedEvents(roundId: package.roundId)
@@ -4212,6 +4211,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 disposition: .abandoned
             )
             cancelRoundBackgroundWork()
+            watchRoundStartRetryTasks.removeValue(forKey: package.roundId)?.cancel()
             if let home = try offlineStore.loadHomePackage() {
                 try activateHomePackage(home, status: "本场已放弃")
             } else {
