@@ -54,12 +54,14 @@ public final class OfflineCaddieDecisionEvaluator {
                 par: par
             )
         }
+        let hazards = planningHazards(seed: seed, request: request)
         let planning = routePlans(
             seed: seed,
             request: request,
             canonicalSteps: canonicalSteps,
             par: par,
-            greenWindow: greenWindow
+            greenWindow: greenWindow,
+            hazards: hazards
         )
         let plans = planning.plans
         // After whole-hole filtering the response lists only options that still have a route, and
@@ -96,7 +98,10 @@ public final class OfflineCaddieDecisionEvaluator {
         let sequenceRows = offeredOptions.compactMap(sequencePayload)
         let selectedRow = selected.map { optionPayload($0, canonicalFirstStep: plans[$0.optionId]?.first) }
         let selectedSequence = selected.flatMap(sequencePayload)
-        let hazards = planningHazards(seed: seed, request: request)
+        let avoidZones = selectedAvoidZones(
+            seed: seed, request: request, selected: selected,
+            firstStep: selected.flatMap { plans[$0.optionId]?.first }
+        )
         let evidenceRefs = uniqueRefs([seed.sourceRef] + (selected?.sourceRefs ?? []) + (selected?.sampleRefs ?? []))
         var missingData = seed.missingData + (selected?.missingData ?? [])
         if planning.withheldForHazards {
@@ -126,7 +131,7 @@ public final class OfflineCaddieDecisionEvaluator {
             selectedOption: selectedRow,
             sequences: sequenceRows,
             selectedSequence: selectedSequence,
-            avoidZones: hazards.avoidZones,
+            avoidZones: avoidZones,
             forbiddenZones: [],
             acceptableMiss: [
                 "target": .string("offline_seed"),
@@ -261,12 +266,18 @@ public final class OfflineCaddieDecisionEvaluator {
         var stockIsCanonical = false
     }
 
+    private struct PlanningHazards {
+        let water: [(front: Double, back: Double)]
+        let unmodelled: Bool
+    }
+
     private func routePlans(
         seed: CaddieContextSeed,
         request: CaddieDecisionRequest,
         canonicalSteps: [[String: JSONValue]]?,
         par: Int,
-        greenWindow: (front: Double, back: Double, routeBased: Bool)?
+        greenWindow: (front: Double, back: Double, routeBased: Bool)?,
+        hazards: PlanningHazards
     ) -> RoutePlanning {
         var plans: [String: [[String: JSONValue]]] = [:]
         // Planned landings are clamped to this route end for display; GIR must not use the clamp.
@@ -286,7 +297,6 @@ public final class OfflineCaddieDecisionEvaluator {
         let profiles = localProfiles(
             from: ClubBagStore.effectiveProfileValue(request.context["clubProfiles"] ?? seed.context["clubProfiles"])
         )
-        let hazards = planningHazards(seed: seed, request: request)
         // Two-sided OB / corridor limits need the server planner's typed zones from every lie.
         // The local fallback refuses to claim a complete safe route rather than ignore them —
         // including an installed chain, and whether or not a bag was downloaded.
@@ -328,7 +338,7 @@ public final class OfflineCaddieDecisionEvaluator {
     private func planningHazards(
         seed: CaddieContextSeed,
         request: CaddieDecisionRequest
-    ) -> (water: [(front: Double, back: Double)], unmodelled: Bool, avoidZones: [[String: JSONValue]]) {
+    ) -> PlanningHazards {
         var water = waterIntervals(from: request.context)
         var unmodelled = false
         var zoneValues: [JSONValue] = []
@@ -343,16 +353,8 @@ public final class OfflineCaddieDecisionEvaluator {
         if case .array(let zones)? = request.context["routePlanningHazards"] ?? seed.context["routePlanningHazards"] {
             zoneValues += zones
         }
-        var avoidZones: [[String: JSONValue]] = []
         for zoneValue in zoneValues {
             guard case .object(let zone) = zoneValue else { continue }
-            // Candidate routes repeat the same factual hazards. Keep one compact zone for the
-            // response; sourceRefs remain in evidenceRefs rather than the UI hazard payload.
-            var responseZone = zone
-            responseZone.removeValue(forKey: "sourceRefs")
-            if !avoidZones.contains(where: { $0 == responseZone }) {
-                avoidZones.append(responseZone)
-            }
             let kind = (string(zone["kind"]) ?? "").lowercased()
             if ["ob", "out_of_bounds"].contains(kind) || zone["corridorWidth_m"] != nil {
                 unmodelled = true
@@ -363,7 +365,102 @@ public final class OfflineCaddieDecisionEvaluator {
             let front = number(zone["carryToFront_m"]) ?? clear - (kind == "water" ? 20 : 18)
             water.append((max(0, min(front, clear)), max(0, max(front, clear))))
         }
-        return (water, unmodelled, avoidZones)
+        return PlanningHazards(water: water, unmodelled: unmodelled)
+    }
+
+    /// Response scope matches Python `_build_shot_decision`: only the selected option's
+    /// hazards. The all-route union above remains an input to the conservative safety veto.
+    private func selectedAvoidZones(
+        seed: CaddieContextSeed, request: CaddieDecisionRequest,
+        selected: OfflineCaddieOption?, firstStep: [String: JSONValue]?
+    ) -> [[String: JSONValue]] {
+        guard let selected,
+              case .array(let routes)? = request.context["candidateRoutes"] ?? seed.context["candidateRoutes"],
+              let route = routes.compactMap({ value -> [String: JSONValue]? in
+                  guard case .object(let row) = value else { return nil }
+                  return row
+              }).first(where: { row in
+                  // Python `_route_option_id` / ROUTE_TO_OPTION.
+                  let id = string(row["id"]) ?? ""
+                  let optionId = ["conservative_layup": "safe", "stock_line": "stock",
+                                  "aggressive_line": "attack"][id] ?? id
+                  return optionId == selected.optionId
+              }),
+              case .array(let values)? = route["planningHazards"] else { return [] }
+        let evidence: [String: JSONValue]? = {
+            guard case .object(let row)? = request.context["routeEvidence"] ?? seed.context["routeEvidence"] else { return nil }
+            return row
+        }()
+        let carry = firstStep.flatMap { number($0["targetCarry_m"] ?? $0["targetCarryM"]) } ?? selected.carryM
+        // Tee candidates supply their own target; approach/recovery use Python's carry-based
+        // `_target_local_from_route_evidence` rather than a stale tee landing.
+        let target = request.shotType == "tee"
+            ? localPoint(route["landingLocal"] ?? route["targetLocal"]) ?? targetLocal(evidence: evidence, carry: carry)
+            : targetLocal(evidence: evidence, carry: carry)
+        return values.compactMap { value -> [String: JSONValue]? in
+            guard case .object(var zone) = value else { return nil }
+            zone.removeValue(forKey: "sourceRefs")
+            return avoidZoneForTarget(zone, evidence: evidence, target: target)
+        }
+    }
+
+    private func localPoint(_ value: JSONValue?) -> (x: Double, y: Double)? {
+        guard case .array(let values)? = value, values.count >= 2,
+              let x = number(values[0]), let y = number(values[1]) else { return nil }
+        return (x, y)
+    }
+
+    /// Python `_target_local_from_route_evidence`, `_route_evidence_length`,
+    /// `_route_target_for_carry`: local route metres and 0.1 m target precision.
+    private func targetLocal(evidence: [String: JSONValue]?, carry: Double) -> (x: Double, y: Double)? {
+        guard let evidence else { return nil }
+        let start = localPoint(evidence["routeStartLocal"])
+        let target = localPoint(evidence["routeTargetLocal"])
+        let measuredLength = number(evidence["routeLength_m"]) ?? 0
+        let length = measuredLength > 0 ? measuredLength : start.flatMap { a in
+            target.map { b in hypot(b.x - a.x, b.y - a.y) }
+        } ?? 0
+        guard length > 0 else { return nil }
+        guard let start, let target else {
+            if case .object(let landing)? = evidence["landingWindowLocal"] {
+                return localPoint(landing["center"]) ?? target
+            }
+            return target
+        }
+        return (((start.x + (target.x - start.x) * carry / length) * 10).rounded(.toNearestOrEven) / 10,
+                ((start.y + (target.y - start.y) * carry / length) * 10).rounded(.toNearestOrEven) / 10)
+    }
+
+    /// Python `_zone_has_landing_window_risk`, `_landing_window_risk_applies` and
+    /// `_avoid_zones_for_target`. Missing geometry keeps risks; an irrelevant landing window
+    /// loses only its landing facts, preserving independent line/clearance/distance evidence.
+    private func avoidZoneForTarget(
+        _ original: [String: JSONValue], evidence: [String: JSONValue]?, target: (x: Double, y: Double)?
+    ) -> [String: JSONValue]? {
+        let source = string(original["source"]) ?? ""
+        let hasLandingRisk = source.contains("landing_window")
+            || ["distanceToCenter_m", "landingRadius_m", "overlap_m"].contains {
+                original[$0] != nil && original[$0] != .null
+            }
+        guard hasLandingRisk, let evidence, let target,
+              case .object(let landing)? = evidence["landingWindowLocal"],
+              let center = localPoint(landing["center"]) else { return original }
+        let radius = number(original["landingRadius_m"]) ?? number(landing["radius_m"]) ?? 0
+        guard radius > 0, hypot(target.x - center.x, target.y - center.y) > radius else { return original }
+        var zone = original
+        for key in ["distanceToCenter_m", "landingRadius_m", "overlap_m"] { zone.removeValue(forKey: key) }
+        let sources = source.split(separator: "+").filter { $0 != "landing_window" }.joined(separator: "+")
+        if sources.isEmpty { zone.removeValue(forKey: "source") }
+        else { zone["source"] = .string(sources) }
+        guard ["carryToClear_m", "carryToFront_m", "distance_m"].contains(where: {
+            zone[$0] != nil && zone[$0] != .null
+        }) else { return nil }
+        let reason = string(zone["reason"]) ?? ""
+        if reason.contains("landing window") {
+            if reason.contains("route geometry") { zone["reason"] = .string("route geometry intersects known risk") }
+            else { zone.removeValue(forKey: "reason") }
+        }
+        return zone
     }
 
     private func canonicalIsWaterSafe(
