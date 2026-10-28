@@ -188,6 +188,12 @@ final class ProductPhoneUITests: XCTestCase {
                 server?.lastSample()?.window == window
             }, object: nil)
             XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 10), .completed, window + " sample loaded")
+            let title = ["last10": "近 10 场", "last20": "近 20 场", "12m": "近一年", "all": "全部"][window]!
+            let committed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                return (range.value as? String) == "\(title) · 已加载"
+            }, object: nil)
+            XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 10), .completed,
+                           window + " range committed before changing grain")
             for index in 0..<grain.buttons.count {
                 let button = grain.buttons.element(boundBy: index)
                 let before = grain.buttons.allElementsBoundByIndex.map { $0.isSelected }
@@ -206,6 +212,114 @@ final class ProductPhoneUITests: XCTestCase {
                 XCTAssertEqual(server.lastSample()?.roundIDs.count, 3, window + " sample count")
             }
         }
+    }
+
+    func test_j2_2_grain_selected_while_range_request_is_in_flight_survives_commit() {
+        // This covers a grain tap while the range request is in flight; it does not reproduce the
+        // separate tap-vs-render race at the instant the range response lands.
+        launch(); scores(); tap("results-entry-time")
+        let range = element("time-range")
+        let grain = element("time-grain")
+        XCTAssertTrue(range.waitForExistence(timeout: 10))
+        XCTAssertTrue(grain.waitForExistence(timeout: 10))
+
+        let allLoaded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (range.value as? String) == "全部 · 已加载"
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [allLoaded], timeout: 10), .completed)
+
+        var delayed = ProductFixtureServer.State()
+        delayed.statsResponseDelay = 2
+        server.configure(delayed)
+        range.buttons.element(boundBy: 0).tap()
+        let request = XCTNSPredicateExpectation(predicate: NSPredicate { [server] _, _ in
+            server?.requestedPaths().contains { $0.contains("/api/v2/history/stats/mobile") && $0.contains("window=last10") } == true
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [request], timeout: 10), .completed)
+
+        grain.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(grain.buttons.element(boundBy: 0).isSelected, "the grain tap must land while the range request is in flight")
+        let committed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (range.value as? String) == "近 10 场 · 已加载"
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [committed], timeout: 10), .completed)
+        XCTAssertTrue(grain.buttons.element(boundBy: 0).isSelected, "range commit must not reset the selected grain")
+    }
+
+    func test_j2_2_retry_sends_one_request_for_the_failed_range() {
+        launch(); scores(); tap("results-entry-time")
+        let range = element("time-range")
+        XCTAssertTrue(range.waitForExistence(timeout: 10))
+        let allLoaded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (range.value as? String) == "全部 · 已加载"
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [allLoaded], timeout: 10), .completed)
+
+        var failing = ProductFixtureServer.State()
+        failing.statsFailure = true
+        failing.statsResponseDelay = 2.5
+        server.configure(failing)
+        range.buttons.element(boundBy: 0).tap()
+        let notice = element("time-range-notice")
+        XCTAssertTrue(notice.waitForExistence(timeout: 10))
+        let before = server.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }.count
+        XCTAssertGreaterThanOrEqual(before, 1)
+
+        let retry = notice.buttons.firstMatch
+        XCTAssertTrue(retry.exists)
+        retry.tap()
+        let noticeCleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            return !notice.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [noticeCleared], timeout: 5), .completed,
+                       "retry must clear the old notice while the request is in flight")
+        let oneMore = XCTNSPredicateExpectation(predicate: NSPredicate { [server] _, _ in
+            server?.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }.count == before + 1
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [oneMore], timeout: 10), .completed,
+                       "retry must produce exactly one stats request")
+        let noticeReturned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            return notice.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [noticeReturned], timeout: 10), .completed,
+                       "failed retry must show the range notice again")
+        let requests = server.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }
+        XCTAssertEqual(requests.count, before + 1, "retry must send exactly one additional stats request")
+        XCTAssertTrue(requests.last?.contains("window=last10") == true,
+                      "retry must request the failed range")
+    }
+
+    func test_j2_2_retry_after_failed_refresh_of_the_committed_range_sends_one_request() {
+        // The committed range itself failed to refresh, so retrying cannot rely on a picker change.
+        launch(); scores()
+        var failing = ProductFixtureServer.State()
+        failing.statsFailure = true
+        failing.statsResponseDelay = 2.5
+        server.configure(failing)
+        tap("results-entry-time")
+        let notice = element("time-range-notice")
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), "a failed refresh of 全部 must offer retry")
+        let before = server.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }.count
+        XCTAssertGreaterThanOrEqual(before, 1)
+
+        let retry = notice.buttons.firstMatch
+        XCTAssertTrue(retry.exists)
+        retry.tap()
+        let noticeCleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            return !notice.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [noticeCleared], timeout: 5), .completed,
+                       "retry must clear the old notice while the request is in flight")
+        let noticeReturned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            return notice.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [noticeReturned], timeout: 10), .completed,
+                       "failed retry must show the range notice again")
+        let requests = server.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }
+        XCTAssertEqual(requests.count, before + 1, "retry must send exactly one additional stats request")
+        // 全部 is sent without a window parameter (SyncClient omits it for "all").
+        XCTAssertTrue(requests.last.map { !$0.contains("window=") } == true,
+                      "retry must request the committed range (全部, no window)")
     }
 
     func test_j2_3_quarter_drilldown_opens_only_its_two_real_rounds_then_review() {

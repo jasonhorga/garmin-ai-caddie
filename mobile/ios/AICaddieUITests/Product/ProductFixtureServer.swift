@@ -19,6 +19,9 @@ final class ProductFixtureServer: @unchecked Sendable {
         /// Holds `/history/stats/mobile` answers back so a cached screen stays observable however
         /// long the cold launch takes; the app's own refresh delay is only three seconds.
         var statsResponseDelay: TimeInterval = 0
+        /// Makes stats requests fail after a successful page load so range failure and retry paths
+        /// can be exercised without a second backend.
+        var statsFailure = false
     }
     private let queue = DispatchQueue(label: "product-native-fixture")
     private let listener: NWListener
@@ -217,6 +220,7 @@ final class ProductFixtureServer: @unchecked Sendable {
             default: selected = ids // All three synthetic dates fall inside the twelve-month sample.
             }
             samples.append(Sample(window: window, roundIDs: selected.map { "r\($0)" }))
+            if state.statsFailure { return (503, ["error": "synthetic-stats-failure"]) }
             return (200, stats(roundIDs: selected))
         }
         if path == "/api/v2/history/rounds" {

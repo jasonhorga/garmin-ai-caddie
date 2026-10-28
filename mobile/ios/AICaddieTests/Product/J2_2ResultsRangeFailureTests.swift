@@ -18,7 +18,8 @@ final class J2_2ResultsRangeFailureTests: XCTestCase {
         XCTAssertTrue(state.complete(request, stats: nil))
         XCTAssertEqual(state.window, "all", "failed 10 场 request must return the picker to the data's all range")
         XCTAssertEqual(state.stats?.summary?.totalRounds, 31, "the previous all-range answer remains visible")
-        XCTAssertEqual(state.notice, "10 场未更新，可重试")
+        XCTAssertEqual(state.notice, "近 10 场未更新，可重试")
+        XCTAssertEqual(state.retryWindow, "last10")
         XCTAssertEqual(state.retry().window, "last10", "retry must request the failed range")
     }
 
@@ -63,5 +64,121 @@ final class J2_2ResultsRangeFailureTests: XCTestCase {
         XCTAssertEqual(state.window, "last10")
         XCTAssertEqual(state.stats?.summary?.totalRounds, 10)
         XCTAssertNil(state.notice)
+    }
+
+    func test_j2_2_refresh_success_keeps_unrelated_failed_range_notice() throws {
+        let all = try stats(31)
+        let refreshedAll = try stats(32)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let failedTen = state.select("last10")
+        XCTAssertTrue(state.complete(failedTen, stats: nil))
+
+        let refresh = state.refresh()
+        XCTAssertEqual(refresh.window, "all")
+        XCTAssertTrue(state.complete(refresh, stats: refreshedAll))
+
+        XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
+        XCTAssertEqual(state.notice, "近 10 场未更新，可重试")
+        XCTAssertEqual(state.retry().window, "last10")
+    }
+
+    func test_j2_2_retry_exposes_failed_range_while_request_is_in_flight() throws {
+        let all = try stats(31)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let failedTen = state.select("last10")
+        XCTAssertTrue(state.complete(failedTen, stats: nil))
+
+        let retry = state.retry()
+
+        XCTAssertEqual(retry.window, "last10")
+        XCTAssertEqual(state.pendingWindow, "last10")
+        XCTAssertTrue(state.isLoading)
+        XCTAssertEqual(state.window, "all", "the committed answer remains all until retry succeeds")
+    }
+
+    func test_j2_2_switching_back_to_committed_window_restarts_an_in_flight_refresh() throws {
+        let all = try stats(31)
+        let refreshedAll = try stats(32)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let refresh = state.refresh()
+
+        let restarted = state.choose("last10")
+        XCTAssertNotNil(restarted)
+        XCTAssertEqual(restarted?.window, "last10")
+        let refreshedAgain = state.choose("all")
+        XCTAssertEqual(refreshedAgain?.window, "all")
+        XCTAssertTrue(state.isLoading)
+        XCTAssertTrue(state.complete(refresh, stats: all) == false)
+        XCTAssertTrue(state.complete(try XCTUnwrap(refreshedAgain), stats: refreshedAll))
+        XCTAssertEqual(state.window, "all")
+        XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
+    }
+
+    func test_j2_2_refresh_invalidation_survives_multiple_selection_hops() throws {
+        let all = try stats(31)
+        let refreshedAll = try stats(32)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let refresh = state.refresh()
+
+        _ = state.select("last10")
+        _ = state.select("last20")
+        let restarted = try XCTUnwrap(state.choose("all"))
+
+        XCTAssertEqual(restarted.window, "all")
+        XCTAssertFalse(state.complete(refresh, stats: all))
+        XCTAssertTrue(state.complete(restarted, stats: refreshedAll))
+        XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
+    }
+
+    func test_j2_2_selection_then_second_refresh_keeps_original_refresh_invalidated() throws {
+        let all = try stats(31)
+        let refreshedAll = try stats(32)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let firstRefresh = state.refresh()
+
+        _ = state.select("last10")
+        let secondRefresh = state.refresh()
+        XCTAssertEqual(secondRefresh.window, "last10")
+        let restarted = try XCTUnwrap(state.choose("all"))
+
+        XCTAssertEqual(restarted.window, "all")
+        XCTAssertFalse(state.complete(firstRefresh, stats: all))
+        XCTAssertFalse(state.complete(secondRefresh, stats: all))
+        XCTAssertTrue(state.complete(restarted, stats: refreshedAll))
+        XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
+    }
+
+    func test_j2_2_failed_full_refresh_retry_requests_the_committed_range() throws {
+        let all = try stats(31)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let refresh = state.refresh()
+
+        XCTAssertTrue(state.complete(refresh, stats: nil))
+        XCTAssertEqual(state.retryWindow, "all")
+        let retry = state.retry()
+        XCTAssertEqual(retry.window, "all")
+        XCTAssertTrue(state.isLoading)
+        XCTAssertEqual(state.pendingWindow, "all")
+    }
+
+    func test_j2_2_failed_selection_after_refresh_continues_the_invalidated_refresh() throws {
+        let all = try stats(31)
+        let refreshedAll = try stats(32)
+        var state = ResultsTimeLoadState(window: "all", stats: all)
+        let refresh = state.refresh()
+        let selected = state.select("last10")
+
+        XCTAssertTrue(state.complete(selected, stats: nil))
+        XCTAssertTrue(state.isLoading, "a failed selection must continue the refresh it invalidated")
+        XCTAssertEqual(state.currentRequest.window, "all")
+        XCTAssertGreaterThan(state.currentRequest.generation, selected.generation)
+        XCTAssertEqual(state.notice, "近 10 场未更新，可重试")
+
+        let continued = state.currentRequest
+        XCTAssertFalse(state.complete(refresh, stats: refreshedAll), "the invalidated refresh response is stale")
+        XCTAssertTrue(state.complete(continued, stats: refreshedAll))
+        XCTAssertEqual(state.window, "all")
+        XCTAssertEqual(state.stats?.summary?.totalRounds, 32)
+        XCTAssertEqual(state.notice, "近 10 场未更新，可重试")
     }
 }

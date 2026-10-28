@@ -1,11 +1,12 @@
 diff --git a/mobile/ios/AICaddie/Models/ResultsPresentation.swift b/mobile/ios/AICaddie/Models/ResultsPresentation.swift
+index 27e203e1..af478147 100644
 --- a/mobile/ios/AICaddie/Models/ResultsPresentation.swift
 +++ b/mobile/ios/AICaddie/Models/ResultsPresentation.swift
-@@ -612,6 +612,6 @@
-     mutating func choose(_ requestedWindow: String) -> Request? {
-         guard requestedWindow == window else { return select(requestedWindow) }
--        guard pendingWindow != nil else { return nil }
-+        guard false else { return nil }
-         generation += 1
+@@ -638,7 +638,6 @@ struct ResultsTimeLoadState: Equatable {
+         if refreshInvalidatedBySelection {
+             return restartRefresh()
+         }
+-        generation += 1
          isLoading = false
          failedWindow = nil
+         pendingWindow = nil

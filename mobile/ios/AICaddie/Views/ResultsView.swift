@@ -686,14 +686,17 @@ public struct ResultsTrendView: View {
                     HStack(spacing: 8) {
                         Label(notice, systemImage: "exclamationmark.circle")
                         Spacer(minLength: 8)
-                        Button("重试") { start(load.retry()) }
+                        Button("重试") { retry() }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(16)
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("time-range-notice")
                 }
                 ResultsTimeContent(stats: stats, window: $window, grain: $grain) { destination = $0 }
+                    .environment(\.resultsRangeAccessibilityValue,
+                                 load.accessibilityValue)
             } else if load.isLoading {
                 ProgressView("载入时间与频率…").frame(maxWidth: .infinity).padding(.top, 40)
             } else {
@@ -734,8 +737,12 @@ public struct ResultsTrendView: View {
 
     @MainActor private func start(_ request: ResultsTimeLoadState.Request) {
         guard let apiBaseURL else {
-            load.complete(request, stats: nil)
-            window = load.window
+            if load.complete(request, stats: nil) {
+                window = load.window
+                if load.isLoading {
+                    start(load.currentRequest)
+                }
+            }
             return
         }
         let client = SyncClient(baseURL: apiBaseURL, adminToken: adminToken)
@@ -744,6 +751,9 @@ public struct ResultsTrendView: View {
             guard !Task.isCancelled else { return }
             if load.complete(request, stats: loaded) {
                 window = load.window
+                if load.isLoading {
+                    start(load.currentRequest)
+                }
             }
         }
     }
@@ -751,6 +761,26 @@ public struct ResultsTrendView: View {
     @MainActor private func reloadCommittedRange() {
         let request = load.refresh()
         start(request)
+    }
+
+    @MainActor private func retry() {
+        let target = load.retryWindow
+        if target == window {
+            start(load.retry())
+        } else {
+            window = target
+        }
+    }
+}
+
+fileprivate struct ResultsRangeAccessibilityValueKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+fileprivate extension EnvironmentValues {
+    var resultsRangeAccessibilityValue: String? {
+        get { self[ResultsRangeAccessibilityValueKey.self] }
+        set { self[ResultsRangeAccessibilityValueKey.self] = newValue }
     }
 }
 
@@ -760,6 +790,11 @@ struct ResultsTimeContent: View {
     @Binding var window: String
     @Binding var grain: ResultsTimePresentation.Grain
     var onOpen: (ResultsTrendDestination) -> Void = { _ in }
+    @Environment(\.resultsRangeAccessibilityValue) private var rangeAccessibilityValue
+
+    private var defaultRangeAccessibilityValue: String {
+        return "\(AnalysisLoadState.windowTitle(window)) · 已加载"
+    }
 
     var body: some View {
         let rows = ResultsTimePresentation.chartRows(stats, grain: grain)
@@ -772,6 +807,7 @@ struct ResultsTimeContent: View {
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("time-range")
+            .accessibilityValue(rangeAccessibilityValue ?? defaultRangeAccessibilityValue)
             Picker("粒度", selection: $grain) {
                 ForEach(ResultsTimePresentation.Grain.allCases) { option in
                     Text(option.title).tag(option)
