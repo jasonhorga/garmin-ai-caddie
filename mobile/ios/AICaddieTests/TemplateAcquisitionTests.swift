@@ -535,9 +535,11 @@ final class TemplateAcquisitionTests: XCTestCase {
         let gate = TestRequestGate()
         let started = expectation(description: "ordinary prep request started")
         let cancelled = expectation(description: "ordinary prep request cancelled")
+        let resumed = expectation(description: "ordinary prep request resumed")
         let lock = NSLock()
         var prepRequestCount = 0
         var firstPrepRequest = true
+        var firstPrepCompleted = false
         var cancellationReported = false
         protocolScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
@@ -545,8 +547,14 @@ final class TemplateAcquisitionTests: XCTestCase {
             let roundID = query.first { $0.name == "round_id" }?.value ?? ""
             let loops = query.first { $0.name == "loops" }?.value ?? ""
             if roundID.hasPrefix("prep-library-") {
-                lock.lock(); prepRequestCount += 1; let shouldSignal = firstPrepRequest; firstPrepRequest = false; lock.unlock()
+                lock.lock()
+                prepRequestCount += 1
+                let shouldSignal = firstPrepRequest
+                firstPrepRequest = false
+                let shouldSignalResume = prepRequestCount == 2
+                lock.unlock()
                 if shouldSignal { started.fulfill() }
+                if shouldSignalResume { resumed.fulfill() }
                 gate.wait()
             }
             guard let body = oracle.responses[loops] else {
@@ -554,17 +562,27 @@ final class TemplateAcquisitionTests: XCTestCase {
             }
             var object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
             if !roundID.isEmpty { object["roundId"] = roundID }
+            if roundID.hasPrefix("prep-library-") {
+                lock.withLock { firstPrepCompleted = true }
+            }
             return try Self.response(request, status: 200, body: try JSONSerialization.data(withJSONObject: object))
         }
         CapturingURLProtocol.stopLoadingHandler = { request in
-            guard request.url?.path == "/api/v2/mobile/courses/\(gid)/package" else { return }
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let roundID = query.first { $0.name == "round_id" }?.value ?? ""
+            guard request.url?.path == "/api/v2/mobile/courses/\(gid)/package",
+                  roundID.hasPrefix("prep-library-") else { return }
             lock.lock()
-            let shouldSignal = !cancellationReported
+            let shouldSignal = !cancellationReported && !firstPrepCompleted
             cancellationReported = true
             lock.unlock()
             if shouldSignal { cancelled.fulfill() }
         }
-        let model = acquisitionModel(directory: freshDirectory())
+        defer { CapturingURLProtocol.stopLoadingHandler = nil }
+        let model = acquisitionModel(
+            directory: freshDirectory(),
+            prepStatusProbeRetryDelayNanoseconds: 600_000_000_000
+        )
         let course = MobileCourseOption(globalId: gid, name: "In flight", holes: 18, teeBox: "white")
         model.downloadPrepCourse(course)
         await fulfillment(of: [started], timeout: 5)
@@ -576,7 +594,8 @@ final class TemplateAcquisitionTests: XCTestCase {
             if !model.isOpeningPrepCourse { break }
             try await Task.sleep(nanoseconds: 1_000_000)
         }
-        await model.waitForPrepCourseDownloadForTesting()
+        model.liveHoleInitialLoadDidFinish()
+        await fulfillment(of: [resumed], timeout: 5)
         XCTAssertGreaterThanOrEqual(lock.withLock { prepRequestCount }, 2, "the row resumes after entry")
     }
 

@@ -1780,6 +1780,20 @@
       "promise": "intent-wait"
     },
     {
+      "id": "tests-product-faults-C134-intent-wait-budget",
+      "patch": "tests/product/faults/C134/intent-wait-budget.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testInFlightCourseIntentTimesOutWithinTheForegroundBudget",
+      "promise": "intent-budget"
+    },
+    {
+      "id": "tests-product-faults-C134-intent-pause-other-course",
+      "patch": "tests/product/faults/C134/intent-pause-other-course.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/RoundStartTwoStageTests/testOtherCourseIntentIsPausedWhenStartTakesTheNetwork",
+      "promise": "intent-pause"
+    },
+    {
       "id": "tests-product-faults-C134-block3-map-only",
       "patch": "tests/product/faults/C134/block3-map-only-intent.patch",
       "kind": "native-unit",

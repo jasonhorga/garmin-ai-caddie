@@ -392,6 +392,96 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertEqual(model.pendingLiveHole, 1)
     }
 
+    func testInFlightCourseIntentTimesOutWithinTheForegroundBudget() async throws {
+        let host = "c85-intent-timeout.example.test"
+        let roundId = "c85-intent-timeout"
+        let intentId = c85CourseId
+        let mapPackage = try package(roundId: roundId, mapOnly: true)
+        let held = C85HeldRequests()
+        let requests = C85RequestLog()
+        let intentSent = expectation(description: "intent package sent")
+        let intentSentOnce = C33FirstMatch()
+        let intentPath = "/api/v2/mobile/courses/\(intentId)/package"
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path == intentPath else { proto.reply(404); return }
+            requests.append(proto.request)
+            held.hold(proto)
+            if intentSentOnce.claim() { intentSent.fulfill() }
+        }, onStop: { held.forget($0) })
+        let fixture = makeModel(host: host, held: held, roundStartIntentWaitNanoseconds: 50_000_000)
+        let model = fixture.model
+        let intent = MobileCourseOption(globalId: intentId, name: "Intent nine", holes: 9, teeBox: "blue")
+
+        model.prefetchIntendedCourses([intent], teeBox: "blue")
+        await fulfillment(of: [intentSent], timeout: eventWait)
+        let start = Task {
+            await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: mapPackage.loopEntries)
+        }
+        await start.value
+
+        XCTAssertEqual(model.roundStartFailure, .timedOut)
+        XCTAssertNil(model.pendingLiveHole)
+        XCTAssertEqual(
+            requests.all.filter { c33Query($0, "map_only") == "true" }.count,
+            1,
+            "timeout fails the foreground start instead of issuing an unbounded duplicate"
+        )
+    }
+
+    func testOtherCourseIntentIsPausedWhenStartTakesTheNetwork() async throws {
+        let host = "c85-intent-other.example.test"
+        let roundId = "c85-intent-other"
+        let otherCourseId = 31796
+        let mapPackage = try package(roundId: roundId, mapOnly: true)
+        let mapData = try JSONEncoder().encode(mapPackage)
+        let held = C85HeldRequests()
+        let requests = C85RequestLog()
+        let intentStarted = expectation(description: "other course intent started")
+        let intentStopped = expectation(description: "other course intent stopped")
+        let startSent = expectation(description: "foreground start sent")
+        let intentStartedOnce = C33FirstMatch()
+        let intentStoppedOnce = C33FirstMatch()
+        let startSentOnce = C33FirstMatch()
+        C33URLProtocol.setHandlers(onStart: { proto in
+            guard proto.request.url?.host == host,
+                  (proto.request.url?.path == "/api/v2/mobile/courses/\(otherCourseId)/package"
+                    || proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package") else {
+                proto.reply(404); return
+            }
+            requests.append(proto.request)
+            let roundID = c33Query(proto.request, "round_id") ?? ""
+            if roundID == "prep-library-\(otherCourseId)" {
+                held.hold(proto)
+                if intentStartedOnce.claim() { intentStarted.fulfill() }
+                return
+            }
+            guard c33Query(proto.request, "map_only") == "true" else {
+                proto.reply(404); return
+            }
+            if startSentOnce.claim() { startSent.fulfill() }
+            proto.reply(200, mapData)
+        }, onStop: { request in
+            held.forget(request)
+            let roundID = c33Query(request, "round_id") ?? ""
+            if roundID == "prep-library-\(otherCourseId)", intentStoppedOnce.claim() {
+                intentStopped.fulfill()
+            }
+        })
+        let fixture = makeModel(host: host, held: held)
+        let model = fixture.model
+        let other = MobileCourseOption(globalId: otherCourseId, name: "Other", holes: 9, teeBox: "blue")
+
+        model.prefetchIntendedCourses([other], teeBox: "blue")
+        await fulfillment(of: [intentStarted], timeout: eventWait)
+        await model.prepareCourseRound(roundId: roundId, teeBox: "blue", loops: mapPackage.loopEntries)
+        await fulfillment(of: [intentStopped, startSent], timeout: eventWait)
+
+        let intentRequests = requests.all.filter { c33Query($0, "round_id") == "prep-library-\(otherCourseId)" }
+        XCTAssertEqual(intentRequests.count, 1)
+        XCTAssertEqual(model.pendingLiveHole, 1)
+    }
+
     /// Teardown guard (fixture run 40308301959): once the test hook has returned, nothing the round
     /// started in the background sends another request — the session is invalidated right after.
     func testAStoppedModelSendsNoFurtherRequest() async throws {
@@ -883,7 +973,11 @@ final class RoundStartTwoStageTests: XCTestCase {
         }
     }
 
-    private func makeModel(host: String, held: C85HeldRequests? = nil) -> ModelFixture {
+    private func makeModel(
+        host: String,
+        held: C85HeldRequests? = nil,
+        roundStartIntentWaitNanoseconds: UInt64 = LiveRoundAppModel.defaultRoundStartIntentWaitNanoseconds
+    ) -> ModelFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("c85-\(UUID().uuidString)", isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -896,7 +990,11 @@ final class RoundStartTwoStageTests: XCTestCase {
             session: session,
             retrySleep: { _ in }
         )
-        let model = c33Model(store, client)
+        let model = c33Model(
+            store,
+            client,
+            roundStartIntentWaitNanoseconds: roundStartIntentWaitNanoseconds
+        )
         let fixture = ModelFixture(
             model: model, store: store, client: client, session: session, directory: directory, held: held
         )

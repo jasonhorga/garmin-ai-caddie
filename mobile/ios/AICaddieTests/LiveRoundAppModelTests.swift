@@ -1016,6 +1016,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         let packageData = try JSONEncoder().encode(fetched)
         let requestLock = NSLock()
         var statusRequestCount = 0
+        var statusTimeouts: [TimeInterval] = []
         var statusShouldSucceed = false
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
@@ -1030,6 +1031,7 @@ final class LiveRoundAppModelTests: XCTestCase {
             } else if url.path.hasSuffix("/courses/\(course.globalId)/install/status") {
                 let succeeds = requestLock.withLock {
                     statusRequestCount += 1
+                    statusTimeouts.append(request.timeoutInterval)
                     return statusShouldSucceed
                 }
                 guard succeeds else {
@@ -1089,6 +1091,9 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertEqual(model.prepCourseDownloads.first?.phase, .failed)
         XCTAssertEqual(model.prepCourseDownloads.first?.errorText, "服务器状态暂时无法确认，点重试")
         XCTAssertEqual(requestLock.withLock { statusRequestCount }, 3)
+        XCTAssertTrue(requestLock.withLock {
+            statusTimeouts.allSatisfy { $0 == SyncClient.courseInstallStatusTimeoutInterval }
+        })
 
         requestLock.withLock { statusShouldSucceed = true }
         model.retryPrepCourseDownload(id: pending.id)

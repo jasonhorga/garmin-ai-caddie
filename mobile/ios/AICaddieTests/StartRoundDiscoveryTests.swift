@@ -75,6 +75,15 @@ final class StartRoundDiscoveryTests: XCTestCase {
         ))
     }
 
+    func testStartActionIsUnavailableWhilePreparationIsBusy() {
+        XCTAssertFalse(StartRoundView.isStartAllowed(
+            isPreparing: true,
+            roundId: "round-busy",
+            courseGlobalId: 31795,
+            teeBox: "blue"
+        ))
+    }
+
     func testReturningToVenueKeepsChosenLoopEvenWhenRowComesFromAnotherSource() {
         let first = blackKnight(31794, "A")
         let chosen = blackKnight(31795, "B")
@@ -1396,7 +1405,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         let failed = PrepCourseDownloadRecord(
             course: loop(9302, venue: "同名场", label: "B"), teeBox: "blue", phase: .failed,
-            totalHoles: 9, errorText: "retry", updatedAt: Date(timeIntervalSince1970: 30)
+            totalHoles: 9, updatedAt: Date(timeIntervalSince1970: 30), errorText: "retry"
         )
         let merged = try! XCTUnwrap(StartRoundPresentation.offlineRows([ready, failed]).first)
         XCTAssertEqual(
