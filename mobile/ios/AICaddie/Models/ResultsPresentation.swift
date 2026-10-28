@@ -546,3 +546,78 @@ struct ResultsLandingLoad: Equatable {
         archivePending = false
     }
 }
+
+/// J2.2 时间与频率范围请求的状态。范围控件只能承诺当前 `stats` 的范围；一次切换请求
+/// 未成功前，旧数据仍可留在页面上，但失败时必须把控件和数据一起退回旧范围。
+struct ResultsTimeLoadState: Equatable {
+    enum Phase: Equatable {
+        case loading
+        case content(MobileStats, notice: String?)
+        case failed(String)
+    }
+
+    struct Request: Equatable {
+        let window: String
+        let generation: Int
+    }
+
+    private(set) var window: String
+    private(set) var phase: Phase
+    private(set) var generation = 0
+    private(set) var isLoading = false
+
+    init(window: String = "all", stats: MobileStats? = nil) {
+        self.window = window
+        if let stats {
+            phase = .content(stats, notice: nil)
+        } else {
+            phase = .loading
+        }
+    }
+
+    var stats: MobileStats? {
+        switch phase {
+        case let .content(stats, _): return stats
+        case .loading, .failed: return nil
+        }
+    }
+
+    var notice: String? {
+        guard case let .content(_, notice) = phase else { return nil }
+        return notice
+    }
+
+    var currentRequest: Request { Request(window: window, generation: generation) }
+
+    /// Begin a request for a new range while retaining the currently displayed answer.
+    mutating func select(_ newWindow: String) -> Request {
+        window = newWindow
+        generation += 1
+        isLoading = true
+        return Request(window: newWindow, generation: generation)
+    }
+
+    /// Begin a refresh of the range that is already displayed.
+    mutating func refresh() -> Request {
+        generation += 1
+        isLoading = true
+        return currentRequest
+    }
+
+    /// Commit only the newest request. A failed switch retains the old answer and identifies the
+    /// failed update so the page can offer a retry without claiming the new range was loaded.
+    @discardableResult
+    mutating func complete(_ request: Request, stats: MobileStats?) -> Bool {
+        guard request.generation == generation else { return false }
+        isLoading = false
+        if let stats {
+            window = request.window
+            phase = .content(stats, notice: nil)
+        } else if case let .content(current, _) = phase {
+            phase = .content(current, notice: nil)
+        } else {
+            phase = .failed("时间与频率暂时取不到")
+        }
+        return true
+    }
+}
