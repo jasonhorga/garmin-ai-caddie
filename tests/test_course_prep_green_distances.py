@@ -170,6 +170,16 @@ class GreenCoordinatesTest(unittest.TestCase):
 
 
 class DualGreenTargetAuthorityTest(unittest.TestCase):
+    def test_product_spec_2_8_non_iterable_decoded_meshes_returns_hazards(self):
+        """Product spec 2.8: malformed decoded meshes leave the hazard export unchanged."""
+        hazards = {"target": {"name": "cached", "position": [1.0, 2.0]}, "tees": []}
+        decoded = {
+            "hole": {"Doglegs": [{"Line": [{"X": 0.0, "Y": 0.0}, {"X": 5.0, "Y": 5.0}]}]},
+            "meshes": 5,
+        }
+        rebound = bind_selected_green_target(hazards, decoded)
+        self.assertIs(rebound, hazards)
+
     def test_legacy_target_binding_skips_component_decomposition_without_gir_scope(self):
         """Product spec 2.8: non-GIR target binding does not pay for component selection."""
         hole = {
