@@ -5052,15 +5052,21 @@ public final class LiveRoundAppModel: ObservableObject {
                 if try offlineStore.isRoundPendingFinish(package.roundId) { return }
                 pendingEventCount = try offlineStore.loadPendingEvents(roundId: package.roundId).count
                 let mediaSuffix = uploadedMediaCount > 0 ? " · \(uploadedMediaCount) 张照片/视频" : ""
-                let rejectedScoreHole = try offlineStore.loadQuarantinedEvents(roundId: package.roundId)
-                    .first(where: { $0.event.kind == .score })?.event.hole
-                if let rejectedScoreHole {
-                    syncStatus = "第 \(rejectedScoreHole) 洞成绩上传被拒，请重新录入"
+                let rejectedScore = try offlineStore.loadQuarantinedEvents(roundId: package.roundId)
+                    .first(where: { $0.event.kind == .score })
+                if let rejectedScore {
+                    let reason = rejectedScore.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let suffix = reason.isEmpty ? "" : "（\(reason)）"
+                    syncStatus = "第 \(rejectedScore.event.hole) 洞成绩被服务器拒绝\(suffix)"
                 } else {
                     syncStatus = result.duplicate ? "已同步" : "已同步\(mediaSuffix)"
                 }
                 localEventUploadStatus = quarantinedEventCount > 0
-                    ? (rejectedScoreHole.map { "第 \($0) 洞成绩上传被拒，请重新录入" }
+                    ? (rejectedScore.map { rejected in
+                        let reason = rejected.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let suffix = reason.isEmpty ? "" : "（\(reason)）"
+                        return "第 \(rejected.event.hole) 洞成绩被服务器拒绝\(suffix)"
+                    }
                         ?? "其余记录已上传，\(quarantinedEventCount) 条异常记录已保留在本机隔离区")
                     : (pendingEventCount == 0 ? "本机记录已上传" : "仍有 \(pendingEventCount) 条记录待上传")
             }
@@ -5232,6 +5238,20 @@ public final class LiveRoundAppModel: ObservableObject {
             || lower.contains("target fields") || lower.contains("non-empty")
     }
 
+    private static func singleEventValidationMessage(_ body: String?) -> String? {
+        guard let body, let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let detail = object["detail"] else { return nil }
+        if let detail = detail as? [String: Any], let message = detail["message"] as? String {
+            return message
+        }
+        if let details = detail as? [[String: Any]] {
+            let messages = details.compactMap { $0["msg"] as? String }
+            return messages.isEmpty ? nil : messages.joined(separator: "; ")
+        }
+        return detail as? String
+    }
+
     /// Probe a 422 batch by bisection. Singleton payload failures are collected first; they are
     /// quarantined only when at least one sibling succeeds. If every singleton fails, the batch is
     /// retained intact so a server/store outage cannot create an unrecoverable quarantine.
@@ -5243,6 +5263,7 @@ public final class LiveRoundAppModel: ObservableObject {
         struct ProbeResult {
             let result: SyncResult
             let invalid: [LiveRoundEvent]
+                    let invalidReasons: [String: String]
             let allInvalid: Bool
         }
         func probe(_ batch: [LiveRoundEvent]) async throws -> ProbeResult {
@@ -5255,7 +5276,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 guard Set(acknowledged) == Set(expected), acknowledged.count == expected.count else {
                     throw LiveRoundFinishError.incompleteAcknowledgement
                 }
-                return ProbeResult(result: result, invalid: [], allInvalid: false)
+                return ProbeResult(result: result, invalid: [], invalidReasons: [:], allInvalid: false)
             } catch SyncClientError.http(status: let status, body: let body) {
                 guard batch.count > 1 else {
                     guard Self.isSingleEventPayloadValidation422(body) else {
@@ -5264,6 +5285,8 @@ public final class LiveRoundAppModel: ObservableObject {
                     return ProbeResult(
                         result: SyncResult(accepted: 0, duplicate: false),
                         invalid: batch,
+                        invalidReasons: [batch[0].eventId: Self.singleEventValidationMessage(body)
+                            ?? "单条事件 payload 校验失败"],
                         allInvalid: true
                     )
                 }
@@ -5279,6 +5302,7 @@ public final class LiveRoundAppModel: ObservableObject {
                         serverSequence: max(left.result.serverSequence, right.result.serverSequence)
                     ),
                     invalid: left.invalid + right.invalid,
+                    invalidReasons: left.invalidReasons.merging(right.invalidReasons) { left, _ in left },
                     allInvalid: left.allInvalid && right.allInvalid
                 )
             }
@@ -5288,7 +5312,10 @@ public final class LiveRoundAppModel: ObservableObject {
             throw SyncClientError.http(status: 422, body: "all events rejected")
         }
         for event in probed.invalid {
-            try offlineStore.quarantineEvent(event, status: 422, reason: "单条事件 payload 校验失败")
+            try offlineStore.quarantineEvent(
+                event, status: 422,
+                reason: probed.invalidReasons[event.eventId] ?? "单条事件 payload 校验失败"
+            )
         }
         if !probed.invalid.isEmpty {
             quarantinedEventCount = try offlineStore.loadQuarantinedEvents(roundId: roundId).count

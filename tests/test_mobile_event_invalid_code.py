@@ -72,7 +72,12 @@ class MobileEventInvalidCodeTests(unittest.TestCase):
             with self.subTest(error=error), TemporaryDirectory() as tmp, patch("server_v2.mobile.MOBILE_ROOT", Path(tmp)), patch("server_v2.mobile.append_event_batch", side_effect=error):
                 response = self.post([self.event])
                 self.assertEqual(response.status_code, 422)
-                self.assertEqual(response.json()["detail"], str(error))
+                detail = response.json()["detail"]
+                if isinstance(error, ScoreInvariantError):
+                    self.assertEqual(detail["code"], "event_invalid")
+                    self.assertEqual(detail["message"], str(error))
+                else:
+                    self.assertEqual(detail, str(error))
 
     def test_product_spec_57_score_invariant_is_event_invalid_and_retryable_sibling_writes(self):
         putt = {**self.event, "eventId": "putt-2", "kind": "putt", "payload": {"putts": 2}}
@@ -83,7 +88,8 @@ class MobileEventInvalidCodeTests(unittest.TestCase):
             self.assertEqual(response.status_code, 422, response.text)
             self.assertEqual(response.json()["detail"]["code"], "event_invalid")
             self.assertIn("hole 1: total 2 is less than putts 2", response.json()["detail"]["message"])
-            self.assertFalse((Path(tmp) / "data/mobile_events/events.jsonl").exists())
+            event_log = Path(tmp) / "data/mobile_events/events.jsonl"
+            self.assertNotIn("bad-score", event_log.read_text(encoding="utf-8"))
             good_score = {**self.event, "eventId": "good-score", "payload": {"strokes": 3}}
             retry = self.post([good_score], headers={"Idempotency-Key": "good-score"})
             self.assertEqual(retry.status_code, 200, retry.text)

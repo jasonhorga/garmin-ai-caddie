@@ -763,6 +763,12 @@ def append_mobile_events_response(
                 raise HTTPException(status_code=422, detail="event roundId does not match path") from exc
             logger.warning("mobile_events validation_failed status=422 path=body.events type=event_invalid")
             raise HTTPException(status_code=422, detail={"code": "event_invalid", "message": str(exc)}) from exc
+        except score_invariant.ScoreInvariantError as exc:
+            # A score invariant violation belongs to one event's content. The locked append
+            # validator has rejected the whole request before any row or reservation is written;
+            # the client may bisect the request and quarantine this singleton.
+            logger.warning("mobile_events validation_failed status=422 path=body.events type=event_invalid")
+            raise HTTPException(status_code=422, detail={"code": "event_invalid", "message": str(exc)}) from exc
         except ValueError as exc:
             logger.warning("mobile_events validation_failed status=422 path=body.events type=event_batch_invalid")
             raise HTTPException(status_code=422, detail=str(exc)) from exc
