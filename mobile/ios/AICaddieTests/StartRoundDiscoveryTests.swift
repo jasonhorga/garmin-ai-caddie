@@ -1292,8 +1292,8 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         let orphan = PrepCourseDownloadRecord(
             course: loop(9103, venue: "奥地利球场", label: "A"),
-            teeBox: "blue", phase: .queued, isSpeculative: true,
-            updatedAt: Date(timeIntervalSince1970: 300)
+            teeBox: "blue", phase: .queued,
+            updatedAt: Date(timeIntervalSince1970: 300), isSpeculative: true
         )
         let rows = StartRoundPresentation.offlineRows([first, second, orphan])
         XCTAssertEqual(rows.count, 1)
