@@ -15,6 +15,24 @@ func validOnePixelPNGData() -> Data {
 /// Shared URLProtocol stub for client tests: install on an ephemeral `URLSessionConfiguration` and
 /// set `requestHandler` to inspect the outgoing request + return a canned response. Used by
 /// `SyncClientTests` and `AppleAuthClientTests` (so it must not be `private` to one file).
+final class TestRequestGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var open = false
+
+    func wait() {
+        condition.lock()
+        while !open { condition.wait() }
+        condition.unlock()
+    }
+
+    func release() {
+        condition.lock()
+        open = true
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
 final class CapturingURLProtocol: URLProtocol {
     private static let handlerLock = NSLock()
     private static var storedRequestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
@@ -154,5 +172,31 @@ final class CapturingURLProtocolTests: XCTestCase {
         release.signal()
         _ = try await oldRequest.value
         XCTAssertEqual(nextHandlerCalls, 0)
+    }
+
+    /// A request queued by the previous test must not be answered by the next test's handler.
+    /// The token is deliberately attached to the request before the handler is replaced; the
+    /// current process-wide handler implementation has no way to reject this stale request yet.
+    func testAStaleTestTokenCannotReachTheNextHandler() async throws {
+        let staleToken = UUID().uuidString
+        var nextHandlerCalls = 0
+        CapturingURLProtocol.requestHandler = { request in
+            nextHandlerCalls += 1
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Codex-Test-Token"), "next")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data())
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Codex-Test-Token": staleToken]
+        let session = URLSession(configuration: configuration)
+        do {
+            _ = try await session.data(from: URL(string: "https://protocol.test/stale")!)
+            XCTFail("a stale request must fail instead of reaching the next test handler")
+        } catch {
+            XCTAssertEqual(nextHandlerCalls, 0)
+        }
     }
 }
