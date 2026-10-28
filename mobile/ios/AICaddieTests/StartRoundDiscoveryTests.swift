@@ -1264,25 +1264,49 @@ final class StartRoundDiscoveryTests: XCTestCase {
     }
 
     /// J4.2/C134: a first timeout expands to the 50 km pass before the setup page can fail.
-    func testNearbyFirstTimeoutUsesTheExpandedPassBeforeFailure() {
-        XCTAssertEqual(StartRoundView.nearbyDiscoveryRadii, [5, 50])
-        XCTAssertFalse(
-            StartRoundView.nearbyDiscoveryShouldFail(
-                publishedProviderResult: false, lastError: nil, hasNearbyRows: false
-            )
+    func testNearbyFirstTimeoutUsesTheExpandedPassBeforeFailure() async {
+        var radii: [Int] = []
+        let match = MobileCourseSearchMatch(globalId: 7001, name: "扩大范围球场", holes: 18, city: nil, province: nil, ratio: 1)
+        let outcome = await StartRoundView.performNearbyDiscovery(
+            latitude: 31, longitude: 121,
+            request: { _, _, radius in
+                radii.append(radius)
+                if radius == 5 { throw URLError(.timedOut) }
+                return [match]
+            },
+            resolve: { match in
+                MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18)
+            }
         )
+        XCTAssertEqual(radii, [5, 50])
+        XCTAssertEqual(outcome.providerOptions.map(\.globalId), [7001])
+        XCTAssertFalse(StartRoundView.nearbyDiscoveryShouldFail(
+            publishedProviderResult: outcome.publishedProviderResult,
+            lastError: outcome.lastError,
+            hasNearbyRows: !outcome.providerOptions.isEmpty
+        ))
     }
 
-    /// J4.2/C134: an empty 5 km response followed by a failed 50 km response is retryable and
-    /// keeps the offline fallback instead of presenting a false empty-success state.
-    func testNearbyEmptyFirstPassAndFailedExpansionEnterRetryState() {
-        XCTAssertTrue(
-            StartRoundView.nearbyDiscoveryShouldFail(
-                publishedProviderResult: false,
-                lastError: URLError(.timedOut),
-                hasNearbyRows: false
-            )
+    /// J4.2/C134: an empty 5 km response followed by a failed 50 km response enters retry state.
+    func testNearbyEmptyFirstPassAndFailedExpansionEnterRetryState() async {
+        var radii: [Int] = []
+        let outcome = await StartRoundView.performNearbyDiscovery(
+            latitude: 31, longitude: 121,
+            request: { _, _, radius in
+                radii.append(radius)
+                if radius == 5 { return [] }
+                throw URLError(.timedOut)
+            },
+            resolve: { match in
+                MobileCourseOption(globalId: match.globalId, name: match.name, holes: match.holes ?? 18)
+            }
         )
+        XCTAssertEqual(radii, [5, 50])
+        XCTAssertTrue(StartRoundView.nearbyDiscoveryShouldFail(
+            publishedProviderResult: outcome.publishedProviderResult,
+            lastError: outcome.lastError,
+            hasNearbyRows: !outcome.providerOptions.isEmpty
+        ))
     }
 
     // MARK: - B4b: one course list, first-loop tiles, start title
@@ -1336,7 +1360,7 @@ final class StartRoundDiscoveryTests: XCTestCase {
     func testOfflineRowsCollapseLoopsByPhysicalVenue() {
         let first = PrepCourseDownloadRecord(
             course: loop(9101, venue: "愉景灣高爾夫球會", label: "A"),
-            teeBox: "blue", phase: .downloading, downloadedHoles: 3, totalHoles: 9,
+            teeBox: "blue", phase: .ready, preparedHoles: 9, downloadedHoles: 9, totalHoles: 9,
             updatedAt: Date(timeIntervalSince1970: 200)
         )
         let second = PrepCourseDownloadRecord(
@@ -1355,13 +1379,30 @@ final class StartRoundDiscoveryTests: XCTestCase {
         )
         let explicitlyRequested = PrepCourseDownloadRecord(
             course: loop(9105, venue: "北湖", label: "A"),
-            teeBox: "blue", phase: .queued
+            teeBox: "blue", phase: .queued,
+            updatedAt: Date(timeIntervalSince1970: 50)
         )
         let rows = StartRoundPresentation.offlineRows([first, second, orphan, roundOwned, explicitlyRequested])
         XCTAssertEqual(rows.count, 2)
         XCTAssertEqual(rows.first?.course.venueDisplayName, "愉景灣高爾夫球會")
         XCTAssertEqual(rows.first?.phase, .ready)
         XCTAssertEqual(rows.last?.course.venueDisplayName, "北湖")
+    }
+
+    func testOfflineRetryTargetsOnlyFailedLoopsInAMergedVenue() {
+        let ready = PrepCourseDownloadRecord(
+            course: loop(9301, venue: "同名场", label: "A"), teeBox: "blue", phase: .ready,
+            downloadedHoles: 9, totalHoles: 9, updatedAt: Date(timeIntervalSince1970: 20)
+        )
+        let failed = PrepCourseDownloadRecord(
+            course: loop(9302, venue: "同名场", label: "B"), teeBox: "blue", phase: .failed,
+            totalHoles: 9, errorText: "retry", updatedAt: Date(timeIntervalSince1970: 30)
+        )
+        let merged = try! XCTUnwrap(StartRoundPresentation.offlineRows([ready, failed]).first)
+        XCTAssertEqual(
+            StartRoundView.offlineActionRecords(for: merged, in: [ready, failed], retrying: true).map(\.id),
+            [failed.id]
+        )
     }
 
     func testCourseListKeepsTheRecentCourseWhenNearbyOmitsIt() {

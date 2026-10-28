@@ -824,9 +824,6 @@ public final class LiveRoundAppModel: ObservableObject {
     var prepStatusProbeRetryDelayNanoseconds: UInt64
     private var prefetchedTopoURLs = Set<String>()
     private var completedIntentPrefetchIDs = Set<String>()
-    /// Start-created intent rows become ordinary whole-course jobs after the first prep hole.
-    private var postStartIntentPrefetchIDs = Set<String>()
-    private var releasedPostStartIntentPrefetchIDs = Set<String>()
     #if canImport(UIKit)
     private var prepBackgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
     #endif
@@ -1843,9 +1840,6 @@ public final class LiveRoundAppModel: ObservableObject {
         // failed, release the prep-library queue instead of leaving durable jobs paused.
         if deferredOfflineCourseDownloadRevalidation == nil,
            offlineCourseDownloadTask == nil {
-            if prepPackage == nil && !isOpeningPrepCourse {
-                releasePostStartIntentPrefetches()
-            }
             startPrepCourseDownloadQueueIfNeeded()
         }
         // A start that did not leave a live round (failed, or not a new round) gives the results
@@ -2354,36 +2348,12 @@ public final class LiveRoundAppModel: ObservableObject {
             beginRoundEnrichmentIfNeeded()
         }
         releaseFreshEntry(reason: "live-initial-load-finished")
-        releasePostStartIntentPrefetches()
         resumeInterruptedOfflineCourseDownload()
     }
 
     /// Course discovery stops the round's all-hole download (`prioritizeCourseDiscovery`). When the
     /// player comes back to that round's live view instead of starting another, pick it up again:
     /// it skips every hole already on disk. Previously nothing restarted it until the next launch.
-    private func releasePostStartIntentPrefetches() {
-        guard !postStartIntentPrefetchIDs.isEmpty else { return }
-        let ids = postStartIntentPrefetchIDs
-        releasedPostStartIntentPrefetchIDs.formUnion(ids)
-        postStartIntentPrefetchIDs.removeAll()
-        var changed = false
-        for id in ids {
-            guard prepCourseDownloads.contains(where: { $0.id == id }) else { continue }
-            updatePrepCourseDownload(id: id) { record in
-                record.isIntentPrefetch = false
-                record.isRoundPrefetch = false
-                record.phase = .queued
-                record.errorText = nil
-            }
-            changed = true
-        }
-        if changed {
-            persistPrepCourseDownloads()
-            refreshDownloadedCourseOptions()
-            startPrepCourseDownloadQueueIfNeeded()
-        }
-    }
-
     private func resumeInterruptedOfflineCourseDownload() {
         guard let roundId = interruptedOfflineCourseDownloadRoundId else { return }
         guard offlineCourseDownloadRoundId == nil,
@@ -4677,10 +4647,9 @@ public final class LiveRoundAppModel: ObservableObject {
         prepPriorityTask = nil
         prepEnrichmentTask?.cancel()
         prepEnrichmentTask = nil
-        // Record the tap immediately, but keep the whole-course job as an intent so the foreground
-        // map-only request owns the network until the hole screen is ready (C85).
-        postStartIntentPrefetchIDs.insert(PrepCourseDownloadRecord.key(globalId: course.globalId, teeBox: teeBox))
-        prefetchIntendedCourses([course], teeBox: teeBox)
+        // The selected-course map intent and the player's whole-course download are independent
+        // jobs. The latter is durable before the foreground start takes the network.
+        downloadPrepCourse(course)
         prepPriorityRoundID = roundId
         prepPriorityHole = hole ?? 1
         prepCourse = course
@@ -4856,7 +4825,6 @@ public final class LiveRoundAppModel: ObservableObject {
         prepEnrichmentTask?.cancel()
         prepEnrichmentTask = nil
         prepEnrichmentRoundID = nil
-        releasePostStartIntentPrefetches()
         isOpeningPrepCourse = false
         prepPackage = nil
         prepCourse = nil
@@ -6191,7 +6159,10 @@ public final class LiveRoundAppModel: ObservableObject {
         // Automatic rows are cleaned only by the one-time legacy migration above. Ordinary
         // launches must restore every durable row so an interrupted worker can resume after the
         // network returns instead of silently losing its queue entry.
-        prepCourseDownloads = loaded.map { record in
+        // If the legacy rewrite failed, keep the in-memory view at the same migration boundary
+        // while leaving the original bytes untouched for the next launch.
+        let restoredRows = migrationFailed ? loaded.filter { $0.phase == .ready } : loaded
+        prepCourseDownloads = restoredRows.map { record in
             var resumable = record
             // A ready row is only a convenience index; the revision-bound facts and every topo
             // file remain the install authority. Reconcile stale rows at launch so the library
@@ -6293,26 +6264,7 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func completedIntentPrefetchAlreadyInstalled(_ record: PrepCourseDownloadRecord) -> Bool {
-        guard completedIntentPrefetchIDs.contains(record.id) else { return false }
-        guard let _ = try? offlineStore.loadCourseTemplate(
-            globalId: record.course.globalId,
-            teeBox: record.teeBox
-        ) else {
-            // Storage maintenance may remove the template after this launch. Allow a fresh
-            // selection prefetch instead of treating the stale in-memory marker as authoritative.
-            completedIntentPrefetchIDs.remove(record.id)
-            return false
-        }
-        return true
-    }
-
-    /// The row can be promoted by a tap while its map-only request is in flight. The completion
-    /// path must use that latest durable intent, otherwise it removes the player's download row.
-    nonisolated static func mapOnlyFetchStillRepresentsIntent(
-        capturedIsIntentPrefetch: Bool,
-        currentIsIntentPrefetch: Bool?
-    ) -> Bool {
-        currentIsIntentPrefetch ?? capturedIsIntentPrefetch
+        completedIntentPrefetchIDs.contains(record.id)
     }
 
     private func geometryRevisions(in template: LiveRoundPackage) -> [String: String] {
@@ -6374,16 +6326,6 @@ public final class LiveRoundAppModel: ObservableObject {
         let id = candidate.id
         // The player opened this course in 备战 (选了就进).
         offlineStore.recordCourseUse(globalId: course.globalId, teeBox: candidate.teeBox)
-        if prepCourseDownloads.first(where: { $0.id == id })?.yieldsToForeground == true
-            || prepCourseDownloads.first(where: { $0.id == id })?.isRoundPrefetch == true {
-            // The player now asked for this course themselves: a later intent must not drop it, and
-            // a speculative row stops waiting for Wi-Fi.
-            updatePrepCourseDownload(id: id) { record in
-                record.isIntentPrefetch = false
-                record.isSpeculative = false
-                record.isRoundPrefetch = false
-            }
-        }
         if let existing = prepCourseDownloads.first(where: { $0.id == id }) {
             if readyPrepTemplate(for: existing) != nil {
                 updatePrepCourseDownload(id: id) { record in
@@ -6440,7 +6382,8 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     /// The course the player is about to play — selected on 开始一场, or the home's 在这个球场
-    /// venue — installs its whole-course template now, on any network, so Start projects it
+    /// venue — sends a map-only intent. An explicit 备战/download action owns a separate
+    /// whole-course row and installer.
     /// offline and every hole opens on its precise map. `courses` are the venue's loops; `teeBox`
     /// is the tee Start will use, because templates are keyed by tee (topo bitmaps are not, so a
     /// later tee change still reuses them). A newer intent drops unfinished rows of an older one;
@@ -6737,7 +6680,6 @@ public final class LiveRoundAppModel: ObservableObject {
             || deferredOfflineCourseDownloadRevalidation != nil
         let eligible = prepCourseDownloads
             .filter { $0.phase == .queued }
-            .filter { !postStartIntentPrefetchIDs.contains($0.id) }
             .filter { !startWindowActive }
             .filter {
                 foregroundCourseRequestCount == 0
@@ -7114,28 +7056,28 @@ public final class LiveRoundAppModel: ObservableObject {
                 loops: record.loops,
                 ensureGeometry: false,
                 backgroundGeometry: true,
-                // Selecting a course is a latency hint, not a request for the player's whole
-                // history. The first intent response is the same map-only package used by Start;
-                // its first-hole topo is warmed immediately and the full library job can continue
-                // after the foreground window releases.
+                // Selecting a course is a latency hint. Intent rows only warm the map and never
+                // become the player's whole-course offline install.
                 mapOnly: record.isIntentPrefetch,
                 includeEventCursor: false,
                 requestKind: .userDownload
             )
             let canonicalFetched = fetched
-            // The player may have tapped 下载 while this map-only request was in flight. Read the
-            // durable row again: that tap clears isIntentPrefetch and must promote this same job to
-            // the normal full-course install instead of deleting it on completion.
-            let currentIsIntentPrefetch = Self.mapOnlyFetchStillRepresentsIntent(
-                capturedIsIntentPrefetch: record.isIntentPrefetch,
-                currentIsIntentPrefetch: prepCourseDownloads
-                    .first(where: { $0.id == id })?.isIntentPrefetch
-            )
-            if currentIsIntentPrefetch {
+            let isIntentPrefetch = record.isIntentPrefetch
+            if isIntentPrefetch {
                 prefetchFirstHoleTopo(in: canonicalFetched)
             }
             guard !Task.isCancelled,
                   prepCourseDownloadGeneration == generation else { throw CancellationError() }
+            if isIntentPrefetch {
+                // Intent responses warm the first-hole map only. They never become an offline
+                // template and never mutate the independent whole-course download row.
+                prepCourseDownloads.removeAll { $0.id == id }
+                completedIntentPrefetchIDs.insert(id)
+                persistPrepCourseDownloads()
+                refreshDownloadedCourseOptions()
+                return
+            }
             // Keep the previous template available for an offline live round until this
             // replacement package has actually arrived. The atomic write then supersedes it even
             // when the old package has richer prep coverage than the newly fetched package.
@@ -7145,33 +7087,6 @@ public final class LiveRoundAppModel: ObservableObject {
                 .isEmpty == false
             if !replacingExisting {
                 try offlineStore.saveCourseTemplate(canonicalFetched)
-            }
-            if currentIsIntentPrefetch {
-                // A Start tap owns this intent after the map opens. Keep its durable row and turn
-                // it into a normal whole-course job once the first prep hole has settled.
-                if postStartIntentPrefetchIDs.contains(id)
-                    || releasedPostStartIntentPrefetchIDs.contains(id) {
-                    let released = releasedPostStartIntentPrefetchIDs.contains(id)
-                    updatePrepCourseDownload(id: id, generation: generation) { state in
-                        state.isIntentPrefetch = false
-                        state.isRoundPrefetch = !released
-                        state.phase = .queued
-                        state.totalHoles = max(state.totalHoles, canonicalFetched.holes.count)
-                        state.errorText = released ? nil : "进洞后继续"
-                    }
-                    releasedPostStartIntentPrefetchIDs.remove(id)
-                    persistPrepCourseDownloads()
-                    refreshDownloadedCourseOptions()
-                    if released {
-                        startPrepCourseDownloadQueueIfNeeded()
-                    }
-                } else {
-                    prepCourseDownloads.removeAll { $0.id == id }
-                    completedIntentPrefetchIDs.insert(id)
-                    persistPrepCourseDownloads()
-                    refreshDownloadedCourseOptions()
-                }
-                return
             }
             updatePrepCourseDownload(id: id, generation: generation) { state in
                 state.totalHoles = max(1, canonicalFetched.holes.count)

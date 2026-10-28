@@ -393,13 +393,19 @@ public struct StartRoundView: View {
                         }
                         Spacer()
                         if row.phase == .failed {
-                            Button("重试") { onRetryPrepCourseDownload(row.id) }
-                                .buttonStyle(.bordered)
+                            Button("重试") {
+                                for failed in Self.offlineActionRecords(for: row, in: prepCourseDownloads, retrying: true) {
+                                    onRetryPrepCourseDownload(failed.id)
+                                }
+                            }
+                            .buttonStyle(.bordered)
                         } else if row.phase != .ready {
                             Button(row.phase == .queued ? "下载" : "继续下载") {
-                                onDownloadPrepCourse(row.course.replacingTeeBox(row.teeBox))
+                                for pending in Self.offlineActionRecords(for: row, in: prepCourseDownloads, retrying: false) {
+                                    onDownloadPrepCourse(pending.course.replacingTeeBox(pending.teeBox))
+                                }
                             }
-                                .buttonStyle(.bordered)
+                            .buttonStyle(.bordered)
                         }
                     }
                     .padding(.vertical, 4)
@@ -413,6 +419,25 @@ public struct StartRoundView: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("start-round-offline-courses")
         }
+    }
+
+    static func offlineActionRecords(
+        for row: PrepCourseDownloadRecord,
+        in downloads: [PrepCourseDownloadRecord],
+        retrying: Bool
+    ) -> [PrepCourseDownloadRecord] {
+        downloads
+            .filter { candidate in
+                !candidate.isSpeculative
+                    && !candidate.isIntentPrefetch
+                    && !(candidate.isRoundPrefetch && candidate.phase != .ready)
+                    && candidate.teeBox.caseInsensitiveCompare(row.teeBox) == .orderedSame
+                    && samePhysicalVenue(candidate.course, row.course)
+                    && (retrying ? candidate.phase == .failed : candidate.phase != .ready)
+            }
+            .sorted { lhs, rhs in
+                lhs.course.globalId < rhs.course.globalId
+            }
     }
 
     private func downloadStatus(_ row: PrepCourseDownloadRecord) -> String {
@@ -2205,6 +2230,59 @@ public struct StartRoundView: View {
         !publishedProviderResult && lastError != nil && !hasNearbyRows
     }
 
+    struct NearbyDiscoveryLoopResult {
+        let providerOptions: [MobileCourseOption]
+        let carriedTees: [Int: [CourseTee]]
+        let publishedProviderResult: Bool
+        let lastError: Error?
+    }
+
+    /// The actual bounded nearby request loop. Keeping the transport loop here lets acceptance tests
+    /// drive the same timeout/empty/expanded-radius path as the view.
+    static func performNearbyDiscovery(
+        latitude: Double,
+        longitude: Double,
+        radii: [Int] = nearbyDiscoveryRadii,
+        automaticRetryCount: Int = nearbyAutomaticRetryCount,
+        request: @escaping (Double, Double, Int) async throws -> [MobileCourseSearchMatch],
+        resolve: @escaping (MobileCourseSearchMatch) -> MobileCourseOption?
+    ) async -> NearbyDiscoveryLoopResult {
+        var publishedProviderResult = false
+        var lastError: Error?
+        var carriedTees: [Int: [CourseTee]] = [:]
+        var providerOptions: [MobileCourseOption] = []
+        for (index, radius) in radii.enumerated() {
+            var attempts = 0
+            while attempts <= automaticRetryCount {
+                do {
+                    let matches = try await request(latitude, longitude, radius)
+                    carriedTees.merge(StartRoundPresentation.carriedTees(in: matches)) { _, latest in latest }
+                    var seen = Set<Int>()
+                    providerOptions = matches.compactMap(resolve).filter { seen.insert($0.globalId).inserted }
+                    publishedProviderResult = !providerOptions.isEmpty || publishedProviderResult
+                    if !providerOptions.isEmpty || index == radii.count - 1 {
+                        return NearbyDiscoveryLoopResult(
+                            providerOptions: providerOptions,
+                            carriedTees: carriedTees,
+                            publishedProviderResult: publishedProviderResult,
+                            lastError: lastError
+                        )
+                    }
+                    break
+                } catch {
+                    lastError = error
+                    attempts += 1
+                }
+            }
+        }
+        return NearbyDiscoveryLoopResult(
+            providerOptions: providerOptions,
+            carriedTees: carriedTees,
+            publishedProviderResult: publishedProviderResult,
+            lastError: lastError
+        )
+    }
+
     static func shouldApplyNearbyDiscoveryResult(
         isCancelled: Bool,
         requestToken: UUID,
@@ -2284,69 +2362,12 @@ public struct StartRoundView: View {
                 isLoadingNearby = false
             }
         }
-        var publishedProviderResult = false
-        var lastError: Error?
-        let radii = Self.nearbyDiscoveryRadii
-        for (index, radius) in radii.enumerated() {
-            var attempts = 0
-            while attempts <= Self.nearbyAutomaticRetryCount {
-                do {
-                    let matches = try await onNearbyCourses(
-                        fix.coordinate.latitude,
-                        fix.coordinate.longitude,
-                        radius
-                    )
-                    guard Self.shouldApplyNearbyDiscoveryResult(
-                        isCancelled: Task.isCancelled,
-                        requestToken: requestToken,
-                        activeRequestToken: nearbyRequestToken,
-                        requestKey: requestKey,
-                        currentRequestKey: locationDiscoveryKey
-                    ) else { return }
-                    carriedCourseTees.merge(StartRoundPresentation.carriedTees(in: matches)) { _, latest in latest }
-                    var seen = Set<Int>()
-                    let providerNearby = matches.compactMap { resolvedOption(for: $0) }.filter {
-                        seen.insert($0.globalId).inserted
-                    }
-                    nearbyCourseOptions = providerNearby
-                    let providerIDs = Set(providerNearby.map(\.globalId))
-                    offlineCourseOptions = resolvedOfflineOptions(localNearby).filter {
-                        !providerIDs.contains($0.globalId)
-                    }
-                    nearbyDiscoveryFailed = false
-                    publishedProviderResult = !providerNearby.isEmpty || publishedProviderResult
-                    if providerNearby.isEmpty, index == 0 {
-                        nearbyStatusText = "正在扩大附近范围…"
-                        break
-                    }
-                    nearbyStatusText = providerNearby.isEmpty
-                        ? "当前位置 50 km 内没有找到球场；可以按名称搜索。"
-                        : nil
-                    if !userPickedVenue {
-                        if nearbyVenues.count == 1 {
-                            ensureDefaultSelection()
-                        } else if selectedSegment == nil || !nearbyCourseOptions.contains(where: {
-                            String($0.globalId) == courseGlobalIdText
-                        }) {
-                            clearAutomaticSelection()
-                        }
-                    }
-                    return
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    lastError = error
-                    attempts += 1
-                    if attempts <= Self.nearbyAutomaticRetryCount,
-                       index == 0 {
-                        nearbyStatusText = "附近球场连接较慢，正在重试…"
-                    }
-                }
-            }
-            // The first radius is deliberately best-effort. A timeout there expands automatically
-            // instead of showing a failure page; the larger query may still answer from cache.
-            if index == 0 { nearbyStatusText = "正在扩大附近范围…" }
-        }
-
+        let outcome = await Self.performNearbyDiscovery(
+            latitude: fix.coordinate.latitude,
+            longitude: fix.coordinate.longitude,
+            request: onNearbyCourses,
+            resolve: { self.resolvedOption(for: $0) }
+        )
         guard Self.shouldApplyNearbyDiscoveryResult(
             isCancelled: Task.isCancelled,
             requestToken: requestToken,
@@ -2354,18 +2375,35 @@ public struct StartRoundView: View {
             requestKey: requestKey,
             currentRequestKey: locationDiscoveryKey
         ) else { return }
-        // Preserve local/previous provider rows after both automatic attempts fail. The user can
-        // still search by name, and a later GPS bucket/retry can replace this state.
+        carriedCourseTees.merge(outcome.carriedTees) { _, latest in latest }
+        nearbyCourseOptions = outcome.providerOptions
+        let providerIDs = Set(outcome.providerOptions.map(\.globalId))
+        offlineCourseOptions = resolvedOfflineOptions(localNearby).filter {
+            !providerIDs.contains($0.globalId)
+        }
         nearbyDiscoveryFailed = Self.nearbyDiscoveryShouldFail(
-            publishedProviderResult: publishedProviderResult,
-            lastError: lastError,
+            publishedProviderResult: outcome.publishedProviderResult,
+            lastError: outcome.lastError,
             hasNearbyRows: !nearbyCourseOptions.isEmpty
         )
-        if nearbyDiscoveryFailed {
-            nearbyStatusText = Self.nearbyDiscoveryErrorMessage(lastError ?? URLError(.timedOut))
+        if !nearbyCourseOptions.isEmpty {
+            nearbyStatusText = nil
+        } else if nearbyDiscoveryFailed {
+            nearbyStatusText = Self.nearbyDiscoveryErrorMessage(outcome.lastError ?? URLError(.timedOut))
             clearAutomaticSelection()
-        } else if let lastError {
+        } else if let lastError = outcome.lastError {
             nearbyStatusText = Self.nearbyDiscoveryErrorMessage(lastError)
+        } else {
+            nearbyStatusText = "当前位置 50 km 内没有找到球场；可以按名称搜索。"
+        }
+        if !userPickedVenue {
+            if nearbyVenues.count == 1 {
+                ensureDefaultSelection()
+            } else if selectedSegment == nil || !nearbyCourseOptions.contains(where: {
+                String($0.globalId) == courseGlobalIdText
+            }) {
+                clearAutomaticSelection()
+            }
         }
     }
 

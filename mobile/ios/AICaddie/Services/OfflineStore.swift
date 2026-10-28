@@ -625,6 +625,8 @@ private let REDACTED_MOBILE_PATH = "[REDACTED_PATH]"
 
 public final class OfflineStore {
 #if DEBUG
+    /// Test seam for exercising the legacy prep-journal migration save failure.
+    static var failPrepCourseDownloadsSaveForTesting = false
     /// Test seam for the account-switch window; production builds do not retain a callback.
     static var accountSwitchEventLogHook: (() -> Void)?
     /// Runs after matching the progress round, before deletion. Tests schedule a competing save
@@ -1340,6 +1342,11 @@ public final class OfflineStore {
     /// Account-scoped prep library / resumable job list. The selected course metadata is tiny; the
     /// actual immutable topo assets remain in the existing revision-keyed shared cache.
     public func savePrepCourseDownloads(_ records: [PrepCourseDownloadRecord]) throws {
+        #if DEBUG
+        if Self.failPrepCourseDownloadsSaveForTesting {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        #endif
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let newestByID = Dictionary(grouping: records, by: \.id)
             .compactMap { $0.value.max(by: { $0.updatedAt < $1.updatedAt }) }

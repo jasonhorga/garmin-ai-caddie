@@ -94,6 +94,9 @@ enum StartRoundPresentation {
         // each physical venue, collapse one row per loop before aggregating progress.
         return groups
             .sorted { lhs, rhs in
+                let lLatest = lhs.rows.map(\.updatedAt).max() ?? .distantPast
+                let rLatest = rhs.rows.map(\.updatedAt).max() ?? .distantPast
+                if lLatest != rLatest { return lLatest > rLatest }
                 if lhs.venue != rhs.venue { return lhs.venue < rhs.venue }
                 let l = lhs.coordinates.first
                 let r = rhs.coordinates.first
@@ -132,13 +135,18 @@ enum StartRoundPresentation {
         let lVenue = lhs.course.venueDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let rVenue = rhs.course.venueDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if lVenue != rVenue { return lVenue < rVenue }
-        switch (lhs.course.latitude, lhs.course.longitude, rhs.course.latitude, rhs.course.longitude) {
-        case let (lLat?, lLon?, rLat?, rLon?):
+        if let lLat = lhs.course.latitude, let lLon = lhs.course.longitude,
+           let rLat = rhs.course.latitude, let rLon = rhs.course.longitude {
             if lLat != rLat { return lLat < rLat }
             if lLon != rLon { return lLon < rLon }
-        case (nil, _, nil, _): break
-        case (nil, _, _, _): return false
-        case (_, _, nil, _): return true
+        } else if lhs.course.latitude == nil && rhs.course.latitude != nil {
+            return false
+        } else if lhs.course.latitude != nil && rhs.course.latitude == nil {
+            return true
+        } else if lhs.course.longitude == nil && rhs.course.longitude != nil {
+            return false
+        } else if lhs.course.longitude != nil && rhs.course.longitude == nil {
+            return true
         }
         if lhs.course.globalId != rhs.course.globalId { return lhs.course.globalId < rhs.course.globalId }
         if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt < rhs.updatedAt }

@@ -80,10 +80,10 @@ final class AICaddieAppTests: XCTestCase {
             longitude: 116.1
         )
         let newestFirst = [
-            PrepCourseDownloadRecord(course: a, teeBox: "white"),
-            PrepCourseDownloadRecord(course: b, teeBox: "blue"),
-            PrepCourseDownloadRecord(course: a, teeBox: "blue"),
-            PrepCourseDownloadRecord(course: sameDisplayDifferentCourse, teeBox: "red"),
+            PrepCourseDownloadRecord(course: a, teeBox: "white", updatedAt: Date(timeIntervalSince1970: 40)),
+            PrepCourseDownloadRecord(course: b, teeBox: "blue", updatedAt: Date(timeIntervalSince1970: 30)),
+            PrepCourseDownloadRecord(course: a, teeBox: "blue", updatedAt: Date(timeIntervalSince1970: 20)),
+            PrepCourseDownloadRecord(course: sameDisplayDifferentCourse, teeBox: "red", updatedAt: Date(timeIntervalSince1970: 10)),
         ]
         let rows = StartRoundPresentation.recentRows(newestFirst)
         XCTAssertEqual(rows.map(\.id), [newestFirst[0].id, newestFirst[3].id], "J4.1 groups loops by coarse physical location")
@@ -132,20 +132,13 @@ final class AICaddieAppTests: XCTestCase {
         XCTAssertEqual(row.downloadedHoles, 3)
     }
 
-    func testMapOnlyCompletionReadsTheLatestDownloadIntent() {
-        XCTAssertFalse(
-            LiveRoundAppModel.mapOnlyFetchStillRepresentsIntent(
-                capturedIsIntentPrefetch: true,
-                currentIsIntentPrefetch: false
-            ),
-            "a tap on 下载 promotes the in-flight map-only row to a retained full download"
-        )
-        XCTAssertTrue(
-            LiveRoundAppModel.mapOnlyFetchStillRepresentsIntent(
-                capturedIsIntentPrefetch: true,
-                currentIsIntentPrefetch: nil
-            )
-        )
+    func testMapOnlyIntentAndWholeCourseDownloadUseIndependentRows() {
+        let course = MobileCourseOption(globalId: 991, name: "独立任务", holes: 18, teeBox: "white")
+        let intent = PrepCourseDownloadRecord(course: course, teeBox: "white", isIntentPrefetch: true)
+        let full = PrepCourseDownloadRecord(course: course, teeBox: "white")
+        XCTAssertNotEqual(intent.id, full.id)
+        XCTAssertTrue(intent.id.hasSuffix(":intent"))
+        XCTAssertEqual(full.id, PrepCourseDownloadRecord.key(globalId: 991, teeBox: "white"))
     }
 
     func testCourseSearchDoesNotShowEmptyStateWhileRequestIsStillRunning() {

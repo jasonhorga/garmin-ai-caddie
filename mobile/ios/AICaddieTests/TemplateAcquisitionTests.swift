@@ -524,6 +524,49 @@ final class TemplateAcquisitionTests: XCTestCase {
         await model.waitForPrepCourseDownloadForTesting()
     }
 
+    /// C134/5d: an ordinary download already on the wire is cancelled when Start takes the
+    /// connection, then the same durable row resumes after the prep entry is visible.
+    func testAnInFlightOrdinaryDownloadIsCancelledByStartThenResumesAfterEntry() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let gate = TestRequestGate()
+        let started = expectation(description: "ordinary prep request started")
+        let lock = NSLock()
+        var prepRequestCount = 0
+        var firstPrepRequest = true
+        protocolScope = CapturingURLProtocolScope { request in
+            let url = try XCTUnwrap(request.url)
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let roundID = query.first { $0.name == "round_id" }?.value ?? ""
+            let loops = query.first { $0.name == "loops" }?.value ?? ""
+            if roundID.hasPrefix("prep-library-") {
+                lock.lock(); prepRequestCount += 1; let shouldSignal = firstPrepRequest; firstPrepRequest = false; lock.unlock()
+                if shouldSignal { started.fulfill() }
+                gate.wait()
+            }
+            guard let body = oracle.responses[loops] else {
+                return try Self.response(request, status: 404, body: Data())
+            }
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            if !roundID.isEmpty { object["roundId"] = roundID }
+            return try Self.response(request, status: 200, body: try JSONSerialization.data(withJSONObject: object))
+        }
+        let model = acquisitionModel(directory: freshDirectory())
+        let course = MobileCourseOption(globalId: gid, name: "In flight", holes: 18, teeBox: "white")
+        model.downloadPrepCourse(course)
+        await fulfillment(of: [started], timeout: 5)
+        XCTAssertTrue(model.openPrepCourse(course))
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(lock.withLock { prepRequestCount }, 1, "Start cancels the in-flight ordinary request")
+        gate.release()
+        for _ in 0..<500 {
+            if !model.isOpeningPrepCourse { break }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertGreaterThanOrEqual(lock.withLock { prepRequestCount }, 2, "the row resumes after entry")
+    }
+
     /// A fallback armed for an earlier round can never release a later round's deferral.
     func testAStaleFallbackCannotReleaseANewRound() async throws {
         let oracle = try oracle()
@@ -557,8 +600,8 @@ final class TemplateAcquisitionTests: XCTestCase {
 
     // MARK: - Ready before the first tee: intent prefetch and resumable live downloads
 
-    /// Settling on a course (开始一场 / 在这个球场) installs its whole-course template with the Tee
-    /// Start will use, before any round exists.
+    /// Settling on a course sends a map-only intent with the Tee Start will use, before any round
+    /// exists; the player's explicit download owns the later whole-course install.
     func testCourseIntentInstallsTheWholeCourseBeforeStart() async throws {
         let oracle = try oracle()
         let gid = oracle.globalId
@@ -575,8 +618,10 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertTrue(row.isIntentPrefetch)
         XCTAssertEqual(row.teeBox, "white", "the template is keyed by the Tee Start will use")
         await model.waitForPrepCourseDownloadForTesting()
-        let observedWholeCourse = await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "white")
-        XCTAssertTrue(observedWholeCourse)
+        let observedIntent = await requests.waitFor(loops: "\(gid):front,\(gid):back", tee: "white")
+        XCTAssertTrue(observedIntent)
+        XCTAssertTrue(requests.mapOnlyValues.contains("true"))
+        XCTAssertNil(try model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white"))
         XCTAssertNil(model.package, "an intent never creates a round")
     }
 
@@ -591,16 +636,68 @@ final class TemplateAcquisitionTests: XCTestCase {
 
         let model = acquisitionModel(directory: freshDirectory())
         let course = MobileCourseOption(globalId: gid, name: "Start intent", holes: 18, teeBox: "white")
-        XCTAssertTrue(model.openPrepCourse(course))
-        XCTAssertTrue(await requests.waitFor(tee: "white"))
-        model.liveHoleInitialLoadDidFinish()
+        model.prefetchIntendedCourses([course], teeBox: "white")
+        let sawIntentRequest = await requests.waitFor(tee: "white")
+        XCTAssertTrue(sawIntentRequest)
         await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertTrue(model.openPrepCourse(course))
+        model.liveHoleInitialLoadDidFinish()
+        for _ in 0..<500 {
+            if requests.mapOnlyValues.contains(nil), model.prepCourseDownloads.first(where: { !$0.isIntentPrefetch && $0.course.globalId == gid })?.phase == .ready { break }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
         XCTAssertTrue(requests.mapOnlyValues.contains("true"), "the opening request is map-only")
-        XCTAssertTrue(requests.mapOnlyValues.contains(nil), "the same intent must later request the full package")
-        let row = try XCTUnwrap(model.prepCourseDownloads.first { $0.course.globalId == gid })
+        XCTAssertTrue(requests.mapOnlyValues.contains(nil), "the same selection must later request the full package")
+        let row = try XCTUnwrap(model.prepCourseDownloads.first { !$0.isIntentPrefetch && $0.course.globalId == gid })
         XCTAssertFalse(row.isIntentPrefetch)
         XCTAssertEqual(row.phase, .ready)
         XCTAssertTrue(try model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")?.hasCompleteOfflineCoursePrep == true)
+    }
+
+    /// C134/挡3: a user download gets its own full-course row while the selected-course map intent
+    /// is still in flight; releasing the intent must never persist its lightweight package as ready.
+    func testDownloadWhileMapOnlyIntentIsInFlightUsesAnIndependentFullPackage() async throws {
+        let oracle = try oracle()
+        let gid = oracle.globalId
+        let gate = TestRequestGate()
+        let intentStarted = expectation(description: "map-only intent started")
+        let fullStarted = expectation(description: "full download started")
+        let lock = NSLock()
+        var mapOnly = 0
+        var full = 0
+        protocolScope = CapturingURLProtocolScope { request in
+            let url = try XCTUnwrap(request.url)
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            let loops = query.first { $0.name == "loops" }?.value ?? ""
+            let isMapOnly = query.first { $0.name == "map_only" }?.value == "true"
+            if isMapOnly {
+                lock.withLock { mapOnly += 1 }
+                intentStarted.fulfill()
+                gate.wait()
+            } else {
+                lock.withLock { full += 1 }
+                fullStarted.fulfill()
+            }
+            guard let body = oracle.responses[loops] else {
+                return try Self.response(request, status: 404, body: Data())
+            }
+            return try Self.response(request, status: 200, body: body)
+        }
+        let model = acquisitionModel(directory: freshDirectory())
+        let course = MobileCourseOption(globalId: gid, name: "Independent full", holes: 18, teeBox: "white")
+        model.prefetchIntendedCourses([course], teeBox: "white")
+        await fulfillment(of: [intentStarted], timeout: 5)
+        XCTAssertNil(try model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white"))
+        model.downloadPrepCourse(course)
+        XCTAssertTrue(model.prepCourseDownloads.contains { !$0.isIntentPrefetch && $0.course.globalId == gid })
+        gate.release()
+        await fulfillment(of: [fullStarted], timeout: 5)
+        await model.waitForPrepCourseDownloadForTesting()
+        XCTAssertEqual(lock.withLock { mapOnly }, 1)
+        XCTAssertGreaterThanOrEqual(lock.withLock { full }, 1)
+        let row = try XCTUnwrap(model.prepCourseDownloads.first { !$0.isIntentPrefetch && $0.course.globalId == gid })
+        XCTAssertEqual(row.phase, .ready)
+        XCTAssertTrue(try XCTUnwrap(model.offlineStore.loadCourseTemplate(globalId: gid, teeBox: "white")).hasCompleteOfflineCoursePrep)
     }
 
     /// Tapping through the list: a newer intent drops the older one's unfinished row, so only the

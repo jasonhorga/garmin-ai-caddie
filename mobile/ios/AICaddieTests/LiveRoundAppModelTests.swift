@@ -952,6 +952,21 @@ final class LiveRoundAppModelTests: XCTestCase {
         )).hasCompleteOfflineCoursePrep)
     }
 
+    func testReenteringStartKeepsTheExistingProgressTimer() async throws {
+        let model = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)),
+            apiBaseURL: nil, watchBridge: nil, garminSessionStore: nil, syncClient: nil,
+            offlineGeometryRetryDelaysNanoseconds: [], roundStartProgressSleep: { _ in }
+        )
+        let first = model.beginRoundPreparationForTesting()
+        for _ in 0..<4 { await Task.yield() }
+        XCTAssertEqual(model.roundStartProgressMessage, "服务器在准备球场，稍等…")
+        let second = model.beginRoundPreparationForTesting()
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(model.roundStartProgressMessage, "服务器在准备球场，稍等…")
+        model.finishRoundPreparationForTesting(second)
+    }
+
     func testPrepStatusProbeFailsThreeTimesThenCanRetryAndClearFailure() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

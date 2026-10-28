@@ -166,6 +166,44 @@ final class SpeculativePrefetchTests: XCTestCase {
         XCTAssertEqual(second.prepCourseDownloads.map(\.id), [guess.id])
     }
 
+    func testLegacyMigrationSaveFailureFiltersMemoryWithoutWritingMarker() throws {
+        let pending = PrepCourseDownloadRecord(
+            course: course(100, rounds: 2), teeBox: "blue", phase: .downloading,
+            downloadedHoles: 1, totalHoles: 18, isSpeculative: true
+        )
+        let directory = self.directory!
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode([pending])) as? [[String: Any]]
+        )
+        payload[0].removeValue(forKey: "isRoundPrefetch")
+        let journal = directory.appendingPathComponent("prep_course_downloads.json")
+        try JSONSerialization.data(withJSONObject: payload).write(to: journal)
+
+        OfflineStore.failPrepCourseDownloadsSaveForTesting = true
+        defer { OfflineStore.failPrepCourseDownloadsSaveForTesting = false }
+        let failed = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: nil, watchBridge: nil,
+            garminSessionStore: nil, syncClient: nil, offlineGeometryRetryDelaysNanoseconds: []
+        )
+        XCTAssertTrue(failed.prepCourseDownloads.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("prep_course_downloads_migration.json").path
+        ))
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: journal)) as? [[String: Any]]
+        XCTAssertNil(raw?.first?["isRoundPrefetch"])
+
+        OfflineStore.failPrepCourseDownloadsSaveForTesting = false
+        let relaunched = LiveRoundAppModel(
+            offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: nil, watchBridge: nil,
+            garminSessionStore: nil, syncClient: nil, offlineGeometryRetryDelaysNanoseconds: []
+        )
+        XCTAssertTrue(relaunched.prepCourseDownloads.isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("prep_course_downloads_migration.json").path
+        ))
+    }
+
     // MARK: Queue
 
     private func model(rows: [PrepCourseDownloadRecord]) throws -> LiveRoundAppModel {

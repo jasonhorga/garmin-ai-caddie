@@ -620,7 +620,9 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         let rawTee = (teeBox ?? course.teeBox ?? "blue")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTee = rawTee.isEmpty ? "blue" : rawTee
-        self.id = Self.key(globalId: course.globalId, teeBox: resolvedTee)
+        self.id = isIntentPrefetch
+            ? Self.intentKey(globalId: course.globalId, teeBox: resolvedTee)
+            : Self.key(globalId: course.globalId, teeBox: resolvedTee)
         self.course = course
         self.teeBox = resolvedTee
         self.phase = phase
@@ -649,6 +651,11 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         return "\(globalId):\(tee.isEmpty ? "blue" : tee):whole"
     }
 
+    /// Map-only intent rows are a separate durable job from the player's whole-course download.
+    public static func intentKey(globalId: Int, teeBox: String) -> String {
+        "\(key(globalId: globalId, teeBox: teeBox)):intent"
+    }
+
     /// The canonical whole-course request this row installs.
     public var loops: [RoundLoopEntry] {
         RoundLoopEntry.wholeCourse(globalId: course.globalId, holes: course.resolvedHoles)
@@ -666,7 +673,6 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         course = try container.decode(MobileCourseOption.self, forKey: .course)
         teeBox = try container.decode(String.self, forKey: .teeBox)
-        id = Self.key(globalId: course.globalId, teeBox: teeBox)
         phase = try container.decode(PrepCourseDownloadPhase.self, forKey: .phase)
         preparedHoles = try container.decode(Int.self, forKey: .preparedHoles)
         downloadedHoles = try container.decode(Int.self, forKey: .downloadedHoles)
@@ -678,6 +684,9 @@ public struct PrepCourseDownloadRecord: Codable, Equatable, Identifiable {
             forKey: .requiredGeometryRevisions
         )
         isIntentPrefetch = try container.decodeIfPresent(Bool.self, forKey: .isIntentPrefetch) ?? false
+        id = isIntentPrefetch
+            ? Self.intentKey(globalId: course.globalId, teeBox: teeBox)
+            : Self.key(globalId: course.globalId, teeBox: teeBox)
         isSpeculative = try container.decodeIfPresent(Bool.self, forKey: .isSpeculative) ?? false
         isRoundPrefetch = try container.decodeIfPresent(Bool.self, forKey: .isRoundPrefetch) ?? false
         queueGroupID = try container.decodeIfPresent(String.self, forKey: .queueGroupID)
