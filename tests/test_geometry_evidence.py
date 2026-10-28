@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -438,6 +439,225 @@ class GeometryEvidenceTests(unittest.TestCase):
             ".drc",
             str([fairway["surface"], rough["surface"], tee["surface"], bounds["surface"], id_only["surface"], source_masked["surface"]]),
         )
+
+    def test_classifies_green_from_production_mesh_triangles(self) -> None:
+        """Product spec 2.8: GIR mesh classification uses production Green.drc triangles."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h06_hazards.json"
+            mesh = root / "gid31795_h06_meshes.json"
+            hazard.write_text('{"refLat": 22.279, "refLon": 114.162, "hazards": []}', encoding="utf-8")
+            # Mesh coordinates are Garmin's [ -local_x, elevation, local_y ] frame.  This
+            # triangle covers local (1, 1), while (20, 20) is outside it.
+            mesh.write_text(
+                '{"meshes": [{"name": "Green.drc", "positions": '
+                '[[0, 0, 0], [-10, 0, 0], [0, 0, 10]], "faces": [[0, 1, 2]]}]}',
+                encoding="utf-8",
+            )
+            with (
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
+            ):
+                baseline = classify_shot_surface(
+                    31795, 6, {"ref": "mesh-green", "end": {"x": 10 / 3, "y": 10 / 3}}
+                )
+                inside = classify_shot_surface(
+                    31795,
+                    6,
+                    {"ref": "mesh-green", "end": {"x": 10 / 3, "y": 10 / 3}},
+                    include_mesh_triangles=True,
+                )
+                outside = classify_shot_surface(
+                    31795, 6, {"ref": "mesh-outside", "end": {"x": 20, "y": 20}},
+                    include_mesh_triangles=True,
+                )
+
+        self.assertEqual(baseline["surface"]["kind"], "unknown")
+        self.assertEqual(inside["surface"]["kind"], "green")
+        self.assertEqual(inside["surface"]["source"], "mesh")
+        self.assertEqual(outside["surface"]["kind"], "unknown")
+
+    def test_product_spec_2_8_gir_uses_only_green_layers(self) -> None:
+        """Product spec 2.8: GIR considers Green.drc and ignores large hazards."""
+        def triangle(name: str, x: float, y: float) -> dict:
+            return {
+                "name": name,
+                "positions": [[-x, 0, y], [-(x + 10), 0, y], [-x, 0, y + 10]],
+                "faces": [[0, 1, 2]],
+            }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h07_hazards.json"
+            mesh = root / "gid31795_h07_meshes.json"
+            hazard.write_text('{"refLat": 22.279, "refLon": 114.162, "hazards": []}', encoding="utf-8")
+            mesh.write_text(
+                json.dumps(
+                    {
+                        "meshes": [
+                            triangle("Green.drc", 0, 0),
+                            triangle("Bunker.drc", 0, 0),
+                            {
+                                "name": "PlayableBounds.drc",
+                                "polygon": [[-20, -20], [20, -20], [20, 20], [-20, 20]],
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
+            ):
+                result = classify_shot_surface(
+                    31795,
+                    7,
+                    {"end": {"x": 10 / 3, "y": 10 / 3}},
+                    include_mesh_triangles=True,
+                )
+
+        self.assertEqual(result["surface"]["kind"], "green")
+
+    def test_product_spec_2_8_vfx_layer_is_not_green(self) -> None:
+        """Product spec 2.8: a VfxGreen layer alone cannot provide GIR evidence."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h09_hazards.json"
+            mesh = root / "gid31795_h09_meshes.json"
+            hazard.write_text('{"refLat": 22.279, "refLon": 114.162, "hazards": []}', encoding="utf-8")
+            mesh.write_text(
+                json.dumps(
+                    {
+                        "meshes": [
+                            {
+                                "name": "VfxGreenA.drc",
+                                "positions": [[0, 0, 0], [-10, 0, 0], [0, 0, 10]],
+                                "faces": [[0, 1, 2]],
+                            },
+                            {
+                                "name": "PlayableBounds.drc",
+                                "polygon": [[-20, -20], [20, -20], [20, 20], [-20, 20]],
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
+            ):
+                result = classify_shot_surface(
+                    31795,
+                    9,
+                    {"end": {"x": 10 / 3, "y": 10 / 3}},
+                    include_mesh_triangles=True,
+                )
+
+        self.assertNotEqual(result["surface"]["kind"], "green")
+
+    def test_product_spec_2_8_gir_uses_selected_green_component(self) -> None:
+        """Product spec 2.8: only the Green.drc component containing the selected target is GIR."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h10_hazards.json"
+            mesh = root / "gid31795_h10_meshes.json"
+            hazard.write_text('{"refLat": 22.279, "refLon": 114.162, "hazards": []}', encoding="utf-8")
+            mesh.write_text(
+                json.dumps(
+                    {
+                        "hole": {
+                            "Doglegs": [{"Line": [{"X": 0, "Y": 0}, {"X": 5, "Y": 5}]}]
+                        },
+                        "meshes": [
+                            {
+                                "name": "Green.drc",
+                                "positions": [
+                                    [0, 0, 0], [-10, 0, 0], [0, 0, 10],
+                                    [-100, 0, 100], [-110, 0, 100], [-100, 0, 110],
+                                ],
+                                "faces": [[0, 1, 2], [3, 4, 5]],
+                            },
+                            {
+                                "name": "PlayableBounds.drc",
+                                "polygon": [[-120, -20], [20, -20], [20, 130], [-120, 130]],
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard),
+                patch("ai_caddie.geometry.geometry_evidence.mesh_path", return_value=mesh),
+            ):
+                selected = classify_shot_surface(
+                    31795,
+                    10,
+                    {"end": {"x": 10 / 3, "y": 10 / 3}},
+                    include_mesh_triangles=True,
+                )
+                other = classify_shot_surface(
+                    31795,
+                    10,
+                    {"end": {"x": 100 + 10 / 3, "y": 100 + 10 / 3}},
+                    include_mesh_triangles=True,
+                )
+
+        self.assertEqual(selected["surface"]["kind"], "green")
+        self.assertNotEqual(other["surface"]["kind"], "green")
+
+    def test_product_spec_2_8_green_centres_are_stable_across_mesh_reads(self) -> None:
+        """Product spec 2.8: each independently decoded mesh classifies its own centre."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hazard = root / "gid31795_h08_hazards.json"
+            hazard.write_text('{"refLat": 22.279, "refLon": 114.162, "hazards": []}', encoding="utf-8")
+            with patch("ai_caddie.geometry.geometry_evidence.hazard_path", return_value=hazard), patch(
+                "ai_caddie.geometry.geometry_evidence.mesh_path", return_value=root / "missing.json"
+            ):
+                for index in range(8):
+                    x = float(index * 20)
+                    y = float(index * 10)
+                    mesh = {
+                        "meshes": [
+                            {
+                                "name": "Green.drc",
+                                "positions": [[-x, 0, y], [-(x + 10), 0, y], [-x, 0, y + 10]],
+                                "faces": [[0, 1, 2]],
+                            }
+                        ]
+                    }
+                    result = classify_shot_surface(
+                        31795,
+                        8,
+                        {"end": {"x": x + 10 / 3, "y": y + 10 / 3}},
+                        meshes=mesh,
+                        include_mesh_triangles=True,
+                    )
+                    self.assertEqual(result["surface"]["kind"], "green")
+
+    def test_product_spec_2_8_replaced_mesh_does_not_reuse_old_bounds(self) -> None:
+        """Product spec 2.8: a replaced decoded mesh uses its current triangle bounds."""
+        row = {
+            "name": "Green.drc",
+            "positions": [[0, 0, 0], [-10, 0, 0], [0, 0, 10]],
+            "faces": [[0, 1, 2]],
+        }
+        mesh = {"meshes": [row]}
+        for index in range(8):
+            x = float(index * 20)
+            y = float(index * 10)
+            row["positions"][:] = [[-x, 0, y], [-(x + 10), 0, y], [-x, 0, y + 10]]
+            result = classify_shot_surface(
+                31795,
+                8,
+                {"end": {"x": x + 10 / 3, "y": y + 10 / 3}},
+                meshes=mesh,
+                include_mesh_triangles=True,
+            )
+            self.assertEqual(result["surface"]["kind"], "green")
 
     def test_route_evidence_computes_hazard_carry_clearance_and_landing_window(self) -> None:
         with TemporaryDirectory() as tmp:

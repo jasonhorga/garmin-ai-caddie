@@ -60,8 +60,12 @@ RELEASE_TEES = [{"name": "Blue", "gender": "MEN", "index": 2}, {"name": "Red", "
 
 
 def _hole_events(hole: int, second: tuple[float, float]) -> list[dict]:
-    """Tee shot from the tee, second shot from ``second`` aimed at the green, two putts, five
-    strokes. The aim is that shot's end, so the GIR surface classifier reads the mesh as well."""
+    """Tee and approach shots plus an explicit putt event, five strokes total.
+
+    The approach aim is that shot's end, so GIR reads the mesh while the tee result reads the
+    second location. Product spec 2.8 treats the explicit putt event as the only persisted putts
+    value.
+    """
     return [
         {"hole": hole, "kind": "club", "payload": {"clubName": "1W", "shotType": "tee"}},
         {"hole": hole, "kind": "location", "payload": {"latitude": TEE[0], "longitude": TEE[1]}},
@@ -156,18 +160,20 @@ class TeeResultIngestTest(unittest.TestCase):
         sizes: list[int] = []
         reads: list[str] = []
 
-        class Recording(dict):
-            def __setitem__(self, k, v):
-                super().__setitem__(k, v)
-                sizes.append(len(self))
-
         init = round_ingest._IngestGeometry.__init__
         enrich = round_ingest._enrich_hole_gir_fairway
         read_text = Path.read_text
 
         def recording_init(geometry, *args, **kwargs):
             init(geometry, *args, **kwargs)
-            geometry._meshes = Recording()
+
+        read_mesh = round_ingest._IngestGeometry._read
+
+        def recording_read(key):
+            value = read_mesh(key)
+            if value is not None:
+                sizes.append(1)
+            return value
 
         def observed_enrich(hole, **kwargs):
             result = enrich(hole, **kwargs)
@@ -181,6 +187,7 @@ class TeeResultIngestTest(unittest.TestCase):
 
         with patch.object(round_ingest._IngestGeometry, "__init__", recording_init), \
                 patch.object(round_ingest, "_enrich_hole_gir_fairway", observed_enrich), \
+                patch.object(round_ingest._IngestGeometry, "_read", staticmethod(recording_read)), \
                 patch.object(Path, "read_text", counting):
             fairways = self.fairways(events, key, **meta)
         return fairways, after_hole, sizes, reads
@@ -201,7 +208,7 @@ class TeeResultIngestTest(unittest.TestCase):
         self.assertEqual(sorted(reads), [f"gid{GID}_h{local:02d}_meshes.json" for local in range(1, 10)])
 
     def test_ordinary_round_holds_at_most_one_mesh(self) -> None:
-        # Eighteen distinct holes of one gid: each mesh serves its own hole only (GIR + tee result).
+        """Product spec 2.8: each ordinary hole releases its mesh after GIR and tee result."""
         for local in range(1, 19):
             self.install(STRAIGHT, local)
         events = [event for number in range(1, 19) for event in _hole_events(number, WEST)]
@@ -209,6 +216,21 @@ class TeeResultIngestTest(unittest.TestCase):
         self.assertEqual(fairways, ["left"] * 18)
         self.assertEqual(max(sizes), 1)
         self.assertEqual(after_hole, [(n, set()) for n in range(1, 19)])
+        self.assertEqual(sorted(reads), [f"gid{GID}_h{local:02d}_meshes.json" for local in range(1, 19)])
+
+    def test_ordinary_round_without_putt_event_shares_one_mesh_decode(self) -> None:
+        """Product spec 2.8: missing putts still share one mesh decode for GIR and tee result."""
+        for local in range(1, 19):
+            self.install(STRAIGHT, local)
+        events = [
+            event
+            for number in range(1, 19)
+            for event in _hole_events(number, WEST)
+            if event["kind"] != "putt"
+        ]
+        fairways, _after_hole, sizes, reads = self.retained(events, "eighteen-no-putts", holePars="4" * 18)
+        self.assertEqual(fairways, ["left"] * 18)
+        self.assertEqual(max(sizes), 1)
         self.assertEqual(sorted(reads), [f"gid{GID}_h{local:02d}_meshes.json" for local in range(1, 19)])
 
 

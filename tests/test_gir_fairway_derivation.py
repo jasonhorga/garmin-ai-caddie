@@ -66,6 +66,7 @@ def _write_geometry(geo_dir: Path, *, gid: int = GID, hole: int = 1) -> None:
     hazard = {"refLat": REF_LAT, "refLon": REF_LON, "hazards": []}
     mesh = {
         "surfaces": [
+            {"id": "playable-bounds", "kind": "playable_bounds", "polygon": _square((0.0, 0.0), 100.0)},
             {"id": "green-1", "kind": "green", "polygon": _square(GREEN_C)},
             {"id": "fairway-1", "kind": "fairway", "polygon": _square(FAIRWAY_C)},
             {"id": "rough-1", "kind": "rough", "polygon": _square(ROUGH_C)},
@@ -259,8 +260,8 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
         self.assertIs(h["gir"], True)
         self.assertEqual(h["fairway"], "hit")
 
-    def test_ingest_without_geometry_still_succeeds_and_omits_gir(self) -> None:
-        """(e, end-to-end) No geometry -> ingest succeeds; holes carry no gir/fairway keys."""
+    def test_ingest_without_geometry_uses_putts_for_gir_and_omits_fairway(self) -> None:
+        """(e, end-to-end) Putts make GIR deterministic even when landing geometry is absent."""
         empty = self.root / "empty"
         empty.mkdir()
         meta = {"courseGlobalId": GID, "courseName": "Test", "holePars": "4"}
@@ -271,8 +272,50 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
         self.assertEqual(
             hole,
             # scoreSource is the B0 per-hole provenance (source-less legacy events => manual_edit).
-            {"number": 1, "strokes": 4, "putts": 2, "penalties": 0, "scoreSource": "manual_edit"},
-        )  # no gir/fairway when undeterminable
+            {"number": 1, "strokes": 4, "putts": 2, "penalties": 0, "scoreSource": "manual_edit", "gir": True},
+        )  # GIR follows total - putts <= par - 2; fairway remains undeterminable.
+
+    def test_ingest_without_putts_and_geometry_leaves_gir_unknown(self) -> None:
+        """Product spec 2.8: missing putts and landing geometry leave GIR unknown."""
+        events = [event for event in self._par4_events() if event["kind"] != "putt"]
+        events = [
+            {**event, "payload": {**event["payload"], "strokes": 5}}
+            if event["kind"] == "score" else event
+            for event in events
+        ]
+        meta = {"courseGlobalId": GID, "courseName": "Test", "holePars": "4"}
+        empty = self.root / "empty-no-putts"
+        empty.mkdir()
+        with _patch_geometry(empty, fairway_outline=False):
+            summary = round_ingest.ingest_round(
+                "p_friend", events, meta, idempotency_key="g3", root=self.root
+            )
+        sc_path = self.root / "data" / "players" / "p_friend" / "scorecards" / f"{summary['id']}.json"
+        hole = read_json(sc_path)["scorecardDetails"][0]["scorecard"]["holes"][0]
+        self.assertNotIn("putts", hole)
+        self.assertIsNone(hole.get("gir"))
+
+    def test_product_spec_2_8_incomplete_putter_log_uses_green_landing(self) -> None:
+        """Product spec 2.8: fewer recorded shots than strokes cannot supply a putt count."""
+        events = [
+            event
+            for event in self._par4_events()
+            if event["kind"] != "putt"
+        ]
+        events[0] = {**events[0], "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}}
+        events[2] = {**events[2], "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}}
+        events[-1] = {**events[-1], "payload": {"strokes": 5}}
+        with _patch_geometry(self.geo_dir):
+            summary = round_ingest.ingest_round(
+                "p_friend",
+                events,
+                {"courseGlobalId": GID, "courseName": "Test", "holePars": "4"},
+                idempotency_key="incomplete-putter-log",
+                root=self.root,
+            )
+        path = self.root / "data" / "players" / "p_friend" / "scorecards" / f"{summary['id']}.json"
+        hole = read_json(path)["scorecardDetails"][0]["scorecard"]["holes"][0]
+        self.assertIs(hole["gir"], True)
 
 
 if __name__ == "__main__":

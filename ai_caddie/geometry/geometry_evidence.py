@@ -5,7 +5,11 @@ import math
 from typing import Any, Iterable, Literal
 
 from ai_caddie.core.data import ROOT, hazard_path, local_to_wgs84, mesh_path, read_json, wgs84_to_local
-from ai_caddie.geometry.measure_prodgeometry_distances import bind_selected_green_target
+from ai_caddie.geometry.measure_prodgeometry_distances import (
+    bind_selected_green_target,
+    mesh_point_to_local,
+    point_in_triangle,
+)
 
 GeometryCoverage = Literal["ready", "partial", "missing"]
 GCJ02_PROVIDERS = {"amap", "amap_gcj02", "gaode", "gaode_gcj02", "tencent", "baidu"}
@@ -239,7 +243,11 @@ def _load_hole_sources(
     hazards = _load_json_if_ready(hazard_path(int(global_id), int(local_hole))) or {}
     if meshes is None:
         meshes = _load_json_if_ready(mesh_path(int(global_id), int(local_hole))) or {}
-    rebound = bind_selected_green_target(hazards, meshes)
+    rebound = bind_selected_green_target(
+        hazards,
+        meshes,
+        include_selected_component=True,
+    )
     return (rebound or {}, meshes)
 
 
@@ -399,6 +407,7 @@ def _surface_id(row: dict[str, Any], fallback: str, kind: str) -> str:
 def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: str) -> dict[str, Any] | None:
     matches = []
     for index, row in enumerate(rows):
+        source_index = row.get("_sourceIndex", index)
         polygon = row.get("polygon") or row.get("points") or row.get("path")
         if not isinstance(polygon, list):
             continue
@@ -407,7 +416,7 @@ def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: st
             matches.append(
                 {
                     "priority": _surface_priority(kind),
-                    "index": index,
+                    "index": source_index,
                     "surface": {
                         "kind": kind,
                         "source": source,
@@ -418,6 +427,128 @@ def _surface_match(point: list[float], rows: list[dict[str, Any]], *, source: st
     if matches:
         return min(matches, key=lambda row: (row["priority"], row["index"]))["surface"]
     return None
+
+
+def _mesh_row_bbox(row: dict[str, Any]) -> tuple[float, float, float, float] | None:
+    positions = row.get("positions")
+    if not isinstance(positions, list):
+        return None
+    projected = []
+    for vertex in positions:
+        if not isinstance(vertex, (list, tuple)) or len(vertex) < 3:
+            continue
+        try:
+            projected.append(mesh_point_to_local(vertex))
+        except (TypeError, ValueError, OverflowError):
+            continue
+    if not projected:
+        return None
+    bbox = (
+        min(point[0] for point in projected),
+        min(point[1] for point in projected),
+        max(point[0] for point in projected),
+        max(point[1] for point in projected),
+    )
+    return bbox
+
+
+def _mesh_triangle_match(point: list[float], rows: list[dict[str, Any]], *, source: str) -> dict[str, Any] | None:
+    matches = []
+    for index, row in enumerate(rows):
+        source_index = row.get("_sourceIndex", index)
+        positions = row.get("positions")
+        faces = row.get("faces")
+        if not isinstance(positions, list) or not isinstance(faces, list):
+            continue
+        bbox = _mesh_row_bbox(row)
+        if bbox is None or not (bbox[0] - 1e-9 <= point[0] <= bbox[2] + 1e-9 and bbox[1] - 1e-9 <= point[1] <= bbox[3] + 1e-9):
+            continue
+        for face in faces:
+            if not isinstance(face, (list, tuple)) or len(face) < 3:
+                continue
+            try:
+                vertices = [positions[int(face[n])] for n in range(3)]
+                if not all(isinstance(vertex, (list, tuple)) and len(vertex) >= 3 for vertex in vertices):
+                    continue
+                triangle = [mesh_point_to_local(vertex) for vertex in vertices]
+            except (IndexError, TypeError, ValueError, OverflowError):
+                continue
+            if point_in_triangle(tuple(point), triangle[0], triangle[1], triangle[2]):
+                kind = _surface_kind(row, source)
+                matches.append(
+                    {
+                        "priority": _surface_priority(kind),
+                        "index": source_index,
+                        "surface": {
+                            "kind": kind,
+                            "source": source,
+                            "id": _surface_id(row, f"{source}-{index + 1}", kind),
+                        },
+                    }
+                )
+                break
+    if matches:
+        return min(matches, key=lambda row: (row["priority"], row["index"]))["surface"]
+    return None
+
+
+def _mesh_surface_match(point: list[float], rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Match polygon fixtures and production triangle meshes with one deterministic priority."""
+    polygon = _surface_match(point, rows, source="mesh")
+    triangle = _mesh_triangle_match(point, rows, source="mesh")
+    if polygon is None:
+        return triangle
+    if triangle is None:
+        return polygon
+    # Green/hazard priority is encoded in the kind; stable row order breaks ties.  The two
+    # paths cannot share a row in production, but comparing priority keeps mixed fixtures sane.
+    return triangle if _surface_priority(triangle["kind"]) < _surface_priority(polygon["kind"]) else polygon
+
+
+def _mesh_gir_surface_match(
+    point: list[float],
+    rows: list[dict[str, Any]],
+    selected_component: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Classify a GIR endpoint using only the green and playable-boundary layers.
+
+    Green is the only positive GIR evidence.  PlayableBounds is the small enclosing layer used
+    to distinguish a known miss from a point outside the course; bunker/fairway/rough meshes are
+    deliberately excluded because they are large and do not change the GIR answer.
+    """
+    green_rows = [
+        {**row, "_sourceIndex": index}
+        for index, row in enumerate(rows)
+        if _surface_kind(row, "mesh") == "green"
+    ]
+    green = None
+    if selected_component is not None:
+        triangles = selected_component.get("triangles")
+        if isinstance(triangles, list) and any(
+            point_in_triangle(tuple(point), *triangle)
+            for triangle in triangles
+            if isinstance(triangle, (list, tuple)) and len(triangle) == 3
+        ):
+            row_index = next(
+                (index for index, row in enumerate(rows) if _surface_kind(row, "mesh") == "green"),
+                0,
+            )
+            row = rows[row_index]
+            green = {
+                "kind": "green",
+                "source": "mesh",
+                "id": _surface_id(row, f"mesh-{row_index + 1}", "green"),
+            }
+    if green is None and selected_component is None:
+        green = _mesh_surface_match(point, green_rows)
+    if green is not None:
+        return green
+    boundary_rows = [
+        {**row, "_sourceIndex": index}
+        for index, row in enumerate(rows)
+        if _surface_kind(row, "mesh") == "playable_bounds"
+    ]
+    return _mesh_surface_match(point, boundary_rows)
 
 
 def _polygon_ring(points: Any, ref_lat: float | None, ref_lon: float | None) -> list[list[float]]:
@@ -434,7 +565,12 @@ def _polygon_ring(points: Any, ref_lat: float | None, ref_lon: float | None) -> 
 
 
 def classify_shot_surface(
-    global_id: int, local_hole: int, shot: dict[str, Any], *, meshes: dict[str, Any] | None = None
+    global_id: int,
+    local_hole: int,
+    shot: dict[str, Any],
+    *,
+    meshes: dict[str, Any] | None = None,
+    include_mesh_triangles: bool = False,
 ) -> dict[str, Any]:
     hazards, meshes = _load_hole_sources(global_id, local_hole, meshes)
     ref_lat = hazards.get("refLat")
@@ -453,8 +589,23 @@ def classify_shot_surface(
 
     surface = {"kind": "unknown", "source": "none", "id": None}
     if point is not None:
-        hazard_match = _surface_match(point, [row for row in hazards.get("hazards", []) or [] if isinstance(row, dict)], source="hazard")
-        mesh_match = _surface_match(point, _mesh_surface_rows(meshes), source="mesh")
+        rows = _mesh_surface_rows(meshes)
+        if include_mesh_triangles:
+            # GIR deliberately asks only whether the endpoint is on the green.  The mesh path
+            # uses Green/VfxGreen plus the tiny playable boundary; hazard layers are irrelevant.
+            hazard_match = None
+            mesh_match = _mesh_gir_surface_match(
+                point,
+                rows,
+                selected_component=hazards.get("_selectedGreenComponent"),
+            )
+        else:
+            hazard_match = _surface_match(
+                point,
+                [row for row in hazards.get("hazards", []) or [] if isinstance(row, dict)],
+                source="hazard",
+            )
+            mesh_match = _surface_match(point, rows, source="mesh")
         if hazard_match:
             surface = hazard_match
         elif mesh_match:

@@ -72,6 +72,77 @@ class RoundIngestCoreTests(unittest.TestCase):
         self.assertEqual(summary["source"], "manual")
         self.assertFalse(summary["idempotent"])
 
+    def test_gir_uses_recorded_putts_before_surface_fallback(self) -> None:
+        # Product GIR specification: total strokes - putts <= par - 2.  For par 4,
+        # 4 - 2 = 2, so this is GIR even when no landing geometry is available.
+        gir, _fairway = round_ingest._derive_gir_fairway(
+            None, 1, 4, [], 4, putts=2,
+        )
+        self.assertTrue(gir)
+
+        # The same formula gives 5 - 2 = 3, which is outside regulation and must be
+        # False rather than an indeterminate geometry result.
+        gir, _fairway = round_ingest._derive_gir_fairway(
+            None, 1, 4, [], 5, putts=2,
+        )
+        self.assertFalse(gir)
+
+    def test_product_spec_2_8_counts_complete_explicit_putter_shots(self) -> None:
+        """Product spec 2.8: a complete shot log can derive GIR putts without filling the cell."""
+        events = [
+            {"hole": 1, "kind": "club", "payload": {"clubName": "1W", "shotType": "tee", "lie": "TeeBox"}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": 47.73, "longitude": 138.89}},
+            {"hole": 1, "kind": "club", "payload": {"clubName": "8I", "shotType": "approach", "lie": "Fairway"}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": 47.7301, "longitude": 138.8901}},
+            {"hole": 1, "kind": "club", "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": 47.7302, "longitude": 138.8902}},
+            {"hole": 1, "kind": "club", "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": 47.7303, "longitude": 138.8903}},
+            {"hole": 1, "kind": "score", "payload": {"strokes": 4}},
+        ]
+        result = round_ingest.ingest_round(
+            "p_friend", events, {"courseName": "Manual", "holePars": "4"},
+            idempotency_key="putter-shots", root=self.root,
+        )
+        card = self._player_dir("p_friend") / "scorecards" / f"{result['id']}.json"
+        hole = json.loads(card.read_text())["scorecardDetails"][0]["scorecard"]["holes"][0]
+        # Shot-derived putts are used for GIR only; the scorecard putts cell remains
+        # absent because no putt event was entered (product spec 2.8).
+        self.assertNotIn("putts", hole)
+        self.assertTrue(hole["gir"])
+
+    def test_missing_putts_do_not_fill_zero_when_gir_is_undeterminable(self) -> None:
+        events = [
+            {"hole": 1, "kind": "club", "payload": {"clubName": "8I", "shotType": "approach"}},
+            {"hole": 1, "kind": "location", "payload": {"latitude": 47.73, "longitude": 138.89}},
+            {"hole": 1, "kind": "score", "payload": {"strokes": 5}},
+        ]
+        result = round_ingest.ingest_round(
+            "p_friend", events, {"courseName": "Manual", "holePars": "4"},
+            idempotency_key="missing-putts", root=self.root,
+        )
+        card = self._player_dir("p_friend") / "scorecards" / f"{result['id']}.json"
+        hole = json.loads(card.read_text())["scorecardDetails"][0]["scorecard"]["holes"][0]
+        self.assertNotIn("putts", hole)  # product spec 2.8: a missing cell is not zero-filled
+        self.assertIsNone(hole.get("gir"))
+
+    def test_product_spec_2_8_explicit_zero_putts_is_preserved(self) -> None:
+        """Product spec 2.8: an explicitly entered zero is retained as a real value."""
+        events = [
+            {"hole": 1, "kind": "putt", "payload": {"putts": 0}},
+            {"hole": 1, "kind": "score", "payload": {"strokes": 4}},
+        ]
+        result = round_ingest.ingest_round(
+            "p_friend",
+            events,
+            {"courseName": "Manual", "holePars": "4"},
+            idempotency_key="explicit-zero-putts",
+            root=self.root,
+        )
+        card = self._player_dir("p_friend") / "scorecards" / f"{result['id']}.json"
+        hole = json.loads(card.read_text())["scorecardDetails"][0]["scorecard"]["holes"][0]
+        self.assertEqual(hole["putts"], 0)
+
     def test_round_is_consumable_by_load_raw_rounds(self) -> None:
         round_ingest.ingest_round(
             "p_friend", _events(), _meta(), idempotency_key="rnd-1", root=self.root
