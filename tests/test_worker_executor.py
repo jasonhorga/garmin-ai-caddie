@@ -36,6 +36,11 @@ class SubprocessExecutorTests(unittest.TestCase):
             with self.assertRaises(Exception):
                 crashed.result(timeout=10)
             self.assertEqual(executor.submit(_healthy).result(timeout=10), "ok")
+            executor._task_timeout_seconds = 0.1
+            timed_out = executor.submit(_slow)
+            with self.assertRaises(TimeoutError):
+                timed_out.result(timeout=10)
+            executor._task_timeout_seconds = 120.0
             self.assertEqual(executor.submit(_loud).result(timeout=40), "drained")
         finally:
             executor.shutdown()
