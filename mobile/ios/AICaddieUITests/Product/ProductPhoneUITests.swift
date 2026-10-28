@@ -257,7 +257,7 @@ final class ProductPhoneUITests: XCTestCase {
 
         var failing = ProductFixtureServer.State()
         failing.statsFailure = true
-        failing.statsResponseDelay = 1
+        failing.statsResponseDelay = 2.5
         server.configure(failing)
         range.buttons.element(boundBy: 0).tap()
         let notice = element("time-range-notice")
@@ -287,6 +287,38 @@ final class ProductPhoneUITests: XCTestCase {
         XCTAssertEqual(requests.count, before + 1, "retry must send exactly one additional stats request")
         XCTAssertTrue(requests.last?.contains("window=last10") == true,
                       "retry must request the failed range")
+    }
+
+    func test_j2_2_retry_after_failed_refresh_of_the_committed_range_sends_one_request() {
+        // The committed range itself failed to refresh, so retrying cannot rely on a picker change.
+        launch(); scores()
+        var failing = ProductFixtureServer.State()
+        failing.statsFailure = true
+        failing.statsResponseDelay = 2.5
+        server.configure(failing)
+        tap("results-entry-time")
+        let notice = element("time-range-notice")
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), "a failed refresh of 全部 must offer retry")
+        let before = server.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }.count
+        XCTAssertGreaterThanOrEqual(before, 1)
+
+        let retry = notice.buttons.firstMatch
+        XCTAssertTrue(retry.exists)
+        retry.tap()
+        let noticeCleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            return !notice.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [noticeCleared], timeout: 5), .completed,
+                       "retry must clear the old notice while the request is in flight")
+        let noticeReturned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            return notice.exists
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [noticeReturned], timeout: 10), .completed,
+                       "failed retry must show the range notice again")
+        let requests = server.requestedPaths().filter { $0.contains("/api/v2/history/stats/mobile") }
+        XCTAssertEqual(requests.count, before + 1, "retry must send exactly one additional stats request")
+        XCTAssertTrue(requests.last?.contains("window=all") == true,
+                      "retry must request the committed range")
     }
 
     func test_j2_3_quarter_drilldown_opens_only_its_two_real_rounds_then_review() {

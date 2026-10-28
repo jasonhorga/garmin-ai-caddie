@@ -691,8 +691,8 @@ public struct ResultsTrendView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(16)
-                    .accessibilityIdentifier("time-range-notice")
                     .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("time-range-notice")
                 }
                 ResultsTimeContent(stats: stats, window: $window, grain: $grain) { destination = $0 }
                     .environment(\.resultsRangeAccessibilityValue,
