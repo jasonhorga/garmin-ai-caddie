@@ -515,7 +515,7 @@ class BackgroundMapContractTests(unittest.TestCase):
         future.set_result(b"webp")
         pool = Mock()
         pool.submit.return_value = future
-        def fetch(*_):
+        def fetch(*_, **_kwargs):
             starts.append(clock[0])
             return b"jpeg"
         with (patch.object(raster, "RASTER_CACHE_DIR", self.root / "raster"),

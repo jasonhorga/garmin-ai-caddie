@@ -7,6 +7,8 @@ this worker deliberately does not revalidate all completed files on every boot.
 from __future__ import annotations
 
 import atexit
+from concurrent.futures import CancelledError, TimeoutError
+from concurrent.futures.process import BrokenProcessPool
 from contextlib import contextmanager
 from datetime import UTC, datetime
 import fcntl
@@ -33,10 +35,22 @@ FOREGROUND_QUIET_SECONDS = 10.0
 NETWORK_RASTER_INTERVAL_SECONDS = 2.0
 JOURNAL_BATCH_UNITS = 25
 JOURNAL_INTERVAL_SECONDS = 10.0
+RENDER_TIMEOUT_SECONDS = 180.0
+RENDER_RETRY_BACKOFF_SECONDS = 5.0
+WRITER_RETRY_SECONDS = 30.0
+WRITER_RETRY_MAX_SECONDS = 600.0
 
 _FOREGROUND_LOCK = threading.Lock()
 _FOREGROUND_REQUESTS = 0
 _LAST_FOREGROUND_FINISHED = float("-inf")
+
+
+class _JournalWriterBusy(RuntimeError):
+    """Another container still holds the durable writer lease."""
+
+
+class _RetryRender(RuntimeError):
+    """Infrastructure interruption; the map unit remains pending."""
 
 
 def foreground_request_started(path: str) -> bool:
@@ -149,13 +163,27 @@ class RenderBackfill:
             fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             lease.close()
-            raise RuntimeError("render backfill journal already has a writer") from exc
+            raise _JournalWriterBusy("render backfill journal already has a writer") from exc
         self._lease = lease
         # Another service may have drained the journal since this object was created.
         state = self._load()
         with self._lock:
             self._state = state
             self._index_state()
+
+    def _wait_for_writer(self) -> None:
+        """Allow the previous container to finish without delaying HTTP/status requests."""
+        with self._unit_lock:
+            deadline = time.monotonic() + WRITER_RETRY_MAX_SECONDS
+            while True:
+                try:
+                    self._acquire_writer()
+                    return
+                except _JournalWriterBusy:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise
+                    time.sleep(min(WRITER_RETRY_SECONDS, remaining))
 
     def _save(self, *, force: bool = False) -> None:
         with self._io_lock:
@@ -216,15 +244,52 @@ class RenderBackfill:
         # Never allow the shared renderer's disabled/broken-pool fallback to run CPU work in
         # the API process. Production enables this pool through the existing start script.
         path = topo_render.cache_path(gid, hole)
-        if topo_render._read_cached_topo(path):
-            return b"cached"
+        if cached := topo_render._read_cached_topo(path):
+            return cached
         processes = topo_render._render_process_count()
         if not processes:
             raise RuntimeError("background rendering requires the existing render process pool")
         with self._render_slot():
-            png = topo_render._get_render_pool(processes).submit(topo_render._render_in_worker, gid, hole).result()
-        topo_render._write_cached_topo(path, png)
-        return png
+            # Register only after foreground admission: registering before waiting for active
+            # requests would deadlock a foreground follower against its own background leader.
+            with topo_render._cache_lock:
+                if cached := topo_render._read_cached_topo(path):
+                    return cached
+                waiter = topo_render._cache_inflight.get(path)
+                leader = waiter is None
+                if leader:
+                    waiter = threading.Event()
+                    topo_render._cache_inflight[path] = waiter
+            if leader:
+                try:
+                    png = self._render_in_pool(processes, topo_render._render_in_worker, gid, hole)
+                    topo_render._write_cached_topo(path, png)
+                    return png
+                finally:
+                    with topo_render._cache_lock:
+                        if topo_render._cache_inflight.get(path) is waiter:
+                            topo_render._cache_inflight.pop(path, None)
+                        waiter.set()
+        # A foreground leader already owns this path. Release our render slot while following.
+        if waiter.wait(timeout=RENDER_TIMEOUT_SECONDS):
+            if cached := topo_render._read_cached_topo(path):
+                return cached
+        raise _RetryRender("foreground topo leader unavailable")
+
+    @staticmethod
+    def _render_in_pool(processes: int, fn: Callable, *args: Any) -> bytes:
+        pool = topo_render._get_render_pool(processes)
+        try:
+            return pool.submit(fn, *args).result(timeout=RENDER_TIMEOUT_SECONDS)
+        except (BrokenProcessPool, CancelledError, TimeoutError) as exc:
+            topo_render._discard_render_pool(pool)
+            raise _RetryRender(type(exc).__name__) from exc
+        except RuntimeError as exc:
+            # A shutdown pool can refuse submit before there is even a cancellable future.
+            if "cannot schedule new futures after" not in str(exc):
+                raise
+            topo_render._discard_render_pool(pool)
+            raise _RetryRender("render pool shut down") from exc
 
     @contextmanager
     def _render_slot(self):
@@ -248,25 +313,37 @@ class RenderBackfill:
             raise RuntimeError("background matting requires the existing render process pool")
         source_path = garmin_raster._raster_path(gid, hole, version)
         if source_path.is_file():
-            source = source_path.read_bytes()
+            try:
+                source = source_path.read_bytes()
+            except OSError as exc:
+                raise RuntimeError(f"garmin download failed: local JPEG {type(exc).__name__}") from exc
         else:
             # Resolve only the cached release; never refresh release authority in backfill.
             info = garmin_raster.courseview_release_info(gid, allow_fetch=False) or {}
             row = next((r for r in info.get("holes", []) if int(r.get("hole", 0)) == hole), None)
             if not row or not row.get("raster_url"):
-                return False
+                raise RuntimeError("garmin download failed: source URL unavailable")
             while time.monotonic() - self._last_network < NETWORK_RASTER_INTERVAL_SECONDS:
                 self._save()
                 time.sleep(self._wait_seconds)
             self._wait_for_foreground()
             self._last_network = time.monotonic()
-            source = garmin_raster.fetch_raster(gid, dict(row, geometryAssetVersion=version))
+            reasons: list[str] = []
+            source = garmin_raster.fetch_raster(gid, dict(row, geometryAssetVersion=version), on_error=reasons.append)
+            if not source:
+                reason = reasons[-1] if reasons else "source unavailable"
+                raise RuntimeError(f"garmin download failed: {reason}")
         if not source:
-            return False
-        with self._render_slot():
-            data = topo_render._get_render_pool(processes).submit(garmin_raster.matte_sky_webp, source).result()
+            raise RuntimeError("garmin download failed: empty local JPEG")
+        try:
+            with self._render_slot():
+                data = self._render_in_pool(processes, garmin_raster.matte_sky_webp, source)
+        except _RetryRender:
+            raise
+        except Exception as exc:
+            raise RuntimeError(f"garmin matte failed: {type(exc).__name__}") from exc
         if not data:
-            return False
+            raise RuntimeError("garmin matte failed: empty output")
         # No registration and no cache lock held across a pool wait: foreground requests remain
         # free to read/use their normal cache path. Each writer has a distinct atomic temporary.
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -410,7 +487,8 @@ class RenderBackfill:
             with self._lock:
                 if not self._queue:
                     return False
-                _priority, _network, key, unit = heapq.heappop(self._queue)
+                selected = heapq.heappop(self._queue)
+                _priority, _network, key, unit = selected
                 task = self._state["tasks"][key]
             error = None
             try:
@@ -419,6 +497,14 @@ class RenderBackfill:
                         self._render_topo(task["globalId"], task["localHole"])
                     elif not self._render_garmin(task["globalId"], task["localHole"], task["assetVersion"]):
                         raise RuntimeError("garmin source or matte unavailable")
+            except _RetryRender as exc:
+                with self._lock:
+                    heapq.heappush(self._queue, selected)
+                logger.warning("render_backfill retry gid=%s hole=%s kind=%s reason=%s",
+                               task["globalId"], task["localHole"], unit, exc)
+                self._save()
+                time.sleep(RENDER_RETRY_BACKOFF_SECONDS)
+                return True
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"[:500]
                 logger.warning("render_backfill asset=failed gid=%s hole=%s kind=%s reason=%s",
@@ -491,6 +577,7 @@ def start_background(*, force: bool = False, manual: bool = False) -> RenderBack
                         with _BACKGROUND_LOCK:
                             retry = _FORCE
                             _RESCAN, _FORCE = False, False
+                        _BACKGROUND._wait_for_writer()
                         _BACKGROUND.enqueue_all(recent=_BACKGROUND._recent_holes(), force=retry)
                         _BACKGROUND.run_to_completion()
                         with _BACKGROUND_LOCK:
