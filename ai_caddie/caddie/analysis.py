@@ -167,11 +167,14 @@ def _selected_tee(
 
     requested = str(tee_box or "").strip().lower()
     global_id = hazards.get("globalId") or geometry.get("globalId")
-    tee_set = (
-        tee_set_for_box(global_id, tee_box, colour_fallback=colour_fallback)
-        if requested
-        else None
-    )
+    if requested:
+        tee_set = (
+            tee_set_for_box(global_id, tee_box, colour_fallback=False)
+            if not colour_fallback
+            else tee_set_for_box(global_id, tee_box)
+        )
+    else:
+        tee_set = None
     if tee_set is not None:
         match = next((t for t in tees if tee_set in (t.get("sets") or [])), None)
         if match:
