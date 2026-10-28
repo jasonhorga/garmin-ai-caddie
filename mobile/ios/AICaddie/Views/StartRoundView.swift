@@ -250,10 +250,21 @@ public struct StartRoundView: View {
         return RoundStartSelection(globalId: course.globalId, teeBox: teeBox, loops: loops)
     }
 
-    private var canRetryRoundStart: Bool {
-        roundStartFailure != nil
-            && roundStartFailure != .reauthentication
-            && currentRoundStartSelection == roundStartSelection
+    enum StartFailurePresentation: Equatable {
+        case retry
+        case message
+        case hidden
+    }
+
+    static func startFailurePresentation(
+        failure: RoundStartFailure?,
+        selectionMatches: Bool,
+        isPreparing: Bool,
+        isOpeningPrep: Bool
+    ) -> StartFailurePresentation {
+        guard !isPreparing, !isOpeningPrep, let failure else { return .hidden }
+        if failure == .reauthentication || !selectionMatches { return .message }
+        return .retry
     }
 
     /// The primary action is independent of GPS. A manually searched course has explicit player
@@ -468,10 +479,15 @@ public struct StartRoundView: View {
         ) else { return }
         fetchedTees = tees
         let pickedTee = userPickedTee ? teeBox : nil
-        let refreshedTee = Self.teeAfterRefresh(
+        let caller = (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId }
+        let refreshedTee = Self.teeAfterRefreshUsingHistory(
             current: teeBox,
             userPicked: userPickedTee,
-            lastUsed: lastUsedTee,
+            selectedVenue: selectedSegment.map(Self.courseVenueName),
+            recentVenue: recentCourseOption.map(Self.courseVenueName),
+            recentTee: recentCourseOption?.teeBox,
+            callerVenue: caller.map(Self.courseVenueName),
+            callerTee: callerTeeBox,
             rows: tees
         )
         if !isPreparing && refreshedTee.caseInsensitiveCompare(teeBox) != .orderedSame {
@@ -828,6 +844,8 @@ public struct StartRoundView: View {
         )
     }
 
+    // Keep the view-level history accessor as part of the mobile surface contract.  The refresh
+    // path below composes the same inputs explicitly so it remains directly testable.
     private var lastUsedTee: String? {
         guard let selectedSegment else { return nil }
         let caller = (preselectedVenueOptions + courseLookupOptions).first { $0.globalId == callerCourseGlobalId }
@@ -857,6 +875,31 @@ public struct StartRoundView: View {
             lastUsed: lastUsed, offered: rows.map(\.teeBox),
             defaultTee: rows.first(where: \.isDefault)?.teeBox
         )
+    }
+
+    /// The `/tees` refresh combines venue history and the current automatic/manual choice before
+    /// applying the row/default rule. Keeping this composition here makes the model contract
+    /// directly testable without scraping the SwiftUI source.
+    static func teeAfterRefreshUsingHistory(
+        current: String,
+        userPicked: Bool,
+        selectedVenue: String?,
+        recentVenue: String?,
+        recentTee: String?,
+        callerVenue: String?,
+        callerTee: String,
+        rows: [CourseTee]
+    ) -> String {
+        let lastUsed = selectedVenue.flatMap {
+            StartRoundPresentation.lastUsedTee(
+                selectedVenue: $0,
+                recentVenue: recentVenue,
+                recentTee: recentTee,
+                callerVenue: callerVenue,
+                callerTee: callerTee
+            )
+        }
+        return teeAfterRefresh(current: current, userPicked: userPicked, lastUsed: lastUsed, rows: rows)
     }
 
     @ViewBuilder private var courseList: some View {
@@ -1483,6 +1526,12 @@ public struct StartRoundView: View {
 
     private var startCard: some View {
         VStack(spacing: 8) {
+            let failurePresentation = Self.startFailurePresentation(
+                failure: roundStartFailure,
+                selectionMatches: currentRoundStartSelection == roundStartSelection,
+                isPreparing: isPreparing,
+                isOpeningPrep: isOpeningPrepCourse
+            )
             if let roundStartProgressMessage, isPreparing || isOpeningPrepCourse {
                 Text(roundStartProgressMessage)
                     .font(.caption)
@@ -1490,7 +1539,7 @@ public struct StartRoundView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("start-round-preparation-progress")
             }
-            if !isPreparing, !isOpeningPrepCourse, canRetryRoundStart,
+            if failurePresentation == .retry,
                let roundStartFailure {
                 HStack(spacing: 10) {
                     Label(roundStartFailure.presentationMessage, systemImage: "exclamationmark.triangle.fill")
@@ -1505,15 +1554,19 @@ public struct StartRoundView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("start-round-preparation-error")
-            } else if !isPreparing, !isOpeningPrepCourse,
-                      let roundStartFailure,
-                      roundStartFailure == .reauthentication {
-                Label(roundStartFailure.presentationMessage, systemImage: "person.crop.circle.badge.exclamationmark")
+            } else if failurePresentation == .message,
+                      let roundStartFailure {
+                Label(
+                    roundStartFailure.presentationMessage,
+                    systemImage: roundStartFailure == .reauthentication
+                        ? "person.crop.circle.badge.exclamationmark"
+                        : "exclamationmark.triangle.fill"
+                )
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("start-round-preparation-error")
-            } else if !isPreparing, !isOpeningPrepCourse, roundStartFailure == nil,
+            } else if failurePresentation == .hidden, roundStartFailure == nil,
                       let failure = Self.roundPreparationFailureMessage(from: syncStatus) {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)

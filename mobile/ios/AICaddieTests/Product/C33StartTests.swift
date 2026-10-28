@@ -478,12 +478,22 @@ final class C33StartTests: XCTestCase {
         let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 1)
         let model = c33Model(OfflineStore(directoryURL: directory), client)
         let sent = expectation(description: "foreground start reached server")
+        let sentOnce = C33FirstMatch()
         let lock = NSLock()
         var held: C33URLProtocol?
+        var roundIDs: [String] = []
         C33URLProtocol.setHandlers(onStart: { proto in
-            guard proto.request.url?.host == host else { proto.reply(404); return }
-            lock.lock(); held = proto; lock.unlock()
-            sent.fulfill()
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path == "/api/v2/mobile/courses/32850/package" else {
+                proto.reply(404); return
+            }
+            let roundID = c33Query(proto.request, "round_id")
+            lock.lock(); roundIDs.append(roundID ?? ""); held = proto; lock.unlock()
+            if sentOnce.claim() {
+                sent.fulfill()
+            } else {
+                proto.reply(503)
+            }
         })
         defer {
             client.invalidateForTesting(); session.invalidateAndCancel()
@@ -505,6 +515,15 @@ final class C33StartTests: XCTestCase {
         request?.reply(503)
         await start.value
         XCTAssertNotNil(model.roundStartFailure)
+        XCTAssertEqual(
+            model.roundStartSelection,
+            RoundStartSelection(globalId: 32850, teeBox: "blue", loops: [.init(globalId: 32850, half: "all")])
+        )
+        let retry = Task { await model.retryRoundStart() }
+        await retry.value
+        XCTAssertEqual(model.roundStartFailure, .unavailable)
+        lock.lock(); let observedRoundIDs = roundIDs; lock.unlock()
+        XCTAssertEqual(observedRoundIDs, ["tee-refresh-round", "tee-refresh-round"])
     }
 
     func testProductSpec42PrepMapPackageIsFollowedByBackgroundPersonalPackage() async throws {
@@ -563,7 +582,7 @@ final class C33StartTests: XCTestCase {
         await fulfillment(of: [mapSent, fullSent], timeout: eventWait)
         await model.waitForPrepEnrichmentForTesting()
         lock.lock(); let observedMapOnly = mapOnlyValues; lock.unlock()
-        XCTAssertEqual(observedMapOnly.prefix(2).compactMap { $0 }, ["true", "false"])
+        XCTAssertEqual(Array(observedMapOnly.prefix(2)), ["true", nil] as [String?])
         XCTAssertFalse(model.prepPackage?.sourceCoverage.playerStatsWindow == "deferred")
         model.closePrepMode()
         await model.stopRoundBackgroundWorkForTesting()
@@ -631,6 +650,10 @@ final class C33StartTests: XCTestCase {
         await fulfillment(of: [enrichmentSent], timeout: eventWait)
         model.prioritizePrepHole(2)
         await fulfillment(of: [prioritySent], timeout: eventWait)
+        for _ in 0..<100 where model.prepPackage?.sourceCoverage.playerStatsWindow != "priority" {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertEqual(model.prepPackage?.sourceCoverage.playerStatsWindow, "priority")
         lock.lock(); let lateRequest = heldEnrichment; lock.unlock()
         lateRequest?.reply(200, lateData)
         await model.waitForPrepEnrichmentForTesting()
@@ -650,12 +673,16 @@ final class C33StartTests: XCTestCase {
             roundStartProgressSleep: { _ in }
         )
         let sent = expectation(description: "cancelled prep request reached server")
+        let sentOnce = C33FirstMatch()
         C33URLProtocol.setHandlers(onStart: { proto in
-            guard proto.request.url?.host == host else { proto.reply(404); return }
+            guard proto.request.url?.host == host,
+                  proto.request.url?.path == "/api/v2/mobile/courses/32850/package" else {
+                proto.reply(404); return
+            }
             if (c33Query(proto.request, "round_id") ?? "").hasPrefix("prep-library-") {
                 proto.reply(503)
             } else {
-                sent.fulfill() // Intentionally never reply; closePrepMode cancels this request.
+                if sentOnce.claim() { sent.fulfill() } // Intentionally never reply; closePrepMode cancels this request.
             }
         })
         defer {
@@ -669,6 +696,7 @@ final class C33StartTests: XCTestCase {
         model.closePrepMode()
         try? await Task.sleep(nanoseconds: 200_000_000)
         XCTAssertNil(model.roundStartFailure, "4.2: a closed prep screen must discard a late start failure")
+        XCTAssertNotEqual(model.syncStatus, "离线中,使用已保存数据", "4.2: cancellation must not look like an offline failure")
         XCTAssertFalse(model.isPreparingRound)
     }
 }

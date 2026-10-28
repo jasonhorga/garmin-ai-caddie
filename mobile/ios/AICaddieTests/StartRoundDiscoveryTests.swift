@@ -212,6 +212,16 @@ final class StartRoundDiscoveryTests: XCTestCase {
             rows: [CourseTee(teeBox: "blue", name: "Blue", isDefault: true)]
         )
         XCTAssertEqual(corrected, "blue")
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
+                failure: .unavailable,
+                selectionMatches: false,
+                isPreparing: false,
+                isOpeningPrep: false
+            ),
+            .message,
+            "4.2: an automatic Tee correction must leave a visible failure explanation"
+        )
         XCTAssertTrue(StartRoundView.isStartAllowed(
             isPreparing: false,
             isLoadingTees: false,
@@ -222,6 +232,65 @@ final class StartRoundDiscoveryTests: XCTestCase {
             teeOptions: ["blue"],
             selectedCourseWasManualSearch: false
         ))
+    }
+
+    func testProductSpec42StartFailurePresentationHasRetryMessageAndHiddenStates() {
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
+                failure: .timedOut, selectionMatches: true, isPreparing: false, isOpeningPrep: false
+            ),
+            .retry
+        )
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
+                failure: .timedOut, selectionMatches: false, isPreparing: false, isOpeningPrep: false
+            ),
+            .message,
+            "4.2: changed Tee/course parameters still show the cause while the primary action retries"
+        )
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
+                failure: .reauthentication, selectionMatches: false, isPreparing: false, isOpeningPrep: false
+            ),
+            .message
+        )
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
+                failure: .unavailable, selectionMatches: true, isPreparing: true, isOpeningPrep: false
+            ),
+            .hidden
+        )
+        XCTAssertEqual(
+            StartRoundView.startFailurePresentation(
+                failure: nil, selectionMatches: true, isPreparing: false, isOpeningPrep: false
+            ),
+            .hidden
+        )
+    }
+
+    func testProductSpec42TeeRefreshCombinesVenueHistoryBeforeTheDefaultRow() {
+        let rows = [
+            CourseTee(teeBox: "Gold", name: "Gold", isDefault: true),
+            CourseTee(teeBox: "White", name: "White"),
+            CourseTee(teeBox: "Blue", name: "Blue"),
+        ]
+        XCTAssertEqual(
+            StartRoundView.teeAfterRefreshUsingHistory(
+                current: "Blue", userPicked: false,
+                selectedVenue: "黑骑士", recentVenue: "黑骑士", recentTee: "White",
+                callerVenue: "黑骑士", callerTee: "Blue", rows: rows
+            ),
+            "White"
+        )
+        XCTAssertEqual(
+            StartRoundView.teeAfterRefreshUsingHistory(
+                current: "Blue", userPicked: false,
+                selectedVenue: "黑骑士", recentVenue: "北湖", recentTee: "White",
+                callerVenue: nil, callerTee: "Blue", rows: rows
+            ),
+            "Gold",
+            "4.2: without a same-venue last-used Tee, the server default wins"
+        )
     }
 
     func testOfflineNearbyFallbackIncludesOnlyCoordinateProvenDownloadedCourses() {

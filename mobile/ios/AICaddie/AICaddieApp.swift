@@ -4225,9 +4225,9 @@ public final class LiveRoundAppModel: ObservableObject {
         prepPriorityTask = nil
         prepEnrichmentTask?.cancel()
         prepEnrichmentTask = nil
-        // Do this synchronously with the tap. The view's delayed course-intent task is allowed to
-        // be cancelled as the preparation spinner starts, but the background cache job must remain.
-        downloadPrepCourse(course)
+        // Record the tap immediately, but keep the whole-course job as an intent so the foreground
+        // map-only request owns the network until the hole screen is ready (C85).
+        prefetchIntendedCourses([course], teeBox: teeBox)
         prepPriorityRoundID = roundId
         prepPriorityHole = hole ?? 1
         prepCourse = course
@@ -4418,7 +4418,6 @@ public final class LiveRoundAppModel: ObservableObject {
         guard PrepCourseDownloadRecord(course: next).id != PrepCourseDownloadRecord(course: course).id else {
             return
         }
-        downloadPrepCourse(next)
         openPrepCourse(next, hole: hole)
     }
 
@@ -5582,6 +5581,11 @@ public final class LiveRoundAppModel: ObservableObject {
             // scanning the owner's historical event log here only delays the first-hole screen.
             return try await syncClient.fetchCoursePackage(globalId: courseGlobalId, roundId: roundId, teeBox: teeBox, loops: loops, capturedAt: capturedAt, ensureGeometry: false, backgroundGeometry: true, mapOnly: mapOnly, includeEventCursor: false, foregroundStart: preparationToken != nil, priorityHole: priorityHole)
         } catch {
+            if Task.isCancelled
+                || error is CancellationError
+                || (error as? URLError)?.code == .cancelled {
+                return nil
+            }
             AICaddieLog.network.error("Course package fetch failed (using cache): \(String(describing: error), privacy: .public)")
             if preparationToken == nil || preparationToken == roundPreparationToken {
                 if preparationToken != nil {
