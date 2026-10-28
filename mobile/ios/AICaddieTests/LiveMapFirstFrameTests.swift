@@ -21,6 +21,8 @@ final class LiveMapFirstFrameTests: XCTestCase {
         XCTAssertEqual(state, .factualPending)
     }
 
+    /// Product spec 4.5: a known precise map stays neutral while its bitmap decodes, even without
+    /// a route to draw underneath it.
     func testKnownPreciseTopoWithNoPrepRouteKeepsNeutralPendingFrame() {
         let inputs = LiveMapDisplayState.liveInputs(
             coverage: "ready",

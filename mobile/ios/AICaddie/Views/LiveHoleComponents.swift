@@ -2689,13 +2689,8 @@ enum LiveMapViewportTransition {
     /// lets the normal hole pager keep receiving horizontal swipes and avoids zooming a map merely
     /// because the two bitmap frames have different aspect ratios.
     private static func isDefaultViewport(_ interaction: LiveMapViewportInteraction) -> Bool {
-        guard interaction.scale.isFinite,
-              interaction.scale >= 1,
-              !HeroMapGesturePolicy.isZoomed(scale: interaction.scale),
-              interaction.offset.width.isFinite,
-              interaction.offset.height.isFinite else { return false }
-        return abs(interaction.offset.width) <= 0.5
-            && abs(interaction.offset.height) <= 0.5
+        guard interaction.scale.isFinite else { return false }
+        return !HeroMapGesturePolicy.isZoomed(scale: interaction.scale)
     }
 
     private static func remapPoint(
