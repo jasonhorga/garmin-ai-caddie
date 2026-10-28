@@ -1,0 +1,6 @@
+diff --git a/ai_caddie/caddie/mobile_live.py b/ai_caddie/caddie/mobile_live.py
+--- a/ai_caddie/caddie/mobile_live.py
++++ b/ai_caddie/caddie/mobile_live.py
+@@ -1269,7 +1269,7 @@ def _course_prep_package(
+-            player_id=player_id, tee_box=tee_box,
++            player_id=player_id,

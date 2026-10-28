@@ -410,10 +410,11 @@ class ReworkContractTests(unittest.TestCase):
         self.assertEqual([2], [h['hole'] for h in result.coursePrep['holes']])
         self.assertEqual(result.holes[0]['geometryState'], 'pending')
 
-    def test_selected_tee_cache_miss_uses_blue_route(self):
+    def test_selected_tee_cache_miss_keeps_map_but_withholds_other_tee_facts(self):
         from ai_caddie.caddie import mobile_live as ml
-        route = {'globalId': 123, 'localHole': 1, 'route': [[0, 0, 0], [0, 300, 300]],
-                 'map': {'image': None, 'overlay': {'w': 678, 'h': 1060, 'route': [[0, 0], [0, 300]]}}}
+        route = {'globalId': 123, 'localHole': 1,
+                 'map': {'image': None, 'overlay': {'w': 678, 'h': 1060,
+                         'surfaces': [{'kind': 'Fairway', 'polygons': []}]}}}
         package = {'course': {'globalId': 123, 'teeBox': 'white'}, 'clubProfiles': [],
                    'holes': [{'number': 1, 'sourceGlobalId': 123, 'sourceLocalHole': 1}]}
         with (patch('ai_caddie.core.data.mesh_path', return_value=Path(__file__)),
@@ -421,7 +422,8 @@ class ReworkContractTests(unittest.TestCase):
               patch('ai_caddie.courses.vector_prep.cached_vector_hole', side_effect=lambda *a, **kw: route if kw.get('tee_set') == 2 else None),
               patch.object(ml.course_prep, 'lightweight_prep_hole', return_value=None)):
             result = ml.first_hole_lightweight_course_prep(package, map_only=True)
-        self.assertEqual(result['holes'][0]['route'], route['route'])  # P1: blue cache keeps non-blue starts drawable.
+        self.assertIsNone(result['holes'][0].get('route'))  # C33 P1: map geometry may be reused, route facts may not.
+        self.assertNotIn('greenDistances', result['holes'][0])
 
     def test_follower_waits_one_second_and_marks_uncacheable(self):
         from server_v2 import mobile

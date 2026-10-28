@@ -1,0 +1,10 @@
+diff --git a/ai_caddie/caddie/analysis.py b/ai_caddie/caddie/analysis.py
+--- a/ai_caddie/caddie/analysis.py
++++ b/ai_caddie/caddie/analysis.py
+@@ -178,11 +178,7 @@ def resolve_selected_tee_set(
+-    requested = tee_set_for_box(
+-        global_id if global_id is not None else (hazards or {}).get("globalId"),
+-        tee_box,
+-        colour_fallback=True,
+-    )
++    requested = TEE_SET_BY_BOX["blue"]

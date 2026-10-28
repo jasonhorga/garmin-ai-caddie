@@ -153,6 +153,43 @@ def tee_set_for_box(
     return tee_set
 
 
+def resolve_selected_tee_set(
+    hazards: dict[str, Any] | None,
+    tee_box: str | None,
+    *,
+    global_id: Any = None,
+) -> int | None:
+    """Resolve the effective Tee set shared by package and CoursePrep builders.
+
+    A named release Tee wins when this hole carries that set. If a colour is not published on
+    this hole (or the release list is unavailable), both callers use Blue when present, then the
+    first available Tee. This keeps the package anchor, CoursePrep route and F/M/B distances on
+    one factual origin without inventing a different Tee in either endpoint.
+    """
+    rows = [row for row in (hazards or {}).get("tees") or [] if isinstance(row, dict)]
+    available: list[int] = []
+    for row in rows:
+        for raw in row.get("sets") or []:
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if value not in available:
+                available.append(value)
+    if not available:
+        return None
+    requested = tee_set_for_box(
+        global_id if global_id is not None else (hazards or {}).get("globalId"),
+        tee_box,
+        colour_fallback=True,
+    )
+    if requested in available:
+        return requested
+    if TEE_SET_BY_BOX["blue"] in available:
+        return TEE_SET_BY_BOX["blue"]
+    return available[0]
+
+
 def _selected_tee(
     geometry: dict[str, Any],
     tee_box: str | None = None,
@@ -167,14 +204,7 @@ def _selected_tee(
 
     requested = str(tee_box or "").strip().lower()
     global_id = hazards.get("globalId") or geometry.get("globalId")
-    if requested:
-        tee_set = (
-            tee_set_for_box(global_id, tee_box, colour_fallback=False)
-            if not colour_fallback
-            else tee_set_for_box(global_id, tee_box)
-        )
-    else:
-        tee_set = None
+    tee_set = resolve_selected_tee_set(hazards, tee_box, global_id=global_id)
     if tee_set is not None:
         match = next((t for t in tees if tee_set in (t.get("sets") or [])), None)
         if match:
