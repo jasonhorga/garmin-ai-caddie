@@ -378,6 +378,81 @@ final class GarminRasterTests: XCTestCase {
         XCTAssertEqual(afterCenter.longitude, beforeCenter.longitude, accuracy: 1e-9)
     }
 
+    func testGarminToPreciseViewportTransitionRemapsPixelOnlyPoints() throws {
+        let garmin = projection(
+            originPixel: CGPoint(x: 80, y: 1740),
+            xPixel: CGPoint(x: 80, y: 140),
+            yPixel: CGPoint(x: 700, y: 1740)
+        )
+        let precise = projection(
+            originPixel: CGPoint(x: 120, y: 330),
+            xPixel: CGPoint(x: 120, y: 30),
+            yPixel: CGPoint(x: 240, y: 330)
+        )
+        let sourceOverlay = CoursePrepOverlay(
+            w: 1242, h: 1920, ppm: 2, ln: 300, route: [[390, 1740, 0], [390, 140, 300]]
+        )
+        let destinationOverlay = CoursePrepOverlay(
+            w: 240, h: 360, ppm: 1, ln: 300, route: [[120, 330, 0], [120, 30, 300]]
+        )
+        let sourcePoint = try XCTUnwrap(GarminRasterProjectionMath.projectToPixel(
+            latitude: 40.0005, longitude: 116.0005, projection: garmin
+        ))
+        let interaction = LiveMapViewportInteraction(
+            scale: 2, offset: .zero, selectedHazardID: "water-0",
+            targetPixel: sourcePoint, greenPinPixel: sourcePoint
+        )
+        let result = LiveMapViewportTransition.preserve(
+            previous: .garminRaster,
+            next: .precise,
+            viewportSize: CGSize(width: 390, height: 844),
+            sourceFrame: CGRect(x: 0, y: 80, width: 390, height: 603),
+            destinationFrame: CGRect(x: 75, y: 100, width: 240, height: 360),
+            sourceOverlay: sourceOverlay,
+            destinationOverlay: destinationOverlay,
+            sourceProjection: garmin,
+            destinationProjection: precise,
+            targetCoordinate: nil,
+            greenPinCoordinate: nil,
+            interaction: interaction
+        )
+        let expected = try XCTUnwrap(GarminRasterProjectionMath.remap(
+            pixel: sourcePoint, from: garmin, to: precise
+        ))
+        XCTAssertEqual(result.targetPixel?.x ?? -1, expected.x, accuracy: 0.001)
+        XCTAssertEqual(result.targetPixel?.y ?? -1, expected.y, accuracy: 0.001)
+        XCTAssertEqual(result.greenPinPixel?.x ?? -1, expected.x, accuracy: 0.001)
+        XCTAssertEqual(result.greenPinPixel?.y ?? -1, expected.y, accuracy: 0.001)
+    }
+
+    func testRouteTierToUnregisteredGarminClearsPixelOnlyPoints() {
+        let interaction = LiveMapViewportInteraction(
+            scale: 2.2,
+            offset: CGSize(width: 10, height: -6),
+            selectedHazardID: "water-0",
+            targetPixel: CGPoint(x: 120, y: 180),
+            greenPinPixel: CGPoint(x: 120, y: 30)
+        )
+        let result = LiveMapViewportTransition.preserve(
+            previous: .factual,
+            next: .garminRaster,
+            viewportSize: CGSize(width: 390, height: 844),
+            sourceFrame: CGRect(x: 75, y: 100, width: 240, height: 360),
+            destinationFrame: CGRect(x: 0, y: 80, width: 390, height: 603),
+            sourceOverlay: CoursePrepOverlay(w: 240, h: 360, ppm: 1, ln: 300, route: []),
+            destinationOverlay: CoursePrepOverlay(w: 1242, h: 1920, ppm: 1, ln: 0, route: []),
+            sourceProjection: nil,
+            destinationProjection: nil,
+            targetCoordinate: nil,
+            greenPinCoordinate: nil,
+            interaction: interaction
+        )
+        XCTAssertEqual(result.scale, interaction.scale)
+        XCTAssertEqual(result.offset, interaction.offset)
+        XCTAssertNil(result.targetPixel)
+        XCTAssertNil(result.greenPinPixel)
+    }
+
     func testNumericPlaceholderGestureStateResetsScaleAndOffset() {
         XCTAssertEqual(
             LiveMapDisplaySelection.gestureScale(for: .numericPlaceholder, proposed: 4),

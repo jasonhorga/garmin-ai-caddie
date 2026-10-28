@@ -73,6 +73,21 @@ final class TopoHoleImageStore: ObservableObject {
         imageCache.removeObject(forKey: url as NSURL)
     }
 
+    #if DEBUG
+    /// UI-test reset: the fixture server can change a hole's revision between launches, so no
+    /// decoded or URLCache response may survive as an image for the next fixture state.
+    static func resetForUITesting() {
+        imageCache.removeAllObjects()
+        inFlight.values.forEach { $0.cancel() }
+        inFlight.removeAll()
+        retryAttemptByURL.removeAll()
+        URLCache.shared.removeAllCachedResponses()
+        let directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("AICaddieTopoImages-v1", isDirectory: true)
+        try? FileManager.default.removeItem(at: directory)
+    }
+    #endif
+
     /// Warm a topo without creating a view. The round pager calls this while fetching all 18 shot
     /// maps, so page changes normally hit decoded memory instead of showing another network wait.
     static func prefetch(_ url: URL?) {

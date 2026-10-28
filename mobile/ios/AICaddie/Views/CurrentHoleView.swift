@@ -417,9 +417,7 @@ enum LiveHazardMapFrame {
         case .waiting, .factualPending, .numericPlaceholder:
             return .needsMapping(.noMap)
         case .factual:
-            return LiveTopoAvailability.overlayAllowed(displayState: .precise, hole: hole, prep: prep)
-                ? .drawable(hole: prep, row: row)
-                : .needsMapping(.sameFramePrep)
+            return .drawable(hole: prep, row: row)
         }
     }
 
@@ -2425,82 +2423,66 @@ public struct CurrentHoleView: View {
         )
     }
 
+    /// Returns the frame used by `liveMapPlacedBackdrop` for a specific tier. Factual and precise
+    /// use the ordinary top-inset aspect-fit frame; Garmin uses its route-aware fitted frame.
+    private func liveMapFrame(
+        for state: LiveMapDisplayState,
+        overlay: CoursePrepOverlay?,
+        in viewport: CGSize
+    ) -> CGRect? {
+        guard let overlay else { return nil }
+        if state == .garminRaster {
+            return liveMapFittedFrame(for: overlay, in: viewport, lightweight: true)
+        }
+        return LivePlayMapOverlayLayout.mapFrame(
+            overlayWidth: overlay.w,
+            overlayHeight: overlay.h,
+            in: viewport,
+            topInset: LivePlayMapOverlayLayout.liveMapTopInset
+        )
+    }
+
     private func carryOverLiveMapViewport(
         from previous: LiveMapDisplayState,
         to next: LiveMapDisplayState
     ) {
-        if previous == .factual && (next == .precise || next == .garminRaster) {
-            let preserved = LiveMapViewportTransition.preserve(
-                previous: previous,
-                next: next,
-                sourceFrame: liveHeroFrame,
-                destinationFrame: liveHeroFrame,
-                interaction: LiveMapViewportInteraction(
-                    scale: heroMapScale,
-                    offset: heroMapOffset,
-                    selectedHazardID: selectedHazardID,
-                    targetPixel: targetPixel,
-                    greenPinPixel: greenPinPixel
-                )
-            )
-            heroMapScale = preserved.scale
-            heroMapOffset = preserved.offset
-            selectedHazardID = preserved.selectedHazardID
-            targetPixel = preserved.targetPixel
-            greenPinPixel = preserved.greenPinPixel
-            return
-        }
-        guard previous == .garminRaster, next == .precise,
-              let sourceProjection = projection(for: previous),
-              let destinationProjection = projection(for: next),
-              let sourceOverlay = overlay(for: previous),
-              let destinationOverlay = overlay(for: next),
-              liveHeroFrame.width > 0,
-              let sourceFrame = liveMapFittedFrame(
-                  for: sourceOverlay,
-                  in: liveHeroFrame.size,
-                  lightweight: true
-              ),
-              let destinationFrame = LivePlayMapOverlayLayout.mapFrame(
-                  overlayWidth: destinationOverlay.w,
-                  overlayHeight: destinationOverlay.h,
-                  in: liveHeroFrame.size,
-                  topInset: LivePlayMapOverlayLayout.liveMapTopInset
-              ) else {
-            return
-        }
-        if let transfer = LiveMapViewportCarryOver.transfer(
+        guard (previous == .factual && (next == .precise || next == .garminRaster))
+                || (previous == .garminRaster && next == .precise) else { return }
+        let sourceOverlay = LiveMapDisplaySelection.mapFrameOverlay(
+            for: previous,
+            overlay: overlay(for: previous),
+            garminProjection: liveGarminRasterProjection
+        )
+        let destinationOverlay = LiveMapDisplaySelection.mapFrameOverlay(
+            for: next,
+            overlay: overlay(for: next),
+            garminProjection: liveGarminRasterProjection
+        )
+        let preserved = LiveMapViewportTransition.preserve(
+            previous: previous,
+            next: next,
             viewportSize: liveHeroFrame.size,
-            sourceFrame: sourceFrame,
-            destinationFrame: destinationFrame,
+            sourceFrame: liveMapFrame(for: previous, overlay: sourceOverlay, in: liveHeroFrame.size),
+            destinationFrame: liveMapFrame(for: next, overlay: destinationOverlay, in: liveHeroFrame.size),
             sourceOverlay: sourceOverlay,
             destinationOverlay: destinationOverlay,
-            sourceProjection: sourceProjection,
-            destinationProjection: destinationProjection,
-            scale: heroMapScale,
-            offset: heroMapOffset
-        ) {
-            heroMapScale = transfer.scale
-            heroMapOffset = transfer.offset
-        }
-        func transferPoint(_ pixel: CGPoint?, coordinate: CLLocationCoordinate2D?) -> CGPoint? {
-            guard let pixel else { return nil }
-            if let coordinate,
-               let projected = GarminRasterProjectionMath.projectToPixel(
-                   latitude: coordinate.latitude,
-                   longitude: coordinate.longitude,
-                   projection: destinationProjection
-               ) {
-                return projected
-            }
-            return GarminRasterProjectionMath.remap(
-                pixel: pixel,
-                from: sourceProjection,
-                to: destinationProjection
+            sourceProjection: projection(for: previous),
+            destinationProjection: projection(for: next),
+            targetCoordinate: targetCoordinate,
+            greenPinCoordinate: greenPinCoordinate,
+            interaction: LiveMapViewportInteraction(
+                scale: heroMapScale,
+                offset: heroMapOffset,
+                selectedHazardID: selectedHazardID,
+                targetPixel: targetPixel,
+                greenPinPixel: greenPinPixel
             )
-        }
-        targetPixel = transferPoint(targetPixel, coordinate: targetCoordinate)
-        greenPinPixel = transferPoint(greenPinPixel, coordinate: greenPinCoordinate)
+        )
+        heroMapScale = preserved.scale
+        heroMapOffset = preserved.offset
+        selectedHazardID = preserved.selectedHazardID
+        targetPixel = preserved.targetPixel
+        greenPinPixel = preserved.greenPinPixel
     }
 
     /// A background precise map replacing the lightweight one (same hole) keeps the player's
@@ -3382,7 +3364,8 @@ public struct CurrentHoleView: View {
             branch = "fallback"
         }
         let message = "live-map hole=\(hole.number) selected=\(isSelected) state=\(String(describing: state)) "
-            + "localTopoEmpty=\(localTopoURL == nil) preciseMemory=\(hasPreciseTopoImage) "
+            + "localTopoEmpty=\(localTopoURL == nil) topo=\(liveTopoURL?.query ?? \"nil\") "
+            + "preciseMemory=\(hasPreciseTopoImage) "
             + "garminMemory=\(garminImageReadyForDisplay) topoBase=\(branch)"
         #if DEBUG
         UITestPagerTrace.shared.record(message)

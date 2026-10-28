@@ -2576,14 +2576,15 @@ struct LiveMapViewportInteraction: Equatable {
 }
 
 enum LiveMapViewportTransition {
-    /// Review seam for a tier handoff. The first version deliberately keeps the old identity
-    /// behavior; the product implementation below replaces it with projection-aware transfer.
+    /// Transfer one displayed tier to another without letting a pixel from one image frame leak
+    /// into the next. Factual→precise is deliberately identity-preserving; factual/Garmin and
+    /// Garmin/precise use the two projections and the two frames that are actually on screen.
     static func preserve(
         previous: LiveMapDisplayState,
         next: LiveMapDisplayState,
         viewportSize: CGSize,
-        sourceFrame: CGRect,
-        destinationFrame: CGRect,
+        sourceFrame: CGRect?,
+        destinationFrame: CGRect?,
         sourceOverlay: CoursePrepOverlay?,
         destinationOverlay: CoursePrepOverlay?,
         sourceProjection: CoursePrepHoleImageProjection?,
@@ -2592,30 +2593,96 @@ enum LiveMapViewportTransition {
         greenPinCoordinate: CLLocationCoordinate2D?,
         interaction: LiveMapViewportInteraction
     ) -> LiveMapViewportInteraction {
-        _ = previous
-        _ = next
-        _ = viewportSize
-        _ = sourceFrame
-        _ = destinationFrame
-        _ = sourceOverlay
-        _ = destinationOverlay
-        _ = sourceProjection
-        _ = destinationProjection
-        _ = targetCoordinate
-        _ = greenPinCoordinate
-        return interaction
+        guard previous != next else { return interaction }
+        if previous == .factual && next == .precise { return interaction }
+        guard (previous == .factual && next == .garminRaster)
+                || (previous == .garminRaster && next == .precise) else {
+            return interaction
+        }
+
+        let mappedTarget = remapPoint(
+            pixel: interaction.targetPixel,
+            coordinate: targetCoordinate,
+            source: sourceProjection,
+            destination: destinationProjection
+        )
+        let mappedGreenPin = remapPoint(
+            pixel: interaction.greenPinPixel,
+            coordinate: greenPinCoordinate,
+            source: sourceProjection,
+            destination: destinationProjection
+        )
+        guard let viewportSize = validViewport(viewportSize),
+              let sourceFrame,
+              let destinationFrame,
+              let sourceOverlay,
+              let destinationOverlay,
+              let sourceProjection,
+              let destinationProjection,
+              sourceProjection.isUsable,
+              destinationProjection.isUsable,
+              let transfer = LiveMapViewportCarryOver.transfer(
+                  viewportSize: viewportSize,
+                  sourceFrame: sourceFrame,
+                  destinationFrame: destinationFrame,
+                  sourceOverlay: sourceOverlay,
+                  destinationOverlay: destinationOverlay,
+                  sourceProjection: sourceProjection,
+                  destinationProjection: destinationProjection,
+                  scale: interaction.scale,
+                  offset: interaction.offset
+              ) else {
+            return withPoints(interaction, targetPixel: nil, greenPinPixel: nil)
+        }
+        return withPoints(
+            interaction,
+            scale: transfer.scale,
+            offset: transfer.offset,
+            targetPixel: mappedTarget,
+            greenPinPixel: mappedGreenPin
+        )
     }
 
-    static func preserve(
-        previous: LiveMapDisplayState,
-        next: LiveMapDisplayState,
-        sourceFrame: CGRect,
-        destinationFrame: CGRect,
-        interaction: LiveMapViewportInteraction
+    private static func validViewport(_ size: CGSize) -> CGSize? {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
+            return nil
+        }
+        return size
+    }
+
+    private static func remapPoint(
+        pixel: CGPoint?,
+        coordinate: CLLocationCoordinate2D?,
+        source: CoursePrepHoleImageProjection?,
+        destination: CoursePrepHoleImageProjection?
+    ) -> CGPoint? {
+        guard let destination, destination.isUsable else { return nil }
+        if let coordinate,
+           let projected = GarminRasterProjectionMath.projectToPixel(
+               latitude: coordinate.latitude,
+               longitude: coordinate.longitude,
+               projection: destination
+           ) {
+            return projected
+        }
+        guard let pixel, let source, source.isUsable else { return nil }
+        return GarminRasterProjectionMath.remap(pixel: pixel, from: source, to: destination)
+    }
+
+    private static func withPoints(
+        _ interaction: LiveMapViewportInteraction,
+        scale: CGFloat? = nil,
+        offset: CGSize? = nil,
+        targetPixel: CGPoint?,
+        greenPinPixel: CGPoint?
     ) -> LiveMapViewportInteraction {
-        _ = sourceFrame
-        _ = destinationFrame
-        return interaction
+        LiveMapViewportInteraction(
+            scale: scale ?? interaction.scale,
+            offset: offset ?? interaction.offset,
+            selectedHazardID: interaction.selectedHazardID,
+            targetPixel: targetPixel,
+            greenPinPixel: greenPinPixel
+        )
     }
 }
 
