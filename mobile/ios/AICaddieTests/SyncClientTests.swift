@@ -100,6 +100,52 @@ final class SyncClientTests: XCTestCase {
         XCTAssertEqual(record.status, 200)
     }
 
+    /// The raw monotonic start sample belongs before the final cancellation check. A cancellation
+    /// released from the request-construction gate must therefore still pay only the cheap sample;
+    /// it must never reach URLSession transport.
+    func testCancelledRequestSamplesTimingBeforeTransportCheck() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let gate = SyncTimingRequestGate()
+        let entered = expectation(description: "request gate entered")
+        let reads = LockedTimingReadCounter()
+        CapturingURLProtocol.requestHandler = { request in
+            XCTFail("cancelled request reached transport: \(request.url?.absoluteString ?? "<nil>")")
+            return (
+                HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 500, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: session,
+            retrySleep: { _ in },
+            monotonicNow: {
+                reads.increment()
+                return 0
+            }
+        )
+        client.requestDataGateForTesting = { _ in
+            entered.fulfill()
+            await gate.wait()
+        }
+        let request = Task {
+            try await client.fetchCoursePrep(globalId: 31870, render: false)
+        }
+        await fulfillment(of: [entered], timeout: 2)
+        request.cancel()
+        await gate.release()
+        do {
+            _ = try await request.value
+            XCTFail("a cancelled request answered")
+        } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(reads.value, 1)
+    }
+
     /// Product spec 8.4: diagnostics must not add a request to an ordinary business operation.
     func testProductSpec84OrdinaryRequestDoesNotUploadTiming() async throws {
         let configuration = URLSessionConfiguration.ephemeral
@@ -2036,6 +2082,45 @@ final class SyncClientTests: XCTestCase {
             data.append(buffer, count: readCount)
         }
         return data
+    }
+}
+
+private final class LockedTimingReadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+}
+
+private actor SyncTimingRequestGate {
+    private var waiter: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func wait() async {
+        if released { return }
+        await withCheckedContinuation { continuation in
+            if released {
+                continuation.resume()
+            } else {
+                waiter = continuation
+            }
+        }
+    }
+
+    func release() {
+        released = true
+        waiter?.resume()
+        waiter = nil
     }
 }
 
