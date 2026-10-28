@@ -2218,9 +2218,10 @@ public final class LiveRoundAppModel: ObservableObject {
         offlineCourseDownloadTask = Task { @MainActor [weak self, syncClient, initial] in
             guard let self else { return }
             let downloadSnapshot = initial
-            guard !Task.isCancelled,
-                  self.liveRoundState?.roundId == expectedRoundId,
-                  self.package?.course.globalId == expectedGlobalId else { return }
+            let isCurrentLiveRound = self.liveRoundState?.roundId == expectedRoundId
+                && self.package?.course.globalId == expectedGlobalId
+            let sealedDownloadStillOwned = self.offlineCourseDownloadRoundId == expectedRoundId
+            guard !Task.isCancelled, (isCurrentLiveRound || sealedDownloadStillOwned) else { return }
             var snapshot = downloadSnapshot
             if let retained = try? self.offlineStore.loadCourseTemplate(
                 globalId: snapshot.course.globalId,
