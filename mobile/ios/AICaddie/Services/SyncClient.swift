@@ -600,6 +600,9 @@ public final class SyncClient {
     }
 
     #if DEBUG
+    /// Test-only gate used to place cancellation between request construction and transport.
+    var requestDataGateForTesting: ((URLRequest) async -> Void)?
+
     /// Test teardown. From here on every request fails with `CancellationError` before it reaches a
     /// session (`requestData`): the test invalidates this client's sessions next, and a task created
     /// in an invalidated session raises NSGenericException, which ends the whole test process.
@@ -624,6 +627,11 @@ public final class SyncClient {
         var timedRequest = request
         let requestId = UUID().uuidString
         timedRequest.setValue(requestId, forHTTPHeaderField: "X-AI-Caddie-Request-ID")
+        #if DEBUG
+        if let gate = requestDataGateForTesting {
+            await gate(timedRequest)
+        }
+        #endif
         guard recordTiming else {
             return try await urlSession.data(for: timedRequest)
         }

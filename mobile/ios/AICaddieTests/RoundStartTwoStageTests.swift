@@ -392,6 +392,8 @@ final class RoundStartTwoStageTests: XCTestCase {
     /// Teardown guard (fixture run 40308301959): once the test hook has returned, nothing the round
     /// started in the background sends another request — the session is invalidated right after.
     func testAStoppedModelSendsNoFurtherRequest() async throws {
+        // C85: pin cancellation between request construction and URLSession transport. This makes
+        // the stop boundary deterministic instead of relying on the scheduler to expose it.
         let host = "c85-stop.example.test"
         let roundId = "c85-stop"
         let mapPackage = try package(roundId: roundId, mapOnly: true, garminRasterVersion: "c85-stop")
@@ -403,6 +405,9 @@ final class RoundStartTwoStageTests: XCTestCase {
         let fullSent = expectation(description: "full package requested")
         let lateRequest = expectation(description: "a request after the stop")
         lateRequest.isInverted = true
+        let installStatusGateEntered = expectation(description: "install status gate entered")
+        let installStatusGate = C90RequestGate()
+        let installStatusGateOnce = C33FirstMatch()
         let fullSentOnce = C33FirstMatch(), lateRequestOnce = C33FirstMatch()
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host else { proto.reply(404); return }
@@ -430,6 +435,12 @@ final class RoundStartTwoStageTests: XCTestCase {
         })
         let fixture = makeModel(host: host, held: held)
         let model = fixture.model
+        fixture.client.requestDataGateForTesting = { request in
+            guard request.url?.path == "/api/v2/courses/\(c85CourseId)/install/status",
+                  installStatusGateOnce.claim() else { return }
+            installStatusGateEntered.fulfill()
+            await installStatusGate.wait()
+        }
         // A personal package still alive after the stop would retry a failure at once.
         model.roundEnrichmentRetryDelaysNanoseconds = [0, 0, 0, 0]
         let rasterStarted = expectation(description: "raster pass running")
@@ -452,11 +463,15 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertEqual(model.pendingLiveHole, 1)
         model.liveHoleInitialLoadDidFinish()
         await fulfillment(of: [fullSent], timeout: eventWait)
+        await fulfillment(of: [installStatusGateEntered], timeout: eventWait)
 
-        await model.stopRoundBackgroundWorkForTesting()
+        let stopping = Task { await model.stopRoundBackgroundWorkForTesting() }
+        stopped.set(1)
+        await Task.yield()
+        await installStatusGate.release()
+        await stopping.value
         await waitForNoRunningTasks(fixture.session)
         let requestsAtStop = requests.value
-        stopped.set(1)
         // Push everything that could start work again: the held personal package fails now (a live
         // retry loop would ask again at once) and the live view repeats its initial-load callback
         // (it must not restart personal enrichment or either asset pass after the stop).
@@ -724,5 +739,20 @@ private final class C85HeldRequests {
 
 private final class C85DownloadLog {
     var urls: [URL] = []
+}
+
+private actor C90RequestGate {
+    private var waiter: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            waiter = continuation
+        }
+    }
+
+    func release() {
+        waiter?.resume()
+        waiter = nil
+    }
 }
 #endif
