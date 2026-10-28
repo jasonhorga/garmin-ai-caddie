@@ -2,6 +2,100 @@ import CoreLocation
 import Foundation
 import SwiftUI
 
+/// J5.10: the page's own restored inputs plus the facts used by its round chip/card/summary.
+/// Other holes' club/GPS/target updates are deliberately absent; their score edits are not.
+struct LiveHolePageRoundInput: Equatable {
+    struct Score: Equatable {
+        let hole: Int
+        let par: Int
+        let score: Int
+        let putts: Int
+        let penalties: Int
+        let fairway: String?
+        let source: String?
+    }
+
+    let roundId: String
+    let activeHole: Int
+    let startHole: Int?
+    let ownHole: LiveHoleStateSnapshot?
+    let scores: [Score]
+    let scoredHoles: [Int]
+
+    init(_ state: LiveRoundStateSnapshot, hole: Int) {
+        roundId = state.roundId
+        activeHole = state.activeHole
+        startHole = state.startHole
+        ownHole = state.holeState(for: hole)
+        scores = state.holes.map {
+            Score(hole: $0.hole, par: $0.par, score: $0.score, putts: $0.putts,
+                  penalties: $0.penaltyCount, fairway: $0.fairwayResult, source: $0.scoreSource)
+        }
+        scoredHoles = state.scoredHoles
+    }
+}
+
+struct LiveHolePageInput: Equatable {
+    let isSelected: Bool
+    // Compare the complete value package, not just generatedAt: retained prep can change in
+    // place under the same round/revision. This also covers loops, seeds, weather and profiles.
+    let package: LiveRoundPackage
+    let hole: Hole
+    let round: LiveHolePageRoundInput?
+    let courseOptions: [MobileCourseOption]
+    let isPreparingRound: Bool
+    let isFinishingRound: Bool
+    let finishErrorMessage: String?
+    let isPrepMode: Bool
+    let prepTeeOptions: [String]
+    let apiBaseURL: URL?
+    let adminToken: String?
+    let offlineStore: ObjectIdentifier?
+    let watchBridge: ObjectIdentifier?
+}
+
+/// The closure is intentionally outside equality. Selected pages always consume the new inputs.
+/// Kept generic so a hosted, counted body can exercise the same SwiftUI boundary as the pager.
+struct LiveHolePage<Content: View>: View, Equatable {
+    let input: LiveHolePageInput
+    @ViewBuilder let content: () -> Content
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        // Behavioural red baseline: the old pager requested every mounted page on every event.
+        false
+    }
+
+    var body: some View { content() }
+}
+
+/// No ObservableObject: publishing fresh callbacks must not invalidate frozen adjacent pages.
+/// Values contain only incoming model callbacks/data, never RoundHomeView or its State storage.
+final class LiveHolePageCallbacks {
+    struct Value {
+        var package: LiveRoundPackage? = nil
+        var isPrepMode = false
+        var hasLiveRound = false
+        var onEvent: (LiveRoundEvent) -> Void = { _ in }
+        var onSetActiveHole: (Int) -> Void = { _ in }
+        var onPrepHoleChanged: (Int) -> Void = { _ in }
+        var onSetSecondLoop: (RoundLoopEntry?, String) -> Void = { _, _ in }
+        var onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void = { _, _ in }
+        var onFinishRound: () async -> Bool = { false }
+        var onDiscardRound: () -> Void = {}
+        var onLiveHoleInitialLoadDidFinish: () -> Void = {}
+        var onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void = { _, _, _ in }
+        var onStartRoundFromFirstStroke: (Int) -> Bool = { _ in false }
+        var onUndoRoundStart: () -> Void = {}
+        var onChangePrepTee: (String, Int?) -> Void = { _, _ in }
+    }
+
+    var value = Value()
+
+    func onEvent(_ event: LiveRoundEvent) { value.onEvent(event) }
+
+    func advance(_ next: Int, perform: (Value, Int) -> Void) { perform(value, next) }
+}
+
 /// C99 球局主页：单一「打一场球」入口、快捷球场、天气一行、上一场与最近走势。
 /// 进行中的球局只保留「继续」主卡；结束和球局调整在洞屏内完成。
 /// Hub navigation routes driven by a path, so a selected course can open its prep hole directly
