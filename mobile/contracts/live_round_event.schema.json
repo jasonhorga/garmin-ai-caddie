@@ -32,7 +32,8 @@
     "startHole": {
       "description": "Round display hole on the event hole axis, not a physical/source-local hole. The first supplied origin determines play order; legacy clients may omit it.",
       "type": ["integer", "null"],
-      "minimum": 1
+      "minimum": 1,
+      "maximum": 27
     },
     "timestamp": {
       "type": "string",

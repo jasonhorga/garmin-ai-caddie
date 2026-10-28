@@ -47,6 +47,9 @@ public final class RoundEditModel: ObservableObject {
     private var routeOrigin: [Int]?
     private var pendingSaveOp: RoundCorrectionOp?
     private var pendingPuttCorrection: HolePuttCorrection?
+    /// Scorecard updates are queued while a draft is open.  The view adopts the current row after
+    /// cancel/save so an update that arrived during the draft is not lost when `onChange` is muted.
+    private var pendingRecordedScorecard: (score: Int?, putts: Int?)?
     private var originalPutts: Int?
     private var shotsChanged = false
     private let now: () -> Date
@@ -87,6 +90,12 @@ public final class RoundEditModel: ObservableObject {
         guard !isSaving else { return }
         map = originalMap
         putts = originalPutts
+        if let pending = pendingRecordedScorecard {
+            recordedScore = pending.score
+            originalPutts = pending.putts
+            putts = pending.putts
+            pendingRecordedScorecard = nil
+        }
         isEditing = false
         resetDraftState()
     }
@@ -100,7 +109,10 @@ public final class RoundEditModel: ObservableObject {
 
     /// Adopt a refreshed scorecard without overwriting an open draft.
     public func adoptRecordedScorecard(score: Int?, putts: Int?) {
-        guard !isEditing else { return }
+        if isEditing {
+            pendingRecordedScorecard = (score: score, putts: putts)
+            return
+        }
         recordedScore = score
         adoptRecordedPutts(putts)
     }
@@ -304,6 +316,12 @@ public final class RoundEditModel: ObservableObject {
         guard hasUnsavedChanges else {
             map = originalMap
             putts = originalPutts
+            if let pending = pendingRecordedScorecard {
+                recordedScore = pending.score
+                originalPutts = pending.putts
+                putts = pending.putts
+                pendingRecordedScorecard = nil
+            }
             isEditing = false
             resetDraftState()
             return true
@@ -361,6 +379,17 @@ public final class RoundEditModel: ObservableObject {
                 }
             }
             originalPutts = putts
+            if let pending = pendingRecordedScorecard {
+                // The total is always adopted. Putts follow the refreshed row only when this save
+                // wrote no putt correction: a landing-only save leaves the server's newer putts in
+                // place, while an edited count is the user's and stays.
+                recordedScore = pending.score
+                if pendingPuttCorrection == nil {
+                    originalPutts = pending.putts
+                    putts = pending.putts
+                }
+                pendingRecordedScorecard = nil
+            }
             if !shotsChanged {
                 map = originalMap
             } else if let fresh = try? await sync.fetchRoundShotMap(roundRef: roundRef, hole: map.hole, globalId: globalId, backGlobalId: backGlobalId, nine: nine, teeBox: teeBox) {
@@ -393,8 +422,9 @@ public final class RoundEditModel: ObservableObject {
     }
 
     private var finalScoreIsPossible: Bool {
-        guard let recordedScore else { return true }
-        return recordedScore >= (putts ?? 0) + map.manualPenalty + 1
+        let score = pendingRecordedScorecard?.score ?? recordedScore
+        guard let score else { return true }
+        return score >= (putts ?? 0) + map.manualPenalty + 1
     }
 
     // MARK: - Helpers

@@ -927,6 +927,11 @@ public struct RoundHoleShotMapScreen: View {
     private func cancelEditing() {
         guard !isSaving, let editModel else { return }
         editModel.cancelEdit()
+        // A scorecard row can have changed while the draft was open.  Its onChange was correctly
+        // ignored during editing, so adopt the current row after leaving the draft.
+        if let scoreRow {
+            editModel.adoptRecordedScorecard(score: scoreRow.score, putts: scoreRow.putts)
+        }
         mapRepository.store(editModel.map, for: hole)
         isEditing = false
         onEditingChange?(false)
@@ -935,6 +940,12 @@ public struct RoundHoleShotMapScreen: View {
     @MainActor
     private func saveEditing() async {
         guard !isSaving, let editModel else { return }
+        // Refresh the validation baseline before the write.  A scorecard update can arrive while
+        // editing without another row change after the save; the model queues this row and adopts
+        // only its total after a landing-only save.
+        if let scoreRow {
+            editModel.adoptRecordedScorecard(score: scoreRow.score, putts: scoreRow.putts)
+        }
         isSaving = true
         let ticket = RoundReviewDiskCache.beginRequest()
         let saved = await editModel.save()

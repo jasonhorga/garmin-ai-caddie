@@ -96,6 +96,7 @@ public final class OfflineCaddieDecisionEvaluator {
         let sequenceRows = offeredOptions.compactMap(sequencePayload)
         let selectedRow = selected.map { optionPayload($0, canonicalFirstStep: plans[$0.optionId]?.first) }
         let selectedSequence = selected.flatMap(sequencePayload)
+        let hazards = planningHazards(seed: seed, request: request)
         let evidenceRefs = uniqueRefs([seed.sourceRef] + (selected?.sourceRefs ?? []) + (selected?.sampleRefs ?? []))
         var missingData = seed.missingData + (selected?.missingData ?? [])
         if planning.withheldForHazards {
@@ -125,7 +126,7 @@ public final class OfflineCaddieDecisionEvaluator {
             selectedOption: selectedRow,
             sequences: sequenceRows,
             selectedSequence: selectedSequence,
-            avoidZones: [],
+            avoidZones: hazards.avoidZones,
             forbiddenZones: [],
             acceptableMiss: [
                 "target": .string("offline_seed"),
@@ -327,7 +328,7 @@ public final class OfflineCaddieDecisionEvaluator {
     private func planningHazards(
         seed: CaddieContextSeed,
         request: CaddieDecisionRequest
-    ) -> (water: [(front: Double, back: Double)], unmodelled: Bool) {
+    ) -> (water: [(front: Double, back: Double)], unmodelled: Bool, avoidZones: [[String: JSONValue]]) {
         var water = waterIntervals(from: request.context)
         var unmodelled = false
         var zoneValues: [JSONValue] = []
@@ -342,8 +343,16 @@ public final class OfflineCaddieDecisionEvaluator {
         if case .array(let zones)? = request.context["routePlanningHazards"] ?? seed.context["routePlanningHazards"] {
             zoneValues += zones
         }
+        var avoidZones: [[String: JSONValue]] = []
         for zoneValue in zoneValues {
             guard case .object(let zone) = zoneValue else { continue }
+            // Candidate routes repeat the same factual hazards. Keep one compact zone for the
+            // response; sourceRefs remain in evidenceRefs rather than the UI hazard payload.
+            var responseZone = zone
+            responseZone.removeValue(forKey: "sourceRefs")
+            if !avoidZones.contains(where: { $0 == responseZone }) {
+                avoidZones.append(responseZone)
+            }
             let kind = (string(zone["kind"]) ?? "").lowercased()
             if ["ob", "out_of_bounds"].contains(kind) || zone["corridorWidth_m"] != nil {
                 unmodelled = true
@@ -354,7 +363,7 @@ public final class OfflineCaddieDecisionEvaluator {
             let front = number(zone["carryToFront_m"]) ?? clear - (kind == "water" ? 20 : 18)
             water.append((max(0, min(front, clear)), max(0, max(front, clear))))
         }
-        return (water, unmodelled)
+        return (water, unmodelled, avoidZones)
     }
 
     private func canonicalIsWaterSafe(

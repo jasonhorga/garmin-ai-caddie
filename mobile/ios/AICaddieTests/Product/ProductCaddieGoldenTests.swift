@@ -180,10 +180,7 @@ final class ProductCaddieGoldenTests: XCTestCase {
             XCTAssertEqual(Set(decision.evidenceRefs ?? []), Set(vector.sourceRefs), vector.id)
             XCTAssertEqual(decision.selectedOptionId, "stock", vector.id + " supplied opening choice")
             if let zones = vector.expectedAvoidZones {
-                // Typed water participates in route safety but is omitted from the response.
-                XCTExpectFailure("C16e J5.11: offline response drops factual avoid zones") {
-                    XCTAssertEqual(decision.avoidZones, zones.map { $0.goldenZone }, vector.id)
-                }
+                XCTAssertEqual(decision.avoidZones, zones.map { $0.goldenZone }, vector.id)
             } else {
                 XCTAssertTrue(decision.avoidZones.isEmpty, vector.id + " no invented obstacle")
             }

@@ -1246,7 +1246,9 @@ class LiveRoundEventRecord(BaseModel):
 
     # Round display hole, not the physical/source-local hole of a selected nine. Omission/null
     # must leave old envelopes byte-equivalent for event/request hashes and exact offline retries.
-    startHole: int | None = Field(default=None, ge=1, strict=True, exclude_if=lambda value: value is None)
+    # A proven package may tighten this to its actual 9/18-hole count when events are appended;
+    # without an identity the compatibility ceiling is 27 (one extra nine-hole loop plus margin).
+    startHole: int | None = Field(default=None, ge=1, le=27, strict=True, exclude_if=lambda value: value is None)
 
     @field_validator("timestamp")
     @classmethod
