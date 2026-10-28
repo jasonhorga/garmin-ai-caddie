@@ -391,11 +391,9 @@ final class ProductPhoneUITests: XCTestCase {
             var state = ProductFixtureServer.State(); state.coverage = name
             server.configure(state); launch(); startRound()
             let map = element(expected)
-            XCTAssertTrue(
-                map.waitForExistence(timeout: 15),
-                "\(name)\nrequestedPaths:\n\(server.requestedPaths().joined(separator: "\n"))"
-            )
+            let appeared = map.waitForExistence(timeout: 15)
             let requested = server.requestedPaths().joined(separator: "\n")
+            XCTAssertTrue(appeared, "\(name)\nrequestedPaths:\n\(requested)")
             XCTAssertTrue(map.exists, "\(name) disappeared after wait; requestedPaths:\n\(requested)")
             if map.exists { insideWindow(map, name) }
             if name == "partial" {
