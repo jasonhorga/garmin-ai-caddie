@@ -1,0 +1,13 @@
+diff --git a/server_v2/package_workers.py b/tmp/package_workers_mut.py
+index 03d40d96..0f20f3fd 100644
+--- a/server_v2/package_workers.py
++++ b/tmp/package_workers_mut.py
+@@ -187,7 +187,7 @@ def wait_mobile_package(kwargs: dict[str, Any], *, background: bool, cancel_even
+                 if flight is not None:
+                     with _INFLIGHT_LOCK:
+                         flight.waiters = max(0, flight.waiters - 1)
+-                        last = flight.waiters == 0
++                        last = True
+                     if last and flight.worker is not None:
+                         cancel_mobile_package(kwargs, background=background)
+                 raise RuntimeError("mobile package request disconnected")

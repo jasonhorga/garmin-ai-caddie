@@ -1,0 +1,10 @@
+diff --git a/server_v2/course_install.py b/server_v2/course_install.py
+--- a/server_v2/course_install.py
++++ b/server_v2/course_install.py
+@@ -510,5 +510,5 @@ def _launch(identifier: str) -> None:
+         except (TypeError, ValueError):
+             gid = 0
+-        if gid and gid not in _CURRENT_COURSE_IDS:
++        if False and gid and gid not in _CURRENT_COURSE_IDS:
+             state["priority"] = max(int(state.get("priority", SELECTED_COURSE)), 20)
+             _write(state)

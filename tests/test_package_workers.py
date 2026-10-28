@@ -85,6 +85,45 @@ class PackageWorkerTests(unittest.TestCase):
             self.assertEqual(len(pool.pending), 1)
             self.assertTrue(pool.pending[0].cancelled())
 
+    def test_j42_one_singleflight_waiter_can_disconnect_without_cancelling_follower(self) -> None:
+        """J4.2: a 499 from one client leaves a shared cold package for its follower."""
+        from server_v2 import package_workers
+
+        class Pool:
+            def __init__(self) -> None:
+                self.future = Future()
+
+            def submit(self, _fn, _kwargs):
+                return self.future
+
+        pool = Pool()
+        kwargs = {"global_id": 3, "round_id": "live", "map_only": False}
+        package_workers._POOLS.clear()
+        package_workers._INFLIGHT.clear()
+        with (
+            patch.object(package_workers, "_process_count", return_value=1),
+            patch.object(package_workers, "_pool", return_value=pool),
+        ):
+            first_cancel = Event()
+            second_cancel = Event()
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first = executor.submit(package_workers.wait_mobile_package, kwargs,
+                                         background=False, cancel_event=first_cancel)
+                second = executor.submit(package_workers.wait_mobile_package, kwargs,
+                                          background=False, cancel_event=second_cancel)
+                for _ in range(100):
+                    with package_workers._INFLIGHT_LOCK:
+                        flights = list(package_workers._INFLIGHT.values())
+                        if flights and flights[0].waiters >= 2:
+                            break
+                    Event().wait(0.001)
+                first_cancel.set()
+                with self.assertRaises(RuntimeError):
+                    first.result(timeout=1)
+                pool.future.set_result("package")
+                self.assertEqual(second.result(timeout=1), "package")
+            self.assertFalse(pool.future.cancelled())
+
 
 if __name__ == "__main__":
     unittest.main()

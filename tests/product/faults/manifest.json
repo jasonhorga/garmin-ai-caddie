@@ -714,6 +714,48 @@
       "kind": "python",
       "target": "tests.test_mobile_reconciliation.MobileReconciliationTests.test_apply_reconciliation_uses_ledger_for_truncated_decision_summary",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C135d-01",
+      "patch": "tests/product/faults/C135d/01-worker-stderr-pipe.patch",
+      "kind": "python",
+      "target": "tests.test_worker_executor",
+      "promise": "C135d.2a"
+    },
+    {
+      "id": "tests-product-faults-C135d-02",
+      "patch": "tests/product/faults/C135d/02-worker-no-restart.patch",
+      "kind": "python",
+      "target": "tests.test_worker_executor",
+      "promise": "C135d.2b"
+    },
+    {
+      "id": "tests-product-faults-C135d-03",
+      "patch": "tests/product/faults/C135d/03-worker-no-timeout.patch",
+      "kind": "python",
+      "target": "tests.test_worker_executor",
+      "promise": "C135d.2c"
+    },
+    {
+      "id": "tests-product-faults-C135d-04",
+      "patch": "tests/product/faults/C135d/04-map-only-worker.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile",
+      "promise": "C135d.1"
+    },
+    {
+      "id": "tests-product-faults-C135d-05",
+      "patch": "tests/product/faults/C135d/05-install-resume-priority.patch",
+      "kind": "python",
+      "target": "tests.test_server_v2_mobile",
+      "promise": "C135d.7"
+    },
+    {
+      "id": "tests-product-faults-C135d-06",
+      "patch": "tests/product/faults/C135d/06-shared-cancel.patch",
+      "kind": "python",
+      "target": "tests.test_package_workers",
+      "promise": "C135d.5"
     }
   ]
 }
