@@ -24,7 +24,7 @@ import time
 from typing import Any
 
 from ai_caddie.core.data import ROOT
-from ai_caddie.core.priority_work import SELECTED_COURSE, PriorityExecutor
+from ai_caddie.core.priority_work import NEARBY, SELECTED_COURSE, PriorityExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -514,7 +514,7 @@ def _launch(identifier: str) -> None:
         except (TypeError, ValueError):
             gid = 0
         if gid and gid not in _CURRENT_COURSE_IDS:
-            state["priority"] = max(int(state.get("priority", SELECTED_COURSE)), 20)
+            state["priority"] = max(int(state.get("priority", SELECTED_COURSE)), NEARBY)
             _write(state)
         launch_priority = int(state.get("priority", SELECTED_COURSE))
     _WORKER.submit(_run, identifier, priority=launch_priority)

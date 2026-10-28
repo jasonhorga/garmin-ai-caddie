@@ -119,6 +119,29 @@ class CourseInstallRouteContractTests(unittest.TestCase):
 
 
 class CourseInstallJournalTests(unittest.TestCase):
+    def test_old_other_course_resume_is_demoted_while_live_course_is_active(self) -> None:
+        """C135d.7a: recovery must not replay an old foreground priority for another course."""
+        from server_v2 import course_install
+
+        state = {
+            "jobId": "old-course", "globalId": 999, "phase": "queued",
+            "priority": course_install.SELECTED_COURSE, "cancelRequested": False,
+        }
+        submitted: list[int] = []
+        course_install._ACTIVE.clear()
+        course_install.set_current_course_ids({123})
+        with (
+            patch.object(course_install, "_read", return_value=state),
+            patch.object(course_install, "_write") as write,
+            patch.object(course_install._WORKER, "submit", side_effect=lambda _fn, identifier, priority: submitted.append(priority)),
+        ):
+            course_install._launch("old-course")
+        self.assertEqual(submitted, [course_install.NEARBY])
+        self.assertEqual(state["priority"], course_install.NEARBY)
+        write.assert_called_once()
+        course_install._ACTIVE.clear()
+        course_install.set_current_course_ids(set())
+
     @staticmethod
     def _real_package():
         from server_v2.models import LiveRoundPackageResponse
