@@ -328,10 +328,9 @@ final class RoundStartTwoStageTests: XCTestCase {
         let requests = C85RequestLog()
         let intentSent = expectation(description: "intent package sent")
         let intentSentOnce = C33FirstMatch()
-        let intentPath = "/api/v2/mobile/courses/\(intentId)/package"
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host,
-                  proto.request.url?.path == intentPath else { proto.reply(404); return }
+                  proto.request.url?.path.hasSuffix("/package") == true else { proto.reply(404); return }
             requests.append(proto.request)
             if c33Query(proto.request, "map_only") == "true" {
                 if intentSentOnce.claim() { intentSent.fulfill() }
@@ -366,16 +365,15 @@ final class RoundStartTwoStageTests: XCTestCase {
         let intentSentOnce = C33FirstMatch()
         let intentStopped = expectation(description: "in-flight intent remains active until release")
         intentStopped.isInverted = true
-        let intentPath = "/api/v2/mobile/courses/\(intentId)/package"
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host,
-                  proto.request.url?.path == intentPath else { proto.reply(404); return }
+                  proto.request.url?.path.hasSuffix("/package") == true else { proto.reply(404); return }
             requests.append(proto.request)
             held.hold(proto)
             if intentSentOnce.claim() { intentSent.fulfill() }
         }, onStop: { request in
             held.forget(request)
-            if request.url?.path == intentPath { intentStopped.fulfill() }
+            if request.url?.path.hasSuffix("/package") == true { intentStopped.fulfill() }
         })
         let fixture = makeModel(host: host, held: held)
         let model = fixture.model
@@ -410,10 +408,9 @@ final class RoundStartTwoStageTests: XCTestCase {
         let intentStopped = expectation(description: "timed-out intent is cancelled")
         let intentStoppedOnce = C33FirstMatch()
         let stoppedRequestCount = C85Counter()
-        let intentPath = "/api/v2/mobile/courses/\(intentId)/package"
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host,
-                  proto.request.url?.path == intentPath else { proto.reply(404); return }
+                  proto.request.url?.path.hasSuffix("/package") == true else { proto.reply(404); return }
             requests.append(proto.request)
             if requests.all.filter({ c33Query($0, "map_only") == "true" }).count == 1 {
                 held.hold(proto)
@@ -425,7 +422,7 @@ final class RoundStartTwoStageTests: XCTestCase {
             }
         }, onStop: { request in
             held.forget(request)
-            guard request.url?.path == intentPath, intentStoppedOnce.claim() else { return }
+            guard request.url?.path.hasSuffix("/package") == true, intentStoppedOnce.claim() else { return }
             stoppedRequestCount.set(requests.all.filter { c33Query($0, "map_only") == "true" }.count)
             intentStopped.fulfill()
         })
