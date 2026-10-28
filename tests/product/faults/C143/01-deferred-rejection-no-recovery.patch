@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3881,6 +3881,8 @@
+                         ?? "第 \(blockedHole) 洞记分记录上传被拒"
+                     let suffix = try quarantineFinishSuffix(for: blocked, roundId: record.roundId)
+                     syncStatus = "结束已暂停 · \(prompt)\(suffix)"
++                    // mutant: the deferred rejection never reaches the Hub recovery state.
++                    deferredFinishRecovery = nil
+                     deferredFinishRecovery = DeferredFinishRecovery(
+                         roundId: record.roundId,
+                         hole: blockedHole,

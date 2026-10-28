@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddieTests/Product/C33EventTests.swift
++++ b/mobile/ios/AICaddieTests/Product/C33EventTests.swift
+@@ -821,7 +821,7 @@
+                     default: break
+                     }
+                 }
+-                if strokes < putts + penalties + 1 {
++                if batch.events.contains(where: { $0.eventId == "bad-event" }) {
+                     proto.reply(422, Data(#"{"detail":{"code":"event_invalid","message":"score fact rejected"}}"#.utf8))
+                 } else {
+                     proto.reply(200, try! JSONEncoder().encode(SyncResult(

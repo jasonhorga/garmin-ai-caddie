@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -472,7 +472,7 @@
+     /// sending a second seed after it has already acknowledged `.finished`.
+     @discardableResult
+     public func resumeDeferredFinishForEditing() -> Bool {
+-        guard let recovery = deferredFinishRecovery else { return false }
++        guard false, let recovery = deferredFinishRecovery else { return false }
+         do {
+             guard let sealed = try offlineStore.loadRoundPackage(roundId: recovery.roundId) else {
+                 throw URLError(.fileDoesNotExist)

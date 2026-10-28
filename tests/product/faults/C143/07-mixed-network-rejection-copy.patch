@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4036,7 +4036,7 @@
+             return event.timestamp > record.event.timestamp
+         }
+         if hasPendingReplacement {
+-            return networkState.isSatisfied ? "，正在同步后再结束球局" : "，等待联网后再结束球局"
++            return "，正在同步/等待联网后再结束球局"
+         }
+         guard let package, package.holes.contains(where: { $0.number == record.event.hole }) else {
+             return "，第 \(record.event.hole) 洞已从当前球局移除，请恢复该九洞后再处理"

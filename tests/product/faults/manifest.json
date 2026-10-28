@@ -945,6 +945,69 @@
       "kind": "python",
       "target": "tests.test_garmin_raster_delivery.SkyMatteTests.test_cold_matte_uses_a_process_with_identical_bytes_and_parent_download",
       "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C143-01",
+      "patch": "tests/product/faults/C143/01-deferred-rejection-no-recovery.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
+      "promise": "C143-1"
+    },
+    {
+      "id": "tests-product-faults-C143-02",
+      "patch": "tests/product/faults/C143/02-recovery-does-not-reopen-round.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
+      "promise": "C143-2"
+    },
+    {
+      "id": "tests-product-faults-C143-03",
+      "patch": "tests/product/faults/C143/03-recovery-keeps-card.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testDeferredFinishNeverReachesServerWhileAScoreIsQuarantined",
+      "promise": "C143-3"
+    },
+    {
+      "id": "tests-product-faults-C143-04",
+      "patch": "tests/product/faults/C143/04-offline-finish-invents-recovery.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredFinishRecoveryRequiresServerRejection",
+      "promise": "C143-4"
+    },
+    {
+      "id": "tests-product-faults-C143-05",
+      "patch": "tests/product/faults/C143/05-first-upload-reorders-events.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59InitialUploadPreservesEventLogOrder",
+      "promise": "C145-1"
+    },
+    {
+      "id": "tests-product-faults-C143-06",
+      "patch": "tests/product/faults/C143/06-finish-picks-first-rejection.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59FinishTargetsRejectedHoleWithoutPendingReplacement",
+      "promise": "C145-2"
+    },
+    {
+      "id": "tests-product-faults-C143-07",
+      "patch": "tests/product/faults/C143/07-mixed-network-rejection-copy.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59BlockedFinishReportsWaitingForSyncWhenOffline",
+      "promise": "C145-3"
+    },
+    {
+      "id": "tests-product-faults-C143-08",
+      "patch": "tests/product/faults/C143/08-scoring-fixture-uses-event-id.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testReplacementPuttClearsQuarantineAndAllowsFinish",
+      "promise": "C145-4"
+    },
+    {
+      "id": "tests-product-faults-C143-09",
+      "patch": "tests/product/faults/C143/09-removed-hole-silently-reenters.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59RemovedRejectedHoleShowsRecoveryInstruction",
+      "promise": "C145-5"
     }
   ]
 }
