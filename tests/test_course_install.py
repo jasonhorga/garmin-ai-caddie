@@ -120,20 +120,19 @@ class CourseInstallRouteContractTests(unittest.TestCase):
 
 class CourseInstallJournalTests(unittest.TestCase):
     def test_old_other_course_resume_is_demoted_while_live_course_is_active(self) -> None:
-        """C135d.7a: recovery must not replay an old foreground priority for another course."""
+        """J4/4.2: a recovered install for another course yields to live play."""
         from server_v2 import course_install
 
-        state = {
-            "jobId": "old-course", "globalId": 999, "phase": "queued",
-            "priority": course_install.SELECTED_COURSE, "cancelRequested": False,
-        }
+        state = {"jobId": "old-course", "globalId": 999, "phase": "queued",
+                 "priority": course_install.SELECTED_COURSE, "cancelRequested": False}
         submitted: list[int] = []
         course_install._ACTIVE.clear()
         course_install.set_current_course_ids({123})
         with (
             patch.object(course_install, "_read", return_value=state),
             patch.object(course_install, "_write") as write,
-            patch.object(course_install._WORKER, "submit", side_effect=lambda _fn, identifier, priority: submitted.append(priority)),
+            patch.object(course_install._WORKER, "submit",
+                         side_effect=lambda _fn, identifier, priority: submitted.append(priority)),
         ):
             course_install._launch("old-course")
         self.assertEqual(submitted, [course_install.NEARBY])
@@ -181,6 +180,7 @@ class CourseInstallJournalTests(unittest.TestCase):
         )
 
     def test_package_route_attaches_job_and_no_longer_uses_background_tasks(self) -> None:
+        """J4/4.2: even a live course's full install is background work after package delivery."""
         from server_v2 import main as server_main
 
         package = SimpleNamespace(
@@ -211,8 +211,10 @@ class CourseInstallJournalTests(unittest.TestCase):
                 background_tasks=BackgroundTasks(),
                 background_geometry=True,
                 loops="123:all",
+                round_id="live-priority-check",
                 player_id="owner",
             )
+            server_main._record_round_activity("owner", "live-priority-check", finished=True)
 
         self.assertIs(result, package)
         self.assertEqual(result.courseInstallJob, job)
@@ -221,6 +223,7 @@ class CourseInstallJournalTests(unittest.TestCase):
         self.assertEqual(enqueue.call_args.kwargs["ready"], {123: [2]})
         self.assertEqual(enqueue.call_args.kwargs["refs"][1]["geometryRevision"], "revision-2")
         self.assertEqual(enqueue.call_args.kwargs["loop_key"], "123:all")
+        self.assertEqual(enqueue.call_args.kwargs["priority"], server_main.NEARBY)
 
     def test_enqueue_is_idempotent_and_public_state_has_no_player_identity(self) -> None:
         from server_v2 import course_install
