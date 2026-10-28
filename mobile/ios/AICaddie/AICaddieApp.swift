@@ -6362,6 +6362,23 @@ public final class LiveRoundAppModel: ObservableObject {
             state.errorText = nil
         }
         do {
+            #if DEBUG
+            // Keep the C114 native journey deterministic when its test-only package fault is set:
+            // an intent prefetch must not win the race and install a complete local package before
+            // the foreground Start request can show its failure/progress state.
+            if ProcessInfo.processInfo.environment["UITEST_FORCE_COURSE_PACKAGE_FAILURE"] == "1" {
+                updatePrepCourseDownload(id: id, generation: generation) { state in
+                    state.phase = .failed
+                    state.errorText = "测试服务器不可用"
+                }
+                refreshDownloadedCourseOptions()
+                return
+            }
+            if let rawDelay = ProcessInfo.processInfo.environment["UITEST_COURSE_PACKAGE_DELAY_MS"],
+               let delayMilliseconds = UInt64(rawDelay), delayMilliseconds > 0 {
+                try await Task.sleep(nanoseconds: min(delayMilliseconds, 30_000) * 1_000_000)
+            }
+            #endif
             let fetched = try await syncClient.fetchCoursePackage(
                 globalId: record.course.globalId,
                 roundId: "prep-library-\(record.course.globalId)",
