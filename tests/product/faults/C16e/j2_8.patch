@@ -1,9 +1,10 @@
 --- a/mobile/ios/AICaddie/Views/RoundReviewView.swift
 +++ b/mobile/ios/AICaddie/Views/RoundReviewView.swift
-@@ -452,5 +452,6 @@
-         }
-         .buttonStyle(.plain)
-         .padding(.top, 4)
-+        .disabled(true)
-         .accessibilityIdentifier("round-review-share")
-     }
+@@ -496,6 +496,7 @@ struct RoundReviewContent: View {
+             // The button stays enabled while the request is active; RoundShareFlow ignores a
+             // repeated tap without presenting a second token request.
+             .padding(.top, 4)
++            .disabled(true)
+             .accessibilityIdentifier("round-review-share")
+             .contextMenu {
+                 Button("取消分享", role: .destructive) {
