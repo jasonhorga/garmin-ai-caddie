@@ -275,6 +275,7 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
         )  # GIR follows total - putts <= par - 2; fairway remains undeterminable.
 
     def test_ingest_without_putts_and_geometry_leaves_gir_unknown(self) -> None:
+        """Product spec 2.8: missing putts and landing geometry leave GIR unknown."""
         events = [event for event in self._par4_events() if event["kind"] != "putt"]
         events = [
             {**event, "payload": {**event["payload"], "strokes": 5}}
@@ -292,6 +293,28 @@ class GirFairwayIngestIntegrationTests(unittest.TestCase):
         hole = read_json(sc_path)["scorecardDetails"][0]["scorecard"]["holes"][0]
         self.assertNotIn("putts", hole)
         self.assertIsNone(hole.get("gir"))
+
+    def test_product_spec_2_8_incomplete_putter_log_uses_green_landing(self) -> None:
+        """Product spec 2.8: fewer recorded shots than strokes cannot supply a putt count."""
+        events = [
+            event
+            for event in self._par4_events()
+            if event["kind"] != "putt"
+        ]
+        events[0] = {**events[0], "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}}
+        events[2] = {**events[2], "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}}
+        events[-1] = {**events[-1], "payload": {"strokes": 5}}
+        with _patch_geometry(self.geo_dir):
+            summary = round_ingest.ingest_round(
+                "p_friend",
+                events,
+                {"courseGlobalId": GID, "courseName": "Test", "holePars": "4"},
+                idempotency_key="incomplete-putter-log",
+                root=self.root,
+            )
+        path = self.root / "data" / "players" / "p_friend" / "scorecards" / f"{summary['id']}.json"
+        hole = read_json(path)["scorecardDetails"][0]["scorecard"]["holes"][0]
+        self.assertIs(hole["gir"], True)
 
 
 if __name__ == "__main__":

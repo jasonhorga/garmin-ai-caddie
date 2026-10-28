@@ -60,8 +60,12 @@ RELEASE_TEES = [{"name": "Blue", "gender": "MEN", "index": 2}, {"name": "Red", "
 
 
 def _hole_events(hole: int, second: tuple[float, float]) -> list[dict]:
-    """Tee shot from the tee, second shot from ``second`` aimed at the green, two putts, five
-    strokes. The aim is that shot's end, so the GIR surface classifier reads the mesh as well."""
+    """Tee and approach shots plus an explicit putt event, five strokes total.
+
+    The approach aim is that shot's end, so GIR reads the mesh while the tee result reads the
+    second location. Product spec 2.8 treats the explicit putt event as the only persisted putts
+    value.
+    """
     return [
         {"hole": hole, "kind": "club", "payload": {"clubName": "1W", "shotType": "tee"}},
         {"hole": hole, "kind": "location", "payload": {"latitude": TEE[0], "longitude": TEE[1]}},
@@ -168,6 +172,7 @@ class TeeResultIngestTest(unittest.TestCase):
         def recording_init(geometry, *args, **kwargs):
             init(geometry, *args, **kwargs)
             geometry._meshes = Recording()
+            sizes.append(len(geometry._meshes))
 
         def observed_enrich(hole, **kwargs):
             result = enrich(hole, **kwargs)
@@ -201,14 +206,29 @@ class TeeResultIngestTest(unittest.TestCase):
         self.assertEqual(sorted(reads), [f"gid{GID}_h{local:02d}_meshes.json" for local in range(1, 10)])
 
     def test_ordinary_round_holds_at_most_one_mesh(self) -> None:
-        # Eighteen distinct holes of one gid: each mesh serves its own hole only (GIR + tee result).
+        """Product spec 2.8: each ordinary hole releases its mesh after GIR and tee result."""
         for local in range(1, 19):
             self.install(STRAIGHT, local)
         events = [event for number in range(1, 19) for event in _hole_events(number, WEST)]
         fairways, after_hole, sizes, reads = self.retained(events, "eighteen", holePars="4" * 18)
         self.assertEqual(fairways, ["left"] * 18)
-        self.assertLessEqual(max(sizes or [0]), 1)
+        self.assertEqual(max(sizes), 1)
         self.assertEqual(after_hole, [(n, set()) for n in range(1, 19)])
+        self.assertEqual(sorted(reads), [f"gid{GID}_h{local:02d}_meshes.json" for local in range(1, 19)])
+
+    def test_ordinary_round_without_putt_event_shares_one_mesh_decode(self) -> None:
+        """Product spec 2.8: missing putts still share one mesh decode for GIR and tee result."""
+        for local in range(1, 19):
+            self.install(STRAIGHT, local)
+        events = [
+            event
+            for number in range(1, 19)
+            for event in _hole_events(number, WEST)
+            if event["kind"] != "putt"
+        ]
+        fairways, _after_hole, sizes, reads = self.retained(events, "eighteen-no-putts", holePars="4" * 18)
+        self.assertEqual(fairways, ["left"] * 18)
+        self.assertEqual(max(sizes), 1)
         self.assertEqual(sorted(reads), [f"gid{GID}_h{local:02d}_meshes.json" for local in range(1, 19)])
 
 

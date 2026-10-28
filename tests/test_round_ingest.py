@@ -88,6 +88,7 @@ class RoundIngestCoreTests(unittest.TestCase):
         self.assertFalse(gir)
 
     def test_gir_can_count_explicit_putter_shots_when_putt_event_is_missing(self) -> None:
+        """Product spec 2.8: shot-derived putts affect GIR, but do not fill the putts cell."""
         events = [
             {"hole": 1, "kind": "club", "payload": {"clubName": "Putter", "shotType": "putt", "lie": "Green"}},
             {"hole": 1, "kind": "location", "payload": {"latitude": 47.73, "longitude": 138.89}},
@@ -104,7 +105,7 @@ class RoundIngestCoreTests(unittest.TestCase):
         # Shot-derived putts are used for GIR only; the scorecard putts cell remains
         # absent because no putt event was entered (product spec 2.8).
         self.assertNotIn("putts", hole)
-        self.assertFalse(hole["gir"])
+        self.assertIsNone(hole.get("gir"))
 
     def test_missing_putts_do_not_fill_zero_when_gir_is_undeterminable(self) -> None:
         events = [
@@ -120,6 +121,23 @@ class RoundIngestCoreTests(unittest.TestCase):
         hole = json.loads(card.read_text())["scorecardDetails"][0]["scorecard"]["holes"][0]
         self.assertNotIn("putts", hole)  # product spec 2.8: a missing cell is not zero-filled
         self.assertIsNone(hole.get("gir"))
+
+    def test_product_spec_2_8_explicit_zero_putts_is_preserved(self) -> None:
+        """Product spec 2.8: an explicitly entered zero is retained as a real value."""
+        events = [
+            {"hole": 1, "kind": "putt", "payload": {"putts": 0}},
+            {"hole": 1, "kind": "score", "payload": {"strokes": 4}},
+        ]
+        result = round_ingest.ingest_round(
+            "p_friend",
+            events,
+            {"courseName": "Manual", "holePars": "4"},
+            idempotency_key="explicit-zero-putts",
+            root=self.root,
+        )
+        card = self._player_dir("p_friend") / "scorecards" / f"{result['id']}.json"
+        hole = json.loads(card.read_text())["scorecardDetails"][0]["scorecard"]["holes"][0]
+        self.assertEqual(hole["putts"], 0)
 
     def test_round_is_consumable_by_load_raw_rounds(self) -> None:
         round_ingest.ingest_round(
