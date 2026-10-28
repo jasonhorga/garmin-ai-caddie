@@ -614,10 +614,10 @@ struct ResultsTimeLoadState: Equatable {
         guard pendingWindow != nil else { return nil }
         generation += 1
         isLoading = false
-        failedWindow = pendingWindow
+        failedWindow = nil
         pendingWindow = nil
-        if let failedWindow, case let .content(current, _) = phase {
-            phase = .content(current, notice: notice(for: failedWindow))
+        if case let .content(current, _) = phase {
+            phase = .content(current, notice: nil)
         }
         return nil
     }
@@ -625,11 +625,7 @@ struct ResultsTimeLoadState: Equatable {
     /// Begin a refresh of the range that is already displayed.
     mutating func refresh() -> Request {
         if let pendingWindow {
-            failedWindow = pendingWindow
-            self.pendingWindow = nil
-            if case let .content(current, _) = phase {
-                phase = .content(current, notice: notice(for: pendingWindow))
-            }
+            return select(pendingWindow)
         }
         generation += 1
         isLoading = true

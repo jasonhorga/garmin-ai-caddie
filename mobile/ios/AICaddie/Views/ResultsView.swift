@@ -750,7 +750,6 @@ public struct ResultsTrendView: View {
 
     @MainActor private func reloadCommittedRange() {
         let request = load.refresh()
-        window = load.window
         start(request)
     }
 }

@@ -44,7 +44,7 @@ final class J2_2ResultsRangeFailureTests: XCTestCase {
         XCTAssertFalse(state.complete(oldRequest, stats: ten))
         XCTAssertEqual(state.window, "all")
         XCTAssertEqual(state.stats?.summary?.totalRounds, 31)
-        XCTAssertEqual(state.notice, "10 场未更新，可重试")
+        XCTAssertNil(state.notice, "an intentional switch-back is not an update failure")
         XCTAssertFalse(state.isLoading)
     }
 
@@ -55,11 +55,13 @@ final class J2_2ResultsRangeFailureTests: XCTestCase {
         let oldRequest = state.select("last10")
         let refreshRequest = state.refresh()
 
+        XCTAssertEqual(refreshRequest.window, "last10")
         XCTAssertFalse(state.complete(oldRequest, stats: ten))
         XCTAssertEqual(state.window, "all")
-        XCTAssertEqual(state.notice, "10 场未更新，可重试")
         XCTAssertTrue(state.isLoading)
-        XCTAssertTrue(state.complete(refreshRequest, stats: all))
+        XCTAssertTrue(state.complete(refreshRequest, stats: ten))
+        XCTAssertEqual(state.window, "last10")
+        XCTAssertEqual(state.stats?.summary?.totalRounds, 10)
         XCTAssertNil(state.notice)
     }
 }
