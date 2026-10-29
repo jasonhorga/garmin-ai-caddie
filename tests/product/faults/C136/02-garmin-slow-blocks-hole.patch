@@ -1,20 +1,10 @@
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -4271,7 +4271,7 @@
-             // The package already contains the factual route/F-M-B context. Start the refresh in
+@@ -4272,6 +4272,7 @@
              // parallel, but let the first caddie response use that context immediately instead of
              // making the player wait for a second prep GET/render request.
--            async let mapResult = loadHoleMap()
-+            let mapResult = await loadHoleMap()
+             async let mapResult = loadHoleMap()
++            await loadGarminRasterIfNeeded()
              await loadCaddieDecision(syncClub: syncClub, allowCachedDecision: true)
              guard !Task.isCancelled else { return }
              #if DEBUG
-@@ -4282,7 +4282,7 @@
-             if isSelected {
-                 onLiveHoleInitialLoadDidFinish()
-             }
--            _ = await mapResult
-+            _ = mapResult
-         } else {
-             // A cold hole may have no `/prep` row yet. Keep the package route/numeric facts and
-             // caddie seed playable immediately while the per-hole map request upgrades the screen

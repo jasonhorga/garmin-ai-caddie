@@ -272,7 +272,15 @@ final class ProductMapAndPackageTests: XCTestCase {
         let hole = try XCTUnwrap(package.holes.first)
         let host = "c136-hole-loader.example.test"
         let started = expectation(description: "hole prep started")
+        let rasterStarted = expectation(description: "unexpected blocking Garmin request")
         let gate = C136Gate()
+        let defaults = UserDefaults.standard
+        let previousGarmin = defaults.object(forKey: LiveGarminRasterPolicy.preferenceKey)
+        defaults.set(true, forKey: LiveGarminRasterPolicy.preferenceKey)
+        defer {
+            if let previousGarmin { defaults.set(previousGarmin, forKey: LiveGarminRasterPolicy.preferenceKey) }
+            else { defaults.removeObject(forKey: LiveGarminRasterPolicy.preferenceKey) }
+        }
         let prepPackage = try XCTUnwrap(package.coursePrep)
         let prepHoles = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(prepPackage.holes)) as? [[String: Any]]
@@ -283,7 +291,13 @@ final class ProductMapAndPackageTests: XCTestCase {
         ])
         C33URLProtocol.setHandlers(onStart: { proto in
             guard proto.request.url?.host == host else { proto.reply(404); return }
-            if proto.request.url?.path.hasSuffix("/prep") == true {
+            if proto.request.url?.path.contains("garmin-raster") == true {
+                rasterStarted.fulfill()
+                Task {
+                    await gate.wait()
+                    proto.reply(404)
+                }
+            } else if proto.request.url?.path.hasSuffix("/prep") == true {
                 started.fulfill()
                 Task {
                     await gate.wait()
