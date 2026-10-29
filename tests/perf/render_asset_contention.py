@@ -16,6 +16,7 @@ import json
 import math
 import os
 from pathlib import Path
+from runpy import run_path
 import statistics
 import subprocess
 import sys
@@ -50,10 +51,14 @@ def main() -> int:
         from ai_caddie.geometry import garmin_raster, topo_render
         from server_v2 import mobile
         from server_v2.ci_fixture import _garmin_raster_jpeg
-        from tests.perf.c135_concurrency import _prepare_fixture
+        # Importing tests.* installs suite-wide cache redirects in tests/__init__.py. Load only
+        # the standalone fixture helper so the API and forkserver retain the same temporary root.
+        _prepare_fixture = run_path(str(repo / "tests/perf/c135_concurrency.py"))["_prepare_fixture"]
 
         gid = 918032
         _prepare_fixture(root, gid)
+        if not topo_render.mesh_path(gid, 1).is_file():
+            raise RuntimeError("synthetic mesh is not visible to the real renderer")
         mobile.MOBILE_ROOT = mobile.ANNOTATION_ROOT = root
         jpeg = _garmin_raster_jpeg()
         crop = (100.0, 40.0, 200.0, 200.0)
