@@ -857,6 +857,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private var userRequestedPrepDownloadIDs = Set<String>()
     #if DEBUG
     private var prepQueueLastDecisionForTesting = "none"
+    private var roundPreparationTokenSetAtForTesting = "none"
+    private var roundStartLastStepForTesting = "none"
+    private var roundStartDiagnosticTokenForTesting: UUID?
     #endif
     private var roundPreparationToken: UUID?
     private var roundPreparationGeneration: UInt64 = 0
@@ -1234,6 +1237,10 @@ public final class LiveRoundAppModel: ObservableObject {
         garminSyncPresentationGeneration += 1
         clearFreshEntryRelease()
         roundPreparationToken = nil
+        #if DEBUG
+        roundStartDiagnosticTokenForTesting = nil
+        roundStartLastStepForTesting = "account-bind.token-cleared"
+        #endif
         isPreparingRound = false
         roundStartFailure = nil
         pendingRoundStartRequest = nil
@@ -1818,6 +1825,11 @@ public final class LiveRoundAppModel: ObservableObject {
         let token = UUID()
         roundPreparationToken = token
         roundPreparationGeneration &+= 1
+        #if DEBUG
+        roundStartDiagnosticTokenForTesting = token
+        roundPreparationTokenSetAtForTesting = "\(#function) \(#fileID):\(#line) generation=\(roundPreparationGeneration)"
+        roundStartLastStepForTesting = "beginRoundPreparation"
+        #endif
         roundStartFailure = nil
         syncClient?.beginRoundStart(token)
         newAreaTask?.cancel()
@@ -1847,11 +1859,20 @@ public final class LiveRoundAppModel: ObservableObject {
         roundPreparationToken == token
     }
 
+    private func recordRoundStartStep(_ step: String, token: UUID) {
+        #if DEBUG
+        // A replaced Start must not overwrite the current operation's diagnosis after an await.
+        guard roundStartDiagnosticTokenForTesting == token else { return }
+        roundStartLastStepForTesting = step
+        #endif
+    }
+
     private func finishRoundPreparation(_ token: UUID) {
         syncClient?.endRoundStart(token)
         guard roundPreparationToken == token else { return }
         let handoffID = foregroundRoundStartIntentKey
         roundPreparationToken = nil
+        recordRoundStartStep("finishRoundPreparation.token-cleared", token: token)
         foregroundRoundStartIntentKey = nil
         isPreparingRound = false
         stopRoundProgress()
@@ -2874,7 +2895,7 @@ public final class LiveRoundAppModel: ObservableObject {
         let active = activePrepCourseDownloadID ?? "-"
         let worker = prepCourseDownloadTask == nil ? "none" : "present"
         let intents = intentPrefetchTasks.keys.sorted().joined(separator: ",")
-        return "active=\(active) worker=\(worker) intents=[\(intents)] rows=[\(rows)] token=\(roundPreparationToken != nil) deferred=\(deferredOfflineCourseDownloadRevalidation != nil) user=[\(userRequestedPrepDownloadIDs.sorted().joined(separator: ","))] last=\(prepQueueLastDecisionForTesting)"
+        return "active=\(active) worker=\(worker) intents=[\(intents)] rows=[\(rows)] token=\(roundPreparationToken != nil) tokenSet=\(roundPreparationTokenSetAtForTesting) startLast=\(roundStartLastStepForTesting) deferred=\(deferredOfflineCourseDownloadRevalidation != nil) user=[\(userRequestedPrepDownloadIDs.sorted().joined(separator: ","))] last=\(prepQueueLastDecisionForTesting)"
     }
 
     func cancelPrepCourseDownloadForTesting() async {
@@ -4871,8 +4892,10 @@ public final class LiveRoundAppModel: ObservableObject {
             globalId: course.globalId, teeBox: teeBox
         )
         let preparationToken = beginRoundPreparation()
+        recordRoundStartStep("startPrepCourse.scheduled", token: preparationToken)
         activeRoundStartTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            self.recordRoundStartStep("startPrepCourse.task-enter", token: preparationToken)
             var preparationFinished = false
             defer {
                 if self.prepOpenGeneration == generation {
@@ -4889,7 +4912,9 @@ public final class LiveRoundAppModel: ObservableObject {
                 preparedAt: capturedAt,
                 requireComplete: false
             )
+            self.recordRoundStartStep("startPrepCourse.local-projection found=\(opened != nil)", token: preparationToken)
             if opened == nil {
+                self.recordRoundStartStep("startPrepCourse.intent-await", token: preparationToken)
                 let intent = await self.intentPrefetchPackage(
                     globalId: course.globalId,
                     teeBox: teeBox,
@@ -4897,10 +4922,12 @@ public final class LiveRoundAppModel: ObservableObject {
                     generatedAt: capturedAt,
                     preparationToken: preparationToken
                 )
+                self.recordRoundStartStep("startPrepCourse.intent-return timedOut=\(intent.timedOut) found=\(intent.package != nil)", token: preparationToken)
                 if intent.timedOut { return }
                 opened = intent.package
             }
             if opened == nil {
+                self.recordRoundStartStep("startPrepCourse.map-request-await", token: preparationToken)
                 opened = await self.fetchRemoteCoursePackage(
                     globalId: course.globalId,
                     roundId: roundId,
@@ -4911,6 +4938,7 @@ public final class LiveRoundAppModel: ObservableObject {
                     priorityHole: hole ?? 1,
                     mapOnly: true
                 )
+                self.recordRoundStartStep("startPrepCourse.map-request-return found=\(opened != nil)", token: preparationToken)
             }
             guard generation == self.prepOpenGeneration else { return }
             guard self.liveRoundState == nil else { return }
@@ -4919,6 +4947,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 self.syncStatus = self.roundStartFailure?.presentationMessage ?? "网络不可用，没能开始，点重试"
                 return
             }
+            self.recordRoundStartStep("startPrepCourse.publish-map", token: preparationToken)
             self.enterPrepMode(with: opened, hole: hole)
             self.prepPriorityRoundID = opened.roundId
             self.prepPriorityHole = hole ?? opened.holes.first?.number ?? 1
@@ -4930,7 +4959,9 @@ public final class LiveRoundAppModel: ObservableObject {
             self.finishRoundPreparation(preparationToken)
             preparationFinished = true
             self.beginPrepEnrichmentIfNeeded()
+            self.recordRoundStartStep("startPrepCourse.tees-await token-released", token: preparationToken)
             let tees = await self.loadCourseTees(globalId: course.globalId)
+            self.recordRoundStartStep("startPrepCourse.tees-return token-released", token: preparationToken)
             guard generation == self.prepOpenGeneration, !tees.isEmpty else { return }
             self.prepTeeOptions = Self.prepTeeOptions(tees.map(\.teeBox), selected: teeBox)
         }

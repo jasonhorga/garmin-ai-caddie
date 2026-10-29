@@ -48,17 +48,19 @@ private final class LoopRequests: @unchecked Sendable {
         }
     }
 
-    func waitFor(loops: String? = nil, tee: String? = nil) async -> Bool {
+    func waitFor(loops: String? = nil, tee: String? = nil, fullPackage: Bool = false) async -> Bool {
         for _ in 0..<500 {
             if lock.withLock({ entries.contains {
-                (loops == nil || $0.loops == loops) && (tee == nil || $0.tee == tee)
+                $0.path.hasSuffix("/package") && (!fullPackage || $0.mapOnly == nil)
+                    && (loops == nil || $0.loops == loops) && (tee == nil || $0.tee == tee)
             }}) {
                 return true
             }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
         return lock.withLock { entries.contains {
-            (loops == nil || $0.loops == loops) && (tee == nil || $0.tee == tee)
+            $0.path.hasSuffix("/package") && (!fullPackage || $0.mapOnly == nil)
+                && (loops == nil || $0.loops == loops) && (tee == nil || $0.tee == tee)
         }}
     }
 }
@@ -180,10 +182,13 @@ final class TemplateAcquisitionTests: XCTestCase {
     // MARK: - PR #389: the whole-course job is recorded at once and released within the session
 
     /// Online oracle server; the prep download asks for its own `prep-library-…` round id.
-    private func serveOracle(_ oracle: Oracle, into requests: LoopRequests) {
+    private func serveOracle(_ oracle: Oracle, into requests: LoopRequests, teeGate: TestRequestGate? = nil) {
         let gid = oracle.globalId
         protocolScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
+            if url.path == "/api/v2/mobile/courses/\(gid)/tees" {
+                teeGate?.wait()
+            }
             guard url.path == "/api/v2/mobile/courses/\(gid)/package" else {
                 requests.append(request: request, status: 404)
                 return try Self.response(request, status: 404, body: Data(#"{"detail":"not found"}"#.utf8))
@@ -692,7 +697,7 @@ final class TemplateAcquisitionTests: XCTestCase {
         XCTAssertNil(model.package, "an intent never creates a round")
     }
 
-    /// C134/N5: the Start tap's map-only intent is followed by an independent whole-course job.
+    /// J4.2 / C134/N5: the Start tap's map-only intent is followed by an independent whole-course job.
     /// The shared oracle (see `oracle` above) has no `/prep` or topo responses, so this test proves
     /// the full package request and whole-course template enter the install flow rather than
     /// asserting the unreachable `.ready` state.
@@ -700,13 +705,20 @@ final class TemplateAcquisitionTests: XCTestCase {
         let oracle = try oracle()
         let gid = oracle.globalId
         let requests = LoopRequests()
-        serveOracle(oracle, into: requests)
-        defer { CapturingURLProtocol.requestHandler = nil }
+        // Tee completion also restarts the queue. Hold it so that only the preparation-token
+        // release can hand off the whole-course job, independently of background Tee authority.
+        let teeGate = TestRequestGate()
+        serveOracle(oracle, into: requests, teeGate: teeGate)
+        defer {
+            teeGate.release()
+            CapturingURLProtocol.requestHandler = nil
+        }
 
         let model = acquisitionModel(
             directory: freshDirectory(),
             prepStatusProbeRetryDelayNanoseconds: 0
         )
+        defer { model.closePrepMode() }
         let course = MobileCourseOption(globalId: gid, name: "Start intent", holes: 18, teeBox: "white")
         model.prefetchIntendedCourses([course], teeBox: "white")
         let sawIntentRequest = await requests.waitFor(tee: "white")
@@ -714,9 +726,14 @@ final class TemplateAcquisitionTests: XCTestCase {
         await model.waitForPrepCourseDownloadForTesting()
         XCTAssertTrue(model.openPrepCourse(course))
         model.liveHoleInitialLoadDidFinish()
+        // openPrepCourse schedules Start; neither download task need exist yet. Wait for the
+        // independent whole-course request before joining its worker to observe the saved template.
+        let sawFullPackage = await requests.waitFor(
+            loops: "\(gid):front,\(gid):back", tee: "white", fullPackage: true
+        )
         await settleDownloads(model)
         XCTAssertTrue(requests.mapOnlyValues.contains("true"), "the opening request is map-only")
-        if !requests.mapOnlyValues.contains(nil) {
+        if !sawFullPackage {
             XCTFail(
                 "missing full package; requests=\(requests.diagnosticSummary) "
                     + "queue=\(model.prepQueueDebugSummaryForTesting)"
@@ -735,6 +752,8 @@ final class TemplateAcquisitionTests: XCTestCase {
             )
         }
         XCTAssertTrue(template?.isWholeCourseTemplate == true)
+        teeGate.release()
+        await model.stopRoundBackgroundWorkForTesting()
     }
 
     /// C134/挡3: a user download gets its own full-course row while the selected-course map intent
