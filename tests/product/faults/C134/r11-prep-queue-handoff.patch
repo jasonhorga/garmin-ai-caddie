@@ -1,6 +1,6 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -1729,7 +1729,6 @@
+@@ -1729,6 +1729,5 @@
          // Live-course assets keep priority after a successful start or hole-set change: their
          // installer is deferred until the replacement live surface has settled. If preparation
          // failed, release the prep-library queue instead of leaving durable jobs paused.
