@@ -6,7 +6,7 @@ index 15a1a33f..54844a3e 100644
              yield
          else:
              # A client that disconnects while this cold leader waits stops the wait, too.
--            with background_work(while_waiting=checkpoint):
+-            with background_work(while_waiting=checkpoint, unit_type="prep"):
 +            with background_work():
                  checkpoint()
                  yield

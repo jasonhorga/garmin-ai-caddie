@@ -11,15 +11,6 @@ diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
              age = now - started
              if age < timeout:
                  live.append(started + timeout)
-             elif ticket not in self._warned:
-                 self._warned.add(ticket)
-                 logger.warning("foreground_gate stale_package age_s=%.3f limit_s=%.3f", age, timeout)
-@@ -140,7 +140,7 @@
-             wait_started = self._clock()
-             while True:
-                 now = self._clock()
--                deadline = self._foreground_deadline_locked(now, timeout)
-+                deadline = self._foreground_deadline_locked(now, timeout, wait_started)
-                 if deadline is None:
-                     deadline = self._slot_deadline_locked(now)
-                 if deadline is None:
+@@ -145,7 +145,7 @@
+-                foreground_deadline = self._foreground_deadline_locked(now, timeout)
++                foreground_deadline = self._foreground_deadline_locked(now, timeout, wait_started)

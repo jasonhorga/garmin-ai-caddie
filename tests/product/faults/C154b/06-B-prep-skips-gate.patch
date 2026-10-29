@@ -4,6 +4,6 @@ diff --git a/server_v2/prep_work.py b/server_v2/prep_work.py
 @@ -23,4 +23,4 @@
          else:
              # A client that disconnects while this cold leader waits stops the wait, too.
--            with background_work(while_waiting=checkpoint):
+-            with background_work(while_waiting=checkpoint, unit_type="prep"):
 +            if True:
                  checkpoint()
