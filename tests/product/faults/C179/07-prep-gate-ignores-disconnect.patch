@@ -1,0 +1,13 @@
+diff --git a/server_v2/prep_work.py b/server_v2/prep_work.py
+index 15a1a33f..54844a3e 100644
+--- a/server_v2/prep_work.py
++++ b/server_v2/prep_work.py
+@@ -22,7 +22,7 @@ async def run_prep(request: Request, build: Callable, *, exempt: Callable = lamb
+             yield
+         else:
+             # A client that disconnects while this cold leader waits stops the wait, too.
+-            with background_work(while_waiting=checkpoint):
++            with background_work():
+                 checkpoint()
+                 yield
+ 

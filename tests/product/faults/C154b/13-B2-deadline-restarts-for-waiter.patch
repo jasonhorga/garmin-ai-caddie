@@ -1,15 +1,25 @@
 diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
 --- a/ai_caddie/core/priority_work.py
 +++ b/ai_caddie/core/priority_work.py
-@@ -86,9 +86,9 @@
+@@ -95,10 +95,10 @@
+-    def _foreground_deadline_locked(self, now: float, timeout: float) -> float | None:
++    def _foreground_deadline_locked(self, now: float, timeout: float, origin: float | None = None) -> float | None:
+         """When the youngest-to-expire live package stops blocking; None when none blocks."""
+         live = []
+-        for ticket, started in self._foreground.items():
++        for ticket, started in ((t, s if origin is None else origin) for t, s in self._foreground.items()):
+             age = now - started
+             if age < timeout:
+                 live.append(started + timeout)
+             elif ticket not in self._warned:
+                 self._warned.add(ticket)
+                 logger.warning("foreground_gate stale_package age_s=%.3f limit_s=%.3f", age, timeout)
+@@ -140,7 +140,7 @@
+             wait_started = self._clock()
+             while True:
                  now = self._clock()
-                 live = []
-                 for ticket, started in self._foreground.items():
--                    age = now - started
-+                    age = now - wait_started
-                     if age < timeout:
--                        live.append(started + timeout)
-+                        live.append(wait_started + timeout)
-                     elif ticket not in self._warned:
-                         self._warned.add(ticket)
-                         logger.warning("foreground_gate stale_package age_s=%.3f limit_s=%.3f", age, timeout)
+-                deadline = self._foreground_deadline_locked(now, timeout)
++                deadline = self._foreground_deadline_locked(now, timeout, wait_started)
+                 if deadline is None:
+                     deadline = self._slot_deadline_locked(now)
+                 if deadline is None:

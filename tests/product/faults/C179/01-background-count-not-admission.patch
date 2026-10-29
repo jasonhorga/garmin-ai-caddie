@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
+--- a/ai_caddie/core/priority_work.py
++++ b/ai_caddie/core/priority_work.py
+@@ -114,7 +114,7 @@
+             elif ticket not in self._slot_warned:
+                 self._slot_warned.add(ticket)
+                 logger.warning("background_slot stale_unit age_s=%.3f limit_s=%.3f", age, self._slot_timeout_s)
+-        return min(live) if len(live) >= self._slots else None
++        return None
+
+     def _wait_locked(self, deadline: float, now: float, while_waiting: Callable[[], None] | None) -> None:
+         if while_waiting is not None:

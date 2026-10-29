@@ -1,0 +1,13 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+index 7096a0c1..fc08b033 100644
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2634,7 +2634,7 @@ def _playing_prep_matches(player_id: str, global_id: int, holes, tee: str | None
+             return False
+         selection = _ACTIVE_SELECTIONS.get(key)
+     if not holes:
+-        return False  # no explicit per-hole signal: an all-hole cold prep must yield
++        return True  # no explicit per-hole signal: an all-hole cold prep must yield
+     if selection is None:
+         return set(holes) <= {1}
+     loop_key, active_tee = selection

@@ -1,12 +1,12 @@
 diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
 --- a/ai_caddie/core/priority_work.py
 +++ b/ai_caddie/core/priority_work.py
-@@ -82,7 +82,7 @@
-         with self._condition:
-             marked = False
+@@ -140,7 +140,7 @@
              wait_started = self._clock()
--            while self._foreground:
-+            while False and self._foreground:
+             while True:
                  now = self._clock()
-                 live = []
-                 for ticket, started in self._foreground.items():
+-                deadline = self._foreground_deadline_locked(now, timeout)
++                deadline = None
+                 if deadline is None:
+                     deadline = self._slot_deadline_locked(now)
+                 if deadline is None:
