@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -3934,6 +3934,7 @@
+                     // Retain ownership through the next round's follow-up upload. Discard/late
+                     // events during this await request another pass on this same tracked task.
+                     // This follow-up must not itself wake the blocked finish again indefinitely.
++                    self.deferredRoundFinishTask = nil
+                     await self.syncPendingEvents(
+                         wakeDeferredAfterCompletion: false, deferredFinishOwner: generation
+                     )

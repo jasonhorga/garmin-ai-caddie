@@ -3922,23 +3922,28 @@ public final class LiveRoundAppModel: ObservableObject {
         deferredRoundFinishGeneration = generation
         deferredRoundFinishTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.processDeferredRoundFinishes()
-            // Account activation cancels the old task and can start a new account's task before a
-            // suspended URLSession continuation unwinds. The old generation must not clear or drive
-            // the new account's state.
-            guard self.deferredRoundFinishGeneration == generation else { return }
-            let rerun = self.deferredRoundFinishRetryRequested
+            repeat {
+                self.deferredRoundFinishRetryRequested = false
+                await self.processDeferredRoundFinishes()
+                // Account activation or editing recovery can replace this owner while a request
+                // unwinds. The old generation must not clear or drive the new owner's state.
+                guard self.deferredRoundFinishGeneration == generation else { return }
+                let rerun = self.deferredRoundFinishRetryRequested
+                    && ((try? self.offlineStore.loadPendingRoundFinishes().isEmpty) == false)
+                if !rerun, self.liveRoundState != nil {
+                    // Retain ownership through the next round's follow-up upload. Discard/late
+                    // events during this await request another pass on this same tracked task.
+                    // This follow-up must not itself wake the blocked finish again indefinitely.
+                    await self.syncPendingEvents(
+                        wakeDeferredAfterCompletion: false, deferredFinishOwner: generation
+                    )
+                }
+                guard self.deferredRoundFinishGeneration == generation else { return }
+            } while self.deferredRoundFinishRetryRequested
                 && ((try? self.offlineStore.loadPendingRoundFinishes().isEmpty) == false)
             self.deferredRoundFinishRetryRequested = false
             self.deferredRoundFinishTask = nil
             self.deferredRoundFinishGeneration = nil
-            if rerun {
-                self.retryDeferredRoundFinishes()
-            } else if self.liveRoundState != nil {
-                // A player may already have started the next round while the old one finished. Its
-                // score taps were durably queued while the finish transaction owned the uploader.
-                await self.syncPendingEvents(wakeDeferredAfterCompletion: true)
-            }
         }
     }
 
@@ -5284,7 +5289,8 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func syncPendingEvents(
-        wakeDeferredAfterCompletion: Bool, preservingFinishRejection: Bool = false
+        wakeDeferredAfterCompletion: Bool, preservingFinishRejection: Bool = false,
+        deferredFinishOwner: UUID? = nil
     ) async {
         // The upload badge can change to syncing/retry, but a blocked finish keeps its actionable
         // rejected-hole status until that quarantine is actually resolved.
@@ -5297,7 +5303,9 @@ public final class LiveRoundAppModel: ObservableObject {
 
         guard !isFinishingRound,
               !isSyncingPendingEvents,
-              deferredRoundFinishTask == nil else { return }
+              deferredRoundFinishTask == nil
+                || (deferredFinishOwner != nil && deferredFinishOwner == deferredRoundFinishGeneration)
+        else { return }
         isSyncingPendingEvents = true
         let playerScope = boundPlayerId
         defer {
@@ -5379,7 +5387,11 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     func waitForDeferredRoundFinishesForTesting() async {
-        await deferredRoundFinishTask?.value
+        // Account changes or resume can replace a suspended generation. Drain the new owner too,
+        // rather than treating completion of a captured, cancelled task as global completion.
+        while let task = deferredRoundFinishTask {
+            await task.value
+        }
     }
     #endif
 

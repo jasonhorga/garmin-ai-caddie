@@ -1379,6 +1379,20 @@
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59DiscardRemovedRecoveryUploadsLatePendingEvent",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-14",
+      "patch": "tests/product/faults/C149/14-followup-drops-deferred-task-owner.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DiscardRemovedRecoveryUploadsLatePendingEvent",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-15",
+      "patch": "tests/product/faults/C149/15-followup-forgets-queued-discard.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DiscardRemovedRecoveryUploadsLatePendingEvent",
+      "promise": "5.9"
     }
   ]
 }
