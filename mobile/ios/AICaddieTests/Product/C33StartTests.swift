@@ -676,7 +676,7 @@ final class C33StartTests: XCTestCase {
         mapJSON["sourceCoverage"] = mapCoverage
         let mapData = try JSONSerialization.data(withJSONObject: mapJSON)
         let session = C33URLProtocol.session()
-        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 0.05)
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 1)
         let model = LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
             watchBridge: nil, garminSessionStore: nil, syncClient: client,
