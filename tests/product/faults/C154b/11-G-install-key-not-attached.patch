@@ -1,12 +1,8 @@
 diff --git a/server_v2/course_install.py b/server_v2/course_install.py
 --- a/server_v2/course_install.py
 +++ b/server_v2/course_install.py
-@@ -544,7 +544,7 @@
-
-     # PriorityExecutor.submit recognises this marker and stores a keyed heap entry. Calling the
+@@ -546,3 +546,3 @@
      # stable submit method also keeps lightweight test/embedding executors source-compatible.
 -    run_keyed.__priority_work_key__ = identifier
 +    pass
      _WORKER.submit(run_keyed, identifier, priority=launch_priority)
-
-

@@ -2566,7 +2566,8 @@ def _playing_prep_matches(player_id: str, global_id: int, holes, tee: str | None
     loop_key, active_tee = selection
     if tee and tee.strip().lower() != active_tee:
         return False
-    loops = parse_round_loops(loop_key, path_global_id=int(loop_key.split(":")[0]))
+    # Registry/journal keys use '+', while the strict HTTP loops parser accepts commas.
+    loops = parse_round_loops(loop_key.replace("+", ","), path_global_id=int(loop_key.split(":")[0]))
     physical = [(gid, h) for gid, half in loops
                 for h in (range(10, 19) if half == "back" else range(1, 10))]
     identifier = course_install.job_id(global_id=physical[0][0], tee_box=active_tee,

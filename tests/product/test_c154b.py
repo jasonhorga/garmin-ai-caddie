@@ -279,7 +279,7 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
         active = (self.player, "live-current")
         self.main._ACTIVE_ROUNDS[active] = time.monotonic() + 60
         self.main._ACTIVE_COURSES[active] = (123,)
-        self.main._ACTIVE_SELECTIONS[active] = ("123:back,123:front", "white")
+        self.main._ACTIVE_SELECTIONS[active] = ("123:back+123:front", "white")
         state = {"priorityHole": 12}  # display 12 = physical front hole 3
         with patch.object(self.main, "_build_course_prep_nine", side_effect=self.prep_builder), \
              patch.object(course_install, "state_for_worker", return_value=state):
@@ -365,6 +365,34 @@ class RouteAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 r = await self.client.get(f"/api/v2/mobile/courses/123/package?round_id={rid}&loops=123:{loop}&tee_box={tee}&background_geometry=true")
                 self.assertEqual(r.status_code, 200, r.text)
                 self.assertEqual(enqueue.call_args.kwargs["priority"], expected)
+
+    async def test_J42_combined_live_route_uses_canonical_key_for_first_current_prep(self):
+        from tests.test_course_install import CourseInstallJournalTests
+        from server_v2.models import LiveRoundPackageResponse
+        payload = CourseInstallJournalTests._real_package().model_dump(by_alias=True)
+        payload["course"]["teeBox"] = "white"
+        payload["loopKey"] = "123:back+123:front"
+        payload["roundLoops"][0].update(half="back", sourceStartHole=10)
+        payload["roundLoops"].append({"globalId": 123, "half": "front", "roundStartHole": 10,
+                                      "sourceStartHole": 1, "holeCount": 9})
+        front = [dict(h, number=h["number"] + 9) for h in payload["holes"]]
+        for h in payload["holes"]:
+            h["sourceLocalHole"] += 9
+            h["courseHoleNumber"] += 9
+        payload["holes"] += front
+        package = LiveRoundPackageResponse.model_validate(payload)
+        with patch.object(self.main, "build_mobile_course_package_response", return_value=package), \
+             patch.object(self.main.course_install, "enqueue", return_value={"jobId": "fixture"}), \
+             patch.object(self.main.course_install, "state_for_worker", return_value={"priorityHole": 12}), \
+             patch.object(self.main, "_build_course_prep_nine", side_effect=self.prep_builder):
+            r = await self.client.get("/api/v2/mobile/courses/123/package?round_id=live-combined&loops=123:back,123:front&tee_box=white&background_geometry=true")
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(self.main._ACTIVE_SELECTIONS[self.player, "live-combined"],
+                             ("123:back+123:front", "white"))
+            with self.gate.foreground(), patch.object(self.gate._condition, "wait", side_effect=AssertionError("live prep waited")):
+                for physical_hole in (10, 3):
+                    r = await self.client.get(f"/api/v2/courses/123/prep?holes={physical_hole}&tee=white&render=false")
+                    self.assertEqual(r.status_code, 200)
 
     async def test_J42_actual_app_gate_survives_endpoint_return_and_compressed_send(self):
         from starlette.responses import JSONResponse

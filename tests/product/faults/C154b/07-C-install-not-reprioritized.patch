@@ -1,12 +1,8 @@
 diff --git a/server_v2/course_install.py b/server_v2/course_install.py
 --- a/server_v2/course_install.py
 +++ b/server_v2/course_install.py
-@@ -96,7 +96,7 @@
-                 changed.append(state)
-     for state in changed:
+@@ -98,3 +98,3 @@
          _reprioritize_topo_queue(state)
 -        if hasattr(_WORKER, "reprioritize"):
 +        if False:
              _WORKER.reprioritize(str(state.get("jobId") or ""), int(state.get("priority", NEARBY)))
-
-
