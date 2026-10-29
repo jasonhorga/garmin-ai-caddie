@@ -1254,15 +1254,15 @@ class ServerV2MobileTests(unittest.TestCase):
             store.ack(round_id, client_id, 1)
 
             scan_count = 0
-            original_sequence_snapshot = FileEventStore._round_sequence_snapshot
+            original_indexed_round_log = FileEventStore._indexed_round_log_unlocked
 
-            def counted_sequence_snapshot(event_store: FileEventStore, *args: object, **kwargs: object):
+            def counted_indexed_round_log(event_store: FileEventStore, *args: object, **kwargs: object):
                 nonlocal scan_count
                 scan_count += 1
-                return original_sequence_snapshot(event_store, *args, **kwargs)
+                return original_indexed_round_log(event_store, *args, **kwargs)
 
             with (
-                patch.object(FileEventStore, "_round_sequence_snapshot", new=counted_sequence_snapshot),
+                patch.object(FileEventStore, "_indexed_round_log_unlocked", new=counted_indexed_round_log),
                 patch.object(
                     FileEventStore,
                     "_stored_log",
@@ -1417,7 +1417,7 @@ class ServerV2MobileTests(unittest.TestCase):
                         "timestamp": "2026-07-29T00:00:00Z",
                         "hole": 1,
                         "kind": "score",
-                        "payload": {"diagnosticRows": ["x" * 500 for _ in range(200)]},
+                        "payload": {"diagnosticRows": ["x" * 500 for _ in range(100)]},
                     }
                 ],
                 request_key="large-but-unrelated",

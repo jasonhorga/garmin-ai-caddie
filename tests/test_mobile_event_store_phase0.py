@@ -156,18 +156,25 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         big_round = "big-history"
         small_round = "small-history"
         store = FileEventStore(self.root)
-        store.append_batch(
-            big_round,
-            [
-                {
-                    **_event(f"big-{index}", round_id=big_round),
-                    "payload": {"diagnosticRows": ["x" * 2600]},
-                }
-                for index in range(2500)
-            ],
-            request_key="big-history",
+        legacy_rows = [
+            {
+                "roundId": big_round,
+                "serverSequence": 1,
+                "event": {
+                    **_event("big", round_id=big_round),
+                    "payload": {"decision": {"detail": "x" * (6 * 1024 * 1024)}},
+                },
+            },
+            {"roundId": small_round, "serverSequence": 2, "event": _event("small", round_id=small_round)},
+        ]
+        self.root.joinpath("events.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in legacy_rows),
+            encoding="utf-8",
         )
-        store.append_batch(small_round, [_event("small", round_id=small_round)], request_key="small-history")
+        with store._locked(store.event_lock):
+            with store.log.open("r+b") as handle:
+                store._recover_event_log_unlocked(handle=handle)
+        store.ensure_round_event_index()
         reopened = FileEventStore(self.root)
         read_bytes = 0
         original = reopened._read_log_range
@@ -182,11 +189,18 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertEqual([row["event"]["eventId"] for row in small], ["small"])
         self.assertGreater(read_bytes, 0)
         self.assertLess(read_bytes, 64 * 1024)
+        read_bytes = 0
+        with mock.patch.object(reopened, "_read_log_range", side_effect=counted):
+            rows, acked = reopened.read_rows_and_ack(small_round, "ios")
+        self.assertEqual([row["event"]["eventId"] for row in rows], ["small"])
+        self.assertEqual(acked, 0)
+        self.assertGreater(read_bytes, 0)
+        self.assertLess(read_bytes, 64 * 1024)
 
         started = time.perf_counter()
         large = reopened.read_rows(big_round)
         self.assertLess(time.perf_counter() - started, 1.0)
-        self.assertEqual(len(large), 2500)
+        self.assertEqual(len(large), 1)
 
     def test_indexed_round_read_matches_legacy_sanitized_rows(self) -> None:
         """J5.9: indexed reads preserve the old sanitize/order/high-water result per round."""
@@ -242,6 +256,33 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         event = {**_event("too-large"), "payload": {"note": "x" * (65 * 1024)}}
         with self.assertRaisesRegex(ValueError, "^event_payload_too_large"):
             store.append_batch(ROUND_A, [event], request_key="too-large")
+
+    def test_event_payload_migration_dry_run_and_apply_preserve_identity(self) -> None:
+        """J5.9: migration is dry-run by default and applies with backup plus a usable index."""
+        from scripts.migrate_mobile_event_payloads import migrate
+
+        event = {
+            **_event("legacy-large"),
+            "kind": "club",
+            "payload": {"decision": {"club": "7I", "target": "green", "distance": 143.2, "detail": "x" * (65 * 1024)}},
+        }
+        row = {"roundId": ROUND_A, "serverSequence": 1, "event": event}
+        self.root.joinpath("events.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+        before = self.root.joinpath("events.jsonl").read_bytes()
+        dry = migrate(self.root, timestamp="20261029T000000Z")
+        self.assertEqual(dry["changed"], 1)
+        self.assertFalse(dry["apply"])
+        self.assertEqual(self.root.joinpath("events.jsonl").read_bytes(), before)
+        self.assertFalse(self.root.joinpath("events.jsonl.bak-20261029T000000Z").exists())
+
+        applied = migrate(self.root, apply=True, timestamp="20261029T000000Z")
+        backup = self.root.joinpath("events.jsonl.bak-20261029T000000Z")
+        self.assertEqual(applied["changed"], 1)
+        self.assertTrue(backup.exists())
+        self.assertTrue(self.root.joinpath("round_event_index.json").exists())
+        rows = FileEventStore(self.root).read_rows(ROUND_A)
+        self.assertEqual([row["event"]["eventId"] for row in rows], ["legacy-large"])
+        self.assertTrue(rows[0]["event"]["payload"]["decision"]["truncated"])
 
     def test_round_index_rebuild_refuses_a_tampered_committed_prefix(self) -> None:
         # The light scan must still verify the committed prefix before labelling a rebuilt
