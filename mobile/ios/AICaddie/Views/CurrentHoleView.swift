@@ -4291,10 +4291,9 @@ public struct CurrentHoleView: View {
         let persistedClub = trimmedClub.isEmpty ? "unknown" : trimmedClub
         let targetDistance: Double? = {
             guard coordinate != nil else { return nil }
-            if Self.normalizedTargetKind(kind) == "pin" {
-                return distanceFromMapReference(to: coordinate)
-            }
-            return distanceFromMapReference(to: coordinate)
+            // `distanceToPinM` keeps its GPS/manual-to-flag meaning on the wire. A Touch Target
+            // carries its own coordinate/kind and must not masquerade as the hole distance.
+            return effectiveDistanceToPinMetres
         }()
         var payload: [String: JSONValue] = [
             "clubName": .string(persistedClub),
