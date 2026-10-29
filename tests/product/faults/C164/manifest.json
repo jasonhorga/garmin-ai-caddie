@@ -63,6 +63,20 @@
       "kind": "python",
       "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_explicit_distance_wins_over_dogleg_route",
       "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164-0a",
+      "patch": "tests/product/faults/C164/0a-route-overrides-legacy-number.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_distance_sources_choose_phone_or_remaining_polyline",
+      "promise": "5.11"
+    },
+    {
+      "id": "tests-product-faults-C164-0b",
+      "patch": "tests/product/faults/C164/0b-auto-distance-stays-on-chord.patch",
+      "kind": "python",
+      "target": "tests.product.test_j5_play.PolylineDecisionTests.test_j5_11_distance_sources_choose_phone_or_remaining_polyline",
+      "promise": "5.11"
     }
   ]
 }
