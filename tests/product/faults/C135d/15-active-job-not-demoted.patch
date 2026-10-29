@@ -1,0 +1,11 @@
+--- a/server_v2/course_install.py
++++ b/server_v2/course_install.py
+@@ -79,7 +79,7 @@
+         _CURRENT_COURSE_IDS.update(current)
+         # Already queued/running jobs must also yield when a player starts on another course.
+         # Running provider calls finish; their next window reads this durable priority.
+-        for identifier in _ACTIVE:
++        for identifier in ():
+             state = _read(identifier)
+             if not state:
+                 continue

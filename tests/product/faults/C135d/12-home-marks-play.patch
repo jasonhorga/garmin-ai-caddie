@@ -1,0 +1,11 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2905,7 +2905,7 @@
+     # Home bootstrap can use suggestedLiveRoundId (live-<gid>), so the ID prefix alone is
+     # insufficient. Its existing read-only request disables all three options; playing/download
+     # paths request background geometry. A home read never starts or refreshes a playing lease.
+-    if include_event_cursor or background_geometry or ensure_geometry:
++    if True:
+         _record_round_activity(player_id, round_id, global_ids=[gid for gid, _half in round_loops])
+     mark_request_stage("package_route")
+     if not background_geometry or ensure_geometry:

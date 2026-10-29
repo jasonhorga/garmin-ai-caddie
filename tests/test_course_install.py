@@ -118,7 +118,268 @@ class CourseInstallRouteContractTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 409)
 
 
+class CurrentRoundInstallPriorityTests(unittest.TestCase):
+    """J4/4.2: only a player's latest playing round owns selected-course work."""
+
+    def setUp(self):
+        from server_v2 import main, course_install as ci
+
+        self.main, self.ci = main, ci
+        directory = self.enterContext(TemporaryDirectory())
+        self.root = Path(directory)
+        from server_v2 import mobile
+        self.enterContext(patch.object(mobile, "MOBILE_ROOT", self.root))
+        self.enterContext(patch.dict(os.environ, {"AI_CADDIE_COURSE_INSTALL_DIR": directory}))
+        self.enterContext(patch.object(main, "_ACTIVE_ROUNDS", {}))
+        self.enterContext(patch.object(main, "_ACTIVE_COURSES", {}))
+        self.enterContext(patch.object(ci, "_CURRENT_COURSE_IDS", type(ci._CURRENT_COURSE_IDS)()))
+        self.enterContext(patch.object(ci, "_ACTIVE", set()))
+        self.submitted = []
+        self.enterContext(patch.object(ci._WORKER, "submit", side_effect=self._submitted))
+        self.enterContext(patch.object(ci, "_reprioritize_topo_queue"))
+
+    def _submitted(self, _fn, identifier, *, priority):
+        state = self.ci._read(identifier)
+        self.submitted.append((state["globalId"], priority))
+
+    def package(self, gid, rid, *, player="fixture", background=True, cursor=True):
+        package = SimpleNamespace(
+            course={"globalId": gid, "teeBox": "blue"},
+            holes=[{"number": 1, "sourceGlobalId": gid, "sourceLocalHole": 1,
+                    "geometryCoverage": "partial"}], eventCursor={},
+        )
+        with patch.object(self.main, "build_mobile_course_package_response", return_value=package):
+            return self.main.mobile_course_package(
+                gid, BackgroundTasks(), round_id=rid, loops=f"{gid}:all", player_id=player,
+                background_geometry=background, include_event_cursor=cursor,
+            )
+
+    def priority(self, gid, *, player="fixture"):
+        identifier = self.ci.job_id(global_id=gid, tee_box="blue", loop_key=f"{gid}:all", player_id=player)
+        return self.ci._read(identifier)["priority"]
+
+    def test_live_and_preview_packages_use_real_enqueue_and_launch_priorities(self):
+        self.package(123, "live-a")
+        self.package(999, "prep-library-999")
+        self.assertEqual(self.submitted, [(123, 10), (999, 20)])
+        self.assertEqual(self.priority(123), 10)
+        self.assertEqual(self.priority(999), 20)
+
+    def test_new_round_demotes_old_job_and_old_package_cannot_reclaim_current(self):
+        self.package(123, "live-a")
+        self.assertEqual(self.priority(123), 10)
+        self.package(999, "live-b")
+        self.assertEqual(self.priority(123), 20)  # Old in-flight work yields on the new start.
+        self.assertEqual(self.priority(999), 10)
+        # A stale ready journal with legacy priority 10 must be overwritten, not min-merged.
+        identifier = self.ci.job_id(global_id=123, tee_box="blue", loop_key="123:all", player_id="fixture")
+        state = self.ci._read(identifier)
+        state.update(priority=10, phase="ready")
+        self.ci._write(state)
+        self.ci._ACTIVE.discard(identifier)
+        self.package(123, "live-a")
+        self.assertEqual(self.priority(123), 20)
+        self.assertEqual(self.priority(999), 10)
+        self.assertEqual(self.submitted[-1], (123, 20))
+
+    def test_home_suggested_live_id_does_not_activate_or_replace_play(self):
+        self.package(999, "live-999", background=False, cursor=False)
+        self.assertFalse(self.main.nearby_work_blocked())
+        self.package(123, "live-a")
+        self.package(999, "live-999", background=False, cursor=False)
+        self.assertEqual(self.priority(123), 10)
+        self.package(999, "prep-library-999")
+        self.assertEqual(self.priority(999), 20)
+        self.assertEqual(set(self.main._ACTIVE_ROUNDS), {("fixture", "live-a")})
+
+    def test_complete_former_course_journal_priority_is_overwritten(self):
+        self.package(123, "live-a")
+        self.package(999, "live-b")
+        identifier = self.ci.job_id(global_id=123, tee_box="blue", loop_key="123:all", player_id="fixture")
+        state = self.ci._read(identifier)
+        state.update(priority=10, phase="ready")
+        for row in state["holes"].values():
+            row.update(geometry="ready", topo="ready", geometryRevision="r1", topoRevision="r1")
+        self.ci._write(state)
+        self.ci._ACTIVE.discard(identifier)
+        # The ready job does not reach _launch: enqueue itself must discard the old 10.
+        job = self.ci.enqueue(global_id=123, tee_box="blue", loop_key="123:all", player_id="fixture",
+                              refs=[{"globalId": 123, "localHole": 1, "geometryRevision": "r1"}],
+                              requested={}, ready={123: [1]}, priority=20)
+        self.assertEqual(job["phase"], "ready")
+        self.assertEqual(self.priority(123), 20)
+
+    def test_late_events_keep_latest_round_and_finish_does_not_revive_older_play(self):
+        self.package(123, "live-a")
+        self.package(999, "live-b")
+        with patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()):
+            self.main.mobile_round_events("live-a", SimpleNamespace(events=[{}]), "fixture-key",
+                                          acting_player_id="fixture")
+        self.assertEqual(self.priority(123), 20)
+        self.assertEqual(self.priority(999), 10)
+        self.main._record_round_activity("fixture", "live-b", finished=True)
+        self.assertFalse(self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.priority(123), 20)
+        self.assertEqual(self.priority(999), 20)
+
+    def test_watch_sibling_template_cannot_replace_or_renew_playing_round(self):
+        self.package(123, "8F2C-live-uuid")
+        registered = dict(self.main._ACTIVE_ROUNDS)
+        self.package(456, "watch-template-456-AB12")  # Watch: background=true, cursor default=true.
+        self.assertEqual(self.priority(123), 10)
+        self.assertEqual(self.priority(456), 20)
+        self.assertEqual(self.main._ACTIVE_ROUNDS, registered)
+        self.package(123, "8F2C-live-uuid")  # The active upgrade poll stays selected.
+        self.assertEqual(self.priority(123), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_late_unregistered_event_upload_keeps_bound_current_round(self):
+        self.package(999, "live-b")
+        with patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()):
+            self.main.mobile_round_events("old-round-a", SimpleNamespace(events=[{}]), "old-upload",
+                                          acting_player_id="fixture")
+        self.assertEqual(self.priority(999), 10)
+        self.assertEqual(self.main._current_course_ids("fixture"), (999,))
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_watch_deferred_events_then_finish_cannot_remove_later_play(self):
+        self.package(999, "live-b")
+        with (patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()),
+              patch.object(self.main, "finish_mobile_round_response", return_value=SimpleNamespace())):
+            self.main.mobile_round_events("saved-old-a", SimpleNamespace(events=[{}]), "old-upload",
+                                          acting_player_id="fixture")
+            self.main.mobile_round_finish("saved-old-a", SimpleNamespace(), acting_player_id="fixture")
+        self.assertIn(("fixture", "live-b"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.priority(999), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_finish_earlier_registered_round_preserves_later_round(self):
+        self.package(123, "live-a")
+        self.package(999, "live-b")
+        with (patch.object(self.main, "append_mobile_events_response", return_value=SimpleNamespace()),
+              patch.object(self.main, "finish_mobile_round_response", return_value=SimpleNamespace())):
+            self.main.mobile_round_events("live-a", SimpleNamespace(events=[{}]), "old-upload",
+                                          acting_player_id="fixture")
+            self.main.mobile_round_finish("live-a", SimpleNamespace(), acting_player_id="fixture")
+        self.assertNotIn(("fixture", "live-a"), self.main._ACTIVE_ROUNDS)
+        self.assertEqual(self.priority(999), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def _background_job(self, gid):
+        return self.ci.enqueue(global_id=gid, tee_box="blue", loop_key=f"{gid}:all", player_id="fixture",
+                               refs=[{"globalId": gid, "localHole": 1}], requested={gid: [1]},
+                               ready={}, priority=20)
+
+    @staticmethod
+    def _event(rid, event_id, *, payload=None):
+        return {"schema": "ai-caddie-live-round-event-v1", "eventId": event_id,
+                "roundId": rid, "timestamp": "2026-10-29T08:00:00Z", "hole": 1,
+                "kind": "score", "payload": payload or {"strokes": 4}, "clientId": "apple-watch"}
+
+    def test_events_restore_current_courses_from_accepted_round_log(self):
+        from ai_caddie.caddie.mobile_live import append_event_batch
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        self._background_job(123)
+        append_event_batch("live-a", [self._event("live-a", "first", payload={"strokes": 4, "courseGlobalId": 123})],
+                           idempotency_key="first", root=self.root, player_id="fixture")
+        body = LiveRoundEventBatchRequest(roundId="live-a", events=[self._event("live-a", "second")])
+        self.main.mobile_round_events("live-a", body, "second", acting_player_id="fixture")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+        self.assertEqual(self.priority(123), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_old_log_with_known_course_cannot_take_over_current_round(self):
+        from ai_caddie.caddie.mobile_live import append_event_batch
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        self.package(999, "live-b")
+        self._background_job(123)
+        # Existing legacy log metadata is read; the current Watch upload remains schema-valid.
+        append_event_batch("saved-old-a", [self._event("saved-old-a", "first", payload={"strokes": 4, "courseGlobalId": 123})],
+                           idempotency_key="first", root=self.root, player_id="fixture")
+        body = LiveRoundEventBatchRequest(roundId="saved-old-a", events=[
+            self._event("saved-old-a", "late"),
+        ])
+        self.main.mobile_round_events("saved-old-a", body, "late", acting_player_id="fixture")
+        self.assertEqual(self.main._current_course_ids("fixture"), (999,))
+        self.assertEqual(self.priority(999), 10)
+        self.assertEqual(self.priority(123), 20)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_watch_events_restore_courses_from_durable_package_identity(self):
+        from ai_caddie.caddie.mobile_round_identity import save_mobile_round_identity
+        from server_v2.models import LiveRoundEventBatchRequest
+
+        self._background_job(123)
+        save_mobile_round_identity("watch-live", [{"globalId": 123, "half": "all", "roundStartHole": 1,
+                                    "sourceStartHole": 1, "holeCount": 9}], "123:all",
+                                   [{"number": h, "sourceGlobalId": 123, "sourceLocalHole": h,
+                                     "courseHoleNumber": h} for h in range(1, 10)],
+                                   root=self.root, player_id="fixture")
+        body = LiveRoundEventBatchRequest(roundId="watch-live", events=[self._event("watch-live", "first")])
+        self.main.mobile_round_events("watch-live", body, "first", acting_player_id="fixture")
+        self.assertEqual(self.main._current_course_ids("fixture"), (123,))
+        self.assertEqual(self.priority(123), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_round_package_restores_all_source_courses_without_empty_latest(self):
+        self._background_job(123)
+        package = SimpleNamespace(course={"globalId": 123}, roundLoops=[{"globalId": 123}, {"globalId": 456}],
+                                  holes=[{"sourceGlobalId": 123}, {"sourceGlobalId": 456}], eventCursor={})
+        with patch.object(self.main, "build_mobile_round_package_response", return_value=package):
+            self.main.mobile_round_package("live-a", player_id="fixture")
+        self.assertEqual(set(self.main._current_course_ids("fixture")), {123, 456})
+        self.assertEqual(self.priority(123), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_old_round_package_refresh_cannot_displace_bound_play(self):
+        self.package(999, "live-b")
+        package = SimpleNamespace(course={"globalId": 123}, roundLoops=[{"globalId": 123}],
+                                  holes=[{"sourceGlobalId": 123}], eventCursor={"serverSequence": 4})
+        with patch.object(self.main, "build_mobile_round_package_response", return_value=package):
+            self.main.mobile_round_package("saved-old-a", player_id="fixture")
+        self.assertEqual(self.main._current_course_ids("fixture"), (999,))
+        self.assertEqual(self.priority(999), 10)
+        self.assertTrue(self.main.nearby_work_blocked())
+
+    def test_current_course_is_scoped_to_player_on_resume(self):
+        self.package(123, "live-a", player="alice")
+        bob = self.package(123, "prep-library-123", player="bob").courseInstallJob
+        identifier = bob["jobId"]
+        state = self.ci._read(identifier)
+        state["priority"] = 10
+        self.ci._write(state)
+        self.ci._ACTIVE.discard(identifier)
+        self.ci._launch(identifier)  # Alice's live course cannot exempt Bob's old job.
+        self.assertEqual(self.submitted[-1], (123, 20))
+        self.assertEqual(self.priority(123, player="alice"), 10)
+
+
 class CourseInstallJournalTests(unittest.TestCase):
+    def test_old_other_course_resume_is_demoted_while_live_course_is_active(self) -> None:
+        """J4/4.2: a recovered install for another course yields to live play."""
+        from server_v2 import course_install
+
+        state = {"jobId": "old-course", "globalId": 999, "phase": "queued",
+                 "priority": course_install.SELECTED_COURSE, "cancelRequested": False,
+                 "playerKey": course_install._player_key("fixture")}
+        submitted: list[int] = []
+        course_install._ACTIVE.clear()
+        course_install.set_current_course_ids({"fixture": {123}})
+        with (
+            patch.object(course_install, "_read", return_value=state),
+            patch.object(course_install, "_write") as write,
+            patch.object(course_install._WORKER, "submit",
+                         side_effect=lambda _fn, identifier, priority: submitted.append(priority)),
+        ):
+            course_install._launch("old-course")
+        self.assertEqual(submitted, [course_install.NEARBY])
+        self.assertEqual(state["priority"], course_install.NEARBY)
+        write.assert_called_once()
+        course_install._ACTIVE.clear()
+        course_install.set_current_course_ids({})
+
     @staticmethod
     def _real_package():
         from server_v2.models import LiveRoundPackageResponse
@@ -158,6 +419,7 @@ class CourseInstallJournalTests(unittest.TestCase):
         )
 
     def test_package_route_attaches_job_and_no_longer_uses_background_tasks(self) -> None:
+        """J4/4.2: the playing course retains selected-install priority after package delivery."""
         from server_v2 import main as server_main
 
         package = SimpleNamespace(
@@ -188,8 +450,10 @@ class CourseInstallJournalTests(unittest.TestCase):
                 background_tasks=BackgroundTasks(),
                 background_geometry=True,
                 loops="123:all",
+                round_id="live-priority-check",
                 player_id="owner",
             )
+            server_main._record_round_activity("owner", "live-priority-check", finished=True)
 
         self.assertIs(result, package)
         self.assertEqual(result.courseInstallJob, job)
@@ -198,6 +462,7 @@ class CourseInstallJournalTests(unittest.TestCase):
         self.assertEqual(enqueue.call_args.kwargs["ready"], {123: [2]})
         self.assertEqual(enqueue.call_args.kwargs["refs"][1]["geometryRevision"], "revision-2")
         self.assertEqual(enqueue.call_args.kwargs["loop_key"], "123:all")
+        self.assertEqual(enqueue.call_args.kwargs.get("priority", server_main.SELECTED_COURSE), server_main.SELECTED_COURSE)
 
     def test_enqueue_is_idempotent_and_public_state_has_no_player_identity(self) -> None:
         from server_v2 import course_install

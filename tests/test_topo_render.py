@@ -608,21 +608,53 @@ class TopoRenderProcessPoolTests(unittest.TestCase):
         topo_render._shutdown_render_pool()
         topo_render._render_pool = None
 
-    def test_process_count_is_off_by_default_and_bounded(self) -> None:
+    def test_process_count_follows_cgroup_quota_and_explicit_env(self) -> None:
+        """J4/4.2: leave foreground CPU available while maps download in the background."""
         env = topo_render._RENDER_PROCESSES_ENV
         with patch.dict("os.environ", {}, clear=False):
             import os
 
             os.environ.pop(env, None)
-            self.assertEqual(topo_render._render_process_count(), 0)
-        for raw, expected in (("2", 2), ("9", 4), ("-3", 0), ("x", 0), ("0", 0)):
+            with patch.object(topo_render.Path, "read_text", return_value="200000 100000"):
+                self.assertEqual(topo_render._render_process_count(), 1)
+            with patch.object(topo_render.Path, "read_text", return_value="400000 100000"):
+                self.assertEqual(topo_render._render_process_count(), 3)
+            with patch.object(topo_render.Path, "read_text", return_value="max 100000"):
+                with patch.object(os, "cpu_count", return_value=5):
+                    self.assertEqual(topo_render._render_process_count(), 4)
+        for raw, expected in (("2", 2), ("9", 9), ("-3", 0), ("0", 0)):
             with patch.dict("os.environ", {env: raw}):
                 self.assertEqual(topo_render._render_process_count(), expected, raw)
+        with patch.dict("os.environ", {env: "x"}), patch.object(topo_render.Path, "read_text", return_value="200000 100000"):
+            self.assertEqual(topo_render._render_process_count(), 1, "x")
 
-    def test_start_script_enables_two_render_processes(self) -> None:
-        script = (Path(__file__).resolve().parents[1] / "ops" / "start_api.sh").read_text()
-        self.assertIn('export AI_CADDIE_TOPO_RENDER_PROCESSES="${AI_CADDIE_TOPO_RENDER_PROCESSES:-2}"', script)
-        self.assertLess(script.index("AI_CADDIE_TOPO_RENDER_PROCESSES"), script.index("exec uv run"))
+    def test_missing_cgroup_quota_falls_back_to_cpu_affinity(self) -> None:
+        """J4/4.2: a v1/unreadable quota must respect the API's taskset budget."""
+        import os
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(topo_render._RENDER_PROCESSES_ENV, None)
+            with (patch.object(topo_render.Path, "read_text", side_effect=FileNotFoundError),
+                  patch.object(os, "sched_getaffinity", return_value={0, 1}),
+                  patch.object(os, "cpu_count", return_value=16)):
+                self.assertEqual(topo_render._render_process_count(), 1)
+
+    def test_real_worker_has_background_nice_priority(self) -> None:
+        """J4/4.2: a real background map process yields to the API, with an explicit override."""
+        import os
+
+        for configured, expected in ((None, 10), ("12", 12)):
+            with self.subTest(nice=configured), patch.dict("os.environ", {}, clear=False):
+                os.environ.pop("AI_CADDIE_TOPO_RENDER_NICE", None)
+                if configured is not None:
+                    os.environ["AI_CADDIE_TOPO_RENDER_NICE"] = configured
+                pool = topo_render._get_render_pool(1)
+                try:
+                    value = pool.submit(os.getpriority, os.PRIO_PROCESS, 0).result(timeout=20)
+                    self.assertGreaterEqual(value, expected)
+                finally:
+                    pool.shutdown(wait=True)
+                    topo_render._render_pool = None
 
     def test_enabled_cold_render_goes_to_a_worker_and_is_cached_by_the_parent(self) -> None:
         canned = _test_png()

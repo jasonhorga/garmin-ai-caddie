@@ -1021,9 +1021,8 @@ def green_detail_cache_path(
 # on threads, 14.4 s with the renders in two worker processes). Cold renders therefore run in a
 # small process pool; the parent keeps the single-flight, the cold-render slot and the cache write.
 _RENDER_PROCESSES_ENV = "AI_CADDIE_TOPO_RENDER_PROCESSES"
-# Off by default (tests patch geometry paths in-process, which a worker cannot see); the API's
-# entrypoint `ops/start_api.sh` turns it on for the deployed server.
-_DEFAULT_RENDER_PROCESSES = 0
+# The API derives the pool size from its cgroup quota unless deployment explicitly overrides it.
+_DEFAULT_RENDER_NICE = 10
 # Recycle a worker after this many renders so allocator growth in a long-lived child is returned.
 _RENDER_TASKS_PER_PROCESS = 64
 _render_pool: ProcessPoolExecutor | None = None
@@ -1031,19 +1030,44 @@ _render_pool_lock = threading.Lock()
 
 
 def _render_process_count() -> int:
-    """Worker processes for cold renders; 0 renders in-process (the pre-2026-10 behaviour)."""
+    """Use one fewer process than the cgroup quota unless deployment explicitly overrides it."""
     raw = os.environ.get(_RENDER_PROCESSES_ENV, "").strip()
     try:
-        count = int(raw) if raw else _DEFAULT_RENDER_PROCESSES
+        if raw:
+            return max(0, int(raw))
     except ValueError:
-        count = _DEFAULT_RENDER_PROCESSES
-    return max(0, min(count, 4))
+        pass
+    quota = Path("/sys/fs/cgroup/cpu.max")
+    try:
+        value = quota.read_text(encoding="ascii").split()
+        if len(value) >= 2 and value[0] != "max":
+            cpus = max(1, int(int(value[0]) / int(value[1])))
+        else:
+            cpus = os.cpu_count() or 1
+    except (OSError, ValueError, ZeroDivisionError):
+        try:
+            cpus = len(os.sched_getaffinity(0))
+        except (AttributeError, OSError):
+            cpus = os.cpu_count() or 1
+    return max(1, cpus - 1)
+
+
+def _render_worker_initializer(priority: int) -> None:
+    """Lower background render priority so API and foreground install work gets CPU first."""
+    try:
+        os.nice(priority)
+    except (OSError, ValueError):
+        pass
 
 
 def _get_render_pool(processes: int) -> ProcessPoolExecutor:
     global _render_pool
     with _render_pool_lock:
         if _render_pool is None:
+            try:
+                nice = max(0, int(os.environ.get("AI_CADDIE_TOPO_RENDER_NICE", _DEFAULT_RENDER_NICE)))
+            except ValueError:
+                nice = _DEFAULT_RENDER_NICE
             # forkserver: never fork the multi-threaded API process itself.
             method = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
             context = multiprocessing.get_context(method)
@@ -1055,6 +1079,8 @@ def _get_render_pool(processes: int) -> ProcessPoolExecutor:
                 max_workers=processes,
                 mp_context=context,
                 max_tasks_per_child=_RENDER_TASKS_PER_PROCESS,
+                initializer=_render_worker_initializer,
+                initargs=(nice,),
             )
         return _render_pool
 

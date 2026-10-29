@@ -1,0 +1,11 @@
+--- a/ai_caddie/geometry/topo_render.py
++++ b/ai_caddie/geometry/topo_render.py
+@@ -1046,7 +1046,7 @@
+             cpus = os.cpu_count() or 1
+     except (OSError, ValueError, ZeroDivisionError):
+         try:
+-            cpus = len(os.sched_getaffinity(0))
++            cpus = os.cpu_count() or 1
+         except (AttributeError, OSError):
+             cpus = os.cpu_count() or 1
+     return max(1, cpus - 1)

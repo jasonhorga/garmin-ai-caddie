@@ -1,0 +1,11 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2475,7 +2475,7 @@
+         elif new_events or not str(round_id).startswith(("home-", "prep-library-", "watch-template-")):
+             # Uploads and round refreshes may be delayed for days. They can recover an idle API
+             # or renew this round, but cannot displace another course-bound playing round.
+-            may_restore = not ((new_events or restore_only) and latest is not None and latest != key)
++            may_restore = True
+             if may_restore and (key not in _ACTIVE_ROUNDS or latest == key or latest is None):
+                 _ACTIVE_ROUNDS[key] = now + 30 * 60
+                 if global_ids:

@@ -24,12 +24,13 @@ import time
 from typing import Any
 
 from ai_caddie.core.data import ROOT
-from ai_caddie.core.priority_work import SELECTED_COURSE, PriorityExecutor
+from ai_caddie.core.priority_work import NEARBY, SELECTED_COURSE, PriorityExecutor
 
 logger = logging.getLogger(__name__)
 
 _LOCK = threading.RLock()
 _ACTIVE: set[str] = set()
+_CURRENT_COURSE_IDS: dict[str, set[int]] = {}
 _RESUME_BACKLOG: list[str] = []
 # A transient Garmin authority outage must not turn a queued job into a hot loop.  Timers are
 # deliberately process-local: the journal remains the durable source of truth, and a restart will
@@ -64,6 +65,32 @@ _DERIVATIVE_FIELDS = (
 # One job coordinator at a time keeps a four-core shared homeserver from multiplying the existing
 # two-hole geometry pool and one-hole topo pipeline across simultaneous course selections.
 _WORKER = PriorityExecutor(max_workers=1, name="course-install-job")
+
+
+def set_current_course_ids(courses_by_player: dict[str, set[int]]) -> None:
+    """Publish each player's latest playing course, using the journal's hashed player scope."""
+    current = {_player_key(player): {int(gid) for gid in gids if int(gid) > 0}
+               for player, gids in courses_by_player.items()}
+    changed = []
+    with _LOCK:
+        if current == _CURRENT_COURSE_IDS:
+            return
+        _CURRENT_COURSE_IDS.clear()
+        _CURRENT_COURSE_IDS.update(current)
+        # Already queued/running jobs must also yield when a player starts on another course.
+        # Running provider calls finish; their next window reads this durable priority.
+        for identifier in _ACTIVE:
+            state = _read(identifier)
+            if not state:
+                continue
+            selected = int(state.get("globalId") or 0) in current.get(str(state.get("playerKey") or ""), set())
+            priority = SELECTED_COURSE if selected else NEARBY
+            if state.get("priority") != priority:
+                state["priority"] = priority
+                _write(state)
+                changed.append(state)
+    for state in changed:
+        _reprioritize_topo_queue(state)
 
 
 def _root() -> Path:
@@ -493,7 +520,17 @@ def _launch(identifier: str) -> None:
         if not state or state.get("phase") in _TERMINAL_PHASES or state.get("cancelRequested"):
             return
         _ACTIVE.add(identifier)
-    _WORKER.submit(_run, identifier, priority=int(state.get("priority", SELECTED_COURSE)))
+        # Startup recovery and generation retries reuse the persisted priority.  A job for a
+        # different course must yield to live play even when its old row said foreground (10).
+        try:
+            gid = int(state.get("globalId") or 0)
+        except (TypeError, ValueError):
+            gid = 0
+        if gid and gid not in _CURRENT_COURSE_IDS.get(str(state.get("playerKey") or ""), set()):
+            state["priority"] = NEARBY
+            _write(state)
+        launch_priority = int(state.get("priority", SELECTED_COURSE))
+    _WORKER.submit(_run, identifier, priority=launch_priority)
 
 
 def _schedule_retry(identifier: str) -> None:
@@ -847,9 +884,9 @@ def enqueue(
         # order of future passes and, after the journal write, reprioritises queued topo work. A
         # currently running renderer is intentionally left alone.
         state["priorityHole"] = start_hole
-        # A user selecting a course promotes its queued work. Regional discovery can never
-        # demote an existing foreground job or change its player/loop/Tee identity.
-        state["priority"] = min(int(state.get("priority", priority)), int(priority))
+        # The caller's current playing scope is authoritative, including demotion of legacy 10
+        # journals. Each player/loop/Tee has its own job identity, so public discovery stays separate.
+        state["priority"] = int(priority)
         _recount(state)
         if _all_assets_ready(state):
             state["phase"] = "ready"

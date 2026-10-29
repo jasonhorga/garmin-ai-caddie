@@ -242,3 +242,56 @@ class CorrectedHistoryCacheTests(unittest.TestCase):
             stats_cache.cached_build_history_stats(corrected, **kwargs)
             stats_cache.cached_build_history_stats(data, **kwargs)
             self.assertEqual(build.call_count, 1)
+
+    def test_stats_reuses_corrected_projection_until_annotation_signature_changes(self):
+        """J3/3.1: reuse the revision while unchanged; a new annotation is visible immediately."""
+        data = fixture_history_data()
+        with TemporaryDirectory() as directory, \
+                patch.object(stats_cache, "_build_history_stats", return_value={}), \
+                patch.object(stats_cache, "_fingerprint", wraps=stats_cache._fingerprint) as fingerprint, \
+                patch("ai_caddie.history.corrected_history.corrected_history_data",
+                      wraps=history.corrected_history_data) as corrected:
+            stats_cache.clear()
+            kwargs = dict(data_mode="fixture", annotations_root=directory,
+                          weather_root=directory, reports_root=directory,
+                          decision_audit_root=directory)
+            stats_cache.cached_build_history_stats(data, **kwargs)
+            stats_cache.cached_build_history_stats(data, **kwargs)
+            self.assertEqual(corrected.call_count, 1)
+            self.assertEqual(fingerprint.call_count, 1)
+            annotation = Path(directory) / "data/annotations/annotations.jsonl"
+            annotation.parent.mkdir(parents=True)
+            annotation.write_text("{\"targetType\":\"hole\",\"targetId\":\"900001:1\"}\n")
+            stats_cache.cached_build_history_stats(data, **kwargs)
+            self.assertEqual(corrected.call_count, 2)
+            self.assertEqual(fingerprint.call_count, 2)
+
+    def test_stats_projection_revision_includes_each_auxiliary_store_and_source(self):
+        """J1/1.1, J3/3.1: new history or evidence must invalidate the warm projection."""
+        from dataclasses import replace
+
+        data = fixture_history_data()
+        with TemporaryDirectory() as directory, \
+                patch.object(stats_cache, "_fingerprint_dirs", return_value=(Path(directory) / "history",)), \
+                patch.object(stats_cache, "_build_history_stats", return_value={}), \
+                patch.object(stats_cache, "_fingerprint", wraps=stats_cache._fingerprint) as fingerprint:
+            stats_cache.clear()
+            kwargs = dict(data_mode="fixture", annotations_root=directory,
+                          weather_root=directory, reports_root=directory, decision_audit_root=directory)
+            stats_cache.cached_build_history_stats(data, **kwargs)
+            for index, path in enumerate(stats_cache._aux_files(**{k: v for k, v in kwargs.items() if k != "data_mode"}), 2):
+                with self.subTest(store=path.name):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("")
+                    stats_cache.cached_build_history_stats(data, **kwargs)
+                    stats_cache.cached_build_history_stats(data, **kwargs)
+                    self.assertEqual(fingerprint.call_count, index)
+            source = Path(directory) / "history" / "new.json"
+            source.parent.mkdir()
+            source.write_text("{}")
+            stats_cache.cached_build_history_stats(data, **kwargs)
+            self.assertEqual(fingerprint.call_count, 6)
+            # Separate unversioned in-memory histories may have the same ids and shot count.
+            changed = replace(data, shots=[dict(shot, club="Changed") for shot in data.shots])
+            stats_cache.cached_build_history_stats(changed, **kwargs)
+            self.assertEqual(fingerprint.call_count, 7)

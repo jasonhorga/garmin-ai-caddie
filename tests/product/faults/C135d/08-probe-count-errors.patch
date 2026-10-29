@@ -1,0 +1,11 @@
+--- a/tests/perf/c135_concurrency.py
++++ b/tests/perf/c135_concurrency.py
+@@ -397,7 +397,7 @@
+ def _summarize(samples: list[Sample]) -> dict[str, dict[str, Any]]:
+     metrics = {}
+     for name in samples[0].timings if samples else []:
+-        values = [sample.timings[name] for sample in samples if 200 <= sample.statuses[name] < 300]
++        values = [sample.timings[name] for sample in samples]
+         failures = [sample.errors[name] for sample in samples if name in sample.errors]
+         metrics[name] = {
+             "p50Ms": round(statistics.median(values), 1) if values else None,

@@ -1,0 +1,11 @@
+--- a/tests/perf/c135_concurrency.py
++++ b/tests/perf/c135_concurrency.py
+@@ -130,7 +130,7 @@
+             raise RuntimeError(f"pressure install failed to complete: {result.text[:2000]}")
+     return Sample(
+         round_id=args.round_id,
+-        timings={name: elapsed for name, elapsed, _status, _detail in rows},
++        timings={name: max(row[1] for row in rows) for name, elapsed, _status, _detail in rows},
+         statuses={name: status for name, _elapsed, status, _detail in rows},
+         errors={name: detail for name, _elapsed, status, detail in rows if not 200 <= status < 300},
+         pressure=pressure,

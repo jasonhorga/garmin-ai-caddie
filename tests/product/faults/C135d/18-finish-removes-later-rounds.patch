@@ -1,0 +1,11 @@
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -2469,7 +2469,7 @@
+             # A finish retires itself and earlier registrations, never a later playing round.
+             own = [old for old in _ACTIVE_ROUNDS if old[0] == key[0]]
+             if key in own:
+-                for old in own[:own.index(key) + 1]:
++                for old in own:
+                     _ACTIVE_ROUNDS.pop(old, None)
+                     _ACTIVE_COURSES.pop(old, None)
+         elif new_events or not str(round_id).startswith(("home-", "prep-library-", "watch-template-")):

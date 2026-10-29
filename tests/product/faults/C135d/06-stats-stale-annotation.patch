@@ -1,0 +1,11 @@
+--- a/ai_caddie/history/stats_cache.py
++++ b/ai_caddie/history/stats_cache.py
+@@ -468,7 +468,7 @@
+     inputs = _fingerprint_files(data, roots, player_id)
+     with _lock:
+         hit = _CORRECTED_CACHE.get(key)
+-    if hit is not None and hit[0] == inputs:
++    if hit is not None:
+         return hit[1], hit[2]
+     corrected = corrected_history_data(
+         data, player_id=player_id, annotations_root=roots["annotations_root"],
