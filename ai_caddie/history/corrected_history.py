@@ -270,6 +270,7 @@ def _corrected_shots(
     data: HistoryData,
     events_by_round: dict[str, list[dict[str, Any]]],
     holes_by_round: dict[str, set[int]] | None = None,
+    ladder=None,
 ) -> list[dict[str, Any]]:
     if not events_by_round:
         return data.shots
@@ -284,7 +285,9 @@ def _corrected_shots(
         holes = holes_by_round.get(ref, set()) if holes_by_round is not None else None
         if not events or holes == set():
             continue
-        for _hole, (positions, shots) in corrected_round_shots(data, row, events, holes=holes).items():
+        for _hole, (positions, shots) in corrected_round_shots(
+            data, row, events, holes=holes, ladder=ladder,
+        ).items():
             if positions:
                 dropped.update(positions)
                 replaced[min(positions)] = shots
@@ -311,6 +314,7 @@ def corrected_history_data(
     round_refs: set[str] | None = None,
     holes_by_round: dict[str, set[int]] | None = None,
     projection_data: HistoryData | None = None,
+    ladder=None,
 ) -> HistoryData:
     """Share the complete corrected snapshot by source, player and both edit-store revisions.
 
@@ -322,7 +326,7 @@ def corrected_history_data(
         return data
     kwargs = dict(player_id=player_id, annotations_root=annotations_root,
                   corrections_root=corrections_root, round_refs=round_refs,
-                  holes_by_round=holes_by_round)
+                  holes_by_round=holes_by_round, ladder=ladder)
     if round_refs is not None or holes_by_round is not None:
         return _build_corrected_history_data(data, **kwargs)
     # Lazy import: stats_cache imports the stats builder, which imports this module.
@@ -396,6 +400,7 @@ def _build_corrected_history_data(
     corrections_root: Path | str | None = None,
     round_refs: set[str] | None = None,
     holes_by_round: dict[str, set[int]] | None = None,
+    ladder=None,
 ) -> HistoryData:
     """``data`` as the player corrected it. ``corrections_root`` defaults to ``history.ROOT``, where
     ``round_corrections`` writes; ``annotations_root`` is the reader's annotation root. A reader of one
@@ -412,7 +417,7 @@ def _build_corrected_history_data(
     events_by_round = round_correction_events(data, player_id=player_id, root=corrections_root, round_refs=round_refs)
     rounds = corrected_rounds(data.rounds, annotations, events_by_round)
     shot_data = HistoryData(raw_rounds=data.raw_rounds, rounds=data.rounds, shots=_annotated_shots(data.shots, annotations))
-    shots = _corrected_shots(shot_data, events_by_round, holes_by_round)
+    shots = _corrected_shots(shot_data, events_by_round, holes_by_round, ladder=ladder)
     correction_fingerprint = history_data_fingerprint(
         HistoryData(
             raw_rounds=([{"holesByRound": {ref: sorted(holes) for ref, holes in holes_by_round.items()}}]

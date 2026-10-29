@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, TimeoutError
+from contextlib import nullcontext
 import logging
 import threading
 import time
@@ -190,7 +191,10 @@ def _register_hole_plan_provider() -> None:
 _register_hole_plan_provider()
 
 
-def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 1, tee_box: str | None = None, wait: bool = True) -> dict:
+def prepare_priority_hole(
+    loops: list[tuple[int, str]], *, priority_hole: int = 1, tee_box: str | None = None,
+    wait: bool = True, background: bool = False,
+) -> dict:
     """Obtain only the playing hole's geometry; queued rasters and other holes are independent.
 
     The shared two-worker geometry lane admits this task before queued region work. A slow provider
@@ -228,7 +232,14 @@ def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 
         request_vector_tee(gid, hole, tee_set)
         result = ensure_prodgeometry(gid, hole)
         geometry_ms = (time.perf_counter() - started) * 1000 - metadata_ms
-        vector = cached_vector_hole(gid, hole, tee_set=tee_set) if result.get("ok") else None
+        lane = background_work() if background else nullcontext()
+        with lane:
+            vector = (
+                cached_vector_hole(
+                    gid, hole, tee_set=tee_set, use_process_pool=background,
+                )
+                if result.get("ok") else None
+            )
         total_ms = (time.perf_counter() - started) * 1000
         logger.info("map_startup gid=%s hole=%s metadata_ms=%.1f geometry_ms=%.1f vector_ms=%.1f total_ms=%.1f drawable=%s",
                     gid, hole, metadata_ms, geometry_ms, total_ms - metadata_ms - geometry_ms, total_ms, bool(vector))
@@ -241,7 +252,9 @@ def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 
     with _LOCK:
         future = _STARTING.get(key)
         if future is None:
-            future = _GEOMETRY_INSTALL_POOL.submit(prepare, priority=FOREGROUND)
+            future = _GEOMETRY_INSTALL_POOL.submit(
+                prepare, priority=NEARBY if background else FOREGROUND,
+            )
             _STARTING[key] = future
             _STARTING_HOLES[key] = (int(gid), int(hole))
             def remove(completed: Future) -> None:

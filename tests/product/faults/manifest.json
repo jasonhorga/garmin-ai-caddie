@@ -2,6 +2,34 @@
   "schema": 1,
   "records": [
     {
+      "id": "tests-product-faults-C163-01-vector-back-in-api",
+      "patch": "tests/product/faults/C163/01-vector-back-in-api.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.C163VectorAndWarmTests.test_J42_non_current_vector_uses_process_lane",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-02-signature-never-compared",
+      "patch": "tests/product/faults/C163/02-signature-never-compared.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.C163VectorAndWarmTests.test_J42_history_signature_monitor_warms_after_external_sync",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-03-403-no-backoff",
+      "patch": "tests/product/faults/C163/03-403-no-backoff.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.C163RenderAndHistoryTests.test_J42_garmin_403_is_released_with_gid_release_backoff",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-04-ladder-reentry",
+      "patch": "tests/product/faults/C163/04-ladder-reentry.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.C163RenderAndHistoryTests.test_J42_corrected_history_passes_ladder_into_lightweight_frame",
+      "promise": "4.2"
+    },
+    {
       "id": "tests-product-faults-C16e-j2-1",
       "patch": "tests/product/faults/C16e/j2_1.patch",
       "kind": "native-ui",

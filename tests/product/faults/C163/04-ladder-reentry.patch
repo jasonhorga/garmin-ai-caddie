@@ -1,0 +1,11 @@
+diff --git a/ai_caddie/rounds/round_shot_map.py b/ai_caddie/rounds/round_shot_map.py
+--- a/ai_caddie/rounds/round_shot_map.py
++++ b/ai_caddie/rounds/round_shot_map.py
+@@ -154,6 +154,4 @@ def _lightweight_map_frame(
+     """
+     try:
+-        prep = course_prep.lightweight_prep_hole(
+-            int(global_id), int(local_hole), ladder=ladder,
+-        )
++        prep = course_prep.lightweight_prep_hole(int(global_id), int(local_hole))
+         route = prep.get("route") if isinstance(prep, dict) else None

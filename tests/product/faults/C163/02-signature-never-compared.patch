@@ -1,0 +1,9 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -278,4 +278,4 @@ def _start_history_signature_monitor(
+             current = _history_input_signature(player_id)
+-            if current == previous:
++            if True:
+                 continue
+             previous = current

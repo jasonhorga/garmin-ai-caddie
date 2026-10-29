@@ -166,26 +166,28 @@ class AppStartupTests(unittest.TestCase):
     def test_background_entry_starts_all_four_workers(self) -> None:
         from server_v2 import main
 
-        resume, prepare = Mock(), Mock()
+        resume, prepare, monitor = Mock(), Mock(), Mock()
         with (
             patch.object(main, "warm_stats_cache_in_background") as warm_mock,
             patch.object(main._garmin_sync_jobs, "start") as sync_start,
             patch.object(main, "threading") as threads,
         ):
-            threads.Thread.side_effect = [resume, prepare]
+            threads.Thread.side_effect = [resume, prepare, monitor]
             main._start_boot_background_work()
 
         warm_mock.assert_called_once_with()
         sync_start.assert_called_once_with(main._run_garmin_sync_job)
-        self.assertEqual(threads.Thread.call_args_list, [
+        self.assertEqual(threads.Thread.call_args_list[:2], [
             call(target=main.course_install.resume_pending_jobs,
                  name="course-install-resume", daemon=True),
             call(target=main._prepare_recent_bg, args=(main.OWNER_ID,),
                  kwargs={"prep_warm_delay_s": main._boot_prep_warm_delay_s()},
                  name="prepare-recent-boot", daemon=True),
         ])
+        self.assertEqual(threads.Thread.call_count, 3)
         resume.start.assert_called_once_with()
         prepare.start.assert_called_once_with()
+        monitor.start.assert_called_once_with()
 
     def test_service_starts_background_work_by_default(self) -> None:
         from server_v2 import main

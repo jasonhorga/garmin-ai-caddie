@@ -46,6 +46,7 @@ def _corrected_profile_history(player_id: str = OWNER_ID):
 
         return corrected_history_data(
             cached_load_history_data(player_id), player_id=player_id, annotations_root=history.ROOT,
+            ladder=[],
         )
     except Exception:
         logger.warning("failed to load corrected profile history for %s", player_id, exc_info=True)
@@ -2453,7 +2454,7 @@ def lightweight_prep_hole(
     the first screen must still receive the small route/green/hazard drawing immediately instead
     of entering the expensive precise mesh path before anything can be shown.
     """
-    resolved_ladder = ladder or effective_club_ladder(player_id)
+    resolved_ladder = ladder if ladder is not None else effective_club_ladder(player_id)
     resolved_par = par_record or course_reference.load_course_par(int(global_id))
     value = _lightweight_prep_hole(
         int(global_id),

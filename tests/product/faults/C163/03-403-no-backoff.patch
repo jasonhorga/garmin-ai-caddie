@@ -1,0 +1,11 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -703,6 +703,6 @@ class RenderBackfill:
+                 self._record_unit(
+                     key,
+                     unit,
+-                    state="pending",
++                    state="failed",
+                     error=f"garmin download failed: {exc}",
+                 )

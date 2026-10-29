@@ -262,6 +262,35 @@ def _start_boot_background_work() -> None:
         name="prepare-recent-boot",
         daemon=True,
     ).start()
+    _start_history_signature_monitor()
+
+
+def _start_history_signature_monitor(
+    *, stop_event: threading.Event | None = None, interval_s: float = 60.0,
+    player_id: str = OWNER_ID,
+) -> threading.Thread:
+    """Watch the sync-owned history files and warm changed projections off request threads."""
+    stop = stop_event or threading.Event()
+
+    def monitor() -> None:
+        previous = _history_input_signature(player_id)
+        while not stop.wait(max(0.01, float(interval_s))):
+            current = _history_input_signature(player_id)
+            if current == previous:
+                continue
+            previous = current
+            try:
+                warm_stats_cache_in_background(player_id=player_id)
+            except Exception:
+                logger.warning("history signature warm-up deferred player=%s", player_id, exc_info=True)
+
+    thread = threading.Thread(
+        target=monitor,
+        name=f"history-signature-monitor-{player_id}",
+        daemon=True,
+    )
+    thread.start()
+    return thread
 
 
 @contextlib.asynccontextmanager
@@ -2996,6 +3025,26 @@ def mobile_course_package(
     effective_priority_hole = 1 if priority_hole is None else priority_hole
     if not 1 <= effective_priority_hole <= len(round_loops) * 9:
         raise HTTPException(status_code=422, detail="priority_hole is outside the selected round")
+    requested_loop_key = round_loop_key(round_loops)
+    requested_tee_box = str(tee_box or "blue").strip().lower()
+    # A package without an active round lease is a download/preview warm-up.  Keep a real
+    # playing round's first-screen path on the foreground lane, while same-gid previews with a
+    # different ordered loop or Tee are explicitly background work.
+    active_selection = _playing_selection_matches(
+        player_id,
+        int(global_id),
+        loop_key=requested_loop_key,
+        tee_box=requested_tee_box,
+    )
+    background_vector = bool(
+        (background_geometry or map_only)
+        and (
+            map_only
+            or round_id is None
+            or str(round_id).startswith(("home-", "prep-library-", "watch-template-"))
+            or not active_selection
+        )
+    )
     try:
         package = build_mobile_course_package_response(
             global_id,
@@ -3008,6 +3057,7 @@ def mobile_course_package(
             prepare_map=(background_geometry or map_only) and not ensure_geometry,
             priority_hole=effective_priority_hole,
             map_only=map_only,
+            background_vector=background_vector,
             loops=round_loops,
             player_id=player_id,
         )

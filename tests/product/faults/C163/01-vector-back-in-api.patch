@@ -1,0 +1,21 @@
+diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
+--- a/ai_caddie/courses/vector_prep.py
++++ b/ai_caddie/courses/vector_prep.py
+@@ -137,13 +137,8 @@ def cached_vector_hole(global_id: int, local_hole: int, *, tee_set: int | None = None,
+         except (OSError, ValueError, KeyError, TypeError, AttributeError):
+             pass
+         if not build_if_missing:
+             return None
+-        if use_process_pool:
+-            row = precise_route_seed_hole_in_process(
+-                gid, hole, tee_set=tee_set, coverage=evidence, include_facts=True,
+-            )
+-        else:
+-            row = course_prep.precise_route_seed_hole(
+-                gid, hole, tee_set=tee_set, coverage=evidence, include_facts=True,
+-            )
++        row = course_prep.precise_route_seed_hole(
++            gid, hole, tee_set=tee_set, coverage=evidence, include_facts=True,
++        )
+         if row is None or signature() != before:
+             return None
