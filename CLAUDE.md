@@ -74,5 +74,5 @@ executor releases after the merge. Claude commits end with a
 ### 清理与发布
 
 - 清理按 POLICY allow-list；资源所属项目台负责动作和授权，授权要 Jason 在那个会话里说。
-- 发布容器：新版本以 `--restart no` 起，健康检查和发布记录通过后才改 `on-failure:3`；任何时候只有发布记录指向的那个是 `on-failure:3`，换下的旧容器先改 `no` 再停。原因：运行中崩溃要自动拉起；而 daemon 重启会把已停的 on-failure 容器也拉起来抢端口（C13）。上线后删没有同 revision 容器的旧镜像。
+- 重启策略按项目 RUNBOOK：任何时候只有发布记录指向的当前版本可自动重启；新容器先以 `--restart no` 起，验活并写好发布记录后才改；换下的容器先改回 no 再停（daemon 重启会拉起已停的自动重启容器）。上线后删没有同 revision 容器的旧镜像。
 <!-- agenthub:collab:end -->
