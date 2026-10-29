@@ -26,6 +26,9 @@ from ai_caddie.core import data as core_data
 from ai_caddie.courses import course_prep
 from ai_caddie.history import history, stats_cache
 from ai_caddie.rounds import round_ingest
+from ai_caddie.caddie.mobile_round_identity import save_mobile_round_identity
+from server_v2 import mobile
+from server_v2.models import MobileRoundFinishRequest
 
 GID = 990042
 REF = {"RefLat": 40.0, "RefLon": 116.0}
@@ -106,6 +109,43 @@ class TeeResultIngestTest(unittest.TestCase):
         holes = json.loads(path.read_text())["scorecardDetails"][0]["scorecard"]["holes"]
         return [hole.get("fairway") for hole in holes]
 
+    def finish_mobile(self, round_id: str, events: list[dict], *, meta: dict | None = None) -> dict:
+        with patch.object(mobile, "MOBILE_ROOT", self.root), \
+                patch.object(mobile, "round_events", return_value=events), \
+                patch.object(mobile, "warm_stats_cache_in_background"):
+            result = mobile.finish_mobile_round_response(
+                round_id,
+                MobileRoundFinishRequest(
+                    meta={"courseGlobalId": GID, "courseName": "C45", "holePars": [4], **(meta or {})}
+                ),
+                player_id="p_c45",
+            )
+        scorecard = self.root / "data" / "players" / "p_c45" / "scorecards" / f"{result.id}.json"
+        return json.loads(scorecard.read_text())["scorecardDetails"][0]["scorecard"]
+
+    def seed_round_start_tee(self, round_id: str, tee_box: str) -> None:
+        loops = [{
+            "globalId": GID,
+            "half": "all",
+            "roundStartHole": 1,
+            "sourceStartHole": 1,
+            "holeCount": 9,
+        }]
+        holes = [
+            {
+                "number": hole,
+                "sourceGlobalId": GID,
+                "sourceLocalHole": hole,
+                "courseHoleNumber": hole,
+            }
+            for hole in range(1, 10)
+        ]
+        save_mobile_round_identity(round_id, loops, f"{GID}:all", holes, root=self.root, player_id="p_c45")
+        path = next(self.root.rglob("round_identity/*.json"))
+        document = json.loads(path.read_text())
+        document["teeBox"] = tee_box
+        path.write_text(json.dumps(document))
+
     def test_second_position_against_installed_fairway(self) -> None:
         self.install(STRAIGHT)
         # Inside the rectangle -> hit. Outside, the route runs due north, so west of it is the
@@ -133,6 +173,34 @@ class TeeResultIngestTest(unittest.TestCase):
         with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES):
             self.assertEqual(self.fairways(_hole_events(1, DOGLEG_BALL), "blue"), ["right"])
             self.assertEqual(self.fairways(_hole_events(1, DOGLEG_BALL), "red", teeBox="red"), ["left"])
+
+    def test_mobile_finish_uses_persisted_start_tee_for_manual_ingest(self) -> None:
+        """Product spec 5.8 / I: a Red start must keep Red's route at finish."""
+        self.install(DOGLEG)
+        self.seed_round_start_tee("mobile-red", "red")
+        with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES):
+            scorecard = self.finish_mobile("mobile-red", _hole_events(1, DOGLEG_BALL))
+        self.assertEqual(scorecard["teeBox"], "red")
+        self.assertEqual(scorecard["holes"][0]["fairway"], "left")
+
+    def test_mobile_finish_explicit_tee_overrides_persisted_start(self) -> None:
+        """Product spec 5.8 / I: explicit finish metadata remains authoritative."""
+        self.install(DOGLEG)
+        self.seed_round_start_tee("mobile-explicit", "red")
+        with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES):
+            scorecard = self.finish_mobile(
+                "mobile-explicit", _hole_events(1, DOGLEG_BALL), meta={"teeBox": "blue"}
+            )
+        self.assertEqual(scorecard["teeBox"], "blue")
+        self.assertEqual(scorecard["holes"][0]["fairway"], "right")
+
+    def test_legacy_mobile_finish_without_start_tee_keeps_blue_fallback(self) -> None:
+        """Product spec 8.3 / I: old rounds without the optional fact keep legacy behavior."""
+        self.install(DOGLEG)
+        with patch("ai_caddie.courses.course_reference.courseview_tees", return_value=RELEASE_TEES):
+            scorecard = self.finish_mobile("mobile-legacy", _hole_events(1, DOGLEG_BALL))
+        self.assertIsNone(scorecard.get("teeBox"))
+        self.assertEqual(scorecard["holes"][0]["fairway"], "right")
 
     def test_each_hole_mesh_is_decoded_once_per_ingest(self) -> None:
         # An A+A composite round plays local hole 1 as holes 1 and 10. Its GIR surface and its tee
