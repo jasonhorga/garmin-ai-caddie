@@ -27,7 +27,7 @@ def prepare_inputs(root, gid, rounds):
     from tests.perf.c135_concurrency import _prepare_fixture
     _prepare_fixture(root, gid)
     # More vertices exercise production's outline/projection/hazard code, rather than a spin loop.
-    for mesh in (root / "output/prodgeometry").glob("*.json"):
+    for mesh in (root / "output/prodgeometry").glob("gid*_meshes.json"):
         value = json.loads(mesh.read_text())
         for surface in value["meshes"]:
             width = 18 if surface["name"] == "Fairway.drc" else 50
