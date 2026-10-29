@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4482,7 +4482,6 @@
+             return
+         }
+         // The Watch's 结束 is this round's finish attempt as much as the phone's.
+-        finishAttemptRoundId = closure.roundId
+         do {
+             let pending = try offlineStore.loadPendingEvents(roundId: closure.roundId)
+             let pendingMedia = try offlineStore.loadPendingMedia(roundId: closure.roundId)

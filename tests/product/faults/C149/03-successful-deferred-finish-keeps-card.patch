@@ -1,14 +1,14 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -505,7 +505,6 @@
-     private func refreshSealedFinishRecovery() {
+@@ -506,7 +506,6 @@
          guard let sealed = sealedFinishRecovery else { return }
-         guard let blocked = try? preferredQuarantineRecord(roundId: sealed.roundId) else {
--            sealedFinishRecovery = nil
-             return
-         }
-         guard blocked.event.hole != sealed.hole else { return }
-@@ -4134,9 +4133,6 @@
+         do {
+             guard let blocked = try preferredQuarantineRecord(roundId: sealed.roundId) else {
+-                sealedFinishRecovery = nil
+                 return
+             }
+             guard blocked.event.hole != sealed.hole else { return }
+@@ -4143,9 +4142,6 @@
                  }
                  try offlineStore.discardRound(roundId: record.roundId)
                  try? offlineStore.removeQuarantinedEvents(roundId: record.roundId)

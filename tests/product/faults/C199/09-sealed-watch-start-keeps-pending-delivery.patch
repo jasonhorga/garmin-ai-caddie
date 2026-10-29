@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4438,7 +4438,6 @@
+     /// without activating it, changing its table, or removing its durable outbox entry.
+     private func acknowledgePendingFinishWatchStart(roundId: String) throws -> Bool {
+         guard try offlineStore.isRoundPendingFinish(roundId) else { return false }
+-        if pendingWatchRoundStart?.roundId == roundId { pendingWatchRoundStart = nil }
+         watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
+         watchBridge?.sendRoundClosureToWatch(roundId: roundId, disposition: .finished)
+         return true

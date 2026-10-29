@@ -1,0 +1,8 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -528,5 +528,2 @@
+         refreshSealedFinishRecovery()
+-        if let roundId = liveRoundState?.roundId, finishAttemptRoundId == roundId {
+-            recomputeFinishErrorForCurrentHoles()
+-        }
+     }

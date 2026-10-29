@@ -1,0 +1,6 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4442,3 +4442,2 @@
+         watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
+-        watchBridge?.sendRoundClosureToWatch(roundId: roundId, disposition: .finished)
+         return true

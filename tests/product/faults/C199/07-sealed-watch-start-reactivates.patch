@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4437,7 +4437,7 @@
+     /// A queued Watch start never owns a sealed round. Acknowledge its completed local finish
+     /// without activating it, changing its table, or removing its durable outbox entry.
+     private func acknowledgePendingFinishWatchStart(roundId: String) throws -> Bool {
+-        guard try offlineStore.isRoundPendingFinish(roundId) else { return false }
++        guard try offlineStore.isRoundPendingFinish(roundId + "-stale") else { return false }
+         if pendingWatchRoundStart?.roundId == roundId { pendingWatchRoundStart = nil }
+         watchRoundStartRetryTasks.removeValue(forKey: roundId)?.cancel()
+         watchBridge?.sendRoundClosureToWatch(roundId: roundId, disposition: .finished)

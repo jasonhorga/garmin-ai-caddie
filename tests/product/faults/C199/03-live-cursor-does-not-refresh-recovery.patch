@@ -1,0 +1,13 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -749,9 +749,7 @@
+                 finishAttemptRoundId = nil
+                 finishErrorMessage = nil
+             }
+-            // Every local event append republishes this snapshot; its pending tail decides
+-            // which of several rejected holes the recovery names.
+-            refreshLiveFinishRecovery()
++            // Mutant: a cursor-only publication does not refresh the preferred rejection.
+         }
+     }
+     /// A Watch-created round can arrive before its richer course package. Keep that fact visible on

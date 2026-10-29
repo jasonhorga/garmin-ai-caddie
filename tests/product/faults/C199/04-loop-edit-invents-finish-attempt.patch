@@ -1,0 +1,12 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -535,8 +535,7 @@
+     /// durable facts, so the sheet never keeps "removed" wording for a hole that is playable again.
+     private func recomputeFinishErrorForCurrentHoles() {
+         guard let package, liveRoundState?.roundId == package.roundId else { return }
+-        guard finishAttemptRoundId == package.roundId,
+-              let blocked = try? preferredQuarantineRecord(roundId: package.roundId) else {
++        guard let blocked = try? preferredQuarantineRecord(roundId: package.roundId) else {
+             finishErrorMessage = nil
+             return
+         }

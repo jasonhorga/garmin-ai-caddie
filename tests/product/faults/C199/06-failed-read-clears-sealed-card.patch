@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -519,6 +519,7 @@
+         } catch {
+             // An unreadable quarantine is not a resolved rejection. Keep the last known card;
+             // a later successful refresh can update it or prove that it is safe to clear.
++            sealedFinishRecovery = nil
+             AICaddieLog.storage.error("Finish recovery refresh failed: \(String(describing: error), privacy: .public)")
+         }
+     }

@@ -1806,6 +1806,76 @@
       "kind": "python",
       "target": "tests.test_course_install.CurrentRoundInstallPriorityTests.test_prep_exemption_uses_current_round_selector",
       "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C199-01",
+      "patch": "tests/product/faults/C199/01-status-prefix-marks-another-round.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59SealedStatusDoesNotMarkUnfinishedLiveRound",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C199-02",
+      "patch": "tests/product/faults/C199/02-watch-finish-does-not-mark-attempt.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59WatchFinishExposesRemovedHoleRecoveryAndKeepsPausedStatus",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C199-03",
+      "patch": "tests/product/faults/C199/03-live-cursor-does-not-refresh-recovery.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59LiveCursorRefreshesPreferredRemovedRejectionAfterPendingAppend",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C199-04",
+      "patch": "tests/product/faults/C199/04-loop-edit-invents-finish-attempt.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59LoopEditsWithoutFinishAttemptKeepFinishErrorNil",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C199-05",
+      "patch": "tests/product/faults/C199/05-accepted-reentry-keeps-finish-error.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59AcceptedReentryClearsLiveFinishErrorWithoutAnotherFinish",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C199-06",
+      "patch": "tests/product/faults/C199/06-failed-read-clears-sealed-card.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59SealedRecoverySurvivesQuarantineReadFailure",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C199-07",
+      "patch": "tests/product/faults/C199/07-sealed-watch-start-reactivates.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec61LateWatchStartDoesNotReactivatePendingFinish",
+      "promise": "6.1"
+    },
+    {
+      "id": "tests-product-faults-C199-08",
+      "patch": "tests/product/faults/C199/08-watch-fetch-skips-seal-recheck.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec61WatchStartSealedDuringFetchStaysInactive",
+      "promise": "6.1"
+    },
+    {
+      "id": "tests-product-faults-C199-09",
+      "patch": "tests/product/faults/C199/09-sealed-watch-start-keeps-pending-delivery.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec61WatchStartSealedDuringFetchStaysInactive",
+      "promise": "6.1"
+    },
+    {
+      "id": "tests-product-faults-C199-10",
+      "patch": "tests/product/faults/C199/10-sealed-watch-start-does-not-reply.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec61LateWatchStartDoesNotReactivatePendingFinish",
+      "promise": "6.1"
     }
   ]
 }

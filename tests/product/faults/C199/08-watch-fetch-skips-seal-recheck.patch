@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4405,8 +4405,6 @@
+                 scheduleWatchRoundStartRetry(start)
+                 return
+             }
+-            // The package fetch suspends: Save & End may have sealed this round meanwhile.
+-            if try acknowledgePendingFinishWatchStart(roundId: roundId) { return }
+             let persisted = try offlineStore.saveRoundPackage(nextPackage)
+             if let revision = start.tableRevision, persisted.loopKey == start.loopKey {
+                 // Opened straight onto a table the Watch already changed: the first seed acknowledges it.
