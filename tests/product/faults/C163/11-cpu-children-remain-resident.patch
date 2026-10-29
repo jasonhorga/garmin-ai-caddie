@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/geometry/topo_render.py b/ai_caddie/geometry/topo_render.py
+--- a/ai_caddie/geometry/topo_render.py
++++ b/ai_caddie/geometry/topo_render.py
+@@ -1064,7 +1064,7 @@
+             timer = threading.Timer(_RENDER_POOL_IDLE_SECONDS, self._retire)
+             timer.daemon = True
+             self._timer = timer
+-            timer.start()
++            pass
+
+     def _retire(self):
+         global _render_pool

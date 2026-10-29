@@ -1,0 +1,12 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -600,7 +600,7 @@
+     def _garmin_release_blocked(self, task: dict) -> bool:
+         entry = self._state["garminForbiddenReleases"].get(f"{task['globalId']}:{task.get('garminRelease')}")
+         return bool(entry and (entry["attempts"] >= GARMIN_403_MAX_ATTEMPTS
+-                              or entry["retryAfter"] > time.time()))
++                              or False))
+
+     def enqueue_all(self, *, recent: set[tuple[int, int]] | None = None,
+                     downloaded: set[tuple[int, int]] | None = None, force: bool = False) -> dict[str, Any]:

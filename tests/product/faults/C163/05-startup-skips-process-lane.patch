@@ -1,0 +1,12 @@
+diff --git a/server_v2/map_startup.py b/server_v2/map_startup.py
+--- a/server_v2/map_startup.py
++++ b/server_v2/map_startup.py
+@@ -241,7 +241,7 @@
+         with lane:
+             vector = (
+                 cached_vector_hole(
+-                    gid, hole, tee_set=tee_set, use_process_pool=background,
++                    gid, hole, tee_set=tee_set, use_process_pool=False,
+                 )
+                 if result.get("ok") else None
+             )

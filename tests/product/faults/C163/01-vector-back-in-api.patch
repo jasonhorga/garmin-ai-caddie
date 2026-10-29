@@ -1,8 +1,7 @@
 diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
 --- a/ai_caddie/courses/vector_prep.py
 +++ b/ai_caddie/courses/vector_prep.py
-@@ -137,13 +137,8 @@ def cached_vector_hole(global_id: int, local_hole: int, *, tee_set: int | None = None,
-         except (OSError, ValueError, KeyError, TypeError, AttributeError):
+@@ -103,14 +103,9 @@
              pass
          if not build_if_missing:
              return None
@@ -19,3 +18,4 @@ diff --git a/ai_caddie/courses/vector_prep.py b/ai_caddie/courses/vector_prep.py
 +        )
          if row is None or signature() != before:
              return None
+         # The prep stays partial until the personalized planner enriches it. Its physical geometry

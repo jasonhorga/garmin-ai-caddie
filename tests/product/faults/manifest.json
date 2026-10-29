@@ -19,14 +19,77 @@
       "id": "tests-product-faults-C163-03-403-no-backoff",
       "patch": "tests/product/faults/C163/03-403-no-backoff.patch",
       "kind": "python",
-      "target": "tests.product.test_c163.C163RenderAndHistoryTests.test_J42_garmin_403_is_released_with_gid_release_backoff",
+      "target": "tests.product.test_c163.ReleaseBackoffTests.test_J42_one_forbidden_release_blocks_all_eighteen_holes_and_survives_restart",
       "promise": "4.2"
     },
     {
       "id": "tests-product-faults-C163-04-ladder-reentry",
       "patch": "tests/product/faults/C163/04-ladder-reentry.patch",
       "kind": "python",
-      "target": "tests.product.test_c163.C163RenderAndHistoryTests.test_J42_corrected_history_passes_ladder_into_lightweight_frame",
+      "target": "tests.product.test_c163.HistoryReentryTests.test_J42_history_missing_geometry_finishes_from_all_entry_points",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-13-background-reserves-geometry-worker",
+      "patch": "tests/product/faults/C163/13-background-reserves-geometry-worker.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_background_wait_and_compute_leave_geometry_workers_free",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-12-new-map-round-is-background",
+      "patch": "tests/product/faults/C163/12-new-map-round-is-background.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_new_round_map_and_personal_packages_stay_foreground",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-11-cpu-children-remain-resident",
+      "patch": "tests/product/faults/C163/11-cpu-children-remain-resident.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.SharedCpuPoolTests.test_J42_shared_cpu_pool_releases_children_after_idle",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-10-warm-acknowledges-later-change",
+      "patch": "tests/product/faults/C163/10-warm-acknowledges-later-change.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.WarmCompletionTests.test_J42_monitor_keeps_second_change_until_successful_warm",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-09-history-drops-empty-ladder",
+      "patch": "tests/product/faults/C163/09-history-drops-empty-ladder.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.HistoryReentryTests.test_J42_history_missing_geometry_finishes_from_all_entry_points",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-08-ignore-forbidden-retry-after",
+      "patch": "tests/product/faults/C163/08-ignore-forbidden-retry-after.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.ReleaseBackoffTests.test_J42_one_forbidden_release_blocks_all_eighteen_holes_and_survives_restart",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-07-route-never-background",
+      "patch": "tests/product/faults/C163/07-route-never-background.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_background_package_reaches_process_lane",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-06-startup-skips-background-gate",
+      "patch": "tests/product/faults/C163/06-startup-skips-background-gate.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_foreground_overtakes_waiting_background_same_hole_once",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C163-05-startup-skips-process-lane",
+      "patch": "tests/product/faults/C163/05-startup-skips-process-lane.patch",
+      "kind": "python",
+      "target": "tests.product.test_c163.PackageLaneTests.test_J42_background_package_reaches_process_lane",
       "promise": "4.2"
     },
     {

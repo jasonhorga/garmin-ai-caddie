@@ -1,0 +1,12 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -3078,7 +3078,7 @@
+     # Preserve the established builder call shape for foreground requests.  The flag is
+     # meaningful only for the non-current background vector lane and older callers/tests rely
+     # on the foreground call containing no extra option.
+-    if background_vector:
++    if False:
+         package_kwargs["background_vector"] = True
+     try:
+         package = build_mobile_course_package_response(global_id, **package_kwargs)

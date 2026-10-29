@@ -1,12 +1,12 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -3020,7 +3020,7 @@
+@@ -3053,7 +3053,7 @@
              global_ids=[gid for gid, _half in round_loops],
              selection=(
                  round_loop_key(round_loops),
--                str(tee_box or package_tee_box or "blue"),
+-                requested_tee_box,
 +                "blue",
              ),
          )
-     mark_request_stage("package_route")
+     # A package without an active round lease is a download/preview warm-up.  Keep a real
