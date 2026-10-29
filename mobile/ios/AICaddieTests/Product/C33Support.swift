@@ -9,6 +9,7 @@ final class C33URLProtocol: URLProtocol {
     static var onStop: ((URLRequest) -> Void)?
     private static let callbackLock = NSLock()
     override class func canInit(with request: URLRequest) -> Bool {
+        ensureC156TopoBundleStub()
         // A later global registration must not steal the shared downloader's topo from its scope.
         request.url?.host?.hasSuffix(".example.test") == true
             && request.url?.path.hasSuffix("/topo.png") != true
@@ -53,6 +54,7 @@ final class C33TopoPrefetchScope {
     private var stopped = false
 
     init() {
+        ensureC156TopoBundleStub()
         TopoHoleImageStore.resetForUITesting()
         SharedTopoURLProtocol.resetRecords()
     }

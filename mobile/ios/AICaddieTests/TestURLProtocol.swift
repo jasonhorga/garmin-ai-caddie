@@ -84,6 +84,12 @@ private let c156TopoBundleObserver: C156TopoBundleObserver = {
     return observer
 }()
 
+/// Some XCTest runtimes lazily initialize file globals. The protocol/session helpers call this
+/// before starting their own traffic, while the global initializer covers the ordinary bundle path.
+func ensureC156TopoBundleStub() {
+    _ = c156TopoBundleObserver
+}
+
 /// Contract-valid lightweight prep used by tests that exercise the whole-course installer.
 /// Keep this in the shared test support so every fixture uses the same decoder-shaped payload.
 func offlinePrepResponseData(
@@ -226,6 +232,7 @@ final class CapturingURLProtocol: URLProtocol {
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
+        ensureC156TopoBundleStub()
         true
     }
 
