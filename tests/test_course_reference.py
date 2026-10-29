@@ -521,16 +521,24 @@ class PersistenceTests(unittest.TestCase):
             release_dir = root / "data" / "courseview"
             release_dir.mkdir(parents=True)
             release_path = release_dir / "31936_releases.pb"
-            release_path.write_bytes(release(aux=aux_url, slope=115))
+
+            def publish(payload: bytes) -> None:
+                # Production replaces release files atomically; same-size in-place rewrites within
+                # one filesystem timestamp tick would legitimately reuse the content-hash cache.
+                staged = release_dir / "31936_releases.pb.tmp"
+                staged.write_bytes(payload)
+                os.replace(staged, release_path)
+
+            publish(release(aux=aux_url, slope=115))
             first = cr.courseview_release_signature(31936, root=root)
 
             rotated = aux_url.replace("1780159414_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "1790000000_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-            release_path.write_bytes(release(aux=rotated, slope=115))
+            publish(release(aux=rotated, slope=115))
             self.assertEqual(cr.courseview_release_signature(31936, root=root), first)
 
-            release_path.write_bytes(release(aux=rotated.replace("_0_.jpg", "_1_.jpg"), slope=115))
+            publish(release(aux=rotated.replace("_0_.jpg", "_1_.jpg"), slope=115))
             self.assertNotEqual(cr.courseview_release_signature(31936, root=root), first)
-            release_path.write_bytes(release(aux=rotated, slope=116))
+            publish(release(aux=rotated, slope=116))
             self.assertNotEqual(cr.courseview_release_signature(31936, root=root), first)
 
     def test_stale_release_refresh_different_bytes_writes_and_changes_prep_fingerprint(self) -> None:
