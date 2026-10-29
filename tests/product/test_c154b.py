@@ -51,12 +51,28 @@ class ForegroundAdmissionTests(unittest.TestCase):
         """J4.2: a stuck package cannot starve background recovery forever (fake clock)."""
         now = [0.0]
         gate = ForegroundGate(timeout_s=30, clock=lambda: now[0])
+        done, errors = threading.Event(), []
         def advance(timeout):
             self.assertGreater(timeout, 0)
             now[0] += timeout
+            if now[0] > 30:
+                raise AssertionError("gate timeout watchdog exceeded one deadline")
+
+        def background():
+            try:
+                with gate.background():
+                    self.assertEqual(now[0], 30)
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                done.set()
+
         with gate.foreground(), patch.object(gate._condition, "wait", side_effect=advance):
-            with gate.background():
-                self.assertEqual(now[0], 30)
+            worker = threading.Thread(target=background, daemon=True)
+            worker.start()
+            self.assertTrue(done.wait(1), "gate timeout watchdog did not complete")
+            worker.join(1)
+        self.assertFalse(errors, errors)
 
     def test_J42_queued_install_is_reordered_by_current_priority(self):
         """J4.2/C157.1: an already queued install is reprioritised before dequeue."""
