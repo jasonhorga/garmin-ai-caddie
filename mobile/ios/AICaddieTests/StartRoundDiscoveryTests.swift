@@ -3,6 +3,47 @@ import AICaddieDomain
 @testable import AICaddie
 
 final class StartRoundDiscoveryTests: XCTestCase {
+    /// J4.1/J5.1: a recent A plus catalogue B/C is one 27-hole venue, with three opening nines.
+    func testRecentVenueIncludesAllCatalogueNines() throws {
+        let recent = loop(31832, venue: "沙河测试球会", label: "A")
+        let catalogue = [loop(31833, venue: "沙河测试球会", label: "B"),
+                         loop(31834, venue: "沙河测试球会", label: "C")]
+        let loops = StartRoundView.sameVenueStartableCourses(selected: recent, candidates: [recent] + catalogue)
+        XCTAssertEqual(loops.map(\.globalId), [31832, 31833, 31834])
+        XCTAssertEqual(loops.map(\.segmentLabel), ["A", "B", "C"])
+        let rows = StartRoundPresentation.mergedCourseRows(nearby: [], recent: loops, downloaded: [])
+        let row = try XCTUnwrap(rows.first)
+        XCTAssertEqual(StartRoundView.holeCaption(for: row, downloaded: [], catalogue: catalogue, recent: recent), "27 洞")
+    }
+
+    /// J4.2: even with a remembered blue selection, an in-flight lookup has a visible loading state.
+    @MainActor
+    func testTeeLookupShowsLoadingThenFourRowsKeepingLastSelection() async {
+        var loading = false
+        let rows = await StartRoundView.courseTeeRows(
+            globalId: 31832, carried: [:], setLoading: { loading = $0 },
+            request: { _ in
+                XCTAssertTrue(loading, "pending /tees must show loading alongside the remembered Tee")
+                await Task.yield()
+                XCTAssertTrue(loading)
+                return ["black", "blue", "white", "red"].map { CourseTee(teeBox: $0, name: $0) }
+            }
+        ) ?? []
+        XCTAssertFalse(loading)
+        XCTAssertEqual(StartRoundView.resolvedTeeOptions(
+            fetchedTees: rows, courseTees: ["blue"], teeBox: "blue",
+            requiresRemoteTees: false, wasManualSearch: false), ["black", "blue", "white", "red"])
+        XCTAssertEqual(StartRoundView.teeAfterRefreshUsingHistory(
+            current: "blue", userPicked: false, selectedVenue: "沙河测试球会",
+            recentVenue: "沙河测试球会", recentTee: "blue", callerVenue: nil, callerTee: "unknown", rows: rows), "blue")
+    }
+
+    /// J4.2: a remembered colour is a selection, never grounds to suppress the retry action.
+    func testRecentTeeLookupFailureOffersRetry() {
+        XCTAssertTrue(StartRoundView.showsTeeRetry(
+            requiresRemoteTees: false, teeLoadFailed: true, fetchedTees: [], courseTees: ["blue"]))
+    }
+
     func testOpeningPageIsCourseUnlessACourseIsPassed() {
         XCTAssertEqual(StartRoundView.openingPage(initialPage: nil, defaultCourseGlobalId: nil), .course)
         XCTAssertEqual(StartRoundView.openingPage(initialPage: nil, defaultCourseGlobalId: 31795), .setup)

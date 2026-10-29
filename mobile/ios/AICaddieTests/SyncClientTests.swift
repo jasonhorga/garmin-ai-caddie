@@ -60,6 +60,36 @@ private final class LockedTimingCapture: @unchecked Sendable {
 }
 
 final class SyncClientTests: XCTestCase {
+    /// J4.2: a cold /tees request has one 25-second budget, including retries.
+    func testTeeLookupStopsAtItsTotalForegroundBudget() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let clock = LockedTimingClock(100)
+        var timeouts: [TimeInterval] = []
+        CapturingURLProtocol.requestHandler = { request in
+            timeouts.append(request.timeoutInterval)
+            clock.advance(by: request.timeoutInterval)
+            throw URLError(.timedOut)
+        }
+        defer { CapturingURLProtocol.requestHandler = nil }
+        let client = SyncClient(
+            baseURL: try XCTUnwrap(URL(string: "https://example.test")),
+            session: URLSession(configuration: configuration),
+            retrySleep: { clock.advance(by: TimeInterval($0) / 1_000_000_000) },
+            monotonicNow: { clock.now() }
+        )
+        do {
+            _ = try await client.fetchCourseTees(globalId: 31832)
+            XCTFail("unresponsive /tees must reach retry state")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .timedOut)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+        XCTAssertEqual(timeouts, [25])
+        XCTAssertEqual(clock.now(), 125, accuracy: 0.001)
+    }
+
     func testClientTimingInjectsRequestIdAndReadsServerTotal() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = testProtocolClasses(CapturingURLProtocol.self)

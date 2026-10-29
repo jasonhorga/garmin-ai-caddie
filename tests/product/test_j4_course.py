@@ -36,6 +36,41 @@ def rectangle(x1,y1,x2,y2):
 
 
 class CourseHTTPTests(HTTPFixture, unittest.TestCase):
+    def test_j4_1_recent_catalogue_keeps_whole_venues_and_unplayed_loops(self):
+        """J4.1/J5.1: 24 venues, never 24 gids; every selectable nine survives."""
+        # Forty histories: the three nines rank 1/19/38, crossing the old gid cutoff.
+        gids = list(range(51000, 51040))
+        for rank, gid in [(0, 31832), (18, 31833), (37, 31834)]:
+            gids[rank] = gid
+        names = {gid: f"测试场地 {i}" for i, gid in enumerate(gids)}
+        names.update({31832: "沙河测试球会 ~ A", 31833: "沙河测试球会 ~ B",
+                      31834: "沙河测试球会 ~ C"})
+        rounds = [{"id": f"r{i}", "globalId": gid, "course": names[gid],
+                   "date": f"{2100-i}-01-01", "holesCompleted": 9 if gid < 40000 else 18}
+                  for i, gid in enumerate(gids)]
+        def options(rows):
+            return mobile_live.build_mobile_course_options(
+                HistoryData(raw_rounds=[], rounds=rows, shots=[]),
+                segment_resolver=lambda gid: (names[gid], 9 if gid < 40000 else 18),
+                tee_resolver=lambda gid: [])["courses"]
+        with TemporaryDirectory() as directory, patch.object(mobile_live, "ROOT", Path(directory)):
+            cache = Path(directory) / "data" / "courseview"
+            cache.mkdir(parents=True)
+            for gid in (31832, 31833, 31834):
+                (cache / f"{gid}_catalogue_name.json").write_text(json.dumps({
+                    "globalId": gid, "languageCode": "zh_CHS", "name": names[gid]}))
+            result = options(rounds)
+            self.assertEqual({c["globalId"] for c in result if c["globalId"] < 40000},
+                             {31832, 31833, 31834})
+            # One 3-loop venue + 23 single-course venues = 26 rows (24 venue cap).
+            self.assertEqual(len(result), 26)
+            self.assertEqual(len({c["venueName"] for c in result}), 24)
+            unplayed = options([r for r in rounds if r["globalId"] != 31834])
+            c = next((c for c in unplayed if c["globalId"] == 31834), None)
+            self.assertIsNotNone(c, "a never-played sibling is still selectable")
+            self.assertEqual((c["segmentLabel"], c["segmentHoles"], c["roundCount"]), ("C", 9, 0))
+            self.assertEqual(c["sourceRefs"], [])
+
     def catalogue(self):
         """Fake only cached provider facts, never a package or a hole mapping."""
         courses = {c["globalId"]: c for c in vectors("loop_map.json")["courses"]}
