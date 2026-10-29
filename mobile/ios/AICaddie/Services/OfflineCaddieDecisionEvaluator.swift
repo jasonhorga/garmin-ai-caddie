@@ -500,7 +500,7 @@ public final class OfflineCaddieDecisionEvaluator {
         let routeKeys = shotType?.caseInsensitiveCompare("tee") == .orderedSame
             ? ["canonicalPlanRouteLength_m"]
             : []
-        for key in routeKeys + ["distanceToPin_m", "remainingToPin_m", "holeRemaining_m", "canonicalPlanRouteLength_m"] {
+        for key in ["canonicalPlanRemainingRouteLength_m"] + routeKeys + ["distanceToPin_m", "remainingToPin_m", "holeRemaining_m", "canonicalPlanRouteLength_m"] {
             if let value = number(context[key]), value.isFinite, value > 0, value <= 1000 {
                 return value
             }

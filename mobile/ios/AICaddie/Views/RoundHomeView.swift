@@ -292,7 +292,7 @@ public final class LiveHoleSessionCache {
 
         mutating func storeOnlineDecision(_ response: CaddieDecisionResponse, inputSignature: String?) {
             caddieDecision = response
-            if let inputSignature { caddieDecisionInputSignature = inputSignature }
+            caddieDecisionInputSignature = inputSignature
             caddieDecisionIsOnline = true
         }
         var caddieRoutes: [CaddiePlanSequence] = []

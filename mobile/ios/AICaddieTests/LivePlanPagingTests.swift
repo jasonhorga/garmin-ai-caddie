@@ -177,6 +177,15 @@ final class LivePlanPagingTests: XCTestCase {
         ), .offline)
     }
 
+    /// J5.11: switching away and back preserves actual route provenance.
+    func testRestoredRouteSourceKeepsLocalOnlineAndInstalledDistinct() {
+        XCTAssertEqual(CurrentHoleView.restoredCaddieRouteSource(routeId: "local", isOnline: false), .offline)
+        XCTAssertEqual(CurrentHoleView.restoredCaddieRouteSource(routeId: "remote", isOnline: true), .online)
+        XCTAssertEqual(CurrentHoleView.restoredCaddieRouteSource(
+            routeId: LiveCaddieRouteAuthority.installedRouteId, isOnline: false
+        ), .installed)
+    }
+
     /// J5.11: when both authoritative sources are empty, local evaluation supplies one route.
     func testLocalRouteIsTheOnlyFinalFallback() {
         let routes = LiveCaddieRouteAuthority.resolve(

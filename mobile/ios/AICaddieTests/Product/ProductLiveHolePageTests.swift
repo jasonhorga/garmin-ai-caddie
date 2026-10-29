@@ -92,7 +92,7 @@ final class ProductLiveHolePageTests: XCTestCase {
             window.isHidden = true
             window.rootViewController = nil
             probe.refresh = nil; probe.request = nil; probe.routes = nil; probe.source = nil
-            probe.planningDistance = nil; probe.offlineDecision = nil; probe.setTarget = nil
+            probe.planningDistance = nil; probe.offlineDecision = nil; probe.offlineRequest = nil; probe.setTarget = nil
             session.invalidateAndCancel()
             C33URLProtocol.setHandlers(onStart: nil)
         }
@@ -117,7 +117,9 @@ final class ProductLiveHolePageTests: XCTestCase {
                 return XCTFail("wire distance missing")
             }
             XCTAssertEqual(distance, 284.3, accuracy: 0.1, "Touch Target cannot change the wire distance")
-            XCTAssertEqual(targeted.context["canonicalPlanRemainingRouteLength_m"], .number(320.9))
+            XCTAssertNil(targeted.context["canonicalPlanRemainingRouteLength_m"], "local context never goes online")
+            let offlineRequest = try XCTUnwrap(probe.offlineRequest)
+            XCTAssertEqual(try XCTUnwrap(offlineRequest()).context["canonicalPlanRemainingRouteLength_m"], .number(320.9))
             let offline = try XCTUnwrap(probe.offlineDecision)
             let route = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: try XCTUnwrap(offline())))
             XCTAssertEqual(route.steps.map(\.clubName), ["Driver", "8I"])

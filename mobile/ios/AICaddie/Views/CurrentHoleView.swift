@@ -566,6 +566,7 @@ final class LiveHoleDecisionProbe {
     var source: (() -> LiveCaddieRouteAuthority.RouteSource?)?
     var planningDistance: (() -> Double?)?
     var offlineDecision: (() -> CaddieDecisionResponse?)?
+    var offlineRequest: (() -> CaddieDecisionRequest?)?
     var setTarget: ((CGPoint?) -> Void)?
     var clientUnavailable = false
 }
@@ -597,6 +598,7 @@ public struct CurrentHoleView: View {
         decisionProbe.source = { caddieRouteSourceByHole[hole.number] }
         decisionProbe.planningDistance = { caddiePlanningDistanceMetres }
         decisionProbe.offlineDecision = { makeOfflineCaddieDecision() }
+        decisionProbe.offlineRequest = { makeOfflineCaddieDecisionRequest() }
         decisionProbe.setTarget = { targetPixel = $0 }
         currentCoordinate = locationProvider.latestFix?.coordinate
     }
@@ -3081,7 +3083,8 @@ public struct CurrentHoleView: View {
     }
 
     /// Whole-hole route planning ignores a map aim point; it is retained only by the display and
-    /// current-club surfaces. This pure helper keeps that distinction testable without SwiftUI.
+    /// current-club surfaces. `mapTargetM` is deliberately ignored: the instance supplies the
+    /// actual Touch Target so regression tests exercise the production input boundary.
     static func caddiePlanningDistanceMetres(
         manualM: Double?,
         mapTargetM: Double? = nil,
@@ -3093,7 +3096,6 @@ public struct CurrentHoleView: View {
         pinM: Double? = nil,
         shotType: String = "tee"
     ) -> Double? {
-        guard mapTargetM?.isFinite != false else { return nil }
         let endpointM = manualM ?? (shotType.caseInsensitiveCompare("tee") == .orderedSame ? nil : pinM)
         return LiveCaddieDistance.resolve(
             manualM: endpointM,
@@ -3120,7 +3122,7 @@ public struct CurrentHoleView: View {
     static func restoredCaddieRouteSource(
         routeId: String, isOnline: Bool
     ) -> LiveCaddieRouteAuthority.RouteSource {
-        routeId == LiveCaddieRouteAuthority.installedRouteId ? .installed : .online
+        routeId == LiveCaddieRouteAuthority.installedRouteId ? .installed : (isOnline ? .online : .offline)
     }
 
     static func caddieRouteScope(isPrepMode: Bool) -> LiveCaddieRouteAuthority.RouteScope {
@@ -5644,7 +5646,9 @@ public struct CurrentHoleView: View {
             seed: caddieContextSeed,
             input: LiveCaddieInput(
                 shotType: selectedShotType,
-                distanceToPinM: caddiePlanningDistanceMetres,
+                // Preserve the API's straight-distance semantics on the hole. Off-hole tee
+                // requests still plan from manual/static facts rather than the clubhouse GPS.
+                distanceToPinM: isTeeShotOffTheHole ? caddiePlanningDistanceMetres : effectiveDistanceToPinMetres,
                 lie: selectedLie,
                 coordinate: isTeeShotOffTheHole ? nil : liveCoordinateForCurrentHole,
                 // Keep the flag coordinate in the server contract: the decision service uses it
@@ -5662,7 +5666,27 @@ public struct CurrentHoleView: View {
         // in its caddie seed. Fill that one missing transport fact locally so an offline/older
         // package cannot resurrect the independent ``3H -> 3H`` planner on the first tee request.
         let canonicalRequest = CaddieDecisionRequestBuilder.addingCanonicalPlan(to: baseRequest, prep: holePrep)
-        return canonicalRequest
+        var context = canonicalRequest.context
+        context.removeValue(forKey: "canonicalPlanRemainingRouteLength_m")
+        return CaddieDecisionRequest(
+            shotType: canonicalRequest.shotType, context: context,
+            includeExplanation: canonicalRequest.includeExplanation
+        )
+    }
+
+    /// The measured remaining route belongs only to local planning. Keep it out of the POST
+    /// body: older servers treat distanceToPin_m as a straight range without a source marker.
+    private func makeOfflineCaddieDecisionRequest() -> CaddieDecisionRequest? {
+        guard let request = makeCaddieDecisionRequest() else { return nil }
+        var context = request.context
+        // Never reuse a stale seed's remaining station when this position has no local estimate.
+        context.removeValue(forKey: "canonicalPlanRemainingRouteLength_m")
+        if let remaining = caddiePlanningDistanceMetres, remaining.isFinite, remaining > 0 {
+            context["canonicalPlanRemainingRouteLength_m"] = .number(remaining)
+        }
+        return CaddieDecisionRequest(
+            shotType: request.shotType, context: context, includeExplanation: request.includeExplanation
+        )
     }
 
     /// Coordinates for the flag and pixel-only map edits affect the cache identity, but are kept
@@ -5852,7 +5876,7 @@ public struct CurrentHoleView: View {
 
     private func makeOfflineCaddieDecision() -> CaddieDecisionResponse? {
         guard let caddieContextSeed,
-              let request = makeCaddieDecisionRequest()
+              let request = makeOfflineCaddieDecisionRequest()
         else {
             return nil
         }
@@ -6438,11 +6462,12 @@ public struct CurrentHoleView: View {
         return effectiveDistanceToPinMetres
     }
 
-    /// The distance the caddie plans from. Map aim/flag distances stay display-only; before the tee
-    /// shot an off-hole fix cannot replace the tee's static green distance.
+    /// Local planning uses the remaining centreline (or a moved approach flag). A map aim point
+    /// stays display-only; before the tee shot an off-hole fix cannot replace static facts.
     private var caddiePlanningDistanceMetres: Double? {
         Self.caddiePlanningDistanceMetres(
             manualM: distanceToPinMetres,
+            mapTargetM: mapTargetDistanceMetres,
             isTeeShotOffTheHole: isTeeShotOffTheHole,
             routeRemainingM: currentRemainingRouteMetres,
             liveMiddleM: isTeeShotOffTheHole ? nil : liveGreenMetres?.middle,
