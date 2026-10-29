@@ -75,4 +75,4 @@ executor releases after the merge. Claude commits end with a
 
 - 清理按 POLICY allow-list；资源所属项目台负责动作和授权，授权要 Jason 在那个会话里说。
 - 发布容器 `--restart no`；上线后删没有同 revision 容器的旧镜像。
-
+<!-- agenthub:collab:end -->

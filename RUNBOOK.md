@@ -310,4 +310,4 @@ gh workflow run ios-testflight-testers.yml --repo jasonhorga/garmin-ai-caddie --
 - CI 等待设上限（正常耗时约 2 倍），超时先查原因，不盲目重试。
 - 推送之前在待推送仓库运行 `ah scan --project caddie <base>..<head>`；异地加 `--repo-dir <仓库>`，正文加 `--body-file <文件>`；仅退出 0 才推（1 = 命中，2 = 扫描无法完成）。
 - Codex 回话控制在一页以内。
-
+<!-- agenthub:collab:end -->

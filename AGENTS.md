@@ -287,6 +287,7 @@ trailer. Merges are merge commits, made by the project console.
 - 测试用脱敏 fixture，不拿真实账号或生产数据做测试。
 - 沙盒里不能跑的测试在回话列测试名和原因，不改测试框架绕过。
 - 测试按行为设计的细则见项目 `CLAUDE.md` 协作节。
+<!-- agenthub:collab:end -->
 
 ### caddie 补充（项目自有，ah init 模板不含）
 
