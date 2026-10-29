@@ -1,0 +1,12 @@
+diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -794,7 +794,7 @@ def run_api_container(cfg: Config, private: Path, name: str, sha: str,
+     env_file = write_env_file(private, values)
+     try:
+         docker("run", "-d", "--init", "--pull", "never", "--name", name,
+-               "--restart", "no",
++               "--restart", LIVE_RESTART_POLICY,
+                "--cpus", str(cpus), "--memory", str(memory),
+                "--network", cfg.network,
+                "--log-driver", "json-file", "--log-opt", "max-size=10m", "--log-opt", "max-file=3",

@@ -64,7 +64,7 @@ ADMIN_CANARY = "canary-admin-token-448c"
 DB_CANARY = "canary-db-password-448d"
 PUBLIC_URL = "https://public.example.invalid/canary-public-route/api/v2/health"
 CANARIES = (ADMIN_CANARY, DB_CANARY, "canary-public-route", "canary-sync-path", "canary-lock-path")
-UP_COMMANDS = {"info", "version", "ps", "inspect", "image", "start"}
+UP_COMMANDS = {"info", "version", "ps", "inspect", "image", "start", "update"}
 RESULT_PREFIX = "agenthub-deploy: result="
 # `up` is taken to wait for the sync lock once no docker call happened for this long.
 QUIET_SECONDS = 0.7
@@ -304,6 +304,16 @@ def main(argv):
                     })
             print(name)
         save(state)
+        return 0
+    if command == "update" and len(args) == 2 and args[0].startswith("--restart="):
+        # C198: `up` corrects restart policies; nothing else may be updated.
+        c = find_container(state, args[1])
+        if c is None:
+            fail("Error response from daemon: No such container: " + args[1])
+        policy, _, count = args[0].split("=", 1)[1].partition(":")
+        c["HostConfig"]["RestartPolicy"] = {"Name": policy, "MaximumRetryCount": int(count or 0)}
+        save(state)
+        print(args[1])
         return 0
     fail("fake docker: command not allowed for up: " + " ".join(argv[:2]), 2)
 

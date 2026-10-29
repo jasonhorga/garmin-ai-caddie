@@ -144,6 +144,17 @@ if args[:1] == ["start"]:
     save(state)
     raise SystemExit(0)
 
+if args[:1] == ["update"] and len(args) == 3 and args[1].startswith("--restart="):
+    # C198: `up` corrects release restart policies.
+    container = by_ref(state, args[2])
+    if container is None:
+        fail("canary-docker-stderr-449 missing update target")
+    policy, _, count = args[1].split("=", 1)[1].partition(":")
+    container["HostConfig"]["RestartPolicy"] = {"Name": policy, "MaximumRetryCount": int(count or 0)}
+    print("canary-docker-stdout-449 " + container["Name"][1:])
+    save(state)
+    raise SystemExit(0)
+
 fail("canary-docker-stderr-449 unsupported command")
 '''
 

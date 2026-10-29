@@ -1,0 +1,12 @@
+diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -1474,7 +1474,7 @@ def up(cfg: UpConfig) -> Container:
+             normalize_restart_policy(cfg, list_containers(), api, check=False)
+         if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
+             if previous_api is not None:
+-                replaced = set_restart_policy(api.name, "no", check=False).returncode == 0
++                replaced = True
+                 if not replaced:
+                     policy_warning(api.name, "restart_policy_failed",
+                                    f"{api.name} could not be set to restart policy no")

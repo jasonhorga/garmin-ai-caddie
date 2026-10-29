@@ -1,0 +1,11 @@
+diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -941,7 +941,6 @@ def switch(cfg: Config, sha: str, new_name: str, current: Container | None,
+     try:
+         if current is not None:
+             log(f"stopping {current.name}")
+-            set_restart_policy(current.name, "no")
+             docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name, capture=True)
+         log(f"starting {new_name}")
+         run_api_container(cfg, private, new_name, sha, values, cpus, memory)

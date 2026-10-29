@@ -1,0 +1,20 @@
+diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -872,14 +872,14 @@ def deploy(cfg: Config, sha: str) -> str:
+         else:
+             switch(cfg, sha, new_name, current, containers, private)
+             deployed = new_name
++        # Only now: a new release that failed its checks was stopped as `no`.
++        mark_live(deployed)
+         try:
+             cleanup(cfg, dependency_hashes)
+         except Exception as exc:  # the new release is live; cleanup is best effort
+             reason = str(exc) if isinstance(exc, DeployError) else type(exc).__name__
+             log(f"warning: cleanup incomplete: {reason}")
+         write_release_state(cfg, sha)
+-        # Only now: a new release that failed its checks was stopped as `no`.
+-        mark_live(deployed)
+     return deployed
+
+

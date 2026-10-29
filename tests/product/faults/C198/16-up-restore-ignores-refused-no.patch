@@ -1,0 +1,12 @@
+diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -1485,7 +1485,7 @@ def up(cfg: UpConfig) -> Container:
+                     docker("start", previous_api.name, label="API restore after failed health",
+                            capture=True, quiet=True, check=False)
+                     # Only if no other release can still restart on its own.
+-                    if replaced and not [name for name in kept if name != previous_api.name]:
++                    if not [name for name in kept if name != previous_api.name]:
+                         mark_live(previous_api.name)
+                     else:
+                         withhold_live(previous_api.name)

@@ -1,0 +1,13 @@
+diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -1469,9 +1469,6 @@ def up(cfg: UpConfig) -> Container:
+                     log(f"starting {api.name}")
+                     ensure_network(cfg, api)
+                     docker("start", api.name, label="API start", capture=True, quiet=True)
+-        if not normalized:
+-            # Docker started the live release itself at boot: keep it, only correct the policies.
+-            normalize_restart_policy(cfg, list_containers(), api, check=False)
+         if not wait_health(cfg.local_health_url, api.revision, cfg.health_timeout, cfg.poll):
+             if previous_api is not None:
+                 replaced = set_restart_policy(api.name, "no", check=False).returncode == 0

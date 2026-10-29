@@ -1582,6 +1582,153 @@
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59SealedRecoveryClearsWhenReentryAcceptedButFinishFails",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C198-01-new-release-runs-on-failure",
+      "patch": "tests/product/faults/C198/01-new-release-runs-on-failure.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_new_release_is_no_until_healthy_and_recorded",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-02-marked-live-before-record",
+      "patch": "tests/product/faults/C198/02-marked-live-before-record.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_new_release_is_no_until_healthy_and_recorded",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-03-switch-keeps-replaced-on-failure",
+      "patch": "tests/product/faults/C198/03-switch-keeps-replaced-on-failure.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_replaced_release_is_set_to_no",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-04-restored-release-not-marked-live",
+      "patch": "tests/product/faults/C198/04-restored-release-not-marked-live.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_failed_switch_restores_previous_release_as_on_failure",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-05-rollback-target-not-marked-live",
+      "patch": "tests/product/faults/C198/05-rollback-target-not-marked-live.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_rollback_leaves_only_the_target_on_failure",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-06-rollback-keeps-replaced-on-failure",
+      "patch": "tests/product/faults/C198/06-rollback-keeps-replaced-on-failure.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_rollback_leaves_only_the_target_on_failure",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-07-normalize-all-no",
+      "patch": "tests/product/faults/C198/07-normalize-all-no.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_keeps_release_docker_already_started_and_corrects_policies",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-08-normalize-skips-other-releases",
+      "patch": "tests/product/faults/C198/08-normalize-skips-other-releases.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_extra_on_failure_releases_are_set_to_no_and_foreign_ones_untouched",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-09-up-running-release-not-normalized",
+      "patch": "tests/product/faults/C198/09-up-running-release-not-normalized.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_keeps_release_docker_already_started_and_corrects_policies",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-10-up-started-release-not-normalized",
+      "patch": "tests/product/faults/C198/10-up-started-release-not-normalized.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_starts_recorded_release_after_database_once_retries_ran_out",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-11-entrypoint-skips-database-wait",
+      "patch": "tests/product/faults/C198/11-entrypoint-skips-database-wait.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.ReleaseEntrypointDatabaseWaitTests.test_G6_entrypoint_waits_a_bounded_time_for_the_database",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-12-entrypoint-database-wait-unbounded",
+      "patch": "tests/product/faults/C198/12-entrypoint-database-wait-unbounded.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.ReleaseEntrypointDatabaseWaitTests.test_G6_entrypoint_waits_a_bounded_time_for_the_database",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-13-up-restore-keeps-unhealthy-release-on-failure",
+      "patch": "tests/product/faults/C198/13-up-restore-keeps-unhealthy-release-on-failure.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_failed_health_restores_previous_release_as_on_failure",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-14-up-restored-previous-not-marked-live",
+      "patch": "tests/product/faults/C198/14-up-restored-previous-not-marked-live.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_failed_health_restores_previous_release_as_on_failure",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-15-verify-live-ignores-refused-no",
+      "patch": "tests/product/faults/C198/15-verify-live-ignores-refused-no.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_refused_no_on_the_replaced_release_keeps_the_other_at_no",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-16-up-restore-ignores-refused-no",
+      "patch": "tests/product/faults/C198/16-up-restore-ignores-refused-no.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_refused_no_on_the_replaced_release_keeps_the_other_at_no",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-17-up-normalize-fails-closed",
+      "patch": "tests/product/faults/C198/17-up-normalize-fails-closed.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_recovers_when_an_old_release_refuses_restart_policy_no",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-18-up-running-normalize-fails-closed",
+      "patch": "tests/product/faults/C198/18-up-running-normalize-fails-closed.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_recovers_when_an_old_release_refuses_restart_policy_no",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-19-normalize-marks-live-despite-kept-policy",
+      "patch": "tests/product/faults/C198/19-normalize-marks-live-despite-kept-policy.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_up_recovers_when_an_old_release_refuses_restart_policy_no",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-20-verify-live-restart-not-marked-live",
+      "patch": "tests/product/faults/C198/20-verify-live-restart-not-marked-live.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_live_release_restarted_after_failed_restore_is_on_failure",
+      "promise": "G6"
+    },
+    {
+      "id": "tests-product-faults-C198-21-normalize-marks-live-first",
+      "patch": "tests/product/faults/C198/21-normalize-marks-live-first.patch",
+      "kind": "python",
+      "target": "tests.test_agenthub_deploy.AgenthubDeployScriptTest.test_G6_refused_no_during_deploy_leaves_no_second_on_failure_release",
+      "promise": "G6"
     }
   ]
 }

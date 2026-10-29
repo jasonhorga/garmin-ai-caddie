@@ -1,0 +1,13 @@
+diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -917,8 +917,7 @@ def verify_live(cfg: Config, sha: str, current: Container, containers: list[Cont
+             docker("stop", "--time", STOP_TIMEOUT_SECONDS, previous.name, capture=True, check=False)
+             try:
+                 ensure_network(cfg, current)
+-                if docker("start", current.name, capture=True, check=False).returncode == 0:
+-                    mark_live(current.name)
++                docker("start", current.name, capture=True, check=False)
+             except BaseException as restore_exc:
+                 log(f"error: failed to re-start {current.name} after restore failure: {type(restore_exc).__name__}")
+         raise CutoverFailed(reason, restored) from None
