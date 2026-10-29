@@ -1,12 +1,12 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -478,6 +478,9 @@
+@@ -554,6 +554,9 @@
          guard let recovery = sealedFinishRecovery else { return false }
          if (liveRoundState.map { $0.roundId != recovery.roundId } ?? false)
              || (pendingWatchRoundStart.map { $0.roundId != recovery.roundId } ?? false) {
 +            if let sealed = try? offlineStore.loadRoundPackage(roundId: recovery.roundId) {
 +                try? offlineStore.saveRoundPackage(sealed)
 +            }
-             finishErrorMessage = "当前还有另一场进行中的球局，请先结束后再重录"
-             syncStatus = finishErrorMessage ?? "请先结束当前球局"
+             syncStatus = "当前还有另一场进行中的球局，请先结束后再重录"
              return false
+         }

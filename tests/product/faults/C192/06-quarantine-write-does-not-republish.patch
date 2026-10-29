@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -7708,7 +7708,6 @@
+         // A failed write throws and leaves the original tail pending. Never advance past an event
+         // until both the original and its diagnostic are durably retained.
+         try JSONEncoder().encode(records).write(to: url, options: [.atomic])
+-        NotificationCenter.default.post(name: Self.quarantineDidChange, object: self)
+     }
+
+     func removeQuarantinedEvents(roundId: String, ids: Set<String>? = nil) throws {

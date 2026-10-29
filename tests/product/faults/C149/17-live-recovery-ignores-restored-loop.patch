@@ -1,21 +1,11 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -466,8 +466,10 @@
-     /// Only sealed outbox recovery is stored. A live round's affordance follows its durable
-     /// quarantine and current playable holes, so abandon, loop edits and seal cannot leave a card.
-     @Published public private(set) var sealedFinishRecovery: DeferredFinishRecovery? = nil
-+    private var lastLiveRecovery: DeferredFinishRecovery?
-
-     public var liveFinishRecovery: DeferredFinishRecovery? {
-+        if let lastLiveRecovery, liveRoundState?.roundId == lastLiveRecovery.roundId { return lastLiveRecovery }
-         guard let package, liveRoundState?.roundId == package.roundId,
-               let blocked = try? preferredQuarantineRecord(roundId: package.roundId),
-               !package.holes.contains(where: { $0.number == blocked.event.hole }) else { return nil }
-@@ -3882,6 +3884,7 @@
-                 let suffix = try quarantineFinishSuffix(for: blocked, roundId: package.roundId)
-                 finishErrorMessage = "\(prompt)\(suffix)"
-                 syncStatus = "结束已暂停 · \(prompt)\(suffix)"
-+                lastLiveRecovery = liveFinishRecovery
-                 schedulePendingReplacementSync(roundId: package.roundId)
-                 return false
+@@ -406,7 +406,7 @@
              }
+             let holesChanged = oldValue?.roundId == package?.roundId
+                 && oldValue?.holes.map(\.number) != package?.holes.map(\.number)
+-            if oldValue?.roundId != package?.roundId || holesChanged {
++            if oldValue?.roundId != package?.roundId {
+                 refreshLiveFinishRecovery()
+             }
+             if holesChanged {

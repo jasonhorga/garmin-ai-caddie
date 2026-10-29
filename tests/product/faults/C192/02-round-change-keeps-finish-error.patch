@@ -1,0 +1,18 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -738,7 +738,6 @@
+                 // A finish attempt and its error belong to that round only: a new round, abandon,
+                 // seal, resume or account change starts the next one unmarked.
+                 finishAttemptRoundId = nil
+-                finishErrorMessage = nil
+             }
+             // Every local event append republishes this snapshot; its pending tail decides
+             // which of several rejected holes the recovery names.
+@@ -7451,7 +7450,6 @@
+         liveRoundState = nil
+         // The Hub owns no finish sheet: nothing paused may carry into the next round.
+         finishAttemptRoundId = nil
+-        finishErrorMessage = nil
+         pendingEventCount = 0
+         quarantinedEventCount = 0
+         try? offlineStore.saveHomePackage(nextPackage)

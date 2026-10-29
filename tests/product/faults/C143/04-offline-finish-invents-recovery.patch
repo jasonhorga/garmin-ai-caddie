@@ -1,6 +1,6 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -465,7 +465,9 @@
+@@ -474,7 +474,9 @@
      @Published public private(set) var pendingLiveHole: Int?
      /// Only sealed outbox recovery is stored. A live round's affordance follows its durable
      /// quarantine and current playable holes, so abandon, loop edits and seal cannot leave a card.
@@ -8,6 +8,6 @@
 +    @Published public private(set) var sealedFinishRecovery: DeferredFinishRecovery? = DeferredFinishRecovery(
 +        roundId: "mutant", hole: 1, prompt: "mutant", holeAvailable: true
 +    )
-
-     public var liveFinishRecovery: DeferredFinishRecovery? {
-         guard let package, liveRoundState?.roundId == package.roundId,
+     /// The live round whose Save & End (phone or Watch) was tried. Only then does the Hub offer the
+     /// live removed-hole discard, and only then does sync keep the「结束已暂停」prefix. Keyed by
+     /// round id and cleared whenever the live round changes (new round, abandon, seal, account).

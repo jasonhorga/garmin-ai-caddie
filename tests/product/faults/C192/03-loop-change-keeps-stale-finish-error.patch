@@ -1,0 +1,12 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -409,9 +409,6 @@
+             if oldValue?.roundId != package?.roundId || holesChanged {
+                 refreshLiveFinishRecovery()
+             }
+-            if holesChanged {
+-                recomputeFinishErrorForCurrentHoles()
+-            }
+             // A new playable hole set (another round, a second nine added or dropped, another
+             // tee, sign-out) never inherits the old count: recompute it from disk right away
+             // instead of waiting for the next download pass, which may need the network first.

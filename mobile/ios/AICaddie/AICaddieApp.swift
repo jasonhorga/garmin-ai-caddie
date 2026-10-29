@@ -96,6 +96,7 @@ public struct AICaddieApp: App {
                         finishErrorMessage: model.finishErrorMessage,
                         deferredFinishRecovery: model.sealedFinishRecovery,
                         liveFinishRecovery: model.liveFinishRecovery,
+                        finishAttemptRoundId: model.finishAttemptRoundId,
                         onEvent: model.handleEvent,
                         onPrepareRound: { roundId in
                             Task {
@@ -403,6 +404,14 @@ public final class LiveRoundAppModel: ObservableObject {
                 pendingGeometryLastAttemptEpoch = nil
                 pendingGeometryRetryAttempt = 0
             }
+            let holesChanged = oldValue?.roundId == package?.roundId
+                && oldValue?.holes.map(\.number) != package?.holes.map(\.number)
+            if oldValue?.roundId != package?.roundId || holesChanged {
+                refreshLiveFinishRecovery()
+            }
+            if holesChanged {
+                recomputeFinishErrorForCurrentHoles()
+            }
             // A new playable hole set (another round, a second nine added or dropped, another
             // tee, sign-out) never inherits the old count: recompute it from disk right away
             // instead of waiting for the next download pass, which may need the network first.
@@ -466,8 +475,16 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Only sealed outbox recovery is stored. A live round's affordance follows its durable
     /// quarantine and current playable holes, so abandon, loop edits and seal cannot leave a card.
     @Published public private(set) var sealedFinishRecovery: DeferredFinishRecovery? = nil
+    /// The live round whose Save & End (phone or Watch) was tried. Only then does the Hub offer the
+    /// live removed-hole discard, and only then does sync keep the「结束已暂停」prefix. Keyed by
+    /// round id and cleared whenever the live round changes (new round, abandon, seal, account).
+    @Published public private(set) var finishAttemptRoundId: String?
+    /// Derived from the live round, its playable holes and its durable quarantine, but cached:
+    /// recomputed when one of those changes (see `refreshFinishRecoveries`), never on body reads.
+    @Published public private(set) var liveFinishRecovery: DeferredFinishRecovery?
+    private var quarantineObservation: AnyCancellable?
 
-    public var liveFinishRecovery: DeferredFinishRecovery? {
+    private func derivedLiveFinishRecovery() -> DeferredFinishRecovery? {
         guard let package, liveRoundState?.roundId == package.roundId,
               let blocked = try? preferredQuarantineRecord(roundId: package.roundId),
               !package.holes.contains(where: { $0.number == blocked.event.hole }) else { return nil }
@@ -475,6 +492,47 @@ public final class LiveRoundAppModel: ObservableObject {
             roundId: package.roundId, hole: blocked.event.hole,
             prompt: Self.scoringRejectionPrompt(for: blocked), holeAvailable: false
         )
+    }
+
+    private func refreshLiveFinishRecovery() {
+        let next = derivedLiveFinishRecovery()
+        if next != liveFinishRecovery { liveFinishRecovery = next }
+    }
+
+    /// The sealed card is still a snapshot taken when the server refused the finish, so a transport
+    /// failure alone never creates one. Once its quarantine resolves (an accepted re-entry, a
+    /// discard), the snapshot follows at once instead of waiting for the next successful pass.
+    private func refreshSealedFinishRecovery() {
+        guard let sealed = sealedFinishRecovery else { return }
+        guard let blocked = try? preferredQuarantineRecord(roundId: sealed.roundId) else {
+            sealedFinishRecovery = nil
+            return
+        }
+        guard blocked.event.hole != sealed.hole else { return }
+        let holes = (try? offlineStore.loadRoundPackage(roundId: sealed.roundId))?.holes ?? []
+        sealedFinishRecovery = DeferredFinishRecovery(
+            roundId: sealed.roundId, hole: blocked.event.hole,
+            prompt: Self.scoringRejectionPrompt(for: blocked),
+            holeAvailable: holes.contains(where: { $0.number == blocked.event.hole })
+        )
+    }
+
+    private func refreshFinishRecoveries() {
+        refreshLiveFinishRecovery()
+        refreshSealedFinishRecovery()
+    }
+
+    /// A hole-table change (dropping or restoring a loop) rewrites the paused finish text from the
+    /// durable facts, so the sheet never keeps "removed" wording for a hole that is playable again.
+    private func recomputeFinishErrorForCurrentHoles() {
+        guard let package, liveRoundState?.roundId == package.roundId else { return }
+        guard finishAttemptRoundId == package.roundId,
+              let blocked = try? preferredQuarantineRecord(roundId: package.roundId) else {
+            finishErrorMessage = nil
+            return
+        }
+        let suffix = (try? quarantineFinishSuffix(for: blocked, roundId: package.roundId)) ?? ""
+        finishErrorMessage = "\(Self.scoringRejectionPrompt(for: blocked))\(suffix)"
     }
 
     /// Compatibility read for consumers with one recovery surface. The app renders both owners.
@@ -489,13 +547,14 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Reopen the sealed round named by the Hub recovery card. The pending-finish ledger is removed
     /// only after the active package pointer is durable, and the Watch seed is cleared without
     /// sending a second seed after it has already acknowledged `.finished`.
+    /// A refused resume reports on the Hub status only: finishErrorMessage belongs to the live
+    /// round's own finish sheet, and must not become another round's「结束已暂停」.
     @discardableResult
     public func resumeDeferredFinishForEditing() -> Bool {
         guard let recovery = sealedFinishRecovery else { return false }
         if (liveRoundState.map { $0.roundId != recovery.roundId } ?? false)
             || (pendingWatchRoundStart.map { $0.roundId != recovery.roundId } ?? false) {
-            finishErrorMessage = "当前还有另一场进行中的球局，请先结束后再重录"
-            syncStatus = finishErrorMessage ?? "请先结束当前球局"
+            syncStatus = "当前还有另一场进行中的球局，请先结束后再重录"
             return false
         }
         do {
@@ -506,8 +565,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 // A deliberate nine-hole edit may have removed the rejected hole. Do not call
                 // setActiveHole (which would silently no-op); leave the ledger sealed and explain
                 // the required recovery to the player.
-                finishErrorMessage = "第 \(recovery.hole) 洞已从当前球局移除，该洞成绩不会上传"
-                syncStatus = finishErrorMessage ?? "该洞成绩不会上传"
+                syncStatus = "第 \(recovery.hole) 洞已从当前球局移除，该洞成绩不会上传"
                 return false
             }
             let restored = try offlineStore.resumeDeferredRoundFinish(roundId: recovery.roundId)
@@ -537,8 +595,7 @@ public final class LiveRoundAppModel: ObservableObject {
             return true
         } catch {
             AICaddieLog.storage.error("Deferred finish recovery failed: \(String(describing: error), privacy: .public)")
-            finishErrorMessage = "本场暂时无法恢复，请稍后重试"
-            syncStatus = finishErrorMessage ?? "本场暂时无法恢复"
+            syncStatus = "本场暂时无法恢复，请稍后重试"
             return false
         }
     }
@@ -675,7 +732,19 @@ public final class LiveRoundAppModel: ObservableObject {
     @Published public private(set) var prepTeeOptions: [String] = []
     @Published public private(set) var isOpeningPrepCourse = false
     private var prepOpenGeneration: UInt64 = 0
-    @Published public private(set) var liveRoundState: LiveRoundStateSnapshot?
+    @Published public private(set) var liveRoundState: LiveRoundStateSnapshot? {
+        didSet {
+            if oldValue?.roundId != liveRoundState?.roundId {
+                // A finish attempt and its error belong to that round only: a new round, abandon,
+                // seal, resume or account change starts the next one unmarked.
+                finishAttemptRoundId = nil
+                finishErrorMessage = nil
+            }
+            // Every local event append republishes this snapshot; its pending tail decides
+            // which of several rejected holes the recovery names.
+            refreshLiveFinishRecovery()
+        }
+    }
     /// A Watch-created round can arrive before its richer course package. Keep that fact visible on
     /// the Hub instead of making the phone look idle while the bounded package retry is running.
     @Published public private(set) var pendingWatchRoundStart: WatchRoundStartPayload? = nil
@@ -1010,6 +1079,7 @@ public final class LiveRoundAppModel: ObservableObject {
         garminConnectionState = storedGarminConnectionState()
         syncConfigToWatch()
         observeSessionForWatch()
+        observeQuarantineChanges()
         #if DEBUG
         // UI-test classes share one app container. A journey that must observe a not-yet-prepared
         // course clears only the course library (prep rows + templates) before it is restored.
@@ -1070,6 +1140,22 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
             }
             .store(in: &sessionCancellables)
+    }
+
+    /// Every quarantine writer goes through OfflineStore, which posts after each write. The
+    /// cached recoveries therefore follow a quarantine-only change with no other published write.
+    private func observeQuarantineChanges() {
+        quarantineObservation = NotificationCenter.default
+            .publisher(for: OfflineStore.quarantineDidChange, object: offlineStore)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                // Writers run on the MainActor today; a future background writer still lands here.
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated { self.refreshFinishRecoveries() }
+                } else {
+                    Task { @MainActor in self.refreshFinishRecoveries() }
+                }
+            }
     }
 
     public var adminTokenConfigured: Bool {
@@ -3856,6 +3942,9 @@ public final class LiveRoundAppModel: ObservableObject {
         isFinishingRound = true
         finishErrorMessage = nil
         defer { isFinishingRound = false }
+        if liveRoundState?.roundId == package.roundId {
+            finishAttemptRoundId = package.roundId
+        }
 
         #if DEBUG
         // The real-flow simulator uses a real course package but deliberately keeps synthetic scores
@@ -4360,6 +4449,8 @@ public final class LiveRoundAppModel: ObservableObject {
               liveRoundState?.roundId == closure.roundId else {
             return
         }
+        // The Watch's 结束 is this round's finish attempt as much as the phone's.
+        finishAttemptRoundId = closure.roundId
         do {
             let pending = try offlineStore.loadPendingEvents(roundId: closure.roundId)
             let pendingMedia = try offlineStore.loadPendingMedia(roundId: closure.roundId)
@@ -5318,10 +5409,10 @@ public final class LiveRoundAppModel: ObservableObject {
     ) async {
         // The upload badge can change to syncing/retry, but a blocked finish keeps its actionable
         // rejected-hole status until that quarantine is actually resolved.
-        // A different sealed round's transport failure can temporarily replace syncStatus before
-        // this live follow-up starts. Its unresolved finish error still owns the instruction.
+        // Only this round's own finish attempt pauses it: another round's error or status line
+        // (a sealed round's transport failure, a refused resume) never labels it「结束已暂停」.
         let preservesRejection = preservingFinishRejection
-            ?? (finishErrorMessage != nil || syncStatus.hasPrefix("结束已暂停 · "))
+            ?? (finishAttemptRoundId != nil && finishAttemptRoundId == package?.roundId)
         func finishStatus(or fallback: String) -> String {
             guard preservesRejection, let roundId = package?.roundId,
                   let rejected = try? preferredQuarantineRecord(roundId: roundId) else { return fallback }
@@ -7358,6 +7449,9 @@ public final class LiveRoundAppModel: ObservableObject {
     private func activateHomePackage(_ nextPackage: LiveRoundPackage, status: String) throws {
         package = nextPackage
         liveRoundState = nil
+        // The Hub owns no finish sheet: nothing paused may carry into the next round.
+        finishAttemptRoundId = nil
+        finishErrorMessage = nil
         pendingEventCount = 0
         quarantinedEventCount = 0
         try? offlineStore.saveHomePackage(nextPackage)
@@ -7593,6 +7687,9 @@ public struct QuarantinedLiveEvent: Codable, Equatable {
 }
 
 extension OfflineStore {
+    /// Posted (object: the store) after every quarantine write, including removals.
+    public static let quarantineDidChange = Notification.Name("OfflineStore.quarantineDidChange")
+
     public func loadQuarantinedEvents(roundId: String) throws -> [QuarantinedLiveEvent] {
         let url = eventQuarantineURL(roundId: roundId)
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
@@ -7611,6 +7708,7 @@ extension OfflineStore {
         // A failed write throws and leaves the original tail pending. Never advance past an event
         // until both the original and its diagnostic are durably retained.
         try JSONEncoder().encode(records).write(to: url, options: [.atomic])
+        NotificationCenter.default.post(name: Self.quarantineDidChange, object: self)
     }
 
     func removeQuarantinedEvents(roundId: String, ids: Set<String>? = nil) throws {
@@ -7625,6 +7723,7 @@ extension OfflineStore {
         } else {
             try JSONEncoder().encode(remaining).write(to: url, options: [.atomic])
         }
+        NotificationCenter.default.post(name: Self.quarantineDidChange, object: self)
     }
 
     private func eventQuarantineURL(roundId: String) -> URL {

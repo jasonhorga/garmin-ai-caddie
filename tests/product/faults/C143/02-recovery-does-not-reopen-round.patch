@@ -1,11 +1,11 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -475,7 +475,7 @@
-     /// sending a second seed after it has already acknowledged `.finished`.
+@@ -551,7 +551,7 @@
+     /// round's own finish sheet, and must not become another round's「结束已暂停」.
      @discardableResult
      public func resumeDeferredFinishForEditing() -> Bool {
 -        guard let recovery = sealedFinishRecovery else { return false }
 +        guard false, let recovery = sealedFinishRecovery else { return false }
          if (liveRoundState.map { $0.roundId != recovery.roundId } ?? false)
              || (pendingWatchRoundStart.map { $0.roundId != recovery.roundId } ?? false) {
-             finishErrorMessage = "当前还有另一场进行中的球局，请先结束后再重录"
+             syncStatus = "当前还有另一场进行中的球局，请先结束后再重录"

@@ -1,7 +1,7 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -482,6 +482,10 @@
-             syncStatus = finishErrorMessage ?? "请先结束当前球局"
+@@ -557,6 +557,10 @@
+             syncStatus = "当前还有另一场进行中的球局，请先结束后再重录"
              return false
          }
 +        deferredRoundFinishRetryRequested = false
@@ -11,7 +11,7 @@
          do {
              guard let sealed = try offlineStore.loadRoundPackage(roundId: recovery.roundId) else {
                  throw URLError(.fileDoesNotExist)
-@@ -512,10 +516,6 @@
+@@ -586,10 +590,6 @@
              // These operations are synchronous on MainActor: no suspended uploader can resume
              // between the preflight and the durable cursor restoration. Cancel only after all
              // throwing recovery work succeeds, so a false result leaves other finishes running.
