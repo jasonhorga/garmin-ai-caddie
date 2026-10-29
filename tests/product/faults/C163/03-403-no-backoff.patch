@@ -1,0 +1,13 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -602,8 +602,7 @@
+         if garmin_raster._raster_path(task["globalId"], task["localHole"], task.get("assetVersion")).is_file():
+             return False
+         entry = self._state["garminForbiddenReleases"].get(f"{task['globalId']}:{task.get('garminRelease')}")
+-        return bool(entry and (entry["attempts"] >= GARMIN_403_MAX_ATTEMPTS
+-                              or entry["retryAfter"] > time.time()))
++        return False
+
+     def enqueue_all(self, *, recent: set[tuple[int, int]] | None = None,
+                     downloaded: set[tuple[int, int]] | None = None, force: bool = False) -> dict[str, Any]:

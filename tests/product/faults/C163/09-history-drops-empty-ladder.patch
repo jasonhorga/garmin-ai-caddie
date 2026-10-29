@@ -1,0 +1,12 @@
+diff --git a/ai_caddie/rounds/round_shot_map.py b/ai_caddie/rounds/round_shot_map.py
+--- a/ai_caddie/rounds/round_shot_map.py
++++ b/ai_caddie/rounds/round_shot_map.py
+@@ -153,7 +153,7 @@
+     """
+     try:
+         prep = course_prep.lightweight_prep_hole(
+-            int(global_id), int(local_hole), ladder=[] if ladder is None else ladder,
++            int(global_id), int(local_hole), ladder=ladder,
+         )
+         route = prep.get("route") if isinstance(prep, dict) else None
+         projection = prep.get("holeImageProjection") if isinstance(prep, dict) else None

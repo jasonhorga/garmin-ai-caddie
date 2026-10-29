@@ -143,6 +143,8 @@ def _unprojected_shot_rows(shots: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _lightweight_map_frame(
     global_id: int,
     local_hole: int,
+    *,
+    ladder=None,
 ) -> tuple[dict[str, Any], Any, Any] | None:
     """Build a factual CourseView-only overlay and WGS84 affine projection.
 
@@ -150,7 +152,9 @@ def _lightweight_map_frame(
     three geo/pixel anchors already shipped to phone and watch while prodgeometry is preparing.
     """
     try:
-        prep = course_prep.lightweight_prep_hole(int(global_id), int(local_hole))
+        prep = course_prep.lightweight_prep_hole(
+            int(global_id), int(local_hole), ladder=[] if ladder is None else ladder,
+        )
         route = prep.get("route") if isinstance(prep, dict) else None
         projection = prep.get("holeImageProjection") if isinstance(prep, dict) else None
         refs = projection.get("refs") if isinstance(projection, dict) else None
@@ -377,6 +381,7 @@ def _hole_shot_map(
     *,
     include_image: bool = True,
     annotations: list[dict[str, Any]] | None = None,
+    ladder=None,
 ) -> tuple[dict[str, Any], Any, Any]:
     """The shot map plus the (project, unproject) pair of the frame its pixels are in (None, None
     when no frame was available)."""
@@ -487,7 +492,7 @@ def _hole_shot_map(
         map_kind = "prodgeometry"
     except Exception:
         lightweight = (
-            _lightweight_map_frame(int(gid), int(local))
+            _lightweight_map_frame(int(gid), int(local), ladder=ladder)
             if gid is not None and local is not None
             else None
         )
@@ -911,6 +916,7 @@ def corrected_round_shots(
     corrections: list[dict[str, Any]],
     *,
     holes: set[int] | None = None,
+    ladder=None,
 ) -> dict[int, tuple[list[int], list[dict[str, Any]]]]:
     """Every hole of ``row`` whose shot list a correction changes, as
     ``{display hole: (positions of its source shots in data.shots, corrected shots)}``.
@@ -943,7 +949,10 @@ def corrected_round_shots(
         if not any(_touches_hole(event, hole, shot_ids) for event in corrections):
             continue
         if _has_pixel_edits(corrections, hole, shot_ids):
-            view, project, unproject = _hole_shot_map(data, str(row.get("id")), hole, corrections, include_image=False)
+            view, project, unproject = _hole_shot_map(
+                data, str(row.get("id")), hole, corrections,
+                include_image=False, ladder=ladder,
+            )
             shots = _shots_from_view(view, source, row, hole, project, unproject)
         else:
             by_id = {round_corrections.mint_shot_id(shot): shot for shot in source}

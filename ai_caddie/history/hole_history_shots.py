@@ -108,7 +108,9 @@ def hole_green_centre(global_id: int, local_hole: int, *, player_id: str = OWNER
     except Exception:
         pass
     try:
-        prep = course_prep.lightweight_prep_hole(int(global_id), int(local_hole), player_id=player_id)
+        prep = course_prep.lightweight_prep_hole(
+            int(global_id), int(local_hole), player_id=player_id, ladder=[],
+        )
         green = (prep or {}).get("greenDistances") or {}
         if green.get("middleLat") is not None and green.get("middleLon") is not None:
             return {"available": True, "lat": green["middleLat"], "lon": green["middleLon"], "source": "courseData"}

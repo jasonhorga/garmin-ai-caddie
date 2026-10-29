@@ -1,0 +1,12 @@
+diff --git a/server_v2/map_startup.py b/server_v2/map_startup.py
+--- a/server_v2/map_startup.py
++++ b/server_v2/map_startup.py
+@@ -260,7 +260,7 @@
+             if background:
+                 if sum(bool(k[-1]) for k in _STARTING) >= _BACKGROUND_PREP_LIMIT:
+                     return {"globalId": gid, "localHole": hole, "drawable": False, "pending": True}
+-                future = _BACKGROUND_PREP_POOL.submit(prepare)
++                future = _GEOMETRY_INSTALL_POOL.submit(prepare, priority=NEARBY)
+             else:
+                 future = _GEOMETRY_INSTALL_POOL.submit(prepare, priority=FOREGROUND)
+             _STARTING[key] = future

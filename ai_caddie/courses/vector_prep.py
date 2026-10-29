@@ -19,10 +19,31 @@ logger = logging.getLogger(__name__)
 _CACHE_DIR = ROOT / "output" / "vector-prep"
 _VERSION = "vector-prep-v1"
 _LOCKS = [threading.Lock() for _ in range(32)]
-
-
 _REQUESTED_TEES: dict[tuple[str, int, int], set[int]] = {}
 _REQUESTED_TEES_LOCK = threading.Lock()
+
+
+def precise_route_seed_hole_in_process(
+    global_id: int,
+    local_hole: int,
+    *,
+    par_record=None,
+    coverage: dict | None = None,
+    tee_set: int | None = None,
+    include_facts: bool = True,
+) -> dict | None:
+    """Build one factual vector outside the API interpreter's GIL."""
+    from ai_caddie.geometry.topo_render import _run_render_cpu
+
+    return _run_render_cpu(
+        course_prep.precise_route_seed_hole,
+        int(global_id),
+        int(local_hole),
+        par_record=par_record,
+        coverage=coverage,
+        tee_set=tee_set,
+        include_facts=include_facts,
+    )
 
 
 def request_vector_tee(global_id: int, local_hole: int, tee_set: int | None) -> None:
@@ -45,7 +66,8 @@ def warm_requested_vectors(global_id: int, local_hole: int) -> None:
 
 
 def cached_vector_hole(global_id: int, local_hole: int, *, tee_set: int | None = None,
-                       coverage: dict | None = None, build_if_missing: bool = True) -> dict | None:
+                       coverage: dict | None = None, build_if_missing: bool = True,
+                       use_process_pool: bool = False) -> dict | None:
     """No history, weather or rendering. A cache hit is still checked against current authority.
 
     Each Tee has its own playing route/distances, all in the same Tee-independent raster frame.
@@ -81,7 +103,14 @@ def cached_vector_hole(global_id: int, local_hole: int, *, tee_set: int | None =
             pass
         if not build_if_missing:
             return None
-        row = course_prep.precise_route_seed_hole(gid, hole, tee_set=tee_set, coverage=evidence, include_facts=True)
+        if use_process_pool:
+            row = precise_route_seed_hole_in_process(
+                gid, hole, tee_set=tee_set, coverage=evidence, include_facts=True,
+            )
+        else:
+            row = course_prep.precise_route_seed_hole(
+                gid, hole, tee_set=tee_set, coverage=evidence, include_facts=True,
+            )
         if row is None or signature() != before:
             return None
         # The prep stays partial until the personalized planner enriches it. Its physical geometry

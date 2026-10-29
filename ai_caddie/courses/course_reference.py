@@ -660,7 +660,7 @@ def _release_lock(global_id: int, root: Path) -> threading.Lock:
     return _RELEASE_LOCKS[hash(key) % len(_RELEASE_LOCKS)]
 
 
-def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT) -> dict | None:
+def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT, force_refresh: bool = False) -> dict | None:
     """Decoded CourseView release with hourly refresh and offline stale fallback."""
     gid = int(global_id)
     with (_release_lock(gid, root) if allow_fetch else nullcontext()):
@@ -685,13 +685,14 @@ def _release_info(global_id: int, *, allow_fetch: bool = True, root: Path = ROOT
                 stale = True
         failure_key = (str(root.resolve()), gid)
         if (
-            cached_info is not None
+            not force_refresh
+            and cached_info is not None
             and time.monotonic() - _RELEASE_FETCH_FAILED_AT.get(failure_key, float("-inf"))
             < COURSEVIEW_RELEASE_RETRY_BACKOFF_S
         ):
             logger.debug("courseview_release stale_backoff gid=%s", gid)
             return cached_info  # a recent refresh failed; keep serving the usable release
-        if allow_fetch and (stale or cached_info is None):
+        if allow_fetch and (force_refresh or stale or cached_info is None):
             try:
                 candidate = load_release_pb(
                     gid,
@@ -728,6 +729,7 @@ def courseview_release_info(
     *,
     allow_fetch: bool = True,
     root: Path = ROOT,
+    force_refresh: bool = False,
 ) -> dict | None:
     """Public cache-first CourseView release metadata for map-package consumers.
 
@@ -736,7 +738,7 @@ def courseview_release_info(
     release bytes, Tee names and lightweight maps share one cached authority
     instead of each subsystem inventing its own catalogue state.
     """
-    return _release_info(global_id, allow_fetch=allow_fetch, root=root)
+    return _release_info(global_id, allow_fetch=allow_fetch, root=root, force_refresh=force_refresh)
 
 
 def _semantic_release_signature(

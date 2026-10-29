@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ai_caddie.history.history import OWNER_ID
 from ai_caddie.history.mobile_stats import PREVIOUS_WINDOW, build_mobile_previous, build_mobile_stats
-from ai_caddie.history.stats_cache import cached_build_history_stats, cached_load_history_data
+from ai_caddie.history.stats_cache import cached_build_history_stats, cached_load_history_data, history_input_signature
 from ai_caddie.core.priority_work import background_work
 
 from .data_source import load_history_data_for_mode
@@ -103,7 +103,7 @@ def load_mobile_stats_response(window: str = "all", *, player_id: str = OWNER_ID
     return MobileStatsResponse(**payload)
 
 
-def warm_stats_cache(player_id: str = OWNER_ID) -> None:
+def warm_stats_cache(player_id: str = OWNER_ID) -> bool:
     """Pre-populate the stats cache so the first request after a sync or boot is a hit.
 
     Calls the same cached accessors the request path uses: ``cached_load_history_data``
@@ -118,6 +118,9 @@ def warm_stats_cache(player_id: str = OWNER_ID) -> None:
 
     After this runs, all four warmed windows and the other consumers of the stats cache
     return instantly until the inputs change again.
+
+    Return True only after every projection succeeds, so a monitor never acknowledges a
+    failed or merely scheduled rebuild.
 
     This is purely a pre-population: it never changes the data or the response any
     endpoint would produce. Any failure is swallowed -- a warm must NEVER break the sync
@@ -135,6 +138,8 @@ def warm_stats_cache(player_id: str = OWNER_ID) -> None:
             load_mobile_stats_response(window=window, player_id=player_id)
     except Exception:  # noqa: BLE001 - warming is best-effort and must not propagate
         logger.exception("stats cache warm failed")
+        return False
+    return True
 
 
 def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Thread:
@@ -152,7 +157,8 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
         def run() -> None:
             try:
                 with background_work():
-                    warm_stats_cache(player_id=clean_player_id)
+                    thread.history_signature = history_input_signature(clean_player_id)
+                    thread.warm_succeeded = warm_stats_cache(player_id=clean_player_id) is True
             finally:
                 with _WARM_LOCK:
                     if _WARM_THREADS.get(clean_player_id) is threading.current_thread():
@@ -163,6 +169,8 @@ def warm_stats_cache_in_background(player_id: str = OWNER_ID) -> threading.Threa
             name=f"stats-cache-warm-{clean_player_id}",
             daemon=True,
         )
+        thread.history_signature = None
+        thread.warm_succeeded = False
         _WARM_THREADS[clean_player_id] = thread
         thread.start()
         return thread

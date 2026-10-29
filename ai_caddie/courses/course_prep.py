@@ -2453,7 +2453,7 @@ def lightweight_prep_hole(
     the first screen must still receive the small route/green/hazard drawing immediately instead
     of entering the expensive precise mesh path before anything can be shown.
     """
-    resolved_ladder = ladder or effective_club_ladder(player_id)
+    resolved_ladder = ladder if ladder is not None else effective_club_ladder(player_id)
     resolved_par = par_record or course_reference.load_course_par(int(global_id))
     value = _lightweight_prep_hole(
         int(global_id),

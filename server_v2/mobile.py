@@ -596,11 +596,15 @@ def build_mobile_course_package_response(
     prepare_map: bool = False,
     priority_hole: int = 1,
     map_only: bool = False,
+    background_vector: bool = False,
 ) -> LiveRoundPackageResponse:
     if prepare_map:
         from server_v2.map_startup import prepare_priority_hole
 
-        prepare_priority_hole(loops, priority_hole=priority_hole, tee_box=tee_box, wait=False)
+        prepare_kwargs = dict(priority_hole=priority_hole, tee_box=tee_box, wait=False)
+        if background_vector:
+            prepare_kwargs["background"] = True
+        prepare_priority_hole(loops, **prepare_kwargs)
         mark_request_stage("priority_vector")
     if map_only:
         from ai_caddie.core.config import get_settings

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from concurrent.futures import Future, TimeoutError
+from concurrent.futures import Future, TimeoutError, ThreadPoolExecutor
+from contextlib import nullcontext
 import logging
 import threading
 import time
@@ -17,6 +18,9 @@ RADIUS_KM = 30.0
 STARTUP_WAIT_SECONDS = 22.0
 _LOCK = threading.Lock()
 _STARTING: dict[tuple, Future] = {}
+# Gate and child-pool waits never reserve the two foreground geometry workers.
+_BACKGROUND_PREP_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="background-vector")
+_BACKGROUND_PREP_LIMIT = 16
 _REGION_ENQUEUED: dict[int, float] = {}
 _REGION_PLAYER = "__nearby_public_assets__"
 # Release prefetch attempts by gid: (monotonic time, release obtained). An obtained release is not
@@ -178,7 +182,7 @@ def priority_hole_plan(global_id: int, local_hole: int) -> dict | None:
 def startup_in_flight() -> bool:
     """Whether a round start's playing-hole prepare is still running; optional warm-up yields to it."""
     with _LOCK:
-        return any(not future.done() for future in _STARTING.values())
+        return any(not future.done() for key, future in _STARTING.items() if not key[-1])
 
 
 def _register_hole_plan_provider() -> None:
@@ -190,7 +194,10 @@ def _register_hole_plan_provider() -> None:
 _register_hole_plan_provider()
 
 
-def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 1, tee_box: str | None = None, wait: bool = True) -> dict:
+def prepare_priority_hole(
+    loops: list[tuple[int, str]], *, priority_hole: int = 1, tee_box: str | None = None,
+    wait: bool = True, background: bool = False,
+) -> dict:
     """Obtain only the playing hole's geometry; queued rasters and other holes are independent.
 
     The shared two-worker geometry lane admits this task before queued region work. A slow provider
@@ -206,7 +213,9 @@ def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 
         raise ValueError("priority_hole is outside the selected round")
     gid, half = loops[index]
     hole = source_start_hole(half) + (int(priority_hole) - 1) % 9
-    key = (tuple(loops), int(priority_hole), str(tee_box or "blue").strip().lower())
+    # Separate admission lanes: foreground never attaches to a background gate waiter.
+    # cached_vector_hole single-flights the actual CPU seed/cache across both lanes.
+    key = (tuple(loops), int(priority_hole), str(tee_box or "blue").strip().lower(), bool(background))
 
     def prepare() -> dict:
         started = time.perf_counter()
@@ -228,7 +237,14 @@ def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 
         request_vector_tee(gid, hole, tee_set)
         result = ensure_prodgeometry(gid, hole)
         geometry_ms = (time.perf_counter() - started) * 1000 - metadata_ms
-        vector = cached_vector_hole(gid, hole, tee_set=tee_set) if result.get("ok") else None
+        lane = background_work() if background else nullcontext()
+        with lane:
+            vector = (
+                cached_vector_hole(
+                    gid, hole, tee_set=tee_set, use_process_pool=background,
+                )
+                if result.get("ok") else None
+            )
         total_ms = (time.perf_counter() - started) * 1000
         logger.info("map_startup gid=%s hole=%s metadata_ms=%.1f geometry_ms=%.1f vector_ms=%.1f total_ms=%.1f drawable=%s",
                     gid, hole, metadata_ms, geometry_ms, total_ms - metadata_ms - geometry_ms, total_ms, bool(vector))
@@ -241,7 +257,12 @@ def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 
     with _LOCK:
         future = _STARTING.get(key)
         if future is None:
-            future = _GEOMETRY_INSTALL_POOL.submit(prepare, priority=FOREGROUND)
+            if background:
+                if sum(bool(k[-1]) for k in _STARTING) >= _BACKGROUND_PREP_LIMIT:
+                    return {"globalId": gid, "localHole": hole, "drawable": False, "pending": True}
+                future = _BACKGROUND_PREP_POOL.submit(prepare)
+            else:
+                future = _GEOMETRY_INSTALL_POOL.submit(prepare, priority=FOREGROUND)
             _STARTING[key] = future
             _STARTING_HOLES[key] = (int(gid), int(hole))
             def remove(completed: Future) -> None:
