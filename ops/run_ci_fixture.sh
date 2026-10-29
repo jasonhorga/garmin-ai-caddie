@@ -23,6 +23,9 @@ case "$fixture_host" in
   *) echo "fixture host must be loopback" >&2; exit 64 ;;
 esac
 
-exec uv run --frozen python -m uvicorn server_v2.main:app \
+# Run on the production image's Python (Dockerfile.deps `uv:python3.12`), never the runner's
+# own python3: the macOS runner's Homebrew Python drifts (3.15 on 2026-10-29 had no
+# psycopg-binary wheel and the fixture never started).
+exec uv run --frozen --python 3.12 python -m uvicorn server_v2.main:app \
   --host "$fixture_host" \
   --port "${AI_CADDIE_FIXTURE_PORT:-9000}"
