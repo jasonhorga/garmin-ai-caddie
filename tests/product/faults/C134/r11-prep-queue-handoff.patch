@@ -1,15 +1,9 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -4536,12 +4536,6 @@
-             self.isOpeningPrepCourse = false
-             self.finishRoundPreparation(preparationToken)
-             preparationFinished = true
--            // The foreground map release can cancel the durable full-course row while Start owns
--            // the connection. Hand the same selected course back to the queue after the token is
--            // cleared so the independent whole-course worker cannot remain stranded as queued.
--            self.startPrepCourseDownloadQueueIfNeeded(
--                userRequested: PrepCourseDownloadRecord.key(globalId: course.globalId, teeBox: teeBox)
--            )
-             self.beginPrepEnrichmentIfNeeded()
-             let tees = await self.loadCourseTees(globalId: course.globalId)
-             guard generation == self.prepOpenGeneration, !tees.isEmpty else { return }
+@@ -1729,7 +1729,6 @@
+         // Live-course assets keep priority after a successful start or hole-set change: their
+         // installer is deferred until the replacement live surface has settled. If preparation
+         // failed, release the prep-library queue instead of leaving durable jobs paused.
+         if deferredOfflineCourseDownloadRevalidation == nil,
+            offlineCourseDownloadTask == nil {
+-            startPrepCourseDownloadQueueIfNeeded(userRequested: handoffID)

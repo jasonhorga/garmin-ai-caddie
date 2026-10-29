@@ -847,6 +847,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         var installStatusRequestCount = 0
         var topoRequestedBeforeReady = false
         var topoRequestCount = 0
+        var statusObservations: [String] = []
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -865,6 +866,9 @@ final class LiveRoundAppModelTests: XCTestCase {
                 }
                 let topoState = statusNumber == 1 ? "queued" : "ready"
                 let phase = statusNumber == 1 ? "running" : "ready"
+                requestLock.withLock {
+                    statusObservations.append("#\(statusNumber) phase=\(phase) topo=\(topoState) error=null")
+                }
                 let topoRevisionJSON = topoState == "ready" ? "\"\(revision)\"" : "null"
                 let holeCount = online.holes.count
                 let rows = online.holes.map { hole in
@@ -939,13 +943,23 @@ final class LiveRoundAppModelTests: XCTestCase {
         model.downloadPrepCourse(course)
         await model.waitForPrepCourseDownloadForTesting()
 
-        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready)
-        XCTAssertGreaterThanOrEqual(requestLock.withLock { installStatusRequestCount }, 2)
+        let statusDiagnostic = requestLock.withLock {
+            "status=[\(statusObservations.joined(separator: "; "))] "
+                + "topoRequests=\(topoRequestCount) finalPhase=\(model.prepCourseDownloads.first?.phase.rawValue ?? "nil")"
+        }
+        XCTAssertEqual(model.prepCourseDownloads.first?.phase, .ready, statusDiagnostic)
+        XCTAssertGreaterThanOrEqual(
+            requestLock.withLock { installStatusRequestCount }, 2,
+            statusDiagnostic
+        )
         XCTAssertFalse(
             requestLock.withLock { topoRequestedBeforeReady },
-            "a running install journal with queued topo must gate PNG requests"
+            "a running install journal with queued topo must gate PNG requests; \(statusDiagnostic)"
         )
-        XCTAssertEqual(requestLock.withLock { topoRequestCount }, online.holes.count)
+        XCTAssertEqual(
+            requestLock.withLock { topoRequestCount }, online.holes.count,
+            statusDiagnostic
+        )
         XCTAssertTrue(try XCTUnwrap(store.loadCourseTemplate(
             globalId: online.course.globalId,
             teeBox: online.course.teeBox

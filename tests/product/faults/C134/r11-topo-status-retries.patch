@@ -1,9 +1,13 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -3412,5 +3412,5 @@
-         } else if !deferTemplateReplacement {
-             // Prep downloads use the single-request polling endpoint. The worker owns the
-             // retry ladder; transport retries here would multiply each server-status step.
--            await refreshServerInstallStatus(useTransportRetries: false)
-+            await refreshServerInstallStatus()
-         }
+@@ -3768,7 +3768,9 @@
+             let startedAt = DispatchTime.now().uptimeNanoseconds
+             for attempt in 0...maxAttempts {
+                 guard !Task.isCancelled else { return false }
+-                await refreshServerInstallStatus(useTransportRetries: false)
++                if prepDownloadID == nil {
++                    await refreshServerInstallStatus(useTransportRetries: false)
++                }
+                 guard serverInstallStatusAvailable else {
+                     return true
+                 }

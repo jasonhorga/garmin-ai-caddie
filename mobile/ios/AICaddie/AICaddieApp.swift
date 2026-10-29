@@ -855,6 +855,9 @@ public final class LiveRoundAppModel: ObservableObject {
     /// 备战 jobs the player asked for (download, retry, opening a ready course). Only these run
     /// while a fresh entry is pending; every automatic job waits for the release.
     private var userRequestedPrepDownloadIDs = Set<String>()
+    #if DEBUG
+    private var prepQueueLastDecisionForTesting = "none"
+    #endif
     private var roundPreparationToken: UUID?
     private var roundPreparationGeneration: UInt64 = 0
     private var roundStartProgressGeneration: UInt64 = 0
@@ -1847,6 +1850,7 @@ public final class LiveRoundAppModel: ObservableObject {
     private func finishRoundPreparation(_ token: UUID) {
         syncClient?.endRoundStart(token)
         guard roundPreparationToken == token else { return }
+        let handoffID = foregroundRoundStartIntentKey
         roundPreparationToken = nil
         foregroundRoundStartIntentKey = nil
         isPreparingRound = false
@@ -1856,7 +1860,12 @@ public final class LiveRoundAppModel: ObservableObject {
         // failed, release the prep-library queue instead of leaving durable jobs paused.
         if deferredOfflineCourseDownloadRevalidation == nil,
            offlineCourseDownloadTask == nil {
-            startPrepCourseDownloadQueueIfNeeded()
+            startPrepCourseDownloadQueueIfNeeded(userRequested: handoffID)
+        } else if let handoffID {
+            // Preserve the explicit Start selection while the live course's own asset pass still
+            // owns the connection. Its completion or fresh-entry release starts the queue again.
+            userRequestedPrepDownloadIDs.insert(handoffID)
+            recordPrepQueueDecision("handoff-deferred id=\(handoffID)")
         }
         // A start that did not leave a live round (failed, or not a new round) gives the results
         // refresh back; a live round keeps the network until the next launch or foreground.
@@ -2865,7 +2874,7 @@ public final class LiveRoundAppModel: ObservableObject {
         let active = activePrepCourseDownloadID ?? "-"
         let worker = prepCourseDownloadTask == nil ? "none" : "present"
         let intents = intentPrefetchTasks.keys.sorted().joined(separator: ",")
-        return "active=\(active) worker=\(worker) intents=[\(intents)] rows=[\(rows)]"
+        return "active=\(active) worker=\(worker) intents=[\(intents)] rows=[\(rows)] token=\(roundPreparationToken != nil) deferred=\(deferredOfflineCourseDownloadRevalidation != nil) user=[\(userRequestedPrepDownloadIDs.sorted().joined(separator: ","))] last=\(prepQueueLastDecisionForTesting)"
     }
 
     func cancelPrepCourseDownloadForTesting() async {
@@ -3859,12 +3868,9 @@ public final class LiveRoundAppModel: ObservableObject {
         let topoRetryDelays: [UInt64] = prepDownloadID == nil
             ? [5_000_000_000, 10_000_000_000, 20_000_000_000]
             : retryDelays
-        for attempt in 0...topoRetryDelays.count {
-            guard !Task.isCancelled else { return false }
-            if prepDownloadID == nil {
-                await refreshServerInstallStatus()
-            }
-            let missingTopoHoles = snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int, geometryRevision: String?)? in
+
+        func missingTopoHoles() -> [(globalId: Int, localHole: Int, geometryRevision: String?)] {
+            snapshot.holes.compactMap { roundHole -> (globalId: Int, localHole: Int, geometryRevision: String?)? in
                 let globalId = roundHole.sourceGlobalId
                 let localHole = roundHole.sourceLocalHole
                 let prep = prepBySource[offlinePrepKey(globalId: globalId, localHole: localHole)]
@@ -3877,12 +3883,69 @@ public final class LiveRoundAppModel: ObservableObject {
                       ) == nil else { return nil }
                 return (globalId, localHole, revision)
             }
-            guard !missingTopoHoles.isEmpty else { break }
+        }
+
+        /// Prep's durable install journal is a progress signal, not a failed download. Poll it on
+        /// its own bounded cadence before the topo pass; geometry retry delays must not decide how
+        /// long a server-side topo render gets to finish (and may be empty in native fixtures).
+        func waitForPrepTopoReadiness() async -> Bool {
+            guard prepDownloadID != nil, !deferTemplateReplacement else { return true }
+            let maxAttempts = 20
+            let maxWaitNanoseconds: UInt64 = 300_000_000_000
+            let startedAt = DispatchTime.now().uptimeNanoseconds
+            for attempt in 0...maxAttempts {
+                guard !Task.isCancelled else { return false }
+                await refreshServerInstallStatus(useTransportRetries: false)
+                guard serverInstallStatusAvailable else {
+                    return true
+                }
+                if serverInstallPhase == "failed" {
+                    return false
+                }
+                let missing = missingTopoHoles()
+                if missing.isEmpty || missing.allSatisfy({
+                    serverTopoReadyKeys.contains(
+                        offlinePrepKey(globalId: $0.globalId, localHole: $0.localHole)
+                    )
+                }) {
+                    return true
+                }
+                guard attempt < maxAttempts else { return false }
+                let elapsed = DispatchTime.now().uptimeNanoseconds - startedAt
+                guard elapsed < maxWaitNanoseconds else { return false }
+                let remaining = maxWaitNanoseconds - elapsed
+                let delay = min(prepStatusProbeRetryDelayNanoseconds, remaining)
+                do {
+                    if delay > 0 {
+                        try await Task.sleep(nanoseconds: delay)
+                    } else {
+                        await Task.yield()
+                    }
+                } catch {
+                    return false
+                }
+            }
+            return false
+        }
+
+        for attempt in 0...topoRetryDelays.count {
+            guard !Task.isCancelled else { return false }
+            if prepDownloadID == nil {
+                await refreshServerInstallStatus()
+            }
+            var pendingTopoHoles = missingTopoHoles()
+            guard !pendingTopoHoles.isEmpty else { break }
+
+            if prepDownloadID != nil {
+                guard await waitForPrepTopoReadiness() else { break }
+                pendingTopoHoles = missingTopoHoles()
+                guard !pendingTopoHoles.isEmpty else { break }
+            }
 
             // A prep download is invisible until the whole course is installed, so let the durable
             // server worker finish its single-flight render and fetch only immutable ready bytes.
             // Live play keeps the direct request path so its first visible hole is never held back.
-            let fetchableTopoHoles = missingTopoHoles.filter { hole in
+            let fetchableTopoHoles = pendingTopoHoles.filter { hole in
                 prepDownloadID == nil
                     || !serverInstallStatusAvailable
                     || serverTopoReadyKeys.contains(
@@ -3945,7 +4008,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 missingIndex = end
             }
 
-            let stillMissing = missingTopoHoles.contains { hole in
+            let stillMissing = pendingTopoHoles.contains { hole in
                 offlineStore.loadCourseTopoImageURL(
                     globalId: hole.globalId,
                     localHole: hole.localHole,
@@ -4866,12 +4929,6 @@ public final class LiveRoundAppModel: ObservableObject {
             self.isOpeningPrepCourse = false
             self.finishRoundPreparation(preparationToken)
             preparationFinished = true
-            // The foreground map release can cancel the durable full-course row while Start owns
-            // the connection. Hand the same selected course back to the queue after the token is
-            // cleared so the independent whole-course worker cannot remain stranded as queued.
-            self.startPrepCourseDownloadQueueIfNeeded(
-                userRequested: PrepCourseDownloadRecord.key(globalId: course.globalId, teeBox: teeBox)
-            )
             self.beginPrepEnrichmentIfNeeded()
             let tees = await self.loadCourseTees(globalId: course.globalId)
             guard generation == self.prepOpenGeneration, !tees.isEmpty else { return }
@@ -6794,8 +6851,14 @@ public final class LiveRoundAppModel: ObservableObject {
         // A queued button tap is remembered above, but no background request may begin while the
         // foreground Start window owns the connection. This is deliberately independent of the
         // row's provenance (ordinary, intent, or speculative).
-        guard roundPreparationToken == nil,
-              deferredOfflineCourseDownloadRevalidation == nil else { return }
+        guard roundPreparationToken == nil else {
+            recordPrepQueueDecision("blocked round-preparation-token")
+            return
+        }
+        guard deferredOfflineCourseDownloadRevalidation == nil else {
+            recordPrepQueueDecision("blocked fresh-entry-release")
+            return
+        }
         // A cold course can keep the worker for minutes; a job someone asked for does not wait behind
         // a guess, and a guess stops when its network no longer allows it.
         if let active = activePrepCourseDownloadID,
@@ -6803,17 +6866,31 @@ public final class LiveRoundAppModel: ObservableObject {
            nextPrepCourseDownloadJob().map({ !$0.isSpeculative }) == true || !speculativeJobsMayRun {
             pausePrepCourseDownload()
         }
-        guard prepCourseDownloadTask == nil, syncClient != nil,
-              prepCourseDownloads.contains(where: { $0.phase == .queued }) else { return }
+        guard prepCourseDownloadTask == nil else {
+            recordPrepQueueDecision("blocked worker-running")
+            return
+        }
+        guard syncClient != nil else {
+            recordPrepQueueDecision("blocked no-sync-client")
+            return
+        }
+        guard prepCourseDownloads.contains(where: { $0.phase == .queued }) else {
+            recordPrepQueueDecision("idle no-queued-row")
+            return
+        }
         // The worker's own dequeue rule: the whole queue is paused from the Start tap through the
         // first-hole release. A player tap during this interval only records intent and resumes
         // after the map package is visible.
         guard nextPrepCourseDownloadJob() != nil else {
-            recordUITestLatency("prep-queue.start-deferred fresh-entry-pending")
+            recordPrepQueueDecision(
+                "blocked no-eligible-job foreground=\(foregroundCourseRequestCount) "
+                    + "user=\(userRequestedPrepDownloadIDs.sorted().joined(separator: ","))"
+            )
             return
         }
         let generation = UUID()
         prepCourseDownloadGeneration = generation
+        recordPrepQueueDecision("started")
         prepCourseDownloadTask = Task { [weak self] in
             await self?.processPrepCourseDownloadQueue(generation: generation)
         }
@@ -7728,6 +7805,13 @@ public final class LiveRoundAppModel: ObservableObject {
 
     /// Opt-in acceptance timing only. Release/TestFlight compile this to a no-op; DEBUG writes stage
     /// names and counts (never payloads, player data or credentials) beside the simulator screenshots.
+    private func recordPrepQueueDecision(_ message: String) {
+        #if DEBUG
+        prepQueueLastDecisionForTesting = message
+        #endif
+        recordUITestLatency("prep-queue.\(message)")
+    }
+
     private func recordUITestLatency(_ message: String) {
         #if DEBUG
         UITestEventLatencyTrace.record(message)
