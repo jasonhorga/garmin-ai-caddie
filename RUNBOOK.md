@@ -294,8 +294,20 @@ gh workflow run ios-testflight-testers.yml --repo jasonhorga/garmin-ai-caddie --
 ## AgentHub 协作
 
 - 派活：`ah codex say caddie "<话>"`（或 `--file 卡.md`），打出 `TURN <id> 预计 HH:MM`。
-- 等：后台跑 `ah codex wait caddie`（最多 110 分钟）；退出 0 = 回话已打出；退出 3 = 还在跑，再起一次 wait；退出 1 = 异常，看输出和 `ah codex status caddie`。
-- 兜底：say 之后 `send_later` 2 小时，醒来先 `ah codex status caddie`（防 wait 被 /clear 或重启带走）。
-- 同一会话上一轮没完不能再 say；要并行用 `--lane <卡>`。
-- 推送之前必须 `ah scan <base>..<head>`；退出 1 不推。
+- 等：后台跑 `ah codex wait caddie`（最多 110 分钟）；`ah codex wait caddie --turn <id>` 等指定轮，`ah codex status caddie --turn <id>` 查指定轮；不传 `--turn` 取该 lane 最新轮。
+
+| wait 退出码 | 含义与处理 |
+|---|---|
+| 0 | 回话已打出；按卡复审 diff 和回话。 |
+| 1 | 本轮异常（失败或失联）；看输出和指定轮 status，查明原因再续派。 |
+| 2 | 项目未登记、参数或记录读取错误；修正登记、参数或记录后重跑。 |
+| 3 | 等待超时，仍在跑；对同一轮再起一次 wait。 |
+| 4 | 没有本轮记录；核对项目、lane、TURN，确认 say 成功。 |
+| 5 | 已完成但回话文件缺失或为空（或无法读取）；查登记 data_dir 下的 codex-turns/<id>.md 和 runner 日志，补齐回话再复审。 |
+
+- 兜底：say 之后 `send_later` 2 小时，醒来先查指定轮 status（防 wait 被 /clear 或重启带走）；wait 退出不影响 runner，可重新等同一轮。
+- 同一项目/lane 上一轮没完不能再 say；独立卡并行用 `ah codex say caddie --lane <卡> --file 卡.md`，wait/status 也带同一 `--lane <卡>`。
+- CI 等待设上限（正常耗时约 2 倍），超时先查原因，不盲目重试。
+- 推送之前在待推送仓库运行 `ah scan --project caddie <base>..<head>`；异地加 `--repo-dir <仓库>`，正文加 `--body-file <文件>`；仅退出 0 才推（1 = 命中，2 = 扫描无法完成）。
 - Codex 回话控制在一页以内。
+
