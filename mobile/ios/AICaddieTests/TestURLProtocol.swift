@@ -449,6 +449,22 @@ final class CapturingURLProtocolTests: XCTestCase {
         }
     }
 
+    /// J4.2: SyncClient's foreground-start session copies the supplied configuration.
+    /// Copying the default/shared configuration must retain the bundle's offline interception.
+    func testProductSpec42CopiedSharedConfigurationKeepsFixtureOffline() async throws {
+        ensureC156TopoBundleStub()
+        let session = URLSession(configuration: URLSession.shared.configuration)
+        defer { session.invalidateAndCancel() }
+        let url = try XCTUnwrap(URL(string: "https://copied-session.example.test/package"))
+        do {
+            _ = try await session.data(from: url)
+            XCTFail("a copied default session must preserve the offline failure")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .cannotFindHost)
+            XCTAssertEqual((error as NSError).userInfo["CaddieTestRoute"] as? String, "shared")
+        }
+    }
+
     /// J4.2: injecting a session keeps raster and bag responses with that test's handler.
     func testProductSpec42InjectedRasterAndBagKeepTheirOwnHandler() async throws {
         let body = Data("own fixture".utf8)

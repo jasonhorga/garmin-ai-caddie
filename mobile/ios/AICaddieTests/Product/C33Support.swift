@@ -19,7 +19,7 @@ final class C33URLProtocol: URLProtocol {
         if let handler { handler(self) } else { reply(404) }
     }
     override func stopLoading() {
-        guard request.url?.host?.hasSuffix(".example.test") == true else { return }
+        guard TestFixtureHosts.contains(request.url) else { return }
         Self.callbackLock.lock(); let handler = Self.onStop; Self.callbackLock.unlock()
         handler?(request)
     }

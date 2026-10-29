@@ -32,7 +32,7 @@ final class C33StartTests: XCTestCase {
     /// J4.2 test transport: injected topo must reach its handler while shared prefetch gets a PNG.
     func testProductSpec42InjectedTopoKeepsItsHandlerAlongsideSharedPrefetch() async throws {
         let url = try XCTUnwrap(URL(string:
-            "https://session-routing.example.test/topo.png?v=\(UUID().uuidString)"
+            "https://caddie.example/topo.png?v=\(UUID().uuidString)"
         ))
         let ownBody = Data("injected handler".utf8)
         C33URLProtocol.setHandlers(onStart: { proto in
@@ -41,7 +41,7 @@ final class C33StartTests: XCTestCase {
         })
         let session = C33URLProtocol.session()
         // Reproduce a store test registering its global capture after the bundle topo stub.
-        SharedNonTopoCapturingURLProtocol.registerForSharedSession(host: "session-routing.example.test")
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession(host: "caddie.example")
         defer {
             URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self)
             session.invalidateAndCancel()
