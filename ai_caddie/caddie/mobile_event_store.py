@@ -18,6 +18,7 @@ import re
 import stat
 import tempfile
 import threading
+import time
 from typing import Any, BinaryIO, Callable, Iterator
 
 from ai_caddie.llm.llm_providers import redact_secret_text
@@ -118,6 +119,19 @@ class _CommitMarker:
 _PREFIX_CACHE: OrderedDict[str, tuple[_CommitMarker, tuple[int, ...] | None, Any]] = OrderedDict()
 _PREFIX_CACHE_LOCK = threading.Lock()
 _PREFIX_CACHE_LIMIT = 128
+
+
+def _filesystem_clock_tick_ns() -> int:
+    try:
+        ticks_per_second = int(os.sysconf("SC_CLK_TCK"))
+    except (AttributeError, OSError, ValueError):
+        ticks_per_second = 1000
+    return max(1, 1_000_000_000 // max(1, ticks_per_second))
+
+
+_PREFIX_CACHE_TICK_NS = _filesystem_clock_tick_ns()
+_PREFIX_CACHE_MIN_SAFETY_WINDOW_NS = 20_000_000
+_PREFIX_CACHE_CLOCK: Callable[[], int] | None = None
 
 
 @dataclass(frozen=True)
@@ -693,21 +707,32 @@ class FileEventStore:
         self, round_id: str, *, handle: BinaryIO | None, rebuild: bool = False,
         index_sink: list[_RoundEventIndex] | None = None,
         sanitize: bool = True,
+        verify_prefix: bool = True,
     ) -> _StoredLog:
         marker = self._load_commit_marker()
         if marker is not None:
-            committed_length = self._visible_committed_length_unlocked(handle=handle)
+            committed_length = self._visible_committed_length_unlocked(
+                handle=handle, verify_prefix=verify_prefix
+            )
             marker = self._load_commit_marker()
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
         else:
             # Keep the legacy no-marker path fail-closed when a pending intent is left behind.
-            committed_length = self._visible_committed_length_unlocked(handle=handle)
+            committed_length = self._visible_committed_length_unlocked(
+                handle=handle, verify_prefix=verify_prefix
+            )
             marker = self._load_commit_marker()
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
         index = None if rebuild else self._load_round_index_unlocked(
             committed_length, committed_prefix,
         )
         if index is None:
+            if marker is not None:
+                # Rebuilding a sidecar is already a full-log operation. Do not use a freshly
+                # cached append digest as its integrity proof; verify the committed bytes again.
+                self._validate_commit_marker(
+                    marker, committed_length, handle=handle, use_cache=False,
+                )
             rebuild = True
             index = self._round_index_from_log_unlocked(committed_length, handle=handle)
             try:
@@ -753,6 +778,8 @@ class FileEventStore:
                 return False
             # The light scan skips payload sanitising, not integrity: verify the committed prefix
             # (sha256, v1 rows, pending intent) before labelling a rebuilt index as trusted.
+            if marker is not None:
+                self._validate_commit_marker(marker, committed_length, use_cache=False)
             rounds = self._round_index_from_log_unlocked(committed_length)
             self._write_round_index_unlocked(rounds, committed_length, committed_prefix)
             return True
@@ -1276,7 +1303,29 @@ class FileEventStore:
                 raise ValueError("event_commit_store_corrupt")
         return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
-    def _remember_prefix(self, marker: _CommitMarker, signature: tuple[int, ...] | None, digest: Any) -> None:
+    @staticmethod
+    def _prefix_cache_now_ns() -> int:
+        return (_PREFIX_CACHE_CLOCK or time.time_ns)()
+
+    def _prefix_cache_signature_is_stable(self, signature: tuple[int, ...] | None) -> bool:
+        if signature is None:
+            return True
+        safety_window_ns = max(2 * _PREFIX_CACHE_TICK_NS, _PREFIX_CACHE_MIN_SAFETY_WINDOW_NS)
+        cutoff = self._prefix_cache_now_ns() - safety_window_ns
+        # The last two fields are mtime_ns and ctime_ns.  A recently touched file is racy:
+        # coarse filesystem timestamps may still equal the timestamp observed before an edit.
+        return all(timestamp < cutoff for timestamp in signature[-2:])
+
+    def _remember_prefix(
+        self,
+        marker: _CommitMarker,
+        signature: tuple[int, ...] | None,
+        digest: Any,
+        *,
+        allow_racy: bool = False,
+    ) -> None:
+        if not allow_racy and not self._prefix_cache_signature_is_stable(signature):
+            return
         key = str(self.log.resolve())
         with _PREFIX_CACHE_LOCK:
             _PREFIX_CACHE[key] = (marker, signature, digest.copy())
@@ -1290,11 +1339,15 @@ class FileEventStore:
         actual_size: int,
         *,
         handle: BinaryIO | None = None,
+        use_cache: bool = True,
     ) -> Any:
         """Return an extendable SHA256 state after verifying the marker and file identity.
 
         Only an unchanged device/inode/size/mtime/ctime tuple can reuse a prior byte validation.
-        Same-size edits (including restored mtime), replacements and external appends all miss.
+        Normal validation entries are cached only after both file timestamps are outside a short
+        safety window; the append writer is the deliberate exception because it just fsynced the
+        exact bytes represented by its digest. A same-tick same-size edit can therefore be noticed
+        at the next forced rebuild or process restart without making every append re-read history.
         Pending intents and suffix recovery still establish their own durability barriers.
         """
         if (
@@ -1303,10 +1356,11 @@ class FileEventStore:
         ):
             raise ValueError("event_commit_store_corrupt")
         signature = self._log_signature(handle)
-        with _PREFIX_CACHE_LOCK:
-            cached = _PREFIX_CACHE.get(str(self.log.resolve()))
-            if cached is not None and cached[0] == marker and cached[1] == signature:
-                return cached[2].copy()
+        if use_cache:
+            with _PREFIX_CACHE_LOCK:
+                cached = _PREFIX_CACHE.get(str(self.log.resolve()))
+                if cached is not None and cached[0] == marker and cached[1] == signature:
+                    return cached[2].copy()
         prefix = self._read_log_range(0, marker.committed_byte_length, handle=handle)
         if marker.committed_byte_length and not prefix.endswith(b"\n"):
             raise ValueError("event_commit_store_corrupt")
@@ -1385,7 +1439,12 @@ class FileEventStore:
         )
         self._validate_storage_rows(tail, expected_event_count=pending.event_count)
 
-    def _visible_committed_length_unlocked(self, *, handle: BinaryIO | None = None) -> int:
+    def _visible_committed_length_unlocked(
+        self,
+        *,
+        handle: BinaryIO | None = None,
+        verify_prefix: bool = True,
+    ) -> int:
         actual_size = self._event_log_size()
         committed = self._load_commit_marker()
         pending = self._load_pending_commit()
@@ -1393,7 +1452,10 @@ class FileEventStore:
             if pending is not None:
                 raise ValueError("event_commit_store_corrupt")
             return actual_size
-        self._validate_commit_marker(committed, actual_size, handle=handle)
+        if committed.committed_byte_length > actual_size:
+            raise ValueError("event_commit_store_corrupt")
+        if verify_prefix:
+            self._validate_commit_marker(committed, actual_size, handle=handle)
         if pending is None:
             self._validate_untracked_suffix(
                 committed.committed_byte_length,
@@ -1546,7 +1608,9 @@ class FileEventStore:
                     return []
                 try:
                     with self.log.open("rb") as handle:
-                        stored_log = self._indexed_round_log_unlocked(round_key, handle=handle)
+                        stored_log = self._indexed_round_log_unlocked(
+                            round_key, handle=handle, verify_prefix=True
+                        )
                 except FileNotFoundError:
                     return []
                 return [
@@ -1574,7 +1638,9 @@ class FileEventStore:
             else:
                 try:
                     with self.log.open("rb") as handle:
-                        stored_log = self._indexed_round_log_unlocked(round_key, handle=handle)
+                        stored_log = self._indexed_round_log_unlocked(
+                            round_key, handle=handle, verify_prefix=True
+                        )
                 except FileNotFoundError:
                     stored_log = _StoredLog((), 0)
             rows = [
@@ -1604,7 +1670,7 @@ class FileEventStore:
                 try:
                     with self.log.open("rb") as handle:
                         snapshot = self._indexed_round_log_unlocked(
-                            round_key, handle=handle, sanitize=False
+                            round_key, handle=handle, sanitize=False, verify_prefix=True
                         )
                 except FileNotFoundError:
                     snapshot = _StoredLog((), 0)
@@ -2115,14 +2181,11 @@ class FileEventStore:
                     }
                     self._write_reservations(reservations)
 
-                self._append_index = index_sink[0] if index_sink else None
-                try:
-                    if event_log_handle is None:
-                        self._append_rows(rows_to_append)
-                    else:
-                        self._append_rows(rows_to_append, handle=event_log_handle)
-                finally:
-                    self._append_index = None
+                append_index = index_sink[0] if index_sink else None
+                if event_log_handle is None:
+                    self._append_rows(rows_to_append, index=append_index)
+                else:
+                    self._append_rows(rows_to_append, handle=event_log_handle, index=append_index)
                 return AppendBatchResult(tuple(receipts), high_water)
 
     def _is_pristine(self) -> bool:
@@ -2146,6 +2209,7 @@ class FileEventStore:
         rows: list[dict[str, Any]],
         *,
         handle: BinaryIO | None = None,
+        index: _RoundEventIndex | None = None,
     ) -> None:
         if not rows:
             return
@@ -2198,7 +2262,11 @@ class FileEventStore:
         self._clear_pending_commit()
         if written_signature != self._log_signature(handle):
             raise ValueError("event_commit_store_corrupt")
-        self._remember_prefix(target_marker, written_signature, target_digest)
+        # The writer has just fsynced these exact bytes, so it may seed the cache immediately even
+        # while filesystem timestamps are inside the racy window. A same-tick same-size edit is
+        # intentionally caught by the next forced rebuild/restart rather than making every append
+        # re-read the full committed prefix.
+        self._remember_prefix(target_marker, written_signature, target_digest, allow_racy=True)
         mark("event_write")
         try:
             self._record_round_index_after_append(
@@ -2207,7 +2275,7 @@ class FileEventStore:
                 committed_length=target_marker.committed_byte_length,
                 base_prefix_sha256=base_marker.committed_prefix_sha256,
                 committed_prefix_sha256=target_marker.committed_prefix_sha256,
-                index=getattr(self, "_append_index", None),
+                index=index,
             )
         except Exception:
             # The event log is authoritative. A failed auxiliary index is rebuilt lazily by the
@@ -2337,6 +2405,10 @@ class FileEventStore:
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
         index = self._load_round_index_unlocked(committed_length, committed_prefix)
         if index is None:
+            if marker is not None:
+                # A missing sidecar must not turn an unchecked committed prefix into a
+                # trusted high-water mark; validate once before rebuilding it.
+                self._validate_commit_marker(marker, committed_length, use_cache=False)
             index = self._round_index_from_log_unlocked(committed_length)
             try:
                 self._write_round_index_unlocked(index, committed_length, committed_prefix)

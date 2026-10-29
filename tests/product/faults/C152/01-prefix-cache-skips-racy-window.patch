@@ -1,0 +1,11 @@
+--- a/ai_caddie/caddie/mobile_event_store.py
++++ b/ai_caddie/caddie/mobile_event_store.py
+@@ -1324,8 +1324,6 @@
+         *,
+         allow_racy: bool = False,
+     ) -> None:
+-        if not allow_racy and not self._prefix_cache_signature_is_stable(signature):
+-            return
+         key = str(self.log.resolve())
+         with _PREFIX_CACHE_LOCK:
+             _PREFIX_CACHE[key] = (marker, signature, digest.copy())

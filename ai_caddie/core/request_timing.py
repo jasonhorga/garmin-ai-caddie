@@ -99,8 +99,16 @@ def timing_path(day: date, *, client: bool = False, root: Path | str | None = No
     return base / "timing" / name
 
 
-def template_path(path: str) -> str:
-    """Strip query data and replace resource identifiers with ``{id}``."""
+def template_path(path: str, *, route_path: str | None = None) -> str:
+    """Return a privacy-safe path using a matched FastAPI route when available.
+
+    Server request timing passes ``route_path`` from FastAPI's matched route; client timing
+    resolves the client path against the same route table first. Either caller passes the fixed
+    ``<unmatched>`` marker when no route matches, so arbitrary path segments (opaque player or
+    round ids) are never recorded. Without ``route_path`` the numeric identifier fallback applies.
+    """
+    if route_path is not None:
+        return redact_url(route_path).split("?", 1)[0].split("#", 1)[0] or "/"
     clean = redact_url(path).split("?", 1)[0].split("#", 1)[0] or "/"
     clean = _MOBILE_ROUND_PATH.sub(r"\1{id}", clean)
     segments = clean.split("/")
@@ -259,17 +267,18 @@ class RequestTiming:
         values.append(f"total;dur={self.total_ms:.1f}")
         return ", ".join(values)
 
-    def finish(self, *, method: str, path: str, status: int) -> None:
+    def finish(self, *, method: str, path: str, status: int, route_path: str | None = None) -> None:
         marks = self.marks.copy()
         total_ms = self.total_ms
         safe_path = redact_url(path)
+        templated_path = template_path(safe_path, route_path=route_path) if route_path is not None else "<unmatched>"
         record: dict[str, Any] | None = None
         try:
             record = {
                 "ts": _now().isoformat(timespec="milliseconds"),
                 "request_id": self.request_id,
                 "method": str(method).upper(),
-                "path": template_path(safe_path),
+                "path": templated_path,
                 "status": int(status),
                 "total_ms": round(total_ms, 1),
                 "stages": {key: round(value, 1) for key, value in marks.items()},
@@ -280,7 +289,7 @@ class RequestTiming:
             "request_timing request_id=%s method=%s path=%s status=%s total_ms=%.1f stages=%s",
             self.request_id,
             method,
-            safe_path,
+            templated_path,
             status,
             total_ms,
             ";".join(f"{key}:{value:.1f}" for key, value in marks.items()),

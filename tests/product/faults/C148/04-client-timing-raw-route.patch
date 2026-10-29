@@ -1,0 +1,9 @@
+--- a/server_v2/timing_api.py
++++ b/server_v2/timing_api.py
+@@ -96,5 +96,5 @@
+     try:
+         templated_path = request_timing.template_path(
+             path,
+-            route_path=_client_route_template(path) or "<unmatched>",
++            route_path=None,
+         )

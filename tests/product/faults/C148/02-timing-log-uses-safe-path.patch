@@ -1,0 +1,11 @@
+--- a/ai_caddie/core/request_timing.py
++++ b/ai_caddie/core/request_timing.py
+@@ -288,7 +288,7 @@
+             "request_timing request_id=%s method=%s path=%s status=%s total_ms=%.1f stages=%s",
+             self.request_id,
+             method,
+-            templated_path,
++            safe_path,
+             status,
+             total_ms,
+             ";".join(f"{key}:{value:.1f}" for key, value in marks.items()),

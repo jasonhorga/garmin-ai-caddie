@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from server_v2.main import app
+import ai_caddie.caddie.mobile_event_store as mobile_event_store
 from ai_caddie.caddie.mobile_event_store import FileEventStore
 from tests.event_log_io import count_log_reads
 
@@ -271,6 +272,8 @@ class EventAppendTests(unittest.TestCase):
         }}
         log.write_bytes((json.dumps(unrelated, sort_keys=True) + "\n").encode() * 2600)
         self.assertGreaterEqual(log.stat().st_size, 7_000_000)
+        # Use the real clock: the append writer itself knows the digest it just persisted and must
+        # be able to seed the prefix cache even while the filesystem timestamp is still fresh.
         FileEventStore(self.root).append_batch(
             ROUND_A, [{**self._event("seed"), "hole": 1}], request_key="seed",
             validate_append=require_possible_appended_scores,
@@ -397,7 +400,7 @@ FileEventStore(sys.argv[1]).append_batch(sys.argv[2], [json.loads(sys.argv[3])],
                     for line in path.read_text().splitlines()]
             row = next(row for row in rows if row["request_id"] == "append-timing-test")
             self.assertEqual((row["method"], row["path"], row["status"]),
-                             ("POST", "/api/v2/mobile/rounds/{id}/events", 200))
+                             ("POST", "/api/v2/mobile/rounds/{round_id}/events", 200))
             self.assertTrue(all("timing-round" not in json.dumps(item) for item in rows))
             for stage in ("event_materialization_lock_wait", "event_lock_wait", "event_validate",
                           "event_parse", "event_write", "event_index"):
