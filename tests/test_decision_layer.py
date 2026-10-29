@@ -849,8 +849,8 @@ class DecisionLayerTests(unittest.TestCase):
         """The factual tee CoursePrep chain stays complete and never degrades to ``3H -> 3H``.
 
         The selected tee yardage is a straight/tee reading while the CoursePrep route follows the
-        playable centreline. At the opening tee, the installed route is therefore the authority for
-        the full chain, including its final scoring wedge.
+        playable centreline. Declare that reading as fallback and include the measured route,
+        which is the authority for the full chain including its final scoring wedge.
         """
         context = analysis_fixture(stock_risk=1)
         context.update({
@@ -859,6 +859,8 @@ class DecisionLayerTests(unittest.TestCase):
             "localHole": 1,
             "par": 4,
             "distanceToPin_m": 344.7,
+            "distanceToPinSource": "fallback",
+            "routeEvidence": {"routeLocal":[[0,0,0],[0,396,396]],"routeLength_m":396},
         })
         context["clubProfiles"] = {
             "1W": {

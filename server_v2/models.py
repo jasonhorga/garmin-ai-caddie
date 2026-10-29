@@ -882,7 +882,19 @@ class HoleMapResponse(BaseModel):
 
 class CaddieDecisionRequest(BaseModel):
     shotType: CaddieShotType
-    context: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Open decision facts; distanceToPinSource optionally identifies distance provenance.",
+        json_schema_extra={"properties": {"distanceToPinSource": {
+            "type": ["string", "null"],
+            "examples": ["manual", "map_target", "gps_auto", "fallback"],
+            "description": (
+                "Omitted/null, manual, map_target: trust a valid distanceToPin_m. "
+                "gps_auto, fallback or an unknown value: prefer a valid remaining route, "
+                "otherwise use distanceToPin_m. Without a valid number use available route geometry."
+            ),
+        }}},
+    )
     includeExplanation: bool = True
 
     @field_validator("context")

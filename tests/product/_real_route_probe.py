@@ -104,6 +104,8 @@ def run(root: Path, *, warm_requests: int = 1, mode: str = "fixture", position: 
         from ai_caddie.caddie.decision import _sequence_distance
         return {"rootMatched":data.ROOT == isolated,
                 "planningDistance_m":_sequence_distance(hydrated),
+                "distanceToPinSource":hydrated.get("distanceToPinSource"),
+                "suppliedDistance_m":context.get("distanceToPin_m"),
                 "coverage":geometry_coverage_for_hole(31834,2,require_current_authority=True),
                 "holeRemaining_m":hydrated.get("holeRemaining_m"),
                 "carries_m":[o["carry_m"] for o in plan["options"]],

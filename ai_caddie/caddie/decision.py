@@ -829,23 +829,25 @@ def _route_distance(context: dict[str, Any]) -> float | None:
     return None
 
 
+def _planning_distance(context: dict[str, Any]) -> float | None:
+    """Trust legacy/manual numbers; declared automatic/fallback inputs use route geometry."""
+    supplied = _float(context.get("distanceToPin_m"), math.nan)
+    has_supplied = math.isfinite(supplied) and 0 < supplied <= MAX_PIN_DISTANCE_M
+    source = context.get("distanceToPinSource")
+    if source in (None, "manual", "map_target") and has_supplied:
+        return supplied
+    route_m = _route_distance(context)
+    if route_m is not None:
+        return route_m
+    return supplied if has_supplied else None
+
+
 def _sequence_distance(context: dict[str, Any]) -> float:
-    # iOS sends a separate coordinate only for a user-selected flag/map target.
-    # Its supplied distance is about that target, not the hole centerline.
-    if _coordinate(context.get("targetLocation")) is not None:
-        supplied = _float(context.get("distanceToPin_m"), math.nan)
-        if math.isfinite(supplied) and 0 < supplied <= MAX_PIN_DISTANCE_M:
-            return supplied
-    route = context.get("routeEvidence")
-    if isinstance(route, dict) and route.get("routeLocal"):
-        length = _float(route.get("routeLength_m"))
-        if math.isfinite(length) and 0 <= length <= MAX_PIN_DISTANCE_M:
-            return length
-    # An installed CoursePrep route is the factual opening plan while the request is still a tee
-    # request.  GPS-derived ``holeRemaining_m`` can be tens of metres short because the fix is on
-    # the tee apron or the selected tee/centerline differs from the Garmin route; letting it replace
-    # the installed route drops the final scoring leg (for example ``1W -> 3H -> 58`` becomes only
-    # ``1W -> 3H``).  Once the player is in an approach/recovery context, the live distance wins.
+    distance = _planning_distance(context)
+    if distance is not None:
+        return distance
+    # With neither a supplied distance nor a usable polyline, keep the installed opening
+    # plan before the older remaining-distance aliases and hole-yardage fallbacks.
     shot_type = str(context.get("shotType") or context.get("shot_type") or "tee").strip().lower()
     canonical = _float(context.get("canonicalPlanRouteLength_m"), 0.0)
     has_canonical_plan = isinstance(context.get("canonicalShotPlan") or context.get("canonicalPlan"), list)
@@ -5233,10 +5235,8 @@ def _with_option_contract(
 
 
 def _pin_distance(context: dict[str, Any]) -> float:
-    route = context.get("routeEvidence")
-    if isinstance(route, dict) and route.get("routeLocal"):
-        return max(1.0, _sequence_distance(context))
-    return max(1.0, _float(context.get("distanceToPin_m"), 0.0))
+    distance = _planning_distance(context)
+    return max(1.0, distance) if distance is not None else 1.0
 
 
 def _has_pin_distance(context: dict[str, Any]) -> bool:
@@ -5515,6 +5515,7 @@ def _shot_context(analysis: dict[str, Any], shot_type: str) -> dict[str, Any]:
         "localHole": analysis.get("localHole"),
         "shotType": shot_type,
         "distanceToPin_m": distance_to_pin_m,
+        **({"distanceToPinSource":analysis["distanceToPinSource"]} if "distanceToPinSource" in analysis else {}),
         "currentLocation": analysis.get("currentLocation"),
         "targetLocation": analysis.get("targetLocation"),
         "shotBearingDeg": analysis.get("shotBearingDeg"),

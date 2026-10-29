@@ -309,6 +309,7 @@ class PolylineDecisionTests(HTTPFixture, unittest.TestCase):
                 seed, plan = self.position_decision((100,200),70,**extra)
                 self.assertEqual(seed["holeRemaining_m"],100)
                 self.assertEqual(_sequence_distance(seed),expected)
+                self.assertEqual(plan["context"].get("distanceToPinSource"),source)
                 self.assertEqual([o["carry_m"] for o in plan["options"]],
                                  [expected-10,expected,expected+8])
 
@@ -473,6 +474,14 @@ class ReleaseGeometryDecisionTests(unittest.TestCase):
                 self.assertEqual(result["holeRemaining_m"],20)
                 self.assertEqual(result["carries_m"],[10,20,28])
 
+    def test_j5_11_real_tee_legacy_number_retains_its_declared_distance(self):
+        # The source-less 284.3 m reading remains a legacy straight distance by contract.
+        result = self.probe_position(None,284.3)
+        print("REAL_LEGACY_TEE_PROBE=" + json.dumps(result))
+        self.assertEqual(result["planningDistance_m"],284.3)
+        self.assertEqual(result["routeLength_m"],320.9)
+        self.assertEqual([(z["carryToFront_m"],z["carryToClear_m"]) for z in result["water"]],[(50.5,84.2)])
+
     def test_j5_11_real_dogleg_finishes_on_selected_green(self):
         # 31834/2 investigation: 320.9 m route, water 50.5–84.2 m; synthetic bag
         # Driver197 + 8I121 = station318, inside the factual 306.2–320.9 m green window.
@@ -481,6 +490,7 @@ class ReleaseGeometryDecisionTests(unittest.TestCase):
             input=json.dumps({"root":str(root),"warm_requests":1,"distance_source":"gps_auto"}), capture_output=True, text=True, timeout=60)
         self.assertEqual(process.returncode, 0, process.stderr)
         result = json.loads(process.stdout)
+        print("REAL_AUTO_TEE_PROBE=" + json.dumps(result))
         self.assertTrue(result["chains"], "the real dogleg must not be rejected by its diagonal lake shortcut")
         self.assertTrue(result["rootMatched"])
         self.assertEqual(result["coverage"]["authorityObservation"], "current")
