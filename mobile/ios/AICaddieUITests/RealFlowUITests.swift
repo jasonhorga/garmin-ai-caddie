@@ -368,7 +368,7 @@ final class RealFlowUITests: XCTestCase {
             settle(6); save("03-history-list"); dump("03-history-list")
             // The low-value per-hole “规律” section was deliberately removed from history review.
             // Continue with the real round instead of requiring a chip from that retired UI.
-            let enteredRoundReview = openEvidenceRound(
+            let reviewRoute = openEvidenceRound(
                 roundRef: reviewEvidence.roundRef,
                 courseName: reviewEvidence.courseName,
                 date: reviewEvidence.date,
@@ -376,11 +376,11 @@ final class RealFlowUITests: XCTestCase {
             ) {
                 save("03b-history-real-round"); dump("03b-history-real-round")
             }
-            XCTAssertTrue(
-                enteredRoundReview,
+            XCTAssertNotNil(
+                reviewRoute,
                 "review evidence must open the dynamically verified spatially separated Garmin round"
             )
-            if enteredRoundReview {
+            if let reviewRoute {
                 // The history response can finish while the navigation transition is still committing.
                 // Leave one quiet window before XCUITest starts taking repeated accessibility snapshots;
                 // otherwise those snapshots can starve the already-loaded SwiftUI scorecard update.
@@ -392,19 +392,30 @@ final class RealFlowUITests: XCTestCase {
                     reviewNavigation.waitForExistence(timeout: 5),
                     "the Garmin-style review must expose its compact navigation title"
                 )
-                // A normally visible archive row is pushed from “全部球局”. If the verified
-                // Garmin evidence row is outside the bounded archive scan, openEvidenceRound uses
-                // the DEBUG-only seed whose parent is the compatibility “球场回顾” screen. Both
-                // routes exercise the same production RoundReviewView, so verify the actual back
-                // control and constrain it to those two legitimate parents instead of guessing
-                // which evidence route the current owner history will require.
+                // Archive rows return to “全部球局”. The DEBUG seed opens review above home,
+                // whose greeting (and system back-button title) varies. Prove that route by
+                // going back to a stable home element, then reopen the same evidence round.
                 let historyBackButton = app.navigationBars["单场复盘"].buttons.firstMatch
                 XCTAssertTrue(historyBackButton.waitForExistence(timeout: 5))
-                XCTAssertTrue(
-                    ["全部球局", "球场回顾"].contains(historyBackButton.label),
-                    "round review must return to the archive or the bounded evidence fallback"
-                )
                 XCTAssertTrue(UITapHelpers.isSafelyHittable(historyBackButton, in: app))
+                switch reviewRoute {
+                case .archive:
+                    XCTAssertEqual(historyBackButton.label, "全部球局")
+                case .debugHome:
+                    historyBackButton.tap()
+                    let homeLastRound = app.buttons.matching(identifier: "home-last-round").firstMatch
+                    XCTAssertTrue(
+                        homeLastRound.waitForExistence(timeout: 12),
+                        "DEBUG review Back must return to the home last-round entry"
+                    )
+                    let reopenedRoute = openEvidenceRound(
+                        roundRef: reviewEvidence.roundRef,
+                        courseName: reviewEvidence.courseName,
+                        date: nil,
+                        score: nil
+                    )
+                    XCTAssertEqual(reopenedRoute, .debugHome, "reopen the same DEBUG evidence before hole checks")
+                }
                 let holeRow = app.buttons["round-review-hole-\(reviewEvidence.hole)"]
                 let loadedRound = holeRow.waitForExistence(timeout: 60)
                 XCTAssertTrue(loadedRound, "the real round must load its verified evidence hole")
@@ -561,7 +572,7 @@ final class RealFlowUITests: XCTestCase {
             }
         }
 
-        // ---- Section 3: last-round review shortcut from home ----
+        // ---- J5.3 / J2.8: last-round review shortcut from home ----
         launchFresh()
         let lastRound = app.buttons.matching(identifier: "home-last-round").firstMatch
         let tappedLastRound = lastRound.waitForExistence(timeout: 8) && UITapHelpers.isSafelyHittable(lastRound, in: app)
@@ -2047,6 +2058,11 @@ final class RealFlowUITests: XCTestCase {
         return false
     }
 
+    private enum EvidenceRoundRoute: Equatable {
+        case archive
+        case debugHome
+    }
+
     /// Prefer the normal visible history row. When the five newest owner rows are CI-polluted rounds,
     /// relaunch through a DEBUG-only navigation seed so visual evidence still renders this unchanged
     /// production review surface with a known real Garmin round instead of fabricating shot geometry.
@@ -2057,7 +2073,7 @@ final class RealFlowUITests: XCTestCase {
         date: String?,
         score: Int?,
         beforeOpen: () -> Void = {}
-    ) -> Bool {
+    ) -> EvidenceRoundRoute? {
         if let date, let score {
             let row = app.buttons.matching(
                 NSPredicate(
@@ -2070,7 +2086,7 @@ final class RealFlowUITests: XCTestCase {
             if row.waitForExistence(timeout: 3), scrollTo(row, maxSwipes: 12) {
                 beforeOpen()
                 row.tap()
-                return app.navigationBars["单场复盘"].waitForExistence(timeout: 12)
+                return app.navigationBars["单场复盘"].waitForExistence(timeout: 12) ? .archive : nil
             }
         }
 
@@ -2080,7 +2096,7 @@ final class RealFlowUITests: XCTestCase {
         launchFresh()
         app.launchEnvironment.removeValue(forKey: "UITEST_REVIEW_ROUND_REF")
         app.launchEnvironment.removeValue(forKey: "UITEST_REVIEW_COURSE_NAME")
-        return app.navigationBars["单场复盘"].waitForExistence(timeout: 12)
+        return app.navigationBars["单场复盘"].waitForExistence(timeout: 12) ? .debugHome : nil
     }
 
     private func resolveReviewEvidence() throws -> RealEvidenceRound {

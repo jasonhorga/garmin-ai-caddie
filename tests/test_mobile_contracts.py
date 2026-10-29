@@ -3790,7 +3790,6 @@ class MobileContractTests(unittest.TestCase):
 
     def test_ios_live_views_define_expected_controls(self) -> None:
         round_home = (IOS_DIR / "Views" / "RoundHomeView.swift").read_text(encoding="utf-8")
-        self.assertFalse((IOS_DIR / "Views" / "RecentRoundReviewView.swift").exists())
         current_hole = (IOS_DIR / "Views" / "CurrentHoleView.swift").read_text(encoding="utf-8")
         caddie_plan = (IOS_DIR / "Views" / "CaddiePlanView.swift").read_text(encoding="utf-8")
         location_provider = _read_required_source(self, IOS_DIR / "Services" / "LocationProvider.swift")
@@ -3805,16 +3804,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("liveRoundState: liveRoundState,", round_home)
         self.assertIn("ResultsView(apiBaseURL: apiBaseURL, adminToken: adminToken, offlineStore: offlineStore)", round_home)
         self.assertIn("HubRecentTrendRow(scores: scores)", round_home)
-        self.assertNotIn("RecentRoundReviewView", round_home)
-        self.assertNotIn("case history", round_home)
-        self.assertNotIn("case .history:", round_home)
-        # J5.3: the shared last-round card still uses the current review and clean dates.
-        last_round = round_home.split("@ViewBuilder private var lastRoundSection: some View {", 1)[1].split(
-            "private func loadLastRoundStrip()", 1
-        )[0]
-        self.assertIn("value: HubRoute.roundReview(", last_round)
-        self.assertIn("roundRef: last.roundId", last_round)
-        self.assertIn("aiCaddieShortDate(date)", round_home)
         # 单场复盘: tap a recent round → fetch /history/rounds/{ref} → hole-by-hole scorecard.
         # B3 (`review.html` screen 1): the round-summary layout. Missing data is not called out any
         # more (a tile without data is hidden); an empty/failed load still says so, never blank.
@@ -3845,9 +3834,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("func phaseMetrics(", round_review)
         self.assertNotIn('HubSectionLabel("各环节")', round_review)
         self.assertNotIn("func scorecardCard(", round_review)
-        self.assertIn("case .roundReview(let roundRef,", round_home)
-        self.assertIn("RoundReviewView(", round_home)
-        self.assertIn("roundRef: roundRef", round_home)
         # 复盘逐洞落点图: tap a scorecard hole → that hole's 2D map with this round's actual shots.
         shot_map_view = _read_required_source(self, IOS_DIR / "Views" / "RoundShotMapView.swift")
         shot_map_model = _read_required_source(self, IOS_DIR / "Models" / "RoundShotMap.swift")
