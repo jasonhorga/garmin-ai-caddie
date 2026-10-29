@@ -312,7 +312,14 @@ async def request_timing_middleware(request: Request, call_next):
     timing.mark("response")
     response.headers["X-AI-Caddie-Request-ID"] = timing.request_id
     response.headers["Server-Timing"] = timing.server_timing()
-    timing.finish(method=request.method, path=request.url.path, status=response.status_code)
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", None) or "<unmatched>"
+    timing.finish(
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+        route_path=route_path,
+    )
     return response
 
 

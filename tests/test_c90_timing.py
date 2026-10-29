@@ -27,15 +27,63 @@ class C90TimingPersistenceTests(unittest.TestCase):
             ):
                 timing = request_timing.RequestTiming("phone:package-1")
                 timing.mark("facts package")
-                timing.finish(method="GET", path="/api/v2/mobile/courses/3881/package?render=false", status=200)
+                timing.finish(
+                    method="GET",
+                    path="/api/v2/mobile/courses/3881/package?render=false",
+                    status=200,
+                    route_path="/api/v2/mobile/courses/{course_id}/package",
+                )
                 request_timing.flush_timing_writes()
             rows = [json.loads(line) for line in (root / "timing/2026-10-27.jsonl").read_text().splitlines()]
             self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0]["path"], "/api/v2/mobile/courses/{id}/package")
+            self.assertEqual(rows[0]["path"], "/api/v2/mobile/courses/{course_id}/package")
             self.assertEqual(rows[0]["request_id"], "phone:package-1")
             self.assertEqual(rows[0]["status"], 200)
             self.assertIn("facts_package", rows[0]["stages"])
             self.assertTrue(rows[0]["ts"].startswith("2026-10-27T16:00:00.000+08:00"))
+
+    def test_finish_logs_the_route_template_without_resource_ids(self) -> None:
+        timing = request_timing.RequestTiming("timing-log")
+        with self.assertLogs("server_v2.timing", level="INFO") as captured:
+            timing.finish(
+                method="GET",
+                path="/api/v2/history/rounds/secret-round",
+                status=200,
+                route_path="/api/v2/history/rounds/{round_ref}",
+            )
+        output = "\n".join(captured.output)
+        self.assertIn("path=/api/v2/history/rounds/{round_ref}", output)
+        self.assertNotIn("secret-round", output)
+
+    def test_server_timing_uses_fastapi_route_templates_for_non_numeric_ids_and_404(self) -> None:
+        with tempfile.TemporaryDirectory() as raw, patch.object(request_timing, "TIMING_ROOT", Path(raw)), patch.object(
+            request_timing, "TIMING_CLOCK", lambda: datetime(2026, 10, 27, 16, 0, tzinfo=request_timing._BEIJING)
+        ):
+            client = TestClient(app)
+            requests = (
+                ("numeric-round", "/api/v2/history/rounds/900001"),
+                ("text-round", "/api/v2/history/rounds/round-secret"),
+                ("player", "/api/v2/players/player-secret/clubs/bag"),
+                ("unmatched", "/missing/round/secret"),
+            )
+            responses = [
+                client.get(path, headers={"X-AI-Caddie-Request-ID": request_id})
+                for request_id, path in requests
+            ]
+            request_timing.flush_timing_writes()
+            self.assertEqual(responses[-1].status_code, 404)
+            rows = [
+                json.loads(line)
+                for line in (Path(raw) / "timing/2026-10-27.jsonl").read_text().splitlines()
+            ]
+            by_request = {row["request_id"]: row for row in rows}
+            self.assertEqual(by_request["numeric-round"]["path"], "/api/v2/history/rounds/{round_ref}")
+            self.assertEqual(by_request["text-round"]["path"], "/api/v2/history/rounds/{round_ref}")
+            self.assertEqual(by_request["player"]["path"], "/api/v2/players/{player_id}/clubs/bag")
+            self.assertEqual(by_request["unmatched"]["path"], "<unmatched>")
+            serialized = json.dumps(rows, ensure_ascii=False)
+            self.assertNotIn("round-secret", serialized)
+            self.assertNotIn("player-secret", serialized)
 
     def test_startup_cleanup_keeps_fourteen_beijing_dates(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

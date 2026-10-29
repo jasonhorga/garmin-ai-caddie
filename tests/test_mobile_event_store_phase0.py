@@ -15,6 +15,7 @@ import time
 import unittest
 from unittest import mock
 
+import ai_caddie.caddie.mobile_event_store as mobile_event_store
 from ai_caddie.caddie.mobile_event_store import (
     FileEventStore,
     _CommitMarker,
@@ -386,6 +387,43 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
                 call()
         self.assertFalse(index.exists(), "a corrupt log must not produce a trusted sidecar")
 
+    def test_prefix_cache_rechecks_recent_timestamps_but_reuses_stable_signatures(self) -> None:
+        """J5.9: the prefix trust cache observes a racy-index safety window."""
+        store = FileEventStore(self.root)
+        store.append_batch(ROUND_A, [{**_event("cache-window"), "hole": 1}], request_key="cache-window")
+        marker = store._load_commit_marker()
+        signature = store._log_signature()
+        self.assertIsNotNone(marker)
+        self.assertIsNotNone(signature)
+        assert marker is not None
+        assert signature is not None
+        digest = hashlib.sha256(store.log.read_bytes())
+        timestamp = max(signature[-2:])
+        window = max(2 * mobile_event_store._PREFIX_CACHE_TICK_NS,
+                     mobile_event_store._PREFIX_CACHE_MIN_SAFETY_WINDOW_NS)
+
+        with mobile_event_store._PREFIX_CACHE_LOCK:
+            mobile_event_store._PREFIX_CACHE.pop(str(store.log.resolve()), None)
+        with mock.patch.object(mobile_event_store, "_PREFIX_CACHE_CLOCK", lambda: timestamp + window - 1):
+            store._remember_prefix(marker, signature, digest)
+            reads: list[tuple[int, int]] = []
+            original_read = store._read_log_range
+
+            def record_read(start: int, end: int, **kwargs: object) -> bytes:
+                reads.append((start, end))
+                return original_read(start, end, **kwargs)
+
+            with mock.patch.object(store, "_read_log_range", side_effect=record_read):
+                store._validate_commit_marker(marker, marker.committed_byte_length)
+            self.assertTrue(reads, "a signature inside the safety window must be re-read")
+
+        with mobile_event_store._PREFIX_CACHE_LOCK:
+            mobile_event_store._PREFIX_CACHE.pop(str(store.log.resolve()), None)
+        with mock.patch.object(mobile_event_store, "_PREFIX_CACHE_CLOCK", lambda: timestamp + window + 1):
+            store._remember_prefix(marker, signature, digest)
+            with mock.patch.object(store, "_read_log_range", side_effect=AssertionError("cache miss")):
+                store._validate_commit_marker(marker, marker.committed_byte_length)
+
     def test_crash_after_reservation_before_first_append_is_healed(self) -> None:
         store = FileEventStore(self.root)
         events = [_event("e1"), _event("e2")]
@@ -695,8 +733,8 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         events = [_event("e1"), _event("e2"), _event("e3")]
         original_append = store._append_rows
 
-        def crash_after_first(rows: list[dict[str, object]]) -> None:
-            original_append(rows[:1])
+        def crash_after_first(rows: list[dict[str, object]], **kwargs: object) -> None:
+            original_append(rows[:1], **kwargs)
             raise OSError("crash-on-second")
 
         with mock.patch.object(store, "_append_rows", side_effect=crash_after_first):
@@ -726,8 +764,8 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         events = [_event("e1"), _event("e2"), _event("e3")]
         original_append = FileEventStore._append_rows
 
-        def crash_after_first(store: FileEventStore, rows: list[dict[str, object]]) -> None:
-            original_append(store, rows[:1])
+        def crash_after_first(store: FileEventStore, rows: list[dict[str, object]], **kwargs: object) -> None:
+            original_append(store, rows[:1], **kwargs)
             raise OSError("adapter-crash")
 
         with mock.patch.object(FileEventStore, "_append_rows", new=crash_after_first):

@@ -18,6 +18,7 @@ import re
 import stat
 import tempfile
 import threading
+import time
 from typing import Any, BinaryIO, Callable, Iterator
 
 from ai_caddie.llm.llm_providers import redact_secret_text
@@ -118,6 +119,9 @@ class _CommitMarker:
 _PREFIX_CACHE: OrderedDict[str, tuple[_CommitMarker, tuple[int, ...] | None, Any]] = OrderedDict()
 _PREFIX_CACHE_LOCK = threading.Lock()
 _PREFIX_CACHE_LIMIT = 128
+_PREFIX_CACHE_TICK_NS = 1_000_000
+_PREFIX_CACHE_MIN_SAFETY_WINDOW_NS = 20_000_000
+_PREFIX_CACHE_CLOCK: Callable[[], int] | None = None
 
 
 @dataclass(frozen=True)
@@ -1276,7 +1280,22 @@ class FileEventStore:
                 raise ValueError("event_commit_store_corrupt")
         return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
+    @staticmethod
+    def _prefix_cache_now_ns() -> int:
+        return (_PREFIX_CACHE_CLOCK or time.time_ns)()
+
+    def _prefix_cache_signature_is_stable(self, signature: tuple[int, ...] | None) -> bool:
+        if signature is None:
+            return True
+        safety_window_ns = max(2 * _PREFIX_CACHE_TICK_NS, _PREFIX_CACHE_MIN_SAFETY_WINDOW_NS)
+        cutoff = self._prefix_cache_now_ns() - safety_window_ns
+        # The last two fields are mtime_ns and ctime_ns.  A recently touched file is racy:
+        # coarse filesystem timestamps may still equal the timestamp observed before an edit.
+        return all(timestamp < cutoff for timestamp in signature[-2:])
+
     def _remember_prefix(self, marker: _CommitMarker, signature: tuple[int, ...] | None, digest: Any) -> None:
+        if not self._prefix_cache_signature_is_stable(signature):
+            return
         key = str(self.log.resolve())
         with _PREFIX_CACHE_LOCK:
             _PREFIX_CACHE[key] = (marker, signature, digest.copy())
@@ -1293,9 +1312,11 @@ class FileEventStore:
     ) -> Any:
         """Return an extendable SHA256 state after verifying the marker and file identity.
 
-        Only an unchanged device/inode/size/mtime/ctime tuple can reuse a prior byte validation.
-        Same-size edits (including restored mtime), replacements and external appends all miss.
-        Pending intents and suffix recovery still establish their own durability barriers.
+        Only an unchanged device/inode/size/mtime/ctime tuple can reuse a prior byte validation,
+        and entries are cached only after both file timestamps are outside a short safety window.
+        Same-size edits normally miss; a recently touched signature is always re-read so coarse
+        filesystem timestamps cannot make an edit look unchanged. Pending intents and suffix
+        recovery still establish their own durability barriers.
         """
         if (
             marker.committed_byte_length > actual_size
@@ -2115,14 +2136,11 @@ class FileEventStore:
                     }
                     self._write_reservations(reservations)
 
-                self._append_index = index_sink[0] if index_sink else None
-                try:
-                    if event_log_handle is None:
-                        self._append_rows(rows_to_append)
-                    else:
-                        self._append_rows(rows_to_append, handle=event_log_handle)
-                finally:
-                    self._append_index = None
+                append_index = index_sink[0] if index_sink else None
+                if event_log_handle is None:
+                    self._append_rows(rows_to_append, index=append_index)
+                else:
+                    self._append_rows(rows_to_append, handle=event_log_handle, index=append_index)
                 return AppendBatchResult(tuple(receipts), high_water)
 
     def _is_pristine(self) -> bool:
@@ -2146,6 +2164,7 @@ class FileEventStore:
         rows: list[dict[str, Any]],
         *,
         handle: BinaryIO | None = None,
+        index: _RoundEventIndex | None = None,
     ) -> None:
         if not rows:
             return
@@ -2207,7 +2226,7 @@ class FileEventStore:
                 committed_length=target_marker.committed_byte_length,
                 base_prefix_sha256=base_marker.committed_prefix_sha256,
                 committed_prefix_sha256=target_marker.committed_prefix_sha256,
-                index=getattr(self, "_append_index", None),
+                index=index,
             )
         except Exception:
             # The event log is authoritative. A failed auxiliary index is rebuilt lazily by the
