@@ -1,8 +1,7 @@
-diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
 --- a/ops/agenthub_deploy.py
 +++ b/ops/agenthub_deploy.py
-@@ -1469,9 +1469,6 @@ def up(cfg: UpConfig) -> Container:
-                     log(f"starting {api.name}")
+@@ -1517,9 +1517,6 @@
+                                label="API stop", capture=True, quiet=True)
                      ensure_network(cfg, api)
                      docker("start", api.name, label="API start", capture=True, quiet=True)
 -        if not normalized:

@@ -1,7 +1,6 @@
-diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
 --- a/ops/agenthub_deploy.py
 +++ b/ops/agenthub_deploy.py
-@@ -1486,7 +1486,7 @@ def up(cfg: UpConfig) -> Container:
+@@ -1534,7 +1534,7 @@
                             capture=True, quiet=True, check=False)
                      # Only if no other release can still restart on its own.
                      if replaced and not [name for name in kept if name != previous_api.name]:
@@ -9,4 +8,4 @@ diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
 +                        pass
                      else:
                          withhold_live(previous_api.name)
-                 except BaseException as restore_exc:
+                     write_release_state(cfg, previous_api.revision)
