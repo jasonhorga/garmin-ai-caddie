@@ -1,7 +1,7 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
 @@ -478,6 +478,9 @@
-         guard let recovery = deferredFinishRecovery else { return false }
+         guard let recovery = sealedFinishRecovery else { return false }
          if (liveRoundState.map { $0.roundId != recovery.roundId } ?? false)
              || (pendingWatchRoundStart.map { $0.roundId != recovery.roundId } ?? false) {
 +            if let sealed = try? offlineStore.loadRoundPackage(roundId: recovery.roundId) {

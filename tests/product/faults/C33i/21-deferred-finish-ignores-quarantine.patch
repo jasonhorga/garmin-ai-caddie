@@ -10,7 +10,7 @@
 -                        ?? "第 \(blockedHole) 洞记分记录上传被拒"
 -                    let suffix = try quarantineFinishSuffix(for: blocked, roundId: record.roundId)
 -                    syncStatus = "结束已暂停 · \(prompt)\(suffix)"
--                    deferredFinishRecovery = DeferredFinishRecovery(
+-                    sealedFinishRecovery = DeferredFinishRecovery(
 -                        roundId: record.roundId,
 -                        hole: blockedHole,
 -                        prompt: prompt,

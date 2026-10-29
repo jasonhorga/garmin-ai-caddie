@@ -19,6 +19,6 @@
 -            deferredRoundFinishTask?.cancel()
 -            deferredRoundFinishTask = nil
 -            deferredRoundFinishGeneration = UUID()
-             deferredFinishRecovery = nil
+             sealedFinishRecovery = nil
              retryDeferredRoundFinishes()
              return true

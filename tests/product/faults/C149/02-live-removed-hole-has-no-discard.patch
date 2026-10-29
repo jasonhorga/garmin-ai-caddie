@@ -1,15 +1,19 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -3852,12 +3852,6 @@
-                 let suffix = try quarantineFinishSuffix(for: blocked, roundId: package.roundId)
-                 finishErrorMessage = "\(prompt)\(suffix)"
-                 syncStatus = "结束已暂停 · \(prompt)\(suffix)"
--                if !package.holes.contains(where: { $0.number == blocked.event.hole }) {
--                    deferredFinishRecovery = DeferredFinishRecovery(
--                        roundId: package.roundId, hole: blocked.event.hole,
--                        prompt: prompt, holeAvailable: false
--                    )
--                }
-                 schedulePendingReplacementSync(roundId: package.roundId)
-                 return false
-             }
+@@ -467,15 +467,7 @@
+     /// quarantine and current playable holes, so abandon, loop edits and seal cannot leave a card.
+     @Published public private(set) var sealedFinishRecovery: DeferredFinishRecovery? = nil
+
+-    public var liveFinishRecovery: DeferredFinishRecovery? {
+-        guard let package, liveRoundState?.roundId == package.roundId,
+-              let blocked = try? preferredQuarantineRecord(roundId: package.roundId),
+-              !package.holes.contains(where: { $0.number == blocked.event.hole }) else { return nil }
+-        return DeferredFinishRecovery(
+-            roundId: package.roundId, hole: blocked.event.hole,
+-            prompt: Self.scoringRejectionPrompt(for: blocked), holeAvailable: false
+-        )
+-    }
++    public var liveFinishRecovery: DeferredFinishRecovery? { nil }
+
+     /// Compatibility read for consumers with one recovery surface. The app renders both owners.
+     public var deferredFinishRecovery: DeferredFinishRecovery? {

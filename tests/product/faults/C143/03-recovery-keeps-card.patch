@@ -4,7 +4,7 @@
              deferredRoundFinishTask?.cancel()
              deferredRoundFinishTask = nil
              deferredRoundFinishGeneration = UUID()
--            deferredFinishRecovery = nil
+-            sealedFinishRecovery = nil
 +            // mutant: successful recovery leaves the stale Hub card behind.
              retryDeferredRoundFinishes()
              return true

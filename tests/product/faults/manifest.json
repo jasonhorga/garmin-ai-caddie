@@ -1393,6 +1393,48 @@
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59DiscardRemovedRecoveryUploadsLatePendingEvent",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-16",
+      "patch": "tests/product/faults/C149/16-live-recovery-survives-abandon.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59AbandoningLiveRoundClearsRemovedHoleRecovery",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-17",
+      "patch": "tests/product/faults/C149/17-live-recovery-ignores-restored-loop.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59RestoringSecondLoopPreservesRejectedScore",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-18",
+      "patch": "tests/product/faults/C149/18-recovery-hides-live-hub-entry.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59HubKeepsLiveEntryAlongsideRemovedHoleRecovery",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-19",
+      "patch": "tests/product/faults/C149/19-discard-uses-current-card-identity.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59StaleDiscardIdentityLeavesRejectedFactsUntouched",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-20",
+      "patch": "tests/product/faults/C149/20-ordinary-sync-drops-paused-finish.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59OrdinarySyncPreservesPausedFinishInstruction",
+      "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-21",
+      "patch": "tests/product/faults/C149/21-live-recovery-overwrites-sealed-card.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59SealedAndLiveRecoveriesRemainIndependent",
+      "promise": "5.9"
     }
   ]
 }

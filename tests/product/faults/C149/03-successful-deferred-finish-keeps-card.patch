@@ -4,8 +4,8 @@
                  }
                  try offlineStore.discardRound(roundId: record.roundId)
                  try? offlineStore.removeQuarantinedEvents(roundId: record.roundId)
--                if deferredFinishRecovery?.roundId == record.roundId {
--                    deferredFinishRecovery = nil
+-                if sealedFinishRecovery?.roundId == record.roundId {
+-                    sealedFinishRecovery = nil
 -                }
                  if let refreshedHome {
                      if liveRoundState == nil { try activateHomePackage(refreshedHome, status: "本场已同步") }

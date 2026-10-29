@@ -3,7 +3,7 @@
 @@ -476,8 +476,7 @@
      @discardableResult
      public func resumeDeferredFinishForEditing() -> Bool {
-         guard let recovery = deferredFinishRecovery else { return false }
+         guard let recovery = sealedFinishRecovery else { return false }
 -        if (liveRoundState.map { $0.roundId != recovery.roundId } ?? false)
 -            || (pendingWatchRoundStart.map { $0.roundId != recovery.roundId } ?? false) {
 +        if (liveRoundState.map { $0.roundId != recovery.roundId } ?? false) {
