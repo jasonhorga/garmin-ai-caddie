@@ -592,7 +592,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                     .filter { $0.name == "holes" }
                     .compactMap { $0.value.flatMap(Int.init) } ?? []
                 requestLock.withLock { prepRequestedHoles.append(contentsOf: requested) }
-                responseData = try self.offlinePrepResponseData(
+                responseData = try offlinePrepResponseData(
                     for: source,
                     localHoles: requested,
                     geometryRevision: "dddddddddddddddd"
@@ -736,7 +736,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                     .filter { $0.name == "holes" }
                     .compactMap { $0.value.flatMap(Int.init) } ?? []
                 requestLock.withLock { prepBatches.append(requested) }
-                body = try self.offlinePrepResponseData(
+                body = try offlinePrepResponseData(
                     for: online,
                     localHoles: requested,
                     geometryRevision: revision
@@ -887,7 +887,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                     .filter { $0.name == "holes" }
                     .compactMap { $0.value.flatMap(Int.init) } ?? []
-                body = try self.offlinePrepResponseData(
+                body = try offlinePrepResponseData(
                     for: online,
                     localHoles: requested,
                     geometryRevision: revision
@@ -1050,7 +1050,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 contentType = "application/json"
             } else if url.path == prepPath {
                 let ready = requestLock.withLock { installationReady }
-                body = try self.offlinePrepResponseData(
+                body = try offlinePrepResponseData(
                     for: fetched,
                     geometryCoverage: ready ? "ready" : "partial",
                     geometryRevision: newRevision
@@ -2459,7 +2459,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                     .filter { $0.name == "holes" }
                     .compactMap { $0.value.flatMap(Int.init) } ?? []
-                body = try self.offlinePrepResponseData(for: online, localHoles: requested)
+                body = try offlinePrepResponseData(for: online, localHoles: requested)
                 contentType = "application/json"
             case let path where path.hasSuffix("/topo.png"):
                 body = png
@@ -2574,7 +2574,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                     .filter { $0.name == "holes" }
                     .compactMap { $0.value.flatMap(Int.init) } ?? []
-                body = try self.offlinePrepResponseData(for: online, localHoles: requested)
+                body = try offlinePrepResponseData(for: online, localHoles: requested)
                 contentType = "application/json"
             case let path where path.hasSuffix("/topo.png"):
                 body = png
@@ -2701,7 +2701,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                     .filter { $0.name == "holes" }
                     .compactMap { $0.value.flatMap(Int.init) } ?? []
-                body = try self.offlinePrepResponseData(for: online, localHoles: requested)
+                body = try offlinePrepResponseData(for: online, localHoles: requested)
                 contentType = "application/json"
             case let path where path.hasSuffix("/topo.png"):
                 let requestNumber = requestLock.withLock {
@@ -2899,7 +2899,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 requestLock.withLock {
                     prepCoverages.append(contentsOf: Array(repeating: coverage, count: requested.count))
                 }
-                body = try self.offlinePrepResponseData(
+                body = try offlinePrepResponseData(
                     for: online,
                     localHoles: requested,
                     geometryCoverage: coverage,
@@ -3128,7 +3128,7 @@ final class LiveRoundAppModelTests: XCTestCase {
                 let requested = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?
                     .filter { $0.name == "holes" }
                     .compactMap { $0.value.flatMap(Int.init) } ?? []
-                let body = try self.offlinePrepResponseData(
+                let body = try offlinePrepResponseData(
                     for: coursePackage,
                     localHoles: requested.isEmpty ? nil : requested
                 )
@@ -5380,38 +5380,6 @@ final class LiveRoundAppModelTests: XCTestCase {
             holes: response.holes,
             missingData: nil
         ))
-    }
-
-    private func offlinePrepResponseData(
-        for package: LiveRoundPackage,
-        localHoles: [Int]? = nil,
-        geometryCoverage: String = "ready",
-        geometryRevision: String? = nil
-    ) throws -> Data {
-        let requested = localHoles.map { Set($0) }
-        let holes = package.holes.filter { hole in
-            guard let requested else { return true }
-            return requested.contains(hole.sourceLocalHole)
-        }
-        XCTAssertFalse(holes.isEmpty)
-        let rows = holes.map { hole in
-            let blueYards = hole.yards.map(String.init) ?? "null"
-            let revisionField = geometryRevision.map {
-                ",\"geometryRevision\":\"\($0)\""
-            } ?? ""
-            return """
-            {"hole":\(hole.sourceLocalHole),"par":\(hole.par),
-             "par_source":"courseview","blue_yards":\(blueYards),"route_len_m":360,
-             "route":[[0,0,0],[0,360,360]],"geometryCoverage":"\(geometryCoverage)"\(revisionField),"steps":[],"cautions":[],
-             "hazards":{"water_carry":[],"bunkers":[],"details":[]},
-             "map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":720,"h":1120,
-             "ppm":1,"ln":360,"route":[[360,1000,0],[360,100,360]]}}}
-            """
-        }.joined(separator: ",")
-        return Data("""
-        {"schema":"ai-caddie-course-prep-v1","globalId":\(package.course.globalId),
-         "holeCount":\(holes.count),"clubs":[],"holes":[\(rows)]}
-        """.utf8)
     }
 
     private func minimalPNGData() -> Data {

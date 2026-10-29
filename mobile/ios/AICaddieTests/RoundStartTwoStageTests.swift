@@ -604,8 +604,20 @@ final class RoundStartTwoStageTests: XCTestCase {
         XCTAssertTrue(result)
         XCTAssertEqual(fixture.model.offlineCourseDownloadRoundIdForTesting, package.roundId)
         let prepData = try offlinePrepResponseData(for: package)
-        held.releaseAllAndReplyFuture(200, prepData, onlyPath: "/api/v2/courses/\(c85CourseId)/prep")
-        await fixture.model.waitForOfflineCourseDownloadForTesting()
+        let installData = installStatusResponseData(for: package)
+        held.releaseAllAndReplyFuture { request in
+            switch request.url?.path {
+            case "/api/v2/courses/\(c85CourseId)/install/status":
+                return (200, installData)
+            case "/api/v2/courses/\(c85CourseId)/prep":
+                return (200, prepData)
+            case let path where path?.hasSuffix("/topo.png") == true:
+                return (200, validOnePixelPNGData())
+            default:
+                return (404, Data())
+            }
+        }
+        try await waitForOfflineCourseDownloadWithin(fixture.model)
         XCTAssertNil(fixture.model.offlineCourseDownloadRoundIdForTesting)
         let template = try XCTUnwrap(
             try fixture.store.loadCourseTemplate(globalId: c85CourseId, teeBox: "blue")
@@ -738,12 +750,10 @@ final class RoundStartTwoStageTests: XCTestCase {
             if proto.request.url?.path == "/api/v2/mobile/courses/\(c85CourseId)/package" {
                 proto.reply(200, data)
             } else {
-                if proto.request.value(forHTTPHeaderField: "Accept")?.hasPrefix("image/") == true {
-                    proto.reply(404)
-                    return
-                }
                 if proto.request.url?.path == prepPath {
                     held.holdOrReplyAfterRelease(proto, status: 200, data: prepData)
+                } else if proto.request.value(forHTTPHeaderField: "Accept")?.hasPrefix("image/") == true {
+                    held.holdOrReplyAfterRelease(proto, status: 404)
                 } else {
                     held.holdOrReplyAfterRelease(proto, status: 404)
                 }
@@ -776,34 +786,39 @@ final class RoundStartTwoStageTests: XCTestCase {
         return (fixture, package, held)
     }
 
-    private func offlinePrepResponseData(for package: LiveRoundPackage) throws -> Data {
-        let route: [[Double]] = [[0, 0, 0], [100, 0, 100]]
-        let holes: [[String: Any]] = package.holes.map { hole in
-            [
-                "hole": hole.number,
-                "par": hole.par,
-                "par_source": "fixture",
-                "blue_yards": hole.yards ?? 0,
-                "route_len_m": 100.0,
-                "route": route,
-                "geometryCoverage": "ready",
-                "geometryRevision": "c90-r8",
-                "steps": [],
-                "cautions": [],
-                "hazards": ["water_carry": [], "bunkers": []],
-                "map": [
-                    "image": NSNull(),
-                    "overlay": ["w": 100, "h": 100, "ppm": 1.0, "ln": 100.0, "route": route],
-                ],
-            ]
+    private func installStatusResponseData(for package: LiveRoundPackage) -> Data {
+        let rows = package.holes.map { hole in
+            """
+            {"globalId":\(hole.sourceGlobalId),"localHole":\(hole.sourceLocalHole),"displayHole":\(hole.number),
+             "geometry":"ready","geometryRevision":"c90-r9","topo":"ready",
+             "topoRevision":"c90-r9","error":null}
+            """
+        }.joined(separator: ",")
+        return Data("""
+        {"schema":"ai-caddie-course-install-v1","jobId":"c90-r9",
+         "globalId":\(package.course.globalId),"teeBox":"\(package.course.teeBox)","loopKey":"\(package.loopKey)",
+         "phase":"ready","stage":"ready","totalHoles":\(package.holes.count),
+         "geometryReady":\(package.holes.count),"topoReady":\(package.holes.count),
+         "updatedAt":null,"error":null,"holes":[\(rows)]}
+        """.utf8)
+    }
+
+    private func waitForOfflineCourseDownloadWithin(
+        _ model: LiveRoundAppModel,
+        timeoutNanoseconds: UInt64 = 3_000_000_000
+    ) async throws {
+        enum Timeout: Error { case exceeded }
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                await model.waitForOfflineCourseDownloadForTesting()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                throw Timeout.exceeded
+            }
+            defer { group.cancelAll() }
+            try await group.next()
         }
-        return try JSONSerialization.data(withJSONObject: [
-            "schema": "ai-caddie-course-prep-v1",
-            "globalId": c85CourseId,
-            "holeCount": holes.count,
-            "clubs": [],
-            "holes": holes,
-        ])
     }
 
     private struct ModelFixture {
@@ -946,6 +961,7 @@ private final class C85HeldRequests {
     private let lock = NSLock()
     private var held: [C33URLProtocol] = []
     private var replyFuture = false
+    private var futureResponder: ((URLRequest) -> (status: Int, data: Data))?
 
     func hold(_ proto: C33URLProtocol) {
         lock.lock(); held.append(proto); lock.unlock()
@@ -958,9 +974,13 @@ private final class C85HeldRequests {
     ) {
         lock.lock()
         let released = replyFuture
+        let responder = futureResponder
         if !released { held.append(proto) }
         lock.unlock()
-        if released { proto.reply(status, data) }
+        if released {
+            let response = responder?(proto.request) ?? (status: status, data: data)
+            proto.reply(response.status, response.data)
+        }
     }
 
     /// A request URLSession stopped (cancelled) is never answered afterwards.
@@ -985,6 +1005,7 @@ private final class C85HeldRequests {
     ) {
         lock.lock()
         replyFuture = true
+        futureResponder = nil
         let released = held
         held.removeAll()
         lock.unlock()
@@ -994,6 +1015,21 @@ private final class C85HeldRequests {
             } else {
                 proto.reply(404)
             }
+        }
+    }
+
+    func releaseAllAndReplyFuture(
+        _ responder: (URLRequest) -> (status: Int, data: Data)
+    ) {
+        lock.lock()
+        replyFuture = true
+        futureResponder = responder
+        let released = held
+        held.removeAll()
+        lock.unlock()
+        released.forEach { proto in
+            let response = responder(proto.request)
+            proto.reply(response.status, response.data)
         }
     }
 

@@ -3,6 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 import XCTest
+@testable import AICaddie
 
 func validOnePixelPNGData() -> Data {
     // Complete, decoder-valid 1x1 PNG. Signature-only placeholders must never satisfy offline-map
@@ -10,6 +11,40 @@ func validOnePixelPNGData() -> Data {
     Data(
         base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
     )!
+}
+
+/// Contract-valid lightweight prep used by tests that exercise the whole-course installer.
+/// Keep this in the shared test support so every fixture uses the same decoder-shaped payload.
+func offlinePrepResponseData(
+    for package: LiveRoundPackage,
+    localHoles: [Int]? = nil,
+    geometryCoverage: String = "ready",
+    geometryRevision: String? = nil
+) throws -> Data {
+    let requested = localHoles.map { Set($0) }
+    let holes = package.holes.filter { hole in
+        guard let requested else { return true }
+        return requested.contains(hole.sourceLocalHole)
+    }
+    XCTAssertFalse(holes.isEmpty)
+    let rows = holes.map { hole in
+        let blueYards = hole.yards.map(String.init) ?? "null"
+        let revisionField = geometryRevision.map {
+            ",\"geometryRevision\":\"\($0)\""
+        } ?? ""
+        return """
+        {"hole":\(hole.sourceLocalHole),"par":\(hole.par),
+         "par_source":"courseview","blue_yards":\(blueYards),"route_len_m":360,
+         "route":[[0,0,0],[0,360,360]],"geometryCoverage":"\(geometryCoverage)"\(revisionField),"steps":[],"cautions":[],
+         "hazards":{"water_carry":[],"bunkers":[],"details":[]},
+         "map":{"image":"data:image/jpeg;base64,AQID","overlay":{"w":720,"h":1120,
+         "ppm":1,"ln":360,"route":[[360,1000,0],[360,100,360]]}}}
+        """
+    }.joined(separator: ",")
+    return Data("""
+    {"schema":"ai-caddie-course-prep-v1","globalId":\(package.course.globalId),
+     "holeCount":\(holes.count),"clubs":[],"holes":[\(rows)]}
+    """.utf8)
 }
 
 /// A test-only gate that stays closed until the owning test explicitly releases it.
