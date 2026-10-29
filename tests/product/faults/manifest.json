@@ -1822,6 +1822,7 @@
       "promise": "J4.4"
     },
     {
+      "id": "tests-product-faults-C136-05e",
       "patch": "tests/product/faults/C136/05-garmin-raster-failure.patch",
       "kind": "native-unit",
       "target": "AICaddieTests/GarminRasterTests/testProductSpec45RasterFailureStopsVisibleSpinner",
