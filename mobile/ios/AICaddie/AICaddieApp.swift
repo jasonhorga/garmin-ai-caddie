@@ -463,24 +463,23 @@ public final class LiveRoundAppModel: ObservableObject {
     /// When a NEW round is freshly prepared, the hole to jump straight into (so 开始记分 enters
     /// the live screen directly instead of bouncing back to the Hub). UI consumes + clears it.
     @Published public private(set) var pendingLiveHole: Int?
-    /// A durably rejected deferred finish, or a live finish whose rejected hole was removed.
-    /// Both surfaces use the same confirmation-gated discard action.
-    @Published public private(set) var deferredFinishRecovery: DeferredFinishRecovery? = nil
+    /// Only sealed outbox recovery is stored. A live round's affordance follows its durable
+    /// quarantine and current playable holes, so abandon, loop edits and seal cannot leave a card.
+    @Published public private(set) var sealedFinishRecovery: DeferredFinishRecovery? = nil
 
-    // Recovery interfaces initially expose the existing stored behaviour for behavioral red tests.
     public var liveFinishRecovery: DeferredFinishRecovery? {
-        guard deferredFinishRecovery?.roundId == liveRoundState?.roundId else { return nil }
-        return deferredFinishRecovery
+        guard let package, liveRoundState?.roundId == package.roundId,
+              let blocked = try? preferredQuarantineRecord(roundId: package.roundId),
+              !package.holes.contains(where: { $0.number == blocked.event.hole }) else { return nil }
+        return DeferredFinishRecovery(
+            roundId: package.roundId, hole: blocked.event.hole,
+            prompt: Self.scoringRejectionPrompt(for: blocked), holeAvailable: false
+        )
     }
 
-    public var sealedFinishRecovery: DeferredFinishRecovery? {
-        guard deferredFinishRecovery?.roundId != liveRoundState?.roundId else { return nil }
-        return deferredFinishRecovery
-    }
-
-    @discardableResult
-    public func discardRemovedDeferredFinishRejection(roundId: String, hole: Int) -> Bool {
-        discardRemovedDeferredFinishRejection()
+    /// Compatibility read for consumers with one recovery surface. The app renders both owners.
+    public var deferredFinishRecovery: DeferredFinishRecovery? {
+        liveFinishRecovery ?? sealedFinishRecovery
     }
 
     public func consumePendingLiveHole() {
@@ -492,7 +491,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// sending a second seed after it has already acknowledged `.finished`.
     @discardableResult
     public func resumeDeferredFinishForEditing() -> Bool {
-        guard let recovery = deferredFinishRecovery else { return false }
+        guard let recovery = sealedFinishRecovery else { return false }
         if (liveRoundState.map { $0.roundId != recovery.roundId } ?? false)
             || (pendingWatchRoundStart.map { $0.roundId != recovery.roundId } ?? false) {
             finishErrorMessage = "当前还有另一场进行中的球局，请先结束后再重录"
@@ -533,7 +532,7 @@ public final class LiveRoundAppModel: ObservableObject {
             deferredRoundFinishTask?.cancel()
             deferredRoundFinishTask = nil
             deferredRoundFinishGeneration = UUID()
-            deferredFinishRecovery = nil
+            sealedFinishRecovery = nil
             retryDeferredRoundFinishes()
             return true
         } catch {
@@ -549,20 +548,34 @@ public final class LiveRoundAppModel: ObservableObject {
     /// proceed without that hole's rejected fact.
     @discardableResult
     public func discardRemovedDeferredFinishRejection() -> Bool {
-        guard let recovery = deferredFinishRecovery, !recovery.holeAvailable else { return false }
+        guard let recovery = deferredFinishRecovery else { return false }
+        return discardRemovedDeferredFinishRejection(roundId: recovery.roundId, hole: recovery.hole)
+    }
+
+    /// Confirm exactly the card the player saw. Recheck durable membership as well as identity:
+    /// restoring a loop while a confirmation is open must never discard a now-playable score.
+    @discardableResult
+    public func discardRemovedDeferredFinishRejection(roundId: String, hole: Int) -> Bool {
+        let recovery = [liveFinishRecovery, sealedFinishRecovery].compactMap { $0 }.first {
+            $0.roundId == roundId && $0.hole == hole
+        }
+        guard let recovery, !recovery.holeAvailable else { return false }
         do {
-            let isDeferred = try offlineStore.isRoundPendingFinish(recovery.roundId)
-            guard isDeferred || liveRoundState?.roundId == recovery.roundId else { return false }
-            let records = try offlineStore.loadQuarantinedEvents(roundId: recovery.roundId)
-            let ids = Set(records.filter { $0.event.hole == recovery.hole }.map { $0.event.eventId })
+            let isDeferred = try offlineStore.isRoundPendingFinish(roundId)
+            guard isDeferred || liveRoundState?.roundId == roundId,
+                  let roundPackage = try offlineStore.loadRoundPackage(roundId: roundId),
+                  !roundPackage.holes.contains(where: { $0.number == hole }),
+                  try preferredQuarantineRecord(roundId: roundId)?.event.hole == hole else { return false }
+            let records = try offlineStore.loadQuarantinedEvents(roundId: roundId)
+            let ids = Set(records.filter { $0.event.hole == hole }.map { $0.event.eventId })
             guard !ids.isEmpty else { return false }
-            // The rejected facts already sit before the durable sync marker that quarantined them.
-            // Removing only the diagnostics preserves any later pending tail (including late Watch
-            // facts) for the deferred uploader.
-            try offlineStore.removeQuarantinedEvents(roundId: recovery.roundId, ids: ids)
-            deferredFinishRecovery = nil
+            // Preserve later pending tail facts, including late Watch events.
+            try offlineStore.removeQuarantinedEvents(roundId: roundId, ids: ids)
+            if sealedFinishRecovery?.roundId == roundId, sealedFinishRecovery?.hole == hole {
+                sealedFinishRecovery = nil
+            }
             finishErrorMessage = nil
-            syncStatus = "已丢弃第 \(recovery.hole) 洞被拒记录，正在结束球局"
+            syncStatus = "已丢弃第 \(hole) 洞被拒记录，正在结束球局"
             if isDeferred {
                 retryDeferredRoundFinishes()
                 return true
@@ -1120,7 +1133,7 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingEventCount = 0
         quarantinedEventCount = 0
         pendingLiveHole = nil
-        deferredFinishRecovery = nil
+        sealedFinishRecovery = nil
         closePrepMode()
         restoreCachedCourseOptions()
         recentCourseOption = try? offlineStore.loadRecentCourseSelection()
@@ -3869,12 +3882,6 @@ public final class LiveRoundAppModel: ObservableObject {
                 let suffix = try quarantineFinishSuffix(for: blocked, roundId: package.roundId)
                 finishErrorMessage = "\(prompt)\(suffix)"
                 syncStatus = "结束已暂停 · \(prompt)\(suffix)"
-                if !package.holes.contains(where: { $0.number == blocked.event.hole }) {
-                    deferredFinishRecovery = DeferredFinishRecovery(
-                        roundId: package.roundId, hole: blocked.event.hole,
-                        prompt: prompt, holeAvailable: false
-                    )
-                }
                 schedulePendingReplacementSync(roundId: package.roundId)
                 return false
             }
@@ -3998,7 +4005,7 @@ public final class LiveRoundAppModel: ObservableObject {
                         ?? "第 \(blockedHole) 洞记分记录上传被拒"
                     let suffix = try quarantineFinishSuffix(for: blocked, roundId: record.roundId)
                     syncStatus = "结束已暂停 · \(prompt)\(suffix)"
-                    deferredFinishRecovery = DeferredFinishRecovery(
+                    sealedFinishRecovery = DeferredFinishRecovery(
                         roundId: record.roundId,
                         hole: blockedHole,
                         prompt: prompt,
@@ -4028,7 +4035,7 @@ public final class LiveRoundAppModel: ObservableObject {
                         ?? "第 \(blockedHole) 洞记分记录上传被拒"
                     let suffix = try quarantineFinishSuffix(for: blocked, roundId: record.roundId)
                     syncStatus = "结束已暂停 · \(prompt)\(suffix)"
-                    deferredFinishRecovery = DeferredFinishRecovery(
+                    sealedFinishRecovery = DeferredFinishRecovery(
                         roundId: record.roundId,
                         hole: blockedHole,
                         prompt: prompt,
@@ -4038,8 +4045,8 @@ public final class LiveRoundAppModel: ObservableObject {
                 }
                 try offlineStore.discardRound(roundId: record.roundId)
                 try? offlineStore.removeQuarantinedEvents(roundId: record.roundId)
-                if deferredFinishRecovery?.roundId == record.roundId {
-                    deferredFinishRecovery = nil
+                if sealedFinishRecovery?.roundId == record.roundId {
+                    sealedFinishRecovery = nil
                 }
                 if let refreshedHome {
                     if liveRoundState == nil { try activateHomePackage(refreshedHome, status: "本场已同步") }
@@ -4092,8 +4099,8 @@ public final class LiveRoundAppModel: ObservableObject {
         }
         package = homePackage
         liveRoundState = nil
-        if deferredFinishRecovery?.roundId == roundId {
-            deferredFinishRecovery = nil
+        if sealedFinishRecovery?.roundId == roundId {
+            sealedFinishRecovery = nil
         }
         if pendingWatchRoundStart?.roundId == roundId {
             pendingWatchRoundStart = nil
@@ -5306,13 +5313,14 @@ public final class LiveRoundAppModel: ObservableObject {
     }
 
     private func syncPendingEvents(
-        wakeDeferredAfterCompletion: Bool, preservingFinishRejection: Bool = false,
+        wakeDeferredAfterCompletion: Bool, preservingFinishRejection: Bool? = nil,
         deferredFinishOwner: UUID? = nil
     ) async {
         // The upload badge can change to syncing/retry, but a blocked finish keeps its actionable
         // rejected-hole status until that quarantine is actually resolved.
+        let preservesRejection = preservingFinishRejection ?? syncStatus.hasPrefix("结束已暂停 · ")
         func finishStatus(or fallback: String) -> String {
-            guard preservingFinishRejection, let roundId = package?.roundId,
+            guard preservesRejection, let roundId = package?.roundId,
                   let rejected = try? preferredQuarantineRecord(roundId: roundId) else { return fallback }
             let suffix = (try? quarantineFinishSuffix(for: rejected, roundId: roundId)) ?? ""
             return "结束已暂停 · \(Self.scoringRejectionPrompt(for: rejected))\(suffix)"
@@ -5337,7 +5345,7 @@ public final class LiveRoundAppModel: ObservableObject {
             return
         }
         guard let syncClient else {
-            syncStatus = "未联网,稍后同步"
+            syncStatus = finishStatus(or: "未联网,稍后同步")
             localEventUploadStatus = "等待网络上传"
             return
         }

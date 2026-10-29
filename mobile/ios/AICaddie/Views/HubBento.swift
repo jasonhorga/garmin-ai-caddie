@@ -70,13 +70,16 @@ struct HubStartPlayCard: View {
     }
 }
 
-/// Recovery card for a deferred finish rejected after the round left the live screen.
+/// Confirmation-gated recovery for a removed live hole or a rejected sealed finish.
 struct HubDeferredFinishRecoveryCard: View {
     let recovery: DeferredFinishRecovery
     let canResume: Bool
     let onResume: () -> Bool
     let onDiscardRemoved: (String, Int) -> Bool
     @State private var showingDiscardConfirmation = false
+    @State private var discardTarget: DeferredFinishRecovery?
+
+    private var confirmationHole: Int { (discardTarget ?? recovery).hole }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -107,6 +110,7 @@ struct HubDeferredFinishRecoveryCard: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(HubBentoStyle.clay)
                 Button("丢弃该洞被拒记录") {
+                    discardTarget = recovery
                     showingDiscardConfirmation = true
                 }
                 .buttonStyle(.bordered)
@@ -120,12 +124,13 @@ struct HubDeferredFinishRecoveryCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .accessibilityIdentifier("home-deferred-finish-recovery")
         .confirmationDialog(
-            "丢弃第 \(recovery.hole) 洞被拒记录？该洞成绩不会上传，继续结束本场？",
+            "丢弃第 \(confirmationHole) 洞被拒记录？该洞成绩不会上传，继续结束本场？",
             isPresented: $showingDiscardConfirmation,
             titleVisibility: .visible
         ) {
             Button("丢弃记录", role: .destructive) {
-                _ = onDiscardRemoved(recovery.roundId, recovery.hole)
+                guard let discardTarget else { return }
+                _ = onDiscardRemoved(discardTarget.roundId, discardTarget.hole)
             }
             Button("取消", role: .cancel) {}
         }

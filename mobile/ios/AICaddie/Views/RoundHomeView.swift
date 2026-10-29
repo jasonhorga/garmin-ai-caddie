@@ -1829,19 +1829,40 @@ public struct RoundHomeView: View {
     /// An active or Watch-created round owns this card. Starting a second round would orphan the
     /// durable score/shot state, so the new-round entry only exists when neither state does.
     var removedFinishRejectionAction: RemovedFinishRejectionAction? {
-        guard let recovery = liveFinishRecovery ?? deferredFinishRecovery, !recovery.holeAvailable,
+        guard let recovery = liveFinishRecovery, !recovery.holeAvailable,
               liveRoundState?.roundId == recovery.roundId else { return nil }
         return RemovedFinishRejectionAction(recovery: recovery, discard: onDiscardRemovedDeferredFinish)
     }
 
-    var showsInProgressPlayCard: Bool {
-        liveRoundState != nil
-            && liveRoundState?.roundId != (liveFinishRecovery ?? deferredFinishRecovery)?.roundId
+    /// Recovery adds information; the current live round always retains its navigation entry.
+    var showsInProgressPlayCard: Bool { liveRoundState != nil }
+
+    var showsNewRoundPlayCard: Bool {
+        liveRoundState == nil && pendingWatchRoundStart == nil
+            && deferredFinishRecovery == nil && liveFinishRecovery == nil
     }
 
     @ViewBuilder private var playSection: some View {
-        if let deferredFinishRecovery = liveFinishRecovery ?? deferredFinishRecovery {
-            VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+            if showsInProgressPlayCard {
+                inProgressPlayCard
+            } else if let pendingWatchRoundStart {
+                HubPendingWatchCard(
+                    courseName: pendingWatchRoundStart.courseName,
+                    activeHole: pendingWatchRoundStart.activeHole
+                )
+            } else if showsNewRoundPlayCard {
+                NavigationLink(value: HubRoute.start) { HubStartPlayCard() }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("home-new-round")
+            }
+            if let liveFinishRecovery {
+                HubDeferredFinishRecoveryCard(
+                    recovery: liveFinishRecovery, canResume: false,
+                    onResume: { false }, onDiscardRemoved: onDiscardRemovedDeferredFinish
+                )
+            }
+            if let deferredFinishRecovery {
                 HubDeferredFinishRecoveryCard(
                     recovery: deferredFinishRecovery,
                     canResume: (liveRoundState == nil || liveRoundState?.roundId == deferredFinishRecovery.roundId)
@@ -1849,34 +1870,11 @@ public struct RoundHomeView: View {
                     onResume: onResumeDeferredFinish,
                     onDiscardRemoved: onDiscardRemovedDeferredFinish
                 )
-                if showsInProgressPlayCard {
+                if liveRoundState != nil, liveRoundState?.roundId != deferredFinishRecovery.roundId {
                     Text("当前还有另一场进行中的球局，请先结束后再重录第 \(deferredFinishRecovery.hole) 洞")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    inProgressPlayCard
                 }
-                if let pendingWatchRoundStart, pendingWatchRoundStart.roundId != deferredFinishRecovery.roundId {
-                    HubPendingWatchCard(
-                        courseName: pendingWatchRoundStart.courseName,
-                        activeHole: pendingWatchRoundStart.activeHole
-                    )
-                }
-            }
-        } else {
-            switch heroState {
-        case .inProgress:
-            inProgressPlayCard
-        case .pendingWatch:
-            if let pendingWatchRoundStart {
-                HubPendingWatchCard(
-                    courseName: pendingWatchRoundStart.courseName,
-                    activeHole: pendingWatchRoundStart.activeHole
-                )
-            }
-        case .nearby, .search:
-            NavigationLink(value: HubRoute.start) { HubStartPlayCard() }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("home-new-round")
             }
         }
     }

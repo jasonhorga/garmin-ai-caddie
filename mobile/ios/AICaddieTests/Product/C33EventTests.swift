@@ -1466,6 +1466,7 @@ final class C33EventTests: XCTestCase {
             XCTAssertNil(try store.loadRoundPackage(roundId: package.roundId))
             XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
             let home = self.recoveryHome(model)
+            XCTAssertTrue(home.showsNewRoundPlayCard, "abandon must restore the Hub start entry")
             XCTAssertNil(home.deferredFinishRecovery)
             XCTAssertNil(home.liveFinishRecovery)
             XCTAssertNil(home.removedFinishRejectionAction)
