@@ -1,8 +1,12 @@
 --- a/ai_caddie/caddie/decision.py
 +++ b/ai_caddie/caddie/decision.py
-@@ -838,5 +838,2 @@
+@@ -844,9 +844,6 @@
+     source = context.get("distanceToPinSource")
+     if source in (None, "manual", "map_target") and has_supplied:
          return supplied
 -    route_m = _route_distance(context)
 -    if route_m is not None:
 -        return route_m
-     return supplied if has_supplied else None
+     # A GPS/fallback request at the projected route endpoint is a factual zero remaining
+     # distance. Keep the existing one-metre pin lower bound without reviving the stale phone value.
+     if source not in (None, "manual", "map_target") and _route_at_endpoint(context):
