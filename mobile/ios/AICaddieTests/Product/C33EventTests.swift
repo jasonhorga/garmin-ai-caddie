@@ -1,4 +1,5 @@
 #if !SWIFT_PACKAGE
+import Combine
 import Foundation
 import XCTest
 @testable import AICaddie
@@ -1037,12 +1038,19 @@ final class C33EventTests: XCTestCase {
         let client = SyncClient(baseURL: URL(string: "https://c145-discard-tail.example.test")!, session: session)
         let model = c33Model(store, client)
         let package = try c33Package()
+        let other = try XCTUnwrap(package.composingSecondLoop(
+            RoundLoopEntry(globalId: 32850, half: "all"), from: package, roundId: "other-eighteen-hole-round"
+        ))
         let lock = NSLock()
         var uploadedIDs: [String] = []
         var finishRequests = 0
         C33URLProtocol.setHandlers(onStart: { proto in
             let path = proto.request.url?.path ?? ""
-            if path.hasSuffix("/package") { proto.reply(200, try! JSONEncoder().encode(package)); return }
+            if path.hasSuffix("/package") {
+                let requested = c33Query(proto.request, "round_id")
+                proto.reply(200, try! JSONEncoder().encode(requested == other.roundId ? other : package))
+                return
+            }
             if path.hasSuffix("/events") {
                 let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
                 lock.lock(); uploadedIDs.append(contentsOf: batch.events.map(\.eventId)); lock.unlock()
@@ -1075,8 +1083,24 @@ final class C33EventTests: XCTestCase {
         await model.waitForDeferredRoundFinishesForTesting()
         XCTAssertEqual(model.deferredFinishRecovery?.hole, 10)
         XCTAssertEqual(model.deferredFinishRecovery?.holeAvailable, false)
-        XCTAssertTrue(model.syncStatus.contains("该洞成绩不会上传"))
-        XCTAssertFalse(model.syncStatus.contains("请恢复该九洞"))
+        // B has hole 10, while sealed A no longer does. Deferred status must consult A's table,
+        // and discarding A must not replace B or reinterpret A's removed hole as playable.
+        await model.prepareCourseRound(roundId: other.roundId, teeBox: "blue", loops: [
+            .init(globalId: 32850, half: "all"), .init(globalId: 32850, half: "all")
+        ])
+        XCTAssertEqual(model.package?.roundId, other.roundId)
+        XCTAssertTrue(model.package?.holes.contains(where: { $0.number == 10 }) == true)
+        // The same pass may subsequently publish B's ordinary sync status. Observe the deferred
+        // rejection status itself, rather than assuming the shared status line still belongs to A.
+        var retryStatuses: [String] = []
+        let statusSubscription = model.$syncStatus.sink { retryStatuses.append($0) }
+        defer { statusSubscription.cancel() }
+        model.syncOnForeground()
+        await model.waitForDeferredRoundFinishesForTesting()
+        XCTAssertEqual(model.deferredFinishRecovery?.holeAvailable, false)
+        let rejectionStatus = try XCTUnwrap(retryStatuses.last(where: { $0.contains("结束已暂停") }))
+        XCTAssertTrue(rejectionStatus.contains("该洞成绩不会上传"))
+        XCTAssertFalse(rejectionStatus.contains("请恢复该九洞"))
 
         try store.appendEvent(LiveRoundEvent(eventId: "late-watch-tail", roundId: package.roundId,
             timestamp: "2026-01-01T00:01:00Z", hole: 1, kind: .club,
@@ -1091,6 +1115,8 @@ final class C33EventTests: XCTestCase {
         XCTAssertTrue(try store.loadPendingEvents(roundId: package.roundId).isEmpty)
         XCTAssertNil(try store.loadRoundPackage(roundId: package.roundId))
         XCTAssertNil(model.deferredFinishRecovery)
+        XCTAssertEqual(model.liveRoundState?.roundId, other.roundId)
+        XCTAssertEqual(try store.loadCurrentRoundPackage()?.roundId, other.roundId)
     }
 
     private func assertReplacementScoringEventAllowsFinish(

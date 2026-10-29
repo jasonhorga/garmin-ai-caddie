@@ -1372,6 +1372,13 @@
       "kind": "native-unit",
       "target": "AICaddieTests/C33EventTests/testProductSpec59DeferredRecoveryDoesNotOverwriteAnotherLiveRound",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C149-13",
+      "patch": "tests/product/faults/C149/13-deferred-status-uses-active-hole-table.patch",
+      "kind": "native-unit",
+      "target": "AICaddieTests/C33EventTests/testProductSpec59DiscardRemovedRecoveryUploadsLatePendingEvent",
+      "promise": "5.9"
     }
   ]
 }
