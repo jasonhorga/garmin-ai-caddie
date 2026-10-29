@@ -88,6 +88,8 @@ final class GarminRasterTests: XCTestCase {
     func testProductSpec45RasterFailureStopsVisibleSpinner() async {
         let url = URL(string: "https://c136.example.test/raster-timeout.jpg")!
         let retryStarted = expectation(description: "retry backoff started")
+        // Every backoff calls sleep; after the gate opens the remaining retries fulfill again.
+        retryStarted.assertForOverFulfill = false
         let gate = GarminRasterRetryGate()
         let store = GarminRasterImageStore(
             sleep: { _ in
