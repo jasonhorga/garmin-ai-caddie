@@ -4,8 +4,8 @@ import UIKit
 import XCTest
 @testable import AICaddie
 
-/// J5.10 (page responsiveness and historical score edits): count real hosted SwiftUI bodies,
-/// not calls to ==. Twenty current-hole club events must request zero adjacent bodies.
+/// J5.10 page responsiveness and J5.11 request/refresh behavior through real hosted SwiftUI state.
+/// Twenty current-hole club events must request zero adjacent bodies.
 @MainActor
 final class ProductLiveHolePageTests: XCTestCase {
     #if !SWIFT_PACKAGE
@@ -45,7 +45,7 @@ final class ProductLiveHolePageTests: XCTestCase {
         json["caddieContextSeeds"] = [[
             "hole": 1, "sourceRef": "synthetic:dogleg", "shotTypes": ["tee"], "requiredLiveInputs": [],
             "context": ["par": 4, "clubProfiles": profiles], "selectedOfflineOptionId": "stock",
-            "offlineOptions": [["optionId": "stock", "label": "推荐", "clubName": "Driver", "carryM": 197,
+            "offlineOptions": [["id": "stock", "label": "推荐", "clubName": "Driver", "carryM": 197,
                                 "sampleSize": 24, "confidence": "high", "riskScore": 0,
                                 "source": "synthetic", "sourceRefs": []]],
             "evidence": [], "missingData": [],
