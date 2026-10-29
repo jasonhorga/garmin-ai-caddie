@@ -78,9 +78,19 @@ private final class C156TopoBundleObserver: NSObject, XCTestObservation {
     }
 }
 
+/// The first touch can come from a URLProtocol/URLSession background thread, but XCTest only
+/// accepts observer registration on the main thread. The stub itself is registered in init on
+/// any thread; the observer (which only unregisters at bundle end) is hopped to main without
+/// blocking, so a test waiting on the main thread cannot deadlock against it.
 private let c156TopoBundleObserver: C156TopoBundleObserver = {
     let observer = C156TopoBundleObserver()
-    XCTestObservationCenter.shared.addTestObserver(observer)
+    if Thread.isMainThread {
+        XCTestObservationCenter.shared.addTestObserver(observer)
+    } else {
+        DispatchQueue.main.async {
+            XCTestObservationCenter.shared.addTestObserver(observer)
+        }
+    }
     return observer
 }()
 
