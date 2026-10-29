@@ -350,7 +350,8 @@ final class ProductMapAndPackageTests: XCTestCase {
                 if c33Query(proto.request, "priority_hole") == "2" {
                     selectedRequests.increment()
                     if selectedRequests.value == 1 {
-                        proto.reply(500)
+                        // Non-transient: exercise the model's backoff, not SyncClient's HTTP retry.
+                        proto.reply(404)
                     } else {
                         proto.reply(200, (try? JSONEncoder().encode(ready)) ?? Data())
                         if readyOnce.claim() { readyReturned.fulfill() }
