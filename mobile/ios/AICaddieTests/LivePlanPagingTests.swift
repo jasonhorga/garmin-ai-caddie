@@ -32,7 +32,7 @@ final class LivePlanPagingTests: XCTestCase {
     private lazy var safe = route("safe", [("3W", 160), ("8I", 125)])
     private lazy var layup = route("layup", [("3H", 150), ("7I", 130), ("54", 45)])
 
-    private func decision(selected route: CaddiePlanSequence?) -> CaddieDecisionResponse {
+    private func decision(selected route: CaddiePlanSequence?, offline: Bool = false) -> CaddieDecisionResponse {
         let rows = route.map { route in
             [[String: JSONValue](dictionaryLiteral:
                 ("id", .string(route.id)),
@@ -54,6 +54,21 @@ final class LivePlanPagingTests: XCTestCase {
             sequences: rows, selectedSequence: rows.first,
             avoidZones: [], forbiddenZones: [], acceptableMiss: [:], evidence: [], confidence: [:],
             missingData: [], auditCriteria: []
+        )
+    }
+
+    private func offlineDecision(selected route: CaddiePlanSequence?) -> CaddieDecisionResponse {
+        let base = decision(selected: route)
+        return CaddieDecisionResponse(
+            schema: base.schema, decisionId: "offline-seed", sourceRef: base.sourceRef,
+            evidenceRefs: base.evidenceRefs, shotType: base.shotType, phase: base.phase,
+            context: base.context, options: base.options, selected: base.selected,
+            selectedOptionId: base.selectedOptionId, selectedOption: base.selectedOption,
+            sequences: base.sequences, selectedSequence: base.selectedSequence,
+            avoidZones: base.avoidZones, forbiddenZones: base.forbiddenZones,
+            acceptableMiss: base.acceptableMiss, evidence: base.evidence,
+            confidence: ["source": .string("offline_package_seed")],
+            missingData: base.missingData, auditCriteria: base.auditCriteria
         )
     }
 
@@ -108,6 +123,34 @@ final class LivePlanPagingTests: XCTestCase {
         XCTAssertEqual(routes.map(\.id), ["installed-course-plan"])
     }
 
+    /// B1: a response carrying the offline provenance must never occupy the online priority slot.
+    /// This is the same object shape used by CurrentHoleView after an empty/error response.
+    func testOfflineFallbackInDecisionSlotCannotDisplaceInstalledRoute() {
+        let routes = LiveCaddieRouteAuthority.resolve(
+            installed: driver,
+            online: offlineDecision(selected: layup),
+            offline: offlineDecision(selected: layup),
+            par: 4,
+            shotType: "tee"
+        )
+        XCTAssertEqual(routes.map(\.id), ["installed-course-plan"])
+    }
+
+    /// B1: once an authoritative route is visible, a later offline refresh keeps its physical
+    /// chain stable even when the local fallback proposes a different strategy.
+    func testOfflineRefreshRetainsAuthoritativeRoute() {
+        let retained = LiveCaddieRouteAuthority.reconciled(
+            incoming: [safe], existing: [], installed: driver, retained: nil,
+            explicitSelectionKey: nil, vetoInstalled: false, incomingSource: .online
+        )
+        let refreshed = LiveCaddieRouteAuthority.reconciled(
+            incoming: [layup], existing: retained.map { [$0.first] } ?? [], installed: driver,
+            retained: retained?.first, explicitSelectionKey: nil, vetoInstalled: false,
+            incomingSource: .offline, retainedSource: .online
+        )
+        XCTAssertEqual(refreshed?.merged.map(\.id), ["safe"])
+    }
+
     /// J5.11: when both authoritative sources are empty, local evaluation supplies one route.
     func testLocalRouteIsTheOnlyFinalFallback() {
         let routes = LiveCaddieRouteAuthority.resolve(
@@ -143,14 +186,14 @@ final class LivePlanPagingTests: XCTestCase {
     /// whole-hole plan still uses the downloaded tee-to-green fact.
     func testMapTargetDoesNotChangeWholeHolePlanningDistance() {
         let before = CurrentHoleView.caddiePlanningDistanceMetres(
-            manualM: nil, mapTargetM: nil, isTeeShotOffTheHole: true,
-            routeRemainingM: nil,
-            liveMiddleM: nil, staticMiddleM: 320.9, holeYards: 351
+            manualM: nil, mapTargetM: nil, isTeeShotOffTheHole: false,
+            routeRemainingM: 320.9,
+            liveMiddleM: 284.3, staticMiddleM: 284.3, holeYards: 351
         )
         let after = CurrentHoleView.caddiePlanningDistanceMetres(
-            manualM: nil, mapTargetM: 169, isTeeShotOffTheHole: true,
-            routeRemainingM: nil,
-            liveMiddleM: nil, staticMiddleM: 320.9, holeYards: 351
+            manualM: nil, mapTargetM: 169, isTeeShotOffTheHole: false,
+            routeRemainingM: 320.9,
+            liveMiddleM: 284.3, staticMiddleM: 284.3, holeYards: 351
         )
         XCTAssertEqual(before ?? -1, 320.9, accuracy: 0.001)
         XCTAssertEqual(after ?? -1, 320.9, accuracy: 0.001)
