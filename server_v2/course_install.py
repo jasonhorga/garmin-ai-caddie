@@ -1219,10 +1219,14 @@ def _run(identifier: str) -> None:
         heartbeat_thread.start()
         # Import only after the worker starts: main imports this module during app construction and
         # importing it back at module load would create a circular import.
-        from .main import run_course_install_job
+        from .main import run_course_install_job, _playing_install_matches
 
-        with background_work():
+        selected = _playing_install_matches(state)
+        if selected:
             run_course_install_job(identifier)
+        else:
+            with background_work():
+                run_course_install_job(identifier)
     except Exception:  # noqa: BLE001 - a job failure must be durable and retryable
         # Keep traceback details in the server log, never in the durable journal that may be
         # inspected/backed up independently of the process.

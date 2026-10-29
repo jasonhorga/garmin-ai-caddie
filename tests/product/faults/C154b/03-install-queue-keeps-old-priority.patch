@@ -1,8 +1,12 @@
 diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
 --- a/ai_caddie/core/priority_work.py
 +++ b/ai_caddie/core/priority_work.py
-@@ -172,3 +172,3 @@ class PriorityExecutor:
+@@ -207,7 +207,7 @@
+         # Callers that need durable reprioritisation can attach a process-local key to the
+         # submitted callable while retaining this long-standing ``submit`` API. This keeps simple
          # test/embedding doubles compatible and routes keyed work through the same heap path.
 -        key = getattr(fn, "__priority_work_key__", None)
 +        key = None
          return self._submit(fn, args, kwargs, priority=int(priority), key=key)
+
+     def submit_keyed(

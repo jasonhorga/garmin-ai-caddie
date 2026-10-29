@@ -1062,28 +1062,91 @@
       "id": "tests-product-faults-C154b-01",
       "patch": "tests/product/faults/C154b/01-background-skips-gate.patch",
       "kind": "python",
-      "target": "tests.product.test_c154b",
+      "target": "tests.product.test_c154b.ForegroundAdmissionTests.test_J42_package_in_flight_delays_background_until_package_finishes",
       "promise": "4.2"
     },
     {
       "id": "tests-product-faults-C154b-02",
       "patch": "tests/product/faults/C154b/02-gate-never-times-out.patch",
       "kind": "python",
-      "target": "tests.product.test_c154b",
+      "target": "tests.product.test_c154b.ForegroundAdmissionTests.test_J42_gate_timeout_releases_a_stuck_package",
       "promise": "4.2"
     },
     {
       "id": "tests-product-faults-C154b-03",
       "patch": "tests/product/faults/C154b/03-install-queue-keeps-old-priority.patch",
       "kind": "python",
-      "target": "tests.product.test_c154b.ForegroundAdmissionTests.test_J42_queued_install_is_reordered_by_current_priority",
+      "target": "tests.product.test_c154b.InstallWiringTests.test_J42_course_install_reorders_already_submitted_jobs",
       "promise": "4.2"
     },
     {
       "id": "tests-product-faults-C154b-04",
       "patch": "tests/product/faults/C154b/04-same-gid-ignores-loop-tee.patch",
       "kind": "python",
-      "target": "tests.product.test_c154b.LoopTeeAdmissionTests.test_J42_course_package_uses_nearby_for_same_gid_wrong_selection",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_actual_course_route_registers_nondefault_loop_and_tee",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-05",
+      "patch": "tests/product/faults/C154b/05-A-package-route-not-foreground.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_real_package_routes_hold_shared_gate_and_delay_cold_prep",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-06",
+      "patch": "tests/product/faults/C154b/06-B-prep-skips-gate.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_real_package_routes_hold_shared_gate_and_delay_cold_prep",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-07",
+      "patch": "tests/product/faults/C154b/07-C-install-not-reprioritized.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.InstallWiringTests.test_J42_course_install_reorders_already_submitted_jobs",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-08",
+      "patch": "tests/product/faults/C154b/08-D-selection-not-registered.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_actual_course_route_registers_nondefault_loop_and_tee",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-09",
+      "patch": "tests/product/faults/C154b/09-E-selection-forces-blue.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_actual_course_route_registers_nondefault_loop_and_tee",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-10",
+      "patch": "tests/product/faults/C154b/10-F-backfill-skips-gate.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.InstallWiringTests.test_J42_backfill_real_unit_enters_package_gate",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-11",
+      "patch": "tests/product/faults/C154b/11-G-install-key-not-attached.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.InstallWiringTests.test_J42_course_install_reorders_already_submitted_jobs",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-12",
+      "patch": "tests/product/faults/C154b/12-N1-release-before-response-body.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.RouteAdmissionTests.test_J42_actual_app_gate_survives_endpoint_return_and_compressed_send",
+      "promise": "4.2"
+    },
+    {
+      "id": "tests-product-faults-C154b-13",
+      "patch": "tests/product/faults/C154b/13-B2-deadline-restarts-for-waiter.patch",
+      "kind": "python",
+      "target": "tests.product.test_c154b.GateAgeTests.test_J42_deadline_uses_remaining_foreground_age_and_records_wait",
       "promise": "4.2"
     }
   ]

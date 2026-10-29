@@ -1462,7 +1462,7 @@ async def course_prep_nine(
 
     return await run_prep(request, lambda: _build_course_prep_nine(
         global_id, holes, render, include_shots, tee, player_id,
-    ))
+    ), exempt=lambda: _playing_prep_matches(player_id, global_id, holes, tee))
 
 
 def _build_course_prep_nine(global_id, holes, render, include_shots, tee, player_id) -> dict:
@@ -1841,10 +1841,10 @@ def course_nearby_endpoint(
         # enter the bounded low-priority lane; this response never waits for downloads/renders.
         # The nearest courses' small CourseView releases are fetched first, so a tap on one of
         # them finds its Tee rows cached.
-        from server_v2.map_startup import enqueue_nearby, prefetch_nearby_releases
+        from server_v2.map_startup import schedule_nearby
 
-        background_tasks.add_task(enqueue_nearby, matches)
-        background_tasks.add_task(prefetch_nearby_releases, matches)
+        # Submit only; never wait for package admission in this connection's ASGI task.
+        background_tasks.add_task(schedule_nearby, matches)
     # Only the nearest three rows, the courses that prefetch warms, carry Tee rows: each costs a
     # release decode and a geometry pass, and a 50 km answer may list hundreds of courses.
     from server_v2.map_startup import _nearest_three
@@ -2531,6 +2531,50 @@ def _playing_selection_matches(
     if not loop_key or not tee_box or current is None:
         return True
     return current == (str(loop_key), str(tee_box).strip().lower())
+
+
+def _playing_install_matches(state) -> bool:
+    """Read active player leases without changing their registration or retirement."""
+    with _ACTIVE_ROUNDS_LOCK:
+        players = {key[0] for key, deadline in _ACTIVE_ROUNDS.items()
+                   if deadline > time.monotonic()
+                   and course_install._player_key(key[0]) == state.get("playerKey")}
+    return any(_playing_selection_matches(
+        player, int(state.get("globalId") or 0),
+        loop_key=state.get("loopKey"), tee_box=state.get("teeBox"),
+    ) for player in players)
+
+
+def _playing_prep_matches(player_id: str, global_id: int, holes, tee: str | None) -> bool:
+    """Read the live lease/selection and its install's latest display-hole signal only.
+
+    Do not renew/retire C161 registrations. A missing selection can prove only local hole 1;
+    a proven loop maps display holes to physical holes (including back-nine starts).
+    """
+    with _ACTIVE_ROUNDS_LOCK:
+        keys = [key for key, deadline in _ACTIVE_ROUNDS.items()
+                if key[0] == str(player_id) and deadline > time.monotonic()
+                and _ACTIVE_COURSES.get(key)]
+        key = keys[-1] if keys else None
+        if key is None or int(global_id) not in _ACTIVE_COURSES[key]:
+            return False
+        selection = _ACTIVE_SELECTIONS.get(key)
+    if not holes:
+        return False  # no explicit per-hole signal: an all-hole cold prep must yield
+    if selection is None:
+        return set(holes) <= {1}
+    loop_key, active_tee = selection
+    if tee and tee.strip().lower() != active_tee:
+        return False
+    loops = parse_round_loops(loop_key, path_global_id=int(loop_key.split(":")[0]))
+    physical = [(gid, h) for gid, half in loops
+                for h in (range(10, 19) if half == "back" else range(1, 10))]
+    identifier = course_install.job_id(global_id=physical[0][0], tee_box=active_tee,
+                                       loop_key=loop_key, player_id=player_id)
+    state = course_install.state_for_worker(identifier) or {}
+    current = max(1, int(state.get("priorityHole") or 1))
+    urgent = {physical[i - 1] for i in (1, current) if i <= len(physical)}
+    return all((int(global_id), int(h)) in urgent for h in holes)
 
 
 def nearby_work_blocked() -> bool:
@@ -3802,3 +3846,9 @@ def retry_player_garmin_sync_job(
     # The store lookup also enforces that a member cannot use a job id from another partition.
     response.status_code = 202
     return _sync_job_response(_load_sync_job_for_player(job_id, player_id))
+
+
+# Register last, outside GZip and BaseHTTPMiddleware's body-stream proxies. Admission must last
+# through the final send to the server, not just the final send to an intermediate response queue.
+from .package_admission import PackageAdmissionMiddleware
+app.add_middleware(PackageAdmissionMiddleware)

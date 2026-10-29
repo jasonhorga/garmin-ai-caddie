@@ -1,0 +1,12 @@
+diff --git a/server_v2/render_backfill.py b/server_v2/render_backfill.py
+--- a/server_v2/render_backfill.py
++++ b/server_v2/render_backfill.py
+@@ -651,7 +651,7 @@
+                 self._current_unit = (key, unit)
+             error = None
+             try:
+-                with background_work():
++                if True:
+                     with work_priority(BACKFILL):
+                         if unit == "topo":
+                             self._render_topo(task["globalId"], task["localHole"])

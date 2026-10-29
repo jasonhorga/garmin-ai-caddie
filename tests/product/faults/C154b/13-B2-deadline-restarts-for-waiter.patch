@@ -1,0 +1,15 @@
+diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
+--- a/ai_caddie/core/priority_work.py
++++ b/ai_caddie/core/priority_work.py
+@@ -86,9 +86,9 @@
+                 now = self._clock()
+                 live = []
+                 for ticket, started in self._foreground.items():
+-                    age = now - started
++                    age = now - wait_started
+                     if age < timeout:
+-                        live.append(started + timeout)
++                        live.append(wait_started + timeout)
+                     elif ticket not in self._warned:
+                         self._warned.add(ticket)
+                         logger.warning("foreground_gate stale_package age_s=%.3f limit_s=%.3f", age, timeout)

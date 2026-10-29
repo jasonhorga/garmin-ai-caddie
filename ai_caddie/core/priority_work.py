@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 import heapq
 import itertools
+import logging
 import threading
 import time
 from typing import Any, Callable, Hashable
@@ -18,9 +19,12 @@ BACKFILL = 30
 
 # A package build is synchronous CPU work in the API process.  New background units wait for it
 # so a round start does not spend its budget competing with warmers.  Thirty seconds is deliberately
-# finite: a wedged package must not permanently starve recovery/render work.
+# finite: each package blocks only until its entry age reaches 30s, not for 30s per waiter.
 FOREGROUND_GATE_TIMEOUT_SECONDS = 30.0
 
+
+_FOREGROUND_CONTEXT: ContextVar[bool] = ContextVar("foreground_admission", default=False)
+logger = logging.getLogger(__name__)
 
 _CURRENT_PRIORITY: ContextVar[int | None] = ContextVar("work_priority", default=None)
 
@@ -44,8 +48,8 @@ class ForegroundGate:
     """Coordinate synchronous package requests with background CPU units.
 
     A foreground request never acquires a background slot, which avoids a package -> warmer
-    deadlock.  Background callers wait while at least one package is in flight and are admitted
-    after the package exits, or after the bounded timeout if the request is stuck.
+    deadlock. Background callers wait only for unexpired foreground activities. Stale activities
+    keep their lifecycle/count but cease blocking; a fresh request gets its own bounded window.
     """
 
     def __init__(self, *, timeout_s: float = FOREGROUND_GATE_TIMEOUT_SECONDS,
@@ -53,30 +57,50 @@ class ForegroundGate:
         self.timeout_s = max(0.0, float(timeout_s))
         self._clock = clock
         self._condition = threading.Condition()
-        self._foreground = 0
+        self._foreground: dict[object, float] = {}
+        self._warned: set[object] = set()
         self._background = 0
 
     @contextmanager
     def foreground(self):
         with self._condition:
-            self._foreground += 1
+            ticket = object()
+            self._foreground[ticket] = self._clock()
         try:
             yield
         finally:
             with self._condition:
-                self._foreground = max(0, self._foreground - 1)
+                self._foreground.pop(ticket, None)
+                self._warned.discard(ticket)
                 self._condition.notify_all()
 
     @contextmanager
     def background(self, *, timeout_s: float | None = None):
         timeout = self.timeout_s if timeout_s is None else max(0.0, float(timeout_s))
-        deadline = self._clock() + timeout
+        from ai_caddie.core.request_timing import mark
+
         with self._condition:
+            marked = False
+            wait_started = self._clock()
             while self._foreground:
-                remaining = deadline - self._clock()
-                if remaining <= 0:
+                now = self._clock()
+                live = []
+                for ticket, started in self._foreground.items():
+                    age = now - started
+                    if age < timeout:
+                        live.append(started + timeout)
+                    elif ticket not in self._warned:
+                        self._warned.add(ticket)
+                        logger.warning("foreground_gate stale_package age_s=%.3f limit_s=%.3f", age, timeout)
+                if not live:
                     break
-                self._condition.wait(timeout=remaining)
+                if not marked:
+                    mark("background_gate_enter")
+                    marked = True
+                self._condition.wait(timeout=max(0.0, min(live) - now))
+            if marked:
+                mark("background_gate_wait")
+                logger.info("background_gate_wait wait_ms=%.1f", (self._clock() - wait_started) * 1000)
             self._background += 1
         try:
             yield
@@ -88,7 +112,7 @@ class ForegroundGate:
     @property
     def foreground_count(self) -> int:
         with self._condition:
-            return self._foreground
+            return len(self._foreground)
 
     @property
     def background_count(self) -> int:
@@ -100,9 +124,22 @@ FOREGROUND_GATE = ForegroundGate()
 
 
 @contextmanager
+def foreground_scope():
+    """Propagate an already-owned ASGI admission to synchronous endpoint/helper threads."""
+    token = _FOREGROUND_CONTEXT.set(True)
+    try:
+        yield
+    finally:
+        _FOREGROUND_CONTEXT.reset(token)
+
+
+@contextmanager
 def foreground_work():
-    """Mark one package request as foreground CPU work."""
-    with FOREGROUND_GATE.foreground():
+    """Mark one package build, reusing admission owned by its complete ASGI response."""
+    if _FOREGROUND_CONTEXT.get():
+        yield
+        return
+    with foreground_scope(), FOREGROUND_GATE.foreground():
         yield
 
 

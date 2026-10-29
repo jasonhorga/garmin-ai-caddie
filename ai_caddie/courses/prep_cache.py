@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Callable
 from ai_caddie.core.request_timing import mark
 from ai_caddie.core import revisions
-from ai_caddie.courses.prep_work import checkpoint
+from ai_caddie.courses.prep_work import checkpoint, cold_admission, cold_admission_factory
 
 from ai_caddie.core.data import (
     CLUBS_BAG_FILE, CLUBS_FILE, DATA_DIR, HAZARD_DIR, MESH_DIR, OWNER_ID, SCORECARD_DIR, SHOT_DIR,
@@ -305,13 +305,20 @@ def _singleflight(
                 mark("prep_cache_hit")
                 return hit[1]
             event = _inflight.get(key)
-            if event is None:
+            admission = cold_admission_factory() if event is None else None
+            if event is None and admission is None:
                 # No cached result and nobody building this key: become the leader.
                 event = threading.Event()
                 _inflight[key] = event
                 leader = True
             else:
                 leader = False  # someone else is already building this exact key
+        if admission is not None:
+            # Wait BEFORE reserving single-flight leadership. A package may need this same key;
+            # it must be free to build it while this background request is waiting for admission.
+            # Recheck after admission: another request may have populated the cache meanwhile.
+            with admission(), cold_admission(None):
+                return _singleflight(cache, maxsize, key, fingerprint, build)
         if not leader:
             # Waiter: block until the leader finishes, then re-loop to read the cache. If the
             # leader built a DIFFERENT fingerprint (a sync landed mid-build) or its result was

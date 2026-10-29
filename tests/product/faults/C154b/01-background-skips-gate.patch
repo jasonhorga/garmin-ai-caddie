@@ -1,11 +1,12 @@
 diff --git a/ai_caddie/core/priority_work.py b/ai_caddie/core/priority_work.py
 --- a/ai_caddie/core/priority_work.py
 +++ b/ai_caddie/core/priority_work.py
-@@ -72,6 +72,6 @@ class ForegroundGate:
-         deadline = self._clock() + timeout
+@@ -82,7 +82,7 @@
          with self._condition:
+             marked = False
+             wait_started = self._clock()
 -            while self._foreground:
 +            while False and self._foreground:
-                 remaining = deadline - self._clock()
-                 if remaining <= 0:
-                     break
+                 now = self._clock()
+                 live = []
+                 for ticket, started in self._foreground.items():

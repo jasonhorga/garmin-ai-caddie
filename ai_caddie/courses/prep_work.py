@@ -24,3 +24,20 @@ def checkpoint():
     event = _CANCELLED.get()
     if event is not None and event.is_set():
         raise PrepCancelled()
+
+
+# Only transport prep calls install this policy. Package's synchronous helpers remain ungated.
+_COLD_ADMISSION: ContextVar[object] = ContextVar("prep_cold_admission", default=None)
+
+
+@contextmanager
+def cold_admission(factory):
+    token = _COLD_ADMISSION.set(factory)
+    try:
+        yield
+    finally:
+        _COLD_ADMISSION.reset(token)
+
+
+def cold_admission_factory():
+    return _COLD_ADMISSION.get()

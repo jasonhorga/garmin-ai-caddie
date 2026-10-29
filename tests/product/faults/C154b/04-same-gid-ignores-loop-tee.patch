@@ -1,7 +1,7 @@
 diff --git a/server_v2/main.py b/server_v2/main.py
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -3024,16 +3024,7 @@
+@@ -3068,16 +3068,7 @@
          refs=refs,
          requested=requested,
          ready=ready,
