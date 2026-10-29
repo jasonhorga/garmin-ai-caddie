@@ -15,12 +15,16 @@ final class C33StartTests: XCTestCase {
     /// Far below every default the product could fall back to (the 30 s start budget, the 120 s
     /// package timeout) and far above a simulator stall.
     private let eventWait: TimeInterval = 10
+    private var topoPrefetchScope: C33TopoPrefetchScope!
 
     override func setUp() {
         super.setUp()
         URLProtocol.registerClass(C33URLProtocol.self)
+        topoPrefetchScope = C33TopoPrefetchScope()
     }
     override func tearDown() {
+        topoPrefetchScope?.stop()
+        topoPrefetchScope = nil
         C33URLProtocol.setHandlers(onStart: nil)
         URLProtocol.unregisterClass(C33URLProtocol.self)
         super.tearDown()
@@ -286,7 +290,7 @@ final class C33StartTests: XCTestCase {
         var now = Date(timeIntervalSince1970: 1_900_000_000)
         let client = SyncClient(
             baseURL: URL(string: "https://\(host)")!, session: session,
-            roundStartTimeoutInterval: 0.05
+            roundStartTimeoutInterval: 1
         )
         let model = LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
@@ -446,7 +450,7 @@ final class C33StartTests: XCTestCase {
         let host = "prep-queue.example.test"
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let session = C33URLProtocol.session()
-        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 0.05)
+        let client = SyncClient(baseURL: URL(string: "https://\(host)")!, session: session, roundStartTimeoutInterval: 1)
         let model = LiveRoundAppModel(
             offlineStore: OfflineStore(directoryURL: directory), apiBaseURL: client.baseURL,
             watchBridge: nil, garminSessionStore: nil, syncClient: client,

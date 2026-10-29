@@ -6,6 +6,19 @@ import XCTest
 
 @MainActor
 final class C33EventTests: XCTestCase {
+    private var topoPrefetchScope: C33TopoPrefetchScope!
+
+    override func setUp() {
+        super.setUp()
+        topoPrefetchScope = C33TopoPrefetchScope()
+    }
+
+    override func tearDown() {
+        topoPrefetchScope?.stop()
+        topoPrefetchScope = nil
+        super.tearDown()
+    }
+
     /// Product spec 5.9: quarantine eligibility follows the wire code, independent of wording.
     func testProductSpec59EventInvalidCodeOverridesLegacyWording() {
         let cases: [(String, Bool)] = [

@@ -267,7 +267,12 @@ final class ProductPhoneUITests: XCTestCase {
 
         let retry = notice.buttons.firstMatch
         XCTAssertTrue(retry.exists)
-        retry.tap()
+        XCTAssertTrue(UITapHelpers.tapWhenHittable(
+            retry,
+            app: app,
+            timeout: 5,
+            diagnosticName: "j2-2 retry failed range"
+        ))
         let noticeCleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             return !notice.exists
         }, object: nil)

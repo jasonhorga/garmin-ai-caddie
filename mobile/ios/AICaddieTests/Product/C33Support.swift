@@ -41,6 +41,41 @@ final class C33URLProtocol: URLProtocol {
     }
 }
 
+/// Scope the shared topo downloader used by fresh-entry tests. The production store intentionally
+/// uses URLSession.shared, so a test-local client session cannot intercept its prefetch. A valid
+/// one-pixel response completes that task immediately and prevents the five/15-second retry chain.
+@MainActor
+final class C33TopoPrefetchScope {
+    init() {
+        TopoHoleImageStore.resetForUITesting()
+        CapturingURLProtocol.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path.contains("/topo.png") {
+                return (
+                    HTTPURLResponse(
+                        url: url,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "image/png"]
+                    )!,
+                    validOnePixelPNGData()
+                )
+            }
+            return (
+                HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        URLProtocol.registerClass(CapturingURLProtocol.self)
+    }
+
+    func stop() {
+        TopoHoleImageStore.resetForUITesting()
+        CapturingURLProtocol.requestHandler = nil
+        URLProtocol.unregisterClass(CapturingURLProtocol.self)
+    }
+}
+
 /// Earlier tests' models may still be draining requests through the process-wide URL protocol, and
 /// a test's own model can follow up on the same URL. An expectation tied to one request claims its
 /// first match only, so a late stray callback can never crash the run by over-fulfilling it.

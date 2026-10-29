@@ -3412,6 +3412,10 @@ final class LiveRoundAppModelTests: XCTestCase {
         ]
         let requestLock = NSLock()
         var requestedPaths: [String] = []
+        let siblingBPrepSent = expectation(description: "catalogue sibling B prep requested after release")
+        let siblingCPrepSent = expectation(description: "catalogue sibling C prep requested after release")
+        let siblingBPrepOnce = C33FirstMatch()
+        let siblingCPrepOnce = C33FirstMatch()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -3419,6 +3423,11 @@ final class LiveRoundAppModelTests: XCTestCase {
             let url = try XCTUnwrap(request.url)
             requestLock.withLock { requestedPaths.append(url.path) }
             let path = url.path
+            if path == "/api/v2/courses/31796/prep" {
+                if siblingBPrepOnce.claim() { siblingBPrepSent.fulfill() }
+            } else if path == "/api/v2/courses/31797/prep" {
+                if siblingCPrepOnce.claim() { siblingCPrepSent.fulfill() }
+            }
             if path == "/api/v2/mobile/courses/options" {
                 let body = try JSONEncoder().encode(MobileCourseOptionsResponse(
                     schema: "ai-caddie-mobile-course-options-v1",
@@ -3496,12 +3505,14 @@ final class LiveRoundAppModelTests: XCTestCase {
             loops: activePackage.loopEntries
         )
         let generation = try XCTUnwrap(model.freshEntryReleaseGenerationForTesting)
-        let rowsDeadline = ProcessInfo.processInfo.systemUptime + 2
-        while ProcessInfo.processInfo.systemUptime < rowsDeadline,
-              model.prepCourseDownloads.filter({ [31796, 31797].contains($0.course.globalId) }).count < 2 {
-            await Task.yield()
-            try? await Task.sleep(nanoseconds: 1_000_000)
+        let siblingsQueued = expectation(description: "catalogue sibling rows queued")
+        let siblingsQueuedOnce = C33FirstMatch()
+        let siblingsQueueSubscription = model.$prepCourseDownloads.sink { downloads in
+            let queued = downloads.filter { [31796, 31797].contains($0.course.globalId) }
+            if queued.count == 2, siblingsQueuedOnce.claim() { siblingsQueued.fulfill() }
         }
+        defer { siblingsQueueSubscription.cancel() }
+        await fulfillment(of: [siblingsQueued], timeout: 10)
 
         let siblings = model.prepCourseDownloads.filter { [31796, 31797].contains($0.course.globalId) }
         XCTAssertEqual(siblings.map(\.course.globalId), [31796, 31797])
@@ -3512,13 +3523,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertFalse(beforeRelease.contains { $0 == "/api/v2/courses/31797/prep" })
 
         model.releaseFreshEntryForTesting(generation: generation)
-        let requestsDeadline = ProcessInfo.processInfo.systemUptime + 2
-        while ProcessInfo.processInfo.systemUptime < requestsDeadline {
-            let paths = requestLock.withLock { requestedPaths }
-            if paths.contains("/api/v2/courses/31796/prep") && paths.contains("/api/v2/courses/31797/prep") { break }
-            await Task.yield()
-            try? await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await fulfillment(of: [siblingBPrepSent, siblingCPrepSent], timeout: 10)
         let afterRelease = requestLock.withLock { requestedPaths }
         XCTAssertTrue(afterRelease.contains("/api/v2/courses/31796/prep"))
         XCTAssertTrue(afterRelease.contains("/api/v2/courses/31797/prep"))

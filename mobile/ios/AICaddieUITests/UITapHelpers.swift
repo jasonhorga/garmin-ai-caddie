@@ -29,16 +29,14 @@ enum UITapHelpers {
         diagnosticName: String
     ) -> Bool {
         if waitForStableHittability(source, app: app, timeout: timeout) {
-            source.tap()
-            return true
+            return tapUsingStableCoordinate(source, app: app, diagnosticName: diagnosticName)
         }
         guard source.exists else {
             print("UI_TAP source-not-ready \(diagnosticName)")
             return false
         }
         print("UI_TAP fallback \(diagnosticName)")
-        source.tap()
-        return true
+        return tapUsingStableCoordinate(source, app: app, diagnosticName: diagnosticName)
     }
 
     /// Focus a text field before typing.  A sheet can be visible while the first tap is still
@@ -68,7 +66,7 @@ enum UITapHelpers {
             print("UI_TYPE field-not-ready-after-retry \(diagnosticName)")
             return false
         }
-        field.tap()
+        _ = tapUsingStableCoordinate(field, app: app, diagnosticName: "\(diagnosticName)-focus-retry")
         guard waitForCondition({ hasKeyboardFocus(field, app: app) }, timeout: max(0, deadline.timeIntervalSinceNow)) else {
             print("UI_TYPE focus-not-ready \(diagnosticName)")
             return false
@@ -109,7 +107,7 @@ enum UITapHelpers {
             }
             if deadline.timeIntervalSinceNow > 0,
                waitForStableHittability(source, app: app, timeout: max(0, deadline.timeIntervalSinceNow)) {
-                source.tap()
+                _ = tapUsingStableCoordinate(source, app: app, diagnosticName: "\(diagnosticName)-transition-retry")
             }
         }
         let ready = waitForCondition(
@@ -128,9 +126,8 @@ enum UITapHelpers {
         return keyboardVisible && (fieldHasFocus || app.textFields.allElementsBoundByIndex.filter { $0.exists }.count == 1)
     }
 
-    /// `isHittable` can itself fail when XCTest has an element with an empty or off-screen frame.
-    /// Check geometry and window intersection first so transient accessibility snapshots are only
-    /// treated as "not ready" and never become a test failure.
+    /// Check geometry and the activation point directly so transient accessibility snapshots are
+    /// only treated as "not ready" and never become a test failure.
     static func isSafelyHittable(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
         guard element.exists else { return false }
         let frame = element.frame
@@ -138,7 +135,22 @@ enum UITapHelpers {
         guard frame.width > 0, frame.height > 0,
               windowFrame.width > 0, windowFrame.height > 0,
               frame.intersects(windowFrame) else { return false }
-        return element.isHittable
+        let point = element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).screenPoint
+        return windowFrame.contains(point)
+    }
+
+    @discardableResult
+    private static func tapUsingStableCoordinate(
+        _ element: XCUIElement,
+        app: XCUIApplication,
+        diagnosticName: String
+    ) -> Bool {
+        guard isSafelyHittable(element, in: app) else {
+            print("UI_TAP activation-point-not-ready \(diagnosticName)")
+            return false
+        }
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        return true
     }
 
     private static func waitForStableHittability(
