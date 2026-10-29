@@ -1,6 +1,6 @@
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -3011,16 +3011,7 @@
+@@ -3024,16 +3024,7 @@
          refs=refs,
          requested=requested,
          ready=ready,
@@ -10,7 +10,7 @@
 -                player_id,
 -                global_id,
 -                loop_key=round_loop_key(round_loops),
--                tee_box=str(tee_box or package.course.get("teeBox") or "blue"),
+-                tee_box=str(tee_box or package_tee_box or "blue"),
 -            )
 -            else NEARBY
 -        ),
