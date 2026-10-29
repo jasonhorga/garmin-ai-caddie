@@ -443,6 +443,9 @@ final class RoundStartTwoStageTests: XCTestCase {
         })
         let fixture = makeModel(host: host, held: held)
         let model = fixture.model
+        // C136 makes the ahead-of-play Garmin layer opt-in; this stop-boundary test explicitly
+        // exercises cancellation of the enabled raster pass.
+        model.garminRasterPreloadingEnabled = { true }
         fixture.client.requestDataGateForTesting = { request in
             guard request.url?.path == "/api/v2/courses/\(c85CourseId)/install/status",
                   installStatusGateOnce.claim() else { return }
@@ -811,6 +814,7 @@ final class RoundStartTwoStageTests: XCTestCase {
         let rasterStarted = rasterGate.map { _ in expectation(description: "raster task held") }
         let rasterStartedOnce = C33FirstMatch()
         if let rasterGate {
+            fixture.model.garminRasterPreloadingEnabled = { true }
             fixture.model.garminRasterDownloader = { _ in
                 if rasterStartedOnce.claim() { rasterStarted?.fulfill() }
                 await rasterGate.wait()

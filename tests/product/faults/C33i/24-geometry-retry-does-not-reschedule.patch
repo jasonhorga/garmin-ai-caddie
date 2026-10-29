@@ -1,11 +1,14 @@
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -7029,8 +7029,6 @@
+@@ -7262,10 +7262,7 @@
                  guard self.package?.roundId == roundId,
                        self.liveRoundState?.roundId == roundId,
                        self.package?.course.globalId == globalId else { return }
 -                self.pendingGeometryRefreshExecuting = false
--                self.schedulePendingGeometryRefresh(for: self.package ?? snapshot, mapOnly: mapOnly)
+-                self.schedulePendingGeometryRefresh(
+-                    for: self.package ?? snapshot, mapOnly: requestedMapOnly
+-                )
++
              }
          }
      }

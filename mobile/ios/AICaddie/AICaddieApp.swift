@@ -796,6 +796,10 @@ public final class LiveRoundAppModel: ObservableObject {
     private var pendingGeometryLastAttemptEpoch: Double?
     private var pendingGeometryRetryAttempt = 0
     private var pendingGeometryRefreshExecuting = false
+    /// A hole switch can arrive while the server-deadline retry is already fetching the ordinary
+    /// package. Preserve that request's round-package semantics, then run the selected-hole map
+    /// refresh once it settles instead of dropping the navigation-triggered request.
+    private var pendingGeometryMapOnlyRequested = false
     /// The round whose all-hole download is still running (cleared when a pass finishes).
     private var offlineCourseDownloadRoundId: String?
     /// The round whose all-hole download course discovery stopped; its live view resumes it.
@@ -1181,6 +1185,7 @@ public final class LiveRoundAppModel: ObservableObject {
         pendingGeometryLastAttemptEpoch = nil
         pendingGeometryRetryAttempt = 0
         pendingGeometryRefreshExecuting = false
+        pendingGeometryMapOnlyRequested = false
         pausePrepCourseDownload()
         // Requested 备战 jobs belong to the previous player's library.
         userRequestedPrepDownloadIDs.removeAll()
@@ -7310,12 +7315,16 @@ public final class LiveRoundAppModel: ObservableObject {
         #if DEBUG
         guard !roundBackgroundWorkStoppedForTesting else { return }
         #endif
+        if pendingGeometryRefreshExecuting {
+            if mapOnly { pendingGeometryMapOnlyRequested = true }
+            return
+        }
         if !pendingGeometryRefreshExecuting {
             pendingGeometryRefreshTask?.cancel()
             pendingGeometryRefreshTask = nil
-        } else {
-            return
         }
+        let requestedMapOnly = mapOnly || pendingGeometryMapOnlyRequested
+        pendingGeometryMapOnlyRequested = false
         guard let syncClient,
               liveRoundState?.roundId == snapshot.roundId,
               !snapshot.holes.filter({
@@ -7353,7 +7362,7 @@ public final class LiveRoundAppModel: ObservableObject {
             defer { self.pendingGeometryRefreshExecuting = false }
             do {
                 let refreshed: LiveRoundPackage
-                if mapOnly {
+                if requestedMapOnly {
                     // A hole change only needs map facts and must never replace the active
                     // round's player events, bag, or caddie context.
                     refreshed = try await syncClient.fetchCoursePackage(
@@ -7414,7 +7423,7 @@ public final class LiveRoundAppModel: ObservableObject {
                 self.pendingGeometryRefreshTask = nil
                 if remainsPending {
                     self.pendingGeometryRefreshExecuting = false
-                    self.schedulePendingGeometryRefresh(for: persisted, mapOnly: mapOnly)
+                    self.schedulePendingGeometryRefresh(for: persisted, mapOnly: requestedMapOnly)
                 }
             } catch {
                 self.pendingGeometryRetryAttempt += 1
@@ -7426,7 +7435,9 @@ public final class LiveRoundAppModel: ObservableObject {
                       self.liveRoundState?.roundId == roundId,
                       self.package?.course.globalId == globalId else { return }
                 self.pendingGeometryRefreshExecuting = false
-                self.schedulePendingGeometryRefresh(for: self.package ?? snapshot, mapOnly: mapOnly)
+                self.schedulePendingGeometryRefresh(
+                    for: self.package ?? snapshot, mapOnly: requestedMapOnly
+                )
             }
         }
     }

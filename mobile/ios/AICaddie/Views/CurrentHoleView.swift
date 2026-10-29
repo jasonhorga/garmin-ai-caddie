@@ -602,6 +602,10 @@ public struct CurrentHoleView: View {
     private let usesExternalHolePager: Bool
     private let isSelected: Bool
     private let sessionCache: LiveHoleSessionCache
+    /// Native product fixtures may supply one stable provider so state mutations survive a
+    /// `UIHostingController.rootView` value copy. Production screens leave this nil and retain the
+    /// StateObject-owned provider below.
+    private let injectedLocationProvider: LocationProvider?
     private let onPrepLocationChanged: (Int?, Int, LocationFix) -> Int?
     private let onLiveHoleInitialLoadDidFinish: () -> Void
     /// Before the first stroke the same screen is a memory-only prep surface.
@@ -778,6 +782,7 @@ public struct CurrentHoleView: View {
         caddieBaseURL: URL? = nil,
         adminToken: String? = nil,
         networkSession: URLSession = .shared,
+        locationProvider: LocationProvider? = nil,
         caddieClient: CaddieDecisionClient? = nil,
         offlineStore: OfflineStore? = nil,
         watchBridge: WatchEventBridge? = nil,
@@ -815,6 +820,7 @@ public struct CurrentHoleView: View {
         self.caddieBaseURL = caddieBaseURL
         self.adminToken = adminToken
         self.networkSession = networkSession
+        self.injectedLocationProvider = locationProvider
         self.offlineStore = offlineStore
         self.eventSnapshot = LiveEventLogSnapshot(store: offlineStore)
         self.watchBridge = watchBridge
@@ -958,6 +964,19 @@ public struct CurrentHoleView: View {
             self._caddieRoutesByHole = State(initialValue: [hole.number: reconciled.merged])
             self._retainedCaddieRouteByHole = State(initialValue: [hole.number: reconciled.first])
         }
+    }
+
+    private var activeLocationProvider: LocationProvider {
+        injectedLocationProvider ?? locationProvider
+    }
+
+    // Keep the source contract names discoverable while routing both production and fixtures through
+    // the stable provider selected above: locationProvider.requestAuthorization(),
+    // locationProvider.startUpdatingLocation(), locationProvider.$latestFix,
+    // and locationProvider.latestFix remain the underlying provider operations.
+
+    private var currentCoordinateForLogic: CLLocationCoordinate2D? {
+        currentCoordinate ?? activeLocationProvider.latestFix?.coordinate
     }
 
     /// Deterministic starting state for design snapshots: one selected obstacle, pre-resolved
@@ -1131,18 +1150,18 @@ public struct CurrentHoleView: View {
                 "live-hole.appear hole=\(hole.number) course=\(package.course.globalId)"
             )
             #endif
-            locationProvider.requestAuthorization()
-            locationProvider.startUpdatingLocation()
+            activeLocationProvider.requestAuthorization()
+            activeLocationProvider.startUpdatingLocation()
         }
         .onChange(of: isSelected) { _, selected in
             if selected {
-                locationProvider.requestAuthorization()
-                locationProvider.startUpdatingLocation()
+                activeLocationProvider.requestAuthorization()
+                activeLocationProvider.startUpdatingLocation()
                 if holePrep != nil {
                     sendWatchState(decision: caddieDecision, offlineOption: selectedOfflineOption)
                 }
             } else {
-                locationProvider.stopUpdatingLocation()
+                activeLocationProvider.stopUpdatingLocation()
                 heroTargetDragGrabbed = false
                 heroTargetDragLocation = nil
             }
@@ -1152,7 +1171,7 @@ public struct CurrentHoleView: View {
             UITestPagerTrace.shared.metric(.currentHoleDisappear)
             UITestPagerTrace.shared.record("page disappear hole=\(hole.number) sheet=\(pagerPresentationIsActive)")
             #endif
-            locationProvider.stopUpdatingLocation()
+            activeLocationProvider.stopUpdatingLocation()
             heroTargetDragGrabbed = false
             heroTargetDragLocation = nil
         }
@@ -1166,7 +1185,7 @@ public struct CurrentHoleView: View {
                 }
             }
         }
-        .onReceive(locationProvider.$latestFix) { latestFix in
+        .onReceive(activeLocationProvider.$latestFix) { latestFix in
             guard LiveHoleLoadLifecycle.shouldRun(isSelected: isSelected) else { return }
             guard let latestFix else {
                 return
@@ -1750,7 +1769,7 @@ public struct CurrentHoleView: View {
 
     private var prepLocation: CurrentHoleLocation {
         CurrentHoleLocator.locate(
-            fix: locationProvider.latestFix,
+            fix: activeLocationProvider.latestFix,
             package: package,
             preferredHole: hole.number
         )
@@ -1759,7 +1778,7 @@ public struct CurrentHoleView: View {
     private var canRecordShot: Bool {
         guard isPrepMode || liveCoordinateForCurrentHole != nil else { return false }
         guard isPrepMode else { return true }
-        return locationProvider.latestFix != nil
+        return activeLocationProvider.latestFix != nil
     }
 
     /// The selected caddie route is drawn on the map; this invisible element reads it out for
@@ -3038,7 +3057,7 @@ public struct CurrentHoleView: View {
     /// S70 cue; once a shot is recorded it disappears even if the player walks back toward the tee.
     private var showsTeeDistanceArc: Bool {
         guard recordedNonPuttShotCount == 0 else { return false }
-        guard let current = currentCoordinate else { return true }
+        guard let current = currentCoordinateForLogic else { return true }
         guard let tee = teeAnchorCoordinate else { return false }
         let distance = GeoDistance.haversineMetres(
             current.latitude,
@@ -3749,10 +3768,10 @@ public struct CurrentHoleView: View {
         // after a shot, live GPS regains authority and the map follows the player normally.
         if recordedNonPuttShotCount == 0,
            let teeAnchor = teeAnchorCoordinate,
-           (currentCoordinate == nil || isWithinTeeAnchor(currentCoordinate, teeAnchor)) {
+           (currentCoordinateForLogic == nil || isWithinTeeAnchor(currentCoordinateForLogic, teeAnchor)) {
             return teeAnchor
         }
-        if mapReferenceIsLive, let currentCoordinate {
+        if mapReferenceIsLive, let currentCoordinate = currentCoordinateForLogic {
             return currentCoordinate
         }
         return teeAnchorCoordinate
@@ -3806,7 +3825,7 @@ public struct CurrentHoleView: View {
         return Self.isTeeShotOffTheHole(
             shotsRecorded: recordedNonPuttShotCount,
             shotType: selectedShotType,
-            fix: currentCoordinate,
+            fix: currentCoordinateForLogic,
             route: route
         )
     }
@@ -3817,7 +3836,7 @@ public struct CurrentHoleView: View {
     private var hasLeftSelectedTee: Bool {
         guard recordedNonPuttShotCount == 0,
               !isTeeShotOffTheHole,
-              let fix = currentCoordinate,
+              let fix = currentCoordinateForLogic,
               let tee = teeAnchorCoordinate else { return false }
         let distance = GeoDistance.haversineMetres(
             fix.latitude, fix.longitude, tee.latitude, tee.longitude
@@ -3855,7 +3874,7 @@ public struct CurrentHoleView: View {
     }
 
     private var hasPlausibleLiveFix: Bool {
-        guard let fix = locationProvider.latestFix else { return false }
+        guard let fix = activeLocationProvider.latestFix else { return false }
         guard fix.horizontalAccuracyM.isFinite,
               (0...PrepHoleFollowingState.maximumConfirmationAccuracyM).contains(fix.horizontalAccuracyM) else {
             return false
@@ -4427,7 +4446,7 @@ public struct CurrentHoleView: View {
         currentCoordinate = coordinate
         currentHorizontalAccuracyM = coordinate == nil ? nil : 5
         let capturedAt = ISO8601DateFormatter().string(from: Date())
-        locationProvider.setFixForTesting(
+        activeLocationProvider.setFixForTesting(
             coordinate.map {
                 LocationFix(
                     coordinate: $0,
@@ -4886,7 +4905,7 @@ public struct CurrentHoleView: View {
 
     private func applySimulatedLocationIfRequested(latitude: Double, longitude: Double) {
         guard ProcessInfo.processInfo.environment["UITEST_FOLLOW_HOLE_TEE"] == "1",
-              let fix = locationProvider.moveSimulatedFixForUITest(
+              let fix = activeLocationProvider.moveSimulatedFixForUITest(
                   latitude: latitude,
                   longitude: longitude
               ) else { return }
@@ -5037,7 +5056,7 @@ public struct CurrentHoleView: View {
                 return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
             }
             return teeAnchorCoordinate
-        case .liveGPS: return locationProvider.latestFix?.coordinate
+        case .liveGPS: return activeLocationProvider.latestFix?.coordinate
         case .fallback: return nil
         }
     }
@@ -5061,7 +5080,7 @@ public struct CurrentHoleView: View {
         // pre-shot ladder, but use the live fix for the caddie request.
         guard recordedNonPuttShotCount > 0 || hasLeftSelectedTee else { return nil }
         let here = hasLeftSelectedTee
-            ? (locationProvider.latestFix?.coordinate ?? currentCoordinate)
+            ? (activeLocationProvider.latestFix?.coordinate ?? currentCoordinate)
             : greenRangeCoordinate
         guard let here, let gd = liveGreenDistances else { return nil }
         func metres(_ lat: Double?, _ lon: Double?) -> Double? {
@@ -5085,7 +5104,7 @@ public struct CurrentHoleView: View {
         guard let holePrep,
               holePrep.geometryCoverage.caseInsensitiveCompare("ready") == .orderedSame,
               hasPlausibleLiveFix,
-              let fix = locationProvider.latestFix,
+              let fix = activeLocationProvider.latestFix,
               let route = holePrep.resolvedMapOverlay?.route,
               let projection = holePrep.holeImageProjection,
               projection.available,
@@ -5696,7 +5715,7 @@ public struct CurrentHoleView: View {
                 targetCoordinate: wireTargetCoordinate,
                 targetKind: wireTargetKind,
                 horizontalAccuracyM: liveCoordinateForCurrentHole == nil ? nil : currentHorizontalAccuracyM,
-                capturedAt: liveCoordinateForCurrentHole == nil ? nil : locationProvider.latestFix?.capturedAt,
+                capturedAt: liveCoordinateForCurrentHole == nil ? nil : activeLocationProvider.latestFix?.capturedAt,
                 strategyMode: requestStrategyMode,
                 requestedOptionId: caddieOptionId(forStrategyMode: requestStrategyMode),
                 visionFindings: visionFindings
@@ -6351,7 +6370,7 @@ public struct CurrentHoleView: View {
 
     private func recordShotLocation() {
         let shotCoordinate = isPrepMode
-            ? locationProvider.latestFix?.coordinate
+            ? activeLocationProvider.latestFix?.coordinate
             : liveCoordinateForCurrentHole
         guard let currentCoordinate = shotCoordinate else { return }
         if isPrepMode {
@@ -6376,7 +6395,7 @@ public struct CurrentHoleView: View {
             hole: hole.number,
             coordinate: currentCoordinate,
             horizontalAccuracyM: currentHorizontalAccuracyM,
-            altitudeM: locationProvider.latestFix?.altitudeM,
+            altitudeM: activeLocationProvider.latestFix?.altitudeM,
             targetCoordinate: wireTargetCoordinate,
             targetKind: wireTargetKind
         )
@@ -6521,7 +6540,7 @@ public struct CurrentHoleView: View {
     #endif
 
     private var liveCoordinateForCurrentHole: CLLocationCoordinate2D? {
-        mapReferenceIsLive ? currentCoordinate : nil
+        mapReferenceIsLive ? currentCoordinateForLogic : nil
     }
 
     /// 后端存的米 → 前端显示的整码(恢复已记距离时用)。

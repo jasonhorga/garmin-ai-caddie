@@ -1,11 +1,10 @@
 --- a/mobile/ios/AICaddie/Views/CurrentHoleView.swift
 +++ b/mobile/ios/AICaddie/Views/CurrentHoleView.swift
-@@ -3765,7 +3765,6 @@ public struct CurrentHoleView: View {
+@@ -3830,7 +3830,6 @@
+     /// keep both the static planning distance and the no-coordinate request behavior.
      private var hasLeftSelectedTee: Bool {
          guard recordedNonPuttShotCount == 0,
 -              !isTeeShotOffTheHole,
-               let fix = currentCoordinate,
+               let fix = currentCoordinateForLogic,
                let tee = teeAnchorCoordinate else { return false }
          let distance = GeoDistance.haversineMetres(
-             fix.latitude, fix.longitude, tee.latitude, tee.longitude
-
