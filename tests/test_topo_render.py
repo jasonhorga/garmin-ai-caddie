@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import io
+import json
+import multiprocessing
+import os
 import unittest
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Barrier, Event, Lock
@@ -28,6 +31,13 @@ def _test_png() -> bytes:
     buffer = io.BytesIO()
     Image.new("RGBA", (2, 2), (20, 80, 40, 255)).save(buffer, "PNG")
     return buffer.getvalue()
+
+
+def _green_fixture_worker(mesh_dir: str) -> None:
+    # A spawned test worker uses the same temporary, synthetic mesh as its parent.
+    from ai_caddie.core import data
+
+    data.MESH_DIR = Path(mesh_dir)
 
 
 def _synthetic_topo_image(*, tree_local_x: float | None = None):
@@ -765,6 +775,34 @@ class TopoRenderProcessPoolTests(unittest.TestCase):
                 topo_render.render_hole_topo_cached(999999, 1)
             self.assertIsNotNone(topo_render._render_pool, "the render ran in the worker pool")
             self.assertFalse(topo_render.cache_path(999999, 1).exists())
+
+    def test_green_cold_render_uses_a_process_and_preserves_exact_png_bytes(self) -> None:
+        """J4/4.2: green CPU must leave the API while retaining the installed image contract."""
+        from ai_caddie.core import data
+        from tests.perf.c135_concurrency import _synthetic_mesh
+
+        gid, hole = 987654, 1
+        crop = (100.0, 40.0, 200.0, 200.0)
+        with (
+            TemporaryDirectory() as tmp,
+            patch.object(data, "MESH_DIR", Path(tmp)),
+            patch.dict(os.environ, {"AI_CADDIE_TOPO_CACHE_DIR": tmp,
+                                   topo_render._RENDER_PROCESSES_ENV: "1"}),
+            ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"),
+                                initializer=_green_fixture_worker, initargs=(tmp,)) as pool,
+        ):
+            mesh_path(gid, hole).write_text(json.dumps(_synthetic_mesh(gid, hole)))
+            direct = topo_render.render_hole_green_detail(gid, hole, crop, size=320)
+            worker_pid = pool.submit(os.getpid).result(timeout=30)
+            self.assertNotEqual(worker_pid, os.getpid())
+            with (patch.object(topo_render, "_get_render_pool", return_value=pool),
+                  patch.object(pool, "submit", wraps=pool.submit) as submit):
+                cold = topo_render.render_hole_green_detail_cached(gid, hole, crop, size=320)
+                warm = topo_render.render_hole_green_detail_cached(gid, hole, crop, size=320)
+            self.assertEqual(cold, direct, "the worker must return the original PNG bytes")
+            self.assertEqual(warm, direct)
+            self.assertEqual(topo_render.green_detail_cache_path(gid, hole, crop, size=320).read_bytes(), direct)
+            self.assertEqual(submit.call_count, 1, "one child render; the second request is a parent cache hit")
 
 
 class TopoEndpointTests(unittest.TestCase):

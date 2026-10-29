@@ -30,7 +30,7 @@ from starlette.requests import Request
 
 from ai_caddie.caddie import mobile_live
 from ai_caddie.core.priority_work import SELECTED_COURSE
-from ai_caddie.geometry import garmin_raster
+from ai_caddie.geometry import garmin_raster, topo_render
 from server_v2 import garmin_raster as raster_api
 
 
@@ -211,6 +211,41 @@ class SkyMatteTests(unittest.TestCase):
         self.assertFalse(any(name.endswith(".png") for name in cached), cached)
         self.assertEqual(legacy.media_type, "image/jpeg")
         self.assertEqual(legacy.body, jpeg)
+
+    def test_cold_matte_uses_a_process_with_identical_bytes_and_parent_download(self) -> None:
+        """J4/4.2: a cold Garmin image cannot take the API's CPU from opening a round."""
+        jpeg = _jpeg(_course().resize((128, 192)))
+        direct = garmin_raster.matte_sky_webp(jpeg)
+        parent = os.getpid()
+        downloads = []
+
+        def download(*_args):
+            downloads.append(os.getpid())
+            return jpeg
+
+        with (TemporaryDirectory() as directory,
+              patch.object(garmin_raster, "RASTER_CACHE_DIR", Path(directory)),
+              patch.object(raster_api, "_asset_version", return_value="777"),
+              patch.object(garmin_raster, "fetch_raster", side_effect=download),
+              patch.dict(os.environ, {topo_render._RENDER_PROCESSES_ENV: "1"})):
+            pool = topo_render._get_render_pool(1)
+            try:
+                self.assertNotEqual(pool.submit(os.getpid).result(timeout=30), parent)
+                with patch.object(pool, "submit", wraps=pool.submit) as submit:
+                    cold = raster_api.course_hole_garmin_raster_webp(_request(), 31795, 1, v="777-sky1")
+                    warm = raster_api.course_hole_garmin_raster_webp(_request(), 31795, 1, v="777-sky1")
+                    jpg = raster_api.course_hole_garmin_raster_jpg(_request(), 31795, 1, v="777")
+                self.assertEqual(cold.body, direct)
+                self.assertEqual(warm.body, direct)
+                self.assertEqual(jpg.body, jpeg)
+                self.assertEqual(cold.headers["etag"], '"777-sky1"')
+                self.assertEqual(cold.headers["cache-control"], IMMUTABLE)
+                self.assertEqual(garmin_raster._matte_path(31795, 1, "777").read_bytes(), direct)
+                self.assertEqual(downloads, [parent, parent], "matte download and JPEG passthrough stay in parent")
+                self.assertEqual(submit.call_count, 1, "only the cold matte belongs in the process pool")
+            finally:
+                pool.shutdown(wait=True, cancel_futures=True)
+                topo_render._render_pool = None
 
 
 class WebpEncodingTests(unittest.TestCase):
