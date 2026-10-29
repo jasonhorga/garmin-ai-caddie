@@ -4123,6 +4123,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('handleMapTargetPixelChanged(pixel, kind: "target")', current_hole)
         self.assertIn('handleMapTargetCommitted(coordinate, kind: "target")', current_hole)
         self.assertIn('handleMapTargetPixelCommitted(pixel, kind: "target")', current_hole)
+        target_commit = current_hole.split("private func handleMapTargetCommitted", 1)[1].split(
+            "private func refreshDecisionAfterPinEdit", 1
+        )[0]
+        self.assertNotIn("loadCaddieDecision", target_commit)
+        self.assertIn("if normalizedKind == \"pin\" { refreshDecisionAfterPinEdit() }", target_commit)
         self.assertIn("targetKind: wireTargetKind", current_hole)
         self.assertIn("@State private var caddieDecision: CaddieDecisionResponse?", current_hole)
         self.assertIn("isLoadingCaddieDecision", current_hole)
