@@ -3381,6 +3381,8 @@ final class LiveRoundAppModelTests: XCTestCase {
     /// rows are ordinary queued work, but the fresh entry keeps every prep request behind hole 1;
     /// releasing that entry lets the same queue continue.
     func testNineLoopStartQueuesCatalogueSiblingsAfterFreshEntryRelease() async throws {
+        let topoScope = C33TopoPrefetchScope()
+        addTeardownBlock { await topoScope.stop() }
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = OfflineStore(directoryURL: directory)
@@ -3416,10 +3418,8 @@ final class LiveRoundAppModelTests: XCTestCase {
         let siblingCPrepSent = expectation(description: "catalogue sibling C prep requested after release")
         let siblingBPrepOnce = C33FirstMatch()
         let siblingCPrepOnce = C33FirstMatch()
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CapturingURLProtocol.self]
-        let session = URLSession(configuration: configuration)
-        CapturingURLProtocol.requestHandler = { request in
+        // Keep API/prep requests token-scoped; the global handler belongs to shared topo only.
+        let requestScope = CapturingURLProtocolScope { request in
             let url = try XCTUnwrap(request.url)
             requestLock.withLock { requestedPaths.append(url.path) }
             let path = url.path
@@ -3480,8 +3480,10 @@ final class LiveRoundAppModelTests: XCTestCase {
                 Data("{}".utf8)
             )
         }
+        let session = URLSession(configuration: requestScope.configuration())
         defer {
-            CapturingURLProtocol.requestHandler = nil
+            session.invalidateAndCancel()
+            withExtendedLifetime(requestScope) {}
             try? FileManager.default.removeItem(at: directory)
         }
         let client = SyncClient(
@@ -3528,6 +3530,7 @@ final class LiveRoundAppModelTests: XCTestCase {
         XCTAssertTrue(afterRelease.contains("/api/v2/courses/31796/prep"))
         XCTAssertTrue(afterRelease.contains("/api/v2/courses/31797/prep"))
         await model.stopRoundBackgroundWorkForTesting()
+        await topoScope.stop()
     }
 
     func testFinishActiveRoundSealsImmediatelyThenUploadsAndFinishesInBackground() async throws {

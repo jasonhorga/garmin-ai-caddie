@@ -13,10 +13,10 @@ final class C33EventTests: XCTestCase {
         topoPrefetchScope = C33TopoPrefetchScope()
     }
 
-    override func tearDown() {
-        topoPrefetchScope?.stop()
+    override func tearDown() async throws {
+        await topoPrefetchScope?.stop()
         topoPrefetchScope = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     /// Product spec 5.9: quarantine eligibility follows the wire code, independent of wording.

@@ -9,7 +9,9 @@ final class C33URLProtocol: URLProtocol {
     static var onStop: ((URLRequest) -> Void)?
     private static let callbackLock = NSLock()
     override class func canInit(with request: URLRequest) -> Bool {
+        // A later global registration must not steal the shared downloader's topo from its scope.
         request.url?.host?.hasSuffix(".example.test") == true
+            && request.url?.path.hasSuffix("/topo.png") != true
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -41,16 +43,38 @@ final class C33URLProtocol: URLProtocol {
     }
 }
 
+// URLProtocol calls off the main actor. Only this locked, Sendable log crosses that boundary;
+// TopoHoleImageStore probes and scope lifecycle remain on the main actor.
+private final class C33TopoPrefetchRequests: @unchecked Sendable {
+    private let lock = NSLock()
+    private var urls = Set<URL>()
+    private var count = 0
+
+    func record(_ url: URL) {
+        lock.withLock { urls.insert(url); count += 1 }
+    }
+
+    func snapshot() -> (urls: Set<URL>, count: Int) {
+        lock.withLock { (urls, count) }
+    }
+}
+
 /// Scope the shared topo downloader used by fresh-entry tests. The production store intentionally
 /// uses URLSession.shared, so a test-local client session cannot intercept its prefetch. A valid
-/// one-pixel response completes that task immediately and prevents the five/15-second retry chain.
+/// one-pixel response completes that task and prevents the five/15-second retry chain. The global
+/// handler is only for URLSession.shared; explicit client sessions retain their own protocol/token.
 @MainActor
 final class C33TopoPrefetchScope {
+    private let requests = C33TopoPrefetchRequests()
+    private var stopped = false
+
     init() {
         TopoHoleImageStore.resetForUITesting()
-        CapturingURLProtocol.requestHandler = { request in
+        let requests = self.requests
+        CapturingURLProtocol.requestHandler = { [requests] request in
             let url = try XCTUnwrap(request.url)
             if url.path.contains("/topo.png") {
+                requests.record(url)
                 return (
                     HTTPURLResponse(
                         url: url,
@@ -69,10 +93,38 @@ final class C33TopoPrefetchScope {
         URLProtocol.registerClass(CapturingURLProtocol.self)
     }
 
-    func stop() {
+    func stop() async {
+        guard !stopped else { return }
+        // reset only cancels the detached download, not prefetch's outer ensureLoaded task. Let
+        // every served image reach the cache first, while still intercepting any late first load.
+        // Require a quiet polling round too, including when no prefetch had started at teardown.
+        let deadline = Date().addingTimeInterval(10)
+        var lastCount = requests.snapshot().count
+        var lastChange = Date()
+        var drained = false
+        while Date() < deadline {
+            // Poll cadence, not a success delay: completion requires both cache and quiescence.
+            do { try await Task.sleep(nanoseconds: 10_000_000) } catch { break }
+            let snapshot = requests.snapshot()
+            if snapshot.count != lastCount {
+                lastCount = snapshot.count
+                lastChange = Date()
+            }
+            if snapshot.urls.allSatisfy({ TopoHoleImageStore.isMemoryCached($0) }),
+               Date().timeIntervalSince(lastChange) >= 0.1 {
+                drained = true
+                break
+            }
+        }
+        guard drained else {
+            // Do not turn an explicit test failure into real DNS retries by removing the stub.
+            XCTFail("Shared topo prefetch did not reach cached, quiescent completion before teardown")
+            return
+        }
         TopoHoleImageStore.resetForUITesting()
         CapturingURLProtocol.requestHandler = nil
         URLProtocol.unregisterClass(CapturingURLProtocol.self)
+        stopped = true
     }
 }
 

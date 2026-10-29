@@ -22,12 +22,12 @@ final class C33StartTests: XCTestCase {
         URLProtocol.registerClass(C33URLProtocol.self)
         topoPrefetchScope = C33TopoPrefetchScope()
     }
-    override func tearDown() {
-        topoPrefetchScope?.stop()
+    override func tearDown() async throws {
+        await topoPrefetchScope?.stop()
         topoPrefetchScope = nil
         C33URLProtocol.setHandlers(onStart: nil)
         URLProtocol.unregisterClass(C33URLProtocol.self)
-        super.tearDown()
+        try await super.tearDown()
     }
 
     func testStartCancelsPreviousCourseAndSendsWithoutWaitingForIt() async throws {
