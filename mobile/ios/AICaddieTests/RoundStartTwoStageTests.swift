@@ -24,18 +24,12 @@ final class RoundStartTwoStageTests: XCTestCase {
     /// Every model a test made, torn down after the test in `tearDown` — also when it threw early.
     private var fixtures: [ModelFixture] = []
 
-    override func setUp() {
-        super.setUp()
-        URLProtocol.registerClass(C33URLProtocol.self)
-    }
-
     override func tearDown() async throws {
         for fixture in fixtures {
             await fixture.tearDown()
         }
         fixtures.removeAll()
         C33URLProtocol.setHandlers(onStart: nil)
-        URLProtocol.unregisterClass(C33URLProtocol.self)
         try await super.tearDown()
     }
 

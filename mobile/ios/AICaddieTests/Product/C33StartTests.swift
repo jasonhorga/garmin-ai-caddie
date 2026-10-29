@@ -40,7 +40,12 @@ final class C33StartTests: XCTestCase {
             proto.reply(202, ownBody)
         })
         let session = C33URLProtocol.session()
-        defer { session.invalidateAndCancel() }
+        // Reproduce a store test registering its global capture after the bundle topo stub.
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession()
+        defer {
+            URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self)
+            session.invalidateAndCancel()
+        }
 
         let (injectedData, injectedResponse) = try await session.data(from: url)
         let sharedLoaded = await TopoHoleImageStore.ensureLoaded(url)

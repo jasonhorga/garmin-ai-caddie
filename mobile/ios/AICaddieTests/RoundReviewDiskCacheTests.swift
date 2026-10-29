@@ -238,8 +238,8 @@ final class RoundReviewDiskCacheTests: XCTestCase {
         defer { release.release() }
         let paths = Paths()
         _ = heldClient(release: release, paths: paths, asGlobalHandler: true)
-        URLProtocol.registerClass(CapturingURLProtocol.self)
-        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession()
+        defer { URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self) }
         let repository = RoundShotMapRepository(roundRef: ref, apiBaseURL: URL(string: "https://review-cache.example.test")!, adminToken: nil)
 
         let pending = Task { @MainActor in await repository.load(3) }
@@ -259,8 +259,8 @@ final class RoundReviewDiskCacheTests: XCTestCase {
         defer { release.release() }
         let paths = Paths()
         _ = heldClient(release: release, paths: paths, asGlobalHandler: true)
-        URLProtocol.registerClass(CapturingURLProtocol.self)
-        defer { URLProtocol.unregisterClass(CapturingURLProtocol.self) }
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession()
+        defer { URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self) }
         let repository = RoundShotMapRepository(roundRef: ref, apiBaseURL: URL(string: "https://review-cache.example.test")!, adminToken: nil)
 
         let pending = Task { @MainActor in await repository.load(3) }

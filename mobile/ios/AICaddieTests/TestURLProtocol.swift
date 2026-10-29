@@ -186,7 +186,7 @@ final class TestRequestGate: @unchecked Sendable {
 /// Shared URLProtocol stub for client tests: install on an ephemeral `URLSessionConfiguration` and
 /// set `requestHandler` to inspect the outgoing request + return a canned response. Used by
 /// `SyncClientTests` and `AppleAuthClientTests` (so it must not be `private` to one file).
-final class CapturingURLProtocol: URLProtocol {
+class CapturingURLProtocol: URLProtocol {
     static let tokenHeader = "X-Codex-Test-Token"
     private static let handlerLock = NSLock()
     private static var storedRequestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
@@ -310,6 +310,21 @@ final class CapturingURLProtocol: URLProtocol {
         let handler = Self.storedStopLoadingHandler
         Self.handlerLock.unlock()
         handler?(request)
+    }
+}
+
+/// Only the tests of production stores need a global capture protocol. Keep topo with the bundle
+/// stub even when this class is registered later; injected sessions still use CapturingURLProtocol
+/// itself, which accepts topo and preserves the owning test's handler.
+final class SharedNonTopoCapturingURLProtocol: CapturingURLProtocol {
+    static func registerForSharedSession() {
+        ensureC156TopoBundleStub()
+        URLProtocol.registerClass(SharedNonTopoCapturingURLProtocol.self)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        ensureC156TopoBundleStub()
+        return !SharedTopoURLProtocol.canInit(with: request)
     }
 }
 

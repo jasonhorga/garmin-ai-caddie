@@ -1183,9 +1183,9 @@ final class GarminRasterTests: XCTestCase {
             )!
             return (response, webp)
         }
-        URLProtocol.registerClass(CapturingURLProtocol.self)
+        SharedNonTopoCapturingURLProtocol.registerForSharedSession()
         defer {
-            URLProtocol.unregisterClass(CapturingURLProtocol.self)
+            URLProtocol.unregisterClass(SharedNonTopoCapturingURLProtocol.self)
             CapturingURLProtocol.requestHandler = nil
         }
 
