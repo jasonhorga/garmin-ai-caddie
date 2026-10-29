@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 import json
+import re
 import os
 import subprocess
 import sys
@@ -977,8 +978,18 @@ class CIFixtureContractTests(unittest.TestCase):
         self.assertIn("native-build-evidence-ci-fixture", workflow)
         self.assertIn("--data-mode ci_fixture", workflow)
         self.assertIn("fixture host must be loopback", script)
-        self.assertIn("uv run --frozen python -m uvicorn server_v2.main:app", script)
+        self.assertIn("uv run --frozen --python 3.12 python -m uvicorn server_v2.main:app", script)
         self.assertIn("fixture route not implemented", Path("server_v2/main.py").read_text(encoding="utf-8"))
+
+    def test_fixture_python_matches_production_image(self) -> None:
+        """The fixture runs on the production image's Python, not the runner's drifting python3."""
+        script = Path("ops/run_ci_fixture.sh").read_text(encoding="utf-8")
+        deps = Path("Dockerfile.deps").read_text(encoding="utf-8")
+        image = re.search(r"ghcr\.io/astral-sh/uv:python(\d+\.\d+)-", deps)
+        self.assertIsNotNone(image, "Dockerfile.deps must pin the uv python image")
+        assert image is not None
+        pinned = re.findall(r"uv run [^\n]*--python (\S+)", script)
+        self.assertEqual(pinned, [image.group(1)])
 
     def test_fixture_entrypoint_rejects_empty_token_at_runtime(self) -> None:
         result = subprocess.run(
