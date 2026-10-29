@@ -50,7 +50,7 @@ public final class OfflineCaddieDecisionEvaluator {
         let canonicalSteps = rawCanonicalSteps.map {
             boundedCanonicalSteps(
                 $0,
-                targetM: targetDistanceMetres(from: request.context),
+                targetM: targetDistanceMetres(from: request.context, shotType: request.shotType),
                 par: par
             )
         }
@@ -253,6 +253,9 @@ public final class OfflineCaddieDecisionEvaluator {
         }
 
         var isDriver: Bool { key == "1w" }
+        var isPutter: Bool {
+            key == "putter" || key == "pt" || name.contains("推杆")
+        }
     }
 
     /// The tee planner's result: the plan per option id, whether whole-hole filtering ran (so the
@@ -281,7 +284,7 @@ public final class OfflineCaddieDecisionEvaluator {
     ) -> RoutePlanning {
         var plans: [String: [[String: JSONValue]]] = [:]
         // Planned landings are clamped to this route end for display; GIR must not use the clamp.
-        let routeEndM = targetDistanceMetres(from: request.context)
+        let routeEndM = targetDistanceMetres(from: request.context, shotType: request.shotType)
         if let canonicalSteps, !canonicalSteps.isEmpty {
             plans["stock"] = canonicalSteps
         }
@@ -290,7 +293,7 @@ public final class OfflineCaddieDecisionEvaluator {
         }
 
         guard request.shotType == "tee",
-              let targetM = targetDistanceMetres(from: request.context),
+              let targetM = targetDistanceMetres(from: request.context, shotType: request.shotType),
               targetM > 0 else {
             return RoutePlanning(plans: trimmed(plans), stockIsCanonical: plans["stock"] != nil)
         }
@@ -493,8 +496,11 @@ public final class OfflineCaddieDecisionEvaluator {
         return true
     }
 
-    private func targetDistanceMetres(from context: [String: JSONValue]) -> Double? {
-        for key in ["distanceToPin_m", "remainingToPin_m", "holeRemaining_m", "canonicalPlanRouteLength_m"] {
+    private func targetDistanceMetres(from context: [String: JSONValue], shotType: String? = nil) -> Double? {
+        let routeKeys = shotType?.caseInsensitiveCompare("tee") == .orderedSame
+            ? ["canonicalPlanRemainingRouteLength_m", "canonicalPlanRouteLength_m"]
+            : []
+        for key in routeKeys + ["distanceToPin_m", "remainingToPin_m", "holeRemaining_m", "canonicalPlanRouteLength_m"] {
             if let value = number(context[key]), value.isFinite, value > 0, value <= 1000 {
                 return value
             }
@@ -645,6 +651,7 @@ public final class OfflineCaddieDecisionEvaluator {
                 p90M: number(row["p90_m"] ?? row["p90M"] ?? row["p90"]),
                 sampleSize: integer(row["sampleSize"]) ?? 0
             )
+            guard !profile.isPutter else { continue }
             let key = profile.key
             if let existing = byKey[key], existing.sampleSize >= profile.sampleSize { continue }
             byKey[key] = profile
@@ -818,7 +825,8 @@ public final class OfflineCaddieDecisionEvaluator {
         guard remainingM > Self.scoringWindowM else { return [] }
         let playable = profiles
             .filter { profile in
-                !profile.isDriver && (maximumCarryM.map { cap in profile.carryM <= cap } ?? true)
+                !profile.isDriver && !profile.isPutter
+                    && (maximumCarryM.map { cap in profile.carryM <= cap } ?? true)
             }
             .sorted { $0.carryM > $1.carryM }
         guard let longest = playable.first?.carryM, longest > 0 else { return [] }

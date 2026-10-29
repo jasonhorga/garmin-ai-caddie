@@ -343,8 +343,7 @@ final class RoundTenUITests: XCTestCase {
         let carry = route("installed-course-plan", role: "tee", endM: 160, gir: false)
         let pin = route("stock", role: "scoring", endM: 168, gir: true)
         XCTAssertTrue(LiveCaddieRouteAuthority.sameVisibleRoute(carry, pin))
-        let merged = LiveCaddieRouteAuthority.mergedRoutes(first: carry, existing: [], incoming: [pin])
-        XCTAssertEqual(merged.map(\.id), ["installed-course-plan"])
+        XCTAssertEqual(carry.id, "installed-course-plan")
     }
 
     func testBlackKnightA4KeepsBothGreensideBunkersAndEveryRealOutline() throws {

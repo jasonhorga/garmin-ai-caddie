@@ -384,6 +384,7 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         options: [(String, String)],
         water: [[Double]] = [],
         canonical: [(String, Double)] = [],
+        routeLengthM: Double? = nil,
         planningHazards: [[String: JSONValue]] = [],
         omitProfiles: Bool = false
     ) throws -> CaddieDecisionResponse {
@@ -423,6 +424,9 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
         )
         if !water.isEmpty || !canonical.isEmpty {
             var context = request.context
+            if let routeLengthM {
+                context["canonicalPlanRouteLength_m"] = .number(routeLengthM)
+            }
             if !water.isEmpty {
                 context["hazardWaterCarry_m"] = .array(water.map { .array($0.map(JSONValue.number)) })
             }
@@ -432,8 +436,8 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
                     offset += leg.1
                     return .object([
                         "clubName": .string(leg.0), "targetCarryM": .number(leg.1),
-                        "routeOffsetM": .number(min(distanceM, offset)), "planIndex": .number(Double(index)),
-                        "expectedRemainingM": .number(max(0, distanceM - offset)),
+                        "routeOffsetM": .number(min(routeLengthM ?? distanceM, offset)), "planIndex": .number(Double(index)),
+                        "expectedRemainingM": .number(max(0, (routeLengthM ?? distanceM) - offset)),
                         "role": .string(index == canonical.count - 1 ? "scoring" : "tee"),
                     ])
                 })
@@ -441,6 +445,38 @@ final class OfflineCaddieDecisionEvaluatorTests: XCTestCase {
             request = CaddieDecisionRequest(shotType: request.shotType, context: context, includeExplanation: false)
         }
         return try XCTUnwrap(OfflineCaddieDecisionEvaluator().makeDecision(seed: seed, request: request, strategyMode: nil))
+    }
+
+    /// J5.11: the dogleg's 320.9 m cumulative route, rather than its 284.3 m straight distance,
+    /// drives the local whole-hole chain; a putter profile is never a planning leg.
+    func testDoglegUsesCumulativeRouteLengthAndExcludesPutter() throws {
+        let decision = try wholeHoleDecision(
+            par: 4,
+            distanceM: 284.3,
+            bag: [("Driver", 197, 8), ("8I", 121, 6), ("Putter", 8, 1)],
+            options: [("stock", "Driver")],
+            canonical: [("Driver", 197), ("8I", 121)],
+            routeLengthM: 320.9
+        )
+        let route = try XCTUnwrap(CaddiePlanSequence.selectedSequence(from: decision))
+        XCTAssertEqual(route.steps.map(\.clubName), ["Driver", "8I"])
+        XCTAssertGreaterThanOrEqual(route.steps.last?.routeOffsetM ?? 0, 306.2)
+        XCTAssertLessThanOrEqual(route.steps.last?.routeOffsetM ?? 0, 320.9 + 8)
+        XCTAssertFalse(route.steps.contains { $0.clubName.lowercased().contains("putter") })
+    }
+
+    /// J5.11: a local fallback may report a longer measured chain, but it never invents a putter
+    /// leg to make the whole-hole route reach the green.
+    func testLocalFallbackNeverUsesPutterAsAWholeHoleLeg() throws {
+        let decision = try wholeHoleDecision(
+            par: 4,
+            distanceM: 320.9,
+            bag: [("Driver", 197, 8), ("8I", 100, 6), ("Putter", 8, 1)],
+            options: [("stock", "Driver")]
+        )
+        for route in CaddiePlanSequence.sequences(from: decision) {
+            XCTAssertFalse(route.steps.contains { $0.clubName.lowercased().contains("putter") })
+        }
     }
 
     func testNoHazardPar4NeverOffersTheShortFirstThreeShotRoute() throws {

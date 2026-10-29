@@ -106,6 +106,40 @@ final class LivePlanPagingTests: XCTestCase {
         XCTAssertEqual(second?.merged.map(\.id), ["safe"])
     }
 
+    /// J5.10/J5.11: an untouched round has no score-to-par fact to display as E.
+    func testUnscoredRoundShowsDashInsteadOfEvenPar() {
+        XCTAssertEqual(CurrentHoleView.roundToParText(scores: []), "本场 —")
+        XCTAssertEqual(CurrentHoleView.roundToParText(scores: [(par: 4, score: 4)]), "本场 E")
+    }
+
+    /// J5.11: moving a Touch Target to 169 m changes the readout/current-club input only; the
+    /// whole-hole plan still uses the downloaded tee-to-green fact.
+    func testMapTargetDoesNotChangeWholeHolePlanningDistance() {
+        let before = CurrentHoleView.caddiePlanningDistanceMetres(
+            manualM: nil, mapTargetM: nil, isTeeShotOffTheHole: true,
+            routeRemainingM: nil,
+            liveMiddleM: nil, staticMiddleM: 320.9, holeYards: 351
+        )
+        let after = CurrentHoleView.caddiePlanningDistanceMetres(
+            manualM: nil, mapTargetM: 169, isTeeShotOffTheHole: true,
+            routeRemainingM: nil,
+            liveMiddleM: nil, staticMiddleM: 320.9, holeYards: 351
+        )
+        XCTAssertEqual(before ?? -1, 320.9, accuracy: 0.001)
+        XCTAssertEqual(after ?? -1, 320.9, accuracy: 0.001)
+    }
+
+    /// J5.11 dogleg fixture: the current lie uses the remaining centreline station, not the
+    /// straight line to the pin.
+    func testDoglegProjectionReturnsRemainingPolylineDistance() {
+        let route = [
+            [311.8, 89.6, 0.0], [179.2, 118.1, 135.5], [139.9, 121.1, 175.0],
+            [101.4, 117.8, 213.7], [33.2, 35.0, 320.9],
+        ]
+        let remaining = CoursePrepRoute.remainingMetres(route: route, playerPx: [179.2, 118.1])
+        XCTAssertEqual(remaining ?? -1, 185.4, accuracy: 0.001)
+    }
+
     /// Before the tee shot the caddie plans from the tee while the player is off the hole: a player
     /// 308 y from hole 1's green in the car park is not on the 397 y hole. On the hole (a forward
     /// tee, or walking down the fairway without recording the tee shot) the live position plans.
