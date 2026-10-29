@@ -22,18 +22,18 @@ class C163VectorAndWarmTests(unittest.TestCase):
         future.set_result(result)
         pool = Mock()
         pool.submit.return_value = future
-        with (
-            patch.object(vector_prep, "_get_vector_pool", create=True, return_value=pool),
-            patch.object(vector_prep, "_requested_geometry_sig", create=True, return_value="g"),
-            patch.object(vector_prep.course_prep, "precise_route_seed_hole", return_value=result) as seed,
-            patch.object(vector_prep, "geometry_coverage_for_hole", return_value=ready),
-            patch.object(vector_prep, "_CACHE_DIR", Path(TemporaryDirectory().name)),
-        ):
-            # The process-boundary helper is deliberately exercised directly; map_startup passes
-            # this flag only for a package that is not the active loop/tee selection.
-            actual = vector_prep.precise_route_seed_hole_in_process(
-                123, 1, coverage=ready, tee_set=2,
-            )
+        with TemporaryDirectory() as directory:
+            with (
+                patch.object(vector_prep, "_get_vector_pool", return_value=pool),
+                patch.object(vector_prep.prep_cache, "_requested_geometry_sig", return_value="g"),
+                patch.object(vector_prep.prep_cache, "_course_data_sig", return_value="c"),
+                patch.object(vector_prep.course_prep, "precise_route_seed_hole", return_value=result) as seed,
+                patch.object(vector_prep, "geometry_coverage_for_hole", return_value=ready),
+                patch.object(vector_prep, "_CACHE_DIR", Path(directory)),
+            ):
+                actual = vector_prep.cached_vector_hole(
+                    123, 1, coverage=ready, tee_set=2, use_process_pool=True,
+                )
         self.assertEqual(actual, result)
         pool.submit.assert_called_once()
         seed.assert_not_called()
