@@ -1,9 +1,12 @@
 diff --git a/mobile/ios/AICaddie/AICaddieApp.swift b/mobile/ios/AICaddie/AICaddieApp.swift
+index bc1ee661..81dc3708 100644
 --- a/mobile/ios/AICaddie/AICaddieApp.swift
 +++ b/mobile/ios/AICaddie/AICaddieApp.swift
-@@ -3718,4 +3718,5 @@ public final class LiveRoundAppModel: ObservableObject {
+@@ -3828,6 +3828,7 @@ public final class LiveRoundAppModel: ObservableObject {
+         #endif
+ 
          do {
 +            cancelRoundBackgroundWork()
-             let quarantined = try offlineStore.loadQuarantinedEvents(roundId: package.roundId)
-             if let blocked = quarantined.first(where: { Self.isScoringEvent($0.event) }) {
-                 setActiveHole(blocked.event.hole)
+             if let blocked = try preferredQuarantineRecord(roundId: package.roundId) {
+                 if package.holes.contains(where: { $0.number == blocked.event.hole }) {
+                     setActiveHole(blocked.event.hole)

@@ -1,0 +1,13 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -461,7 +461,9 @@
+     @Published public private(set) var pendingLiveHole: Int?
+     /// A sealed round whose deferred `/finish` was stopped by a server-rejected scoring event.
+     /// This remains nil until that rejection is durably quarantined.
+-    @Published public private(set) var deferredFinishRecovery: DeferredFinishRecovery? = nil
++    @Published public private(set) var deferredFinishRecovery: DeferredFinishRecovery? = DeferredFinishRecovery(
++        roundId: "mutant", hole: 1, prompt: "mutant", holeAvailable: true
++    )
+ 
+     public func consumePendingLiveHole() {
+         pendingLiveHole = nil

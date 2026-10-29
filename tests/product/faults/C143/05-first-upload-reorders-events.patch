@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -5521,7 +5521,7 @@
+         }
+         // The first request preserves the append-only event-log order. Hole grouping is only a
+         // bisection aid after that request receives a payload rejection.
+-        let probed = try await probe(groups, initialBatch: events)
++        let probed = try await probe(groups)
+         guard !probed.allInvalid || groups.count == 1 else {
+             throw SyncClientError.http(status: 422, body: "all events rejected")
+         }

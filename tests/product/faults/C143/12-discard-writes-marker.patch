@@ -1,0 +1,14 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -532,6 +532,11 @@
+             let ids = Set(records.filter { $0.event.hole == recovery.hole }.map { $0.event.eventId })
+             guard !ids.isEmpty else { return false }
+             // The rejected facts already sit before the durable sync marker that quarantined them.
+             // Removing only the diagnostics preserves any later pending tail (including late Watch
+             // facts) for the deferred uploader.
++            try offlineStore.appendSyncMarker(
++                roundId: recovery.roundId,
++                timestamp: ISO8601DateFormatter().string(from: Date()),
++                result: SyncResult(accepted: ids.count, duplicate: false, acceptedEventIds: Array(ids))
++            )
+             try offlineStore.removeQuarantinedEvents(roundId: recovery.roundId, ids: ids)

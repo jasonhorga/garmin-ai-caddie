@@ -640,6 +640,7 @@ public struct RoundHomeView: View {
     public let roundStartSelection: RoundStartSelection?
     public let isFinishingRound: Bool
     public let finishErrorMessage: String?
+    public let deferredFinishRecovery: DeferredFinishRecovery?
     public let onEvent: (LiveRoundEvent) -> Void
     public let onPrepareRound: (String) -> Void
     /// Start a round: (roundId, teeBox, ordered loops) — B4b-2 `loops=`.
@@ -651,6 +652,8 @@ public struct RoundHomeView: View {
     /// B4 turn: add the chosen second loop and open its first hole (the model navigates).
     public let onContinueIntoSecondLoop: (RoundLoopEntry, String) -> Void
     public let onFinishRound: () async -> Bool
+    public let onResumeDeferredFinish: () -> Bool
+    public let onDiscardRemovedDeferredFinish: () -> Bool
     public let onDiscardRound: () -> Void
     public let onSetActiveHole: (Int) -> Void
     public let onRetainReadyHolePrep: (String, Int, CoursePrepHole) -> Void
@@ -782,6 +785,7 @@ public struct RoundHomeView: View {
         roundStartSelection: RoundStartSelection? = nil,
         isFinishingRound: Bool = false,
         finishErrorMessage: String? = nil,
+        deferredFinishRecovery: DeferredFinishRecovery? = nil,
         onEvent: @escaping (LiveRoundEvent) -> Void = { _ in },
         onPrepareRound: @escaping (String) -> Void = { _ in },
         onPrepareCourseRound: @escaping (String, String, [RoundLoopEntry]) -> Void = { _, _, _ in },
@@ -790,6 +794,8 @@ public struct RoundHomeView: View {
         onSetSecondLoop: @escaping (RoundLoopEntry?, String) -> Void = { _, _ in },
         onContinueIntoSecondLoop: @escaping (RoundLoopEntry, String) -> Void = { _, _ in },
         onFinishRound: @escaping () async -> Bool = { false },
+        onResumeDeferredFinish: @escaping () -> Bool = { false },
+        onDiscardRemovedDeferredFinish: @escaping () -> Bool = { false },
         onDiscardRound: @escaping () -> Void = {},
         onSetActiveHole: @escaping (Int) -> Void = { _ in },
         onRetainReadyHolePrep: @escaping (String, Int, CoursePrepHole) -> Void = { _, _, _ in },
@@ -863,6 +869,7 @@ public struct RoundHomeView: View {
         self.roundStartSelection = roundStartSelection
         self.isFinishingRound = isFinishingRound
         self.finishErrorMessage = finishErrorMessage
+        self.deferredFinishRecovery = deferredFinishRecovery
         self.onEvent = onEvent
         self.onPrepareRound = onPrepareRound
         self.onPrepareCourseRound = onPrepareCourseRound
@@ -871,6 +878,8 @@ public struct RoundHomeView: View {
         self.onSetSecondLoop = onSetSecondLoop
         self.onContinueIntoSecondLoop = onContinueIntoSecondLoop
         self.onFinishRound = onFinishRound
+        self.onResumeDeferredFinish = onResumeDeferredFinish
+        self.onDiscardRemovedDeferredFinish = onDiscardRemovedDeferredFinish
         self.onDiscardRound = onDiscardRound
         self.onSetActiveHole = onSetActiveHole
         self.onRetainReadyHolePrep = onRetainReadyHolePrep
@@ -1816,40 +1825,25 @@ public struct RoundHomeView: View {
     /// An active or Watch-created round owns this card. Starting a second round would orphan the
     /// durable score/shot state, so the new-round entry only exists when neither state does.
     @ViewBuilder private var playSection: some View {
-        switch heroState {
-        case .inProgress:
-            if let liveRoundState, let package {
-                let activeHole = package.holes.contains(where: { $0.number == liveRoundState.activeHole })
-                    ? liveRoundState.activeHole
-                    : (package.holes.first?.number ?? liveRoundState.activeHole)
-                let scored = recordedScoreHoles
-                NavigationLink(value: HubRoute.hole(activeHole)) {
-                    HubInProgressCard(
-                        courseName: localizedCourseDisplayName(
-                            package.course.venueDisplayName,
-                            globalId: package.course.globalId
-                        ),
-                        // "继续第 N 洞" names the course's own hole (B4b-2 courseHoleNumber).
-                        activeHole: package.courseHoleNumber(forRoundHole: activeHole),
-                        recorded: scored.count,
-                        toPar: liveToPar(scoredHoles: scored),
-                        dots: HubHoleDot.loopDots(
-                            roundHoles: package.holes.map(\.number),
-                            activeHole: activeHole
-                        ) { hole in
-                            guard scored.contains(hole),
-                                  let state = liveRoundState.holeState(for: hole) else { return nil }
-                            return state.score - state.par
-                        }
-                    )
+        if let deferredFinishRecovery {
+            VStack(alignment: .leading, spacing: 10) {
+                HubDeferredFinishRecoveryCard(
+                    recovery: deferredFinishRecovery,
+                    canResume: liveRoundState == nil || liveRoundState?.roundId == deferredFinishRecovery.roundId,
+                    onResume: onResumeDeferredFinish,
+                    onDiscardRemoved: onDiscardRemovedDeferredFinish
+                )
+                if liveRoundState != nil, liveRoundState?.roundId != deferredFinishRecovery.roundId {
+                    Text("当前还有另一场进行中的球局，请先结束后再重录第 \(deferredFinishRecovery.hole) 洞")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    inProgressPlayCard
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("home-in-progress-round")
-            } else if liveRoundState != nil {
-                // An active round whose package has not loaded yet (first launch, slow backend):
-                // keep the card and say so; the round's own card replaces it when the package lands.
-                HubInProgressLoadingCard()
             }
+        } else {
+            switch heroState {
+        case .inProgress:
+            inProgressPlayCard
         case .pendingWatch:
             if let pendingWatchRoundStart {
                 HubPendingWatchCard(
@@ -1861,6 +1855,39 @@ public struct RoundHomeView: View {
             NavigationLink(value: HubRoute.start) { HubStartPlayCard() }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("home-new-round")
+            }
+        }
+    }
+
+    @ViewBuilder private var inProgressPlayCard: some View {
+        if let liveRoundState, let package {
+            let activeHole = package.holes.contains(where: { $0.number == liveRoundState.activeHole })
+                ? liveRoundState.activeHole
+                : (package.holes.first?.number ?? liveRoundState.activeHole)
+            let scored = recordedScoreHoles
+            NavigationLink(value: HubRoute.hole(activeHole)) {
+                HubInProgressCard(
+                    courseName: localizedCourseDisplayName(
+                        package.course.venueDisplayName,
+                        globalId: package.course.globalId
+                    ),
+                    activeHole: package.courseHoleNumber(forRoundHole: activeHole),
+                    recorded: scored.count,
+                    toPar: liveToPar(scoredHoles: scored),
+                    dots: HubHoleDot.loopDots(
+                        roundHoles: package.holes.map(\.number),
+                        activeHole: activeHole
+                    ) { hole in
+                        guard scored.contains(hole),
+                              let state = liveRoundState.holeState(for: hole) else { return nil }
+                        return state.score - state.par
+                    }
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("home-in-progress-round")
+        } else if liveRoundState != nil {
+            HubInProgressLoadingCard()
         }
     }
 

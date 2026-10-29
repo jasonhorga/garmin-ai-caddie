@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4039,7 +4039,7 @@
+             return networkState.isSatisfied ? "，正在同步后再结束球局" : "，等待联网后再结束球局"
+         }
+         guard let package, package.holes.contains(where: { $0.number == record.event.hole }) else {
+-            return "，第 \(record.event.hole) 洞已从当前球局移除，请恢复该九洞后再处理"
++            return "，请重新录入后再结束球局"
+         }
+         return "，请重新录入后再结束球局"
+     }

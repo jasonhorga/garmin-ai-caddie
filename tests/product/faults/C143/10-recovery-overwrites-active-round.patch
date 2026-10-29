@@ -1,0 +1,11 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -477,8 +477,3 @@
+     public func resumeDeferredFinishForEditing() -> Bool {
+         guard let recovery = deferredFinishRecovery else { return false }
+-        if let active = liveRoundState, active.roundId != recovery.roundId {
+-            finishErrorMessage = "当前还有另一场进行中的球局，请先结束后再重录"
+-            syncStatus = finishErrorMessage ?? "请先结束当前球局"
+-            return false
+-        }
+         deferredRoundFinishRetryRequested = false

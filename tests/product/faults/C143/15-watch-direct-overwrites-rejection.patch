@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4292,6 +4292,4 @@
+         } catch {
+             AICaddieLog.storage.error("Watch-finished round cleanup failed: \(String(describing: error), privacy: .public)")
+-            if !(error is LiveRoundFinishError) {
+-                finishErrorMessage = "手表已结束，本机记录仍保留"
+-            }
++            finishErrorMessage = "手表已结束，本机记录仍保留"
+         }

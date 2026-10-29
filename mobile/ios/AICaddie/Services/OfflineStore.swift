@@ -163,6 +163,7 @@ private enum NullableNumberPayload {
 
 enum OfflineStoreError: Error, Equatable {
     case eventLogCorrupt
+    case packageNotFound
     case replayIdentityEnvelopeMismatch
     case replayDurabilityVerificationFailed
 }
@@ -1763,6 +1764,19 @@ public final class OfflineStore {
 
     public func isRoundPendingFinish(_ roundId: String) throws -> Bool {
         try loadPendingRoundFinishes().contains { $0.roundId == roundId }
+    }
+
+    /// Reopen a sealed deferred-finish round for an explicit user correction. The active package
+    /// pointer is restored before the finish ledger is removed, so a crash between these writes
+    /// leaves a playable round rather than silently losing the recovery entry.
+    @discardableResult
+    public func resumeDeferredRoundFinish(roundId: String) throws -> LiveRoundPackage {
+        guard let package = try loadRoundPackage(roundId: roundId) else {
+            throw OfflineStoreError.packageNotFound
+        }
+        let restored = try saveRoundPackage(package, allowHoleCountDecrease: true)
+        try removePendingRoundFinish(roundId: roundId)
+        return restored
     }
 
     /// Seal before leaving the live UI. Ordering is deliberately crash-safe:

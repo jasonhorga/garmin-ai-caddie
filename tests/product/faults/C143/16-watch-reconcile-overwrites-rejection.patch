@@ -1,0 +1,10 @@
+--- a/mobile/ios/AICaddie/AICaddieApp.swift
++++ b/mobile/ios/AICaddie/AICaddieApp.swift
+@@ -4346,6 +4346,4 @@
+         } catch {
+             AICaddieLog.storage.error("Watch-finished round reconciliation failed: \(String(describing: error), privacy: .public)")
+-            if !(error is LiveRoundFinishError) {
+-                finishErrorMessage = "手表已结束，本机记录仍保留"
+-            }
++            finishErrorMessage = "手表已结束，本机记录仍保留"
+         }
