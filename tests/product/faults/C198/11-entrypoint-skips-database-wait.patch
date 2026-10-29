@@ -1,0 +1,12 @@
+diff --git a/ops/start_api.sh b/ops/start_api.sh
+--- a/ops/start_api.sh
++++ b/ops/start_api.sh
+@@ -103,8 +103,6 @@ EOF
+   done
+ }
+
+-wait_for_postgres
+-
+ # Serialize schema/identity initialization when two old containers happen to
+ # share the same persistent volume. The lock is released before uvicorn starts.
+ migration_lock="${AI_CADDIE_MIGRATION_LOCK:-${AI_CADDIE_PRIVATE_ROOT:-/tmp}/.migration.lock}"

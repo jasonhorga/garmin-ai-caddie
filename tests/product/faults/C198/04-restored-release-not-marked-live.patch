@@ -1,0 +1,11 @@
+diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -663,7 +663,6 @@ def restore_previous(cfg: Config, previous: Container | None) -> bool | None:
+         log(f"error: {exc}")
+     if wait_health(cfg.local_health_url, previous.revision, cfg.health_timeout, cfg.poll):
+         log(f"restored: {previous.name} serves revision {previous.revision}")
+-        mark_live(previous.name)
+         return True
+     log(f"error: ROLLBACK NOT CONFIRMED: {previous.name} did not report revision {previous.revision}")
+     return False

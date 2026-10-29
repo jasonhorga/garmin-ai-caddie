@@ -1,0 +1,11 @@
+diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -1137,7 +1137,6 @@ def rollback(cfg: Config, sha: str) -> str:
+         try:
+             if current is not None:
+                 log(f"stopping {current.name}")
+-                set_restart_policy(current.name, "no")
+                 docker("stop", "--time", STOP_TIMEOUT_SECONDS, current.name, capture=True)
+             log(f"starting {target.name}")
+             ensure_network(cfg, target)

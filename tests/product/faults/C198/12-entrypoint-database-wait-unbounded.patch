@@ -1,0 +1,11 @@
+diff --git a/ops/start_api.sh b/ops/start_api.sh
+--- a/ops/start_api.sh
++++ b/ops/start_api.sh
+@@ -90,6 +90,6 @@ $target
+ EOF
+
+-  attempts="${AI_CADDIE_DB_READY_ATTEMPTS:-12}"
++  attempts="${AI_CADDIE_DB_READY_ATTEMPTS:-1000}"
+   delay="${AI_CADDIE_DB_READY_DELAY_SECONDS:-5}"
+   attempt=1
+   while ! pg_isready -q -h "$db_host" -p "$db_port" -U "$db_user" -d "$db_name"; do

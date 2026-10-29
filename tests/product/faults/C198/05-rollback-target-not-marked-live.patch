@@ -1,0 +1,11 @@
+diff --git a/ops/agenthub_deploy.py b/ops/agenthub_deploy.py
+--- a/ops/agenthub_deploy.py
++++ b/ops/agenthub_deploy.py
+@@ -1154,7 +1154,6 @@ def rollback(cfg: Config, sha: str) -> str:
+             raise CutoverFailed(reason, restored) from None
+         shield_signals()
+         write_release_state(cfg, sha)
+-        mark_live(target.name)
+         return target.name
+
+
