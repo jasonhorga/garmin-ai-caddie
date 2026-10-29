@@ -7,7 +7,7 @@ import logging
 import threading
 import time
 
-from ai_caddie.core.priority_work import FOREGROUND, NEARBY
+from ai_caddie.core.priority_work import FOREGROUND, NEARBY, background_work
 from ai_caddie.caddie.round_loops import resolve_round_loops, source_start_hole
 from ai_caddie.courses.course_reference import COURSEVIEW_RELEASE_REFRESH_MAX_AGE_S, courseview_release_info
 from server_v2 import course_install
@@ -81,6 +81,11 @@ def _nearest_three(matches) -> list:
 
 
 def prefetch_nearby_releases(matches) -> int:
+    with background_work():
+        return _prefetch_nearby_releases(matches)
+
+
+def _prefetch_nearby_releases(matches) -> int:
     """Cache the nearest three courses' small CourseView release (Tee names) after discovery.
 
     A tap on one of them then finds its Tee rows cached and /tees answers without a Garmin round
@@ -119,6 +124,11 @@ def prefetch_nearby_releases(matches) -> int:
 
 
 def enqueue_nearby(matches) -> int:
+    with background_work():
+        return _enqueue_nearby(matches)
+
+
+def _enqueue_nearby(matches) -> int:
     """The nearest three provider courses, without personal prep or a synchronous download.
 
     One shared durable journal per physical course, independent of player/Tee/loop selections.
@@ -255,3 +265,36 @@ def prepare_priority_hole(loops: list[tuple[int, str]], *, priority_hole: int = 
     except Exception:
         logger.exception("map_startup unavailable gid=%s hole=%s", gid, hole)
         return {"globalId": gid, "localHole": hole, "drawable": False}
+
+
+# At most one running discovery batch and one latest pending batch. The request callback only
+# publishes metadata; gate/network waits belong to this process-owned thread, not BackgroundTasks.
+_NEARBY_DISPATCH_LOCK = threading.Lock()
+_NEARBY_PENDING = None
+_NEARBY_DISPATCH_THREAD = None
+
+
+def schedule_nearby(matches) -> None:
+    global _NEARBY_PENDING, _NEARBY_DISPATCH_THREAD
+    with _NEARBY_DISPATCH_LOCK:
+        _NEARBY_PENDING = list(matches)
+        if _NEARBY_DISPATCH_THREAD is not None:
+            return
+
+        def drain():
+            global _NEARBY_PENDING, _NEARBY_DISPATCH_THREAD
+            while True:
+                with _NEARBY_DISPATCH_LOCK:
+                    batch = _NEARBY_PENDING
+                    _NEARBY_PENDING = None
+                    if batch is None:
+                        _NEARBY_DISPATCH_THREAD = None
+                        return
+                try:
+                    enqueue_nearby(batch)
+                    prefetch_nearby_releases(batch)
+                except Exception:
+                    logger.exception("nearby_dispatch failed")
+
+        _NEARBY_DISPATCH_THREAD = threading.Thread(target=drain, name="nearby-dispatch", daemon=True)
+        _NEARBY_DISPATCH_THREAD.start()

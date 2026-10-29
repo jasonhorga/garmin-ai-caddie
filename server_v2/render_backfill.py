@@ -28,7 +28,7 @@ from typing import Any, Callable
 from PIL import Image
 
 from ai_caddie.core.data import MESH_DIR, ROOT
-from ai_caddie.core.priority_work import BACKFILL, work_priority
+from ai_caddie.core.priority_work import BACKFILL, background_work, work_priority
 from ai_caddie.geometry import garmin_raster, topo_render
 
 logger = logging.getLogger(__name__)
@@ -651,11 +651,12 @@ class RenderBackfill:
                 self._current_unit = (key, unit)
             error = None
             try:
-                with work_priority(BACKFILL):
-                    if unit == "topo":
-                        self._render_topo(task["globalId"], task["localHole"])
-                    elif not self._render_garmin(task["globalId"], task["localHole"], task["assetVersion"]):
-                        raise RuntimeError("garmin source or matte unavailable")
+                with background_work():
+                    with work_priority(BACKFILL):
+                        if unit == "topo":
+                            self._render_topo(task["globalId"], task["localHole"])
+                        elif not self._render_garmin(task["globalId"], task["localHole"], task["assetVersion"]):
+                            raise RuntimeError("garmin source or matte unavailable")
             except _RetryRender as exc:
                 count = int(self._state["tasks"][key].get("interrupts", {}).get(unit, 0)) + 1
                 if count < RENDER_INTERRUPT_LIMIT:

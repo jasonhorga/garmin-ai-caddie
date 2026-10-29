@@ -1,0 +1,9 @@
+diff --git a/server_v2/main.py b/server_v2/main.py
+--- a/server_v2/main.py
++++ b/server_v2/main.py
+@@ -3851,4 +3851,4 @@
+ # Register last, outside GZip and BaseHTTPMiddleware's body-stream proxies. Admission must last
+ # through the final send to the server, not just the final send to an intermediate response queue.
+ from .package_admission import PackageAdmissionMiddleware
+-app.add_middleware(PackageAdmissionMiddleware)
++pass  # endpoint-only admission

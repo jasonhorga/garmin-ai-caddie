@@ -22,6 +22,7 @@ from PIL import Image
 from ai_caddie.geometry import garmin_raster
 from ai_caddie.geometry.geometry_evidence import geometry_coverage_for_hole
 from ai_caddie.core.request_timing import mark
+from ai_caddie.core.priority_work import background_work
 
 
 ROUTER = APIRouter()
@@ -226,14 +227,15 @@ def _warm_hole(
     runs before the hole's geometry is installed leaves it for the next pass, whose WebP is then a
     disk read.
     """
-    _wait_while(should_yield, global_id=global_id, hole=hole)
-    try:
-        warmed = garmin_raster.fetch_matted_raster(global_id, hole) is not None
-        if warmed:
-            warmed = _registration_settled(course_hole_garmin_raster(global_id, hole))
-    except Exception as exc:  # noqa: BLE001 - a warm-up failure is retried by a later pass
-        logger.warning("garmin raster prefetch failed: %s", type(exc).__name__)
-        warmed = False
+    with background_work():
+        _wait_while(should_yield, global_id=global_id, hole=hole)
+        try:
+            warmed = garmin_raster.fetch_matted_raster(global_id, hole) is not None
+            if warmed:
+                warmed = _registration_settled(course_hole_garmin_raster(global_id, hole))
+        except Exception as exc:  # noqa: BLE001 - a warm-up failure is retried by a later pass
+            logger.warning("garmin raster prefetch failed: %s", type(exc).__name__)
+            warmed = False
     if not warmed:
         with _PREFETCH_GUARD:
             _PREFETCHED.discard(key)

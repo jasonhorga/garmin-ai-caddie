@@ -7,7 +7,9 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 import heapq
 import itertools
+import logging
 import threading
+import time
 from typing import Any, Callable, Hashable
 
 FOREGROUND = 0
@@ -15,6 +17,14 @@ SELECTED_COURSE = 10
 NEARBY = 20
 BACKFILL = 30
 
+# A package build is synchronous CPU work in the API process.  New background units wait for it
+# so a round start does not spend its budget competing with warmers.  Thirty seconds is deliberately
+# finite: each package blocks only until its entry age reaches 30s, not for 30s per waiter.
+FOREGROUND_GATE_TIMEOUT_SECONDS = 30.0
+
+
+_FOREGROUND_CONTEXT: ContextVar[bool] = ContextVar("foreground_admission", default=False)
+logger = logging.getLogger(__name__)
 
 _CURRENT_PRIORITY: ContextVar[int | None] = ContextVar("work_priority", default=None)
 
@@ -32,6 +42,120 @@ def work_priority(priority: int):
         yield
     finally:
         _CURRENT_PRIORITY.reset(token)
+
+
+class ForegroundGate:
+    """Coordinate synchronous package requests with background CPU units.
+
+    A foreground request never acquires a background slot, which avoids a package -> warmer
+    deadlock. Background callers wait only for unexpired foreground activities. Stale activities
+    keep their lifecycle/count but cease blocking; a fresh request gets its own bounded window.
+    """
+
+    def __init__(self, *, timeout_s: float = FOREGROUND_GATE_TIMEOUT_SECONDS,
+                 clock: Callable[[], float] = time.monotonic) -> None:
+        self.timeout_s = max(0.0, float(timeout_s))
+        self._clock = clock
+        self._condition = threading.Condition()
+        self._foreground: dict[object, float] = {}
+        self._warned: set[object] = set()
+        self._background = 0
+
+    @contextmanager
+    def foreground(self):
+        with self._condition:
+            ticket = object()
+            self._foreground[ticket] = self._clock()
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._foreground.pop(ticket, None)
+                self._warned.discard(ticket)
+                self._condition.notify_all()
+
+    @contextmanager
+    def background(self, *, timeout_s: float | None = None):
+        timeout = self.timeout_s if timeout_s is None else max(0.0, float(timeout_s))
+        from ai_caddie.core.request_timing import RequestTiming, current, request_id
+
+        timing = current()
+        standalone = timing is None
+        with self._condition:
+            marked = False
+            wait_started = self._clock()
+            while self._foreground:
+                now = self._clock()
+                live = []
+                for ticket, started in self._foreground.items():
+                    age = now - started
+                    if age < timeout:
+                        live.append(started + timeout)
+                    elif ticket not in self._warned:
+                        self._warned.add(ticket)
+                        logger.warning("foreground_gate stale_package age_s=%.3f limit_s=%.3f", age, timeout)
+                if not live:
+                    break
+                if not marked:
+                    if timing is None:
+                        timing = RequestTiming(request_id())
+                    timing.mark("background_gate_enter")
+                    marked = True
+                self._condition.wait(timeout=max(0.0, min(live) - now))
+            if marked:
+                timing.mark("background_gate_wait")
+                logger.info("background_gate_wait wait_ms=%.1f", (self._clock() - wait_started) * 1000)
+            self._background += 1
+        try:
+            if marked and standalone:
+                # Process-owned warmers have no HTTP context. Persist their admission-only span
+                # through the same private timing writer; no player, URL query or payload data.
+                timing.finish(method="BACKGROUND", path="/internal/package-admission", status=200)
+            yield
+        finally:
+            with self._condition:
+                self._background = max(0, self._background - 1)
+                self._condition.notify_all()
+
+    @property
+    def foreground_count(self) -> int:
+        with self._condition:
+            return len(self._foreground)
+
+    @property
+    def background_count(self) -> int:
+        with self._condition:
+            return self._background
+
+
+FOREGROUND_GATE = ForegroundGate()
+
+
+@contextmanager
+def foreground_scope():
+    """Propagate an already-owned ASGI admission to synchronous endpoint/helper threads."""
+    token = _FOREGROUND_CONTEXT.set(True)
+    try:
+        yield
+    finally:
+        _FOREGROUND_CONTEXT.reset(token)
+
+
+@contextmanager
+def foreground_work():
+    """Mark one package build, reusing admission owned by its complete ASGI response."""
+    if _FOREGROUND_CONTEXT.get():
+        yield
+        return
+    with foreground_scope(), FOREGROUND_GATE.foreground():
+        yield
+
+
+@contextmanager
+def background_work(*, timeout_s: float | None = None):
+    """Admit one background CPU unit, with the finite package starvation bound."""
+    with FOREGROUND_GATE.background(timeout_s=timeout_s):
+        yield
 
 
 class PrioritySlots:
@@ -88,7 +212,11 @@ class PriorityExecutor:
 
     def submit(self, fn: Callable, /, *args: Any, priority: int = SELECTED_COURSE,
                **kwargs: Any) -> Future:
-        return self._submit(fn, args, kwargs, priority=int(priority), key=None)
+        # Callers that need durable reprioritisation can attach a process-local key to the
+        # submitted callable while retaining this long-standing ``submit`` API. This keeps simple
+        # test/embedding doubles compatible and routes keyed work through the same heap path.
+        key = getattr(fn, "__priority_work_key__", None)
+        return self._submit(fn, args, kwargs, priority=int(priority), key=key)
 
     def submit_keyed(
         self,

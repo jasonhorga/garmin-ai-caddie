@@ -12,7 +12,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from functools import lru_cache
+from functools import lru_cache, wraps
 from typing import Any, Annotated, Literal
 
 from fastapi import BackgroundTasks, Body, Depends, FastAPI, Header, HTTPException, Path, Query, Request, Response
@@ -37,7 +37,14 @@ from ai_caddie.connectors.session_material import cleanup_session_material
 from ai_caddie.connectors.snapshot import snapshot_to_payload, write_connector_status
 from ai_caddie.connectors.sync_lock import SyncInProgress, acquire_sync_lock
 from ai_caddie.core.data import ROOT
-from ai_caddie.core.priority_work import FOREGROUND, NEARBY, SELECTED_COURSE, PriorityExecutor, work_priority
+from ai_caddie.core.priority_work import (
+    FOREGROUND,
+    NEARBY,
+    SELECTED_COURSE,
+    PriorityExecutor,
+    foreground_work,
+    work_priority,
+)
 from ai_caddie.core.play_order import expand_display_holes, play_order
 
 from .annotations import create_annotation_response, list_annotation_response, list_target_annotation_response
@@ -1455,7 +1462,7 @@ async def course_prep_nine(
 
     return await run_prep(request, lambda: _build_course_prep_nine(
         global_id, holes, render, include_shots, tee, player_id,
-    ))
+    ), exempt=lambda: _playing_prep_matches(player_id, global_id, holes, tee))
 
 
 def _build_course_prep_nine(global_id, holes, render, include_shots, tee, player_id) -> dict:
@@ -1834,10 +1841,10 @@ def course_nearby_endpoint(
         # enter the bounded low-priority lane; this response never waits for downloads/renders.
         # The nearest courses' small CourseView releases are fetched first, so a tap on one of
         # them finds its Tee rows cached.
-        from server_v2.map_startup import enqueue_nearby, prefetch_nearby_releases
+        from server_v2.map_startup import schedule_nearby
 
-        background_tasks.add_task(enqueue_nearby, matches)
-        background_tasks.add_task(prefetch_nearby_releases, matches)
+        # Submit only; never wait for package admission in this connection's ASGI task.
+        background_tasks.add_task(schedule_nearby, matches)
     # Only the nearest three rows, the courses that prefetch warms, carry Tee rows: each costs a
     # release decode and a geometry pass, and a 50 km answer may list hundreds of courses.
     from server_v2.map_startup import _nearest_three
@@ -2133,7 +2140,17 @@ def confirm_vision_finding_route(
     return confirm_vision_finding_response(finding_id, request, player_id=player_id)
 
 
+def _foreground_package_route(function):
+    """Keep package CPU inside the shared admission gate even when called without ASGI."""
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with foreground_work():
+            return function(*args, **kwargs)
+    return wrapped
+
+
 @app.get("/api/v2/mobile/rounds/{round_id}/package", response_model=LiveRoundPackageResponse)
+@_foreground_package_route
 def mobile_round_package(
     round_id: str,
     captured_at: str | None = None,
@@ -2379,6 +2396,10 @@ def _current_geometry_revision(global_id: int, hole: int) -> str | None:
 # Explicit finish releases it; a lost/offline client expires without a resident timer.
 _ACTIVE_ROUNDS: dict[tuple[str, str], float] = {}
 _ACTIVE_COURSES: dict[tuple[str, str], tuple[int, ...]] = {}
+# The gid alone is insufficient for C157: a playing round is one ordered loop pairing and tee.
+# ``None`` means an older/recovered round has no proven selection and intentionally uses the gid
+# fallback for compatibility.
+_ACTIVE_SELECTIONS: dict[tuple[str, str], tuple[str, str] | None] = {}
 _ACTIVE_ROUNDS_LOCK = threading.Lock()
 
 
@@ -2454,7 +2475,8 @@ def _current_course_ids(player_id: str) -> tuple[int, ...]:
 
 def _record_round_activity(player_id: str, round_id: str | None, *, finished: bool = False,
                            global_ids: list[int] | tuple[int, ...] | None = None,
-                           new_events: bool = False, restore_only: bool = False) -> None:
+                           new_events: bool = False, restore_only: bool = False,
+                           selection: tuple[str, str] | None = None) -> None:
     if not round_id:
         return
     with _ACTIVE_ROUNDS_LOCK:
@@ -2463,6 +2485,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
             if deadline <= now:
                 _ACTIVE_ROUNDS.pop(stale, None)
                 _ACTIVE_COURSES.pop(stale, None)
+                _ACTIVE_SELECTIONS.pop(stale, None)
         key = (str(player_id), str(round_id))
         latest = _latest_rounds_by_player().get(key[0])
         if finished:
@@ -2472,6 +2495,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                 for old in own[:own.index(key) + 1]:
                     _ACTIVE_ROUNDS.pop(old, None)
                     _ACTIVE_COURSES.pop(old, None)
+                    _ACTIVE_SELECTIONS.pop(old, None)
         elif new_events or not str(round_id).startswith(("home-", "prep-library-", "watch-template-")):
             # Uploads and round refreshes may be delayed for days. They can recover an idle API
             # or renew this round, but cannot displace another course-bound playing round.
@@ -2480,7 +2504,78 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                 _ACTIVE_ROUNDS[key] = now + 30 * 60
                 if global_ids:
                     _ACTIVE_COURSES[key] = tuple(sorted({int(value) for value in global_ids if int(value) > 0}))
+                if selection is not None:
+                    _ACTIVE_SELECTIONS[key] = (str(selection[0]), str(selection[1]).strip().lower())
         _publish_current_courses()
+
+
+def _playing_selection_matches(
+    player_id: str,
+    global_id: int,
+    *,
+    loop_key: str | None = None,
+    tee_box: str | None = None,
+) -> bool:
+    """Return whether a package is the active round's exact loop/tee selection.
+
+    Recovered legacy rounds have no selection evidence; those deliberately fall back to the old
+    gid rule. A caller without loop/tee evidence likewise uses gid, and the caller reports that
+    fallback through its normal request path rather than guessing a pairing.
+    """
+    with _ACTIVE_ROUNDS_LOCK:
+        key = _latest_rounds_by_player().get(str(player_id))
+        gids = _ACTIVE_COURSES.get(key, ()) if key else ()
+        if int(global_id) not in gids:
+            return False
+        current = _ACTIVE_SELECTIONS.get(key) if key else None
+    if not loop_key or not tee_box or current is None:
+        return True
+    return current == (str(loop_key), str(tee_box).strip().lower())
+
+
+def _playing_install_matches(state) -> bool:
+    """Read active player leases without changing their registration or retirement."""
+    with _ACTIVE_ROUNDS_LOCK:
+        players = {key[0] for key, deadline in _ACTIVE_ROUNDS.items()
+                   if deadline > time.monotonic()
+                   and course_install._player_key(key[0]) == state.get("playerKey")}
+    return any(_playing_selection_matches(
+        player, int(state.get("globalId") or 0),
+        loop_key=state.get("loopKey"), tee_box=state.get("teeBox"),
+    ) for player in players)
+
+
+def _playing_prep_matches(player_id: str, global_id: int, holes, tee: str | None) -> bool:
+    """Read the live lease/selection and its install's latest display-hole signal only.
+
+    Do not renew/retire C161 registrations. A missing selection can prove only local hole 1;
+    a proven loop maps display holes to physical holes (including back-nine starts).
+    """
+    with _ACTIVE_ROUNDS_LOCK:
+        keys = [key for key, deadline in _ACTIVE_ROUNDS.items()
+                if key[0] == str(player_id) and deadline > time.monotonic()
+                and _ACTIVE_COURSES.get(key)]
+        key = keys[-1] if keys else None
+        if key is None or int(global_id) not in _ACTIVE_COURSES[key]:
+            return False
+        selection = _ACTIVE_SELECTIONS.get(key)
+    if not holes:
+        return False  # no explicit per-hole signal: an all-hole cold prep must yield
+    if selection is None:
+        return set(holes) <= {1}
+    loop_key, active_tee = selection
+    if tee and tee.strip().lower() != active_tee:
+        return False
+    # Registry/journal keys use '+', while the strict HTTP loops parser accepts commas.
+    loops = parse_round_loops(loop_key.replace("+", ","), path_global_id=int(loop_key.split(":")[0]))
+    physical = [(gid, h) for gid, half in loops
+                for h in (range(10, 19) if half == "back" else range(1, 10))]
+    identifier = course_install.job_id(global_id=physical[0][0], tee_box=active_tee,
+                                       loop_key=loop_key, player_id=player_id)
+    state = course_install.state_for_worker(identifier) or {}
+    current = max(1, int(state.get("priorityHole") or 1))
+    urgent = {physical[i - 1] for i in (1, current) if i <= len(physical)}
+    return all((int(global_id), int(h)) in urgent for h in holes)
 
 
 def nearby_work_blocked() -> bool:
@@ -2491,6 +2586,7 @@ def nearby_work_blocked() -> bool:
             if deadline <= now:
                 _ACTIVE_ROUNDS.pop(key, None)
                 _ACTIVE_COURSES.pop(key, None)
+                _ACTIVE_SELECTIONS.pop(key, None)
         _publish_current_courses()
         if _ACTIVE_ROUNDS:
             return True
@@ -2864,6 +2960,7 @@ def _parse_round_loops_or_422(raw: str, global_id: int) -> list[tuple[int, str]]
 
 
 @app.get("/api/v2/mobile/courses/{global_id}/package", response_model=LiveRoundPackageResponse)
+@_foreground_package_route
 def mobile_course_package(
     global_id: int,
     background_tasks: BackgroundTasks,
@@ -2902,11 +2999,31 @@ def mobile_course_package(
         )
     except RoundLoopError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    package_course = (
+        package.get("course") if isinstance(package, dict)
+        else getattr(package, "course", None)
+    ) or {}
+    package_tee_box = (
+        package_course.get("teeBox") if isinstance(package_course, dict)
+        else getattr(package_course, "teeBox", None)
+    )
+    package_global_id = (
+        package_course.get("globalId") if isinstance(package_course, dict)
+        else getattr(package_course, "globalId", None)
+    )
     # Home bootstrap can use suggestedLiveRoundId (live-<gid>), so the ID prefix alone is
     # insufficient. Its existing read-only request disables all three options; playing/download
     # paths request background geometry. A home read never starts or refreshes a playing lease.
     if include_event_cursor or background_geometry or ensure_geometry:
-        _record_round_activity(player_id, round_id, global_ids=[gid for gid, _half in round_loops])
+        _record_round_activity(
+            player_id,
+            round_id,
+            global_ids=[gid for gid, _half in round_loops],
+            selection=(
+                round_loop_key(round_loops),
+                str(tee_box or package_tee_box or "blue"),
+            ),
+        )
     mark_request_stage("package_route")
     if not background_geometry or ensure_geometry:
         return package
@@ -2917,9 +3034,10 @@ def mobile_course_package(
     refs: list[dict[str, Any]] = []
     requested: dict[int, list[int]] = {}
     ready: dict[int, list[int]] = {}
-    for hole in package.holes:
+    package_holes = package.get("holes", []) if isinstance(package, dict) else package.holes
+    for hole in package_holes:
         source_global_id = int(
-            hole.get("sourceGlobalId") or package.course.get("globalId") or global_id
+            hole.get("sourceGlobalId") or package_global_id or global_id
         )
         source_local_hole = int(hole.get("sourceLocalHole") or hole.get("number") or 0)
         display_hole = int(hole.get("number") or source_local_hole or 0)
@@ -2945,13 +3063,22 @@ def mobile_course_package(
         return package
     job = course_install.enqueue(
         global_id=int(global_id),
-        tee_box=str(tee_box or package.course.get("teeBox") or "blue"),
+        tee_box=str(tee_box or package_tee_box or "blue"),
         loop_key=round_loop_key(round_loops),
         player_id=player_id,
         refs=refs,
         requested=requested,
         ready=ready,
-        priority=(SELECTED_COURSE if global_id in _current_course_ids(player_id) else NEARBY),
+        priority=(
+            SELECTED_COURSE
+            if _playing_selection_matches(
+                player_id,
+                global_id,
+                loop_key=round_loop_key(round_loops),
+                tee_box=str(tee_box or package_tee_box or "blue"),
+            )
+            else NEARBY
+        ),
         priority_hole=priority_hole,
     )
     mark_request_stage("background_enqueue")
@@ -2964,12 +3091,14 @@ def mobile_course_package(
         {**hole, **_undrawable_hole_state(hole.get("sourceGlobalId"), hole.get("sourceLocalHole"))}
         if isinstance(hole, dict) and hole.get("geometryState") in {"pending", "unavailable"}
         else hole
-        for hole in package.holes
+        for hole in package_holes
     ]
     # Pydantic response models are mutable in the current contract, but use model_copy when
     # available so this remains safe if the model becomes frozen later.
     if hasattr(package, "model_copy"):
         return package.model_copy(update={"courseInstallJob": job, "holes": holes})
+    if isinstance(package, dict):
+        return {**package, "courseInstallJob": job, "holes": holes}
     package.courseInstallJob = job
     package.holes = holes
     return package
@@ -3718,3 +3847,9 @@ def retry_player_garmin_sync_job(
     # The store lookup also enforces that a member cannot use a job id from another partition.
     response.status_code = 202
     return _sync_job_response(_load_sync_job_for_player(job_id, player_id))
+
+
+# Register last, outside GZip and BaseHTTPMiddleware's body-stream proxies. Admission must last
+# through the final send to the server, not just the final send to an intermediate response queue.
+from .package_admission import PackageAdmissionMiddleware
+app.add_middleware(PackageAdmissionMiddleware)

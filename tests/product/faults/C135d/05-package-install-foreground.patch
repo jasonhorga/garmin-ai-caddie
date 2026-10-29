@@ -1,10 +1,19 @@
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2900,7 +2900,7 @@
+@@ -3024,16 +3024,7 @@
          refs=refs,
          requested=requested,
          ready=ready,
--        priority=(SELECTED_COURSE if global_id in _current_course_ids(player_id) else NEARBY),
+-        priority=(
+-            SELECTED_COURSE
+-            if _playing_selection_matches(
+-                player_id,
+-                global_id,
+-                loop_key=round_loop_key(round_loops),
+-                tee_box=str(tee_box or package_tee_box or "blue"),
+-            )
+-            else NEARBY
+-        ),
 +        priority=NEARBY,
          priority_hole=priority_hole,
      )

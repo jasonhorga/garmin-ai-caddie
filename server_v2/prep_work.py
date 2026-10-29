@@ -1,20 +1,34 @@
 """Keep the event loop responsive while prep checks disconnects between CPU/IO stages."""
 import asyncio
+from contextlib import contextmanager
 import threading
 from collections.abc import Callable
 
 from starlette.requests import Request
 from starlette.responses import Response
 
-from ai_caddie.courses.prep_work import cancellation
+from ai_caddie.courses.prep_work import cancellation, checkpoint, cold_admission
+from ai_caddie.core.priority_work import background_work
 from .timing import mark
 
 
-async def run_prep(request: Request, build: Callable):
+async def run_prep(request: Request, build: Callable, *, exempt: Callable = lambda: False):
     cancelled = threading.Event()
 
+    @contextmanager
+    def admit():
+        checkpoint()
+        if exempt():
+            yield
+        else:
+            with background_work():
+                checkpoint()
+                yield
+
     def work():
-        with cancellation(cancelled):
+        # Cache hits and existing single-flight followers never enter admission. Cold leaders
+        # wait before publishing their in-flight key, so package can still build the same prep.
+        with cancellation(cancelled), cold_admission(admit):
             return build()
 
     async def watch_disconnect():
