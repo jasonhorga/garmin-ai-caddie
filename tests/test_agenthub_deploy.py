@@ -290,6 +290,8 @@ def main(argv):
         if not args or not args[0].startswith("--restart="):
             fail("fake docker: update requires --restart", 2)
         policy = args[0].split("=", 1)[1]
+        if [args[1], policy] in scenario.get("fail_updates", []):
+            fail("Error response from daemon: Cannot update container " + args[1], 1)
         c = find_container(state, args[1]) or fail("Error: No such container: " + args[1])
         c.setdefault("HostConfig", {})["RestartPolicy"] = restart_policy(policy)
         # What the release record said when the policy changed.
@@ -1156,6 +1158,109 @@ class AgenthubDeployScriptTest(unittest.TestCase):
         self.assert_only_on_failure(OLD_NAME)
         self.assertEqual(self.restart_policies()["other-project-api"], ON_FAILURE)
         self.assertNotIn("other-project-api", [u[0] for u in self.state().get("updates", [])])
+
+    # -- G6 when `docker update` is refused: never two on-failure releases ----------
+
+    def on_failure_releases(self) -> list[str]:
+        return sorted(name for name, policy in self.restart_policies().items()
+                      if name.startswith(PREFIX) and policy != "no")
+
+    def assert_release_policies(self, expected: dict[str, str]) -> None:
+        releases = {name: policy for name, policy in self.restart_policies().items()
+                    if name.startswith(PREFIX)}
+        self.assertEqual(releases, expected)
+        self.assertLessEqual(len(self.on_failure_releases()), 1)
+
+    def assert_deploy_logged_policy_failure(self, output: str, name: str) -> None:
+        lines = [line for line in output.splitlines()
+                 if line.startswith("agenthub-deploy: error:") and name in line and "restart policy" in line]
+        self.assertTrue(lines, output)
+
+    def assert_up_logged(self, output: str, name: str, reason: str) -> None:
+        self.assertIn(f"agenthub-deploy: action=up container={name} reason={reason}",
+                      output.splitlines(), output)
+
+    def recorded_release_stopped_while_old_serves(self) -> None:
+        """Boot: the record names NEW, which is stopped, while OLD serves the port."""
+        self.add_container(container(8, NEW_NAME, "sha256:%064x" % 1, NEW, running=False,
+                                     finished="2026-10-23T00:00:00Z"), ON_FAILURE)
+        self.set_policy(OLD_NAME, ON_FAILURE)
+        (self.tmp / "release-state.json").write_text(json.dumps({"revision": NEW}))
+
+    def test_G6_up_failed_health_restores_previous_release_as_on_failure(self) -> None:
+        self.recorded_release_stopped_while_old_serves()
+        self.set_scenario(unhealthy=[NEW])
+        result = self.invoke("up")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("reason=api_unhealthy", result.stdout)
+        self.assertEqual(self.running_names(), [OLD_NAME])
+        self.assert_only_on_failure(OLD_NAME)
+
+    def test_G6_refused_no_on_the_replaced_release_keeps_the_other_at_no(self) -> None:
+        with self.subTest("re-run: live revision fails verification, its `no` is refused"):
+            self.write_state(production_fixture())
+            self.assertEqual(self.deploy().returncode, 0)
+            self.set_scenario(fail_updates=[[NEW_NAME, "no"]])
+            result = self.deploy(FAKE_SYNC_MODE="fail")
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertEqual(self.running_names(), [OLD_NAME])
+            # NEW, still named by the record, is the only on-failure release.
+            self.assert_release_policies({OLD_NAME: "no", NEW_NAME: ON_FAILURE})
+            self.assert_deploy_logged_policy_failure(result.stdout, NEW_NAME)
+        with self.subTest("up: recorded release unhealthy, its `no` is refused"):
+            self.write_state(production_fixture(), unhealthy=[NEW], fail_updates=[[NEW_NAME, "no"]])
+            self.recorded_release_stopped_while_old_serves()
+            result = self.invoke("up")
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("reason=api_unhealthy", result.stdout)
+            self.assertEqual(self.running_names(), [OLD_NAME])
+            self.assert_release_policies({OLD_NAME: "no", NEW_NAME: ON_FAILURE})
+            self.assert_up_logged(result.stdout, NEW_NAME, "restart_policy_failed")
+
+    def test_G6_up_recovers_when_an_old_release_refuses_restart_policy_no(self) -> None:
+        stuck = self.stopped_release()["Name"][1:]
+        with self.subTest("recorded release stopped after its retries, a stopped old release refuses `no`"):
+            fixture = production_fixture()
+            fixture["containers"][0]["State"].update(Running=False, Status="exited",
+                                                     FinishedAt="2026-10-23T00:00:00Z")
+            self.write_state(fixture, fail_updates=[[stuck, "no"]])
+            self.set_policy(OLD_NAME, ON_FAILURE)
+            self.add_container(self.stopped_release(), ON_FAILURE)
+            (self.tmp / "release-state.json").write_text(json.dumps({"revision": OLD}))
+            result = self.invoke("up")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(self.running_names(), [OLD_NAME])
+            # The stuck release may still come back on a daemon restart, so OLD stays `no`.
+            self.assert_release_policies({OLD_NAME: "no", stuck: ON_FAILURE})
+            self.assert_up_logged(result.stdout, stuck, "restart_policy_failed")
+            self.assert_up_logged(result.stdout, OLD_NAME, "restart_policy_withheld")
+        with self.subTest("Docker restarted the recorded release, a stopped old release refuses `no`"):
+            self.write_state(production_fixture(), fail_updates=[[stuck, "no"]])
+            self.set_policy(OLD_NAME, ON_FAILURE)
+            self.add_container(self.stopped_release(), ON_FAILURE)
+            (self.tmp / "release-state.json").write_text(json.dumps({"revision": OLD}))
+            result = self.invoke("up")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(self.running_names(), [OLD_NAME])
+            self.assert_release_policies({OLD_NAME: "no", stuck: ON_FAILURE})
+            self.assert_up_logged(result.stdout, stuck, "restart_policy_failed")
+        with self.subTest("the running release being replaced refuses `no`"):
+            self.write_state(production_fixture(), fail_updates=[[OLD_NAME, "no"]])
+            self.recorded_release_stopped_while_old_serves()
+            result = self.invoke("up")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(self.running_names(), [NEW_NAME])
+            self.assert_release_policies({OLD_NAME: ON_FAILURE, NEW_NAME: "no"})
+            self.assert_up_logged(result.stdout, OLD_NAME, "restart_policy_failed")
+            self.assert_up_logged(result.stdout, NEW_NAME, "restart_policy_withheld")
+
+    def test_G6_live_release_restarted_after_failed_restore_is_on_failure(self) -> None:
+        self.assertEqual(self.deploy().returncode, 0)
+        self.set_scenario(unhealthy=[OLD])
+        result = self.deploy(FAKE_SYNC_MODE="fail")
+        self.assertEqual(result.returncode, 3, result.stdout)
+        self.assertEqual(self.running_names(), [NEW_NAME])
+        self.assert_only_on_failure(NEW_NAME)
 
 
 FAKE_PG_ISREADY = r'''#!/bin/sh
