@@ -707,21 +707,30 @@ class FileEventStore:
         self, round_id: str, *, handle: BinaryIO | None, rebuild: bool = False,
         index_sink: list[_RoundEventIndex] | None = None,
         sanitize: bool = True,
+        verify_prefix: bool = True,
     ) -> _StoredLog:
         marker = self._load_commit_marker()
         if marker is not None:
-            committed_length = self._visible_committed_length_unlocked(handle=handle)
+            committed_length = self._visible_committed_length_unlocked(
+                handle=handle, verify_prefix=verify_prefix
+            )
             marker = self._load_commit_marker()
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
         else:
             # Keep the legacy no-marker path fail-closed when a pending intent is left behind.
-            committed_length = self._visible_committed_length_unlocked(handle=handle)
+            committed_length = self._visible_committed_length_unlocked(
+                handle=handle, verify_prefix=verify_prefix
+            )
             marker = self._load_commit_marker()
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
         index = None if rebuild else self._load_round_index_unlocked(
             committed_length, committed_prefix,
         )
         if index is None:
+            if marker is not None and not verify_prefix:
+                # A valid sidecar is sufficient for bounded indexed reads.  If it is absent or
+                # stale, rebuild only after restoring the full committed-prefix integrity check.
+                self._validate_commit_marker(marker, committed_length, handle=handle)
             rebuild = True
             index = self._round_index_from_log_unlocked(committed_length, handle=handle)
             try:
@@ -1416,7 +1425,12 @@ class FileEventStore:
         )
         self._validate_storage_rows(tail, expected_event_count=pending.event_count)
 
-    def _visible_committed_length_unlocked(self, *, handle: BinaryIO | None = None) -> int:
+    def _visible_committed_length_unlocked(
+        self,
+        *,
+        handle: BinaryIO | None = None,
+        verify_prefix: bool = True,
+    ) -> int:
         actual_size = self._event_log_size()
         committed = self._load_commit_marker()
         pending = self._load_pending_commit()
@@ -1424,7 +1438,10 @@ class FileEventStore:
             if pending is not None:
                 raise ValueError("event_commit_store_corrupt")
             return actual_size
-        self._validate_commit_marker(committed, actual_size, handle=handle)
+        if committed.committed_byte_length > actual_size:
+            raise ValueError("event_commit_store_corrupt")
+        if verify_prefix:
+            self._validate_commit_marker(committed, actual_size, handle=handle)
         if pending is None:
             self._validate_untracked_suffix(
                 committed.committed_byte_length,
@@ -1577,7 +1594,9 @@ class FileEventStore:
                     return []
                 try:
                     with self.log.open("rb") as handle:
-                        stored_log = self._indexed_round_log_unlocked(round_key, handle=handle)
+                        stored_log = self._indexed_round_log_unlocked(
+                            round_key, handle=handle, verify_prefix=False
+                        )
                 except FileNotFoundError:
                     return []
                 return [
@@ -1605,7 +1624,9 @@ class FileEventStore:
             else:
                 try:
                     with self.log.open("rb") as handle:
-                        stored_log = self._indexed_round_log_unlocked(round_key, handle=handle)
+                        stored_log = self._indexed_round_log_unlocked(
+                            round_key, handle=handle, verify_prefix=False
+                        )
                 except FileNotFoundError:
                     stored_log = _StoredLog((), 0)
             rows = [
@@ -1635,7 +1656,7 @@ class FileEventStore:
                 try:
                     with self.log.open("rb") as handle:
                         snapshot = self._indexed_round_log_unlocked(
-                            round_key, handle=handle, sanitize=False
+                            round_key, handle=handle, sanitize=False, verify_prefix=False
                         )
                 except FileNotFoundError:
                     snapshot = _StoredLog((), 0)
@@ -2357,15 +2378,19 @@ class FileEventStore:
             return 0
         marker = self._load_commit_marker()
         if marker is None:
-            committed_length = self._visible_committed_length_unlocked()
+            committed_length = self._visible_committed_length_unlocked(verify_prefix=False)
             marker = self._load_commit_marker()
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
         else:
-            committed_length = self._visible_committed_length_unlocked()
+            committed_length = self._visible_committed_length_unlocked(verify_prefix=False)
             marker = self._load_commit_marker()
             committed_prefix = marker.committed_prefix_sha256 if marker is not None else None
         index = self._load_round_index_unlocked(committed_length, committed_prefix)
         if index is None:
+            if marker is not None:
+                # A missing sidecar must not turn an unchecked committed prefix into a
+                # trusted high-water mark; validate once before rebuilding it.
+                self._validate_commit_marker(marker, committed_length)
             index = self._round_index_from_log_unlocked(committed_length)
             try:
                 self._write_round_index_unlocked(index, committed_length, committed_prefix)

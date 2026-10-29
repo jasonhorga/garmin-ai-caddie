@@ -204,6 +204,45 @@ class Phase0MobileEventStoreTests(unittest.TestCase):
         self.assertLess(time.perf_counter() - started, 1.0)
         self.assertEqual(len(large), 1)
 
+    def test_indexed_round_read_after_append_stays_bounded_inside_prefix_safety_window(self) -> None:
+        """J5.9: an immediate indexed read remains bounded after another round is appended."""
+        big_round = "big-history"
+        small_round = "small-history"
+        appended_round = "appended-history"
+        store = FileEventStore(self.root)
+        legacy_rows = [
+            {
+                "roundId": big_round,
+                "serverSequence": 1,
+                "event": {
+                    **_event("big", round_id=big_round),
+                    "payload": {"decision": {"detail": "x" * (6 * 1024 * 1024)}},
+                },
+            },
+            {"roundId": small_round, "serverSequence": 2, "event": _event("small", round_id=small_round)},
+        ]
+        self.root.joinpath("events.jsonl").write_text(
+            "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in legacy_rows),
+            encoding="utf-8",
+        )
+        with store._locked(store.event_lock):
+            with store.log.open("r+b") as handle:
+                store._recover_event_log_unlocked(handle=handle)
+        store.ensure_round_event_index()
+        store.append_batch(appended_round, [_event("appended", round_id=appended_round)], request_key="appended")
+        signature = store._log_signature()
+        self.assertIsNotNone(signature)
+        assert signature is not None
+        timestamp = max(signature[-2:])
+        window = max(2 * mobile_event_store._PREFIX_CACHE_TICK_NS,
+                     mobile_event_store._PREFIX_CACHE_MIN_SAFETY_WINDOW_NS)
+        reopened = FileEventStore(self.root)
+        with mock.patch.object(mobile_event_store, "_PREFIX_CACHE_CLOCK", lambda: timestamp + window - 1):
+            with count_log_reads(reopened.log) as meter:
+                small = reopened.read_rows(small_round)
+        self.assertEqual([row["event"]["eventId"] for row in small], ["small"])
+        self.assertLess(meter["bytes"], 64 * 1024)
+
     def test_indexed_round_read_matches_legacy_sanitized_rows(self) -> None:
         """J5.9: indexed reads preserve the old sanitize/order/high-water result per round."""
         store = FileEventStore(self.root)

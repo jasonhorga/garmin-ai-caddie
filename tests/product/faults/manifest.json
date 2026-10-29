@@ -1169,6 +1169,13 @@
       "kind": "python",
       "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_prefix_cache_rechecks_recent_timestamps_but_reuses_stable_signatures",
       "promise": "5.9"
+    },
+    {
+      "id": "tests-product-faults-C152-02",
+      "patch": "tests/product/faults/C152/02-indexed-read-rehashes-prefix.patch",
+      "kind": "python",
+      "target": "tests.test_mobile_event_store_phase0.Phase0MobileEventStoreTests.test_indexed_round_read_after_append_stays_bounded_inside_prefix_safety_window",
+      "promise": "5.9"
     }
   ]
 }
