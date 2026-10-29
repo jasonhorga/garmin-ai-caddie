@@ -1,11 +1,22 @@
 --- a/server_v2/main.py
 +++ b/server_v2/main.py
-@@ -2492,7 +2492,7 @@
-             # A finish retires itself and earlier registrations, never a later playing round.
+@@ -2547,18 +2547,7 @@
+             own_timestamp = _ACTIVE_EVENT_TIMES.get(key)
              own = [old for old in _ACTIVE_ROUNDS if old[0] == key[0]]
              if key in own:
--                for old in own[:own.index(key) + 1]:
-+                for old in own:
+-                if own_timestamp is not None:
+-                    own_device = _ACTIVE_EVENT_DEVICES.get(key)
+-                    retired = [old for old in own
+-                               if old == key or (
+-                                   own_device is not None
+-                                   and _ACTIVE_EVENT_DEVICES.get(old) == own_device
+-                                   and _ACTIVE_EVENT_TIMES.get(old) is not None
+-                                   and _ACTIVE_EVENT_TIMES[old] < own_timestamp
+-                               )]
+-                else:
+-                    # Legacy rounds without event timestamps retain the former registration order.
+-                    retired = own[:own.index(key) + 1]
++                retired = own
+                 for old in retired:
                      _ACTIVE_ROUNDS.pop(old, None)
                      _ACTIVE_COURSES.pop(old, None)
-                     _ACTIVE_SELECTIONS.pop(old, None)

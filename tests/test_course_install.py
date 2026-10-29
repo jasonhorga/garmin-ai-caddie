@@ -349,6 +349,7 @@ class CurrentRoundInstallPriorityTests(unittest.TestCase):
             newer: self.main.datetime.fromisoformat("2026-10-29T10:00:00+00:00"),
             older: self.main.datetime.fromisoformat("2026-10-29T09:00:00+00:00"),
         })
+        self.main._ACTIVE_EVENT_DEVICES.update({newer: "apple-watch", older: "apple-watch"})
         self.main._publish_current_courses()
         self.assertEqual(self.main._current_course_ids("fixture"), (123,))
 

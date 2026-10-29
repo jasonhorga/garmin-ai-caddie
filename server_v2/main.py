@@ -2470,6 +2470,7 @@ def _current_geometry_revision(global_id: int, hole: int) -> str | None:
 _ACTIVE_ROUNDS: dict[tuple[str, str], float] = {}
 _ACTIVE_COURSES: dict[tuple[str, str], tuple[int, ...]] = {}
 _ACTIVE_EVENT_TIMES: dict[tuple[str, str], datetime] = {}
+_ACTIVE_EVENT_DEVICES: dict[tuple[str, str], str] = {}
 # The gid alone is insufficient for C157: a playing round is one ordered loop pairing and tee.
 # ``None`` means an older/recovered round has no proven selection and intentionally uses the gid
 # fallback for compatibility.
@@ -2536,24 +2537,27 @@ def _event_round_course_ids(player_id: str, round_id: str) -> list[int]:
     return _positive_course_ids(gids)
 
 
-def _request_event_timestamp(request) -> tuple[datetime | None, bool | None]:
-    """Return the newest client event timestamp and whether the batch was timestamp-valid."""
+def _request_event_timestamp(request) -> tuple[datetime | None, str | None, bool | None]:
+    """Return the newest timestamp, its device, and whether the batch was timestamp-valid."""
     events = getattr(request, "events", None)
     if not events:
-        return None, None
+        return None, None, None
     parsed: list[datetime] = []
+    devices: set[str] = set()
     for event in events:
         raw = event.get("timestamp") if isinstance(event, dict) else getattr(event, "timestamp", None)
         if not isinstance(raw, str) or not raw.strip():
-            return None, False
+            return None, None, False
         try:
             value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
             if value.tzinfo is None:
                 value = value.replace(tzinfo=timezone.utc)
             parsed.append(value)
+            raw_device = event.get("clientId") if isinstance(event, dict) else getattr(event, "clientId", None)
+            devices.add(str(raw_device or ""))
         except (TypeError, ValueError):
-            return None, False
-    return max(parsed), True
+            return None, None, False
+    return max(parsed), (next(iter(devices)) if len(devices) == 1 else None), True
 
 
 def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:
@@ -2562,16 +2566,20 @@ def _latest_rounds_by_player() -> dict[str, tuple[str, str]]:
     for key in list(_ACTIVE_EVENT_TIMES):
         if key not in _ACTIVE_ROUNDS:
             _ACTIVE_EVENT_TIMES.pop(key, None)
+            _ACTIVE_EVENT_DEVICES.pop(key, None)
     candidates: dict[str, list[tuple[str, str]]] = {}
     for key in _ACTIVE_ROUNDS:
         candidates.setdefault(key[0], []).append(key)
     latest: dict[str, tuple[str, str]] = {}
     for player, keys in candidates.items():
-        timed = [(key, _ACTIVE_EVENT_TIMES[key]) for key in keys if key in _ACTIVE_EVENT_TIMES]
+        current = keys[-1]
+        device = _ACTIVE_EVENT_DEVICES.get(current)
+        timed = [(key, _ACTIVE_EVENT_TIMES[key]) for key in keys
+                 if key in _ACTIVE_EVENT_TIMES and _ACTIVE_EVENT_DEVICES.get(key) == device]
         if timed:
             latest[player] = max(timed, key=lambda item: (item[1], keys.index(item[0])))[0]
         else:
-            latest[player] = keys[-1]
+            latest[player] = current
     return latest
 
 
@@ -2593,6 +2601,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                            new_events: bool = False, restore_only: bool = False,
                            selection: tuple[str, str] | None = None,
                            event_timestamp: datetime | None = None,
+                           event_device: str | None = None,
                            event_timestamp_valid: bool | None = None) -> None:
     if not round_id:
         return
@@ -2604,6 +2613,7 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                 _ACTIVE_COURSES.pop(stale, None)
                 _ACTIVE_SELECTIONS.pop(stale, None)
                 _ACTIVE_EVENT_TIMES.pop(stale, None)
+                _ACTIVE_EVENT_DEVICES.pop(stale, None)
         key = (str(player_id), str(round_id))
         latest = _latest_rounds_by_player().get(key[0])
         if finished:
@@ -2611,9 +2621,14 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
             own = [old for old in _ACTIVE_ROUNDS if old[0] == key[0]]
             if key in own:
                 if own_timestamp is not None:
+                    own_device = _ACTIVE_EVENT_DEVICES.get(key)
                     retired = [old for old in own
-                               if old == key or _ACTIVE_EVENT_TIMES.get(old) is not None
-                               and _ACTIVE_EVENT_TIMES[old] < own_timestamp]
+                               if old == key or (
+                                   own_device is not None
+                                   and _ACTIVE_EVENT_DEVICES.get(old) == own_device
+                                   and _ACTIVE_EVENT_TIMES.get(old) is not None
+                                   and _ACTIVE_EVENT_TIMES[old] < own_timestamp
+                               )]
                 else:
                     # Legacy rounds without event timestamps retain the former registration order.
                     retired = own[:own.index(key) + 1]
@@ -2622,13 +2637,19 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                     _ACTIVE_COURSES.pop(old, None)
                     _ACTIVE_SELECTIONS.pop(old, None)
                     _ACTIVE_EVENT_TIMES.pop(old, None)
+                    _ACTIVE_EVENT_DEVICES.pop(old, None)
         elif new_events or not str(round_id).startswith(("home-", "prep-library-", "watch-template-")):
             # Uploads and round refreshes may be delayed for days. A valid event timestamp may
             # replace an older recovered round, while an older upload cannot take over a newer one.
             current_timestamp = _ACTIVE_EVENT_TIMES.get(latest) if latest is not None else None
+            same_device = (
+                latest is not None
+                and event_device is not None
+                and _ACTIVE_EVENT_DEVICES.get(latest) == event_device
+            )
             if event_timestamp_valid is True and event_timestamp is not None:
                 may_restore = latest is None or latest == key or (
-                    current_timestamp is not None and event_timestamp >= current_timestamp
+                    same_device and current_timestamp is not None and event_timestamp >= current_timestamp
                 )
             elif event_timestamp_valid is False:
                 logger.warning("active round event timestamp unavailable; using arrival order")
@@ -2645,10 +2666,16 @@ def _record_round_activity(player_id: str, round_id: str | None, *, finished: bo
                     _ACTIVE_EVENT_TIMES[key] = max(
                         event_timestamp, _ACTIVE_EVENT_TIMES.get(key, event_timestamp)
                     )
+                    if event_device is not None:
+                        _ACTIVE_EVENT_DEVICES[key] = event_device
             elif key in _ACTIVE_ROUNDS and event_timestamp is not None:
-                _ACTIVE_EVENT_TIMES[key] = max(
-                    event_timestamp, _ACTIVE_EVENT_TIMES.get(key, event_timestamp)
-                )
+                stored_device = _ACTIVE_EVENT_DEVICES.get(key)
+                if stored_device is None or stored_device == event_device:
+                    _ACTIVE_EVENT_TIMES[key] = max(
+                        event_timestamp, _ACTIVE_EVENT_TIMES.get(key, event_timestamp)
+                    )
+                    if event_device is not None:
+                        _ACTIVE_EVENT_DEVICES[key] = event_device
         _publish_current_courses()
 
 
@@ -2731,6 +2758,7 @@ def nearby_work_blocked() -> bool:
                 _ACTIVE_COURSES.pop(key, None)
                 _ACTIVE_SELECTIONS.pop(key, None)
                 _ACTIVE_EVENT_TIMES.pop(key, None)
+                _ACTIVE_EVENT_DEVICES.pop(key, None)
         _publish_current_courses()
         if _ACTIVE_ROUNDS:
             return True
@@ -3420,10 +3448,11 @@ def mobile_round_events(
     result = append_mobile_events_response(
         round_id, request, idempotency_key=idempotency_key, player_id=acting_player_id
     )
-    event_timestamp, event_timestamp_valid = _request_event_timestamp(request)
+    event_timestamp, event_device, event_timestamp_valid = _request_event_timestamp(request)
     _record_round_activity(acting_player_id, round_id, global_ids=_event_round_course_ids(acting_player_id, round_id),
                            new_events=bool(getattr(request, "events", [])),
                            event_timestamp=event_timestamp,
+                           event_device=event_device,
                            event_timestamp_valid=event_timestamp_valid)
     return result
 
