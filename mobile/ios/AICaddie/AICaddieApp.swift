@@ -96,6 +96,7 @@ public struct AICaddieApp: App {
                         finishErrorMessage: model.finishErrorMessage,
                         deferredFinishRecovery: model.sealedFinishRecovery,
                         liveFinishRecovery: model.liveFinishRecovery,
+                        finishAttemptRoundId: model.finishAttemptRoundId,
                         onEvent: model.handleEvent,
                         onPrepareRound: { roundId in
                             Task {
@@ -466,6 +467,7 @@ public final class LiveRoundAppModel: ObservableObject {
     /// Only sealed outbox recovery is stored. A live round's affordance follows its durable
     /// quarantine and current playable holes, so abandon, loop edits and seal cannot leave a card.
     @Published public private(set) var sealedFinishRecovery: DeferredFinishRecovery? = nil
+    @Published public private(set) var finishAttemptRoundId: String?
 
     public var liveFinishRecovery: DeferredFinishRecovery? {
         guard let package, liveRoundState?.roundId == package.roundId,

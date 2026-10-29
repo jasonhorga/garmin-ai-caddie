@@ -1024,7 +1024,9 @@ final class C33EventTests: XCTestCase {
         XCTAssertEqual(try store.loadRoundPackage(roundId: packageB.roundId), beforePackage)
         XCTAssertEqual(try store.loadLiveScoreDraft(roundId: packageB.roundId), beforeDraft)
         XCTAssertEqual(model.package?.roundId, packageB.roundId)
-        XCTAssertTrue(model.finishErrorMessage?.contains("另一场进行中的球局") == true)
+        XCTAssertTrue(model.syncStatus.contains("另一场进行中的球局"))
+        // B never tried to finish: A's refused resume must not become B's finish-sheet error.
+        XCTAssertNil(model.finishErrorMessage)
         lock.lock(); let finishes = finishRequests; lock.unlock()
         XCTAssertEqual(finishes, 0)
     }
@@ -1339,7 +1341,7 @@ final class C33EventTests: XCTestCase {
     /// first reopening/discarding the card (those actions would hide a missing success cleanup).
     func testProductSpec59DeferredFinishSuccessClearsRecoveryCard() async throws {
         try await withDeferredRecovery { model, store, package, _ in
-            try store.removeQuarantinedEvents(roundId: package.roundId)
+            // The accepted re-entry resolves the quarantine inside the retry pass itself.
             try store.appendEvent(LiveRoundEvent(eventId: "fixed-score", roundId: package.roundId,
                 timestamp: "2026-01-01T00:01:00Z", hole: 3, kind: .score,
                 payload: ["strokes": .number(5)]))
@@ -1449,7 +1451,8 @@ final class C33EventTests: XCTestCase {
             XCTAssertEqual(try store.loadCurrentRoundPackage(), beforePointer)
             XCTAssertEqual(NSDictionary(dictionary: bridge.pendingApplicationContext()), beforeWatch)
             XCTAssertTrue(try store.isRoundPendingFinish(package.roundId))
-            XCTAssertTrue(model.finishErrorMessage?.contains("另一场进行中的球局") == true)
+            XCTAssertTrue(model.syncStatus.contains("另一场进行中的球局"))
+            XCTAssertNil(model.finishErrorMessage)
             gate.reply(200, try JSONEncoder().encode(other))
             await watchTask.value
         }
@@ -1591,13 +1594,237 @@ final class C33EventTests: XCTestCase {
         }
     }
 
+    /// J5.9 (N1): the Hub offers the live removed-hole discard only after this round's finish
+    /// attempt. The finish sheet does not wait for it, and the next round starts unmarked.
+    func testProductSpec59HubLiveRecoveryWaitsForThisRoundsFinishAttempt() async throws {
+        try await withTwoLiveRounds { model, store, first, second in
+            try await self.startRoundWithRemovedRejection(model, store, first)
+            XCTAssertEqual(model.liveFinishRecovery?.hole, 10)
+            var home = self.recoveryHome(model)
+            XCTAssertNil(home.hubLiveFinishRecovery, "no finish attempt yet: the Hub must not offer to end the round")
+            XCTAssertNotNil(home.removedFinishRejectionAction, "the finish sheet still explains the removed hole")
+            XCTAssertTrue(home.showsInProgressPlayCard)
+
+            let blocked = await model.finishActiveRound()
+            XCTAssertFalse(blocked)
+            home = self.recoveryHome(model)
+            XCTAssertEqual(home.hubLiveFinishRecovery?.roundId, first.roundId)
+            XCTAssertEqual(home.hubLiveFinishRecovery?.hole, 10)
+
+            model.discardActiveRound()
+            try await self.startRoundWithRemovedRejection(model, store, second)
+            XCTAssertEqual(model.liveFinishRecovery?.roundId, second.roundId)
+            home = self.recoveryHome(model)
+            XCTAssertNil(home.hubLiveFinishRecovery, "the previous round's finish attempt must not mark this round")
+            XCTAssertNotNil(home.removedFinishRejectionAction)
+        }
+    }
+
+    /// J5.9 (N2): a paused finish belongs to its round. Abandoning it into the cached Hub and
+    /// starting the next round must not label that round's ordinary rejection「结束已暂停」.
+    func testProductSpec59NextRoundDoesNotInheritPausedFinish() async throws {
+        try await withTwoLiveRounds { model, store, first, second in
+            try await self.startRoundWithRemovedRejection(model, store, first)
+            let blocked = await model.finishActiveRound()
+            XCTAssertFalse(blocked)
+            XCTAssertNotNil(model.finishErrorMessage)
+            XCTAssertTrue(model.syncStatus.hasPrefix("结束已暂停 · "))
+            // A cached Hub package sends abandon through activateHomePackage.
+            try store.saveHomePackage(first.rebasedForOfflineStart(roundId: "finish-attempt-home"))
+            XCTAssertNotNil(try store.loadHomePackage())
+            model.discardActiveRound()
+            XCTAssertNil(model.liveRoundState)
+            XCTAssertNil(model.finishErrorMessage, "the abandoned round's finish error must not reach the next round")
+
+            await model.prepareCourseRound(roundId: second.roundId, teeBox: "blue", loops: second.loopEntries)
+            await model.stopRoundBackgroundWorkForTesting()
+            XCTAssertEqual(model.liveRoundState?.roundId, second.roundId)
+            // Hole 3 is still in play: an ordinary rejection, and this round was never finished.
+            let rejected = LiveRoundEvent(eventId: "next-round-rejected-3", roundId: second.roundId,
+                timestamp: "2026-01-01T00:05:00Z", hole: 3, kind: .score, payload: ["strokes": .number(3)])
+            try store.appendEvent(rejected)
+            try store.appendSyncMarker(roundId: second.roundId, timestamp: "2026-01-01T00:05:01Z",
+                result: SyncResult(accepted: 1, duplicate: false, acceptedEventIds: [rejected.eventId]))
+            try store.quarantineEvent(rejected, status: 422, reason: "bad score")
+            await model.syncPendingEvents()
+            XCTAssertNil(model.finishErrorMessage)
+            XCTAssertFalse(model.syncStatus.hasPrefix("结束已暂停"), model.syncStatus)
+            XCTAssertTrue(model.syncStatus.contains("第 3 洞"), model.syncStatus)
+        }
+    }
+
+    /// J5.9 (N2): restoring the second loop recomputes the paused finish text at once. Hole 10 is
+    /// playable again, so the sheet asks for a re-entry instead of saying it will not upload.
+    func testProductSpec59RestoredLoopRecomputesPausedFinishMessage() async throws {
+        try await withLiveRemovedRejection { model, _, package in
+            XCTAssertTrue(model.finishErrorMessage?.contains("第 10 洞已从当前球局移除") == true)
+            await model.setSecondLoop(RoundLoopEntry(globalId: 32850, half: "all"), roundId: package.roundId)
+            XCTAssertEqual(model.package?.holes.count, 18)
+            let message = model.finishErrorMessage ?? "nil"
+            XCTAssertFalse(message.contains("已从当前球局移除"), message)
+            XCTAssertTrue(message.contains("第 10 洞"), message)
+            XCTAssertTrue(message.contains("请重新录入"), message)
+        }
+    }
+
+    /// J5.9 (N3): a delayed Watch start for the sealed round is the same round as its recovery
+    /// card. The Hub shows that one card, not a pending Watch card beside it.
+    func testProductSpec59PendingWatchStartForSealedRoundShowsOneCard() async throws {
+        try await withDeferredRecovery { model, store, package, bridge in
+            // A cold Watch course fetch must really suspend; the sealed round cached its template.
+            try store.invalidateCourseTemplate(for: package)
+            let seed = bridge.makeWatchRoundSeedPayload(package: package, activeHole: 3)
+            let sent = self.expectation(description: "Watch package in flight")
+            let gate = FinishRequestGate()
+            C33URLProtocol.setHandlers(onStart: { proto in
+                if proto.request.url?.path.hasSuffix("/package") == true {
+                    if gate.hold(proto) { sent.fulfill() }
+                } else { proto.reply(404) }
+            })
+            let start = WatchRoundStartPayload(roundId: package.roundId,
+                courseName: package.course.venueDisplayName, teeBox: "blue", loopKey: package.loopKey,
+                globalId: package.course.globalId, activeHole: 3, holes: seed.holes)
+            let watchTask = Task { @MainActor in await model.handleWatchRoundStart(start) }
+            await self.fulfillment(of: [sent], timeout: 10)
+            XCTAssertEqual(model.pendingWatchRoundStart?.roundId, package.roundId)
+            XCTAssertEqual(model.sealedFinishRecovery?.roundId, package.roundId)
+            let home = self.recoveryHome(model)
+            XCTAssertFalse(home.showsPendingWatchPlayCard, "the sealed recovery card already stands for this round")
+            XCTAssertFalse(home.showsNewRoundPlayCard)
+            XCTAssertEqual(home.deferredFinishRecovery?.roundId, package.roundId)
+            gate.reply(200, try JSONEncoder().encode(package))
+            await watchTask.value
+        }
+    }
+
+    /// J5.9 (N4): the live recovery is a published fact, not a disk read in every body evaluation.
+    /// A write to the quarantine alone, with no other published change, still updates the UI.
+    func testProductSpec59QuarantineWriteAloneRepublishesLiveRecovery() async throws {
+        try await withTwoLiveRounds { model, store, first, _ in
+            await model.prepareCourseRound(roundId: first.roundId, teeBox: "blue", loops: first.loopEntries)
+            await model.stopRoundBackgroundWorkForTesting()
+            let rejected = LiveRoundEvent(eventId: "late-rejected-10", roundId: first.roundId,
+                timestamp: "2026-01-01T00:00:00Z", hole: 10, kind: .score, payload: ["strokes": .number(3)])
+            try store.appendEvent(rejected)
+            try store.appendSyncMarker(roundId: first.roundId, timestamp: "2026-01-01T00:00:01Z",
+                result: SyncResult(accepted: 1, duplicate: false, acceptedEventIds: [rejected.eventId]))
+            await model.setSecondLoop(nil, roundId: first.roundId)
+            XCTAssertEqual(model.package?.holes.count, 9)
+            XCTAssertNil(model.liveFinishRecovery)
+
+            var changes = 0
+            let subscription = model.objectWillChange.sink { _ in changes += 1 }
+            defer { subscription.cancel() }
+            try store.quarantineEvent(rejected, status: 422, reason: "late removed hole")
+            XCTAssertGreaterThan(changes, 0, "a quarantine-only write must republish the recovery")
+            XCTAssertEqual(model.liveFinishRecovery?.hole, 10)
+            let afterQuarantine = changes
+            try store.removeQuarantinedEvents(roundId: first.roundId)
+            XCTAssertGreaterThan(changes, afterQuarantine, "clearing the quarantine must republish too")
+            XCTAssertNil(model.liveFinishRecovery)
+        }
+    }
+
+    /// J5.9 (N5): once a sealed round's re-entry is accepted, its recovery card goes with the
+    /// quarantine, even though the finish request itself then fails without a network.
+    func testProductSpec59SealedRecoveryClearsWhenReentryAcceptedButFinishFails() async throws {
+        try await withDeferredRecovery { model, store, package, _ in
+            let lock = NSLock()
+            var finishRequests = 0
+            C33URLProtocol.setHandlers(onStart: { proto in
+                let path = proto.request.url?.path ?? ""
+                if path.hasSuffix("/events") {
+                    let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
+                    proto.reply(200, try! JSONEncoder().encode(SyncResult(accepted: batch.events.count,
+                        duplicate: false, acceptedEventIds: batch.events.map(\.eventId))))
+                    return
+                }
+                if path.hasSuffix("/finish") {
+                    lock.lock(); finishRequests += 1; lock.unlock()
+                    proto.reply(503); return
+                }
+                proto.reply(404)
+            })
+            try store.appendEvent(LiveRoundEvent(eventId: "accepted-reentry", roundId: package.roundId,
+                timestamp: "2026-01-01T00:01:00Z", hole: 3, kind: .score,
+                payload: ["strokes": .number(5)]))
+            XCTAssertEqual(model.sealedFinishRecovery?.hole, 3)
+            model.syncOnForeground()
+            await model.waitForDeferredRoundFinishesForTesting()
+            lock.lock(); let finishes = finishRequests; lock.unlock()
+            XCTAssertEqual(finishes, 1, "the finish request itself must have been tried and failed")
+            XCTAssertTrue(try store.loadQuarantinedEvents(roundId: package.roundId).isEmpty)
+            XCTAssertTrue(try store.isRoundPendingFinish(package.roundId))
+            XCTAssertNil(model.sealedFinishRecovery, "a resolved rejection must not keep its card until a later pass")
+            XCTAssertNil(self.recoveryHome(model).deferredFinishRecovery)
+        }
+    }
+
+    /// An 18-hole round whose hole-10 score was rejected, then cut to nine holes. No finish yet.
+    private func startRoundWithRemovedRejection(
+        _ model: LiveRoundAppModel, _ store: OfflineStore, _ package: LiveRoundPackage
+    ) async throws {
+        await model.prepareCourseRound(roundId: package.roundId, teeBox: "blue", loops: package.loopEntries)
+        await model.stopRoundBackgroundWorkForTesting()
+        XCTAssertEqual(model.liveRoundState?.roundId, package.roundId)
+        XCTAssertEqual(model.package?.holes.count, 18)
+        let rejected = LiveRoundEvent(eventId: "\(package.roundId)-rejected-10", roundId: package.roundId,
+            timestamp: "2026-01-01T00:00:00Z", hole: 10, kind: .score, payload: ["strokes": .number(3)])
+        try store.appendEvent(rejected)
+        try store.appendSyncMarker(roundId: package.roundId, timestamp: "2026-01-01T00:00:01Z",
+            result: SyncResult(accepted: 1, duplicate: false, acceptedEventIds: [rejected.eventId]))
+        try store.quarantineEvent(rejected, status: 422, reason: "removed live hole")
+        await model.setSecondLoop(nil, roundId: package.roundId)
+        XCTAssertEqual(model.package?.holes.count, 9)
+    }
+
+    /// Two 18-hole rounds on one model; /package answers each round id with its own table.
+    private func withTwoLiveRounds(
+        _ body: (LiveRoundAppModel, OfflineStore, LiveRoundPackage, LiveRoundPackage) async throws -> Void
+    ) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = OfflineStore(directoryURL: directory)
+        let session = C33URLProtocol.session()
+        let client = SyncClient(baseURL: URL(string: "https://finish-attempt.example.test")!, session: session)
+        let model = c33Model(store, client)
+        let nine = try c33Package()
+        let first = try XCTUnwrap(nine.composingSecondLoop(
+            RoundLoopEntry(globalId: 32850, half: "all"), from: nine, roundId: "finish-attempt-a"
+        ))
+        let second = try XCTUnwrap(nine.composingSecondLoop(
+            RoundLoopEntry(globalId: 32850, half: "all"), from: nine, roundId: "finish-attempt-b"
+        ))
+        C33URLProtocol.setHandlers(onStart: { proto in
+            let path = proto.request.url?.path ?? ""
+            if path.hasSuffix("/package") {
+                let requested = c33Query(proto.request, "round_id")
+                proto.reply(200, try! JSONEncoder().encode(requested == second.roundId ? second : first))
+                return
+            }
+            if path.hasSuffix("/events") {
+                let batch = try! JSONDecoder().decode(EventBatch.self, from: c33RequestBody(proto.request))
+                proto.reply(200, try! JSONEncoder().encode(SyncResult(accepted: batch.events.count,
+                    duplicate: false, acceptedEventIds: batch.events.map(\.eventId))))
+            } else if path.hasSuffix("/finish") { proto.reply(200) } else { proto.reply(404) }
+        })
+        defer {
+            client.invalidateForTesting(); session.invalidateAndCancel(); C33URLProtocol.setHandlers(onStart: nil)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        try await body(model, store, first, second)
+        await model.stopRoundBackgroundWorkForTesting()
+        await model.waitForDeferredRoundFinishesForTesting()
+    }
+
     private func recoveryHome(_ model: LiveRoundAppModel) -> RoundHomeView {
         RoundHomeView(
             package: model.package, offlineStore: model.offlineStore, sessionStore: nil,
             liveRoundState: model.liveRoundState,
+            pendingWatchRoundStart: model.pendingWatchRoundStart,
             finishErrorMessage: model.finishErrorMessage,
             deferredFinishRecovery: model.sealedFinishRecovery,
             liveFinishRecovery: model.liveFinishRecovery,
+            finishAttemptRoundId: model.finishAttemptRoundId,
             onDiscardRemovedDeferredFinish: { roundId, hole in
                 model.discardRemovedDeferredFinishRejection(roundId: roundId, hole: hole)
             }
